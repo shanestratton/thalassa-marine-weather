@@ -69,12 +69,12 @@ export const CrewCastOffPanel: React.FC<CrewCastOffPanelProps> = ({
                         handoff?.savedRouteId ?? voyage.saved_route_id,
                         handoff?.publishRoute ?? true,
                         voyage.voyage_name,
-                    ).then((reason) => {
+                    ).then(({ note, caution }) => {
                         // Silent failures cost a night of guessing —
-                        // record why the line is not up so the Log
-                        // page can SAY it (Shane 2026-08-26: "it is
-                        // not showing the route").
-                        if (reason) updateCastOffHandoff({ followNote: reason });
+                        // record why the line is not up (or why it is
+                        // up unchecked) so the Log page can SAY it
+                        // (Shane 2026-08-26: "it is not showing the route").
+                        if (note || caution) updateCastOffHandoff({ followNote: note, followCaution: caution });
                     });
                 }
                 // 'details' is the Log tab's registry key — there is

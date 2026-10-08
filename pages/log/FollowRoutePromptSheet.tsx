@@ -11,8 +11,9 @@ import { SavedRoutePassageHeading } from '../../components/routes/SavedRouteRows
 import { ordinalLegLabel } from '../../services/routeTracer';
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../../services/authIdentityScope';
 import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
+import type { TraceCheckState } from '../../services/traceBackgroundCheck';
 import { FollowRouteChoice } from './LogSubComponents';
-import { TRACE_ROUTE_USE_BLOCK_PREFIX, type FollowPromptRow } from './logPageTypes';
+import { TRACE_ROUTE_USE_BLOCK_PREFIX, TRACE_CHECK_STORAGE_FULL, type FollowPromptRow } from './logPageTypes';
 
 const log = createLogger('LogPage');
 
@@ -20,14 +21,21 @@ export const FollowRoutePromptSheet: React.FC<{
     dismissFollowPrompt: () => void;
     followPromptDialogRef: React.RefObject<HTMLDivElement>;
     followPromptDismissRef: React.RefObject<HTMLButtonElement>;
-    followBlockNotice: string | null;
-    setFollowBlockNotice: React.Dispatch<React.SetStateAction<string | null>>;
+    followNotice: string | null;
+    setFollowNotice: React.Dispatch<React.SetStateAction<string | null>>;
     followPromptRows: FollowPromptRow[];
-    needsTracerRoutes: ReadonlySet<string>;
     openRouteInTracer: (savedRouteId: string | null) => Promise<void>;
-    recheckRoute: (savedRouteId: string) => Promise<void>;
-    recheckProgress: string | null;
-    recheckingRouteId: string | null;
+    /** Background check state per saved route (services/traceBackgroundCheck). */
+    checkStates: ReadonlyMap<string, TraceCheckState>;
+    onCheckNow: (savedRouteId: string) => void;
+    onStopCheck: (savedRouteId: string) => void;
+    /** The red row's finding can be acknowledged in place. */
+    canReview: (savedRouteId: string) => boolean;
+    onReview: (savedRouteId: string) => void;
+    /** A red row's armed second tap: follow it anyway. */
+    acceptFindingFor: (voyageId: string) => void;
+    /** The row whose waypoints are being fetched from the account. */
+    fetchingRouteId: string | null;
     followPromptLoadingId: string | null;
     setFollowPromptLoadingId: React.Dispatch<React.SetStateAction<string | null>>;
     followPromptVoyageId: string | null;
@@ -41,14 +49,17 @@ export const FollowRoutePromptSheet: React.FC<{
     dismissFollowPrompt,
     followPromptDialogRef,
     followPromptDismissRef,
-    followBlockNotice,
-    setFollowBlockNotice,
+    followNotice,
+    setFollowNotice,
     followPromptRows,
-    needsTracerRoutes,
     openRouteInTracer,
-    recheckRoute,
-    recheckProgress,
-    recheckingRouteId,
+    checkStates,
+    onCheckNow,
+    onStopCheck,
+    canReview,
+    onReview,
+    acceptFindingFor,
+    fetchingRouteId,
     followPromptLoadingId,
     setFollowPromptLoadingId,
     followPromptVoyageId,
@@ -71,11 +82,14 @@ export const FollowRoutePromptSheet: React.FC<{
     // Centred rather than offset (Shane 2026-07-19: "can it be a modal
     // screen instead, centred on the screen"): centring needs no
     // measurement, so it cannot be wrong by a magic number the way the
-    // two previous attempts were.
+    // two previous attempts were. Centred in the house modal band (build
+    // 124): below the status bar, clear of the tab bar, the list scrolling
+    // inside the card when a season of routes outgrows it.
     createPortal(
         <div
             role="presentation"
-            className="fixed inset-0 z-10055 flex items-center justify-center bg-black/60 px-3 py-[max(1rem,env(safe-area-inset-bottom))]"
+            data-follow-sheet-overlay
+            className="fixed inset-0 z-10055 flex items-center justify-center bg-black/60 px-3 pt-[max(1rem,env(safe-area-inset-top))] pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)]"
             onClick={dismissFollowPrompt}
         >
             <div
@@ -98,7 +112,7 @@ export const FollowRoutePromptSheet: React.FC<{
                         Pick one to show on your public page — or just record the track.
                     </div>
                 </div>
-                {followBlockNotice && (
+                {followNotice && (
                     <div
                         role="alert"
                         className="mx-3 mt-3 flex items-start gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/8 px-3 py-2.5"
@@ -106,11 +120,11 @@ export const FollowRoutePromptSheet: React.FC<{
                         <span aria-hidden="true" className="mt-px text-[13px] leading-none text-amber-300">
                             {'\u26A0\uFE0F'}
                         </span>
-                        <p className="flex-1 text-[12px] leading-relaxed text-amber-100">{followBlockNotice}</p>
+                        <p className="flex-1 text-[12px] leading-relaxed text-amber-100">{followNotice}</p>
                         <button
                             type="button"
                             aria-label="Dismiss"
-                            onClick={() => setFollowBlockNotice(null)}
+                            onClick={() => setFollowNotice(null)}
                             className="hit-target-44 -mr-1 -mt-1 shrink-0 rounded-lg px-2 py-1 text-[13px] leading-none text-amber-200/60 active:scale-95 hover:text-amber-100"
                         >
                             {'\u00D7'}
@@ -167,7 +181,14 @@ export const FollowRoutePromptSheet: React.FC<{
                                 </div>
                             );
                         }
-                        const { summary: s, reversible, blockReason, savedRouteId } = item.row.choice;
+                        const { summary: s, reversible, savedRouteId } = item.row.choice;
+                        const check = savedRouteId ? checkStates.get(savedRouteId) : undefined;
+                        // A check that passed but could not be stored says so
+                        // — the row must not silently stay amber (build 124).
+                        const followStatus =
+                            check?.phase === 'done' && check.result === 'storage' && item.row.choice.followStatus
+                                ? { ...item.row.choice.followStatus, reason: TRACE_CHECK_STORAGE_FULL }
+                                : item.row.choice.followStatus;
                         return (
                             <FollowRouteChoice
                                 key={item.key}
@@ -180,30 +201,35 @@ export const FollowRoutePromptSheet: React.FC<{
                                         : undefined
                                 }
                                 reversible={reversible}
-                                blockReason={blockReason}
-                                onCheckRoute={() => {
-                                    if (!savedRouteId) return;
-                                    // Second tap on a route the check
-                                    // could not decide alone goes to
-                                    // the tracer; the first tries here.
-                                    if (needsTracerRoutes.has(savedRouteId)) {
-                                        void openRouteInTracer(savedRouteId);
-                                    } else {
-                                        void recheckRoute(savedRouteId);
-                                    }
-                                }}
-                                checkLabel={
-                                    savedRouteId && needsTracerRoutes.has(savedRouteId)
-                                        ? 'Tap to open it in Route Tracer →'
-                                        : 'Tap to check this route now →'
+                                followStatus={followStatus}
+                                // Queued counts as in hand: the row says it is
+                                // waiting (Route Tracer open, another route
+                                // first) and offers Stop, not a dead Check now.
+                                checking={check?.phase === 'checking' || check?.phase === 'queued'}
+                                checkingLabel={
+                                    check?.phase === 'checking'
+                                        ? check.total > 1
+                                            ? `Checking… ${check.done} of ${check.total}`
+                                            : 'Checking…'
+                                        : check?.phase === 'queued'
+                                          ? 'Waiting to check…'
+                                          : undefined
                                 }
-                                checkingLabel={recheckProgress ?? undefined}
-                                checking={recheckingRouteId !== null && recheckingRouteId === savedRouteId}
-                                loading={followPromptLoadingId === s.voyageId}
+                                onCheckNow={savedRouteId ? () => onCheckNow(savedRouteId) : undefined}
+                                onStopCheck={savedRouteId ? () => onStopCheck(savedRouteId) : undefined}
+                                onReview={
+                                    savedRouteId && canReview(savedRouteId) ? () => onReview(savedRouteId) : undefined
+                                }
+                                onFixInTracer={savedRouteId ? () => void openRouteInTracer(savedRouteId) : undefined}
+                                loading={
+                                    followPromptLoadingId === s.voyageId ||
+                                    (fetchingRouteId !== null && fetchingRouteId === savedRouteId)
+                                }
                                 disabled={followPromptLoadingId !== null}
-                                onPick={() => {
+                                onPick={(acceptFinding) => {
                                     const actionScope = identityScope;
                                     if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                                    if (acceptFinding === true) acceptFindingFor(s.voyageId);
                                     if (preStartSheetOpen) {
                                         // Answer parked; tracking starts NOW and the
                                         // cast-off effect follows this route the moment
@@ -221,7 +247,7 @@ export const FollowRoutePromptSheet: React.FC<{
                                                 error.message.startsWith(TRACE_ROUTE_USE_BLOCK_PREFIX)
                                                     ? error.message.slice(TRACE_ROUTE_USE_BLOCK_PREFIX.length)
                                                     : 'Couldn’t load this saved route — please try again';
-                                            setFollowBlockNotice(message);
+                                            setFollowNotice(message);
                                             setFollowPromptLoadingId(null);
                                         }
                                     });

@@ -52,7 +52,7 @@ import { gradeLegs } from '../../services/traceGrading';
 import { legCacheKey, TRACE_CLUSTER_SPAN_M } from './mapHubHelpers';
 import { vesselAirDraftMetres, vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { getVersion as getEncRegistryVersion, getRegistryFingerprint } from '../../services/enc/EncCellMetadata';
-import type { TraceCheckStatus } from '../../services/traceVerification';
+import { traceGeometryKey, type TraceCheckStatus } from '../../services/traceVerification';
 
 /**
  * Volatile-failure retry ledger — MODULE scope on purpose (a ref dies with
@@ -66,6 +66,38 @@ const VOLATILE_RETRY_MAX_MS = 30 * 60_000;
 
 /** Mirrors MapHub's own tracerStatus union. */
 export type TracerStatus = TraceCheckStatus;
+
+/** What a published verdict array was graded FOR: these pins, this keel. */
+export interface TracerGradedFor {
+    geometryKey: string;
+    draftM: number;
+    draftAssumed: boolean;
+    airDraftM: number | null;
+}
+
+/**
+ * Every verdict array the grading pass publishes is tagged with the pins and
+ * keel it was graded for (build 124). legVerdicts is MapHub state that lands a
+ * render AFTER the pins or the vessel change, so anything that pairs it with
+ * the line on screen — the tracer's auto-bank above all — must ask whether
+ * the pairing is real. Keyed by array identity, so an untagged array (the
+ * empty reset, or anything not from a pass) answers "not graded for this".
+ */
+const gradedFor = new WeakMap<ReadonlyArray<TraceLegVerdict | null>, TracerGradedFor>();
+
+/** The grading identity of `verdicts` when it is exactly these pins at this
+ *  vessel's keel and mast — otherwise null. */
+export function tracerGradingMatches(
+    verdicts: ReadonlyArray<TraceLegVerdict | null>,
+    points: ReadonlyArray<{ lat: number; lon: number }>,
+    vessel: TracerGradingDeps['vessel'],
+): TracerGradedFor | null {
+    const tag = gradedFor.get(verdicts);
+    if (!tag || !tag.geometryKey || tag.geometryKey !== traceGeometryKey(points)) return null;
+    if (tag.draftM !== vesselDraftMetres(vessel) || tag.draftAssumed !== vesselDraftIsAssumed(vessel)) return null;
+    if ((tag.airDraftM ?? null) !== (vesselAirDraftMetres(vessel) ?? null)) return null;
+    return tag;
+}
 
 /** FLAT on purpose. The hook destructures this immediately and every dep array
  *  names the individual members, never the object — the call site passes a
@@ -227,6 +259,12 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                 key: legCacheKey(capturedCoords[i - 1], capturedCoords[i], i === capturedCoords.length - 1),
             });
         }
+        const passFor: TracerGradedFor = {
+            geometryKey: traceGeometryKey(capturedCoords),
+            draftM: draftNow,
+            draftAssumed,
+            airDraftM: airNow ?? null,
+        };
         const publish = (): void => {
             if (seq !== tracerSeqRef.current) return;
             // Identity-preserving: cache entries are stable objects, so an
@@ -236,9 +274,11 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
             // (4× setData + chevron re-layout) + tide-label pass + panel
             // render — 3-5 wasted cycles per pin add (perf hunt 2026-07-15).
             const next = legs.map((l) => cache.get(l.key) ?? failMap.get(l.key) ?? null);
-            setLegVerdicts((prev) =>
-                prev.length === next.length && next.every((v, i) => v === prev[i]) ? prev : next,
-            );
+            setLegVerdicts((prev) => {
+                const out = prev.length === next.length && next.every((v, i) => v === prev[i]) ? prev : next;
+                gradedFor.set(out, passFor);
+                return out;
+            });
         };
         publish(); // cached legs render NOW; only truly new legs show "checking…"
 

@@ -99,16 +99,16 @@ describe('saved-routes grammar on the follow sheet', () => {
         expect(container.textContent).not.toContain('🧭');
     });
 
-    it('still shows the block reason and its way out', () => {
+    it('still shows an amber reason and its way out (build 124: a warning, not a wall)', () => {
         render(
             <FollowRouteChoice
                 summary={summary}
-                blockReason="No valid check for its current waypoints."
-                onCheckRoute={vi.fn()}
+                followStatus={{ tone: 'unchecked', code: 'none', reason: 'Not checked yet' }}
+                onCheckNow={vi.fn()}
                 onPick={vi.fn()}
             />,
         );
-        expect(screen.getByText('No valid check for its current waypoints.')).toBeInTheDocument();
-        expect(screen.getByText('Tap to check it in Route Tracer →')).toBeInTheDocument();
+        expect(screen.getByText('Not checked yet')).toBeInTheDocument();
+        expect(screen.getByText('Check now')).toBeInTheDocument();
     });
 });

@@ -91,12 +91,18 @@ import { RemotePassageCard } from './log/RemotePassageCard';
 import { isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { LogSightingEntry } from '../components/sightings/LogSightingEntry';
-import { tracedRouteDirectUseBlockReason, tracedRouteFollowGeometry } from '../services/traceDirectUseGate';
+import { tracedRouteDirectUseStatus, tracedRouteFollowGeometry } from '../services/traceDirectUseGate';
+import { cancelTraceChecks, enqueueTraceChecks } from '../services/traceBackgroundCheck';
+import { getTraceCheckOutcome } from '../services/traceCheckOutcomes';
+import type { TraceFollowStatus } from '../services/traceVerification';
+import { useTraceBackgroundChecks } from './log/useTraceBackgroundChecks';
 import { useFollowRoutePickerIdentity } from '../hooks/useFollowRoutePickerIdentity';
 
 import {
     NO_ENTRIES,
     NO_FOLLOWED_ROUTE,
+    followingNotice,
+    TRACE_CHECK_STORAGE_FULL,
     TRACE_ROUTE_USE_BLOCK_PREFIX,
     type FollowSheetChoice,
     type TrackingStartFailure,
@@ -117,6 +123,8 @@ import {
     deriveLiveStats,
     derivePlannedRouteLinkIds,
     derivePlannedVoyageIds,
+    refreshFollowSheetStatuses,
+    sameFollowStatus,
 } from './log/logPageDerive';
 import { ArchivedVoyagesSection } from './log/ArchivedVoyagesSection';
 import { CastOffHandoffNotices } from './log/CastOffHandoffNotices';
@@ -221,6 +229,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             castOffHandoff &&
             castOffHandoff.gps === 'confirmed' &&
             !castOffHandoff.followNote &&
+            !castOffHandoff.followCaution &&
             castOffHandoff.publishState !== 'skipped' &&
             castOffHandoff.publishState !== 'failed' &&
             castOffHandoff.publishState !== 'queued'
@@ -425,8 +434,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 activeCastOffVoyage.saved_route_id ?? null,
                 publishPref,
                 activeCastOffVoyage.voyage_name,
-            ).then((reason) => {
-                if (reason) updateCastOffHandoff({ followNote: reason });
+            ).then(({ note, caution }) => {
+                if (note || caution) updateCastOffHandoff({ followNote: note, followCaution: caution });
             });
         }
     }, [activeCastOffVoyage, state.currentVoyageId]);
@@ -440,7 +449,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const [followPromptVoyageId, setFollowPromptVoyageId] = React.useState<string | null>(null);
     const [followPromptLoadingId, setFollowPromptLoadingId] = React.useState<string | null>(null);
     /**
-     * Which blocked row is fetching its waypoints from the account.
+     * Which row is fetching its waypoints from the account.
      *
      * Deliberately NOT followPromptLoadingId: that one disables every row, the
      * "Just recording" footer AND the escape from the sheet, so borrowing it
@@ -448,18 +457,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      * network fetch took. This gates one row's button and nothing else.
      */
     const [recheckingRouteId, setRecheckingRouteId] = React.useState<string | null>(null);
-    /** "Checking 6 of 18…" — a cold recheck can run tens of seconds. */
-    const [recheckProgress, setRecheckProgress] = React.useState<string | null>(null);
-    /**
-     * Routes whose automatic recheck came back needing a human — a danger leg,
-     * or a land crossing. Tapping those again opens Route Tracer instead of
-     * re-running a check that has already said it cannot decide this alone.
-     */
-    const [needsTracerRoutes, setNeedsTracerRoutes] = React.useState<ReadonlySet<string>>(() => new Set());
+    /** Voyage rows whose red finding the skipper accepted with the second tap. */
+    const acceptedFindingsRef = React.useRef(new Set<string>());
+    /** The status of the line the last follow started — amber says so, once,
+     *  in words that match WHY it is amber. */
+    const followStatusRef = React.useRef<TraceFollowStatus | null>(null);
     /**
      * The route report, shown right here at cast-off so a skipper can
      * acknowledge no-go legs without a round trip to Route Tracer. Holds the
-     * grading the recheck already did — the check is never re-run for this.
+     * grading the background check already did — never re-run for this.
      */
     const [ackReport, setAckReport] = React.useState<{
         savedRouteId: string;
@@ -502,7 +508,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      *  is the wrong surface for this: the sheet is still open, the message is
      *  two lines of chart-safety reasoning, and a toast slides away while the
      *  skipper is still reading the row it refers to. */
-    const [followBlockNotice, setFollowBlockNotice] = React.useState<string | null>(null);
+    const [followNotice, setFollowNotice] = React.useState<string | null>(null);
 
     const dismissFollowPrompt = React.useCallback(() => {
         if (followPromptLoadingId !== null) return;
@@ -653,16 +659,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     );
 
     /**
-     * EVERY planned route reaches the sheet; ones the follow gate refuses
-     * render disabled with the gate's reason on the row. This is the third
-     * design in four days, so the history matters: pick-then-refuse (two
-     * lines of chart-safety prose after choosing — Shane 2026-08-10: "just
-     * show tracks that are ready to be followed"), then hide-the-blocked
-     * (honest but a skipper whose routes all need re-checks saw NOTHING at
-     * cast-off — Shane 2026-08-13: "the saved routes do not show up on the
-     * startup screen to select one"). Visible-but-disabled is the synthesis:
-     * the route is seen, the reason is named, and the fix (Route Tracer) is
-     * one line away — without letting an unchecked line be steered.
+     * EVERY planned route reaches the sheet, carrying its follow status. The
+     * history matters: pick-then-refuse (Shane 2026-08-10: "just show tracks
+     * that are ready to be followed"), hide-the-blocked (2026-08-13: "the
+     * saved routes do not show up"), visible-but-disabled, tap-to-fix — and
+     * since build 124 a warning, not a wall (2026-10-08: "punters just aren't
+     * going to use it"): amber follows on the first tap with its reason on the
+     * row, re-checking itself in the background; only a real check's red
+     * finding takes a deliberate second tap.
      *
      * Two link sources, because entries may not be resident on a fresh boot:
      * the entry rows when loaded, else the local trace store's own
@@ -703,7 +707,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         choice.legOrdinal === prior.legOrdinal &&
                         choice.tripName === prior.tripName &&
                         choice.legName === prior.legName &&
-                        choice.blockReason === prior.blockReason
+                        sameFollowStatus(choice.followStatus, prior.followStatus)
                     );
                 });
             return unchanged ? previous : next;
@@ -717,130 +721,51 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         ackReport,
     ]);
 
-    /**
-     * Take a blocked row to the one screen that can clear its block.
-     *
-     * A refused route used to be a disabled row: visible, explained, and
-     * completely inert (Shane 2026-08-13: "i cannot actually accept it. it has
-     * no way of selecting"). The gate's refusals are all fixable — re-check the
-     * line in Route Tracer — so the row should carry you there rather than
-     * describe the problem and stop.
-     */
-    /**
-     * Re-run the hazard check on a blocked route, in place.
-     *
-     * The row has always said "tap to check it in Route Tracer". Now the first
-     * tap does the check itself — cold, against the current charts and the
-     * skipper's real draft — and only sends them to the tracer when the answer
-     * genuinely needs a person: a danger leg to acknowledge, or a land
-     * crossing whose waypoints must be moved.
-     *
-     * A refusal is an answer, not a failure. The route stays blocked and the
-     * reason is shown, which is what "warn — but not let us go" means.
-     */
-    const recheckRoute = React.useCallback(
-        async (savedRouteId: string) => {
-            const actionScope = identityScope;
-            if (!isAuthIdentityScopeCurrent(actionScope)) return;
-            setFollowBlockNotice(null);
-            setRecheckingRouteId(savedRouteId);
-            setRecheckProgress(null);
-            try {
-                const [{ loadSavedTraces, adoptServerRoute, saveTrace }, { fetchSavedRoutePoints }] = await Promise.all(
-                    [import('../services/routeTracer'), import('../services/savedRoutePoints')],
-                );
-                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-
-                // The waypoints may only exist in the account — a second
-                // device, or this one after a reinstall. Adopt them under the
-                // same id first so the check attaches to the right route.
-                let trace = loadSavedTraces().find((t) => t.id === savedRouteId);
-                if (!trace || trace.points.length < 2) {
-                    const fetched = await fetchSavedRoutePoints(savedRouteId);
-                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                    if (!fetched.ok) {
-                        setFollowBlockNotice(fetched.reason);
-                        return;
-                    }
-                    trace = adoptServerRoute(fetched.id, fetched.name, fetched.points, undefined, fetched) ?? undefined;
-                    if (!trace) {
-                        setFollowBlockNotice('Could not store this route on this device.');
-                        return;
-                    }
-                }
-
-                const { recheckTrace } = await import('../services/traceRecheck');
-                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                const outcome = await recheckTrace(trace.points, {
-                    priorVerification: trace.verification ?? null,
-                    onProgress: (done, total) =>
-                        setRecheckProgress(total > 1 ? `Checking ${done} of ${total}` : 'Checking'),
-                });
-                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-
-                if (!outcome.ok) {
-                    // A refusal whose legs can be cleared by a person deciding
-                    // is not a reason to send them somewhere else. Show the
-                    // report here, with the grading that was just done.
-                    if (outcome.report && outcome.report.ackableDangerLegs.length > 0) {
-                        setAckedLegs(new Set());
-                        setAckReport({
-                            savedRouteId,
-                            name: trace.name,
-                            points: trace.points,
-                            report: outcome.report,
-                            priorDepartureMs: trace.verification?.departureMs ?? null,
-                        });
-                        return;
-                    }
-                    setFollowBlockNotice(outcome.reason);
-                    if (outcome.needsTracer) {
-                        setNeedsTracerRoutes((prev) => new Set(prev).add(savedRouteId));
-                    }
-                    return;
-                }
-
-                // Bank the freshly earned envelope against the same id.
-                saveTrace(trace.name, trace.points, {
-                    overwriteId: trace.id,
-                    verification: outcome.verification,
-                });
-                setNeedsTracerRoutes((prev) => {
-                    if (!prev.has(savedRouteId)) return prev;
-                    const next = new Set(prev);
-                    next.delete(savedRouteId);
-                    return next;
-                });
-
-                // The sheet renders a SNAPSHOT taken when it opened, so a
-                // successful recheck would otherwise leave the row looking
-                // exactly as blocked as before. Recompute from the gate rather
-                // than assuming null — a check can pass and the row still
-                // block for a different reason.
-                const { savedTraceFollowBlockReason } = await import('../services/traceDirectUseGate');
-                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                const reason = savedTraceFollowBlockReason(savedRouteId);
-                setFollowPromptChoices((prev) =>
-                    prev.map((choice) =>
-                        choice.savedRouteId === savedRouteId ? { ...choice, blockReason: reason } : choice,
-                    ),
-                );
-                if (reason) setFollowBlockNotice(reason);
-            } catch (error) {
-                log.warn('Route recheck failed:', error);
-                setFollowBlockNotice('Could not check this route. Try again.');
-            } finally {
-                setRecheckingRouteId(null);
-                setRecheckProgress(null);
-            }
-        },
-        [identityScope],
+    /** A check landed or was recovered: re-read the open sheet's statuses. */
+    const refreshFollowStatuses = React.useCallback(() => {
+        setFollowPromptChoices((prev) => refreshFollowSheetStatuses(prev));
+    }, []);
+    const followSheetOpen = followPromptVoyageId !== null || preStartSheetOpen;
+    const sheetTraceIds = React.useMemo(
+        () =>
+            followSheetOpen
+                ? followPromptRows.flatMap((row) =>
+                      row.type === 'choice' && row.row.choice.savedRouteId ? [row.row.choice.savedRouteId] : [],
+                  )
+                : null,
+        [followSheetOpen, followPromptRows],
     );
+    const plannedTraceIds = React.useMemo(
+        () => followSheetChoices.flatMap((choice) => (choice.savedRouteId ? [choice.savedRouteId] : [])),
+        [followSheetChoices],
+    );
+    // Background re-checks (build 124): one route at a time while this page is
+    // open, queued when the sheet opens and after ten idle seconds.
+    const traceChecks = useTraceBackgroundChecks({
+        identityScope,
+        sheetTraceIds,
+        plannedTraceIds,
+        onStatusesChanged: refreshFollowStatuses,
+        onReport: (savedRouteId, report) => {
+            void import('../services/routeTracer').then(({ loadSavedTraces }) => {
+                const trace = loadSavedTraces().find((t) => t.id === savedRouteId);
+                if (!trace || report.verdicts.length !== trace.points.length - 1) return;
+                setAckedLegs(new Set());
+                setAckReport({
+                    savedRouteId,
+                    name: trace.name,
+                    points: trace.points,
+                    report,
+                    priorDepartureMs: trace.verification?.departureMs ?? null,
+                });
+            });
+        },
+    });
 
     /**
      * A leg was acknowledged on the report. Re-run the release GATE (pure and
      * cheap) — never the check itself, which already ran. The moment the gate
-     * allows, bank the envelope and unblock the row.
+     * allows, bank the envelope (the one safe bank) and the row goes green.
      */
     const acknowledgeLeg = React.useCallback(
         (legIndex: number) => {
@@ -849,30 +774,79 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             const nextAcks = new Set(ackedLegs).add(legIndex);
             setAckedLegs(nextAcks);
             void (async () => {
-                const [{ releaseWithAcks }, { saveTrace }, { savedTraceFollowBlockReason }] = await Promise.all([
+                const [{ releaseWithAcks }, { bankTraceVerification }] = await Promise.all([
                     import('../services/traceRecheck'),
                     import('../services/routeTracer'),
-                    import('../services/traceDirectUseGate'),
                 ]);
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 const gate = releaseWithAcks(ackReport.points, ackReport.report, nextAcks, ackReport.priorDepartureMs);
                 if (!gate.allowed || !gate.verification) return; // more legs to go
-                saveTrace(ackReport.name, ackReport.points, {
-                    overwriteId: ackReport.savedRouteId,
-                    verification: gate.verification,
-                });
-                const reason = savedTraceFollowBlockReason(ackReport.savedRouteId);
-                setFollowPromptChoices((prev) =>
-                    prev.map((choice) =>
-                        choice.savedRouteId === ackReport.savedRouteId ? { ...choice, blockReason: reason } : choice,
-                    ),
-                );
+                const bank = bankTraceVerification(ackReport.savedRouteId, gate.verification, actionScope);
+                if (!bank.banked) log.warn(`acknowledged check not banked (${bank.reason})`);
+                refreshFollowStatuses();
                 setAckReport(null);
                 setAckedLegs(new Set());
-                setFollowBlockNotice(reason);
+                setFollowNotice(bank.reason === 'storage' ? TRACE_CHECK_STORAGE_FULL : null);
             })();
         },
-        [ackReport, ackedLegs, identityScope],
+        [ackReport, ackedLegs, identityScope, refreshFollowStatuses],
+    );
+
+    /**
+     * Put a saved route on THIS device if only the account has it — a second
+     * device, or this one after a reinstall — keeping its id so the follow
+     * link, the check and Cast Off all still agree which route it is. Then
+     * look for its check on the server (B3).
+     */
+    const ensureTraceOnDevice = React.useCallback(
+        async (savedRouteId: string, actionScope: typeof identityScope): Promise<string | null> => {
+            const [{ loadSavedTraces, adoptServerRoute }, { fetchSavedRoutePoints }] = await Promise.all([
+                import('../services/routeTracer'),
+                import('../services/savedRoutePoints'),
+            ]);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return '';
+            const local = loadSavedTraces().find((t) => t.id === savedRouteId);
+            if (local && local.points.length >= 2) return null;
+            const fetched = await fetchSavedRoutePoints(savedRouteId);
+            if (!isAuthIdentityScopeCurrent(actionScope)) return '';
+            if (!fetched.ok) return fetched.reason;
+            if (!adoptServerRoute(fetched.id, fetched.name, fetched.points, undefined, fetched)) {
+                return 'Could not store this route on this device. Free up space and try again.';
+            }
+            void import('../services/traceCheckRecovery')
+                .then(({ recoverTraceChecks }) => recoverTraceChecks(actionScope, [savedRouteId]))
+                .then(() => refreshFollowStatuses())
+                .catch(() => undefined);
+            return null;
+        },
+        [refreshFollowStatuses],
+    );
+
+    /**
+     * A row's Check now. A route only the account holds (another phone, a
+     * reinstall) is adopted onto this device first — the queue checks what is
+     * stored HERE, so without this the tap ran, found nothing and changed
+     * nothing.
+     */
+    const checkRouteNow = React.useCallback(
+        async (savedRouteId: string) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            setFollowNotice(null);
+            setRecheckingRouteId(savedRouteId);
+            const problem = await ensureTraceOnDevice(savedRouteId, actionScope).catch(
+                () => 'Couldn’t fetch this route from your account. Try again.',
+            );
+            setRecheckingRouteId(null);
+            if (!isAuthIdentityScopeCurrent(actionScope) || problem === '') return;
+            if (problem) {
+                log.warn(`check now: route not on this device (${problem})`);
+                setFollowNotice(problem);
+                return;
+            }
+            enqueueTraceChecks([savedRouteId], 'manual');
+        },
+        [identityScope, ensureTraceOnDevice],
     );
 
     const openRouteInTracer = React.useCallback(
@@ -883,33 +857,17 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             // The tracer loads a saved route from localStorage, so on a second
             // device — or the same one after a reinstall — it opens to nothing
             // and does it SILENTLY (MapHub's load-saved branch has no else).
-            // That is the closed loop behind "the route is blocked, and the fix
-            // it offers cannot work either". The waypoints are in the account;
-            // fetch them and adopt them under the SAME id first, so the tracer,
-            // the follow link and the Cast Off gate all still agree on which
-            // route this is.
+            // Adopt it from the account under the SAME id first; stay put and
+            // say why if that fails — navigating to a tracer that will open
+            // empty is how this dead-ended before.
             if (savedRouteId) {
-                const [{ loadSavedTraces, adoptServerRoute }, { fetchSavedRoutePoints }] = await Promise.all([
-                    import('../services/routeTracer'),
-                    import('../services/savedRoutePoints'),
-                ]);
+                setRecheckingRouteId(savedRouteId);
+                const problem = await ensureTraceOnDevice(savedRouteId, actionScope);
+                setRecheckingRouteId(null);
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                const local = loadSavedTraces().find((t) => t.id === savedRouteId);
-                if (!local || local.points.length < 2) {
-                    setRecheckingRouteId(savedRouteId);
-                    const fetched = await fetchSavedRoutePoints(savedRouteId);
-                    setRecheckingRouteId(null);
-                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                    if (!fetched.ok) {
-                        // Stay put and say why. Navigating to a tracer that
-                        // will open empty is how this dead-ended before.
-                        setFollowBlockNotice(fetched.reason);
-                        return;
-                    }
-                    if (!adoptServerRoute(fetched.id, fetched.name, fetched.points, undefined, fetched)) {
-                        setFollowBlockNotice('Could not store this route on this device. Free up space and try again.');
-                        return;
-                    }
+                if (problem !== null) {
+                    if (problem) setFollowNotice(problem);
+                    return;
                 }
             }
 
@@ -918,7 +876,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             requestTracerOpen(savedRouteId ? { kind: 'load-saved', id: savedRouteId } : null, actionScope);
             useUIStore.getState().setPage('voyage');
         },
-        [identityScope],
+        [identityScope, ensureTraceOnDevice],
     );
 
     /**
@@ -946,7 +904,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 (route) => route.id === voyageId,
             );
             try {
+                // A linked trace only the account holds (another phone, a
+                // reinstall) is adopted alongside the fetch; it then follows
+                // amber instead of being refused (build 124).
+                const adopting = pickerTraceId
+                    ? ensureTraceOnDevice(pickerTraceId, actionScope).catch(() => null)
+                    : null;
                 const fetchedRoute = await withFollowRouteLoadDeadline(fetchVoyageAsTrack(voyageId));
+                if (adopting) await withFollowRouteLoadDeadline(adopting);
                 if (
                     selectionGeneration !== followSelectionGenerationRef.current ||
                     !isAuthIdentityScopeCurrent(actionScope)
@@ -976,11 +941,21 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 const linkedRoute =
                     !logRoute.savedRouteId && pickerTraceId ? { ...logRoute, savedRouteId: pickerTraceId } : logRoute;
                 const steerRoute = tracedRouteFollowGeometry(linkedRoute);
-                const traceBlock = tracedRouteDirectUseBlockReason(steerRoute);
-                if (traceBlock) throw new Error(`${TRACE_ROUTE_USE_BLOCK_PREFIX}${traceBlock}`);
+                // A warning, not a wall (build 124): amber follows; only a red
+                // finding refuses, until the row's second tap accepts it.
+                const acceptFinding = acceptedFindingsRef.current.has(voyageId);
+                const status = tracedRouteDirectUseStatus(steerRoute, { acceptFinding });
+                if (status.blocked) {
+                    // The snapshot row may predate the finding: turn it red.
+                    refreshFollowStatuses();
+                    throw new Error(
+                        `${TRACE_ROUTE_USE_BLOCK_PREFIX}${status.reason ?? 'The route check found a problem'}. Tap the route twice to follow anyway.`,
+                    );
+                }
                 const exactPlan = buildFollowRoutePlanFromRoute(steerRoute);
                 if (!exactPlan) return false;
                 current.startFollowing(exactPlan, voyageId, steerRoute.points);
+                followStatusRef.current = status;
                 return true;
             } catch (error) {
                 if (error instanceof Error && error.message.startsWith(TRACE_ROUTE_USE_BLOCK_PREFIX)) throw error;
@@ -988,7 +963,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 return false;
             }
         },
-        [identityScope, state.entries, plannedRouteGeometryIds],
+        [identityScope, state.entries, plannedRouteGeometryIds, ensureTraceOnDevice, refreshFollowStatuses],
     );
 
     /**
@@ -1004,7 +979,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
             // A new attempt supersedes the last refusal — never leave a stale
             // reason sitting above a different row.
-            setFollowBlockNotice(null);
+            setFollowNotice(null);
+            followStatusRef.current = null;
             setFollowPromptLoadingId(s.voyageId);
             try {
                 const answered = () => {
@@ -1047,6 +1023,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         } as import('../services/shiplog/publishFollowedRoute').PublishFollowOutcome;
                     });
                     answered();
+                    // Following an unchecked line is allowed — and said, once,
+                    // quietly. The row already showed why it was amber. (The
+                    // follow set the ref inside an await; TS still sees the
+                    // null assigned above.)
+                    const followed = followStatusRef.current as TraceFollowStatus | null;
+                    if (followed?.tone === 'unchecked') setFollowNotice(followingNotice(followed.code));
                     void publishPromise.then(({ result, hold }) => {
                         if (!isAuthIdentityScopeCurrent(actionScope)) return;
                         if (result === 'linked') {
@@ -1066,7 +1048,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     });
                     return;
                 }
-                setFollowBlockNotice('Couldn’t load this saved route — please try again');
+                setFollowNotice('Couldn’t load this saved route — please try again');
             } finally {
                 if (isAuthIdentityScopeCurrent(actionScope)) {
                     setFollowPromptLoadingId(null);
@@ -1106,7 +1088,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             // 'skipper' lets the claim holder through and tells the rest.
             const decision = currentRouteReplaceDecision();
             if (decision === 'refuse') {
-                setFollowBlockNotice(ROUTE_AUTHORITY_REFUSAL);
+                setFollowNotice(ROUTE_AUTHORITY_REFUSAL);
                 return;
             }
             if (decision === 'replace') {
@@ -1128,9 +1110,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         const req = replaceRequest;
         setReplaceRequest(null);
         if (req) {
-            setFollowBlockNotice(
-                `Following on your chart only — ${req.hold.deviceName}'s route stays on your public page.`,
-            );
+            setFollowNotice(`Following on your chart only — ${req.hold.deviceName}'s route stays on your public page.`);
         }
     }, [replaceRequest]);
 
@@ -1146,7 +1126,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         const onDropped = (event: Event) => {
             const detail = (event as CustomEvent<PlanLinkIntentDropped>).detail;
             if (!detail?.holderName) return;
-            setFollowBlockNotice(
+            setFollowNotice(
                 `Route not published — ${detail.holderName} set a different route while you were offline. Your public page shows theirs.`,
             );
         };
@@ -1205,7 +1185,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const changeRemoteRoute = React.useCallback(() => {
         const remote = remotePassageRef.current;
         if (!remote) return;
-        setFollowBlockNotice(null);
+        setFollowNotice(null);
         setFollowPromptChoices(followSheetChoices);
         remoteSheetVoyageRef.current = remote.voyageId;
         setFollowPromptVoyageId(remote.voyageId);
@@ -1252,9 +1232,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     // NOT a toast (Shane 2026-08-12: "i hate toast messages",
                     // and 2026-08-07 before that). Two lines of chart-safety
                     // reasoning need a surface that stays put: the same
-                    // followBlockNotice the sheet uses renders as an inline
+                    // followNotice the sheet uses renders as an inline
                     // card on the tracking view when the sheet is closed.
-                    setFollowBlockNotice(message);
+                    setFollowNotice(message);
                 });
             }
             return;
@@ -1326,13 +1306,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         // lands (the ⇄ fold re-picks direction when the first fix arrives),
         // which flipped rows under the skipper's thumb.
         setFollowPromptChoices(followSheetChoices);
-        // A fresh sheet is a fresh attempt. Without this, a route that once
-        // answered "a person has to look at this" stayed latched forever: every
-        // later tap went straight back to the tracer and recheckRoute — the only
-        // thing that can clear the latch — was never reached again. Acknowledge
-        // the leg, save it, come back, and the row would still bounce you to the
-        // tracer to acknowledge the very thing you just acknowledged.
-        setNeedsTracerRoutes((prev) => (prev.size === 0 ? prev : new Set()));
         setFollowPromptVoyageId(vid);
         // NOT marked "asked" here — only an ANSWER (pick or explicit
         // dismissal) suppresses future prompts. An unmount mid-question
@@ -1915,15 +1888,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     : null,
             )
             .catch(() => null);
-        setFollowBlockNotice(null);
+        setFollowNotice(null);
         setFollowPromptChoices(followSheetChoices);
-        // A fresh sheet is a fresh attempt. Without this, a route that once
-        // answered "a person has to look at this" stayed latched forever: every
-        // later tap went straight back to the tracer and recheckRoute — the only
-        // thing that can clear the latch — was never reached again. Acknowledge
-        // the leg, save it, come back, and the row would still bounce you to the
-        // tracer to acknowledge the very thing you just acknowledged.
-        setNeedsTracerRoutes((prev) => (prev.size === 0 ? prev : new Set()));
         setPreStartSheetOpen(true);
     }, [followSheetChoices, handleStartTracking, identityScope, verifyGpsAndStart]);
 
@@ -2254,11 +2220,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             onChangeRoute={changeRemoteRoute}
                         />
                     )}
-                    {!isTracking && followBlockNotice && followPromptVoyageId === null && !preStartSheetOpen && (
-                        <FollowBlockNoticeCard
-                            followBlockNotice={followBlockNotice}
-                            setFollowBlockNotice={setFollowBlockNotice}
-                        />
+                    {!isTracking && followNotice && followPromptVoyageId === null && !preStartSheetOpen && (
+                        <FollowBlockNoticeCard followNotice={followNotice} setFollowNotice={setFollowNotice} />
                     )}
 
                     {historyUnreachable && <HistoryStatusLine onRetry={retryHistory} retrying={historyRetryPending} />}
@@ -2303,6 +2266,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         (castOffHandoff.caution ||
                             castOffHandoff.gps !== 'confirmed' ||
                             castOffHandoff.followNote ||
+                            castOffHandoff.followCaution ||
                             castOffHandoff.publishState === 'skipped' ||
                             castOffHandoff.publishState === 'failed' ||
                             castOffHandoff.publishState === 'queued') && (
@@ -2383,7 +2347,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 NOT a toast (Shane 2026-08-12: "i hate toast
                                 messages"). When a pre-start route pick fails
                                 after cast-off, the sheet that normally hosts
-                                followBlockNotice is already closed — so the
+                                followNotice is already closed — so the
                                 same message renders here as a stay-put card.
                                 IN NORMAL FLOW between the live map and the
                                 Stop controls: the first cut was fixed-position
@@ -2391,11 +2355,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 2026-08-13: "that message is now showing up
                                 there"). Here it pushes the map up instead of
                                 covering it. */}
-                            {followBlockNotice && followPromptVoyageId === null && !preStartSheetOpen && (
-                                <FollowBlockNoticeCard
-                                    followBlockNotice={followBlockNotice}
-                                    setFollowBlockNotice={setFollowBlockNotice}
-                                />
+                            {followNotice && followPromptVoyageId === null && !preStartSheetOpen && (
+                                <FollowBlockNoticeCard followNotice={followNotice} setFollowNotice={setFollowNotice} />
                             )}
 
                             {/* ── Stop / New Entry — pinned at bottom ── */}
@@ -2681,14 +2642,17 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     dismissFollowPrompt={dismissFollowPrompt}
                     followPromptDialogRef={followPromptDialogRef}
                     followPromptDismissRef={followPromptDismissRef}
-                    followBlockNotice={followBlockNotice}
-                    setFollowBlockNotice={setFollowBlockNotice}
+                    followNotice={followNotice}
+                    setFollowNotice={setFollowNotice}
                     followPromptRows={followPromptRows}
-                    needsTracerRoutes={needsTracerRoutes}
                     openRouteInTracer={openRouteInTracer}
-                    recheckRoute={recheckRoute}
-                    recheckProgress={recheckProgress}
-                    recheckingRouteId={recheckingRouteId}
+                    checkStates={traceChecks.snapshot.states}
+                    onCheckNow={checkRouteNow}
+                    onStopCheck={(savedRouteId) => cancelTraceChecks('stop', [savedRouteId])}
+                    canReview={(savedRouteId) => getTraceCheckOutcome(savedRouteId)?.ackable === true}
+                    onReview={traceChecks.review}
+                    acceptFindingFor={(voyageId) => acceptedFindingsRef.current.add(voyageId)}
+                    fetchingRouteId={recheckingRouteId}
                     followPromptLoadingId={followPromptLoadingId}
                     setFollowPromptLoadingId={setFollowPromptLoadingId}
                     followPromptVoyageId={followPromptVoyageId}

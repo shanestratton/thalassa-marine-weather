@@ -5,6 +5,7 @@
  */
 import React from 'react';
 import { startHandoffGps, updateCastOffHandoff, type CastOffHandoff } from '../../services/castOffHandoff';
+import { followingCautionTitle } from './logPageTypes';
 
 export const CastOffHandoffNotices: React.FC<{ castOffHandoff: CastOffHandoff; isTracking: boolean }> = ({
     castOffHandoff,
@@ -41,6 +42,34 @@ export const CastOffHandoffNotices: React.FC<{ castOffHandoff: CastOffHandoff; i
                 <button
                     type="button"
                     onClick={() => updateCastOffHandoff({ followNote: null })}
+                    className="hit-target-44 rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
+                >
+                    Got it
+                </button>
+            </div>
+        )}
+        {castOffHandoff.followCaution && (
+            <div
+                data-testid="castoff-follow-caution"
+                className={`rounded-xl border px-3 py-2.5 space-y-1.5 ${
+                    castOffHandoff.followCaution.tone === 'finding'
+                        ? 'border-red-400/30 bg-red-500/10'
+                        : 'border-amber-400/25 bg-amber-500/10'
+                }`}
+            >
+                <p
+                    className={`text-[11px] font-black uppercase tracking-[0.2em] ${
+                        castOffHandoff.followCaution.tone === 'finding' ? 'text-red-300' : 'text-amber-300'
+                    }`}
+                >
+                    {followingCautionTitle(castOffHandoff.followCaution.tone, castOffHandoff.followCaution.code)}
+                </p>
+                <p className="text-sm text-amber-100">
+                    {castOffHandoff.followCaution.text.replace(/\.$/, '')}. Keep a good lookout.
+                </p>
+                <button
+                    type="button"
+                    onClick={() => updateCastOffHandoff({ followCaution: null })}
                     className="hit-target-44 rounded-lg border border-amber-300/20 px-2 py-1 text-xs font-black text-amber-200/80"
                 >
                     Got it

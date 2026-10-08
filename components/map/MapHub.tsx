@@ -144,7 +144,6 @@ import {
     traceHealth,
     pointInBbox,
     loadSavedTraces,
-    saveTrace,
     linkTraceToPassage,
     attachSavedTraceTombstoneLinks,
     deleteTrace,
@@ -179,7 +178,9 @@ import {
     getRegistryFingerprint as getEncRegistryFingerprint,
     getVersion as getEncRegistryVersion,
 } from '../../services/enc/EncCellMetadata';
-import { evaluateTraceRelease, traceGeometryKey, traceRegistryScope } from '../../services/traceVerification';
+import { evaluateTraceRelease, traceRegistryScope } from '../../services/traceVerification';
+import { setTracerActive, tracerBlocksBackgroundChecks } from '../../services/traceBackgroundCheck';
+import { useTracerAutoBank, type TideLabelFor } from './useTracerAutoBank';
 import { useEncChartInventory } from './useEncChartInventory';
 import { DETAIL_SCRUB_MAX, applyChartDetailLevel, browseDetailLevel } from './encDetailScrubber';
 import { ChartDepthControls, LiveTideAckModal } from './ChartDepthControls';
@@ -1146,28 +1147,42 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  - Only once the release gate ALLOWS. A part-acknowledged route has
      *    nothing worth persisting, and this must never bank a clearance the
      *    gate would refuse.
+     *
+     * Build 124 widened it from acknowledgements to any unchanged stored line
+     * whose check is missing or at another draft — a re-graded line banks
+     * without Save + "Overwrite?" — but NEVER re-stamps a merely aged check
+     * (these verdicts may be hydrated from the leg cache), and NEVER banks
+     * verdicts graded for other pins, another keel or another tide window:
+     * the gate below can pair them for one render. useTracerAutoBank holds
+     * that guard; the safe bank re-proves the pins.
      */
-    const ackPersistRef = useRef<string | null>(null);
+    const departureLabelForRef = useRef<TideLabelFor | null>(null);
+    useTracerAutoBank({
+        coordCaptureMode,
+        capturedCoords,
+        legVerdicts,
+        release: traceReleaseGate,
+        ackedLegs,
+        vessel: settings.vessel,
+        departureMs,
+        tideLabelForRef: departureLabelForRef,
+        savedTraces,
+        setSavedTraces,
+    });
+    // The background re-check and the tracer share one chart-build queue, so
+    // it waits while Route Tracer is ON SCREEN or still grading (build 124).
+    // Not on coordCaptureMode alone: MapHub stays alive hidden and only the
+    // Obs tab ends capture, which held the queue for the rest of the session.
+    const tracerHoldsChecks = tracerBlocksBackgroundChecks({
+        captureMode: coordCaptureMode,
+        onScreen: currentView === 'map',
+        grading: tracerStatus === 'loading' && capturedCoords.length > 1,
+    });
     useEffect(() => {
-        if (ackedLegs.size === 0) return;
-        const release = traceReleaseGate;
-        if (!release.allowed || !release.verification) return;
-        const key = traceGeometryKey(capturedCoords);
-        if (!key) return;
-        const stored = savedTraces.find((t) => traceGeometryKey(t.points) === key);
-        if (!stored) return; // an edit in progress, or never saved — leave it alone
-        // One write per (route, acknowledgement set), not one per render.
-        const signature = `${stored.id}|${Array.from(ackedLegs)
-            .sort((a, b) => a - b)
-            .join(',')}`;
-        if (ackPersistRef.current === signature) return;
-        ackPersistRef.current = signature;
-        saveTrace(stored.name, stored.points, {
-            overwriteId: stored.id,
-            verification: release.verification,
-        });
-        setSavedTraces(loadSavedTraces());
-    }, [ackedLegs, traceReleaseGate, capturedCoords, savedTraces]);
+        if (!tracerHoldsChecks) return;
+        setTracerActive(true);
+        return () => setTracerActive(false);
+    }, [tracerHoldsChecks]);
 
     const saveCurrentTrace = useCallback(() => {
         if (capturedCoords.length < 2) return;
@@ -1711,12 +1726,15 @@ export const MapHub: React.FC<MapHubProps> = ({
         // opening 📋 Route report — two taps behind the question.
         if (!showReport && !legVerdicts.some((v) => v?.needsTide)) return;
         setDepartureLabel(null);
+        departureLabelForRef.current = null; // the auto-bank waits for this one
         let stale = false;
         void commonDepartureWindowLabel(legVerdicts, vesselDraftMetres(settings.vessel), {
             departureMs,
             etaOffsetsMs: legEtaOffsetsMs,
         }).then((label) => {
-            if (!stale) setDepartureLabel(label ?? '');
+            if (stale) return;
+            departureLabelForRef.current = { verdicts: legVerdicts, departureMs };
+            setDepartureLabel(label ?? '');
         });
         return () => {
             stale = true;
