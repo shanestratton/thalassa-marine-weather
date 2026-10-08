@@ -475,6 +475,10 @@ const App: React.FC = () => {
                 .then(({ syncSavedRoutes }) => syncSavedRoutes())
                 .then(() => import('./services/traceCheckRecovery'))
                 .then(({ recoverTraceChecks }) => recoverTraceChecks())
+                // 125-07: the boot idle re-check, DARK (returns at once while
+                // BOOT_IDLE_RECHECK_ENABLED is false).
+                .then(() => import('./services/traceBackgroundCheck'))
+                .then(({ runBootIdleRecheck }) => runBootIdleRecheck())
                 .catch(() => {});
         };
         if (useAuthStore.getState().user) run();

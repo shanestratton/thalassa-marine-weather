@@ -23,6 +23,8 @@ import { calculateDistance } from '../utils/navigationCalculations';
 const log = createLogger('FollowRoute');
 
 const REFRESH_INTERVAL_MS = 3 * 60 * 60 * 1000; // 3 hours
+// services/routeTracer.ts reads this key too: the followed trip is exempt
+// from the 50-route library cap (125-07). Rename both or neither.
 const STORAGE_KEY = 'thalassa_follow_route';
 const WAYPOINT_CHANGE_THRESHOLD_KM = 2;
 

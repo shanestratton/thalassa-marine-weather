@@ -79,6 +79,7 @@ import {
 import {
     normaliseTraceVerification,
     serialiseTraceVerificationNote,
+    traceGeometryKey,
     traceVerificationSummary,
     type TraceVerification,
 } from './traceVerification';
@@ -2160,6 +2161,10 @@ export interface TripGroup {
     legs: SavedTrace[];
 }
 
+/** Trips touched this recently are kept newest first over the cap, checked or
+ *  not: the same 30 days a route check stays green (traceFollowStatus). */
+const SAVED_TRACE_CAP_RECENT_MS = 30 * 24 * 3_600_000;
+
 function traceStamp(trace: SavedTrace): number {
     const stamp = Date.parse(trace.updatedAt ?? trace.createdAt);
     return Number.isFinite(stamp) ? stamp : 0;
@@ -2169,8 +2174,24 @@ function traceStamp(trace: SavedTrace): number {
  * Retain a complete trip when enforcing the local route-library cap. The old
  * row-by-row slice could evict leg 1 while keeping leg 2, which is precisely
  * how a healthy trip became a stranded "2nd Leg" after a busy season.
+ *
+ * Over the cap (125-07), in this order, each pass newest first: the newest
+ * trip (the write in hand) always stays; a trip holding a `protectedIds` route
+ * (the one being followed) is never evicted; then trips holding a `pendingIds`
+ * route (one the account has not acknowledged yet — the sync's offline saves,
+ * the only copy there is); then every trip touched in the last 30 days, the
+ * same window a check stays green, whatever its check state (a route built on
+ * the desktop yesterday arrives here unchecked and must get its chance); and
+ * only among OLDER trips do checked ones fill before unchecked ones. It used
+ * to be purely oldest-first, which dropped a passage under way and its checks
+ * with it (Shane's yellow legs, 2026-10-08). Output order is unchanged.
  */
-export function capSavedTracesPreservingTrips(traces: readonly SavedTrace[], cap = 50): SavedTrace[] {
+export function capSavedTracesPreservingTrips(
+    traces: readonly SavedTrace[],
+    cap = 50,
+    protectedIds: ReadonlySet<string> = new Set(),
+    opts: { pendingIds?: ReadonlySet<string>; nowMs?: number } = {},
+): SavedTrace[] {
     if (cap <= 0 || traces.length === 0) return [];
 
     const grouped = new Map<string, SavedTrace[]>();
@@ -2186,17 +2207,62 @@ export function capSavedTracesPreservingTrips(traces: readonly SavedTrace[], cap
     }
 
     const newestGroups = encounterOrder
-        .map((key) => ({ key, traces: grouped.get(key)! }))
-        .sort((left, right) => Math.max(...right.traces.map(traceStamp)) - Math.max(...left.traces.map(traceStamp)));
+        .map((key) => {
+            const members = grouped.get(key)!;
+            return { key, traces: members, stamp: Math.max(...members.map(traceStamp)) };
+        })
+        .sort((left, right) => right.stamp - left.stamp);
 
-    const kept: SavedTrace[] = [];
-    for (const group of newestGroups) {
-        // A trip is indivisible. A pathological >cap trip is still safer to
-        // retain whole than to leave it structurally corrupt.
-        if (kept.length > 0 && kept.length + group.traces.length > cap) continue;
-        kept.push(...group.traces);
+    // A trip is indivisible. A pathological >cap trip is still safer to
+    // retain whole than to leave it structurally corrupt.
+    type Group = (typeof newestGroups)[number];
+    const keep = new Set<string>([newestGroups[0].key]);
+    let count = newestGroups[0].traces.length;
+    const nowMs = opts.nowMs ?? Date.now();
+    const holds = (ids: ReadonlySet<string> | undefined) => (group: Group) =>
+        !!ids && group.traces.some((t) => ids.has(t.id));
+    const followed = holds(protectedIds);
+    const pending = holds(opts.pendingIds);
+    const recent = (group: Group) => nowMs - group.stamp <= SAVED_TRACE_CAP_RECENT_MS;
+    const checked = (group: Group) => group.traces.some((t) => t.verification);
+    for (const pass of [followed, pending, recent, checked, () => true]) {
+        for (const group of newestGroups) {
+            if (keep.has(group.key) || !pass(group)) continue;
+            if (pass !== followed && count + group.traces.length > cap) continue;
+            keep.add(group.key);
+            count += group.traces.length;
+        }
     }
-    return kept;
+    return newestGroups.filter((group) => keep.has(group.key)).flatMap((group) => group.traces);
+}
+
+/** stores/followRouteStore's persisted follow. Read here, not imported, so the
+ *  route library never loads the follow store (and its weather router). */
+const FOLLOW_ROUTE_KEY = 'thalassa_follow_route';
+
+/** Ids of every leg of the trip being followed right now — exempt from the
+ *  cap. A follow steers the trace's own pins (tracedRouteFollowGeometry), so
+ *  the geometry finds it even when the follow carries a Cast Off voyage id. */
+function followedTripIds(traces: readonly SavedTrace[], scope: AuthIdentityScope): Set<string> {
+    try {
+        const follow = JSON.parse(localStorage.getItem(authScopedStorageKey(FOLLOW_ROUTE_KEY, scope)) ?? 'null') as {
+            isFollowing?: unknown;
+            voyageId?: unknown;
+            routeCoords?: unknown;
+        } | null;
+        if (follow?.isFollowing !== true) return new Set();
+        const voyageId = typeof follow.voyageId === 'string' ? follow.voyageId.trim() : '';
+        const coords = Array.isArray(follow.routeCoords) ? (follow.routeCoords as TracePoint[]) : [];
+        const byId = (t: SavedTrace) =>
+            !!voyageId && (t.id === voyageId || t.passageVoyageId === voyageId || t.plannedRouteId === voyageId);
+        const key = traces.some(byId) ? '' : traceGeometryKey(coords);
+        const hit = traces.find((t) => byId(t) || (!!key && traceGeometryKey(t.points) === key));
+        if (!hit) return new Set();
+        const trip = hit.tripId ?? hit.id;
+        return new Set(traces.filter((t) => (t.tripId ?? t.id) === trip).map((t) => t.id));
+    } catch {
+        return new Set();
+    }
 }
 
 function sameTraceContent(left: SavedTrace, right: SavedTrace): boolean {
@@ -2578,9 +2644,51 @@ export function loadSavedTraces(scope: AuthIdentityScope = getAuthIdentityScope(
     }
 }
 
-function writeSavedTraces(traces: readonly SavedTrace[], scope: AuthIdentityScope): void {
+/**
+ * The one writer of the route library: capped (a followed trip exempt), and a
+ * refused write never drops the library (125-07). Storage is required to keep
+ * the old value when it refuses a new one; this checks that it did, and puts
+ * the library back if it did not — it is the only copy of an offline save.
+ * Throws on refusal so every caller reports it.
+ */
+function writeSavedTraces(
+    traces: readonly SavedTrace[],
+    scope: AuthIdentityScope,
+    pendingIds?: ReadonlySet<string>,
+): void {
     if (!isAuthIdentityScopeCurrent(scope)) return;
-    localStorage.setItem(tracesStorageKey(scope), JSON.stringify(capSavedTracesPreservingTrips(traces)));
+    const key = tracesStorageKey(scope);
+    const payload = JSON.stringify(
+        capSavedTracesPreservingTrips(traces, 50, followedTripIds(traces, scope), { pendingIds }),
+    );
+    const previous = localStorage.getItem(key);
+    try {
+        localStorage.setItem(key, payload);
+    } catch (error) {
+        try {
+            if (previous !== null && localStorage.getItem(key) !== previous) localStorage.setItem(key, previous);
+        } catch {
+            /* nothing left to try; the caller still reports the refusal */
+        }
+        throw error;
+    }
+}
+
+/** writeSavedTraces for callers outside this file (the account sync): false
+ *  when storage refused, and the library is then exactly as it was.
+ *  `pendingIds`: routes the account has not acknowledged yet (kept over the
+ *  cap ahead of everything but the newest and followed trips). */
+export function persistSavedTraceLibrary(
+    traces: readonly SavedTrace[],
+    scope: AuthIdentityScope,
+    pendingIds?: ReadonlySet<string>,
+): boolean {
+    try {
+        writeSavedTraces(traces, scope, pendingIds);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -2663,18 +2771,20 @@ const PASSAGE_VOYAGE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]
  *  - clears an older could-not-check record, and refreshes the passage
  *    mirror's durable copy WITHOUT timing, so the planned departure stands.
  *
- * LOCAL ONLY, and the route's own updatedAt is kept. The envelope is not a
- * synced column, and a bank is not an edit: going through saveTrace bumped
- * updatedAt and upserted this device's pins, so an automatic bank on a phone
- * that had not synced since another device moved (or deleted) the route won
- * last-writer-wins and reverted it. syncSavedRoutes carries the envelope
- * across its own round-trip while the pins still match.
+ * The route's own updatedAt is kept, and its pins are never pushed: a bank is
+ * not an edit. Going through saveTrace bumped updatedAt and upserted this
+ * device's pins, so an automatic bank on a phone that had not synced since
+ * another device moved (or deleted) the route won last-writer-wins and
+ * reverted it. Since 125-07 the CHECK alone goes to saved_routes.verification
+ * (once that column exists), and only onto the row revision this device
+ * holds; syncSavedRoutes catches up anything that could not go then.
+ * `syncColumn: false` is for a check that came FROM the column.
  */
 export function bankTraceVerification(
     traceId: string,
     value: TraceVerification,
     scope: AuthIdentityScope = getAuthIdentityScope(),
-    opts: { refreshMirror?: boolean } = {},
+    opts: { refreshMirror?: boolean; syncColumn?: boolean } = {},
 ): { banked: boolean; reason?: 'scope' | 'gone' | 'moved' | 'older' | 'storage' } {
     if (!isAuthIdentityScopeCurrent(scope)) return { banked: false, reason: 'scope' };
     const all = loadSavedTraces(scope);
@@ -2711,6 +2821,14 @@ export function bankTraceVerification(
                 if (result?.error) log.warn(`check banked; passage mirror not refreshed (${result.error})`);
             })
             .catch((error) => log.warn('check banked; passage mirror refresh failed:', error));
+    }
+    const revision = current.updatedAt;
+    if (opts.syncColumn !== false && scope.userId && revision) {
+        void import('./savedRoutesSync')
+            .then(({ pushSavedRouteVerification }) =>
+                pushSavedRouteVerification(traceId, verification, revision, scope),
+            )
+            .catch((error) => log.warn('check banked; account copy not updated:', error));
     }
     return { banked: true };
 }
@@ -2772,7 +2890,8 @@ export function saveTrace(
         ...(verification ? { verification } : {}),
         ...(proposalEvidence ? { proposalEvidence } : {}),
     };
-    const all = capSavedTracesPreservingTrips([trace, ...loadSavedTraces(identity).filter((t) => t.id !== trace.id)]);
+    // writeSavedTraces applies the cap (with the followed-trip exemption).
+    const all = [trace, ...loadSavedTraces(identity).filter((t) => t.id !== trace.id)];
     let persisted = false;
     try {
         writeSavedTraces(all, identity);
