@@ -84,7 +84,7 @@ describe('aisProximity speaks the collision rule', () => {
         for (const reported of out.targets) {
             const t = hoisted.targets.get(reported.mmsi)!;
             const rule = assessCollision(
-                { lat: 43.29, lon: 5.36, sogKn: 7, cogDeg: 180 },
+                { lat: 43.29, lon: 5.36, sogKn: 7, cogDeg: 180, atAnchor: false },
                 {
                     lat: t.lat,
                     lon: t.lon,
@@ -146,7 +146,15 @@ describe('aisProximity speaks the collision rule', () => {
             geometry: { type: 'Point' as const, coordinates: [t.lon, t.lat] },
             properties: { ...t, source: 'local' },
         }));
-        const alarming = collisionCandidates(inputs.own!, inputs.motion, local, inputs.prefs, inputs.ownMmsis, NOW);
+        const alarming = collisionCandidates(
+            inputs.own!,
+            inputs.motion,
+            local,
+            inputs.prefs,
+            inputs.ownMmsis,
+            NOW,
+            inputs.atAnchor,
+        );
         const voiceAlarming = out.targets
             .filter((t: { alarm: boolean }) => t.alarm)
             .map((t: { mmsi: number }) => t.mmsi);

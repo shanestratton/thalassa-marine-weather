@@ -393,6 +393,7 @@ describe('a beacon is never a collision target', () => {
             DEFAULT_COLLISION_PREFS,
             undefined,
             T0,
+            false,
         );
         expect(graded.map((c) => c.mmsi)).toEqual([123_400_307]);
         expect(graded[0].assessment.closeQuarters).toBe(true);
@@ -412,6 +413,7 @@ describe('a beacon is never a collision target', () => {
             DEFAULT_COLLISION_PREFS,
             undefined,
             T0,
+            false,
         );
         expect(graded.map((c) => c.mmsi)).toEqual([123_400_308]);
         expect(graded[0].assessment.closeQuarters).toBe(true);

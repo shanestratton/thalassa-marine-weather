@@ -33,12 +33,30 @@
  *    and a suspended app watches nothing), and 'stopped' / 'no motion' /
  *    'no fix' when the rule cannot alarm. The Pi's night watch (126-04) is the
  *    real cure for suspension; until then the app says so.
+ *  - AT ANCHOR (125-01b): stopped with an anchor watch on, the rule still
+ *    alarms close quarters with a vessel under way, and the strip says that
+ *    ('at-anchor'), not 'stays quiet'. Blind there is on a 10 min line, for
+ *    the strip and the lock screen alike: at anchor transponders (our own
+ *    Class B included) report every 3 min, and on the 60 s line a quiet bay
+ *    flickered blind all night. A dead receiver at anchor still reaches the
+ *    lock screen, once. Stopped with the watch kept elsewhere (the Pi, or
+ *    another device, away from us) the strip says so ('stopped-elsewhere').
+ *    The anchor watch keeps its priority: its lease and overlay are untouched
+ *    by this path.
+ *  - The blind lock-screen notice posts once per silence (until AIS is heard
+ *    again, or the watch is re-armed) and at most every 30 min, whatever the
+ *    strip said in between: blind at anchor and then under way is one post.
+ *  - At anchor, an encounter also ends once she is no longer under way
+ *    (collisionSettled: us stopped, her 2 kn or less) for a full anchored
+ *    report cycle (3 min), wherever she lies: two boats lying still never
+ *    show as opening, and the acknowledgement must not outlive her stay.
  */
 import { Capacitor } from '@capacitor/core';
 import { AlarmAudioService } from './AlarmAudioService';
 import { AnchorSafetyNotificationService } from './AnchorSafetyNotificationService';
 import {
     AisGuardAlertStore,
+    COLLISION_BLIND_AT_ANCHOR_NOTICE,
     COLLISION_BLIND_NOTICE,
     COLLISION_PAUSED_NOTICE,
     collisionLines,
@@ -52,9 +70,13 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('CollisionAlarm');
 
 const BLIND_AFTER_MS = 60_000;
+/** At anchor: more than three of the 3 min anchored report intervals (header). */
+const AT_ANCHOR_BLIND_AFTER_MS = 10 * 60_000;
 /** An encounter ends only on evidence held this long, over at least this many passes. */
 const CLEAR_AFTER_MS = 30_000;
 const CLEAR_MIN_PASSES = 3;
+/** She is no longer under way (collisionSettled): held a full anchored report cycle. */
+const SETTLED_AFTER_MS = 3 * 60_000;
 /** A contact lost before her CPA keeps sounding until this long after the CPA was due. */
 const LOST_HOLD_AFTER_CPA_MS = 10 * 60_000;
 /** The 'blind' lock-screen notice at most this often (a working receiver can be quiet). */
@@ -73,6 +95,8 @@ export interface CollisionAlarmCandidate {
     sogKn: number | null;
     /** utils/collisionRule.ts collisionOpening for this pass: positive evidence she is clear. */
     opening?: boolean;
+    /** utils/collisionRule.ts collisionSettled: us stopped, her no longer under way (125-01b). */
+    settled?: boolean;
 }
 
 /** What our own position and motion let the rule do this pass. */
@@ -83,6 +107,10 @@ export interface CollisionPassStatus {
     /** When AIS was last heard by any lane (0 = never). */
     lastAisAt: number;
     own?: CollisionOwnState;
+    /** An anchor watch is on (AisGuardWatch.readCollisionInputs): stopped, close quarters still sounds. */
+    atAnchor?: boolean;
+    /** An anchor watch is on but kept elsewhere, not for this position: stopped, it stays quiet. */
+    anchorWatchElsewhere?: boolean;
 }
 
 /** How an encounter ended: shown clear, or lost and never shown clear. */
@@ -156,7 +184,7 @@ function card(e: Encounter, nowMs: number): CollisionAlertCard {
 function setNotice(state: CollisionWatchNotice['state'], nowMs: number): void {
     const current = AisGuardAlertStore.getWatchNotice();
     // 'Was paused' stays until the skipper dismisses it, unless something worse replaces it.
-    if (state === 'watching' && current?.state === 'resumed') return;
+    if ((state === 'watching' || state === 'at-anchor') && current?.state === 'resumed') return;
     if (current?.state === state) return;
     AisGuardAlertStore.setWatchNotice({ state, since: nowMs });
 }
@@ -223,9 +251,13 @@ function track(targets: CollisionAlarmCandidate[], own: CollisionOwnState, nowMs
         e.lost = null;
         e.latest = t!;
         e.latestAt = nowMs;
+        // She is no longer under way and we are stopped: over, however close
+        // she lies, once that holds a full anchored report cycle.
+        const settled = t!.settled === true;
         const opening =
-            t!.opening === true &&
-            (!e.everCloseQuarters || t!.assessment.rangeNm >= COLLISION_RULE.closeQuarters.cpaNm);
+            settled ||
+            (t!.opening === true &&
+                (!e.everCloseQuarters || t!.assessment.rangeNm >= COLLISION_RULE.closeQuarters.cpaNm));
         if (!opening) {
             e.clearSince = null;
             e.clearPasses = 0;
@@ -233,7 +265,8 @@ function track(targets: CollisionAlarmCandidate[], own: CollisionOwnState, nowMs
         }
         e.clearSince ??= nowMs;
         e.clearPasses += 1;
-        if (nowMs - e.clearSince >= CLEAR_AFTER_MS && e.clearPasses >= CLEAR_MIN_PASSES) {
+        const holdMs = settled ? SETTLED_AFTER_MS : CLEAR_AFTER_MS;
+        if (nowMs - e.clearSince >= holdMs && e.clearPasses >= CLEAR_MIN_PASSES) {
             ended.set(mmsi, { how: 'passed' });
         }
     }
@@ -376,19 +409,24 @@ export const CollisionAlarmService = {
         if (pausedFrom !== null) return;
         if (own === 'no-fix') return setNotice('no-fix', nowMs);
         if (own === 'unknown') return setNotice('no-motion', nowMs);
-        // Stopped, nothing can sound, so a quiet receiver is not news.
-        if (own === 'stopped') return setNotice('stopped', nowMs);
-        const blind = nowMs - Math.max(lastAisAt, armedAt!) >= BLIND_AFTER_MS;
+        const atAnchor = own === 'stopped' && status.atAnchor === true;
+        // Stopped at a berth, nothing can sound, so a quiet receiver is not news.
+        if (own === 'stopped' && !atAnchor) {
+            return setNotice(status.anchorWatchElsewhere === true ? 'stopped-elsewhere' : 'stopped', nowMs);
+        }
+        const silentSince = Math.max(lastAisAt, armedAt!);
+        const blind = nowMs - silentSince >= (atAnchor ? AT_ANCHOR_BLIND_AFTER_MS : BLIND_AFTER_MS);
         if (
             blind &&
             backgrounded &&
-            AisGuardAlertStore.getWatchNotice()?.state !== 'blind' &&
+            // Once per silence: nothing heard since the last post, it already went.
+            silentSince > lastBlindNoticeAt &&
             nowMs - lastBlindNoticeAt >= BLIND_NOTICE_EVERY_MS
         ) {
             lastBlindNoticeAt = nowMs;
-            void localNotice(BLIND_NOTICE_ID, COLLISION_BLIND_NOTICE);
+            void localNotice(BLIND_NOTICE_ID, atAnchor ? COLLISION_BLIND_AT_ANCHOR_NOTICE : COLLISION_BLIND_NOTICE);
         }
-        setNotice(blind ? 'blind' : 'watching', nowMs);
+        setNotice(blind ? (atAnchor ? 'blind-at-anchor' : 'blind') : atAnchor ? 'at-anchor' : 'watching', nowMs);
     },
 
     /** Armed, but no position: no ring and no CPA. Said, not hidden; live encounters stay live. */
