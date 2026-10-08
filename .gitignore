@@ -105,3 +105,8 @@ icons_new
 
 # per-machine Xcode workspace settings
 ios/App/App.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+
+# Isolated E2EE caches stay out of shared dependencies and commits.
+experiments/scuttlebutt-e2ee/pilot/.vitest-cache/
+experiments/scuttlebutt-e2ee/full-app-pilot/.vitest-cache/
+experiments/scuttlebutt-e2ee/full-app-pilot/.vite-cache/

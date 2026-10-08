@@ -1,6 +1,10 @@
 // Screen/SDK fixtures only. No native plugin, live Auth or E2EE is exercised.
 // No cache writes through the shared dependency symlink on this 8 GB Mac.
+import { fileURLToPath } from 'node:url';
 export default {
+    cacheDir: fileURLToPath(new URL('./.vitest-cache', import.meta.url)),
+    envDir: false,
+    envPrefix: [],
     esbuild: { jsx: 'automatic' },
     test: {
         globals: true,
@@ -34,6 +38,10 @@ export default {
             'tests/hooks/ChatDMBlocking.test.tsx',
             'tests/ChatPage.test.tsx',
             'tests/AppPrivateMessageSelection.test.tsx',
+            'tests/E2eeFullAppAuthProjection.test.ts',
+            'tests/E2eeFullAppBoundaries.test.ts',
+            'tests/E2eeFullAppIoFence.test.ts',
+            'tests/E2eeFullAppGraphIsolation.test.ts',
             'tests/PrivateMessagePilotImportIsolation.test.tsx',
             'tests/ChatModerationPrivacy.test.ts',
             'tests/KeyboardSafeSheets.test.ts',

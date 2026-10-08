@@ -2,15 +2,21 @@
  * Background/BFCache suspension does not log out or recreate native identity.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { ChatPage, type ChatPageSelection } from '../../../components/ChatPage';
+import { ChatPage, type ChatPageSelection, type ChatPageProps } from '../../../components/ChatPage';
 import { setAuthIdentityScope } from '../../../services/authIdentityScope';
 import { createPrivateMessageResearchRuntime, type PrivateMessageResearchRuntime } from './runtime';
 
 const visibleNow = () => document.visibilityState !== 'hidden';
 export function PrivateMessageResearchApp({
     createRuntime = createPrivateMessageResearchRuntime,
+    onRuntime,
+    renderPrivatePage,
 }: {
     createRuntime?: () => PrivateMessageResearchRuntime;
+    /** Trusted isolated root only; observes the same effect-owned composition. */
+    onRuntime?: (owned: PrivateMessageResearchRuntime) => () => void;
+    /** Always receives the closed/native selection, never a legacy default. */
+    renderPrivatePage?: (props: Pick<ChatPageProps, 'selection' | 'onBack'>) => React.ReactNode;
 }) {
     const resources = useRef<PrivateMessageResearchRuntime | null>(null);
     const mounted = useRef(false);
@@ -91,6 +97,23 @@ export function PrivateMessageResearchApp({
         const stopAdmission = admission.subscribeState((state) => {
             if (mounted.current && live.current) setAdmissionState(state);
         });
+        let stopRuntime: (() => void) | undefined;
+        try {
+            stopRuntime = onRuntime?.(owned);
+        } catch {
+            // Failed full-App observation must not start an unobserved Auth loop.
+            closeView();
+            live.current = false;
+            stopAuth();
+            stopAdmission();
+            admission.stop();
+            auth.dispose();
+            resources.current = null;
+            setStopped(true);
+            return () => {
+                mounted.current = false;
+            };
+        }
         const hide = () => {
             closeView();
             cancelAction();
@@ -135,6 +158,11 @@ export function PrivateMessageResearchApp({
             mounted.current = false;
             stopAuth();
             stopAdmission();
+            try {
+                stopRuntime?.();
+            } catch {
+                /* Fixed closed view; no raw diagnostics. */
+            }
             admission.stop();
             auth.dispose();
             if (resources.current === owned) resources.current = null;
@@ -144,7 +172,7 @@ export function PrivateMessageResearchApp({
             window.removeEventListener('pageshow', pageshow);
             // A later mount gets a new composition, never disposed singletons.
         };
-    }, [createRuntime]);
+    }, [createRuntime, onRuntime]);
     const signIn = () => {
         const auth = resources.current?.auth;
         if (!auth) return;
@@ -290,7 +318,11 @@ export function PrivateMessageResearchApp({
                 </button>
             </section>
             <section className="message-panel" aria-label="Thalassa private-message test">
-                <ChatPage selection={selection} onBack={closeView} />
+                {renderPrivatePage ? (
+                    renderPrivatePage({ selection, onBack: closeView })
+                ) : (
+                    <ChatPage selection={selection} onBack={closeView} />
+                )}
             </section>
         </>
     );

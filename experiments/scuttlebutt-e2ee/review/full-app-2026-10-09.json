@@ -1,0 +1,666 @@
+{
+    "schemaVersion": 1,
+    "createdAt": "2026-10-08T18:11:34.786Z",
+    "checkpointDate": "2026-10-09",
+    "timezone": "Australia/Brisbane",
+    "stage": "isolated-full-app-graph-jsdom-and-build",
+    "researchOnly": true,
+    "branch": "codex/scuttlebutt-e2ee-integration-2026-10-06",
+    "baseCommit": "ebf5f14b323b9d5f31d35f4b0a83103be60cfd90",
+    "masterReference": "7691138504845023bd1e5fe76338a2d2d4653c5a",
+    "foundationReference": "3c30f47c8c50b7bc36307f827f152586f4b1f8aa",
+    "sourceState": "Uncommitted named slice at validation; root review precedes any commit/push.",
+    "dirtyNames": [
+        "experiments/scuttlebutt-e2ee/full-app-pilot/FullAppResearchRoot.tsx",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/authProjection.ts",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/authStore.ts",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/boundaries.ts",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/boundaryMemory.ts",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/closedBackend.ts",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/core.ts",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/entry.ts",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/fixtureSetup.ts",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/graphIsolation.mjs",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/index.html",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/ioFence.ts",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/main.tsx",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeLeaves.ts",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/sdk.ts",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/vite.config.mjs",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/vitest.config.mjs",
+        "tests/E2eeFullAppAuthProjection.test.ts",
+        "tests/E2eeFullAppBoundaries.test.ts",
+        "tests/E2eeFullAppGraphIsolation.test.ts",
+        "tests/E2eeFullAppIoFence.test.ts",
+        "tests/E2eeFullAppMount.test.tsx",
+        ".gitignore",
+        "docs/SCUTTLEBUTT_E2EE_CHECKPOINT.md",
+        "docs/SCUTTLEBUTT_E2EE_REVIEW_BRIEF.md",
+        "experiments/scuttlebutt-e2ee/app-pilot/PrivateMessageResearchApp.tsx",
+        "experiments/scuttlebutt-e2ee/pilot/tsconfig.json",
+        "experiments/scuttlebutt-e2ee/pilot/vitest.config.mjs",
+        "tests/PrivateMessageResearchApp.test.tsx"
+    ],
+    "sourceHashes": {
+        ".gitignore": "8fc6505fbab3653745fac4906f6685b71f22b763097d51b12e7de1da7fa129c9",
+        "App.tsx": "a1ba182bded8592093c4a6002183ee91064877d54e971c1e1a3f8962d58512ae",
+        "components/ChatPage.tsx": "53226bf670af117510e7eb32d11a17f1fbf7d8c2382cc151abe24499b226d45e",
+        "components/LegacyChatPage.tsx": "13cac8a0063a10c08b0375ffb23f8f3df8f77344ccf44145751c457f0754f04e",
+        "context/ThalassaContext.tsx": "d4a9cf8c8712507ae3a0e16a1a707a3ed6ee75f4c4fb02ccf46649fd3efbd42e",
+        "contexts/CrewCountContext.tsx": "a71ea12599c9c16ad6ec880141499fd938b5a50a922edcea463658e630014076",
+        "docs/SCUTTLEBUTT_E2EE_CHECKPOINT.md": "23baa6fce9e2d265d970a0ea7c094cbd8c377de9b1636de1540c12fad15b8393",
+        "docs/SCUTTLEBUTT_E2EE_REVIEW_BRIEF.md": "68a4566cc78ac11a41ec496d46debefd44bed433af462983384777bda40f7c7d",
+        "env.d.ts": "c6ae6dd4d5d750d9c517ae8905e381d6218ed5b82f3cd933150398f11aaf9c18",
+        "experiments/scuttlebutt-e2ee/app-pilot/PrivateMessageResearchApp.tsx": "2614a3a2e76a330766bb52e66859da8d9373b6f35c3f6705ba43406bd3faf574",
+        "experiments/scuttlebutt-e2ee/app-pilot/runtime.ts": "31ba62ac837237d325ac795b5e57d49e3157a5689bc2bb2c0d72f3cea726e64b",
+        "experiments/scuttlebutt-e2ee/bridge-web/auth.ts": "6bf86f1e00a8c76cf15550aa70b430b16bf8ab8fa19854f529a61e48c5e07d6c",
+        "experiments/scuttlebutt-e2ee/bridge-web/privateAdmissionSource.ts": "42528c2cccf75484a3a51f548c4e603fd4ec31ce7c7a3360dd12683d140d3f58",
+        "experiments/scuttlebutt-e2ee/bridge-web/privateMessagePort.ts": "718e4d7ee54f6f41681d7d7285624dbf5bf9480b58481a2f5a5815a04ffc2a2c",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/FullAppResearchRoot.tsx": "801c5f0a0fe0497b62020a966d60cb7a3b92a0f5f75a87e83ad520ef00bf2153",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/authProjection.ts": "c0f69d1fd52cf305b8a99ac2a9f4c4c93d392a48e1d4d9769426deca4ca303b5",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/authStore.ts": "50ee4c3b6064de2d61684466fded0881b709abefd271b46209d5be88fe2d6ec3",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/boundaries.ts": "b053538e8b7b49ffdd74e6289230f5b87d76698012321c2c6543e4fa93e75085",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/boundaryMemory.ts": "966e807664188b2b36a53b2b638df9372946d06fb0476c4aa7c63ebd89c7cfab",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/closedBackend.ts": "8ca77fb51f56874ec80749e94ad6ddabad7e95aeab1615d577b5cfc4d7eb8d93",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/core.ts": "7b45729a77bb06e68c71948eb67d27a2ddac80180a9ed511e4eca94b2dfebcd1",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/entry.ts": "f8332490f06e39e8d9253f96dca46c56e50bb5243e640ce37eb4819e9ab7fd03",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/fixtureSetup.ts": "6c600cba180f0a392530d926234b3463fed973467415856182a821f8e2442827",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/graphIsolation.mjs": "ffca0466de1815bd293678e9e16f30dd4c52e08650c068d0f680395a6832ab83",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/index.html": "5efeb3f7227567a5f6bf41ff76ed62235eba4585c3e781be154ae1ac1445b6cc",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/ioFence.ts": "1f8520a564d59d97c459712788f94f38f0281fe096a71632168464bafc0a7f65",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/main.tsx": "578d2870ca6c683d13a9be35b1aeb8b1420f8354984cc602bc0d03f6e840e9a6",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeLeaves.ts": "9fea29db4fbb0549dec40867393583266950e9ae9ab5624e94b8af4b727aa82b",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/sdk.ts": "8abec7b25adddc8927748cb3d5a3ad4152fd3b48219c9793ef2fa3cd64f0aac2",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/vite.config.mjs": "6614205bc0e085a9c17e690c46d11a22999101b50f71d725b9e5a2fbb3dc11f6",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/vitest.config.mjs": "0d102632dffa6152c0a4915458ba275dfbe0a55728e9bbede170b648e494a15f",
+        "experiments/scuttlebutt-e2ee/pilot/tsconfig.json": "53e93e3230d3db27e604c85a74e85eb7d419e84c61a6c0dc3ffc39a944c2d07f",
+        "experiments/scuttlebutt-e2ee/pilot/vitest.config.mjs": "39856748d477144a279f29f44680b55ccc05ed7e21826a4b656e97a9e7529b4d",
+        "hooks/useAppBootstrap.ts": "413ce91c640e0f9b847e064691ccb7f7a272abffd2a77ad3646a746a78f58e2b",
+        "index.tsx": "9561dc89d77b04ea209b4ed842cb8f42f3776d266e335f213793e2ece219bf5a",
+        "package-lock.json": "230cf218a5a6f7c6eb368a2ca8b6019e1d9b16338fa4017d821af8665cf32932",
+        "package.json": "14bed644ea682828e92c3922370879a1e05531bbadb3ffcbc3161c7f6711ec07",
+        "services/ChatService.ts": "812c863bf98f1cd4908ca0812652c1e428ec800c354c8abc99c8f450fe44a7bb",
+        "services/GuardianService.ts": "c4f119b838e850a1848c5904785606d9e540d497d347f3f616e80cc619ba4619",
+        "services/chat/e2ee/appPrivateMessageSelection.ts": "69db118f4c0ae1a27049787879fb8b2fcbb707d4cacc03f777157eaf78f9d738",
+        "services/chat/e2ee/nativePrivateMessagePilot.ts": "49ab02fa11a03f2059e940e09667b24ef3a01c305b81c0e1819a0f08a169ef2f",
+        "services/chat/e2ee/privateMessageCutover.ts": "2216a6459be8afe06856271839073deb44171d48d66ca1f907bc73c622a1ca85",
+        "services/supabase.ts": "11af672ceff105c7db68c9024542da70ce0555a8f9b4a431c265c2187bca47d4",
+        "src/components/leaflet-velocity-ts.d.ts": "55d1bec7c291903a672f4ecf577cc6844db9198d33731c7ac7283e890c559a4c",
+        "stores/authStore.ts": "6b46b9de630789b164fdb341bb22efa50a4c700247fb68e4147e6d3c2d8e5b32",
+        "stores/uiStore.ts": "76321029cdd340bf1105e06b41a59a89aed37355ec8965273b7321df486ba6c9",
+        "tests/E2eeFullAppAuthProjection.test.ts": "4e0d40caf91b26cbbadef5b4b73f700c6c5de94feb53f24d2cce647bea33a995",
+        "tests/E2eeFullAppBoundaries.test.ts": "8ac88e9e6de18b722e84c4db19001726b6da31a8474ad8cae30a07848ff5708c",
+        "tests/E2eeFullAppGraphIsolation.test.ts": "16e035668a7c835ed854e19ee0d0b508b04b868c4004943742cfc5d18af6d29c",
+        "tests/E2eeFullAppIoFence.test.ts": "5eb9980f2b07992ae199f63a2ba613028111ca3518f0013d21e00dda89f1361b",
+        "tests/E2eeFullAppMount.test.tsx": "bcf9d87262bdb01f6577ed662a9ff307d1c24617106fa59ec0bee637df4e211b",
+        "tests/PrivateMessageResearchApp.test.tsx": "672ab85a373850b6290d639d0cdcfa0adad881db44ccff006efceea093c1fd35",
+        "tests/setup.ts": "7074c31a369ddd3bc9d2049c062846bad130bd27ffa0e663f6741a648e966b35",
+        "tsconfig.json": "1c73098595b885739b2b55d535084f53a2ef1a8b423c1ad180b5dde6182c4ac3",
+        "viewRegistry.tsx": "103a55c49edb5646809979db8b146d89a8f23f08e832f5328010230b5db48898"
+    },
+    "postMountAndTypeConfigChanges": [
+        {
+            "path": "experiments/scuttlebutt-e2ee/full-app-pilot/vite.config.mjs",
+            "beforeSha256": "2f8ec4a2e117db50fc1528299cc1adb10b52e32eca2e701c74b427ea1d238520",
+            "afterSha256": "6614205bc0e085a9c17e690c46d11a22999101b50f71d725b9e5a2fbb3dc11f6"
+        },
+        {
+            "path": "tests/E2eeFullAppGraphIsolation.test.ts",
+            "beforeSha256": "4cb0edf66146b073e9d1b398fa9bca2305b2f85fe9030e42bf8ed67f4acddbe3",
+            "afterSha256": "16e035668a7c835ed854e19ee0d0b508b04b868c4004943742cfc5d18af6d29c"
+        }
+    ],
+    "preservedProductionSources": [
+        {
+            "path": "App.tsx",
+            "workingSha256": "a1ba182bded8592093c4a6002183ee91064877d54e971c1e1a3f8962d58512ae",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "viewRegistry.tsx",
+            "workingSha256": "103a55c49edb5646809979db8b146d89a8f23f08e832f5328010230b5db48898",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "index.tsx",
+            "workingSha256": "9561dc89d77b04ea209b4ed842cb8f42f3776d266e335f213793e2ece219bf5a",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "stores/authStore.ts",
+            "workingSha256": "6b46b9de630789b164fdb341bb22efa50a4c700247fb68e4147e6d3c2d8e5b32",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "hooks/useAppBootstrap.ts",
+            "workingSha256": "413ce91c640e0f9b847e064691ccb7f7a272abffd2a77ad3646a746a78f58e2b",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "services/ChatService.ts",
+            "workingSha256": "812c863bf98f1cd4908ca0812652c1e428ec800c354c8abc99c8f450fe44a7bb",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "services/GuardianService.ts",
+            "workingSha256": "c4f119b838e850a1848c5904785606d9e540d497d347f3f616e80cc619ba4619",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "services/BgGeoManager.ts",
+            "workingSha256": "1eee1203f77e637b2f9dbe9b2467bec0df54a5acb4be7dd668648c48ed4b165c",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "services/supabase.ts",
+            "workingSha256": "11af672ceff105c7db68c9024542da70ce0555a8f9b4a431c265c2187bca47d4",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "components/LegacyChatPage.tsx",
+            "workingSha256": "13cac8a0063a10c08b0375ffb23f8f3df8f77344ccf44145751c457f0754f04e",
+            "unchangedFromHead": true
+        }
+    ],
+    "toolchain": {
+        "nodeExecPath": "/opt/homebrew/Cellar/node@24/24.19.0/bin/node",
+        "nodeVersion": "v24.19.0",
+        "nodeBinary": {
+            "path": "/opt/homebrew/Cellar/node@24/24.19.0/bin/node",
+            "sha256": "c8eedc7651a438fb7d2ceb36fd70032676c855586a36c950ba5a662f0b7853bd"
+        },
+        "vitestNodeFlags": ["--no-experimental-webstorage"],
+        "sharedDependenciesWritten": false,
+        "installedPackageMetadata": [
+            {
+                "name": "vite",
+                "version": "7.3.6",
+                "path": "/Users/shanestratton/Projects/thalassa-marine-weather/node_modules/vite/package.json",
+                "sha256": "e5ed0f85215f871fe22a48987dcd77fcfbe14064a53c0c9f7f48186a6b7e2cf0"
+            },
+            {
+                "name": "vitest",
+                "version": "4.1.10",
+                "path": "/Users/shanestratton/Projects/thalassa-marine-weather/node_modules/vitest/package.json",
+                "sha256": "caa41f04799bd42f3cfd100c4282e630d77ffc7deb1e7e4927794fcb7f137f34"
+            },
+            {
+                "name": "typescript",
+                "version": "5.9.3",
+                "path": "/Users/shanestratton/Projects/thalassa-marine-weather/node_modules/typescript/package.json",
+                "sha256": "822ef7ca6452205657b6288b066481ecf508bfbf43455d715cf7d3ec457561e6"
+            },
+            {
+                "name": "eslint",
+                "version": "9.39.5",
+                "path": "/Users/shanestratton/Projects/thalassa-marine-weather/node_modules/eslint/package.json",
+                "sha256": "361210aa42b55fd814c48a01e3724559ec6f0f3e1c021d0f8aa2e8b00276060e"
+            },
+            {
+                "name": "prettier",
+                "version": "3.8.1",
+                "path": "/Users/shanestratton/Projects/thalassa-marine-weather/node_modules/prettier/package.json",
+                "sha256": "b73c6d16f392858c9bad2b4b4d2357c96773676d5769c5e6b700a32be7609f2e"
+            },
+            {
+                "name": "react",
+                "version": "18.3.1",
+                "path": "/Users/shanestratton/Projects/thalassa-marine-weather/node_modules/react/package.json",
+                "sha256": "d4e68a5c96babb20cad1daafea8b78822eae45b341552cf5418d06a5304fa64c"
+            },
+            {
+                "name": "react-dom",
+                "version": "18.3.1",
+                "path": "/Users/shanestratton/Projects/thalassa-marine-weather/node_modules/react-dom/package.json",
+                "sha256": "d2f29e31bd48b833e48cd7bbf41f192e8ee4ff8da249fdbe10d4ac4114b8b12e"
+            },
+            {
+                "name": "@dnd-kit/core",
+                "version": "6.3.1",
+                "path": "/Users/shanestratton/Projects/thalassa-marine-weather/node_modules/@dnd-kit/core/package.json",
+                "sha256": "4da9a60c80aa9c0564d1f31ba1502058f2b84240842269c6d54801c8d3175d77"
+            },
+            {
+                "name": "@dnd-kit/utilities",
+                "version": "3.2.2",
+                "path": "/Users/shanestratton/Projects/thalassa-marine-weather/node_modules/@dnd-kit/utilities/package.json",
+                "sha256": "c1f7cb1b258509c1fdccf9b23d072f0b81fc56498be0a6334189342b5cb8a477"
+            }
+        ],
+        "ownedSortable": {
+            "archive": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-owned-route-dependency-XTzaw8/sortable-8.0.0.tgz",
+                "sha256": "a6b456b38c0acbbdced158f8690ff1ca4df7e703ea469b897a73a17c1ba47850",
+                "lockIntegrity": "sha512-U3jk5ebVXe1Lr7c2wU7SBZjcWdQP+j7peHJfCspnA81enlu88Mgd7CC8Q+pub9ubP7eKVETzJW+IBAhsqbSu/g==",
+                "moduleMatchesArchive": true
+            },
+            "module": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-owned-route-dependency-XTzaw8/package/dist/sortable.esm.js",
+                "sha256": "f066edb9e8380d7a8e7b4e0bd7bc3c646aa790d5cadb8e7fee4f19ba04007fc6"
+            },
+            "declaration": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-owned-route-dependency-XTzaw8/package/dist/index.d.ts",
+                "sha256": "528288d7682e2383242090f09afe55f1a558e2798ceb34dc92ae8d6381e3504a",
+                "matchesArchive": true
+            },
+            "historicalDeclarationReceipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-owned-route-dependency-XTzaw8/dependency-receipt.json",
+                "sha256": "57d07e74d37397abeda1ae7454aace80a1c7514ee98d44796521310588ca778c"
+            },
+            "packageInstalled": false,
+            "note": "Owned sortable JavaScript is available only to the private compilation harness; the repaired build was not dispatched. The historical declaration receipt did not execute it. No runtime or independently attested dependency provenance claim."
+        }
+    },
+    "executed": {
+        "overlappingPilotBaseline": {
+            "passed": true,
+            "nodeVersion": "v24.19.0",
+            "tests": 847,
+            "suites": 37,
+            "pureSuitesAtBaseline": [
+                {
+                    "suite": "E2eeFullAppAuthProjection.test.ts",
+                    "tests": 42,
+                    "passed": 42
+                },
+                {
+                    "suite": "E2eeFullAppBoundaries.test.ts",
+                    "tests": 23,
+                    "passed": 23
+                },
+                {
+                    "suite": "E2eeFullAppGraphIsolation.test.ts",
+                    "tests": 35,
+                    "passed": 35
+                },
+                {
+                    "suite": "E2eeFullAppIoFence.test.ts",
+                    "tests": 19,
+                    "passed": 19
+                }
+            ],
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-frozen-final-9CNOng/pilot-receipt.json",
+                "sha256": "937d2ed346d793f12540ecddeba1f1c0f1c9a3d6245334c05e9aaad1042f67cb"
+            },
+            "stdout": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-frozen-final-9CNOng/pilot.stdout.log",
+                "sha256": "eb284933f30fddd40ac4bb3195eb632bcc9763d223b8867a1a6b4f1dc8e46959"
+            },
+            "stderr": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-frozen-final-9CNOng/pilot.stderr.log",
+                "sha256": "46a567c97a4657425877ad0cd7de566c710b6c7f53b0974bf4e9692c9b389716"
+            },
+            "jsonReport": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-frozen-final-9CNOng/pilot-report.json",
+                "sha256": "b9d72dcab369e11bbb60e818d84aceefe200e2d59484fe18e9af0ac966329cac"
+            },
+            "finalSourceChanges": [
+                {
+                    "path": "experiments/scuttlebutt-e2ee/full-app-pilot/boundaries.ts",
+                    "beforeSha256": "f56ff9d3edd636810997cd8f5bd1931b72b54e249d7857fc399cced5aed10f38",
+                    "afterSha256": "b053538e8b7b49ffdd74e6289230f5b87d76698012321c2c6543e4fa93e75085"
+                },
+                {
+                    "path": "experiments/scuttlebutt-e2ee/full-app-pilot/graphIsolation.mjs",
+                    "beforeSha256": "cf8b40ccd43a9150f50a7086b6a80d00c23a5d5446f80e9721550c423b6d6729",
+                    "afterSha256": "ffca0466de1815bd293678e9e16f30dd4c52e08650c068d0f680395a6832ab83"
+                },
+                {
+                    "path": "experiments/scuttlebutt-e2ee/full-app-pilot/vite.config.mjs",
+                    "beforeSha256": "2f8ec4a2e117db50fc1528299cc1adb10b52e32eca2e701c74b427ea1d238520",
+                    "afterSha256": "6614205bc0e085a9c17e690c46d11a22999101b50f71d725b9e5a2fbb3dc11f6"
+                },
+                {
+                    "path": "tests/E2eeFullAppBoundaries.test.ts",
+                    "beforeSha256": "b1af3bc548afe4f1a6e9e02dfd96cb938b4c55e2ac0020a0a878468674ecc690",
+                    "afterSha256": "8ac88e9e6de18b722e84c4db19001726b6da31a8474ad8cae30a07848ff5708c"
+                },
+                {
+                    "path": "tests/E2eeFullAppGraphIsolation.test.ts",
+                    "beforeSha256": "ecde8c9cf179a8d12452a715ecd60dc9e50f316b1a0d8a6a7843269bfb587504",
+                    "afterSha256": "16e035668a7c835ed854e19ee0d0b508b04b868c4004943742cfc5d18af6d29c"
+                }
+            ],
+            "note": "847/37 is the broad baseline before the final exact BgGeoManager closure. The final affected suites, mount and checks below cover the changed slice. Counts overlap and must not be added. Deliberate rejected native lazy-import error-boundary diagnostics were expected; no unhandled errors were reported."
+        },
+        "affectedFinalSuites": {
+            "passed": true,
+            "nodeVersion": "v24.19.0",
+            "tests": 38,
+            "suites": 1,
+            "affectedSuites": [
+                {
+                    "suite": "E2eeFullAppGraphIsolation.test.ts",
+                    "tests": 38,
+                    "passed": 38
+                }
+            ],
+            "receipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/focused-receipt.json",
+                "sha256": "269d5bd2f5c6a50cdb3472e37f85929427e2bcc1876a2a8b96b36e73fa5bb6a8"
+            },
+            "stdout": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/focused.stdout.log",
+                "sha256": "cbad37aa7af728766600d6aef2243c506e3f451ea092eb89b29b7a5c1a61e204"
+            },
+            "stderr": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/focused.stderr.log",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            "jsonReport": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/focused-report.json",
+                "sha256": "7af20b9d3f1dbcd924df19a1e6c83e5e8a4f0175ecc2122b1e38e05557f1cfde"
+            },
+            "note": "Only the final 38-case graph/config fixture rerun after the worker format/isolation factory repair; unchanged broad/Auth/I/O/Boundary/mount/type checks were not repeated."
+        },
+        "closedBackgroundGpsCases": {
+            "passed": true,
+            "tests": 26,
+            "suites": 1,
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/focused-receipt.json",
+                "sha256": "6a6a62e55ce3f5e05bc6ad28c6eb86079ab26c33007902c8637d3fc66040add2"
+            },
+            "stdout": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/focused.stdout.log",
+                "sha256": "5956e532fbcaee1c842983e2c01e72d153bc611e00d420f39f49ab3c5fb8640f"
+            },
+            "stderr": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/focused.stderr.log",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            "jsonReport": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/focused-report.json",
+                "sha256": "4e95540fc4d3d40d673ae89303b36d634e96bb7beeda6633568b88a81b306b1e"
+            },
+            "note": "26 current-byte Boundaries cases passed within the 63-case two-suite run before the worker config repair. Boundary source/test bytes remain unchanged. The old Graph cases overlap the newer 38-case graph/config run and must not be added."
+        },
+        "actualAppJsdomMount": {
+            "passed": true,
+            "nodeVersion": "v24.19.0",
+            "tests": 1,
+            "suites": 1,
+            "fixtureSpyCounters": {
+                "fixture": "actual-app-unsupported-jsdom",
+                "fetchAttempts": 0,
+                "browserConstructorAttempts": 0,
+                "nativeProxyAttempts": 0,
+                "sdkConstructions": 0,
+                "runtimeFactoryCalls": 2
+            },
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/mount-receipt.json",
+                "sha256": "8c7855469feb1e550093ff235474a1a75bab2eda7584dcd0b73df6a3891f5e7e"
+            },
+            "stdout": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/mount.stdout.log",
+                "sha256": "88b83cce44fc4527667d41a30367e5ff79f19f47483632197b6f5ea4b2d24921"
+            },
+            "stderr": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/mount.stderr.log",
+                "sha256": "b4c7974f38b553a153301ce8343fb65b6bc82c6832e7a3088640f7b8347c4ff0"
+            },
+            "jsonReport": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/mount-report.json",
+                "sha256": "8722f47168be25001017ed2ef9c870ca68b8f542d93309d7699b361a686190fd"
+            },
+            "note": "Direct root import bypasses entry.ts. Real App/providers/bootstrap/registry run with graph substitutions and supported() false. Fixed counters extracted from the hashed stdout cover only supplied rejecting spies and factory invocations; reporter ANSI formatting prevented the optional top-level receipt extraction."
+        },
+        "focusedStrictTypes": {
+            "passed": true,
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/types-receipt.json",
+                "sha256": "3a0169b1435a7a7280a3a6c6da727fa5aee4f6aaa91859e820f36d164c8b491d"
+            },
+            "config": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/tsconfig.json",
+                "sha256": "dd00d68465dde8d77803c526897fdde95fee4a977714d5d6cc06d411d9d49f17"
+            },
+            "template": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-types-LfgJq3/tsconfig.json",
+                "sha256": "dd00d68465dde8d77803c526897fdde95fee4a977714d5d6cc06d411d9d49f17"
+            },
+            "stdout": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/types.stdout.log",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            "stderr": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/types.stderr.log",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            "note": "Actual App/runtime and then-current test graph included with existing declarations; missing sortable resolves only from owned lock-verified upstream declaration and exact existing peer/React paths. The receipt precedes only the final worker MJS config and added Graph fixture; checked runtime sources remain unchanged. New Graph fixture was executed/linted, not included in a repeated strict type run. JavaScript resolver/config bodies are not statically typechecked; repaired compilation is queued."
+        },
+        "namedLint": {
+            "passed": true,
+            "receipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/lint-receipt.json",
+                "sha256": "96138e9caebd3e3e0036bc2b14b0b44906177efd88144edd86a4b53965dc6a1e"
+            },
+            "stdout": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/lint.stdout.log",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            "stderr": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/lint.stderr.log",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+        },
+        "namedFormatting": {
+            "passed": true,
+            "receipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/format-receipt.json",
+                "sha256": "42f65d69a3acc01ff66d44befd51d8944b97520f551a804bb633a9b4d2a361af"
+            },
+            "stdout": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/format.stdout.log",
+                "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+            },
+            "stderr": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/format.stderr.log",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+        },
+        "isolatedViteBuild": {
+            "status": "queued-unrun",
+            "passed": null,
+            "guardReceipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/build-guard-receipt.json",
+                "sha256": "a739da8e53b66f329d633a81cd6c29af981c0cebb8fd7858b1611af6c33be2f9"
+            },
+            "driver": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/build-proof.mjs",
+                "sha256": "791d45a53e15919786367e53b8b78537ea2750e85f9b72be22ca689dfad69bca"
+            },
+            "priorFailedReceipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-frozen-final-9CNOng/build-receipt.json",
+                "sha256": "de9e697038f1bb4c0b7bfa547f03407a9b155cce028269f962989a8cb7f440a5"
+            },
+            "note": "Competing healthy shared-Mac jobs exhausted the bounded remaining slot opportunity. No current-source Vite build was dispatched, and no compile or artifact success is claimed."
+        }
+    },
+    "retainedFailures": [
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/documentation-receipt.json",
+                "sha256": "4686cfca36fbc3a11857e4540b3770eddf80960adcf3fc2bcf384dfee07c058e"
+            },
+            "failure": "Initial documentation-format check required only machine-generated manifest JSON formatting. Markdown source and application/test behavior were unchanged."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-focused-34gWO2/checks.json",
+                "sha256": "2d234a7cb468f4cb1549707b7b05e65710bedc1ab9fc92ff0e2bf7e67473d65a"
+            },
+            "failure": "Malformed null Auth publication collided with the missing blocked-snapshot sentinel; a dedicated sentinel and four reentrancy cases corrected denial."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-mount-QPq2KE/checks.json",
+                "sha256": "75d76b4870ddd4b96e25676424f2e37eb7ee010e89e5d7f137a77487783d281c"
+            },
+            "failure": "Initial nominal mount pass emitted a jsdom lazyRetry reload warning; it is not a clean actual App mount."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-mount-strict-p4WsZg/checks.json",
+                "sha256": "b6faf723f2c3ea3704282810405bfd784a3e389834913c9686c70f27a3f011b8"
+            },
+            "failure": "Strict settled-mount observation exposed a missing ShipLogService.getCurrentVoyageId closed-leaf getter."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-types-LfgJq3/checks.json",
+                "sha256": "c79a22a83e41eaa71016c0094b4d84a6cfbf02054fc26c8913ccfc92bfb3d72e"
+            },
+            "failure": "TypeScript inferred a nullable captured host in ioFence; an explicitly checked alias corrected narrowing."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-lint-TUBtHE/checks.json",
+                "sha256": "89ed6d12f761aa534d0e2753ad0443ebb0bb0f5b844f8a27d12dd6d6bb1dc976"
+            },
+            "failure": "Named lint rejected a control-character regex; a bounded char-code predicate replaced it."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-build-3z936Q/build-receipt.json",
+                "sha256": "ee8a2b577617ea2de2286041fed821c511875eaaa412c79eec86c1e9aa9bc2db"
+            },
+            "failure": "Initial isolated Vite build refused ChatService runtime SDK classifier import after 340 transformed modules; the exact classifier projection and package path gates were corrected."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-final-UdCTcx/mount-receipt.json",
+                "sha256": "c3754bd0646ceb72ef6d9a4434b81dda9625588d36ab02bc137c5424d22531bd"
+            },
+            "failure": "Fresh allowlisted Node26.5.0 jsdom mount failed because the Node global localStorage was undefined. Final jsdom checks use explicit Node24.19.0 with --no-experimental-webstorage, no inherited NODE_OPTIONS or persisted browser storage."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-node24-final-chwsrS/format-receipt.json",
+                "sha256": "d420e0f3e0169a4d98a225498004d83649ae7325377fa2a501720ca44c5d9f03"
+            },
+            "failure": "Named formatting found one fixture requiring Prettier: E2eeFullAppBoundaries.test.ts. Only that file was mechanically formatted; application behavior and assertions were unchanged."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-frozen-final-9CNOng/build-receipt.json",
+                "sha256": "de9e697038f1bb4c0b7bfa547f03407a9b155cce028269f962989a8cb7f440a5"
+            },
+            "failure": "Isolated Vite build refused an unmapped native runtime dependency. Read-only source/hook inspection identified the runtime enum import from BgGeoManager; final graph closes that complete service instead of admitting its enums package."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-frozen-final-9CNOng/build-guard-failure.json",
+                "sha256": "962a11ee97651a5e7fc3286e9572933333d510e4f9491f4cb6717ff80b02a8f3"
+            },
+            "failure": "Owned wrapper refused EEXIST when publishing to the child build receipt filename. Fresh wrapper publishes build-guard-receipt.json separately; original failed child receipt and logs are unchanged."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/build-receipt.json",
+                "sha256": "1112e509e43cadc8e613c859d9cbadfc7842e2a68de55f8e0f45e51765f185ea"
+            },
+            "failure": "Default IIFE worker format refused navGrid module-worker code splitting. Final isolated config independently chooses ES workers and creates one fresh closed graph for every worker build; no ordinary Vite config is imported."
+        }
+    ],
+    "retainedEarlierPasses": [
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-mount-corrected-tVD081/checks.json",
+            "sha256": "627d915e1447ef8c289a0433251f0dc326192e7d9494abd1dcb3df2c4ac34b3e"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-regression-ZB4Ch5/checks.json",
+            "sha256": "2b347f47e1b31c62d9629b4b9852bd8ee3fd1f1789926d734b23d9750129c43b"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-types-final-E3jK4s/checks.json",
+            "sha256": "0ab6070654b8a64dbe99bcd4bd958c618e60d781172c8fb1bb4618139aa96ce3"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-final-UdCTcx/pilot-receipt.json",
+            "sha256": "3655d0ec3633dd123999a779c25be21ef7b47dca958a86b84bcb3a2bd7983480"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-node24-final-chwsrS/pilot-receipt.json",
+            "sha256": "7e7bc61f3ddde3535d3aee434bf4e10c6b297b14938bd1e8d3f290778bb896f2"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-node24-final-chwsrS/mount-receipt.json",
+            "sha256": "51da58e2bb716cfa8330d0d35dc1ef8dbab6bebaaa4c0e0e0ae5640ffecc4471"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-node24-final-chwsrS/types-receipt.json",
+            "sha256": "806bc84ecd76e43eed13567d6ec43d05e8ac6d1883b3055e363097ade26a4174"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-node24-final-chwsrS/lint-receipt.json",
+            "sha256": "f847682e86eb97e814a35f0fc624d90918a362c34c6b4a396d663eabbaab234b"
+        }
+    ],
+    "evidenceLimits": [
+        "Four pure suites use synthetic Auth publications, fake host APIs and closed service/plugin leaves. Their passes do not establish SDK/native/provider/Keychain execution.",
+        "Actual App/providers/bootstrap/registry mount is unsupported browse-mode jsdom and fresh root remount. It directly imports FullAppResearchRoot, bypasses entry.ts, and never installs ioFence into a real Window.",
+        "Supabase User remains null even when native public metadata is projected. authChecked true settles browse presentation and confers no authenticated App identity, messaging permission, peer trust or encryption.",
+        "The build resolver admits package-internal authority loading only after an exact Research bare-package selection and refuses ordinary direct/deep/absolute/file:/@fs/hash Supabase SDK/core references. Family-level package loading is a trusted build graph contract, not a runtime sandbox or provenance attestation.",
+        "The exact ChatService isAuthRetryableFetchError projection returns false without selecting or evaluating the SDK. The actual SDK factory remains private to the existing single Research runtime and is not exercised by the unsupported mount.",
+        "The I/O fence replaces known Window APIs and retains the pinned Auth transport privately. Fake-host tests cannot prove real Window installation, native backstop, nonconfigurable Location denial, captured transport closure or resistance to malicious same-origin code.",
+        "Compilation does not execute the full root, SDK/Auth, native plugin, provider or ciphertext exchange. Previous dedicated Research WKWebView/native/hosted receipts remain separate and do not transfer to this full root.",
+        "No actual full Root Window/native run, supported protected navigation, device lifecycle/recovery or current physical acceptance is claimed; there is no ship-ready/master-ready or independent security assessment claim."
+    ],
+    "remainingGates": [
+        {
+            "gate": "Current-source isolated full App compilation",
+            "state": "queued-shared-slot"
+        },
+        {
+            "gate": "Actual full Root Window entry/I/O fence/CSP/platform and unsupported/remount acceptance",
+            "state": "next-unrun"
+        },
+        {
+            "gate": "Actual full Root native supported admission and protected navigation/lifecycle races",
+            "state": "unrun"
+        },
+        {
+            "gate": "Actual initiator Research UI and adversarial retry/lifecycle",
+            "state": "unrun"
+        },
+        {
+            "gate": "Multi-peer/device/prekey lifecycle, renewal/replacement, retention and recovery policy",
+            "state": "incomplete"
+        },
+        {
+            "gate": "Production legacy SQL/notification worker and rollout/cutover",
+            "state": "not-activated"
+        },
+        {
+            "gate": "Independent PostgreSQL concurrency",
+            "state": "incomplete"
+        },
+        {
+            "gate": "Physical iPhone/iPad acceptance of the current candidate",
+            "state": "requires-human"
+        },
+        {
+            "gate": "Dependency/licence obligations and fresh native binary provenance",
+            "state": "open"
+        },
+        {
+            "gate": "Independent security assessment",
+            "state": "uncommissioned-new-authority-required"
+        }
+    ],
+    "isolation": {
+        "masterMergedOrPushed": false,
+        "primaryEditedOrSynced": false,
+        "sharedDependenciesWritten": false,
+        "hostedChanges": false,
+        "humanResearchChanges": false,
+        "yachtOrShoreWatchChanges": false,
+        "productionActivation": false,
+        "externalSourceShared": false,
+        "reviewerContact": false,
+        "purchases": false
+    }
+}
