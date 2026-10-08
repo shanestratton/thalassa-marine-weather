@@ -53,6 +53,8 @@ const ALLOWED = new Map<string, string>([
 ]);
 
 const CAMERA_CALLS = new Set(['fitBounds', 'flyTo', 'easeTo', 'jumpTo']);
+/** A file with none of these words has no call paddingOffences could flag. */
+const CAMERA_CALL_TEXT = /\b(?:fitBounds|flyTo|easeTo|jumpTo|setPadding)\b/;
 
 interface PaddingOffence {
     file: string;
@@ -182,13 +184,18 @@ describe('no camera move leaves its padding on the map', () => {
         expect(files).not.toContain('vite.config.ts');
     });
 
+    // Only files that name a camera call can offend (paddingOffences flags
+    // nothing else), so the TypeScript parse is skipped for the rest. Parsing
+    // every file timed out at 20 s on a loaded CI runner (run 37836431282).
     it('every padded fitBounds/flyTo/easeTo/jumpTo says retainPadding: false, and nothing sets a padding', () => {
         const offences = files
             .filter((file) => !ALLOWED.has(file))
-            .flatMap((file) => paddingOffences(file, read(file)))
+            .map((file) => [file, read(file)] as const)
+            .filter(([, text]) => CAMERA_CALL_TEXT.test(text))
+            .flatMap(([file, text]) => paddingOffences(file, text))
             .map((o) => `${o.file}:${o.line} ${o.call} ${o.why}`);
         expect(offences).toEqual([]);
-    });
+    }, 60_000);
 
     it('each exemption still has a padded call to exempt', () => {
         for (const file of ALLOWED.keys()) {
