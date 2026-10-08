@@ -87,11 +87,31 @@ describe('boat receiver provenance at the wire boundary', () => {
         const row = telemetry({ reportedAt: NOW - 5_000 });
         world.readOnce.mockResolvedValue({
             ...row,
-            snapshot: { ...row.snapshot, twsKts: 14, twdDeg: 200, twaDeg: -40, windSampleAt: NOW - 3_000 },
+            snapshot: {
+                ...row.snapshot,
+                twsKts: 14,
+                twdDeg: 200,
+                twaDeg: -40,
+                windSampleAt: NOW - 3_000,
+                // Pi update 1 (125): the TWD reading's own time rides along too.
+                twdSampleAt: NOW - 4_000,
+            },
         });
-        expect(await cloudFix(NOW)).toMatchObject({ twsKts: 14, twdDeg: 200, twaDeg: -40, windSampleAt: NOW - 3_000 });
+        expect(await cloudFix(NOW)).toMatchObject({
+            twsKts: 14,
+            twdDeg: 200,
+            twaDeg: -40,
+            windSampleAt: NOW - 3_000,
+            twdSampleAt: NOW - 4_000,
+        });
         world.readOnce.mockResolvedValue(row);
-        expect(await cloudFix(NOW)).toMatchObject({ twsKts: null, twdDeg: null, twaDeg: null, windSampleAt: null });
+        expect(await cloudFix(NOW)).toMatchObject({
+            twsKts: null,
+            twdDeg: null,
+            twaDeg: null,
+            windSampleAt: null,
+            twdSampleAt: null,
+        });
     });
 
     it('rejects a phone-uploaded cloud row even when it is fresh and has valid coordinates', async () => {

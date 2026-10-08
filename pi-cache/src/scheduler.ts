@@ -365,51 +365,46 @@ async function prefetchRainRadar(cache: Cache, pf: PrefetchConfig): Promise<void
     if (tileCount > 0) console.log(`   🌧️ Cached ${tileCount} rain radar tiles`);
 }
 
-async function prefetchSynoptic(cache: Cache, _config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
-    const isNorthern = pf.lat > 0;
+export interface SynopticChart {
+    key: string;
+    url: string;
+    contentType: string;
+    headers?: Record<string, string>;
+}
 
-    // Synoptic charts are IMAGES — use tile cache, not JSON cache.
-    // Southern Hemisphere: BOM MSLP colour analysis (IDY00030) — updates at 00/06/12/18 UTC
-    // Northern Hemisphere: NOAA OPC Unified Surface Analysis
-    const charts: Array<{ key: string; url: string; contentType: string; headers?: Record<string, string> }> = [];
-
-    if (isNorthern) {
-        // NOAA OPC — region based on longitude
-        const isPacific = pf.lon < -30 || pf.lon > 100;
-        charts.push({
+/**
+ * The synoptic charts the pre-fetch keeps for a boat at lat/lon.
+ *
+ * Northern hemisphere: NOAA OPC's Unified Surface Analysis (US government
+ * work), the overview plus the Pacific or Atlantic chart by longitude.
+ *
+ * Southern hemisphere: none. Until Pi update 1 (build 125) this fetched the
+ * Bureau of Meteorology's MSLP analysis and its black-and-white chart every
+ * cycle; BOM's copyright terms do not allow commercial use, so the Pi no
+ * longer fetches either (scheduler.test.mts). Copies already cached expire
+ * with their 6 h TTL and the cache's own purge.
+ */
+export function synopticChartsFor(lat: number, lon: number): SynopticChart[] {
+    if (!(lat > 0)) return [];
+    // NOAA OPC — region based on longitude
+    const isPacific = lon < -30 || lon > 100;
+    return [
+        {
             key: 'synoptic:noaa:overview',
             url: 'https://ocean.weather.gov/UA/entire_UA.gif',
             contentType: 'image/gif',
-        });
-        charts.push({
+        },
+        {
             key: `synoptic:noaa:${isPacific ? 'pacific' : 'atlantic'}`,
             url: isPacific ? 'https://ocean.weather.gov/UA/OPC_PAC.gif' : 'https://ocean.weather.gov/UA/OPC_ATL.gif',
             contentType: 'image/gif',
-        });
-    } else {
-        // BOM MSLP colour chart — construct timestamped URL (nearest 6h UTC)
-        const now = new Date();
-        const utcH = now.getUTCHours();
-        const chartHour = Math.floor(utcH / 6) * 6; // 0, 6, 12, or 18
-        const ymd = now.toISOString().slice(0, 10).replace(/-/g, '');
-        const hh = String(chartHour).padStart(2, '0');
-        const timestamp = `${ymd}${hh}00`;
+        },
+    ];
+}
 
-        charts.push({
-            key: `synoptic:bom:mslp:${timestamp}`,
-            url: `https://www.bom.gov.au/fwo/IDY00030.${timestamp}.png`,
-            contentType: 'image/png',
-            headers: { 'User-Agent': 'Mozilla/5.0 ThalassaMarine/1.0' }, // BOM requires UA
-        });
-        // Also grab the simpler B&W chart (smaller, always available)
-        charts.push({
-            key: 'synoptic:bom:bw',
-            url: 'https://www.bom.gov.au/difacs/IDX0894.gif',
-            contentType: 'image/gif',
-        });
-    }
-
-    for (const chart of charts) {
+async function prefetchSynoptic(cache: Cache, _config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
+    // Synoptic charts are IMAGES — use tile cache, not JSON cache.
+    for (const chart of synopticChartsFor(pf.lat, pf.lon)) {
         if (cache.hasFreshTile(chart.key)) continue;
         try {
             await cachedTileFetch(cache, {

@@ -113,7 +113,15 @@ const KT = 1852 / 3600;
 function piRow(
     owner: string,
     at: { lat: number; lng: number },
-    wind: { tws: number | null; twd: number | null; twa?: number | null; windAt?: number | null; ageMs?: number },
+    wind: {
+        tws: number | null;
+        twd: number | null;
+        twa?: number | null;
+        windAt?: number | null;
+        /** The TWD reading's own time (extra.wind_twd_at_ms, Pi update 1); absent = an older Pi. */
+        twdAt?: number;
+        ageMs?: number;
+    },
 ): Record<string, unknown> {
     const now = Date.now();
     const age = wind.ageMs ?? 2_000;
@@ -123,6 +131,7 @@ function piRow(
         extra.wind_tws_at_ms = windAt;
         extra.wind_tws_source = 'ydwg-tcp.YD';
     }
+    if (wind.twdAt !== undefined) extra.wind_twd_at_ms = wind.twdAt;
     return {
         owner_id: owner,
         boat_id: `boat-${owner}`,
@@ -353,6 +362,22 @@ describe('Obs close-in wind: the followed boat’s own wind, from whichever lane
         renderObs(MARINA);
         await waitFor(() => expect(db.reads).toBeGreaterThan(0));
         expect(await settled()).toMatchObject({ source: 'model' });
+    });
+
+    // Pi update 1 (125): the Pi dates the TWD reading too. A heading dropout
+    // stops the gateway's MDA (TWD) while VWT (TWS) carries on.
+    it('a fresh TWS beside a TWD the Pi read five minutes ago: not her direction now, so the model', async () => {
+        db.rows = [piRow(OWNER, MARINA, { tws: 14, twd: 200, twdAt: Date.now() - 300_000 })];
+        renderObs(MARINA);
+        await waitFor(() => expect(db.reads).toBeGreaterThan(0));
+        expect(await settled()).toMatchObject({ source: 'model' });
+        expect(readout()!.kt).toBeCloseTo(8, 3);
+    });
+
+    it('a TWD the Pi read just now: her own wind', async () => {
+        db.rows = [piRow(OWNER, MARINA, { tws: 14, twd: 200, twdAt: Date.now() - 3_000 })];
+        renderObs(MARINA);
+        await waitFor(() => expect(readout()).toEqual({ kt: 14, fromDeg: 200, source: 'boat', stale: false }));
     });
 
     it('box on Current Location: the model, and Obs reads no row for the wind', async () => {
