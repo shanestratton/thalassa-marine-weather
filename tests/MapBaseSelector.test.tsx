@@ -43,7 +43,9 @@ function Harness({
 beforeEach(() => triggerHaptic.mockClear());
 
 describe('MapBaseSelector', () => {
-    it('offers Relief first, then Relief + Sat, Ocean, Satellite and Hybrid, then the ENC row', () => {
+    // Shane 2026-10-09: "remove the old satellite map". Hybrid (imagery with
+    // roads and names) stays; the old stitched Satellite base is gone.
+    it('offers Relief first, then Relief + Sat, Ocean and Hybrid, then the ENC row: no Satellite', () => {
         render(<Harness />);
         fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
         const menu = screen.getByRole('menu', { name: 'Map base' });
@@ -52,12 +54,13 @@ describe('MapBaseSelector', () => {
             'Relief',
             'Relief + Sat',
             'Ocean',
-            'Satellite',
             'Hybrid',
             'ENC charts',
         ]);
         expect(items[0]).toHaveAttribute('aria-checked', 'true');
-        expect(items[5]).toHaveAttribute('role', 'menuitemcheckbox');
+        expect(items[4]).toHaveAttribute('role', 'menuitemcheckbox');
+        expect(MAP_BASE_OPTIONS.map((option) => option.id)).not.toContain('satellite');
+        expect(screen.queryByRole('menuitemradio', { name: /^Satellite / })).not.toBeInTheDocument();
     });
 
     it('keeps the labels short enough for the top-centre pill and every description to one plain line', () => {

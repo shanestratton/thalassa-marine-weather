@@ -1,425 +1,70 @@
 /**
- * LiveMiniMap
- * Compact inline Leaflet map for embedding in voyage cards and the live tracking card.
- * Shows a track polyline on real nautical tiles, auto-fits bounds.
+ * LiveMiniMap — the little map on the Log page's cards: the live recording
+ * card (and its fullscreen view), and an expanded planned route.
  *
- * Usage:
- *   - Live Recording card: shows active track with pulsing vessel dot
- *   - Planned Route card: shows planned waypoints in violet (dashed)
- *   - Past Voyage card: shows completed track
+ * Since 125-13a it is Mapbox GL on Relief + Sat (components/LiveMiniMapGL.tsx,
+ * on components/map/logMap.ts), loaded here with import() so the Log page's
+ * own chunk does not carry it: mapbox-gl is the vendor chunk Obs already
+ * loads. While that chunk arrives the card keeps its size and colour, so
+ * nothing below it moves.
  *
- * Map is created once, track layers update reactively.
+ *   - Live Recording card: the active track with the boat's live dot
+ *   - Planned Route card: the planned route in violet
+ *   - Fullscreen (freeZoom): pans and pinches; a tap shrinks it
  */
-
-import React, { useEffect, useRef, useCallback, memo } from 'react';
-import { ShipLogEntry } from '../types';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import { piCache } from '../services/PiCacheService';
-import { isTrackworthyEntry } from '../services/shiplog/helpers';
-import { addFollowedRouteLayer, FOLLOWED_ROUTE_PANE } from './map/followedRouteLayer';
-import { installLeafletTileSeamGuard } from './map/leafletTileSeamGuard';
-import { installCompactAttribution } from './map/leafletCompactAttribution';
-import { logBaseTiles } from './map/logMapTiles';
+import React, { Suspense, lazy, memo } from 'react';
+import type { ShipLogEntry } from '../types';
 import type { RouteCoordinate } from '../utils/routeCoordinates';
-import { stripInitialTrackWarmupRebounds } from '../services/shiplog/initialTrackWarmupGuard';
 
-const EMPTY_ROUTE_COORDS: readonly RouteCoordinate[] = [];
-
-interface LiveMiniMapProps {
+export interface LiveMiniMapProps {
     entries: ShipLogEntry[];
     /** Route currently being followed. Drawn independently beneath the GPS track. */
     followedRouteCoords?: readonly RouteCoordinate[];
     /**
      * Where the boat is RIGHT NOW, if known, for the map's very first viewport.
      * On a cold start the entries have not arrived yet (they come from the
-     * network) and the followed route may be empty, so without this the map
-     * opened on a hardcoded Newport default and then jumped. The caller
-     * resolves it synchronously from the live fix; the map uses it only when
-     * it has nothing better, and never re-centres on it afterwards.
+     * network) and the followed route may be empty. The caller resolves it
+     * synchronously from the live fix; the map uses it only when it has
+     * nothing better, and never re-centres on it afterwards.
      */
     initialCenter?: { lat: number; lon: number } | null;
     height?: number | string; // px number or CSS string like '100%'
-    isLive?: boolean; // Show pulsing vessel dot at latest position
+    isLive?: boolean; // Show the live boat dot at the latest position
     className?: string;
     /**
-     * Fired on a clean tap on the map (Leaflet's click — suppressed
-     * during pan/pinch, so navigation gestures don't trigger it).
-     * Used to expand the mini map to full screen and back.
+     * Fired on a tap on the map (never on its credits). Used to expand the
+     * mini map to full screen and back.
      */
     onTap?: () => void;
     /**
-     * Free-zoom mode (fullscreen). The mini card keeps re-centring on the
-     * boat every poll (isLive auto-follow), which is right when it's tiny.
-     * Fullscreen, that yanks the user's pinch-zoom back — so once the user
-     * touches the map here we RELEASE auto-follow and leave their view put.
-     * The initial fit still frames the track on open. Also enables scroll/
-     * double-click zoom for desktop.
+     * Free-zoom mode (fullscreen). The card re-frames on the boat every poll
+     * (isLive auto-follow), which is right when it's tiny. Fullscreen, that
+     * would yank the skipper's pinch-zoom back, so the first touch here
+     * RELEASES auto-follow and leaves their view put. The first frame still
+     * takes in the track.
      */
     freeZoom?: boolean;
 }
 
-export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
-    ({
-        entries,
-        followedRouteCoords = EMPTY_ROUTE_COORDS,
-        initialCenter = null,
-        height = 160,
-        isLive = false,
-        className = '',
-        onTap,
-        freeZoom = false,
-    }) => {
-        const containerRef = useRef<HTMLDivElement>(null);
-        const mapRef = useRef<L.Map | null>(null);
-        const trackLayerGroupRef = useRef<L.LayerGroup | null>(null);
-        const followedRouteLayerGroupRef = useRef<L.LayerGroup | null>(null);
-        const trackCoordsRef = useRef<[number, number][]>([]);
-        const followedRouteLatLngsRef = useRef<[number, number][]>([]);
-        const hasFitRef = useRef(false);
-        /** Latest props, readable from the create-once effect (empty deps) so
-         *  the map's FIRST viewport can be framed from data already in hand. */
-        const entriesRef = useRef(entries);
-        entriesRef.current = entries;
-        const followedRouteCoordsRef = useRef(followedRouteCoords);
-        followedRouteCoordsRef.current = followedRouteCoords;
-        const initialCenterRef = useRef(initialCenter);
-        initialCenterRef.current = initialCenter;
-        // Set once the user manually zooms/pans a free-zoom map — stops
-        // the live auto-follow from snapping their view back.
-        const userMovedRef = useRef(false);
-        // Ref keeps the handler fresh without re-creating the map.
-        const onTapRef = useRef<(() => void) | undefined>(onTap);
-        onTapRef.current = onTap;
+/**
+ * The card's box with no map in it: its size, its corners, and (from
+ * .thalassa-log-gl-map, with a daylight variant) the app's dark or light.
+ */
+export const miniMapBoxClass = (onTap: boolean, className: string) =>
+    `thalassa-log-gl-map live-mini-map relative w-full rounded-2xl overflow-hidden border border-sky-400/15 shadow-xl shadow-black/30 ${onTap ? 'cursor-pointer' : ''} ${className}`;
 
-        // Create map once
-        useEffect(() => {
-            if (!containerRef.current || mapRef.current) return;
-
-            let detachRelease: (() => void) | undefined;
-
-            const map = L.map(containerRef.current, {
-                zoomControl: false,
-                attributionControl: true,
-                dragging: true,
-                scrollWheelZoom: freeZoom,
-                // doubleClickZoom stays off even in free-zoom — a double
-                // tap would also fire the onTap collapse. Pinch (touchZoom)
-                // and scroll-wheel cover zooming.
-                doubleClickZoom: false,
-                boxZoom: false,
-                keyboard: false,
-                touchZoom: true,
-                fadeAnimation: false,
-                zoomAnimation: false,
-            });
-
-            // Free-zoom: the FIRST real user gesture releases auto-follow.
-            // Raw DOM input events fire only for the user — programmatic
-            // fitBounds/setView never trigger touchstart/wheel/mousedown,
-            // so this can't false-positive on our own re-centring.
-            if (freeZoom) {
-                const release = () => {
-                    userMovedRef.current = true;
-                };
-                const el = map.getContainer();
-                el.addEventListener('touchstart', release, { passive: true });
-                el.addEventListener('wheel', release, { passive: true });
-                el.addEventListener('mousedown', release);
-                detachRelease = () => {
-                    el.removeEventListener('touchstart', release);
-                    el.removeEventListener('wheel', release);
-                    el.removeEventListener('mousedown', release);
-                };
-            }
-
-            // Imagery base (Shane 2026-07-10: dark carto was too dark — "maybe
-            // we could have the satellite layer?"). Upgraded 2026-08-07 from
-            // Esri to the same @2x satellite-streets tiles the OBS chart uses,
-            // so the log stops looking a decade older than the app one tab
-            // away. Falls back to Esri without a token — see logMapTiles.
-            const logTiles = logBaseTiles(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined);
-            const satelliteBase = L.tileLayer(piCache.leafletTileTemplate(logTiles.url, undefined, 'image/jpeg'), {
-                maxZoom: logTiles.maxZoom,
-                attribution: logTiles.attribution,
-                // The Mapbox URL asks for /tiles/512/, whose zoom scheme is
-                // offset by one from Leaflet's 256 default. Without these the
-                // layer renders one zoom level's worth of imagery at the wrong
-                // scale — the standard pairing for Mapbox raster styles. Esri
-                // is a true 256 grid, so this only applies to the Mapbox base.
-                ...(logTiles.isMapbox ? { tileSize: 512, zoomOffset: -1 } : {}),
-            });
-            // The iPhone WebKit seam guard belongs on the opaque imagery
-            // only — overscanning the transparent seamark symbols would make
-            // an icon at a tile edge draw twice.
-            installLeafletTileSeamGuard(satelliteBase);
-
-            // FALL BACK OFF A DEAD PI, ONCE.
-            //
-            // leafletTileTemplate routes every tile through the Pi's
-            // passthrough whenever isAvailable() is true — and that reads a
-            // CACHED health-check result. Leave the boat, or drop Tailscale,
-            // and the flag can still say reachable while nothing answers.
-            // Leaflet loads tiles as <img>, whose requests it cannot abort at
-            // the current zoom, so there is no timeout to lean on: the map just
-            // stays blank until the OS gives up, which on Darwin is a SYN
-            // retransmit stall of over a minute.
-            //
-            // One tile error is enough to know. Swap the whole layer to the
-            // upstream URL and let the Pi prove itself again next session —
-            // being wrong costs a direct fetch, which is what a Pi-less device
-            // does anyway.
-            const piRouted = piCache.leafletTileTemplate(logTiles.url, undefined, 'image/jpeg');
-            if (piRouted !== logTiles.url) {
-                let fellBack = false;
-                satelliteBase.on('tileerror', () => {
-                    if (fellBack) return;
-                    fellBack = true;
-                    satelliteBase.setUrl(logTiles.url);
-                });
-            }
-            satelliteBase.addTo(map);
-
-            // OpenSeaMap overlay
-            L.tileLayer(piCache.leafletTileTemplate('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'), {
-                maxZoom: 18,
-                opacity: 0.8,
-                attribution:
-                    'Map data: &copy; <a href="https://www.openseamap.org" target="_blank" rel="noopener noreferrer">OpenSeaMap contributors</a>',
-            }).addTo(map);
-
-            // Keep the followed plan below the recorded track even when a
-            // weather refresh redraws it after the track has already painted.
-            const followedRoutePane = map.createPane(FOLLOWED_ROUTE_PANE);
-            followedRoutePane.style.zIndex = '390';
-            followedRoutePane.style.pointerEvents = 'none';
-
-            followedRouteLayerGroupRef.current = L.layerGroup().addTo(map);
-            trackLayerGroupRef.current = L.layerGroup().addTo(map);
-            mapRef.current = map;
-
-            // Credits collapse to an ⓘ button; one tap expands them. The
-            // control swallows its own clicks, so this never fires onTap.
-            installCompactAttribution(map);
-
-            // Tap-to-expand/collapse. Leaflet only fires 'click' on clean
-            // taps (pans and pinches are suppressed), so map navigation
-            // still works inside the expanded view.
-            map.on('click', () => onTapRef.current?.());
-
-            // FRAME FROM THE DATA WE ALREADY HAVE, not from Newport.
-            //
-            // This used to setView([-27.207, 153.108], 12) unconditionally as a
-            // "default centre while entries load" — but the tile layer is
-            // already attached at this point, so that call is what fires the
-            // FIRST tile requests. The real framing then arrives up to 100 ms
-            // later via fitBounds at maxZoom 15, and the two viewports share no
-            // tiles at all: the whole grid blanks and refetches, at 512@2x
-            // retina satellite JPEG, over whatever link the boat has. Two full
-            // viewports fetched to show one, and the perceived wait is the
-            // slowest tile of the second set (fadeAnimation is off, so tiles
-            // land individually).
-            //
-            // Whenever the caller already knows where the boat is — and on the
-            // live Log page it almost always does — start there instead. Only a
-            // genuinely empty map falls back to the old default.
-            const seedPoints: L.LatLngExpression[] = [
-                ...followedRouteCoordsRef.current.map((c) => [c.lat, c.lon] as [number, number]),
-                ...entriesRef.current
-                    .filter((e) => isTrackworthyEntry(e) && e.latitude != null && e.longitude != null)
-                    .map((e) => [e.latitude as number, e.longitude as number] as [number, number]),
-            ];
-            const live = initialCenterRef.current;
-            if (seedPoints.length === 1) {
-                map.setView(seedPoints[0], 14);
-            } else if (seedPoints.length > 1) {
-                map.fitBounds(L.latLngBounds(seedPoints), { maxZoom: 15, animate: false, padding: [16, 16] });
-                hasFitRef.current = true;
-            } else if (live && Number.isFinite(live.lat) && Number.isFinite(live.lon)) {
-                // Cold start, no track yet: open on the BOAT. The first tiles
-                // fetched are the ones the skipper is about to look at, and the
-                // track draws into this view rather than forcing a second fit.
-                map.setView([live.lat, live.lon], 14);
-            } else {
-                map.setView([-27.207, 153.108], 12);
-            }
-
-            setTimeout(() => map.invalidateSize(), 150);
-
-            // Auto-resize when container changes size (e.g. flex-grow)
-            const ro = new ResizeObserver(() => map.invalidateSize());
-            ro.observe(containerRef.current);
-
-            return () => {
-                detachRelease?.();
-                ro.disconnect();
-                map.remove();
-                mapRef.current = null;
-                trackLayerGroupRef.current = null;
-                followedRouteLayerGroupRef.current = null;
-                trackCoordsRef.current = [];
-                followedRouteLatLngsRef.current = [];
-                hasFitRef.current = false;
-                userMovedRef.current = false;
-            };
-            // freeZoom is fixed per mount (fullscreen remounts fresh), so
-            // it's read at creation and intentionally not a re-create dep.
-            // eslint-disable-next-line react-hooks/exhaustive-deps
-        }, []);
-
-        const fitVisibleGeometry = useCallback(() => {
-            const map = mapRef.current;
-            if (!map) return;
-            if (freeZoom && userMovedRef.current) return;
-
-            const visible = [...followedRouteLatLngsRef.current, ...trackCoordsRef.current];
-            if (visible.length === 0) {
-                hasFitRef.current = false;
-                return;
-            }
-
-            const autoFollow = isLive;
-            if (!autoFollow && hasFitRef.current) return;
-
-            if (visible.length >= 2) {
-                map.fitBounds(L.latLngBounds(visible), {
-                    padding: [16, 16],
-                    maxZoom: 15,
-                    animate: false,
-                });
-            } else {
-                map.setView(visible[0], 14, { animate: false });
-            }
-            hasFitRef.current = true;
-        }, [freeZoom, isLive]);
-
-        // The route changes only when follow mode starts/stops or its weather
-        // refresh lands. It deliberately has its own group so dense geometry
-        // is not destroyed and recreated on every live GPS poll.
-        const updateFollowedRoute = useCallback(() => {
-            const layerGroup = followedRouteLayerGroupRef.current;
-            if (!mapRef.current || !layerGroup) return;
-
-            layerGroup.clearLayers();
-            followedRouteLatLngsRef.current = addFollowedRouteLayer(layerGroup, followedRouteCoords);
-            // A newly selected/replaced route deserves a fresh frame. A user
-            // who has manually moved the fullscreen map keeps their viewport.
-            if (!(freeZoom && userMovedRef.current)) hasFitRef.current = false;
-            fitVisibleGeometry();
-        }, [fitVisibleGeometry, followedRouteCoords, freeZoom]);
-
-        // Update the recorded track without touching the followed-route layer.
-        const updateLayers = useCallback(() => {
-            const map = mapRef.current;
-            const lg = trackLayerGroupRef.current;
-            if (!map || !lg) return;
-
-            lg.clearLayers();
-
-            // Trackworthy entries only — turn pins sit at past positions
-            // and made the LIVE map zig-zag even after the full viewer
-            // was fixed; (0,0) placeholders draw across the planet.
-            const geometryEntries = stripInitialTrackWarmupRebounds(entries);
-            const valid = geometryEntries.filter(isTrackworthyEntry);
-            if (valid.length === 0) {
-                trackCoordsRef.current = [];
-                fitVisibleGeometry();
-                return;
-            }
-
-            const sorted = [...valid].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-            const coords = sorted.map((e) => [e.latitude!, e.longitude!] as [number, number]);
-            trackCoordsRef.current = coords;
-            const isPlanned = sorted.some((e) => e.source === 'planned_route');
-
-            // Glow + core, matching the chart-page tracer and the public
-            // page (Shane 2026-07-23: the old white-cased hairline "looked like
-            // shit"). Violet = the route being followed, sky-blue = the track
-            // actually sailed; the glow is the same hue as its core so it reads
-            // as light coming off the line rather than an outline around it.
-            const coreColor = isPlanned ? '#c4b5fd' : '#7dd3fc';
-            const glowColor = isPlanned ? '#a78bfa' : '#38bdf8';
-
-            if (coords.length >= 2) {
-                L.polyline(coords, {
-                    color: glowColor,
-                    weight: 9,
-                    opacity: 0.28,
-                    lineCap: 'round',
-                    lineJoin: 'round',
-                }).addTo(lg);
-                L.polyline(coords, {
-                    color: coreColor,
-                    weight: 2.5,
-                    opacity: 1,
-                    lineCap: 'round',
-                    lineJoin: 'round',
-                }).addTo(lg);
-            }
-
-            // Start dot
-            L.circleMarker([sorted[0].latitude!, sorted[0].longitude!], {
-                radius: 5,
-                fillColor: '#34d399',
-                fillOpacity: 1,
-                color: 'white',
-                weight: 1.5,
-            }).addTo(lg);
-
-            // Waypoint dots REMOVED 2026-06-12 (Shane: "do away with the
-            // wayward waypoints") — auto turn pins landed off-route and
-            // cluttered the map. Waypoint rendering returns when the
-            // waypoint feature is redesigned.
-
-            // End / live position
-            const last = sorted[sorted.length - 1];
-            if (isLive) {
-                // Pulsing cyan vessel dot via divIcon
-                const vesselIcon = L.divIcon({
-                    html: `<div style="
-                    width: 14px; height: 14px;
-                    background: #00f0ff;
-                    border: 2px solid white;
-                    border-radius: 50%;
-                    box-shadow: 0 0 10px rgba(0,240,255,0.6), 0 0 20px rgba(0,240,255,0.3);
-                "></div>`,
-                    iconSize: [14, 14],
-                    iconAnchor: [7, 7],
-                    className: '',
-                });
-                L.marker([last.latitude!, last.longitude!], { icon: vesselIcon }).addTo(lg);
-            } else if (sorted.length > 1) {
-                // End dot
-                L.circleMarker([last.latitude!, last.longitude!], {
-                    radius: 5,
-                    fillColor: isPlanned ? '#a78bfa' : '#ef4444',
-                    fillOpacity: 1,
-                    color: 'white',
-                    weight: 1.5,
-                }).addTo(lg);
-            }
-
-            fitVisibleGeometry();
-        }, [entries, fitVisibleGeometry, isLive]);
-
-        useEffect(() => {
-            updateFollowedRoute();
-        }, [updateFollowedRoute]);
-
-        useEffect(() => {
-            const timer = setTimeout(updateLayers, 100);
-            return () => clearTimeout(timer);
-        }, [updateLayers]);
-
-        return (
-            <div
-                ref={containerRef}
-                className={`thalassa-log-leaflet-map live-mini-map w-full rounded-2xl overflow-hidden border border-sky-400/15 shadow-xl shadow-black/30 ${onTap ? 'cursor-pointer' : ''} ${className}`}
-                style={{ height, background: '#dce6ea' }}
-            />
-        );
-    },
+const Placeholder: React.FC<LiveMiniMapProps> = ({ height = 160, onTap, className = '' }) => (
+    <div className={miniMapBoxClass(!!onTap, className)} style={{ height }} />
 );
+
+// A chunk that cannot load (a dropped link mid-update) leaves the empty card,
+// never an error over the whole Log page.
+const LiveMiniMapGL = lazy(() => import('./LiveMiniMapGL').catch(() => ({ default: Placeholder })));
+
+export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo((props) => (
+    <Suspense fallback={<Placeholder {...props} />}>
+        <LiveMiniMapGL {...props} />
+    </Suspense>
+));
 
 LiveMiniMap.displayName = 'LiveMiniMap';

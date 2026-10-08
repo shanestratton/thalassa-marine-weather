@@ -24,13 +24,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import {
-    addReliefBase,
-    HIDDEN_BASE_GEOMETRY,
-    LAND_STRUCTURE,
-    seaBaseLayers,
-    setReliefPalette,
-} from '../../components/map/reliefBase';
+import { addReliefBase, hideBaseClutter, seaBaseLayers, setReliefPalette } from '../../components/map/reliefBase';
 import { fetchRowsAll, type ContextFile, type FleetCell, type FleetRow, type Group } from './oceanApi';
 import {
     boxKey,
@@ -99,18 +93,6 @@ const colourByGroup = (): unknown[] => ['match', ['get', 'g'], ...GROUPS.flatMap
 const DEBUG_COUNTS =
     typeof navigator !== 'undefined' &&
     (navigator.webdriver === true || new URLSearchParams(window.location.search).has('debug'));
-
-function hideBaseClutter(map: mapboxgl.Map) {
-    for (const layer of map.getStyle()?.layers ?? []) {
-        const hide =
-            (layer.type !== 'symbol' && HIDDEN_BASE_GEOMETRY.test(layer.id)) ||
-            (layer.type === 'symbol' && /road|motorway|highway|shield|trunk|transit|airport|poi/i.test(layer.id));
-        if (hide) map.setLayoutProperty(layer.id, 'visibility', 'none');
-        if ((layer.type === 'line' || layer.type === 'fill') && LAND_STRUCTURE.test(layer.id)) {
-            map.setPaintProperty(layer.id, `${layer.type}-color` as 'fill-color', '#333b45');
-        }
-    }
-}
 
 function addOceanLayers(map: mapboxgl.Map) {
     const before = map.getStyle()?.layers?.find((l) => l.type === 'symbol')?.id;

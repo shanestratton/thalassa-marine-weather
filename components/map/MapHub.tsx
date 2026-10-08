@@ -3693,8 +3693,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                     </button>
                 )}
 
-                {/* The base beneath the ENC stack: Relief, Relief + Sat, Ocean,
-                    Satellite or Hybrid. The pick is kept with the account. */}
+                {/* The base beneath the ENC stack: Relief, Relief + Sat, Ocean
+                    or Hybrid. The pick is kept with the account. */}
                 <MapBaseSelector
                     visible={!planningSurface && !embedded && !pickerMode && !isPinView}
                     value={mapBase}

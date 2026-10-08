@@ -1,8 +1,9 @@
 import L from 'leaflet';
 import { sanitizeRouteCoordinates, type RouteCoordinate } from '../../utils/routeCoordinates';
+import { FOLLOWED_ROUTE_CORE, FOLLOWED_ROUTE_GLOW } from './logMapColours';
 
-export const FOLLOWED_ROUTE_GLOW = '#a78bfa';
-export const FOLLOWED_ROUTE_CORE = '#c4b5fd';
+// One truth with the Mapbox Log map (logMapColours.ts).
+export { FOLLOWED_ROUTE_CORE, FOLLOWED_ROUTE_GLOW };
 export const FOLLOWED_ROUTE_PANE = 'followed-route-pane';
 
 /**

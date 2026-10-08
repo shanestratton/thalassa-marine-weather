@@ -82,7 +82,9 @@ describe('the ENC master switch', () => {
         openMenu();
         const menu = screen.getByRole('menu', { name: 'Map base' });
         const items = Array.from(menu.querySelectorAll('[role^="menuitem"]'));
-        expect(items).toHaveLength(6);
+        // Relief, Relief + Sat, Ocean, Hybrid (the old Satellite base went in
+        // 125-13a), then the ENC row.
+        expect(items).toHaveLength(5);
         expect(items[items.length - 2]).toHaveTextContent('Hybrid');
         expect(items[items.length - 1]).toHaveAttribute('role', 'menuitemcheckbox');
         expect(items[items.length - 1]).toHaveTextContent('ENC charts');
@@ -116,8 +118,8 @@ describe('the ENC master switch', () => {
     it('is a checkbox, not a fourth base-map radio', () => {
         render(<Harness />);
         openMenu();
-        // Five bases, one exclusive choice; ENC is not one of them.
-        expect(screen.getAllByRole('menuitemradio')).toHaveLength(5);
+        // Four bases, one exclusive choice; ENC is not one of them.
+        expect(screen.getAllByRole('menuitemradio')).toHaveLength(4);
         expect(screen.getAllByRole('menuitemcheckbox')).toHaveLength(1);
     });
 

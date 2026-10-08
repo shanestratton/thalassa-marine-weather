@@ -119,6 +119,15 @@
 :root.display-light .thalassa-log-leaflet-map::after {
     box-shadow: inset 0 0 20px rgba(15, 23, 42, 0.1);
 }
+/* The Mapbox Log maps (125-13a): the same light box before the style lands,
+   and the same faint vignette. Mapbox's own credits and wordmark are not
+   touched: they already read on light and dark. */
+:root.display-light .thalassa-log-gl-map {
+    background: #f1f5f9;
+}
+:root.display-light .thalassa-log-gl-map::after {
+    box-shadow: inset 0 0 20px rgba(15, 23, 42, 0.1);
+}
 
 /* Opaque/dense dark utility panels that were missed by the legacy allow-list. */
 :root.display-light

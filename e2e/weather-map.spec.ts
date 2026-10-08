@@ -3,7 +3,8 @@ import { test, expect } from '@playwright/test';
 import { ONBOARDED_STORAGE } from './helpers/storageState';
 
 // The build's default base (useMapBase defaultMapBase): Relief + Sat once the
-// relief tiles have an address (since 2026-10-06), Satellite before then.
+// relief tiles have an address (since 2026-10-06), Hybrid before then (the old
+// Satellite base went in 125-13a).
 const reliefSource = readFileSync(new URL('../components/map/reliefBase.ts', import.meta.url), 'utf8');
 const reliefConfigured = Boolean(
     process.env.VITE_RELIEF_TILE_BASE || /RELIEF_R2_URL_PLACEHOLDER = '[^']+'/.test(reliefSource),
@@ -61,7 +62,7 @@ for (const mode of ['light', 'dark', 'night'] as const) {
         });
 
         test('uses the display default and keeps a manual choice when revisiting Charts', async ({ page }) => {
-            const initialBase = reliefConfigured ? 'Relief + Sat' : 'Satellite';
+            const initialBase = reliefConfigured ? 'Relief + Sat' : 'Hybrid';
             const chosenBase = 'Ocean';
             await page.goto('/');
             await page
