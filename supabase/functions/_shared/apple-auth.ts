@@ -43,10 +43,43 @@ export interface EncryptedAppleRefreshToken {
 
 export interface VerifiedAppleServerNotification {
     jti: string;
-    eventType: 'consent-revoked' | 'account-deleted' | 'email-enabled' | 'email-disabled';
+    eventType: AppleServerEventType;
     subject: string;
     eventTime: Date;
     issuedAt: Date;
+}
+
+/**
+ * Sign in with Apple server-to-server event types, as documented in
+ * "Processing changes for Sign in with Apple accounts"
+ * (https://developer.apple.com/documentation/signinwithapple/processing-changes-for-sign-in-with-apple-accounts,
+ * read 2026-10-08):
+ * - `email-disabled` / `email-enabled`: the user turned Hide My Email
+ *   forwarding off or on.
+ * - `consent-revoked`: "The user revokes consent for your app to use their
+ *   Apple Account and their credentials become invalid." A sign-out, not an
+ *   account deletion.
+ * - `account-deleted`: "The user requests that Apple permanently delete their
+ *   Apple Account."
+ */
+export type AppleServerEventType = 'consent-revoked' | 'account-deleted' | 'email-enabled' | 'email-disabled';
+
+// Earlier revisions of Apple's page (and WWDC20's "Get the most out of Sign in
+// with Apple") spelled the deletion event `account-delete`. Accept it as the
+// same event so a correctly signed deletion can never be rejected over a
+// spelling; the queue's CHECK constraint stores the documented name.
+const APPLE_SERVER_EVENT_TYPES: Readonly<Record<string, AppleServerEventType>> = {
+    'consent-revoked': 'consent-revoked',
+    'account-deleted': 'account-deleted',
+    'account-delete': 'account-deleted',
+    'email-enabled': 'email-enabled',
+    'email-disabled': 'email-disabled',
+};
+
+/** Map Apple's `events.type` claim to a known event type, or null when it is not one. */
+export function appleServerEventType(value: unknown): AppleServerEventType | null {
+    if (typeof value !== 'string' || !Object.hasOwn(APPLE_SERVER_EVENT_TYPES, value)) return null;
+    return APPLE_SERVER_EVENT_TYPES[value];
 }
 
 interface AppleTokenResponseBody {
@@ -59,6 +92,7 @@ interface SupabaseIdentityLike {
     provider?: unknown;
     identity_id?: unknown;
     identity_data?: Record<string, unknown> | null;
+    created_at?: unknown;
 }
 
 interface SupabaseUserLike {
@@ -134,6 +168,17 @@ export function appleSubjectForAuthenticatedUser(user: SupabaseUserLike): string
         candidates.find((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0) ??
             null
     );
+}
+
+/**
+ * When the caller's Apple identity was linked to this Supabase account (the
+ * identity row's created_at), or null when that is not readable. A first Sign
+ * in with Apple creates the identity moments before register-apple-token runs.
+ */
+export function appleIdentityLinkedAt(user: SupabaseUserLike): string | null {
+    const identity = user.identities?.find((candidate) => candidate.provider === 'apple');
+    const linkedAt = identity?.created_at;
+    return typeof linkedAt === 'string' && linkedAt.length > 0 ? linkedAt : null;
 }
 
 export async function sha256Hex(value: string): Promise<string> {
@@ -214,6 +259,33 @@ export async function verifyAppleIdTokenSubject(idToken: string, clientId: strin
     return payload.sub;
 }
 
+// Apple's events JSON is a type, a subject, a time and at most an email: far
+// below this. The bound keeps a hostile-but-signed claim from being parsed.
+const EVENTS_CLAIM_MAX_CHARS = 4_096;
+
+/**
+ * Apple's `events` claim as an object, or null when it is not one.
+ *
+ * Apple's documentation example shows `events` as a JSON object, but the
+ * notifications Apple's servers actually send carry it as a JSON-ENCODED
+ * STRING, with a millisecond event_time (Apple Developer Forums thread 655485,
+ * https://developer.apple.com/forums/thread/655485, read 2026-10-08). Both
+ * forms are accepted; anything else is rejected.
+ */
+export function parseAppleEventsClaim(value: unknown): Record<string, unknown> | null {
+    let events = value;
+    if (typeof events === 'string') {
+        if (events.length === 0 || events.length > EVENTS_CLAIM_MAX_CHARS) return null;
+        try {
+            events = JSON.parse(events);
+        } catch {
+            return null;
+        }
+    }
+    if (!events || typeof events !== 'object' || Array.isArray(events)) return null;
+    return events as Record<string, unknown>;
+}
+
 /** Verify and minimally project Apple's signed server-to-server event JWS. */
 export async function verifyAppleServerNotification(
     signedPayload: string,
@@ -224,15 +296,27 @@ export async function verifyAppleServerNotification(
         audience: clientId,
         algorithms: ['RS256'],
     });
-    const events = payload.events;
-    if (!events || typeof events !== 'object' || Array.isArray(events)) {
+    return readAppleServerNotificationClaims(payload);
+}
+
+/**
+ * Project the claims of a server notification whose JWS signature, issuer and
+ * audience verifyAppleServerNotification has ALREADY verified. Exported only
+ * so the claim handling is behaviour-tested; never call it on an unverified
+ * payload.
+ */
+export function readAppleServerNotificationClaims(
+    payload: Record<string, unknown>,
+    nowMs = Date.now(),
+): VerifiedAppleServerNotification {
+    const events = parseAppleEventsClaim(payload.events);
+    if (!events) {
         throw new Error('Apple server notification has no events claim');
     }
-    const eventType = (events as Record<string, unknown>).type;
-    const subject = (events as Record<string, unknown>).sub;
-    const eventTimeRaw = (events as Record<string, unknown>).event_time;
-    const allowedTypes = ['consent-revoked', 'account-deleted', 'email-enabled', 'email-disabled'] as const;
-    if (!allowedTypes.some((candidate) => candidate === eventType)) {
+    const eventType = appleServerEventType(events.type);
+    const subject = events.sub;
+    const eventTimeRaw = events.event_time;
+    if (!eventType) {
         throw new Error('Apple server notification has an unsupported event type');
     }
     if (typeof subject !== 'string' || subject.length === 0 || subject.length > 1024) {
@@ -251,14 +335,14 @@ export async function verifyAppleServerNotification(
         : Number.NaN;
     if (!Number.isFinite(numericEventTime)) throw new Error('Apple server notification has no valid event time');
     const eventTimeSeconds = numericEventTime > 10_000_000_000 ? numericEventTime / 1000 : numericEventTime;
-    const nowSeconds = Date.now() / 1000;
+    const nowSeconds = nowMs / 1000;
     if (payload.iat > nowSeconds + 5 * 60 || eventTimeSeconds > nowSeconds + 5 * 60) {
         throw new Error('Apple server notification is dated in the future');
     }
 
     return {
         jti: payload.jti,
-        eventType: eventType as VerifiedAppleServerNotification['eventType'],
+        eventType,
         subject,
         eventTime: new Date(eventTimeSeconds * 1000),
         issuedAt: new Date(payload.iat * 1000),
@@ -316,7 +400,21 @@ export async function decryptAppleRefreshToken(
     return new TextDecoder('utf-8', { fatal: true }).decode(decrypted);
 }
 
-/** Apple returns 200 both for a successful revocation and an already-revoked token. */
+/**
+ * Revoke a refresh token at Apple's /auth/revoke.
+ *
+ * This is not a single-token operation. Apple's "Revoke tokens" endpoint
+ * exists to "Invalidate the tokens and associated user authorizations for a
+ * user when they are no longer associated with your app"
+ * (https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens,
+ * read 2026-10-08). Revoking ANY of a user's refresh tokens ends that user's
+ * whole Sign in with Apple authorization for Thalassa, including a sign-in that
+ * is happening right now; Apple then emails them that the app "has revoked
+ * your Sign in with Apple". Call it only at account deletion (TN3194) or for a
+ * credential nothing else will ever revoke.
+ *
+ * Apple returns 200 both for a successful revocation and an already-revoked token.
+ */
 export async function revokeAppleRefreshToken(config: AppleServerConfig, refreshToken: string): Promise<void> {
     const clientSecret = await createAppleClientSecret(config);
     const response = await fetchWithTimeout(

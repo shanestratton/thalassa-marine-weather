@@ -2336,9 +2336,11 @@ const avatarMigration = read('supabase/migrations/20260804194000_retire_legacy_c
 const storageBoundaryMigration = read('supabase/migrations/20260804195000_verify_storage_beta_boundaries.sql');
 const socialAuth = read('services/auth/SocialAuthService.ts');
 const appleRegistrationFunction = read('supabase/functions/register-apple-token/index.ts');
+const appleRegistrationFlow = read('supabase/functions/register-apple-token/registration.ts');
 const appleAuthServer = read('supabase/functions/_shared/apple-auth.ts');
 const appleTokenMigration = read('supabase/migrations/20260805090000_apple_sign_in_token_lifecycle.sql');
 const appleNotificationFunction = read('supabase/functions/apple-server-notification/index.ts');
+const appleNotificationFlow = read('supabase/functions/apple-server-notification/notification.ts');
 const appleNotificationMigration = read('supabase/migrations/20260805091000_apple_server_notification_queue.sql');
 const appleNativePlugin = read('ios/App/App/AppleCredentialStatePlugin.swift');
 const appleNativeClient = read('services/auth/appleCredentialState.ts');
@@ -2481,17 +2483,30 @@ check(
         !socialAuth.includes('APPLE_REFRESH_TOKEN_ENCRYPTION_KEY') &&
         includesAll(appleRegistrationFunction, [
             'caller.auth.getUser()',
+            'await registerAppleRefreshToken(authorizationCode, callerAppleSubject',
+            'callerAppleSubject, appleIdentityLinkedAt(user)',
             'exchangeAppleAuthorizationCode(appleConfig, authorizationCode)',
-            'verifyAppleIdTokenSubject(tokenExchange.idToken, appleConfig.clientId)',
-            'exchangedSubject !== callerAppleSubject',
+            'verifyAppleIdTokenSubject(idToken, appleConfig.clientId)',
             'await encryptAppleRefreshToken',
             "admin.from('apple_sign_in_tokens')",
-            'await decryptAppleRefreshToken',
-            'previousRefreshToken !== refreshToken',
-            ".eq('updated_at', previous.updated_at)",
+            ".eq('updated_at', expectedUpdatedAt)",
             ".from('apple_sign_in_tokens').insert",
             "Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')",
         ]) &&
+        includesAll(appleRegistrationFlow, [
+            'exchangedSubject !== callerAppleSubject',
+            'await deps.rotateStoredToken(stored.updatedAt, replacement)',
+            'if (refreshToken && !authorizationTracked && isFirstAppleSignIn(appleIdentityLinkedAt, deps.now()))',
+            'return settleLostRace(await deps.loadStoredTokenForUser(), subjectSha256)',
+        ]) &&
+        // Apple's /auth/revoke ends the user's whole Sign in with Apple
+        // authorization, so a repeat sign-in must never revoke the old token
+        // (build 123: every second Apple sign-in signed itself out).
+        !appleRegistrationFunction.includes('decryptAppleRefreshToken') &&
+        !appleRegistrationFlow.includes('decryptAppleRefreshToken') &&
+        !appleRegistrationFlow.includes('previousRefreshToken') &&
+        (appleRegistrationFlow.match(/deps\.revokeRefreshToken\(/g) ?? []).length === 1 &&
+        (appleRegistrationFlow.match(/await revokeUntrackedToken\(/g) ?? []).length === 2 &&
         includesAll(appleAuthServer, [
             '`${APPLE_ISSUER}/auth/token`',
             '`${APPLE_ISSUER}/auth/revoke`',
@@ -2561,28 +2576,44 @@ check(
         ]),
 );
 check(
-    'Apple server notifications are signature-verified, durably queued, and processed through account deletion',
+    'Apple server notifications are signature-verified; consent-revoked signs out, account-deleted is durably queued through account deletion',
     includesAll(appleAuthServer, [
         'verifyAppleServerNotification',
         'jwtVerify(signedPayload, APPLE_JWKS',
         'issuer: APPLE_ISSUER',
         'audience: clientId',
         "algorithms: ['RS256']",
+        // Apple sends `events` as a JSON-encoded string; both forms are read.
+        'const events = parseAppleEventsClaim(payload.events)',
+        'events = JSON.parse(events)',
     ]) &&
         includesAll(appleNotificationFunction, [
             'verifyAppleServerNotification(signedPayload, clientId)',
-            "event.eventType === 'email-enabled'",
+            'await handleVerifiedAppleNotification(event, {',
             ".from('apple_server_notification_queue').upsert",
             "status: 'pending'",
             "Deno.env.get('APPLE_NOTIFICATION_PROCESSOR_SECRET')",
             '`${supabaseUrl}/functions/v1/delete-account`',
-            'appleNotificationJti: event.jti',
+            'appleNotificationJti: jti',
+        ]) &&
+        includesAll(appleNotificationFlow, [
+            "event.eventType === 'email-enabled'",
+            'event.eventTime.getTime() < latestSignInMs',
+            'await deps.accountDeletionInProgress(owner.userId)',
+            'await deps.signOutUserSessions(owner.userId, event.eventTime)',
+            "event_type: 'account-deleted'",
             "action: 'account_deleted'",
         ]) &&
+        // An in-progress account deletion owns the token row and sessions, so
+        // consent-revoked checks for one before it signs anything out.
+        appleNotificationFlow.indexOf('await deps.accountDeletionInProgress(owner.userId)') <
+            appleNotificationFlow.indexOf('await deps.signOutUserSessions(') &&
         !appleNotificationFunction.includes('auth.admin.deleteUser') &&
+        !appleNotificationFlow.includes('auth.admin.deleteUser') &&
         includesAll(accountFunction, [
             'requireAccountDeletionRequest',
             ".from('apple_server_notification_queue')",
+            "if (queued.event_type !== 'account-deleted')",
             'acknowledgeAppleCredentialAlreadyRevoked',
             'admin.auth.admin.getUserById',
             'appleNotificationProcessed: true',

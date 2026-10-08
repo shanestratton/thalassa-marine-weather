@@ -652,7 +652,7 @@ describe('public-beta release gate contract', () => {
         expect(entitlements.includes('<key>com.apple.developer.applesignin</key>')).toBe(appleFlagOn);
         expect(gate).toContain('native Apple credential revocation is identity-matched and fences the local session');
         expect(gate).toContain(
-            'Apple server notifications are signature-verified, durably queued, and processed through account deletion',
+            'Apple server notifications are signature-verified; consent-revoked signs out, account-deleted is durably queued through account deletion',
         );
         expect(gate).toContain('APPLE_REFRESH_TOKEN_ENCRYPTION_KEY');
         expect(gate).toContain('APPLE_NOTIFICATION_PROCESSOR_SECRET');

@@ -22,18 +22,23 @@ describe('Sign in with Apple TN3194 token lifecycle contract', () => {
 
     it('authenticates the Edge caller, exchanges the code directly with Apple, and identity-matches the signed response', () => {
         const edge = read('supabase/functions/register-apple-token/index.ts');
+        const flow = read('supabase/functions/register-apple-token/registration.ts');
         const shared = read('supabase/functions/_shared/apple-auth.ts');
         const authLookup = edge.indexOf('caller.auth.getUser()');
-        const codeExchange = edge.indexOf('exchangeAppleAuthorizationCode(appleConfig, authorizationCode)');
-        const subjectVerification = edge.indexOf(
-            'verifyAppleIdTokenSubject(tokenExchange.idToken, appleConfig.clientId)',
-        );
-        const subjectMatch = edge.indexOf('exchangedSubject !== callerAppleSubject');
+        const registration = edge.indexOf('await registerAppleRefreshToken(authorizationCode, callerAppleSubject');
+        const codeExchange = flow.indexOf('await deps.exchangeAuthorizationCode(authorizationCode)');
+        const subjectVerification = flow.indexOf('await deps.verifyIdTokenSubject(tokenExchange.idToken)');
+        const subjectMatch = flow.indexOf('exchangedSubject !== callerAppleSubject');
+        const firstLookup = flow.indexOf('const stored = await deps.loadStoredTokenForUser()');
 
         expect(authLookup).toBeGreaterThan(-1);
-        expect(codeExchange).toBeGreaterThan(authLookup);
+        expect(registration).toBeGreaterThan(authLookup);
+        expect(edge).toContain('exchangeAppleAuthorizationCode(appleConfig, authorizationCode)');
+        expect(edge).toContain('verifyAppleIdTokenSubject(idToken, appleConfig.clientId)');
+        expect(codeExchange).toBeGreaterThan(-1);
         expect(subjectVerification).toBeGreaterThan(codeExchange);
         expect(subjectMatch).toBeGreaterThan(subjectVerification);
+        expect(firstLookup).toBeGreaterThan(subjectMatch);
         expect(shared).toContain('const APPLE_TOKEN_URL = `${APPLE_ISSUER}/auth/token`');
         expect(shared).toContain("grant_type: 'authorization_code'");
         expect(shared).toContain('jwtVerify(idToken, APPLE_JWKS');
@@ -43,33 +48,65 @@ describe('Sign in with Apple TN3194 token lifecycle contract', () => {
 
     it('encrypts refresh tokens with a dedicated AES-256-GCM secret before service-role persistence', () => {
         const edge = read('supabase/functions/register-apple-token/index.ts');
+        const flow = read('supabase/functions/register-apple-token/registration.ts');
         const shared = read('supabase/functions/_shared/apple-auth.ts');
-        const encrypted = edge.indexOf('await encryptAppleRefreshToken');
-        const persisted = edge.indexOf("admin.from('apple_sign_in_tokens')");
+        const encrypted = flow.indexOf('await deps.encryptRefreshToken(refreshToken, subjectSha256)');
 
         expect(encrypted).toBeGreaterThan(-1);
-        expect(persisted).toBeGreaterThan(encrypted);
+        expect(flow.indexOf('await deps.rotateStoredToken(')).toBeGreaterThan(encrypted);
+        expect(flow.indexOf('await deps.insertStoredToken(')).toBeGreaterThan(encrypted);
+        expect(edge).toContain('await encryptAppleRefreshToken(refreshToken, appleConfig, user.id, subjectSha256)');
+        expect(edge).toContain("admin.from('apple_sign_in_tokens')");
         expect(edge).toContain("Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')");
         expect(shared).toContain("Deno.env.get('APPLE_REFRESH_TOKEN_ENCRYPTION_KEY')");
         expect(shared).toContain("{ name: 'AES-GCM' }");
         expect(shared).toContain('rawEncryptionKey.byteLength !== 32');
         expect(shared).toContain('additionalData: toArrayBuffer(encryptionContext(userId, subjectSha256))');
-        expect(edge).toContain('compensating revocation failed');
+        expect(flow).toContain('compensating revocation failed');
     });
 
-    it('revokes a superseded refresh token and uses optimistic rotation so repeat sign-in cannot orphan credentials', () => {
+    it('never revokes on a repeat sign-in: rotation keeps the newest token, compensation runs only for an untracked first sign-in, and the concurrency loser never revokes', () => {
+        // Apple's /auth/revoke ends the user's whole Sign in with Apple
+        // authorization for the app, not just one token (Apple email to Shane,
+        // 2026-10-08 11:00: "has revoked your Sign in with Apple").
         const edge = read('supabase/functions/register-apple-token/index.ts');
+        const flow = read('supabase/functions/register-apple-token/registration.ts');
+        const behaviour = read('supabase/functions/register-apple-token/registration_test.ts');
 
-        expect(edge).toContain('await decryptAppleRefreshToken');
-        expect(edge).toContain('if (previousRefreshToken !== refreshToken)');
-        expect(edge).toContain('await revokeAppleRefreshToken(appleConfig, previousRefreshToken)');
-        expect(edge).toContain(".eq('updated_at', previous.updated_at)");
-        expect(edge).toContain('Apple token rotation conflict');
+        // Nothing decrypts, compares, or revokes the previously stored token.
+        expect(edge).not.toContain('decryptAppleRefreshToken');
+        expect(flow).not.toContain('decryptAppleRefreshToken');
+        expect(`${edge}${flow}`).not.toContain('previousRefreshToken');
+        // One revocation primitive, reached from exactly two guarded call sites.
+        expect(edge.match(/revokeAppleRefreshToken\(/g)).toHaveLength(1);
+        expect(flow.match(/deps\.revokeRefreshToken\(/g)).toHaveLength(1);
+        expect(flow.match(/await revokeUntrackedToken\(/g)).toHaveLength(2);
+        expect(flow).toContain(
+            'if (refreshToken && !authorizationTracked && isFirstAppleSignIn(appleIdentityLinkedAt, deps.now()))',
+        );
+        expect(flow).toContain('untracked = (await deps.loadStoredTokenForSubject(trackedSubject)) === null');
+        expect(flow).toContain('if (!subjectTracked)');
+        expect(edge).toContain('callerAppleSubject, appleIdentityLinkedAt(user)');
+        // Optimistic rotation stays; the loser settles against the committed row.
+        expect(flow).toContain('await deps.rotateStoredToken(stored.updatedAt, replacement)');
+        expect(flow).toContain('return settleLostRace(await deps.loadStoredTokenForUser(), subjectSha256)');
+        expect(flow).toContain('retryable: true');
+        expect(edge).toContain(".eq('updated_at', expectedUpdatedAt)");
         expect(edge).toContain(".from('apple_sign_in_tokens').insert");
-        expect(edge).toContain('const { data: concurrentWinner, error: winnerLookupError }');
-        expect(edge).toContain('if (winnerRefreshToken === refreshToken)');
-        expect(edge).toContain('refreshTokenNeedsCompensatingRevocation = false');
         expect(edge).not.toContain(".from('apple_sign_in_tokens').upsert");
+
+        for (const name of [
+            'a repeat sign-in rotates the stored token and never revokes',
+            'the concurrency loser never revokes and succeeds when the winner holds the same Apple authorization',
+            'the concurrency loser returns a retryable error without revoking when the winning row is gone',
+            'a lost first-insert race never revokes the winner authorization',
+            'compensating revocation runs only for a first Apple sign-in whose token nothing tracks',
+            'an existing Apple account with no stored token is never revoked when registration fails',
+            'a persistence failure never revokes while a token is stored for the user',
+            'logs never carry the authorization code or a refresh token',
+        ]) {
+            expect(behaviour).toContain(`Deno.test('${name}'`);
+        }
     });
 
     it('keeps ciphertext service-role-only and cascades it with the auth user', () => {
@@ -140,9 +177,10 @@ describe('Sign in with Apple TN3194 token lifecycle contract', () => {
         expect(bootstrap).toContain('handleNativeAppleCredentialRevocation(event.userId)');
     });
 
-    it('verifies Apple server JWS claims, queues destructive events, and runs the durable deletion processor', () => {
+    it('verifies Apple server JWS claims, queues account deletion, and runs the durable deletion processor', () => {
         const shared = read('supabase/functions/_shared/apple-auth.ts');
         const receiver = read('supabase/functions/apple-server-notification/index.ts');
+        const flow = read('supabase/functions/apple-server-notification/notification.ts');
         const deletion = read('supabase/functions/delete-account/index.ts');
         const queue = read('supabase/migrations/20260805091000_apple_server_notification_queue.sql');
         const config = read('supabase/config.toml');
@@ -150,20 +188,102 @@ describe('Sign in with Apple TN3194 token lifecycle contract', () => {
         expect(shared).toContain('jwtVerify(signedPayload, APPLE_JWKS');
         expect(shared).toContain('audience: clientId');
         expect(shared).toContain("algorithms: ['RS256']");
+        expect(receiver).toContain('await handleVerifiedAppleNotification(event, {');
         expect(receiver).toContain(".from('apple_server_notification_queue').upsert");
-        expect(receiver).toContain("action: 'already_unlinked'");
-        expect(receiver).toContain('if (!tokenOwner?.user_id)');
-        expect(receiver).toContain('user_id: tokenOwner.user_id');
         expect(receiver).toContain("status: 'pending'");
         expect(receiver).toContain('`${supabaseUrl}/functions/v1/delete-account`');
-        expect(receiver).toContain('appleNotificationJti: event.jti');
-        expect(receiver).toContain("action: 'account_deleted'");
+        expect(receiver).toContain('body: JSON.stringify({ appleNotificationJti: jti })');
+        expect(flow).toContain("action: 'already_unlinked'");
+        expect(flow).toContain('if (!owner)');
+        expect(flow).toContain('user_id: owner.userId');
+        expect(flow).toContain('await deps.runAccountDeletion(event.jti)');
+        expect(flow).toContain("action: 'account_deleted'");
         expect(deletion).toContain('requireAccountDeletionRequest');
         expect(deletion).toContain(".from('apple_server_notification_queue')");
         expect(deletion).toContain('acknowledgeAppleCredentialAlreadyRevoked');
         expect(deletion).toContain('admin.auth.admin.getUserById');
         expect(receiver).not.toContain('auth.admin.deleteUser');
+        expect(flow).not.toContain('auth.admin.deleteUser');
         expect(queue).toContain('ALTER TABLE public.apple_server_notification_queue FORCE ROW LEVEL SECURITY');
         expect(config).toMatch(/\[functions\.apple-server-notification\][\s\S]*?verify_jwt = false/);
+    });
+
+    it('treats consent-revoked as a sign-out, never an account deletion, and ignores events older than the latest sign-in', () => {
+        // developer.apple.com, "Processing changes for Sign in with Apple
+        // accounts": consent-revoked = "The user revokes consent for your app to
+        // use their Apple Account and their credentials become invalid";
+        // account-deleted = "The user requests that Apple permanently delete
+        // their Apple Account".
+        const shared = read('supabase/functions/_shared/apple-auth.ts');
+        const receiver = read('supabase/functions/apple-server-notification/index.ts');
+        const signOut = read('supabase/functions/apple-server-notification/sign-out.ts');
+        const flow = read('supabase/functions/apple-server-notification/notification.ts');
+        const behaviour = read('supabase/functions/apple-server-notification/notification_test.ts');
+        const deletion = read('supabase/functions/delete-account/index.ts');
+
+        const consentStart = flow.indexOf("if (event.eventType === 'consent-revoked')");
+        const consentEnd = flow.indexOf("action: 'signed_out'");
+        expect(consentStart).toBeGreaterThan(-1);
+        expect(consentEnd).toBeGreaterThan(consentStart);
+        const consentBranch = flow.slice(consentStart, consentEnd);
+        // TN3194: Apple's consent-revoked also follows our own deletion-time
+        // revoke, so an in-progress deletion keeps its token row and sessions.
+        const deletionCheck = consentBranch.indexOf('await deps.accountDeletionInProgress(owner.userId)');
+        expect(deletionCheck).toBeGreaterThan(-1);
+        expect(deletionCheck).toBeLessThan(consentBranch.indexOf('await deps.signOutUserSessions('));
+        expect(consentBranch).toContain("action: 'deletion_in_progress'");
+        expect(receiver).toContain(".from('account_deletion_jobs')");
+        expect(consentBranch).toContain('await deps.signOutUserSessions(owner.userId, event.eventTime)');
+        expect(consentBranch).toContain(
+            'await deps.deleteStoredAppleToken(owner.userId, subjectSha256, owner.updatedAt)',
+        );
+        expect(consentBranch).not.toContain('queueAccountDeletion');
+        expect(consentBranch).not.toContain('runAccountDeletion');
+        expect(flow).toContain("event_type: 'account-deleted'");
+
+        const staleCheck = flow.indexOf('event.eventTime.getTime() < latestSignInMs');
+        expect(staleCheck).toBeGreaterThan(-1);
+        expect(flow).toContain("action: 'stale_event_ignored'");
+        expect(staleCheck).toBeLessThan(consentStart);
+        expect(staleCheck).toBeLessThan(flow.indexOf('await deps.queueAccountDeletion('));
+
+        expect(receiver).toContain('signOutUserSessions: (userId, startedAtOrBefore) =>');
+        expect(receiver).toContain(".eq('updated_at', expectedUpdatedAt)");
+        expect(signOut).toContain('DELETE FROM auth.sessions');
+        expect(signOut).toContain('created_at <=');
+        expect(signOut).not.toMatch(/console\.(log|info|debug)/);
+
+        // Apple's documented name is account-deleted; the older account-delete
+        // spelling is accepted as the same event.
+        expect(shared).toContain("'account-delete': 'account-deleted'");
+        // Apple's servers send the events claim as a JSON-encoded string (the
+        // documentation example shows an object); both forms are read.
+        expect(shared).toContain('const events = parseAppleEventsClaim(payload.events)');
+        expect(shared).toContain('events = JSON.parse(events)');
+        expect(shared).toContain('return readAppleServerNotificationClaims(payload)');
+
+        // The destructive processor refuses any queued event that is not an
+        // Apple Account deletion, before it resolves a user to delete.
+        const guard = deletion.indexOf("if (queued.event_type !== 'account-deleted')");
+        expect(guard).toBeGreaterThan(-1);
+        expect(guard).toBeLessThan(deletion.indexOf('admin.auth.admin.getUserById'));
+
+        for (const name of [
+            'consent-revoked signs the user out and drops the stored Apple token without deleting the account',
+            'consent-revoked during an account deletion leaves the token row and sessions to the deletion',
+            'account-deleted is queued and processed through account deletion as before',
+            'an event older than the latest sign-in is acknowledged and ignored',
+            'a failed sign-out keeps the stored token so Apple can retry',
+        ]) {
+            expect(behaviour).toContain(`Deno.test('${name}'`);
+        }
+        const claimBehaviour = read('supabase/functions/_shared/apple-auth_test.ts');
+        for (const name of [
+            'the events claim is read when Apple sends it as a JSON-encoded string',
+            'the events claim is read in the object form shown in Apple documentation',
+            'a 13-digit millisecond event_time is the same instant as its seconds form',
+        ]) {
+            expect(claimBehaviour).toContain(`Deno.test('${name}'`);
+        }
     });
 });

@@ -383,6 +383,22 @@ serve(async (req: Request) => {
         }
         const queued = data as AppleNotificationQueueRow | null;
         if (!queued) return json({ error: 'Verified Apple notification was not found' }, 404);
+        // Only Apple's account-deleted event may delete an account. Apple's
+        // consent-revoked means the user stopped using Sign in with Apple for
+        // Thalassa, a sign-out that apple-server-notification handles itself;
+        // a row of any other type (written by an older receiver) is closed
+        // without touching the account.
+        if (queued.event_type !== 'account-deleted') {
+            await admin
+                .from('apple_server_notification_queue')
+                .update({
+                    status: 'completed',
+                    completed_at: new Date().toISOString(),
+                    last_error: 'not_an_account_deletion',
+                })
+                .eq('jti', requestGate.jti);
+            return json({ error: 'Verified Apple notification does not request account deletion' }, 409);
+        }
         if (queued.status === 'completed' || !queued.user_id) {
             await admin
                 .from('apple_server_notification_queue')
