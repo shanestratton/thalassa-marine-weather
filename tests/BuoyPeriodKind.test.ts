@@ -11,7 +11,7 @@
  *
  * Fictional readings.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const pi = vi.hoisted(() => ({
     passthroughJson: vi.fn(),
@@ -76,6 +76,17 @@ describe('JSON-record wave buoy: Tp is the peak period, Tz is not', () => {
 });
 
 describe('NDBC buoy: DPD, the dominant period, still comes through', () => {
+    // The reading below is timed 06:00 UTC on 8 Oct 2026; the clock stands half
+    // an hour after it. Unpinned, the reading aged past BUOY_MAX_AGE_MS (3 h)
+    // and was rightly dropped as stale: CI ran it at 09:38 UTC (run 37756603258).
+    beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.UTC(2026, 9, 8, 6, 30));
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     it('Monterey Bay 46042', async () => {
         const buoy = at('46042');
         pi.passthroughText.mockResolvedValue(
