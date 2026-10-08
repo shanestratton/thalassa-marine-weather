@@ -528,4 +528,44 @@ describe('close-in boat wind from her cloud row', () => {
         expect(pickCloudTrueWind(row({ twdDeg: 400, twaDeg: 190 }), NOW)).toBeNull();
         expect(pickCloudTrueWind(null, NOW)).toBeNull();
     });
+
+    /*
+     * Pi update 1 (build 125): the Pi dates the TWD reading too
+     * (extra.wind_twd_at_ms, the directionTrue leaf's own Signal K time, sent
+     * however old). A TWD frozen beside a fresh TWS (a heading dropout stops
+     * the gateway's MDA while VWT carries on) is then not hers now.
+     */
+    describe('with the TWD reading’s own time (extra.wind_twd_at_ms)', () => {
+        it('uses a TWD read inside the cloud lane’s 60 s gate', () => {
+            expect(pickCloudTrueWind(row({ twdSampleAt: NOW - 3_000 }), NOW)).toEqual({
+                kt: 14,
+                fromDeg: 200,
+                stale: false,
+            });
+            expect(pickCloudTrueWind(row({ twdSampleAt: NOW - 60_000 }), NOW)).toMatchObject({ fromDeg: 200 });
+        });
+
+        it('a TWD older than the gate falls to a fresh heading plus the TWA, else no boat wind above calm', () => {
+            const frozen = NOW - 5 * 60_000;
+            expect(pickCloudTrueWind(row({ twdSampleAt: frozen, headingTrueDeg: 350, twaDeg: 30 }), NOW)).toEqual({
+                kt: 14,
+                fromDeg: 20,
+                stale: false,
+            });
+            expect(pickCloudTrueWind(row({ twdSampleAt: NOW - 60_001, headingTrueDeg: undefined }), NOW)).toBeNull();
+            // Calm with no usable direction still reads Calm.
+            expect(
+                pickCloudTrueWind(row({ twsKts: 0.6, twdSampleAt: frozen, headingTrueDeg: undefined }), NOW),
+            ).toEqual({ kt: 0.6, fromDeg: null, stale: false });
+        });
+
+        it('refuses a TWD time from the future, as it refuses a TWS time from the future', () => {
+            expect(pickCloudTrueWind(row({ twdSampleAt: NOW + 5_000, headingTrueDeg: undefined }), NOW)).toBeNull();
+            expect(pickCloudTrueWind(row({ twdSampleAt: NOW + 800 }), NOW)).toMatchObject({ fromDeg: 200 });
+        });
+
+        it('an older Pi sends no TWD time: its TWD rides on the TWS date, as before', () => {
+            expect(pickCloudTrueWind(row({ twdSampleAt: undefined }), NOW)).toMatchObject({ fromDeg: 200 });
+        });
+    });
 });

@@ -62,6 +62,8 @@ export interface BoatFix {
     twdDeg?: number | null;
     twaDeg?: number | null;
     windSampleAt?: number | null;
+    /** The Pi's own TWD sample time (extra.wind_twd_at_ms); null from an older Pi, which dates no TWD. */
+    twdSampleAt?: number | null;
 }
 
 /** Rung a: the bus, straight off the gateway. */
@@ -181,6 +183,7 @@ export async function cloudFix(now = Date.now(), owner?: 'self' | string): Promi
             twdDeg: t.snapshot.twdDeg,
             twaDeg: t.snapshot.twaDeg,
             windSampleAt: t.snapshot.windSampleAt ?? null,
+            twdSampleAt: t.snapshot.twdSampleAt ?? null,
         };
     } catch {
         return null;

@@ -184,3 +184,140 @@ test('a refusing cloud backs the Pi off, doubling to a five-minute cap, and a su
     assert.equal(await publisher.publishOnce(), 'sent');
     assert.equal(publisher.nextDelayMs(), PUBLISH_INTERVAL_MS);
 });
+
+/*
+ * Pi update 1 (build 125, 125-10): the payload keys the phones date and label
+ * her wind and depth by. Every position and reading is fictional; the boats
+ * are off Cape Town and in the Solent, not at home.
+ */
+const WIND_NOW = Date.parse('2026-10-08T10:00:00.000Z');
+const iso = (ms: number) => new Date(ms).toISOString();
+
+/** A Signal K self document with true wind: TWS (VWT) and TWD (MDA) each on their own leaf clock. */
+function windDoc(opts: { twsAt?: number | null; twdAt?: number | null; twd?: number | null } = {}) {
+    const twsAt = opts.twsAt === undefined ? WIND_NOW - 2_000 : opts.twsAt;
+    const twdAt = opts.twdAt === undefined ? WIND_NOW - 2_000 : opts.twdAt;
+    const leaf = (value: number, at: number | null) => ({
+        value,
+        $source: 'ydwg-tcp.YD',
+        ...(at === null ? {} : { timestamp: iso(at) }),
+    });
+    return {
+        // A current GPS clock on the document and the navigation branch: never a wind date.
+        timestamp: iso(WIND_NOW),
+        navigation: {
+            timestamp: iso(WIND_NOW),
+            datetime: { value: iso(WIND_NOW) },
+            position: { value: { latitude: -34.05, longitude: 18.35 }, timestamp: iso(WIND_NOW - 1_000) },
+        },
+        environment: {
+            timestamp: iso(WIND_NOW),
+            wind: {
+                speedTrue: leaf(7.2, twsAt),
+                angleTrueWater: leaf(-40 * RAD, twsAt),
+                ...(opts.twd === null ? {} : { directionTrue: leaf((opts.twd ?? 200) * RAD, twdAt) }),
+            },
+        },
+    };
+}
+
+const bodyExtra = (doc: unknown) =>
+    buildTelemetryBody(readTelemetrySnapshot(doc, () => WIND_NOW)!, 'test').extra as Record<string, unknown>;
+
+test('wind_twd_at_ms: the TWD reading’s own Signal K time, never the publish or GPS time', () => {
+    const extra = bodyExtra(windDoc({ twsAt: WIND_NOW - 2_000, twdAt: WIND_NOW - 3_500 }));
+    assert.equal(extra.wind_twd_at_ms, WIND_NOW - 3_500);
+    assert.equal(extra.wind_tws_at_ms, WIND_NOW - 2_000, 'TWS keeps its own date');
+    assert.notEqual(extra.wind_twd_at_ms, WIND_NOW);
+});
+
+test('wind_twd_at_ms: a frozen TWD beside a fresh TWS goes out with its old time, so a phone can refuse it', () => {
+    // Heading drops out: the gateway's MDA (TWD) stops while VWT (TWS) carries on.
+    const frozenAt = WIND_NOW - 5 * 60_000;
+    const extra = bodyExtra(windDoc({ twsAt: WIND_NOW - 1_000, twdAt: frozenAt }));
+    assert.equal(extra.wind_twd_at_ms, frozenAt, 'dated as it is, however old');
+    assert.equal(extra.wind_tws_at_ms, WIND_NOW - 1_000);
+    // Hours old, and stamped ahead of the Pi's clock: still the reading's own time.
+    assert.equal(bodyExtra(windDoc({ twdAt: WIND_NOW - 6 * 3_600_000 })).wind_twd_at_ms, WIND_NOW - 6 * 3_600_000);
+    assert.equal(bodyExtra(windDoc({ twdAt: WIND_NOW + 30_000 })).wind_twd_at_ms, WIND_NOW + 30_000);
+});
+
+test('wind_twd_at_ms: none without a TWD, and none from a parent’s or the GPS clock', () => {
+    assert.equal(bodyExtra(windDoc({ twd: null })).wind_twd_at_ms, undefined);
+    // The leaf has no time of its own: the environment and document times are not its date.
+    assert.equal(bodyExtra(windDoc({ twdAt: null })).wind_twd_at_ms, undefined);
+    // The TWD itself still goes out, undated, as an older Pi sent it.
+    assert.ok(Math.abs((readTelemetrySnapshot(windDoc({ twdAt: null }), () => WIND_NOW)!.twdDeg ?? 0) - 200) < 1e-9);
+});
+
+test('the published body carries wind_twd_at_ms, through the real publisher', async () => {
+    const posted: Array<Record<string, unknown>> = [];
+    const sk = fakeSignalK(windDoc({ twsAt: WIND_NOW - 1_500, twdAt: WIND_NOW - 2_500 }));
+    const publisher = new TelemetryPublisher({
+        fetchImpl: async (url, init) => {
+            if (String(url).includes('telemetry-relay')) {
+                posted.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+                return new Response('{"ok":true}', { status: 200 });
+            }
+            return sk(url, init);
+        },
+        signalkOrigin: 'http://sk',
+        endpoint: 'https://x.supabase.co/functions/v1/telemetry-relay',
+        anonKey: () => 'anon',
+        credentials: () => ({ relayId: 'relay-1234567890abcdef', token: 'd'.repeat(64) }),
+        internetAllowed: () => true,
+        deviceLabel: 'pi',
+        now: () => WIND_NOW,
+    });
+    assert.equal(await publisher.publishOnce(), 'sent');
+    const extra = posted[0].extra as Record<string, unknown>;
+    assert.equal(extra.wind_twd_at_ms, WIND_NOW - 2_500);
+    assert.equal(extra.wind_tws_at_ms, WIND_NOW - 1_500);
+    assert.ok(Math.abs((posted[0].twd_deg as number) - 200) < 1e-9);
+});
+
+test('depth_reference and depth_offset_m: the body says what the depth is measured from', () => {
+    const at = iso(WIND_NOW - 1_500);
+    const depthDoc = (depth: Record<string, unknown>) => ({
+        navigation: {
+            datetime: { value: iso(WIND_NOW) },
+            position: { value: { latitude: 50.77, longitude: -1.3 }, timestamp: at },
+        },
+        environment: { depth },
+    });
+    // A sounder with its keel offset set: the keel figure, the reference and the signed offset.
+    const keel = buildTelemetryBody(
+        readTelemetrySnapshot(
+            depthDoc({
+                belowTransducer: { value: 6.2, timestamp: at },
+                transducerToKeel: { value: 1.1, timestamp: at },
+                belowKeel: { value: 5.1, timestamp: at },
+            }),
+            () => WIND_NOW,
+        )!,
+        'test',
+    );
+    assert.equal(keel.depth_m, 5.1);
+    assert.deepEqual(
+        [
+            (keel.extra as Record<string, unknown>).depth_reference,
+            (keel.extra as Record<string, unknown>).depth_offset_m,
+        ],
+        ['below-keel', -1.1],
+    );
+    // No offset known: the raw reading, said to be below the transducer, with no offset.
+    const raw = buildTelemetryBody(
+        readTelemetrySnapshot(depthDoc({ belowTransducer: { value: 6.2, timestamp: at } }), () => WIND_NOW)!,
+        'test',
+    );
+    assert.equal(raw.depth_m, 6.2);
+    assert.equal((raw.extra as Record<string, unknown>).depth_reference, 'below-transducer');
+    assert.equal((raw.extra as Record<string, unknown>).depth_offset_m, undefined);
+    // A sounder with no keel setting that reports only DBS: below the waterline.
+    const surface = buildTelemetryBody(
+        readTelemetrySnapshot(depthDoc({ belowSurface: { value: 7.4, timestamp: at } }), () => WIND_NOW)!,
+        'test',
+    );
+    assert.equal(surface.depth_m, 7.4);
+    assert.equal((surface.extra as Record<string, unknown>).depth_reference, 'below-waterline');
+});

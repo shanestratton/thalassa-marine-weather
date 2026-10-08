@@ -37,6 +37,7 @@ vi.mock('../services/AisHubService', () => ({ AisHubService: { init: vi.fn(), de
 import { NmeaStore, type RemoteInstrumentSnapshot } from '../services/NmeaStore';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { assessHerWind, type HerWindInput } from '../components/map/boatModelCheck';
+import { pickBoatTrueWind } from '../components/map/closeInWind';
 
 const now = 1_800_000_000_000;
 function remote(over: Partial<RemoteInstrumentSnapshot> = {}): RemoteInstrumentSnapshot {
@@ -202,5 +203,76 @@ describe('NmeaStore.getRemoteWindSample', () => {
         listener.status = 'connected';
         NmeaStore.clearRemote();
         expect(NmeaStore.getRemoteWindSample()).toBeNull();
+    });
+});
+
+/**
+ * The store lane honours the TWD's own reading time (extra.wind_twd_at_ms,
+ * Pi update 1). Aboard on the boat's Wi-Fi the Pi LAN feeds the store every
+ * 5 s; a heading dropout freezes the gateway's MDA TWD while VWT TWS stays
+ * fresh. The store used to re-stamp the frozen TWD on receipt, so Obs and the
+ * Instrument Panel showed it as her wind now.
+ */
+describe('NmeaStore: the TWD’s own reading time', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.setSystemTime(now);
+        listener.status = 'disconnected';
+        NmeaStore.stop();
+        NmeaStore.clearRemote();
+        setAuthIdentityScope('skipper-tern');
+        NmeaStore.start();
+    });
+    afterEach(() => {
+        NmeaStore.stop();
+        NmeaStore.clearRemote();
+        setAuthIdentityScope(null);
+        vi.useRealTimers();
+    });
+
+    const herWind = () => pickBoatTrueWind(NmeaStore.getState(), Date.now());
+
+    it('a fresh dated TWD over the LAN is her direction now', () => {
+        NmeaStore.ingestRemote(remote({ twdDeg: 215, twdSampleAt: now - 2_000 }));
+        expect(herWind()).toEqual({ kt: 12, fromDeg: 215, stale: false });
+    });
+
+    it('a TWD frozen 5 minutes beside a fresh TWS, over the LAN: not her direction, and the earlier one is retired', () => {
+        NmeaStore.ingestRemote(remote({ twdDeg: 215, twdSampleAt: now - 2_000 }));
+        vi.setSystemTime(now + 5_000);
+        NmeaStore.ingestRemote(
+            remote({ windSampleAt: now + 4_000, twdDeg: 215, twdSampleAt: now + 5_000 - 5 * 60_000 }),
+        );
+        expect(NmeaStore.getState().twd.value).toBeNull();
+        // 12 kt with no direction is above calm: no boat wind (Obs paints the model).
+        expect(herWind()).toBeNull();
+    });
+
+    it('the lane’s wind gate on the TWD’s own clock: 20 s over the LAN, 60 s from the cloud', () => {
+        NmeaStore.ingestRemote(remote({ twdDeg: 95, twdSampleAt: now - 20_000 }));
+        expect(herWind()?.fromDeg).toBe(95);
+        NmeaStore.ingestRemote(remote({ twdDeg: 96, twdSampleAt: now - 20_001 }));
+        expect(herWind()).toBeNull();
+        NmeaStore.clearRemote();
+        NmeaStore.ingestRemote(
+            remote({ via: 'cloud', windSampleAt: now - 30_000, twdDeg: 97, twdSampleAt: now - 60_000 }),
+        );
+        expect(herWind()?.fromDeg).toBe(97);
+        NmeaStore.ingestRemote(
+            remote({ via: 'cloud', windSampleAt: now - 30_000, twdDeg: 98, twdSampleAt: now - 60_001 }),
+        );
+        expect(herWind()).toBeNull();
+    });
+
+    it('a TWD dated more than 1 s in the future is refused', () => {
+        NmeaStore.ingestRemote(remote({ twdDeg: 300, twdSampleAt: now + 5_000 }));
+        expect(herWind()).toBeNull();
+        NmeaStore.ingestRemote(remote({ twdDeg: 301, twdSampleAt: now + 1_000 }));
+        expect(herWind()?.fromDeg).toBe(301);
+    });
+
+    it('an older Pi dates no TWD: stamped on receipt, as before', () => {
+        NmeaStore.ingestRemote(remote({ twdDeg: 140 }));
+        expect(herWind()).toEqual({ kt: 12, fromDeg: 140, stale: false });
     });
 });

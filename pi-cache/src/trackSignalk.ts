@@ -452,6 +452,18 @@ export function readTelemetrySnapshot(selfDocument: unknown, now: () => number =
             extra.wind_tws_source = twsSource.trim();
         }
     }
+    // The TWD reading's own time (Pi update 1, build 125). TWD and TWS come
+    // off different sentences (on Serene Summer the gateway's MDA, which needs
+    // heading, and VWT), so a heading dropout freezes the TWD beside a fresh
+    // TWS. Unlike wind_tws_at_ms (sent only while fresh: the phones build the
+    // wind history from it), this goes out with every TWD that has a leaf time
+    // of its own, however old or early, so a phone can tell a frozen TWD from
+    // an older Pi that dates none (closeInWind pickCloudTrueWind). Never a
+    // parent's, the GPS or the publish time.
+    const twdAt = timestampAt(selfDocument, 'environment.wind.directionTrue', false);
+    if (twdAt !== null && twdAt > 0 && num(selfDocument, 'environment.wind.directionTrue') !== null) {
+        extra.wind_twd_at_ms = twdAt;
+    }
     const attitude = (axis: 'roll' | 'pitch', key: 'heel_at' | 'pitch_at'): number | null => {
         const path = `navigation.attitude.${axis}`;
         const at = timestampAt(selfDocument, path);
