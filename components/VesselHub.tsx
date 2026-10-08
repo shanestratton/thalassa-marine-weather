@@ -63,6 +63,7 @@ import {
 } from './Icons';
 import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
+import { appleSignInHoldsSheet } from '../services/auth/appleSignInAttempt';
 import { Button } from './ui/Button';
 import {
     authScopedStorageKey,
@@ -1668,7 +1669,9 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     useEffect(() => {
         actionInFlight.current = false;
         setTakeoverRequest(null);
-        setSignInOpen(false);
+        // Mid Apple sign-in the account changes before its last steps run: the
+        // sheet closes itself once they finish, or shows the failed step.
+        if (!appleSignInHoldsSheet()) setSignInOpen(false);
     }, [authenticatedUserId]);
 
     useEffect(
@@ -1924,8 +1927,9 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                 }}
             />
             {/* Portalled; closes itself once sign-in succeeds, after which the
-                button offers the claim. */}
-            {needsSignIn && (
+                button offers the claim. Kept mounted while open, so an Apple
+                sign-in that is signed in but not finished stays on screen. */}
+            {(needsSignIn || signInOpen) && (
                 <SignInScreen
                     isOpen={signInOpen}
                     onClose={() => setSignInOpen(false)}

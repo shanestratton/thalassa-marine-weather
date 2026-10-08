@@ -1,0 +1,125 @@
+diff --git a/node_modules/@capacitor-community/apple-sign-in/ios/Sources/SignInWithApple/Plugin.swift b/node_modules/@capacitor-community/apple-sign-in/ios/Sources/SignInWithApple/Plugin.swift
+index f53087c..e4a30d4 100755
+--- a/node_modules/@capacitor-community/apple-sign-in/ios/Sources/SignInWithApple/Plugin.swift
++++ b/node_modules/@capacitor-community/apple-sign-in/ios/Sources/SignInWithApple/Plugin.swift
+@@ -1,6 +1,7 @@
+ import Foundation
+ import Capacitor
+ import AuthenticationServices
++import UIKit
+ 
+ @objc(SignInWithApple)
+ public class SignInWithApple: CAPPlugin, CAPBridgedPlugin {
+@@ -10,6 +11,16 @@ public class SignInWithApple: CAPPlugin, CAPBridgedPlugin {
+         CAPPluginMethod(name: "authorize", returnType: CAPPluginReturnPromise),
+     ] 
+ 
++    // THALASSA PATCH (build 124): Capacitor runs plugin methods on its
++    // background "bridge" queue, and ASAuthorizationController was started
++    // there with no presentation anchor; reported to fail as error 1000 on a
++    // first tap. It now starts on the main thread, anchored to the web view's
++    // window. The pending call is held here (one at a time; a newer request
++    // supersedes it) rather than as a callback id in UserDefaults, and the
++    // controller is retained until Apple answers.
++    private var pendingCall: CAPPluginCall?
++    private var authorizationController: ASAuthorizationController?
++
+     @objc func authorize(_ call: CAPPluginCall) {
+         let appleIDProvider = ASAuthorizationAppleIDProvider()
+         let request = appleIDProvider.createRequest()
+@@ -17,14 +28,28 @@ public class SignInWithApple: CAPPlugin, CAPBridgedPlugin {
+         request.state = call.getString("state")
+         request.nonce = call.getString("nonce")
+ 
+-        let defaults = UserDefaults()
+-        defaults.setValue(call.callbackId, forKey: "callbackId")
+-
+-        self.bridge?.saveCall(call)
++        DispatchQueue.main.async { [weak self] in
++            guard let self = self else {
++                call.reject("Sign in with Apple is unavailable", "UNAVAILABLE")
++                return
++            }
++            self.pendingCall?.reject("A newer Sign in with Apple request replaced this one", "SUPERSEDED")
++            self.pendingCall = call
++            let controller = ASAuthorizationController(authorizationRequests: [request])
++            controller.delegate = self
++            controller.presentationContextProvider = self
++            self.authorizationController = controller
++            controller.performRequests()
++        }
++    }
+ 
+-        let authorizationController = ASAuthorizationController(authorizationRequests: [request])
+-        authorizationController.delegate = self
+-        authorizationController.performRequests()
++    /// The pending call, released, if `controller` is the current request.
++    private func takePendingCall(for controller: ASAuthorizationController) -> CAPPluginCall? {
++        guard controller === authorizationController else { return nil }
++        let call = pendingCall
++        pendingCall = nil
++        authorizationController = nil
++        return call
+     }
+ 
+     func getRequestedScopes(from call: CAPPluginCall) -> [ASAuthorization.Scope]? {
+@@ -50,11 +75,11 @@ public class SignInWithApple: CAPPlugin, CAPBridgedPlugin {
+ 
+ extension SignInWithApple: ASAuthorizationControllerDelegate {
+     public func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+-        guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else { return }
+-
+-        let defaults = UserDefaults()
+-        let id = defaults.string(forKey: "callbackId") ?? ""
+-        guard let call = self.bridge?.savedCall(withID: id) else {
++        guard let call = takePendingCall(for: controller) else {
++            return
++        }
++        guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
++            call.reject("Sign in with Apple returned an unsupported credential", "UNSUPPORTED_CREDENTIAL")
+             return
+         }
+ 
+@@ -64,22 +89,34 @@ extension SignInWithApple: ASAuthorizationControllerDelegate {
+                 "email": appleIDCredential.email,
+                 "givenName": appleIDCredential.fullName?.givenName,
+                 "familyName": appleIDCredential.fullName?.familyName,
+-                "identityToken": String(data: appleIDCredential.identityToken!, encoding: .utf8),
+-                "authorizationCode": String(data: appleIDCredential.authorizationCode!, encoding: .utf8)
++                "identityToken": appleIDCredential.identityToken.flatMap { String(data: $0, encoding: .utf8) },
++                "authorizationCode": appleIDCredential.authorizationCode.flatMap { String(data: $0, encoding: .utf8) }
+             ]
+         ]
+ 
+         call.resolve(result)
+-        self.bridge?.releaseCall(call)
+     }
+ 
+     public func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+-        let defaults = UserDefaults()
+-        let id = defaults.string(forKey: "callbackId") ?? ""
+-        guard let call = self.bridge?.savedCall(withID: id) else {
++        guard let call = takePendingCall(for: controller) else {
+             return
+         }
+-        call.reject(error.localizedDescription)
+-        self.bridge?.releaseCall(call)
++        // The ASAuthorizationError code (1001 canceled, 1000 unknown, ...) as
++        // the call's error code and in its message, so JavaScript can tell a
++        // cancel from a failure in any language.
++        let code = (error as NSError).code
++        call.reject("\(error.localizedDescription) (AuthorizationError \(String(code)))", String(code), error)
++    }
++}
++
++extension SignInWithApple: ASAuthorizationControllerPresentationContextProviding {
++    public func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
++        if let window = bridge?.webView?.window {
++            return window
++        }
++        let windows = UIApplication.shared.connectedScenes
++            .compactMap { $0 as? UIWindowScene }
++            .flatMap { $0.windows }
++        return windows.first { $0.isKeyWindow } ?? windows.first ?? ASPresentationAnchor()
+     }
+ }
