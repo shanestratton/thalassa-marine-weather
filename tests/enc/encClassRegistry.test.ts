@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import {
     ALL_LAYER_IDS,
     ENC_VEC_LAYERS,
+    encMarkLayerId,
     S57_BUOY_BEACON_CLASSES,
     S57_HAZARD_POINT_CLASSES,
     S57_NAVAID_CLASSES,
@@ -24,19 +25,34 @@ const titleOf = (html: string): string => html.match(/enc-popup-title[^>]*>([^<]
 
 describe('S-57 point-mark class registry', () => {
     it.each(S57_POINT_MARK_CLASSES)('%s: layer id + z-order slot + popup branch all present', (cls) => {
-        const layerId = ENC_VEC_LAYERS[cls];
-        expect(layerId, `${cls} missing from ENC_VEC_LAYERS`).toBeTruthy();
+        const layerId = encMarkLayerId(cls);
+        expect(layerId, `${cls} has no render layer`).toBeTruthy();
         expect([...ALL_LAYER_IDS], `${cls} layer absent from ALL_LAYER_IDS z-order → renders nowhere`).toContain(
             layerId,
         );
-        const title = titleOf(buildFeaturePopupHtml(layerId, {}));
+        // The merge tags every point with its class (_kind); the one hazard
+        // layer's popup answers by it.
+        const title = titleOf(buildFeaturePopupHtml(layerId, { _kind: cls }));
         expect(title, `${cls} has no popup branch → falls through to the generic "Feature" popup`).not.toBe('Feature');
         expect(title).not.toBe('');
     });
 
-    it('maps every class to a DISTINCT layer id (no accidental alias)', () => {
-        const ids = S57_POINT_MARK_CLASSES.map((c) => ENC_VEC_LAYERS[c]);
-        expect(new Set(ids).size).toBe(S57_POINT_MARK_CLASSES.length);
+    it('every navaid class owns a DISTINCT layer id (no accidental alias)', () => {
+        const ids = S57_NAVAID_CLASSES.map((c) => encMarkLayerId(c));
+        expect(new Set(ids).size).toBe(S57_NAVAID_CLASSES.length);
+        expect(ids).not.toContain(ENC_VEC_LAYERS.HAZARDS);
+    });
+
+    it('the hazard classes share ONE layer on purpose (shallowest wins across classes) and the popup still tells them apart', () => {
+        // build 125, 125-04: a sort key orders one layer only, so one layer is
+        // what lets a 0.5 m wreck beat a 15 m rock (tests/enc/encOneHazardLayer).
+        expect(new Set(S57_HAZARD_POINT_CLASSES.map((c) => encMarkLayerId(c)))).toEqual(
+            new Set([ENC_VEC_LAYERS.HAZARDS]),
+        );
+        const titles = S57_HAZARD_POINT_CLASSES.map((c) =>
+            titleOf(buildFeaturePopupHtml(ENC_VEC_LAYERS.HAZARDS, { _kind: c })),
+        );
+        expect(titles).toEqual(['Obstruction', 'Wreck', 'Underwater rock']);
     });
 
     it('an unknown layer id falls through to the generic popup (sanity for the guard)', () => {
@@ -77,7 +93,7 @@ describe('S-57 class subgroup PARTITION (the full-bind guard)', () => {
 
     it('every subgroup class also has a render layer id (merge/mount can address it)', () => {
         for (const cls of [...S57_HAZARD_POINT_CLASSES, ...S57_NAVAID_CLASSES]) {
-            expect(ENC_VEC_LAYERS[cls], `${cls} has no ENC_VEC_LAYERS entry`).toBeTruthy();
+            expect(encMarkLayerId(cls), `${cls} has no render layer`).toBeTruthy();
         }
     });
 });

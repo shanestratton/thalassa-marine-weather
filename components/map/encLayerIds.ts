@@ -4,7 +4,7 @@
  * module can reference layers without a dependency cycle.
  */
 
-import type { S57PointMarkClass } from '../../services/enc/types';
+import { S57_HAZARD_POINT_CLASSES, type S57PointMarkClass } from '../../services/enc/types';
 import { ENC_DRAW_TIER_COUNT } from '../../services/enc/scaleShadow';
 
 // ── Source IDs ─────────────────────────────────────────────────────
@@ -15,7 +15,7 @@ export const ENC_VEC_SRC = {
     DEPARE_GLAZE: 'enc-vec-depare-glaze', // overlap-clipped twin for the satellite glaze
     DEPCNT: 'enc-vec-depcnt',
     COALNE: 'enc-vec-coalne',
-    POINTS: 'enc-vec-points', // OBSTRN + WRECKS + UWTROC merged
+    POINTS: 'enc-vec-points', // OBSTRN + WRECKS + UWTROC merged, _kind-tagged
     NAVAIDS: 'enc-vec-navaids', // LIGHTS + BOY*/BCN* merged
     RECTRC: 'enc-vec-rectrc', // recommended tracks / leading lines
     SOUNDG: 'enc-vec-soundg', // exploded spot soundings
@@ -84,9 +84,15 @@ export const ENC_VEC_LAYERS = {
     /** Fairway boundary — dashed marine-blue line, NON-clickable (a tappable
      *  fill would blanket the channel and steal the water tap). */
     FAIRWY_LINE: 'enc-vec-fairwy-line',
-    OBSTRN: 'enc-vec-obstrn-circle',
-    WRECKS: 'enc-vec-wrecks-circle',
-    UWTROC: 'enc-vec-uwtroc-circle',
+    /** EVERY wreck, rock and obstruction: ONE symbol layer (build 125, 125-04).
+     *  A symbol-sort-key orders one layer only, and as three layers Mapbox
+     *  placed every rock, then every wreck, then every obstruction, so a 15 m
+     *  rock hid a 0.5 m wreck. One layer with one depth sort key
+     *  (encHazardSortKey.ts) lets the shallowest danger win whatever its
+     *  class; each class keeps its own
+     *  INT1 glyph (a match on _kind), and the popup answers by _kind. The
+     *  three per-class ids it replaced are in RETIRED_ENC_LAYER_IDS. */
+    HAZARDS: 'enc-vec-hazards-symbol',
     BOYLAT: 'enc-vec-boylat-circle',
     BOYCAR: 'enc-vec-boycar-circle',
     BCNLAT: 'enc-vec-bcnlat-circle',
@@ -172,7 +178,13 @@ export function encBaseLayerId(id: string): string {
 
 /** Retired layer ids a live map may still carry (an older bundle on the same
  *  map — dev reloads): the mount removes them so nothing paints off-stack. */
-export const RETIRED_ENC_LAYER_IDS: readonly string[] = ['enc-vec-depare-fine-fill'];
+export const RETIRED_ENC_LAYER_IDS: readonly string[] = [
+    'enc-vec-depare-fine-fill',
+    // The per-class hazard layers, merged into ENC_VEC_LAYERS.HAZARDS (125-04).
+    'enc-vec-obstrn-circle',
+    'enc-vec-wrecks-circle',
+    'enc-vec-uwtroc-circle',
+];
 
 // All layer IDs, ordered bottom-to-top for correct stacking. The
 // mount is idempotent-additive: each layer is inserted before the
@@ -237,9 +249,8 @@ export const ALL_LAYER_IDS: readonly string[] = [
     // marks and culled the wreck itself and any rock beside it. Here every
     // mark is placed first and a name prints only where it has room.
     ENC_VEC_LAYERS.POINTS_LABEL,
-    ENC_VEC_LAYERS.OBSTRN,
-    ENC_VEC_LAYERS.WRECKS,
-    ENC_VEC_LAYERS.UWTROC,
+    // Every wreck, rock and obstruction, shallowest first (125-04).
+    ENC_VEC_LAYERS.HAZARDS,
     ENC_VEC_LAYERS.LIGHTS,
     ENC_VEC_LAYERS.RECTRC_LABEL,
     ENC_VEC_LAYERS.VHF_BADGE, // watch-channel badges ride above the lead labels
@@ -258,11 +269,20 @@ export {
     S57_BUOY_BEACON_CLASSES,
 } from '../../services/enc/types';
 
-// Compile-time render binding: every point-mark class MUST own a layer id
-// in ENC_VEC_LAYERS — a registry addition that forgets one fails HERE, in
-// lock-step with encClassRegistry.test's runtime coverage guard.
-type _EveryMarkClassHasLayer = [S57PointMarkClass] extends [keyof typeof ENC_VEC_LAYERS] ? true : never;
-export const S57_MARK_CLASSES_HAVE_LAYERS: _EveryMarkClassHasLayer = true;
+type S57HazardPointClass = (typeof S57_HAZARD_POINT_CLASSES)[number];
+const isHazardPointClass = (cls: S57PointMarkClass): cls is S57HazardPointClass =>
+    (S57_HAZARD_POINT_CLASSES as readonly string[]).includes(cls);
+
+/**
+ * The layer that draws a point-mark class. Every hazard class draws in the
+ * ONE hazard layer (125-04: the shallowest wins across classes); every navaid
+ * class owns its own layer. Compile-time render binding: in the navaid branch
+ * the class must be a key of ENC_VEC_LAYERS, so a registry addition that
+ * forgets its layer fails HERE, in lock-step with encClassRegistry.test.
+ */
+export function encMarkLayerId(cls: S57PointMarkClass): string {
+    return isHazardPointClass(cls) ? ENC_VEC_LAYERS.HAZARDS : ENC_VEC_LAYERS[cls];
+}
 
 // Layers that take click handlers. Excludes the text-only label
 // layers — a tap on a label should fall through to the symbol or
