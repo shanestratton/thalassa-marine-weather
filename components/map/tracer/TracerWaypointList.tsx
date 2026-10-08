@@ -31,6 +31,7 @@ import React from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { triggerHaptic } from '../../../utils/system';
 import { TracerTidePanel } from '../TracerTidePanel';
+import { tracerFlyTo } from '../mapHubHelpers';
 import type { TraceLegVerdict } from '../../../services/routeTracer';
 
 export interface TracerWaypointListProps {
@@ -143,11 +144,7 @@ export const TracerWaypointList: React.FC<TracerWaypointListProps> = ({
                                     const m = mapRef.current;
                                     if (!m) return;
                                     triggerHaptic('light');
-                                    m.flyTo({
-                                        center: [spot.lon, spot.lat],
-                                        zoom: Math.max(m.getZoom(), 15),
-                                        duration: 700,
-                                    });
+                                    tracerFlyTo(m, spot, Math.max(m.getZoom(), 15), 700);
                                     if (firstIssue?.mark) pulseMarkHalo(firstIssue.mark);
                                 }}
                                 className="cursor-pointer active:opacity-70"
@@ -174,11 +171,7 @@ export const TracerWaypointList: React.FC<TracerWaypointListProps> = ({
                                                     if (!tgt || !m) return;
                                                     e.stopPropagation();
                                                     triggerHaptic('light');
-                                                    m.flyTo({
-                                                        center: [tgt.lon, tgt.lat],
-                                                        zoom: Math.max(m.getZoom(), 15),
-                                                        duration: 700,
-                                                    });
+                                                    tracerFlyTo(m, tgt, Math.max(m.getZoom(), 15), 700);
                                                     if (iss.mark) pulseMarkHalo(iss.mark);
                                                 }}
                                                 className={

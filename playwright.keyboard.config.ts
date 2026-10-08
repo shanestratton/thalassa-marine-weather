@@ -58,6 +58,9 @@ export default defineConfig({
         // The own-ship boat: glyph, badge words, legibility per palette and base,
         // and the held-position message clear of her (e2e/fixtures/ownship-boat-marker.tsx).
         'ownship-boat-marker.spec.ts',
+        // After Plan's route fit, Locate puts the fix at the canvas centre and
+        // getBounds() covers the whole canvas (e2e/fixtures/obs-camera-centring.ts, build 124 OC).
+        'obs-camera-centring.spec.ts',
         // Her wind vs the models: card fits, centred above the tab bar (e2e/fixtures/model-check.tsx).
         'model-check-layout.spec.ts',
         // The ten-day model comparison: seven models, the member strip and the

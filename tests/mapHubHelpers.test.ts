@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
     AUTO_MAX_LEG_M,
@@ -8,6 +9,7 @@ import {
     legCacheKey,
     msToLocalInput,
     TRACE_CLUSTER_SPAN_M,
+    tracerFlyTo,
 } from '../components/map/mapHubHelpers';
 
 describe('mapHubHelpers', () => {
@@ -23,7 +25,10 @@ describe('mapHubHelpers', () => {
         expect(legCacheKey(a, b, true)).toBe('-27.123456,153.100000|-27.200000,153.200000|last');
     });
 
-    it('fits the complete trace with map-control-safe padding', () => {
+    // The padding clears Plan's route card for this flight only: Mapbox keeps
+    // a call's padding on the map unless it says retainPadding: false, and
+    // Obs shares this map (build 124, Obs camera centring).
+    it('fits the complete trace with map-control-safe padding, and leaves none on the map', () => {
         const fitBounds = vi.fn();
         fitTraceBounds({ fitBounds } as never, []);
         expect(fitBounds).not.toHaveBeenCalled();
@@ -42,7 +47,75 @@ describe('mapHubHelpers', () => {
                 padding: { top: 90, bottom: 130, left: 300, right: 40 },
                 maxZoom: 15,
                 duration: 900,
+                retainPadding: false,
             },
+        );
+    });
+
+    it('fits a northern and western route the same way (Falmouth to A Coruña)', () => {
+        const fitBounds = vi.fn();
+        fitTraceBounds({ fitBounds } as never, [
+            { lat: 50.15, lon: -5.07 },
+            { lat: 43.37, lon: -8.4 },
+        ]);
+        expect(fitBounds).toHaveBeenCalledExactlyOnceWith(
+            [
+                [-8.4, 43.37],
+                [-5.07, 50.15],
+            ],
+            expect.objectContaining({ retainPadding: false }),
+        );
+    });
+
+    // Review 2026-10-08: with the fit's padding no longer left on the map, a
+    // tracer flight that named none landed at the canvas centre, under the
+    // open route card (x 12 to 300 on a phone). Before, after any route fit,
+    // it reused the fit's leftover padding and landed in the strip right of
+    // the card. Each flight now names that padding for itself.
+    it('flies the tracer to a point beside its route card, leaving no padding on the map', () => {
+        const flyTo = vi.fn();
+        tracerFlyTo({ flyTo } as never, { lat: 43.369, lon: -8.398 }, 15, 700);
+        expect(flyTo).toHaveBeenCalledExactlyOnceWith({
+            center: [-8.398, 43.369],
+            zoom: 15,
+            duration: 700,
+            padding: { top: 90, bottom: 130, left: 300, right: 40 },
+            retainPadding: false,
+        });
+    });
+
+    it('every flight the tracer card makes frames beside the card (tracerFlyTo)', () => {
+        const list = readFileSync('components/map/tracer/TracerWaypointList.tsx', 'utf8');
+        expect(list).not.toMatch(/\.flyTo\(/);
+        expect(list.match(/tracerFlyTo\(/g)).toHaveLength(2);
+        const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
+        // The tracer's own flights: new-leg seed, single-point return leg,
+        // typed coordinate, paste, sailed track, course frame, ⚡ arrival,
+        // queue and saved-list loads, the report's fly-to.
+        expect(hub.match(/tracerFlyTo\(/g)?.length).toBeGreaterThanOrEqual(10);
+        // What still flies on the whole canvas is not the tracer's: Obs's
+        // recentre, the threat banner, a passage hazard, AIS vessel search,
+        // and the parked closed-pill guided start.
+        const raw = [...hub.matchAll(/\.flyTo\(/g)].map((m) => hub.slice(Math.max(0, m.index! - 700), m.index));
+        const owner = (before: string) =>
+            [
+                'onRecenter={',
+                'flyTo={(lat, lon, zoom)',
+                'onHazardClick=',
+                'onSelect={(lat, lon, mmsi, name)',
+                'Guided start',
+            ]
+                .map((marker) => [marker, before.lastIndexOf(marker)] as const)
+                .filter(([, at]) => at >= 0)
+                .sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'the tracer';
+        expect(raw.map(owner).sort()).toEqual(
+            [
+                'Guided start',
+                'flyTo={(lat, lon, zoom)',
+                'onHazardClick=',
+                'onRecenter={',
+                'onSelect={(lat, lon, mmsi, name)',
+            ].sort(),
         );
     });
 

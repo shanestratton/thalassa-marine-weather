@@ -51,6 +51,14 @@ export function legCacheKey(a: MapPoint, b: MapPoint, isLast: boolean): string {
     return `${a.lat.toFixed(6)},${a.lon.toFixed(6)}|${b.lat.toFixed(6)},${b.lon.toFixed(6)}${isLast ? '|last' : ''}`;
 }
 
+/**
+ * The water clear of Plan's route card (w-72 at left-3, so x 12 to 300) and
+ * the bottom rail. Given to each tracer camera call for that call only: kept
+ * on the map, it moved every later Obs flight on this shared map 130 pt right
+ * (build 124).
+ */
+const TRACE_CARD_PADDING = { top: 90, bottom: 130, left: 300, right: 40 } as const;
+
 /** Fit a saved route's complete extent without obscuring it behind map UI. */
 export function fitTraceBounds(map: mapboxgl.Map, points: readonly MapPoint[]): void {
     if (points.length === 0) return;
@@ -69,8 +77,26 @@ export function fitTraceBounds(map: mapboxgl.Map, points: readonly MapPoint[]): 
             [minLon, minLat],
             [maxLon, maxLat],
         ],
-        { padding: { top: 90, bottom: 130, left: 300, right: 40 }, maxZoom: 15, duration: 900 },
+        { padding: { ...TRACE_CARD_PADDING }, maxZoom: 15, duration: 900, retainPadding: false },
     );
+}
+
+/**
+ * Fly the tracer's camera to one point (a pin, a leg's problem mark, a loaded
+ * route's middle) beside the route card, as fitTraceBounds frames a route.
+ * Before build 124 these flights named no padding and reused the one the
+ * route fit left on the map, which is where they landed in normal use;
+ * with nothing left behind they would land under the open card (review
+ * 2026-10-08), so each names it for itself.
+ */
+export function tracerFlyTo(map: mapboxgl.Map, to: MapPoint, zoom: number, duration: number): void {
+    map.flyTo({
+        center: [to.lon, to.lat],
+        zoom,
+        duration,
+        padding: { ...TRACE_CARD_PADDING },
+        retainPadding: false,
+    });
 }
 
 /** Maximum span of one trace-grading context window. */

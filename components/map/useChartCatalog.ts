@@ -249,7 +249,7 @@ export function useChartCatalog(
                         [src.bounds[0], src.bounds[1]],
                         [src.bounds[2], src.bounds[3]],
                     ],
-                    { padding: 40, duration: 1500 },
+                    { padding: 40, duration: 1500, retainPadding: false },
                 );
                 return;
             }

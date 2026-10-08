@@ -25,7 +25,7 @@
  */
 import mapboxgl from 'mapbox-gl';
 import { useEffect, useRef, useCallback, useState, type MutableRefObject } from 'react';
-import { BgGeoManager, type CachedPosition } from '../../services/BgGeoManager';
+import type { CachedPosition } from '../../services/BgGeoManager';
 import { GpsService } from '../../services/GpsService';
 import { NmeaGpsProvider } from '../../services/NmeaGpsProvider';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
@@ -2040,45 +2040,6 @@ export function useVesselTracker(
         updateWindChip();
     }, [options.windSpeedUnit, updateWindChip]);
 
-    // Fly to the vessel: where the marker is, and for a punter whose phone is
-    // all the boat has, the arbiter's answer or the phone.
-    const flyToVessel = useCallback(() => {
-        const map = mapRef.current;
-        if (!map) return;
-        const fly = (lon: number, lat: number) =>
-            map.flyTo({
-                center: [lon, lat],
-                zoom: 14,
-                duration: 1200,
-                essential: true,
-            });
-
-        const subject = subjectRef.current;
-        if (subject.kind === 'boat') {
-            // Her chain only, as the marker draws her: never the phone.
-            const fix = vesselMarkerFixNow(subject.crewOwnerId, Date.now()) ?? seenVesselFix(subject.crewOwnerId);
-            if (fix) fly(fix.lon, fix.lat);
-            return;
-        }
-
-        // The boat's own answer first — flying "to the vessel" must not mean
-        // flying to the phone while the NMEA feed is live.
-        const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState());
-        if (own && own.source === 'nmea') {
-            fly(own.lon, own.lat);
-            return;
-        }
-
-        const pos = BgGeoManager.getLastPosition();
-        if (pos) {
-            fly(pos.longitude, pos.latitude);
-        } else {
-            GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((p) => {
-                if (p) fly(p.longitude, p.latitude);
-            });
-        }
-    }, [mapRef]);
-
     // Clear the trail history
     const clearTrail = useCallback(() => {
         trailCoordsRef.current = [];
@@ -2091,5 +2052,5 @@ export function useVesselTracker(
         }
     }, [mapRef]);
 
-    return { flyToVessel, clearTrail, subject: subjectKind };
+    return { clearTrail, subject: subjectKind };
 }

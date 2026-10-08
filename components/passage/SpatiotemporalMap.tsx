@@ -418,6 +418,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
             padding: { top: 80, bottom: 160, left: 20, right: 20 },
             duration: 1800,
             maxZoom: 13,
+            retainPadding: false,
         });
     }, [mapReady, boundingBox]);
 

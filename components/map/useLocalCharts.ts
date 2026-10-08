@@ -222,7 +222,7 @@ export function useLocalCharts(
                         [west, south],
                         [east, north],
                     ],
-                    { padding: 40, duration: 1500 },
+                    { padding: 40, duration: 1500, retainPadding: false },
                 );
                 return;
             }

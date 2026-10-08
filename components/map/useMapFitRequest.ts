@@ -9,6 +9,7 @@ import { useEffect } from 'react';
 import type { MutableRefObject } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
+import { claimObsCamera } from './obsCameraClaims';
 
 export function useMapFitRequest(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean): void {
     // ── Pending fit-to-bbox request ──
@@ -24,6 +25,11 @@ export function useMapFitRequest(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             if (!map) return;
             const target = consumeMapFit();
             if (!target) return;
+            // The skipper asked to see this: Obs's own centring stands down,
+            // even when this map is hidden behind the page that asked (build
+            // 124 review: after Plan or a location-box pick, Obs's next visit
+            // put the chart back on the boat over the ENC cell).
+            claimObsCamera(map);
             const [minLon, minLat, maxLon, maxLat] = target.bbox;
             try {
                 map.fitBounds(
@@ -36,6 +42,7 @@ export function useMapFitRequest(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                         maxZoom: target.maxZoom ?? 11,
                         duration: 1200,
                         essential: true,
+                        retainPadding: false,
                     },
                 );
             } catch (err) {

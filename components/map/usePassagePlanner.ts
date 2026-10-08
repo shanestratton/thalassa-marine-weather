@@ -861,7 +861,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     // Fit bounds to the route extent.
                     const bounds = new mapboxgl.LngLatBounds();
                     for (const [lon, lat] of inshoreRes.polyline) bounds.extend([lon, lat]);
-                    map.fitBounds(bounds, { padding: 80, duration: 1000 });
+                    map.fitBounds(bounds, { padding: 80, duration: 1000, retainPadding: false });
 
                     // Surface a route-summary event so PassageBanner can show
                     // distance/cells used. Same shape as deep-water route, just
@@ -1694,7 +1694,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         const bounds = new mapboxgl.LngLatBounds();
         bounds.extend([departure.lon, departure.lat]);
         bounds.extend([arrival.lon, arrival.lat]);
-        map.fitBounds(bounds, { padding: 80, duration: 1000 });
+        map.fitBounds(bounds, { padding: 80, duration: 1000, retainPadding: false });
 
         // Background: isochrone weather routing upgrade
         setTimeout(async () => {

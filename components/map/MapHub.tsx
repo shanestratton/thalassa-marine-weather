@@ -45,7 +45,14 @@ import { MapBaseSelector, mapBaseVisibility, type MapBaseKind } from './MapBaseS
 import { seaBaseLayers, setReliefPalette } from './reliefBase';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
-import { OBS_VESSEL_ZOOM, obsStartTarget, useObsStartupCamera, useWeatherFollowKey } from './useObsStartupCamera';
+import {
+    OBS_VESSEL_ZOOM,
+    obsStartTarget,
+    useObsStartupCamera,
+    useSurfaceEpoch,
+    useWeatherFollowKey,
+} from './useObsStartupCamera';
+import { clearCameraPadding } from './cameraPadding';
 import { phoneDotWanted } from './useLocationDot';
 import { locateOnObs, obsLocateSubject, useObsCentreNoticeWatch, type ObsBoatNames } from './obsCentre';
 import { ObsCentreNoticeChip } from './ObsCentreNoticeChip';
@@ -207,6 +214,7 @@ import {
     distMetres,
     fitTraceBounds,
     isBasemapHybridDuplicateLabelLayer,
+    tracerFlyTo,
 } from './mapHubHelpers';
 import { useDestinationFlag } from './useDestinationFlag';
 import { useRouteGhostMarker } from './useRouteGhostMarker';
@@ -831,12 +839,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setLegAnchor(seed);
                     setSelectedPin(null);
                     setOverwriteArm(null);
-                    const fly = () =>
-                        mapRef.current?.flyTo({
-                            center: [seed.anchor.lon, seed.anchor.lat],
-                            zoom: 13.5,
-                            duration: 900,
-                        });
+                    const fly = () => mapRef.current && tracerFlyTo(mapRef.current, seed.anchor, 13.5, 900);
                     if (mapRef.current) {
                         if (isAuthIdentityScopeCurrent(requestScope)) fly();
                     } else {
@@ -1478,7 +1481,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         setSavedTraces(loadSavedTraces());
         if (!mapRef.current) return;
         if (points.length > 1) fitTraceBounds(mapRef.current, points);
-        else mapRef.current.flyTo({ center: [points[0].lon, points[0].lat], zoom: 13.5, duration: 900 });
+        else tracerFlyTo(mapRef.current, points[0], 13.5, 900);
     }, [rebaseHistoryRef]);
     const copyFairwaySnippet = useCallback(async () => {
         if (capturedCoords.length < 2) return;
@@ -1584,7 +1587,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         setCapturedCoords((prev) => [...prev, pt]);
         setCoordEntry('');
         const z = mapRef.current?.getZoom?.() ?? 12;
-        mapRef.current?.flyTo({ center: [pt.lon, pt.lat], zoom: Math.max(z, 12), duration: 700 });
+        if (mapRef.current) tracerFlyTo(mapRef.current, pt, Math.max(z, 12), 700);
         flashTraceFeedback(`Point added — ${pt.lat.toFixed(4)}, ${pt.lon.toFixed(4)}`);
     }, [coordEntry, flashTraceFeedback, setCapturedCoords]);
 
@@ -1606,7 +1609,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     triggerHaptic('medium');
                     setCapturedCoords(pins);
                     const mid = pins[Math.floor(pins.length / 2)];
-                    mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 12.5, duration: 1000 });
+                    if (mapRef.current) tracerFlyTo(mapRef.current, mid, 12.5, 1000);
                     flashTraceFeedback(`${pins.length} pins pasted — checking them now`);
                 } else {
                     flashTraceFeedback('Nothing on the clipboard that reads like "lat, lon" lines');
@@ -1800,7 +1803,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             setTraceOrigin(null);
             setTraceDest(null);
             const mid = pins[Math.floor(pins.length / 2)];
-            mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 11.5, duration: 1000 });
+            if (mapRef.current) tracerFlyTo(mapRef.current, mid, 11.5, 1000);
             flashTraceFeedback(`${t.label} loaded as ${pins.length} pins — re-checking it now`);
         },
         [
@@ -2569,7 +2572,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             const d = await parseLocation(to, { lat: o.lat, lon: o.lon });
             setTraceOrigin({ lat: o.lat, lon: o.lon, name: o.name });
             setTraceDest({ lat: d.lat, lon: d.lon, name: d.name });
-            mapRef.current?.flyTo({ center: [o.lon, o.lat], zoom: 14.5, duration: 1400 });
+            if (mapRef.current) tracerFlyTo(mapRef.current, o, 14.5, 1400);
             // Geocoder sanity flash — "Mooloolaba Marina" once matched
             // Marina del Rey, California (proximity bias lost to the word
             // "Marina"). Don't block a genuine ocean passage; just make a
@@ -2648,7 +2651,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     );
                     // Fly to the ARRIVAL end for "take her in" review — most
                     // routes end in a marina and that end needs eyes on it.
-                    mapRef.current?.flyTo({ center: [dest.lon, dest.lat], zoom: 13.5, duration: 1400 });
+                    if (mapRef.current) tracerFlyTo(mapRef.current, dest, 13.5, 1400);
                     // What the route must say (owner decision 8: bridges not
                     // checked on a schema-1 chart; a pin off the water) — the
                     // pins lose it otherwise (fix-up, 2026-09-30). The traced
@@ -2910,9 +2913,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     // box follows (Shane 2026-10-06): the boat from her own chain, never the
     // phone; the phone from its GPS, never the boat. Once per box; the first
     // live fix is taken until the skipper takes over. No live fix: the last
-    // known one, or the broad view, with one message (obsCentre).
+    // known one, or the broad view, with one message (obsCentre). After Plan,
+    // the picker or a shared pin had the map, Obs centres again (build 124).
     const obsShowing = ownshipStartup && currentView === 'map';
-    useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart);
+    const surfaceEpoch = useSurfaceEpoch(ownshipStartup);
+    useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart, surfaceEpoch);
     useObsCentreNoticeWatch(obsShowing);
     const ownBoatName = settings.vessel?.name?.trim() || null;
     const crewingBoat = useCrewingBoat();
@@ -4662,11 +4667,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                     setCapturedCoords(r.points);
                                                                     const mid =
                                                                         r.points[Math.floor(r.points.length / 2)];
-                                                                    mapRef.current?.flyTo({
-                                                                        center: [mid.lon, mid.lat],
-                                                                        zoom: 12.5,
-                                                                        duration: 900,
-                                                                    });
+                                                                    if (mapRef.current)
+                                                                        tracerFlyTo(mapRef.current, mid, 12.5, 900);
                                                                 }}
                                                                 className="flex-1 truncate text-left text-gray-200 active:opacity-70"
                                                             >
@@ -4718,11 +4720,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                 // like a no-op (the queue loader above
                                                                 // already does this).
                                                                 const mid = t.points[Math.floor(t.points.length / 2)];
-                                                                mapRef.current?.flyTo({
-                                                                    center: [mid.lon, mid.lat],
-                                                                    zoom: 12.5,
-                                                                    duration: 900,
-                                                                });
+                                                                if (mapRef.current)
+                                                                    tracerFlyTo(mapRef.current, mid, 12.5, 900);
                                                             }}
                                                             className="flex-1 truncate text-left text-gray-200 active:opacity-70"
                                                         >
@@ -4781,7 +4780,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             departureMs={departureMs}
                             onFlyTo={(pt) => {
                                 setShowReport(false);
-                                mapRef.current?.flyTo({ center: [pt.lon, pt.lat], zoom: 15, duration: 800 });
+                                if (mapRef.current) tracerFlyTo(mapRef.current, pt, 15, 800);
                             }}
                             onFixLeg={onFixLeg}
                             onFixAll={onFixAll}
@@ -5349,6 +5348,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onRecenter={() => {
                             pauseOverview();
                             if (mapRef.current && weatherCoords) {
+                                clearCameraPadding(mapRef.current);
                                 mapRef.current.flyTo({
                                     center: [weatherCoords.lon, weatherCoords.lat],
                                     zoom: 10,
