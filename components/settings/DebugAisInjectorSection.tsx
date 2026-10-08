@@ -1,11 +1,17 @@
 /**
  * Settings → Preferences, smoke builds only: start and stop the fictional
- * crossing target for the 125-11 locked-phone + Focus test. Reached only
- * through ./debugAisInjectorGate.ts; never in a release build.
+ * crossing target for the 125-11 locked-phone + Focus test, and (125-02) a
+ * fictional AIS-SART in test or active mode. Reached only through
+ * ./debugAisInjectorGate.ts; never in a release build.
  */
 import React from 'react';
 import { Row, Section } from './SettingsPrimitives';
-import { debugAisInjectorRunning, startDebugCrossing, stopDebugAisInjector } from '../../services/debug/aisInjector';
+import {
+    debugAisInjectorRunning,
+    startDebugCrossing,
+    startDebugSart,
+    stopDebugAisInjector,
+} from '../../services/debug/aisInjector';
 
 export const DebugAisInjectorSection: React.FC = () => {
     const [status, setStatus] = React.useState(() =>
@@ -37,6 +43,28 @@ export const DebugAisInjectorSection: React.FC = () => {
                         }}
                     >
                         Stop
+                    </button>
+                </div>
+            </Row>
+            <Row>
+                <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white font-medium">Fictional AIS-SART</p>
+                    <p className="text-xs text-gray-400">Test first, then Active: the switch must sound.</p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                    <button
+                        type="button"
+                        className="min-h-11 rounded-lg border border-white/10 px-3 text-xs font-bold text-white"
+                        onClick={() => setStatus(startDebugSart('test'))}
+                    >
+                        Test
+                    </button>
+                    <button
+                        type="button"
+                        className="min-h-11 rounded-lg border border-white/10 px-3 text-xs font-bold text-white"
+                        onClick={() => setStatus(startDebugSart('active'))}
+                    >
+                        Active
                     </button>
                 </div>
             </Row>

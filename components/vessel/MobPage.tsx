@@ -7,6 +7,14 @@
  *
  * Clear requires a 3-second hold to prevent accidental cancellation of a
  * live MOB. Activation is instant — every second matters.
+ *
+ * Go to it (build 125, 125-02): a distress beacon's card hands off here, and
+ * the page steers to the beacon and follows it as it drifts
+ * (DistressGoToView) until Stop, for this one visit: leaving the page ends
+ * it. Her own MOB outranks a beacon: marked after Go to it (here, on the
+ * Watch or from the chart) it ends the go-to and its own view shows. Go to it
+ * chosen while her MOB is already marked is deliberate (her crew's own AIS-MOB
+ * beacon drifts with them), and the beacon view then offers Back to your MOB.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MOB_PRECISE_FIX_ACCURACY_M, MobService, type MobSnapshot, type MobState } from '../../services/MobService';
@@ -18,6 +26,8 @@ import { prewarmSafetyMessage, speakSafetyMessage, type SafetyUtteranceHandle } 
 import { formatSpokenPosition, spellDigits, spokenCallSign, spokenMmsi } from '../../services/voice/radioPhrasing';
 import { authScopedStorageKey } from '../../services/authIdentityScope';
 import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
+import { AisGuardAlertStore } from '../../services/aisGuardAlertStore';
+import { DistressGoToView } from './DistressGoToView';
 
 interface MobPageProps {
     onBack: () => void;
@@ -139,6 +149,25 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate, backLabel,
             : undefined;
 
     const [state, setState] = useState<MobState>(() => MobService.currentState());
+    // The distress beacon Go to it is steering to, if any, and when it was
+    // chosen (125-02). Held for this visit only.
+    const [goToBeacon, setGoToBeacon] = useState<number | null>(() => AisGuardAlertStore.getDistressGoTo());
+    const [goToAt, setGoToAt] = useState<number | null>(() => AisGuardAlertStore.getDistressGoToAt());
+    useEffect(
+        () =>
+            AisGuardAlertStore.subscribeDistress(() => {
+                setGoToBeacon(AisGuardAlertStore.getDistressGoTo());
+                setGoToAt(AisGuardAlertStore.getDistressGoToAt());
+            }),
+        [],
+    );
+    useEffect(() => AisGuardAlertStore.holdDistressGoTo(), []);
+    // Her own MOB marked at or after Go to it wins, and ends the go-to (so the
+    // beacon's card, with its Go to it, returns to the stack).
+    const ownMobFirst = !!state.active && (goToAt === null || state.active.activatedAt >= goToAt);
+    useEffect(() => {
+        if (ownMobFirst && goToBeacon !== null) AisGuardAlertStore.stopDistressGoTo();
+    }, [ownMobFirst, goToBeacon]);
     const [activating, setActivating] = useState(false);
     const [activationError, setActivationError] = useState<string | null>(null);
     const [clearError, setClearError] = useState<string | null>(null);
@@ -344,7 +373,28 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate, backLabel,
         onNavigate?.('radio');
     }, [onNavigate, state.active]);
 
-    // ── Render: idle or active ────────────────────────────────────────────
+    // ── Render: going to a distress beacon, idle or active ─────────────────
+    if (goToBeacon !== null && !ownMobFirst) {
+        return (
+            <DistressGoToView
+                mmsi={goToBeacon}
+                radio={radio}
+                mobActive={!!state.active}
+                onOwnMob={() => {
+                    // Back to her own MOB, or mark one at once (the idle view
+                    // shows the marking and any error).
+                    AisGuardAlertStore.stopDistressGoTo();
+                    if (!state.active) void handleActivate();
+                }}
+                onBack={() => {
+                    AisGuardAlertStore.stopDistressGoTo();
+                    onBack();
+                }}
+                backLabel={backLabel}
+                breadcrumbs={breadcrumbs}
+            />
+        );
+    }
     if (!state.active) {
         return (
             <div

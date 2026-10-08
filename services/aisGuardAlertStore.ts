@@ -24,8 +24,15 @@
  * acknowledgements, and the collision watch's honest notices ('blind',
  * 'paused'), so the banner and the (lazily loaded) alarm service read one
  * truth. It stays small: it ships with the app shell.
+ *
+ * Build 125 (125-02): distress beacons ride the same stack, above every other
+ * card. The watch (services/DistressAlarmService.ts, lazy) hands over every
+ * beacon it classified; the store keeps the skipper's Silence and Dismiss per
+ * activation (a new beacon, or one switched from test to active, starts
+ * afresh) and which beacon Go to it is steering to.
  */
 import type { CollisionAlertDetail, CollisionLostDetail, CollisionLostReason, GuardAlert } from './AisGuardZone';
+import type { DistressKind, DistressState } from '../utils/collisionRule';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('AisGuardAlerts');
@@ -86,6 +93,112 @@ export function collisionLines(
         };
     }
     return { cpa, where, age: c.source === 'local' ? `AIS ${old}` : `internet AIS, ${old}` };
+}
+
+// ── Distress beacons (125-02) ───────────────────────────────────────────────
+
+/** One beacon as the distress watch last classified it. */
+export interface DistressBeacon {
+    mmsi: number;
+    /** Its AIS name, if it sent one ('' otherwise). */
+    name: string;
+    kind: DistressKind;
+    state: DistressState;
+    /** 'local': heard by her own radio. 'cloud': relayed over the internet. */
+    source: 'local' | 'cloud';
+    /** Active and heard by her own radio: it sounds until silenced. */
+    sounds: boolean;
+    /** Null until a position report is heard. */
+    lat: number | null;
+    lon: number | null;
+    /** Epoch ms of its newest report, position or text. */
+    heardAt: number;
+    /** From her own position at the watch's last pass; null without a fix or a beacon position. */
+    rangeNm: number | null;
+    bearingDeg: number | null;
+}
+
+export const DISTRESS_RELAYED_WORDS = 'Relayed via internet, not heard by your radio';
+
+const DISTRESS_WORDS: Record<DistressKind, { card: string; name: string }> = {
+    sart: { card: 'AIS-SART', name: 'AIS-SART' },
+    mob: { card: 'MAN OVERBOARD BEACON', name: 'man overboard beacon' },
+    epirb: { card: 'EPIRB-AIS', name: 'EPIRB-AIS' },
+};
+
+function agoWords(sec: number): string {
+    const s = Math.max(0, Math.round(sec));
+    if (s < 60) return `${s} s`;
+    const min = Math.round(s / 60);
+    return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${min % 60} min`;
+}
+
+/** The words a distress card, its buttons and the lock-screen alert share. */
+export function distressLines(
+    b: DistressBeacon,
+    nowMs = Date.now(),
+): { title: string; who: string; where: string; heard: string; label: string; alert: string; canGoTo: boolean } {
+    const words = DISTRESS_WORDS[b.kind];
+    const who = b.name || `MMSI ${b.mmsi}`;
+    const canGoTo = b.lat !== null && b.lon !== null;
+    const nm = (x: number) => (x < 1 ? x.toFixed(2) : x.toFixed(1));
+    const where = !canGoTo
+        ? 'Position not yet received'
+        : b.rangeNm === null || b.bearingDeg === null
+          ? 'Range unknown: no position fix'
+          : `${String(Math.round(b.bearingDeg) % 360).padStart(3, '0')}° · ${nm(b.rangeNm)} NM`;
+    const age = agoWords((nowMs - b.heardAt) / 1000);
+    return {
+        title:
+            b.state === 'caution'
+                ? `${words.card} HEARD: NOT ACTIVE OR TEST`
+                : b.state === 'test'
+                  ? `${words.card} TEST`
+                  : `DISTRESS: ${words.card} ACTIVE`,
+        who,
+        where,
+        heard: b.source === 'local' ? `Heard by your radio, ${age} ago` : `${DISTRESS_RELAYED_WORDS}, ${age} old`,
+        label: `${words.name} ${who}`,
+        alert: `Distress: ${b.kind === 'epirb' ? 'EPIRB-AIS beacon' : words.name} active`,
+        canGoTo,
+    };
+}
+
+let distress: DistressBeacon[] = [];
+let distressSignature = '';
+/** Per activation: cleared when a beacon goes active again, or is first heard by her own radio. */
+const distressSilenced = new Set<number>();
+const distressDismissed = new Set<number>();
+let distressGoTo: number | null = null;
+/** When Go to it was chosen (epoch ms): her own MOB marked later outranks it. */
+let distressGoToAt: number | null = null;
+/** Man Overboard pages open now: Go to it lasts while one is (one visit). */
+let distressGoToHolders = 0;
+const distressListeners = new Set<(d: DistressBeacon[]) => void>();
+
+function emitDistress(): void {
+    for (const l of distressListeners) l(distress);
+}
+
+function signatureOf(list: DistressBeacon[]): string {
+    return list
+        .map(
+            (b) =>
+                `${b.mmsi}|${b.name}|${b.kind}|${b.state}|${b.source}|${b.sounds}|${b.lat}|${b.lon}|${b.heardAt}|` +
+                `${b.rangeNm === null ? '' : b.rangeNm.toFixed(2)}|${b.bearingDeg === null ? '' : Math.round(b.bearingDeg)}`,
+        )
+        .join(';');
+}
+
+/** Sounding now: active, heard by her own radio, not silenced in this activation. */
+function distressSounding(b: DistressBeacon): boolean {
+    return b.sounds && !distressSilenced.has(b.mmsi);
+}
+
+function distressRank(b: DistressBeacon): number {
+    if (distressSounding(b)) return 0;
+    if (b.state === 'active') return b.source === 'local' ? 1 : 2;
+    return 3;
 }
 
 let alerts: GuardAlert[] = [];
@@ -156,8 +269,133 @@ export const AisGuardAlertStore = {
         mutes.clear();
         acks.clear();
         notice = null;
+        distress = [];
+        distressSignature = '';
+        distressSilenced.clear();
+        distressDismissed.clear();
+        distressGoTo = null;
+        distressGoToAt = null;
         emit();
         for (const l of noticeListeners) l(notice);
+        emitDistress();
+    },
+
+    // ── Distress beacons (125-02) ──
+
+    /**
+     * Every beacon the watch classified this pass. A beacon that goes active
+     * (new, or switched from test) or is first heard by her own radio starts
+     * a new activation: Silence and Dismiss start afresh, so it sounds again.
+     */
+    setDistress(next: DistressBeacon[], _nowMs = Date.now()): void {
+        const previous = new Map(distress.map((b) => [b.mmsi, b]));
+        for (const b of next) {
+            const before = previous.get(b.mmsi);
+            const activated = b.state === 'active' && before?.state !== 'active';
+            const nowHeard = b.source === 'local' && before?.source === 'cloud';
+            if (activated || nowHeard) {
+                distressSilenced.delete(b.mmsi);
+                distressDismissed.delete(b.mmsi);
+            }
+        }
+        const signature = signatureOf(next);
+        if (signature === distressSignature) return;
+        distressSignature = signature;
+        distress = next;
+        emitDistress();
+    },
+
+    getDistress(): DistressBeacon[] {
+        return distress;
+    },
+
+    subscribeDistress(listener: (d: DistressBeacon[]) => void): () => void {
+        distressListeners.add(listener);
+        listener(distress);
+        return () => distressListeners.delete(listener);
+    },
+
+    /**
+     * The cards to show, most urgent first: sounding, then heard and silenced,
+     * then relayed, then cautions. A test beacon is drawn on the chart, not
+     * carded; a relayed caution neither. A sounding card is never hidden.
+     */
+    distressCards(): DistressBeacon[] {
+        return distress
+            .filter((b) => b.state !== 'test' && !(b.state === 'caution' && b.source === 'cloud'))
+            .filter((b) => distressSounding(b) || !distressDismissed.has(b.mmsi))
+            .sort((a, b) => distressRank(a) - distressRank(b) || a.mmsi - b.mmsi);
+    },
+
+    /** Whether this beacon sounds now (active, heard by her radio, not silenced in this activation). */
+    distressSounding(b: DistressBeacon): boolean {
+        return distressSounding(b);
+    },
+
+    /** Silence: the sound and the lock-screen reminders stop; the card and the chart symbol stay. */
+    silenceDistress(mmsi: number, nowMs = Date.now()): void {
+        distressSilenced.add(mmsi);
+        emitDistress();
+        for (const l of actionListeners) l(nowMs);
+    },
+
+    /** Dismiss a silent card for this activation; the chart symbol stays. */
+    dismissDistress(mmsi: number, nowMs = Date.now()): void {
+        distressSilenced.add(mmsi);
+        distressDismissed.add(mmsi);
+        emitDistress();
+        for (const l of actionListeners) l(nowMs);
+    },
+
+    distressSilenced(mmsi: number): boolean {
+        return distressSilenced.has(mmsi);
+    },
+
+    distressDismissed(mmsi: number): boolean {
+        return distressDismissed.has(mmsi);
+    },
+
+    /** Go to it: the Man Overboard page steers to this beacon and follows it. */
+    goToDistress(mmsi: number, nowMs = Date.now()): void {
+        distressGoTo = mmsi;
+        distressGoToAt = nowMs;
+        emitDistress();
+    },
+
+    stopDistressGoTo(): void {
+        if (distressGoTo === null) return;
+        distressGoTo = null;
+        distressGoToAt = null;
+        emitDistress();
+    },
+
+    getDistressGoTo(): number | null {
+        return distressGoTo;
+    },
+
+    /** When Go to it was chosen, or null. */
+    getDistressGoToAt(): number | null {
+        return distressGoToAt;
+    },
+
+    /**
+     * The Man Overboard page holds Go to it while it is open; the returned
+     * release ends it once no page holds it. Go to it lasts one visit, so the
+     * page never reopens hours later on an old beacon in place of the MOB
+     * button (125-02 review). The release waits a tick: React's development
+     * StrictMode unmounts and remounts at once, and that must not end it.
+     */
+    holdDistressGoTo(): () => void {
+        distressGoToHolders += 1;
+        let released = false;
+        return () => {
+            if (released) return;
+            released = true;
+            distressGoToHolders -= 1;
+            setTimeout(() => {
+                if (distressGoToHolders === 0) AisGuardAlertStore.stopDistressGoTo();
+            }, 0);
+        };
     },
 
     /**

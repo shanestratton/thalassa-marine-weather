@@ -25,6 +25,11 @@
  *
  * Fictional vessels only: MMSIs in MID 123, which is not allocated to any
  * country, and names nobody sails under. This repository is public.
+ *
+ * Build 125, 125-02: a fictional AIS-SART too (970 + manufacturer 00), in test
+ * mode (status 15, 'SART TEST') or active (status 14, 'SART ACTIVE'), drifting
+ * so Go to it has a moving mark. Starting it active after test is the
+ * test-to-active switch that must sound again.
  */
 import { processAisSentence } from '../AisDecoder';
 import { AisStore } from '../AisStore';
@@ -48,7 +53,7 @@ class BitWriter {
     int(value: number, length: number): this {
         return this.uint(value < 0 ? 2 ** length + value : value, length);
     }
-    text(value: string, chars: number): this {
+    text(value: string, chars: number = value.length): this {
         const padded = value.toUpperCase().padEnd(chars, '@').slice(0, chars);
         for (const ch of padded) {
             const code = ch.charCodeAt(0);
@@ -109,6 +114,11 @@ export function encodeAisPositionReport(f: AisPositionFields, formatter: 'VDM' |
 /** A Class B static report, part A (message 24): the vessel's name. */
 export function encodeAisStaticName(mmsi: number, name: string): string {
     return new BitWriter().uint(24, 6).uint(0, 2).uint(mmsi, 30).uint(0, 2).text(name, 20).sentence();
+}
+
+/** A safety-related broadcast (message 14): a beacon's 'SART ACTIVE' / 'SART TEST'. */
+export function encodeAisSafetyText(mmsi: number, text: string): string {
+    return new BitWriter().uint(14, 6).uint(0, 2).uint(mmsi, 30).uint(0, 2).text(text.slice(0, 161)).sentence();
 }
 
 // ── The crossing scenario ───────────────────────────────────────────────────
@@ -210,6 +220,17 @@ export function planDebugCrossing(
 const UPDATE_MS = 2_000;
 const RUN_MS = 16 * 60_000;
 let timer: ReturnType<typeof setInterval> | null = null;
+let sartTimer: ReturnType<typeof setInterval> | null = null;
+
+/** The smoke's beacon: 970, manufacturer 00, a serial nobody carries. */
+export const DEBUG_SART = { mmsi: 970_000_901 } as const;
+const SART_OFF_NM = 1.5;
+const SART_OFF_DEG = 45;
+const SART_DRIFT_KN = 1;
+const SART_DRIFT_DEG = 90;
+/** A real SART repeats its position in bursts every minute and its text every few; this is close enough. */
+const SART_POSITION_MS = 4_000;
+const SART_TEXT_MS = 60_000;
 
 function feed(sentence: string): void {
     const decoded = processAisSentence(sentence);
@@ -218,7 +239,11 @@ function feed(sentence: string): void {
 
 /** Start the crossing target. Returns a sentence for the panel, never throws. */
 export function startDebugCrossing(): string {
-    stopDebugAisInjector();
+    // Its own run only: a beacon already running keeps going, so the smoke can
+    // hear the distress and collision alarms together.
+    if (timer) clearInterval(timer);
+    timer = null;
+    setDebugOwnMotion(null);
     const position = getCachedOwnshipPosition();
     if (!position) return 'No position fix: the injector needs one to place her.';
     const crossing = planDebugCrossing(
@@ -229,7 +254,12 @@ export function startDebugCrossing(): string {
     if (crossing.mode === 'berth') setDebugOwnMotion({ ...crossing.ownMotion, until: startedAt + RUN_MS });
     const tick = () => {
         const elapsed = Date.now() - startedAt;
-        if (elapsed > RUN_MS) return stopDebugAisInjector();
+        if (elapsed > RUN_MS) {
+            if (timer) clearInterval(timer);
+            timer = null;
+            setDebugOwnMotion(null);
+            return;
+        }
         const at = crossing.positionAt(elapsed);
         feed(
             encodeAisPositionReport({
@@ -250,12 +280,60 @@ export function startDebugCrossing(): string {
     return crossing.summary;
 }
 
+/**
+ * Start the fictional AIS-SART 1.5 NM off on 045°, drifting east at 1 kn,
+ * in test or active mode. Returns a sentence for the panel, never throws.
+ */
+export function startDebugSart(mode: 'active' | 'test'): string {
+    if (sartTimer) clearInterval(sartTimer);
+    sartTimer = null;
+    const position = getCachedOwnshipPosition();
+    if (!position) return 'No position fix: the injector needs one to place the beacon.';
+    const start = project(position.lat, position.lon, SART_OFF_DEG, SART_OFF_NM);
+    const startedAt = Date.now();
+    const navStatus = mode === 'active' ? 14 : 15;
+    const text = mode === 'active' ? 'SART ACTIVE' : 'SART TEST';
+    let textAt = Number.NEGATIVE_INFINITY;
+    const tick = () => {
+        const elapsed = Date.now() - startedAt;
+        if (elapsed > RUN_MS) {
+            if (sartTimer) clearInterval(sartTimer);
+            sartTimer = null;
+            return;
+        }
+        const at = project(start.lat, start.lon, SART_DRIFT_DEG, (SART_DRIFT_KN * elapsed) / 3_600_000);
+        feed(
+            encodeAisPositionReport({
+                mmsi: DEBUG_SART.mmsi,
+                navStatus,
+                sogKn: SART_DRIFT_KN,
+                lat: at.lat,
+                lon: at.lon,
+                cogDeg: SART_DRIFT_DEG,
+                headingDeg: null,
+            }),
+        );
+        if (Date.now() - textAt >= SART_TEXT_MS) {
+            textAt = Date.now();
+            feed(encodeAisSafetyText(DEBUG_SART.mmsi, text));
+        }
+    };
+    tick();
+    sartTimer = setInterval(tick, SART_POSITION_MS);
+    console.warn(`[${MARKER}] fictional AIS-SART started (${mode})`);
+    return mode === 'active'
+        ? `Fictional AIS-SART ${DEBUG_SART.mmsi} ACTIVE, ${SART_OFF_NM} NM on 045°, drifting east at 1 kn: the distress alarm should sound.`
+        : `Fictional AIS-SART ${DEBUG_SART.mmsi} in TEST, ${SART_OFF_NM} NM on 045°: it shows on the chart, labelled test, and stays silent.`;
+}
+
 export function stopDebugAisInjector(): void {
     if (timer) clearInterval(timer);
     timer = null;
+    if (sartTimer) clearInterval(sartTimer);
+    sartTimer = null;
     setDebugOwnMotion(null);
 }
 
 export function debugAisInjectorRunning(): boolean {
-    return timer !== null;
+    return timer !== null || sartTimer !== null;
 }
