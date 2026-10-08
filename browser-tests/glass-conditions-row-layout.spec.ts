@@ -403,12 +403,21 @@ for (const device of SHEET_PHONES) {
             const dialog = page.getByRole('dialog', { name: 'Sun and moon' });
             await expect(dialog).toBeVisible();
             await expect(dialog.getByRole('table', { name: 'Twilight' })).toBeVisible();
-            // Measured once nothing moves: the sheet's zoom-in scales its box.
-            await expect
-                .poll(() =>
-                    page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length),
-                )
-                .toBe(0);
+            // Measured once the SHEET has stopped moving: its zoom-in scales its
+            // box. Only the sheet's own finite animations (and its ancestors')
+            // count: the Glass under it keeps pulsing, and WebKit on the Linux
+            // runner reports ~500 running page animations even with reduced
+            // motion (CI run 37703071585), so waiting for the whole document
+            // never ended. An infinite animation never 'finishes', so it is
+            // left out.
+            await page.evaluate(async () => {
+                const sheet = document.querySelector<HTMLElement>('[aria-labelledby="sun-moon-title"]');
+                if (!sheet) return;
+                const anims: Animation[] = [...sheet.getAnimations({ subtree: true })];
+                for (let el = sheet.parentElement; el; el = el.parentElement) anims.push(...el.getAnimations());
+                const finite = anims.filter((a) => a.effect?.getComputedTiming().iterations !== Infinity);
+                await Promise.all(finite.map((a) => a.finished.catch(() => undefined)));
+            });
             const issues = await page.evaluate(
                 ({ top, bottom, mustFit }) => {
                     const out: string[] = [];
