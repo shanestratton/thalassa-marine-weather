@@ -6,12 +6,16 @@
  * the one-time authorization code with Apple, verifies the signed Apple
  * subject belongs to the caller, encrypts the refresh token, and stores it in
  * a service-role-only table. Authorization codes and tokens are never logged.
+ *
+ * The decisions (and why a repeat sign-in must never revoke anything) live in
+ * registration.ts; this file is the HTTP and Supabase wiring.
  */
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
+    appleIdentityLinkedAt,
+    type AppleServerConfig,
     appleSubjectForAuthenticatedUser,
-    decryptAppleRefreshToken,
     encryptAppleRefreshToken,
     exchangeAppleAuthorizationCode,
     readAppleServerConfig,
@@ -20,6 +24,7 @@ import {
     verifyAppleIdTokenSubject,
 } from '../_shared/apple-auth.ts';
 import { jsonResponse, readJsonObject } from '../_shared/http-security.ts';
+import { registerAppleRefreshToken, type StoredAppleToken } from './registration.ts';
 
 const CORS = {
     'Access-Control-Allow-Origin': '*',
@@ -28,12 +33,13 @@ const CORS = {
 };
 const json = (body: unknown, status = 200): Response => jsonResponse(body, status, CORS);
 
-interface StoredAppleToken {
-    refresh_token_ciphertext: string;
-    refresh_token_iv: string;
-    encryption_version: number;
+interface StoredAppleTokenColumns {
     apple_subject_sha256: string;
     updated_at: string;
+}
+
+function storedToken(row: StoredAppleTokenColumns): StoredAppleToken {
+    return { appleSubjectSha256: row.apple_subject_sha256, updatedAt: row.updated_at };
 }
 
 serve(async (req: Request) => {
@@ -76,145 +82,70 @@ serve(async (req: Request) => {
     const callerAppleSubject = appleSubjectForAuthenticatedUser(user);
     if (!callerAppleSubject) return json({ error: 'The authenticated account is not linked to Apple' }, 403);
 
-    let appleConfig;
+    let configured: AppleServerConfig | null;
     try {
-        appleConfig = await readAppleServerConfig();
+        configured = await readAppleServerConfig();
     } catch (error) {
         console.error('[register-apple-token] invalid server credential configuration:', error);
         return json({ error: 'Apple token registration is not configured' }, 503);
     }
-    if (!appleConfig) return json({ error: 'Apple token registration is not configured' }, 503);
+    if (!configured) return json({ error: 'Apple token registration is not configured' }, 503);
+    const appleConfig = configured;
 
-    let refreshToken: string | null = null;
-    let refreshTokenNeedsCompensatingRevocation = false;
-    try {
-        const tokenExchange = await exchangeAppleAuthorizationCode(appleConfig, authorizationCode);
-        refreshToken = tokenExchange.refreshToken;
-        refreshTokenNeedsCompensatingRevocation = true;
-        const exchangedSubject = await verifyAppleIdTokenSubject(tokenExchange.idToken, appleConfig.clientId);
-        if (exchangedSubject !== callerAppleSubject) {
-            await revokeAppleRefreshToken(appleConfig, refreshToken);
-            refreshToken = null;
-            refreshTokenNeedsCompensatingRevocation = false;
-            return json({ error: 'Apple credential does not belong to the authenticated account' }, 403);
-        }
-
-        const subjectSha256 = await sha256Hex(exchangedSubject);
-        const encrypted = await encryptAppleRefreshToken(refreshToken, appleConfig, user.id, subjectSha256);
-        const admin = createClient(supabaseUrl, serviceRoleKey, {
-            auth: { persistSession: false, autoRefreshToken: false },
-        });
-        const { data: existingToken, error: existingTokenError } = await admin
-            .from('apple_sign_in_tokens')
-            .select('refresh_token_ciphertext, refresh_token_iv, encryption_version, apple_subject_sha256, updated_at')
-            .eq('user_id', user.id)
-            .maybeSingle();
-        if (existingTokenError) {
-            throw new Error(`Existing Apple token lookup failed: ${existingTokenError.code ?? 'database_error'}`);
-        }
-
-        const replacement = {
-            refresh_token_ciphertext: encrypted.ciphertext,
-            refresh_token_iv: encrypted.iv,
-            encryption_version: encrypted.encryptionVersion,
-            apple_subject_sha256: subjectSha256,
-            updated_at: new Date().toISOString(),
-        };
-        if (existingToken) {
-            const previous = existingToken as StoredAppleToken;
-            if (previous.apple_subject_sha256 !== subjectSha256) {
-                throw new Error('Existing Apple credential belongs to a different provider subject');
-            }
-            const previousRefreshToken = await decryptAppleRefreshToken(
-                previous.refresh_token_ciphertext,
-                previous.refresh_token_iv,
-                previous.encryption_version,
-                appleConfig,
-                user.id,
-                previous.apple_subject_sha256,
-            );
-            // Apple may return the same refresh token on a repeated grant. Do
-            // not revoke it in that case; just rotate its ciphertext/nonce.
-            if (previousRefreshToken !== refreshToken) {
-                await revokeAppleRefreshToken(appleConfig, previousRefreshToken);
-            } else {
-                // The existing row already tracks this exact token. If an
-                // optimistic update loses a race, do not revoke the winner's
-                // still-tracked credential in the compensating catch below.
-                refreshTokenNeedsCompensatingRevocation = false;
-            }
-
-            // Optimistic concurrency prevents two simultaneous sign-ins from
-            // overwriting each other and orphaning the losing refresh token.
-            const { data: updated, error: updateError } = await admin
+    const admin = createClient(supabaseUrl, serviceRoleKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const result = await registerAppleRefreshToken(authorizationCode, callerAppleSubject, appleIdentityLinkedAt(user), {
+        exchangeAuthorizationCode: (authorizationCode) =>
+            exchangeAppleAuthorizationCode(appleConfig, authorizationCode),
+        verifyIdTokenSubject: (idToken) => verifyAppleIdTokenSubject(idToken, appleConfig.clientId),
+        sha256Hex,
+        encryptRefreshToken: async (refreshToken, subjectSha256) =>
+            await encryptAppleRefreshToken(refreshToken, appleConfig, user.id, subjectSha256),
+        loadStoredTokenForUser: async () => {
+            const { data, error } = await admin
+                .from('apple_sign_in_tokens')
+                .select('apple_subject_sha256, updated_at')
+                .eq('user_id', user.id)
+                .maybeSingle();
+            if (error) throw new Error(`Existing Apple token lookup failed: ${error.code ?? 'database_error'}`);
+            return data ? storedToken(data as StoredAppleTokenColumns) : null;
+        },
+        loadStoredTokenForSubject: async (subjectSha256) => {
+            const { data, error } = await admin
+                .from('apple_sign_in_tokens')
+                .select('apple_subject_sha256, updated_at')
+                .eq('apple_subject_sha256', subjectSha256)
+                .maybeSingle();
+            if (error) throw new Error(`Apple subject lookup failed: ${error.code ?? 'database_error'}`);
+            return data ? storedToken(data as StoredAppleTokenColumns) : null;
+        },
+        rotateStoredToken: async (expectedUpdatedAt, replacement) => {
+            const { data, error } = await admin
                 .from('apple_sign_in_tokens')
                 .update(replacement)
                 .eq('user_id', user.id)
-                .eq('updated_at', previous.updated_at)
+                .eq('updated_at', expectedUpdatedAt)
                 .select('user_id')
                 .maybeSingle();
-            if (updateError || !updated) {
-                throw new Error(`Apple token rotation conflict: ${updateError?.code ?? 'concurrent_update'}`);
-            }
-        } else {
+            if (error) throw new Error(`Apple token rotation failed: ${error.code ?? 'database_error'}`);
+            return data !== null;
+        },
+        insertStoredToken: async (replacement) => {
             // Insert (not upsert): a concurrent first sign-in must never
-            // overwrite the winner. Apple can return the same refresh token
-            // to both exchanges, though, so the loser must read the committed
-            // row before deciding whether compensating revocation is safe.
-            const { error: insertError } = await admin.from('apple_sign_in_tokens').insert({
-                user_id: user.id,
-                ...replacement,
-            });
-            if (insertError) {
-                const { data: concurrentWinner, error: winnerLookupError } = await admin
-                    .from('apple_sign_in_tokens')
-                    .select('refresh_token_ciphertext, refresh_token_iv, encryption_version, apple_subject_sha256')
-                    .eq('user_id', user.id)
-                    .maybeSingle();
-                if (!winnerLookupError && concurrentWinner) {
-                    const winner = concurrentWinner as StoredAppleToken;
-                    if (winner.apple_subject_sha256 === subjectSha256) {
-                        const winnerRefreshToken = await decryptAppleRefreshToken(
-                            winner.refresh_token_ciphertext,
-                            winner.refresh_token_iv,
-                            winner.encryption_version,
-                            appleConfig,
-                            user.id,
-                            winner.apple_subject_sha256,
-                        );
-                        if (winnerRefreshToken === refreshToken) {
-                            // This credential is already durably tracked by
-                            // the concurrent winner. Revoking it here would
-                            // invalidate the very row we just verified.
-                            refreshToken = null;
-                            refreshTokenNeedsCompensatingRevocation = false;
-                            return json({ registered: true });
-                        }
-                    }
-                }
-                throw new Error(`Encrypted token persistence failed: ${insertError.code ?? 'database_error'}`);
-            }
-        }
-
-        refreshToken = null;
-        refreshTokenNeedsCompensatingRevocation = false;
-        return json({ registered: true });
-    } catch (error) {
-        // Never include an authorization code, ID token, or refresh token in
-        // logs or responses. The client signs its new local session out and
-        // requires the sailor to start a fresh Apple authorization.
-        console.error(
-            '[register-apple-token] registration failed:',
-            error instanceof Error ? error.message : 'unknown error',
-        );
-        if (refreshToken && refreshTokenNeedsCompensatingRevocation) {
-            await revokeAppleRefreshToken(appleConfig, refreshToken).catch((revokeError) => {
+            // overwrite the winner's row.
+            const { error } = await admin.from('apple_sign_in_tokens').insert({ user_id: user.id, ...replacement });
+            if (error) {
                 console.error(
-                    '[register-apple-token] compensating revocation failed:',
-                    revokeError instanceof Error ? revokeError.message : 'unknown error',
+                    '[register-apple-token] encrypted token insert failed:',
+                    error.code ?? 'database_error',
                 );
-            });
-        }
-        return json({ error: 'Apple token registration failed; start Sign in with Apple again' }, 502);
-    }
+            }
+            return !error;
+        },
+        revokeRefreshToken: (refreshToken) => revokeAppleRefreshToken(appleConfig, refreshToken),
+        now: () => new Date(),
+        logError: (message) => console.error(message),
+    });
+    return json(result.body, result.status);
 });
