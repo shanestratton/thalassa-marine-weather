@@ -241,8 +241,9 @@ type EngineSuccess = Extract<
  * Route one passage with Thalassa's router. Resolves with a proposal whose
  * coordinates are the engine's polyline exactly, or throws an Error whose
  * message is the plain reason — the engine's own words for a final refusal
- * (no tide clears, overhead clearance), whole. An abort or account change
- * throws an AbortError and returns nothing.
+ * (overhead clearance, charted land), whole. Water no tide clears is a route,
+ * red, its stretches named in the warnings (package 125-05). An abort or
+ * account change throws an AbortError and returns nothing.
  */
 export async function calculateThalassaProposal(
     request: AutoroutingTrialRequest,
@@ -331,8 +332,9 @@ export async function calculateThalassaProposal(
     if (!res) throw new Error(NO_ROUTE);
     if ('error' in res) {
         if (res.code === 'watchdog-timeout') throw new Error(WATCHDOG);
-        // The engine's words, whole: a final refusal names the spot, its
-        // depth, the tide and the need (owner decision 11), or the structure.
+        // The engine's words, whole: a final refusal names the structure the
+        // mast cannot clear. Water no tide clears is never a refusal since
+        // package 125-05: it comes back as a route, red, its stretches named.
         throw new Error(typeof res.error === 'string' && res.error.trim() ? res.error : NO_ROUTE);
     }
     const ok: EngineSuccess = res;
@@ -451,6 +453,8 @@ export async function calculateThalassaProposal(
         waterPack: ok.waterPack,
         // Too close to a shallow band (fix-up review, 2026-10-03).
         nearShallow: nearShallowSummary(ok.chartedShallowSpans),
+        // Red where no tide clears it, each stretch named (package 125-05).
+        dryRuns: ok.dryRuns,
         // Auto draws the survey dots (the workspace's surveyDashLayers), so
         // the words name them as the planner's do.
         ...(stateMask

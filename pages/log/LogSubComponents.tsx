@@ -26,6 +26,7 @@ import {
 import { createLogger } from '../../utils/createLogger';
 import { usePersistedState } from '../../hooks/usePersistedState';
 import { traceCheckDayLabel, type TraceFollowStatus } from '../../services/traceVerification';
+import { TRACE_ROUTE_USE_BLOCK_PREFIX } from './logPageTypes';
 
 const log = createLogger('LogPage');
 
@@ -283,23 +284,54 @@ export const FollowRouteChoice: React.FC<{
 
 // ── FollowRouteButton — appears on planned route voyage cards ──
 
-const FollowRouteButton: React.FC<{
+/** The card's words for a red finding's refusal: its reason, and how to
+ *  follow anyway from here (the sheet's own message says "the route"). */
+function cardFindingMessage(message: string, canAccept: boolean): string {
+    const reason = message
+        .slice(TRACE_ROUTE_USE_BLOCK_PREFIX.length)
+        .replace(/\s*Tap the route twice to follow anyway\.?\s*$/, '')
+        .trim();
+    return canAccept ? `${reason} Tap Follow again to follow anyway.` : reason;
+}
+
+export const FollowRouteButton: React.FC<{
     voyageId: string;
     onFollow: () => Promise<boolean>;
-}> = ({ voyageId, onFollow }) => {
+    /** A red finding's armed second tap accepts it — the routecheck's own
+     *  two-tap, as on the follow sheet (package 125-05 review fix-up). */
+    onAcceptFinding?: () => void;
+}> = ({ voyageId, onFollow, onAcceptFinding }) => {
     const { isFollowing, voyageId: followingVoyageId } = useFollowRoute();
     const toast = useToast();
     const [isStarting, setIsStarting] = useState(false);
     const isThisFollowed = isFollowing && followingVoyageId === voyageId;
+    // A red finding (a routecheck's, or a plan red where no tide clears it,
+    // package 125-05): the first tap says why and arms "tap again to follow
+    // anyway" for 4 s, as the follow sheet's rows do (FollowRouteChoice). It
+    // used to fall through to "Couldn't load this saved route" on every tap,
+    // so the card could never follow it (review, 2026-10-09).
+    const [armed, setArmed] = useState(false);
+    useEffect(() => {
+        if (!armed) return;
+        const timer = setTimeout(() => setArmed(false), 4_000);
+        return () => clearTimeout(timer);
+    }, [armed]);
 
     const handleFollow = useCallback(async () => {
         if (isThisFollowed || isStarting) return;
+        if (armed) onAcceptFinding?.();
+        setArmed(false);
         setIsStarting(true);
         try {
             let started = false;
             try {
                 started = await onFollow();
             } catch (error) {
+                if (error instanceof Error && error.message.startsWith(TRACE_ROUTE_USE_BLOCK_PREFIX)) {
+                    toast.error(cardFindingMessage(error.message, !!onAcceptFinding));
+                    if (onAcceptFinding) setArmed(true);
+                    return;
+                }
                 log.warn('Could not load followed route:', error);
             }
             if (!started) {
@@ -331,17 +363,18 @@ const FollowRouteButton: React.FC<{
         } finally {
             setIsStarting(false);
         }
-    }, [isThisFollowed, isStarting, onFollow, toast, voyageId]);
+    }, [isThisFollowed, isStarting, armed, onAcceptFinding, onFollow, toast, voyageId]);
 
+    const label = isThisFollowed
+        ? 'Currently following this route'
+        : isStarting
+          ? 'Loading saved route'
+          : armed
+            ? 'Tap again to follow anyway'
+            : 'Follow this route';
     return (
         <button
-            aria-label={
-                isThisFollowed
-                    ? 'Currently following this route'
-                    : isStarting
-                      ? 'Loading saved route'
-                      : 'Follow this route'
-            }
+            aria-label={label}
             onClick={() => void handleFollow()}
             disabled={isThisFollowed || isStarting}
             className={`w-14 flex flex-col items-center justify-center py-2 border-t border-white/5 transition-colors ${
@@ -349,11 +382,11 @@ const FollowRouteButton: React.FC<{
                     ? 'text-emerald-400 bg-emerald-500/10'
                     : isStarting
                       ? 'text-sky-300 bg-sky-500/10'
-                      : 'text-sky-400 hover:text-sky-300 hover:bg-white/5'
+                      : armed
+                        ? 'text-red-300 bg-red-500/10'
+                        : 'text-sky-400 hover:text-sky-300 hover:bg-white/5'
             }`}
-            title={
-                isThisFollowed ? 'Currently following this route' : isStarting ? 'Loading route' : 'Follow this route'
-            }
+            title={label}
         >
             {isThisFollowed ? (
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -373,7 +406,7 @@ const FollowRouteButton: React.FC<{
                 </svg>
             )}
             <span className="text-[10px] uppercase font-bold tracking-wider mt-0.5">
-                {isThisFollowed ? 'Active' : isStarting ? 'Loading' : 'Follow'}
+                {isThisFollowed ? 'Active' : isStarting ? 'Loading' : armed ? 'Anyway' : 'Follow'}
             </span>
         </button>
     );
@@ -395,6 +428,8 @@ export const VoyageCard: React.FC<{
     onShowMap: (voyageId: string) => void;
     /** Follow this saved plan using its recovered dense route geometry. */
     onFollowPlannedRoute: (summary: VoyageSummary) => Promise<boolean>;
+    /** Accept this plan's red finding: the Follow button's armed second tap. */
+    onAcceptPlannedRouteFinding?: (voyageId: string) => void;
     /** Request this voyage's full points be lazy-loaded (planned actions). */
     onNeedEntries?: (voyageId: string) => void;
     /**
@@ -425,6 +460,7 @@ export const VoyageCard: React.FC<{
         onArchive,
         onShowMap,
         onFollowPlannedRoute,
+        onAcceptPlannedRouteFinding,
         onNeedEntries,
         suppressMiniMap,
         showSwipeHint = false,
@@ -794,7 +830,15 @@ export const VoyageCard: React.FC<{
                                 </button>
                             )}
                             {isPlannedRoute && (
-                                <FollowRouteButton voyageId={voyageId} onFollow={() => onFollowPlannedRoute(summary)} />
+                                <FollowRouteButton
+                                    voyageId={voyageId}
+                                    onFollow={() => onFollowPlannedRoute(summary)}
+                                    onAcceptFinding={
+                                        onAcceptPlannedRouteFinding
+                                            ? () => onAcceptPlannedRouteFinding(voyageId)
+                                            : undefined
+                                    }
+                                />
                             )}
                         </div>
                     </div>

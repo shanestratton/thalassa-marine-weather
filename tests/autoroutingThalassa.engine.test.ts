@@ -253,8 +253,18 @@ afterEach(() => {
     setAuthIdentityScope(null);
 });
 
-const NO_TIDE_REFUSAL =
-    /^No route for 2\.4 m draft: the only way through crosses .+; the highest tide in the next 14 days is 1\.5 m and you need 2\.9 m\.$/;
+/** RE-PIN (package 125-05, Shane 2026-10-08: "better we just have red at
+ *  the "dry" zones, rather than just shit caning the whole route"): where
+ *  decision 11 found no way round, Auto used to refuse — "No route for 2.4 m
+ *  draft: the only way through crosses …". It now gets the route through it,
+ *  red, and this note names the stretch; never across the land beside it. */
+const DRY_NOTE =
+    /^Red on this route: .+ is charted 0–1 m and you need 2\.9 m \(2\.4 m draft \+ 0\.5 m under the keel\); the highest tide in the next 14 days is 1\.5 m, so no tide clears it\. Check it on the chart before you go\.$/;
+/** The bank scene's land walls, either side of the 600 m gap. */
+const WALLS = [
+    { x0: -200, y0: -E, x1: 200, y1: -300 },
+    { x0: -200, y0: 300, x1: 200, y1: E },
+];
 
 describe('Auto on the real engine, synthetic cells', { timeout: 180_000 }, () => {
     it('routes round the island, never across it, and the same way twice', async () => {
@@ -277,10 +287,15 @@ describe('Auto on the real engine, synthetic cells', { timeout: 180_000 }, () =>
         expect(route.warnings.some((w) => /short of your destination pin/.test(w))).toBe(false);
     });
 
-    it('a bank no tide clears is refused, naming the spot (owner decision 11)', async () => {
+    it('a bank no tide clears and no way round: the route crosses it, red, the bank named (125-05)', async () => {
         bankScene();
         h.ceilings = ceilingsAt(1.5); // 1 m + 1.5 m < 2.9 m
-        await expect(auto([-5000, 0], [5000, 0])).rejects.toThrow(NO_TIDE_REFUSAL);
+        const route = await auto([-5000, 0], [5000, 0]);
+        expect(route.warnings.filter((w) => DRY_NOTE.test(w))).toHaveLength(1);
+        for (const wall of WALLS) expect(Math.round(metresInside(route.coordinates, wall)), 'metres on land').toBe(0);
+        expect(Math.round(metresInside(route.coordinates, { x0: -200, y0: -300, x1: 200, y1: 300 }))).toBeGreaterThan(
+            300,
+        );
     });
 
     // Fixed 2026-10-01 (review of the Phase 3 swap; it was it.fails). With a
@@ -299,10 +314,13 @@ describe('Auto on the real engine, synthetic cells', { timeout: 180_000 }, () =>
         [-1000, 1000],
         [-1000, 8000],
     ] as const) {
-        it(`the same bank with pins at ${from} m and ${to} m is refused too, naming it (owner decision 11)`, async () => {
+        it(`the same bank with pins at ${from} m and ${to} m: across the bank, red and named — never the land beside it`, async () => {
             bankScene();
             h.ceilings = ceilingsAt(1.5);
-            await expect(auto([from, 0], [to, 0])).rejects.toThrow(NO_TIDE_REFUSAL);
+            const route = await auto([from, 0], [to, 0]);
+            expect(route.warnings.filter((w) => DRY_NOTE.test(w))).toHaveLength(1);
+            for (const wall of WALLS)
+                expect(Math.round(metresInside(route.coordinates, wall)), 'metres on land').toBe(0);
         });
     }
 });
@@ -317,10 +335,21 @@ describe('Auto on the real engine, synthetic cells', { timeout: 180_000 }, () =>
 // excuse is gone. This scene does not reach that trim: measured, its relaxed
 // route ends at the pin and is vetoed for the land first.)
 describe('a water pin behind a bar no tide clears (owner decision 11)', { timeout: 180_000 }, () => {
-    it('is refused, naming the bar, not cut short', async () => {
+    it('is routed in across the bar, red and named, not cut short — never over the land beside it (125-05)', async () => {
         lagoonScene();
         h.ceilings = ceilingsAt(1.5); // 1 m + 1.5 m < 2.9 m
-        await expect(auto([3000, 0], [-2000, 0])).rejects.toThrow(NO_TIDE_REFUSAL);
+        const route = await auto([3000, 0], [-2000, 0]);
+        expect(route.warnings.filter((w) => DRY_NOTE.test(w))).toHaveLength(1);
+        const end = xy(route.coordinates[route.coordinates.length - 1]);
+        expect(Math.hypot(end[0] + 2000, end[1]), 'metres short of the pin').toBeLessThan(60);
+        // The land round the lagoon (the ring's own blocks), never crossed.
+        for (const land of [
+            { x0: -1200, y0: 75, x1: 0, y1: 2000 },
+            { x0: -1200, y0: -2000, x1: 0, y1: -75 },
+            { x0: -2800, y0: 450, x1: -1200, y1: 2000 },
+            { x0: -2800, y0: -2000, x1: -1200, y1: -450 },
+        ])
+            expect(Math.round(metresInside(route.coordinates, land)), 'metres on land').toBe(0);
     });
 
     it('a tide that clears the bar (1 m + 3 m ≥ 2.9 m) lets the route in, to the pin', async () => {

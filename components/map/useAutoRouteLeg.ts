@@ -252,6 +252,8 @@ export function useAutoRouteLeg(deps: AutoRouteLegDeps): () => void {
                                 waterPack: res.waterPack,
                                 // Too close to a shallow band (fix-up review, 2026-10-03).
                                 nearShallow: nearShallowSummary(res.chartedShallowSpans),
+                                // Red where no tide clears it (package 125-05).
+                                dryRuns: res.dryRuns,
                             });
                             const withCaveats = (d: string | null): string | null =>
                                 caveats.length === 0 ? d : [d, ...caveats].filter(Boolean).join(' ');
