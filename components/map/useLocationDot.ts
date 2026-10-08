@@ -5,6 +5,7 @@ import type { WeatherFollowTarget } from '../../services/weatherPosition';
 import { calculateDistance } from '../../utils/navigationCalculations';
 import { phoneFixNow, humanFixAge, type ObsFix } from './obsCentre';
 import { ownshipMarkerSubject, vesselMarkerFixNow } from './ownshipBoatFix';
+import { createPhoneMarkerElement } from './phoneMarker';
 
 /**
  * The phone's own dot — "you are here" for the PHONE, never the boat.
@@ -13,9 +14,10 @@ import { ownshipMarkerSubject, vesselMarkerFixNow } from './ownshipBoatFix';
  * phone as centre on the screen regardless of where they are", and the boat
  * is the vessel's GPS only. The own-ship marker (useVesselTracker) now always
  * draws the boat when the account has one, so while the box is on Current
- * Location the phone needs a mark of its own where the chart centres: this
- * plain blue dot, the chart's original "you are here" look (.loc-dot). It
- * never wears the boat's name, her status or her chip.
+ * Location the phone needs a mark of its own where the chart centres: a
+ * little phone in a blue badge (phoneMarker.ts; build 124, Shane: "a little
+ * picture of a mobile phone"), still .loc-dot. It never wears the boat's
+ * name, her status or her chip.
  *
  * Shown only while the boat marker is a boat (a punter whose phone is all the
  * boat has sees the phone AS the own-ship marker, one pin, as always), and
@@ -84,10 +86,7 @@ export function useLocationDot(
                 return;
             }
             if (!locationDotRef.current) {
-                const el = document.createElement('div');
-                el.className = 'loc-dot';
-                el.dataset.source = 'phone';
-                el.setAttribute('role', 'img');
+                const el = createPhoneMarkerElement();
                 locationDotRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
                     .setLngLat([fix.lon, fix.lat])
                     .addTo(map);

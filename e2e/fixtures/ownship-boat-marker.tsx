@@ -9,7 +9,8 @@
 // marker on top, exactly as in the app.
 //
 // Query: base=plain|relief|sat, theme=dark|light|night, state (see STATES, or
-// 'current': the box on Current Location, the phone's dot at the centre),
+// 'current': the box on Current Location, the phone's mark at the centre;
+// phone=last draws it as a last known fix),
 // route=1 (the 'Whole route' button and the held-position message under it),
 // bearing=<deg>, name=<boat>, wind=<kt>[@<from deg>][~] (her own wind on her
 // icon, W1-WC; '~' = the stale tier), unit=kts|kmh|mph|mps, furniture=1 (the
@@ -36,6 +37,7 @@ import { resolveOwnshipDirection, type DirectionInstruments } from '../../compon
 import { gpsFixState } from '../../components/gpsFixState';
 import { ObsCentreNoticeChip } from '../../components/map/ObsCentreNoticeChip';
 import { showObsCentreNotice } from '../../components/map/obsCentre';
+import { createPhoneMarkerElement } from '../../components/map/phoneMarker';
 
 const params = new URLSearchParams(location.search);
 const base = params.get('base') ?? 'plain';
@@ -52,6 +54,7 @@ const furniture = params.get('furniture') === '1';
 const BOAT: [number, number] = [148.72, -20.27];
 const HOME: [number, number] = [153.1, -27.2];
 const current = stateName === 'current';
+const phoneLast = current && params.get('phone') === 'last';
 const NOW = Date.now();
 const HOUR = 3_600_000;
 const MS_PER_KT = 1 / 1.94384;
@@ -313,11 +316,9 @@ new mapboxgl.Marker({ element: el, anchor: 'center', rotationAlignment: 'map', p
 
 // ── Current Location: the phone's own dot where the chart centres (useLocationDot) ──
 if (current) {
-    const dot = document.createElement('div');
-    dot.className = 'loc-dot';
-    dot.dataset.source = 'phone';
-    dot.setAttribute('role', 'img');
-    dot.setAttribute('aria-label', 'Your phone');
+    const dot = createPhoneMarkerElement();
+    dot.classList.toggle('loc-dot--last', phoneLast);
+    dot.setAttribute('aria-label', phoneLast ? 'Your phone, last fix 2 h ago' : 'Your phone');
     new mapboxgl.Marker({ element: dot, anchor: 'center' }).setLngLat(HOME).addTo(map);
 }
 
@@ -340,7 +341,14 @@ if (furniture) {
     const fabHost = document.createElement('div');
     fabHost.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
     overlay.appendChild(fabHost);
-    createRoot(fabHost).render(<MapActionFabs onLocateMe={() => {}} onRecenter={() => {}} recenterDisabled />);
+    createRoot(fabHost).render(
+        <MapActionFabs
+            onLocateMe={() => {}}
+            onRecenter={() => {}}
+            recenterDisabled
+            target={current ? 'phone' : 'boat'}
+        />,
+    );
 }
 const chipHost = document.createElement('div');
 chipHost.style.cssText = 'position:absolute;inset:0;pointer-events:none;';

@@ -3024,6 +3024,13 @@ export const MapHub: React.FC<MapHubProps> = ({
             markerSubject: ownship.subject,
         }),
     );
+    // Locate draws where it goes (Shane 2026-10-08): the phone it flies to on
+    // Current Location (or for an account with no boat), else the boat.
+    const locateTarget = useMemo(
+        () => obsLocateSubject(obsStart.kind === 'follow', Boolean(ownBoatName)).kind,
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [obsStart.kind, ownBoatName, followKey, ownship.subject],
+    );
 
     // ── Picker Mode ──
     usePickerMode(mapRef, pinMarkerRef, pickerMode, onLocationSelect);
@@ -5424,6 +5431,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             triggerHaptic('light');
                         }}
                         recenterDisabled={!weatherCoords}
+                        target={locateTarget}
                     />
                 )}
 
