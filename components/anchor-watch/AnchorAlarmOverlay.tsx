@@ -3,6 +3,10 @@
  *
  * Extracted from AnchorWatchPage.tsx. Shows when the vessel has dragged
  * outside the swing circle radius.
+ *
+ * Build 125 (125-03): with `onMoveAnchor`, a drag alarm also offers "Move
+ * anchor", for the late set (GlobalAnchorAlarmGate decides when). Silence
+ * stays the first and largest control.
  */
 
 import React, { useCallback, useId, useRef, useState } from 'react';
@@ -15,9 +19,12 @@ import { AlertTriangleIcon, AnchorIcon, RadioTowerIcon } from '../Icons';
 interface AnchorAlarmOverlayProps {
     snapshot: AnchorWatchSnapshot;
     onAcknowledge: () => void | Promise<void>;
+    /** Offer "Move anchor" (a drag alarm on this phone's own watch only). */
+    onMoveAnchor?: () => void;
 }
 
-export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(({ snapshot, onAcknowledge }) => {
+export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo((props) => {
+    const { snapshot, onAcknowledge, onMoveAnchor } = props;
     const gpsLost = snapshot.alarmCause === 'gps-lost';
     const titleId = useId();
     const descriptionId = useId();
@@ -121,6 +128,9 @@ export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(
                     <>
                         {/* Distance readout */}
                         <div id={descriptionId} className="text-center mb-8">
+                            {snapshot.alarmDetail && (
+                                <div className="mb-2 text-base font-bold text-amber-200">{snapshot.alarmDetail}</div>
+                            )}
                             <div
                                 className="text-4xl font-mono font-black text-white mb-1"
                                 style={{ textShadow: '0 0 20px rgba(255,255,255,0.2)' }}
@@ -191,6 +201,17 @@ export const AnchorAlarmOverlay: React.FC<AnchorAlarmOverlayProps> = React.memo(
                 >
                     {acknowledging ? 'Silencing…' : 'Silence Alarm'}
                 </button>
+
+                {onMoveAnchor && !gpsLost && (
+                    <button
+                        type="button"
+                        onClick={onMoveAnchor}
+                        className="mx-auto mt-2 flex min-h-11 w-full max-w-sm items-center justify-center gap-2 rounded-2xl border border-red-200/40 px-6 py-2 text-base font-bold text-red-50 transition-all active:scale-95"
+                    >
+                        <AnchorIcon className="h-4 w-4 shrink-0" />
+                        Move anchor
+                    </button>
+                )}
 
                 <p className="text-red-200/90 text-sm mt-2 tracking-wider">Monitoring continues after silencing</p>
             </div>

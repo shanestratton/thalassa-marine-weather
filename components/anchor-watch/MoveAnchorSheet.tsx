@@ -42,6 +42,14 @@
  * last resort, so nothing is ever clipped out of reach.
  * browser-tests/move-anchor-layout.spec.ts measures it.
  *
+ * Alarm mode (build 125, 125-03), opened from the alarm screen: the same
+ * fields, plus "Only move it if you're sure the anchor hasn't moved", a live
+ * verdict on her swing track (AnchorWatchService.checkMoveFromAlarm, judged by
+ * services/anchorLateSet.ts: a late set or a drag?) and a "Move and stop
+ * alarm" button that goes through AnchorWatchService.relocateAnchorFromAlarm,
+ * which judges her track again and is the authority. It sits on the critical layer, over the alarm. It never
+ * says the app can always tell a late set from a drag.
+ *
  * The Pi keeps its own watch with its own keeper; this sheet never touches it.
  */
 import React, { useEffect, useId, useRef, useState } from 'react';
@@ -159,6 +167,8 @@ export interface MoveAnchorSheetProps {
     onClose: () => void;
     /** The watch accepted the move. */
     onMoved?: () => void;
+    /** 'alarm': opened from the alarm screen, to move the mark and stop the alarm. */
+    mode?: 'watch' | 'alarm';
 }
 
 const FIELD =
@@ -173,7 +183,8 @@ const PREVIEW_ASIDE =
 const FORM =
     "flex flex-none flex-col gap-1.5 px-4 pt-2 pb-4 [html[data-keyboard-open='true']_&]:pt-1 [html[data-keyboard-open='true']_&]:pb-3";
 
-export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onClose, onMoved }) => {
+export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onClose, onMoved, mode = 'watch' }) => {
+    const fromAlarm = mode === 'alarm';
     const unit: LengthUnit = useSettingsStore((state) => (state.settings.units?.length === 'ft' ? 'ft' : 'm'));
     // The sheet's clock: ages are said as they are NOW, and a heading or a fix
     // that goes stale while the sheet is open stops counting, not just one
@@ -223,14 +234,31 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
             ? planAnchorMove(boat, snapshot.anchorPosition, distanceM, bearingDeg, snapshot.swingRadius)
             : null;
     const alarm = snapshot.state === 'alarm';
-    const movable = snapshot.state === 'watching' || snapshot.state === 'paused';
-    const canMove = !!plan && plan.inside && movable && !fixStale && !busy;
+    const movable = fromAlarm
+        ? alarm && snapshot.alarmCause === 'drag'
+        : snapshot.state === 'watching' || snapshot.state === 'paused';
+    // From the alarm: does her track back the move? Asked of the watch live,
+    // before the tap (it holds her whole track; the snapshot's trail is short).
+    const verdict =
+        fromAlarm && movable && plan?.inside && boat && !fixStale
+            ? AnchorWatchService.checkMoveFromAlarm(plan.target.lat, plan.target.lon)
+            : null;
+    const canMove = !!plan && plan.inside && movable && !fixStale && !busy && (!fromAlarm || !!verdict?.ok);
+    // Too early, or a track this phone did not see: no point would pass, so how
+    // the fields were filled is beside the point, and the hint makes room.
+    const noPointWouldDo = verdict?.ok === false && (verdict.refusal === 'too-early' || verdict.refusal === 'unseen');
 
     // `more` is the second sentence, which steps aside while the keyboard is up
     // (the colour, "outside" and the disabled button still say it then).
     let live: { text: string; more?: string; tone: 'ok' | 'warn' | 'quiet' };
     const [boatWords, circleWords] = plan ? sayPair(plan.boatToAnchorM, snapshot.swingRadius, unit) : ['', ''];
-    if (alarm) live = { text: 'Silence the alarm before moving the anchor.', tone: 'warn' };
+    if (fromAlarm && !alarm) live = { text: 'The alarm has stopped.', tone: 'quiet' };
+    else if (fromAlarm && !movable)
+        live = {
+            text: 'GPS is lost, so a move cannot be checked. Silence the alarm and check her position.',
+            tone: 'warn',
+        };
+    else if (alarm && !fromAlarm) live = { text: 'Silence the alarm before moving the anchor.', tone: 'warn' };
     else if (!movable) live = { text: 'There is no anchor watch on this phone to move.', tone: 'warn' };
     else if (!boat) live = { text: 'Waiting for a position fix for the boat.', tone: 'quiet' };
     else if (fixStale) live = { text: 'Waiting for a fresh position fix for the boat.', tone: 'quiet' };
@@ -240,16 +268,22 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
             tone: 'warn',
         };
     else if (!plan) live = { text: 'Enter the distance and the bearing from the boat to the anchor.', tone: 'quiet' };
+    else if (verdict && !verdict.ok)
+        live = { text: verdict.lead, more: verdict.error.slice(verdict.lead.length + 1), tone: 'warn' };
     else if (plan.inside)
         live = {
             text: `The boat would be ${boatWords} from the anchor, inside your ${circleWords} circle.`,
-            more: plan.movesM !== null ? `The anchor moves ${say(plan.movesM, unit)}.` : undefined,
+            more: fromAlarm
+                ? 'Her track so far fits a swing round it.'
+                : plan.movesM !== null
+                  ? `The anchor moves ${say(plan.movesM, unit)}.`
+                  : undefined,
             tone: 'ok',
         };
     else
         live = {
             text: `The boat would be ${boatWords} from the anchor, outside your ${circleWords} circle.`,
-            more: 'The alarm would sound at once.',
+            more: fromAlarm ? 'The alarm would go on sounding.' : 'The alarm would sound at once.',
             tone: 'warn',
         };
 
@@ -274,7 +308,9 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
         setError(null);
         let failure: string | null = null;
         try {
-            const result = await AnchorWatchService.relocateAnchor(plan.target.lat, plan.target.lon);
+            const result = fromAlarm
+                ? await AnchorWatchService.relocateAnchorFromAlarm(plan.target.lat, plan.target.lon)
+                : await AnchorWatchService.relocateAnchor(plan.target.lat, plan.target.lon);
             if (!result.ok) failure = result.error;
         } catch (caught) {
             failure =
@@ -287,6 +323,9 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
 
     return (
         <OverlayPortal
+            // Over the alarm screen when opened from it: both are critical, and
+            // this one, mounted later, paints on top.
+            layer={fromAlarm ? 'critical' : 'modal'}
             // Presentation, not the dialog: the dialog is the card, which lifts
             // itself above the keyboard (.thalassa-keyboard-safe-sheet). Marking
             // the backdrop as the dialog would also opt it into index.css's
@@ -308,7 +347,13 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
                 // Up to the whole band between the safe area and the tab bar
                 // while the keyboard is down (the utility's 68vh would squeeze
                 // a short phone for no reason); the utility takes over with it up.
-                style={{ '--sheet-max-vh': '100%' } as React.CSSProperties}
+                // From the alarm the card moves to its keyboard place at once,
+                // as it does under reduced motion: measured mid-glide, the field
+                // reads low and the keyboard guard pads the card with scroll
+                // space it keeps (WebKit, 844 x 390). The alarm is no time to glide.
+                style={
+                    { '--sheet-max-vh': '100%', ...(fromAlarm ? { transition: 'none' } : {}) } as React.CSSProperties
+                }
                 // overflow-y-auto, not hidden: where the card cannot fit (large
                 // text on a small phone) it scrolls as a last resort, so the
                 // live check, Cancel and Move are never clipped out of reach.
@@ -383,10 +428,21 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
                             </span>
                         </span>
                     </p>
+                    {/* Under the fields, so they sit where they do in the watch-page
+                        sheet (the keyboard guard measures them there); it steps
+                        aside with the hint while the keyboard is up. */}
+                    {fromAlarm && (
+                        <p
+                            data-testid="move-anchor-caution"
+                            className={`text-sm leading-snug font-semibold text-amber-200 ${KEYBOARD_ASIDE}`}
+                        >
+                            Only move it if you’re sure the anchor hasn’t moved.
+                        </p>
+                    )}
                     <p
                         id={hintId}
                         data-testid="move-anchor-hint"
-                        className={`text-xs leading-snug text-slate-400 ${KEYBOARD_ASIDE}`}
+                        className={`text-xs leading-snug text-slate-400 ${noPointWouldDo ? 'hidden' : KEYBOARD_ASIDE}`}
                     >
                         {hint}
                     </p>
@@ -413,15 +469,20 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
                         320 px with large text and the keyboard up. The dialog is
                         "Move anchor", so the button says "Move"; its name keeps
                         the whole phrase (label in name, for Voice Control). */}
-                    <div className="grid grid-cols-2 gap-2">
+                    {/* From the alarm the button says what it does in full, so it
+                        takes the wider column and wraps tight at 320 px. */}
+                    <div
+                        className={`grid gap-2 ${fromAlarm ? 'grid-cols-[minmax(0,2fr)_minmax(0,3fr)]' : 'grid-cols-2'}`}
+                    >
                         <Button onClick={onClose}>Cancel</Button>
                         <Button
                             type="submit"
                             variant="primary"
                             disabled={!canMove}
-                            aria-label={busy ? 'Moving the anchor' : 'Move anchor'}
+                            aria-label={busy ? 'Moving the anchor' : fromAlarm ? undefined : 'Move anchor'}
+                            className={fromAlarm ? 'px-3! py-2! leading-tight' : undefined}
                         >
-                            {busy ? 'Moving…' : 'Move'}
+                            {busy ? 'Moving…' : fromAlarm ? 'Move and stop alarm' : 'Move'}
                         </Button>
                     </div>
                 </form>
