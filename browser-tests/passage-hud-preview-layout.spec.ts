@@ -230,3 +230,233 @@ for (const size of sizes) {
         expect(errors).toEqual([]);
     });
 }
+
+/**
+ * The closed HUD tab and the look-ahead scrubber (build 125, 125-08; the 124
+ * open issue). The tab hung at top: calc(50% + 40px) whatever the scrubber
+ * was doing, and at 320 × 568 its bottom lay ~4 px over the scrubber's Play
+ * button — the centre of Play still answered a tap, so the old check passed.
+ * Measured here as rectangles, not centre points: the tab clears the whole
+ * scrubber, Play and Live included, with a gap; it stays whole, on screen,
+ * above the tab bar and hit-testable; in wide fonts (Verdana on a Mac, DejaVu
+ * Sans on the Linux runner) and in both a preview and a followed route.
+ */
+const TAB_GAP_PX = 4;
+
+/**
+ * The chart furniture on the left above the scrubber, when it is up: the layer
+ * controls pill (a route, track or passage key on — ?extras=1) and the
+ * Anchorages layer's 'Next 12 hours' chip that rides on it (review
+ * 2026-10-09: lifting the tab clear of Play pushed it further under the pill).
+ */
+const LEFT_FURNITURE = [
+    ['the layer controls pill', '.thalassa-chart-controls-pill'],
+    ["the anchorages' Next 12 hours chip", '.thalassa-anchorage-chip'],
+] as const;
+
+/**
+ * The Anchorages chip as AnchorageTonightSheet draws it (same classes, same
+ * containing block as the pill), so its geometry is the real CSS's. The
+ * fixture has no anchorage data to bring up the real one.
+ */
+async function addAnchorageChip(page: Page) {
+    await page.evaluate(() => {
+        const pill = document.querySelector('.thalassa-chart-controls-pill');
+        if (!pill?.parentElement || document.querySelector('.thalassa-anchorage-chip')) return;
+        const chip = document.createElement('button');
+        chip.className =
+            'thalassa-anchorage-chip absolute z-720 inline-flex min-h-[44px] items-center justify-center gap-1 px-3 py-2 bg-slate-800/95 border border-cyan-500/30 rounded-full text-cyan-300 text-xs font-black uppercase tracking-widest shadow-xl shadow-black/40 active:scale-95 transition-all';
+        chip.setAttribute('aria-label', 'Compare anchorages for the next 12 hours');
+        chip.innerHTML =
+            '<span aria-hidden="true">⚓</span><span class="thalassa-anchorage-chip-text">Next 12 hours</span>';
+        pill.parentElement.appendChild(chip);
+    });
+}
+
+function tabIssues(page: Page, tabName: string, furniture: readonly (readonly [string, string])[] = []) {
+    return page.evaluate(
+        ({ name, gap, furniture }) => {
+            const issues: string[] = [];
+            const tab = [...document.querySelectorAll<HTMLElement>('[data-testid="passage-hud-toggle"]')].find(
+                (el) => el.getAttribute('aria-label') === name,
+            );
+            if (!tab) return [`no tab named ${name}`];
+            const box = tab.getBoundingClientRect();
+            const H = window.innerHeight;
+            const W = window.innerWidth;
+            if (box.top < 0 || box.left < 0 || box.right > W || box.bottom > H) issues.push('tab off the screen');
+            const nav = document.querySelector('nav[aria-label="Main"]')!.getBoundingClientRect();
+            if (box.bottom > nav.top) issues.push('tab runs under the tab bar');
+            const scrubber = document.querySelector<HTMLElement>('.thalassa-route-scrubber');
+            if (!scrubber) return [...issues, 'no scrubber on screen'];
+            for (const [label, el] of [
+                ['the scrubber', scrubber],
+                ['Play', document.querySelector('[data-testid="route-scrub-play"]')],
+                ['Live', document.querySelector('[data-testid="route-scrub-exit"]')],
+                ...furniture.map(([what, selector]) => [what, document.querySelector(selector)] as const),
+            ] as const) {
+                if (!el) {
+                    issues.push(`no ${label}`);
+                    continue;
+                }
+                const r = el.getBoundingClientRect();
+                const apart =
+                    box.bottom + gap <= r.top ||
+                    r.bottom + gap <= box.top ||
+                    box.right <= r.left ||
+                    r.right <= box.left;
+                if (!apart)
+                    issues.push(
+                        `tab ${box.top.toFixed(1)}–${box.bottom.toFixed(1)} meets ${label} ${r.top.toFixed(1)}–${r.bottom.toFixed(1)}`,
+                    );
+            }
+            const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+            if (!hit || (hit !== tab && !tab.contains(hit))) issues.push('the tab is covered');
+            for (const selector of [
+                '[data-testid="route-scrub-play"]',
+                '[data-testid="route-scrub-exit"]',
+                ...furniture.map(([, selector]) => selector),
+            ]) {
+                const control = document.querySelector(selector);
+                if (!control) continue;
+                const r = control.getBoundingClientRect();
+                // Every corner of the control answers as itself, not the tab.
+                for (const [x, y] of [
+                    [r.left + 1, r.top + 1],
+                    [r.right - 1, r.top + 1],
+                    [r.left + 1, r.bottom - 1],
+                    [r.right - 1, r.bottom - 1],
+                ]) {
+                    const at = document.elementFromPoint(x, y);
+                    if (at && (at === tab || tab.contains(at)))
+                        issues.push(`${selector} is under the tab at ${x},${y}`);
+                }
+            }
+            return issues;
+        },
+        { name: tabName, gap: TAB_GAP_PX, furniture },
+    );
+}
+
+for (const size of sizes) {
+    test(`the closed HUD tab clears the scrubber's Play and Live, previewing, at ${size.name}, wide fonts`, async ({
+        page,
+        baseURL,
+    }, info) => {
+        test.setTimeout(60_000);
+        const errors: string[] = [];
+        page.on('pageerror', (error) => errors.push(error.message));
+        await fixture(page, baseURL!);
+        await page.setViewportSize({ width: size.width, height: size.height });
+        await page.goto('/e2e/fixtures/passage-recording.html?mode=preview&credits=1');
+        await expect(page.getByTestId('passage-hud')).toBeVisible();
+        await page.evaluate(() => document.fonts.ready);
+        await expectWideFaceDrawn(page.getByTestId('hud-preview'));
+        await page.getByRole('button', { name: 'Choose a departure to preview Cowes → Cherbourg' }).click();
+        await page
+            .getByRole('dialog', { name: 'When will you leave?' })
+            .getByRole('button', { name: /Preview passage/ })
+            .click();
+        await expect(page.locator('.thalassa-route-scrubber')).toBeVisible();
+        await page.getByRole('button', { name: 'Hide passage instruments' }).click();
+        await expect(page.getByRole('button', { name: 'Show route preview, not following' })).toBeVisible();
+        await expect.poll(() => tabIssues(page, 'Show route preview, not following')).toEqual([]);
+        await page.screenshot({ path: info.outputPath(`tab-preview-${size.name}.png`), animations: 'disabled' });
+        expect(errors).toEqual([]);
+    });
+
+    test(`the closed HUD tab clears the scrubber's Play and Live, following, at ${size.name}, wide fonts`, async ({
+        page,
+        baseURL,
+    }, info) => {
+        test.setTimeout(60_000);
+        const errors: string[] = [];
+        page.on('pageerror', (error) => errors.push(error.message));
+        await fixture(page, baseURL!);
+        await page.setViewportSize({ width: size.width, height: size.height });
+        await page.goto('/e2e/fixtures/passage-recording.html?mode=forecast&credits=1');
+        await expect(page.getByTestId('passage-hud')).toHaveAttribute('data-mode', 'forecast');
+        await page.evaluate(() => document.fonts.ready);
+        await expectWideFaceDrawn(page.getByTestId('hud-mode'));
+        await expect(page.locator('.thalassa-route-scrubber')).toBeVisible();
+        await page.getByRole('button', { name: 'Hide passage instruments' }).click();
+        await expect(page.getByRole('button', { name: 'Show passage instruments' })).toBeVisible();
+        await expect.poll(() => tabIssues(page, 'Show passage instruments')).toEqual([]);
+        await page.screenshot({ path: info.outputPath(`tab-following-${size.name}.png`), animations: 'disabled' });
+        expect(errors).toEqual([]);
+    });
+}
+
+for (const size of sizes) {
+    for (const mode of ['preview', 'forecast'] as const) {
+        test(`the closed HUD tab clears the layer pill and the anchorages chip too, ${mode === 'preview' ? 'previewing' : 'following'}, at ${size.name}, wide fonts`, async ({
+            page,
+            baseURL,
+        }, info) => {
+            test.setTimeout(60_000);
+            const errors: string[] = [];
+            page.on('pageerror', (error) => errors.push(error.message));
+            await fixture(page, baseURL!);
+            await page.setViewportSize({ width: size.width, height: size.height });
+            await page.goto(`/e2e/fixtures/passage-recording.html?mode=${mode}&credits=1&extras=1`);
+            await page.evaluate(() => document.fonts.ready);
+            if (mode === 'preview') {
+                await expectWideFaceDrawn(page.getByTestId('hud-preview'));
+                await page.getByRole('button', { name: 'Choose a departure to preview Cowes → Cherbourg' }).click();
+                await page
+                    .getByRole('dialog', { name: 'When will you leave?' })
+                    .getByRole('button', { name: /Preview passage/ })
+                    .click();
+            } else {
+                await expect(page.getByTestId('passage-hud')).toHaveAttribute('data-mode', 'forecast');
+                await expectWideFaceDrawn(page.getByTestId('hud-mode'));
+            }
+            await expect(page.locator('.thalassa-route-scrubber')).toBeVisible();
+            await page.getByRole('button', { name: 'Hide passage instruments' }).click();
+            const tabName = mode === 'preview' ? 'Show route preview, not following' : 'Show passage instruments';
+            await expect(page.getByRole('button', { name: tabName })).toBeVisible();
+            // The layer controls stay offered while looking ahead with a route key on: as the
+            // pill (closed), whichever way they start at this size.
+            const hideLayers = page.getByRole('button', { name: 'Hide layer controls' });
+            if (await hideLayers.isVisible()) await hideLayers.click();
+            await expect(page.getByRole('button', { name: 'Show layer controls' })).toBeVisible();
+            await expect.poll(() => tabIssues(page, tabName, LEFT_FURNITURE.slice(0, 1))).toEqual([]);
+            await addAnchorageChip(page);
+            await expect(page.locator('.thalassa-anchorage-chip')).toBeVisible();
+            await expect.poll(() => tabIssues(page, tabName, LEFT_FURNITURE)).toEqual([]);
+            await page.screenshot({
+                path: info.outputPath(`tab-furniture-${mode}-${size.name}.png`),
+                animations: 'disabled',
+            });
+            // An OPEN layer panel can stand taller than the room above it, so the tab keeps to
+            // the left edge beside it (accepted, index.css): every control in the panel still
+            // answers as itself at its centre, and so does the tab.
+            await page.getByRole('button', { name: 'Show layer controls' }).click();
+            await expect(page.getByRole('button', { name: 'Hide layer controls' })).toBeVisible();
+            const covered = await page.evaluate((name) => {
+                const tab = [...document.querySelectorAll<HTMLElement>('[data-testid="passage-hud-toggle"]')].find(
+                    (el) => el.getAttribute('aria-label') === name,
+                )!;
+                const panel = document.querySelector<HTMLElement>('.thalassa-chart-controls-panel')!;
+                const issues: string[] = [];
+                const answers = (el: Element) => {
+                    const r = el.getBoundingClientRect();
+                    if (r.width === 0 || r.height === 0) return true;
+                    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                    return !!at && (at === el || el.contains(at));
+                };
+                for (const control of panel.querySelectorAll('button, [role="button"], input, select')) {
+                    const r = control.getBoundingClientRect();
+                    if (r.bottom <= panel.getBoundingClientRect().top || r.top >= panel.getBoundingClientRect().bottom)
+                        continue; // scrolled out of the panel's body
+                    if (!answers(control))
+                        issues.push(`${control.getAttribute('aria-label') ?? control.textContent} is covered`);
+                }
+                if (!answers(tab)) issues.push('the tab is covered');
+                return issues;
+            }, tabName);
+            expect(covered).toEqual([]);
+            expect(errors).toEqual([]);
+        });
+    }
+}

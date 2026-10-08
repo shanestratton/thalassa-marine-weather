@@ -44,6 +44,7 @@ import {
     type VerdictHour,
 } from '../anchorages/anchorageVerdict';
 import { planPassage, type PassageSpeedModel, type SpeedHow } from '../passagePlan';
+import type { ResolvedRoutingPolar } from '../routingPolar';
 import {
     compactWindow,
     departureScore,
@@ -2069,6 +2070,8 @@ export interface StopDetailArgs {
     speed: PassageSpeedModel;
     /** settings.polarData is the skipper's own table. */
     polarIsOwn: boolean;
+    /** The routers' polar the times were sailed on (hooks/useRoutingPolar); it decides the words. */
+    polar?: Pick<ResolvedRoutingPolar, 'source' | 'learnedCells' | 'learning'> | null;
     /** The start is within half a mile of a marina. */
     leavingMarina: boolean;
     /** Reviewed stops with a landing note: the window, or no curve here. */
@@ -2081,6 +2084,36 @@ export interface StopDetail {
     rows: string[];
     footnote: string;
     chips: { ms: number; label: string; best: boolean }[];
+}
+
+/**
+ * How a stop's times were worked out, in words: her own polar's figures, her
+ * learned polar, or a shape at her cruising speed — and, while a Smart polar
+ * is still filling, how far it has got (build 125, 125-08). With the learner
+ * switched off in Preferences, nothing says it is learning.
+ */
+export function timesBasis(
+    speed: PassageSpeedModel,
+    polar: Pick<ResolvedRoutingPolar, 'source' | 'learnedCells' | 'learning'> | null | undefined,
+    polarIsOwn = false,
+): string {
+    const cruise = `${speed.cruiseKts.toFixed(1)} kn`;
+    if (speed.mode !== 'polar' || !speed.isSail) return `Times at ${cruise} cruising speed`;
+    // SmartPolarStore's 7 × 6 export grid (services/routingPolar LEARNED_CELLS).
+    const cells = (n: number) => `${n} of 42 cells`;
+    const off = polar?.learning === false ? ', learning off' : '';
+    const source = polar?.source;
+    if (source === 'learned') return `Times from your learned polar (${cells(polar?.learnedCells ?? 0)}${off})`;
+    const base =
+        source === 'imported' || source === 'manual'
+            ? "Times from your polar's own figures"
+            : `Times from ${
+                  (source ? source === 'database-scaled' : polarIsOwn) ? 'your polar' : 'a typical cruising polar'
+              } at ${cruise}`;
+    if (polar?.learnedCells === undefined) return base;
+    return off
+        ? `${base} (Smart polar: ${cells(polar.learnedCells)} learned${off})`
+        : `${base} (Smart Polars still learning: ${cells(polar.learnedCells)})`;
 }
 
 /** §7's rows, in order, as plain strings. */
@@ -2146,10 +2179,7 @@ export function stopDetail(args: StopDetailArgs): StopDetail {
     if (!d) rows.push(...parksNotes(c));
     rows.push(distanceLine(c.distance));
     if (args.leavingMarina) rows.push(LEAVING_MARINA);
-    const how =
-        speed.mode === 'polar' && speed.isSail
-            ? `Times from ${args.polarIsOwn ? 'your polar' : 'a typical cruising polar'} at ${speed.cruiseKts.toFixed(1)} kn`
-            : `Times at ${speed.cruiseKts.toFixed(1)} kn cruising speed`;
+    const how = timesBasis(speed, args.polar, args.polarIsOwn);
     return {
         title: c.name,
         sub: `${shortDate(window.date, zone)} · times in ${zoneAbbrev(window.firstLightMs ?? atNoon(window.date, zone), zone)}`,
