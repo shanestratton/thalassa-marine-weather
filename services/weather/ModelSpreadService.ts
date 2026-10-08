@@ -32,6 +32,9 @@ export const ATMOS_VARS = [
     'precipitation',
     'visibility',
     'uv_index',
+    // WMO codes, for Plan Your Day's thunder count (95, 96, 99). The
+    // comparison names its variables itself, so this adds no tab (build 124).
+    'weather_code',
 ] as const;
 export type AtmosVar = (typeof ATMOS_VARS)[number];
 
