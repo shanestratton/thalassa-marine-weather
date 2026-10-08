@@ -6,7 +6,7 @@
  * to the SSW (sector 20 ≈ 200°, 13.2 NM). If the engine can't tell Nara
  * from an open roadstead, it can't tell a skipper anything.
  */
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
     fetchAt,
     rankAnchorages,
@@ -177,5 +177,41 @@ describe('rankAnchorages — the "where tonight" list', () => {
         expect(ranked.map((r) => r.id)).toEqual(['nara', 'east', 'open', 'illegal']);
         // SE wind into an east-open bay: the 130-140° sectors are open → not a lee.
         expect(ranked[1].score).toBeLessThan(ranked[0].score);
+    });
+});
+
+describe('the worst hour, on the place’s own clock', () => {
+    // The phone is in UTC; the anchorage is not.
+    const restore = process.env.TZ;
+    beforeAll(() => {
+        process.env.TZ = 'UTC';
+    });
+    afterAll(() => {
+        if (restore === undefined) delete process.env.TZ;
+        else process.env.TZ = restore;
+    });
+    // Hour 0 is 08:00 UTC on 25 August: 18:00 at Airlie Beach, 10:00 in Marseille.
+    const blow = () =>
+        hoursOf([
+            { dir: 135, kts: 30 },
+            { dir: 135, kts: 12 },
+        ]);
+    const open = () => mk({ fetchLandNM: OPEN_TABLE, fetchReefNM: OPEN_TABLE });
+
+    it('formats the hour in the zone it is given', () => {
+        expect(scoreAnchorage({ anchorage: open(), hours: blow(), timeZone: 'Australia/Brisbane' }).reasons).toContain(
+            'Worst of it around 18:00',
+        );
+        expect(scoreAnchorage({ anchorage: open(), hours: blow(), timeZone: 'Europe/Paris' }).reasons).toContain(
+            'Worst of it around 10:00',
+        );
+        // A half-hour zone keeps its minutes rather than truncating them away.
+        expect(scoreAnchorage({ anchorage: open(), hours: blow(), timeZone: 'Australia/Adelaide' }).reasons).toContain(
+            'Worst of it around 17:30',
+        );
+    });
+
+    it('without a zone it reads the phone’s clock, as before', () => {
+        expect(scoreAnchorage({ anchorage: open(), hours: blow() }).reasons).toContain('Worst of it around 08:00');
     });
 });

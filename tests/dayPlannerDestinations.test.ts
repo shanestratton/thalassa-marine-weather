@@ -68,4 +68,15 @@ describe('Whitsundays day-planner destination provenance', () => {
             }),
         ]);
     });
+
+    it('marks a mid-to-high landing only where the Parks prose says so (build 124)', () => {
+        const marked = WHITSUNDAYS_DAY_DESTINATIONS.filter((d) => d.landingTide === 'mid-to-high').map(
+            (d) => d.anchorageName,
+        );
+        expect(marked).toEqual(['Tongue Bay', 'Chance Bay', 'Cid Harbour', "Maureen's Cove"]);
+        for (const destination of WHITSUNDAYS_DAY_DESTINATIONS) {
+            const saysMidToHigh = /\bmid(?: to |- to )high[- ]tide/i.test(destination.accessNotes.join(' '));
+            expect(destination.landingTide === 'mid-to-high', destination.id).toBe(saysMidToHigh);
+        }
+    });
 });

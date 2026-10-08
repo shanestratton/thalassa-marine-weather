@@ -33,6 +33,10 @@ export interface DayPlannerDestination {
     supportingSources?: { url: string; label: string }[];
     /** Inclusive destination-local dates; omit these candidates during this period. */
     knownClosures?: { fromDate: string; throughDate: string; reason: string; sourceUrl: string }[];
+    /** The source's own landing note, machine-readable: set only where its
+     *  prose says "mid to high tide". Plan Your Day turns it into an approximate
+     *  window from the local tide curve; it never establishes a safe landing. */
+    landingTide?: 'mid-to-high';
 }
 
 export interface ReviewedDayPlannerDestination extends DayPlannerDestination {
@@ -95,6 +99,7 @@ export const WHITSUNDAYS_DAY_DESTINATIONS: readonly ReviewedDayPlannerDestinatio
         uncertaintyNotes: [POSITION_NOTE, 'Track and beach access are not verified for the planned arrival time.'],
         anchorageId: 'osm-node13823198736',
         anchorageName: 'Tongue Bay',
+        landingTide: 'mid-to-high',
         referencePosition: 'existing-anchorage',
         supportingSources: [
             { url: `${PARK}/things-to-do`, label: 'Queensland Parks · Lookout Beach track' },
@@ -121,6 +126,7 @@ export const WHITSUNDAYS_DAY_DESTINATIONS: readonly ReviewedDayPlannerDestinatio
         uncertaintyNotes: [POSITION_NOTE, WATER_NOTE, QUIET_NOTE],
         anchorageId: 'osm-node8925547809',
         anchorageName: 'Chance Bay',
+        landingTide: 'mid-to-high',
         referencePosition: 'existing-anchorage',
     },
     {
@@ -144,6 +150,7 @@ export const WHITSUNDAYS_DAY_DESTINATIONS: readonly ReviewedDayPlannerDestinatio
         uncertaintyNotes: [POSITION_NOTE, QUIET_NOTE],
         anchorageId: 'osm-node3020491514',
         anchorageName: 'Cid Harbour',
+        landingTide: 'mid-to-high',
         referencePosition: 'existing-anchorage',
         supportingSources: [{ url: `${PARK}/camping`, label: 'Queensland Parks · Cid Harbour shark warning' }],
     },
@@ -201,6 +208,7 @@ export const WHITSUNDAYS_DAY_DESTINATIONS: readonly ReviewedDayPlannerDestinatio
         uncertaintyNotes: [POSITION_NOTE, WATER_NOTE],
         anchorageId: 'osm-node2838870585',
         anchorageName: "Maureen's Cove",
+        landingTide: 'mid-to-high',
         referencePosition: 'existing-anchorage',
     },
 ];
