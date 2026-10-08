@@ -13,7 +13,7 @@ import {
     type PinTail,
     type SurveyRunInfo,
 } from '../../services/engine/types';
-import { dryRunCaveat, dryRunNoticeTitle, savedDryRuns } from '../../services/routing/dryRunWords';
+import { dryRunCaveat, dryRunNoticeTitle, pinDryRunCaveat, savedDryRuns } from '../../services/routing/dryRunWords';
 import { waterPackCaveats, type WaterPackEnd, type WaterPackUse } from '../../services/waterPack/waterPackWords';
 import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
 
@@ -55,8 +55,11 @@ export interface InshoreRouteNoticeInput {
     /** The dry stretches the route crosses, red — water no tide clears, or
      *  drying ground with no tide data to clear it — because there is no
      *  deeper way round (InshoreRouteResult.dryRuns; package 125-05, Shane
-     *  2026-10-08: "better we just have red at the "dry" zones"). */
+     *  2026-10-08: "better we just have red at the "dry" zones"). A pin's
+     *  own dry tail is among them (DryRun.pin, package 125-05b). */
     dryRuns?: readonly DryRun[];
+    /** The clock a pin tail's "today's tide" is read by; now when absent. */
+    nowMs?: number;
     ntmLockBanner: PassageNotice | null;
 }
 
@@ -274,6 +277,20 @@ export function inshoreRouteCaveats(input: Omit<InshoreRouteNoticeInput, 'ntmLoc
     // refusal that used to stand in for the whole route.
     const dry = dryRunCaveat(input.dryRuns);
     if (dry) out.push(dry);
+    // Package 125-05b (Shane, 2026-10-08: "tried to do a route from the
+    // newport canals to tangalooma, i got some message about it being dry at
+    // both ends????"): a pin on dry ground gets its route, the tail to it red
+    // — one sentence for each such end, in place of "the route stops at its
+    // edge": the stretch, its depth against the need, and when the boat
+    // floats over it on today's tide.
+    const tailed = new Set<'origin' | 'destination'>();
+    for (const end of ['origin', 'destination'] as const) {
+        const run = (input.dryRuns ?? []).find((r) => r?.pin?.end === end);
+        const words = pinDryRunCaveat(run, input.pinOffWater?.[end], input.nowMs);
+        if (!words) continue;
+        out.push(words);
+        tailed.add(end);
+    }
     const gaps = input.structuresUnknownCells?.length ?? 0;
     if (gaps > 0) {
         out.push(
@@ -281,9 +298,11 @@ export function inshoreRouteCaveats(input: Omit<InshoreRouteNoticeInput, 'ntmLoc
         );
     }
     // Decision 7's limit is never drying (round 3, 2026-09-30): the route
-    // stops at the edge of the bank or the land — it no longer runs on across
-    // the drying ground to the pin — and says so.
+    // stops at the edge of the bank or the land and says so — a pin on land
+    // always, and since 125-05b a pin on dry ground only where no tail reaches
+    // it without crossing land (its tail's sentence is said above).
     const pin = (which: 'departure' | 'destination', off: PinOffWater | undefined): void => {
+        if (tailed.has(which === 'departure' ? 'origin' : 'destination')) return;
         const verb = which === 'departure' ? 'starts' : 'stops';
         if (off === 'drying') {
             out.push(`Your ${which} pin is on a drying bank — the route ${verb} at its edge. It dries at low water.`);
@@ -543,6 +562,8 @@ export function savedInshoreRouteCaveats(
           }
         | null
         | undefined,
+    /** The clock a pin tail's "today's tide" is read by; now when absent. */
+    nowMs?: number,
 ): string[] {
     if (!plan) return [];
     const props = plan.routeGeoJSON?.properties;
@@ -573,8 +594,10 @@ export function savedInshoreRouteCaveats(
             // the stretches themselves since the round-3 fix-up, else the
             // summary an older save kept.
             nearShallow: savedNearShallowSpans(p.nearShallowSpans) ?? savedNearShallow(p.nearShallow),
-            // The dry stretches, red (package 125-05).
+            // The dry stretches, red (package 125-05), a pin's tail among
+            // them, its window kept (125-05b).
             dryRuns: savedDryRuns(p.dryRuns),
+            ...(nowMs !== undefined ? { nowMs } : {}),
         });
     }
     const saved = plan.__inshoreRouting;

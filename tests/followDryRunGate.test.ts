@@ -24,6 +24,7 @@ vi.mock('../services/enc/EncCellMetadata', () => ({
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { tracedRouteDirectUseStatus } from '../services/traceDirectUseGate';
 import { dryRunCaveat, dryRunFollowReason } from '../services/routing/dryRunWords';
+import { inshoreRouteCaveats } from '../components/map/inshoreRouteNotice';
 import { ROUTE_CAVEAT_LINE_PREFIX } from '../services/shiplog/PassagePlanSave';
 import { buildFollowSheetChoices, plannedRouteDryReasons, type FollowSheetDeps } from '../pages/log/logPageDerive';
 import type { VoyageSummary } from '../services/shiplog/VoyageSummary';
@@ -118,5 +119,31 @@ describe('125-05 — following a red route takes two taps', () => {
         expect(choices[1].followStatus).toBeNull();
         // A traced route keeps its own check's status.
         expect(choices[2].followStatus).toMatchObject({ tone: 'unchecked' });
+    });
+
+    // Package 125-05b: a pin on drying ground gets its route, the tail red —
+    // a red finding like any dry stretch, two taps to follow.
+    it('a plan whose pin is on a drying bank is a red finding too — its tail’s sentence', () => {
+        const tail: DryRun = {
+            ...dry,
+            startSeg: 4,
+            startT: 0,
+            endSeg: 4,
+            endT: 1,
+            lengthM: 180,
+            place: 'Kestrel Sands',
+            shallowestM: -0.4,
+            tide: null,
+            pin: { end: 'destination', at: 'on' },
+        };
+        const caveats = inshoreRouteCaveats({ pinOffWater: { destination: 'drying' }, dryRuns: [tail] });
+        const red = tracedRouteDirectUseStatus({ points, caveats });
+        expect(red).toMatchObject({ tone: 'finding', code: 'finding', blocked: true });
+        expect(red.reason).toBe(
+            'Red on this route: your destination pin is on a drying bank — the last 180 m to it dries 0.4 m and you need 2.9 m',
+        );
+        expect(tracedRouteDirectUseStatus({ points, caveats }, { acceptFinding: true })).toMatchObject({
+            blocked: false,
+        });
     });
 });

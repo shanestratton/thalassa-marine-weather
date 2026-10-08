@@ -31,11 +31,13 @@
  * only offline source is the Pi's tide cache, which fetchTideCurve already
  * reads first.
  */
-import { fetchTideCurve, TIDE_CURVE_MAX_DAYS, type TideCurve } from '../TideHeightService';
+import { fetchTideCurve, TIDE_CURVE_MAX_DAYS, tideCurveBucket, type TideCurve } from '../TideHeightService';
 import { curveHighestM, curveSpanDays, ROUTE_TIDE_CURVES_MAX, TIDE_WINDOW_HORIZON_MS } from '../tides/curveHighest';
 import { tideBucketStep } from '../engine/tideCeiling';
-import type { TideCeiling } from '../engine/types';
+import type { DryRun, TideCeiling } from '../engine/types';
 import { withTimeout } from '../../utils/deadline';
+import { tideFieldFromCurve } from './env/EnvFields';
+import { computeTidalWindows } from './tidalWindow';
 
 /** Per curve: a stalled fetch costs the route this much, never more. */
 const CEILING_FETCH_TIMEOUT_MS = 8_000;
@@ -91,10 +93,13 @@ export function routeAreaTideBuckets(from: LatLon, to: LatLon, max = ROUTE_TIDE_
         .map((b) => b.centre);
 }
 
-/** What was loaded: the ceilings, and how many buckets were asked for. */
+/** What was loaded: the ceilings, how many buckets were asked for, and the
+ *  curves themselves by bucket (tideCurveBucket) — what a pin tail's window
+ *  is worked from (pinTailTideWindows, package 125-05b). */
 export interface RouteTideCeilings {
     ceilings: TideCeiling[];
     asked: number;
+    curves?: Map<string, TideCurve>;
 }
 
 /**
@@ -127,11 +132,68 @@ export async function routeAreaTideCeilings(
         ),
     );
     const ceilings: TideCeiling[] = [];
+    const byBucket = new Map<string, TideCurve>();
     curves.forEach((curve, k) => {
         if (!curve) return;
         const highestM = curveHighestM(curve, fromMs);
         if (highestM === null) return;
         ceilings.push({ lat: spots[k].lat, lon: spots[k].lon, highestM, days: curveSpanDays(curve, fromMs) });
+        byBucket.set(tideCurveBucket(spots[k].lat, spots[k].lon), curve);
     });
-    return { ceilings, asked: spots.length };
+    return { ceilings, asked: spots.length, curves: byBucket };
+}
+
+/** The most windows a pin tail names in its day (the first and two more). */
+const PIN_TAIL_WINDOWS_MAX = 3;
+
+/**
+ * A pin tail's windows (package 125-05b; DryRun.floats): from the later of
+ * now and the departure, the spans in the next 24 hours when the tide gives
+ * draft + UKC over the tail's shallowest charted depth — the first, and the
+ * day's later ones (review fix-up, 2026-10-09: a destination is reached hours
+ * after the departure, and its first window can close before the boat
+ * arrives) — worked from the same curve the router's ceiling for that place
+ * was read from (its bucket's), by the tide chips' own maths
+ * (computeTidalWindows), and stamped with when they were worked from
+ * (floatsWorkedMs). Null when that curve covers the day and there is none;
+ * left out where no curve was loaded for the place, or the stretch is not a
+ * pin's tail. Pure.
+ */
+export function pinTailTideWindows(
+    runs: readonly DryRun[] | undefined,
+    curves: ReadonlyMap<string, TideCurve> | undefined,
+    fromMs: number,
+): DryRun[] | undefined {
+    if (!runs || !curves || curves.size === 0 || !Number.isFinite(fromMs)) return runs ? [...runs] : runs;
+    const untilMs = fromMs + TIDE_WINDOW_HORIZON_MS;
+    return runs.map((run) => {
+        if (!run.pin || !run.tide) return run;
+        const curve = curves.get(tideCurveBucket(run.mid[1], run.mid[0]));
+        const field = curve ? tideFieldFromCurve(curve) : null;
+        if (!field) return run;
+        const res = computeTidalWindows({
+            minDepthM: run.shallowestM ?? run.deepestM,
+            draftM: run.draftM,
+            tideSafetyM: run.needM - run.draftM,
+            tide: field,
+            fromMs,
+            untilMs,
+        });
+        const [w, ...rest] = res.windows.slice(0, PIN_TAIL_WINDOWS_MAX);
+        if (w)
+            return {
+                ...run,
+                floats: {
+                    fromMs: w.openMs,
+                    toMs: w.closeMs,
+                    ...(w.openMs <= fromMs ? { open: true as const } : {}),
+                    ...(rest.length > 0 ? { later: rest.map((x) => ({ fromMs: x.openMs, toMs: x.closeMs })) } : {}),
+                },
+                floatsWorkedMs: fromMs,
+            };
+        // None in the day — or a data gap, never "no window", where the curve
+        // does not cover it.
+        const [c0, c1] = field.coverage();
+        return c0 <= fromMs && c1 >= untilMs ? { ...run, floats: null, floatsWorkedMs: fromMs } : run;
+    });
 }

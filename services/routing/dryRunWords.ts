@@ -12,9 +12,16 @@
  * saved plan, and read back by the follow gate (services/traceDirectUseGate):
  * a planned route carrying it is a red finding — two taps to follow.
  *
+ * Package 125-05b (Shane, 2026-10-08: "tried to do a route from the newport
+ * canals to tangalooma, i got some message about it being dry at both
+ * ends????"): a pin's own dry tail (DryRun.pin) is said in one sentence for
+ * its end (pinDryRunCaveat) — the stretch to the pin, its depth against the
+ * need, and when the boat floats over it on today's tide — never in the
+ * general line. It starts with the same marker, so it is a red finding too.
+ *
  * Pure, and small: it rides the main bundle.
  */
-import type { DryRun } from '../engine/types';
+import type { DryRun, PinOffWater } from '../engine/types';
 import type { TraceFollowStatus } from '../traceVerification';
 
 /** Every dry-stretch line starts with this — the follow gate's marker. */
@@ -46,7 +53,131 @@ const usable = (run: DryRun | null | undefined): run is DryRun =>
     finite(run.draftM) &&
     finite(run.deepestM) &&
     (run.shallowestM === null || finite(run.shallowestM)) &&
-    (run.tide === null || (finite(run.tide.topM) && finite(run.tide.days)));
+    (run.tide === null || (finite(run.tide.topM) && finite(run.tide.days))) &&
+    (run.pin === undefined ||
+        (!!run.pin &&
+            (run.pin.end === 'origin' || run.pin.end === 'destination') &&
+            (run.pin.at === 'on' || run.pin.at === 'beyond')));
+
+/** "180 m", "1.1 km". */
+const lengthWords = (m: number): string =>
+    m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.max(10, Math.round(m / 10) * 10)} m`;
+
+/** The rise a stretch needs over its shallowest charted depth. */
+const riseOf = (run: DryRun): number => run.needM - (run.shallowestM ?? run.deepestM);
+
+/** Does no tide in the days loaded float the boat over a pin's tail? */
+const noTideFloats = (run: DryRun): boolean => !!run.tide && riseOf(run) > run.tide.topM + 1e-9;
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** The phone's clock, as the tide chips show it: "13:10". */
+const hm = (ms: number): string => {
+    const d = new Date(ms);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+/** "on today's tide", "on tomorrow's tide", "on the tide of Sun 11 Oct" — by `nowMs`'s day. */
+function onTheTide(ms: number, nowMs: number): string {
+    const day = (t: number): number => {
+        const d = new Date(t);
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    };
+    const today = new Date(day(nowMs));
+    const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).getTime();
+    if (day(ms) === today.getTime()) return "on today's tide";
+    if (day(ms) === tomorrow) return "on tomorrow's tide";
+    const d = new Date(ms);
+    return `on the tide of ${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
+const HOUR_MS = 3_600_000;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * A pin tail's windows still to come at `nowMs` (review fix-up, 2026-10-09:
+ * a saved plan reopened days later said its windows, and its "none in the
+ * next 24 hours", as today's): the windows not yet closed, from a day that
+ * has not passed; or null — none in the 24 hours it was worked for, said
+ * until an hour after then (a planned departure later on keeps it); or
+ * undefined — nothing current, and the words fall back to the tide's top.
+ */
+function currentWindows(run: DryRun, nowMs: number): { fromMs: number; toMs: number }[] | null | undefined {
+    const f = run.floats;
+    const worked = run.floatsWorkedMs;
+    if (f === null) return finite(worked) && nowMs <= worked + HOUR_MS ? null : undefined;
+    if (!f || !finite(f.fromMs) || !finite(f.toMs)) return undefined;
+    if (finite(worked) && nowMs > worked + DAY_MS) return undefined;
+    const all = [{ fromMs: f.fromMs, toMs: f.toMs }, ...(Array.isArray(f.later) ? f.later : [])];
+    const left = all.filter((w) => !!w && finite(w.fromMs) && finite(w.toMs) && w.toMs >= nowMs);
+    return left.length > 0 ? left : undefined;
+}
+
+/** A pin tail's tide: when the boat floats over it, else the top, else no data. */
+function pinTideWords(run: DryRun, nowMs: number): string {
+    if (!run.tide) return 'there is no tide data for it';
+    const days = `${run.tide.days} day${run.tide.days === 1 ? '' : 's'}`;
+    if (noTideFloats(run))
+        return `the highest tide in the next ${days} is ${m1(run.tide.topM)}, so no tide floats you over it`;
+    const windows = currentWindows(run, nowMs);
+    const worked = finite(run.floatsWorkedMs) ? run.floatsWorkedMs : nowMs;
+    if (windows === null)
+        return `no tide floats you over it in the ${worked > nowMs + HOUR_MS ? '24 hours after you leave' : 'next 24 hours'} (the highest in the next ${days} is ${m1(run.tide.topM)})`;
+    if (windows) {
+        // Already floating when you leave (or now, reading a saved plan).
+        const [first, ...rest] = windows;
+        const words = [
+            first.fromMs <= Math.max(nowMs, worked)
+                ? `you float over it until about ${hm(first.toMs)} ${onTheTide(first.toMs, nowMs)}`
+                : `you float over it from about ${hm(first.fromMs)} to ${hm(first.toMs)} ${onTheTide(first.fromMs, nowMs)}`,
+        ];
+        // The day's later windows (review fix-up, 2026-10-09): a destination
+        // is reached hours after the departure, and the first may close first.
+        rest.forEach((w, i) => {
+            const before = i === 0 ? first : rest[i - 1];
+            const day =
+                onTheTide(w.fromMs, nowMs) === onTheTide(before.fromMs, nowMs) ? '' : ` ${onTheTide(w.fromMs, nowMs)}`;
+            words.push(
+                `${i === rest.length - 1 ? 'and ' : ''}${i === 0 ? 'again ' : ''}from about ${hm(w.fromMs)} to ${hm(w.toMs)}${day}`,
+            );
+        });
+        return words.join(', ');
+    }
+    return `the highest tide in the next ${days} is ${m1(run.tide.topM)} — check the tide times for when you float over it`;
+}
+
+/**
+ * The sentence for a pin's own red tail (package 125-05b), or null for any
+ * other stretch — one per end, in place of "the route stops at its edge":
+ *   "Red on this route: your destination pin is on a drying bank — the last
+ *   180 m to it dries 0.4 m and you need 2.9 m (2.4 m draft + 0.5 m under the
+ *   keel); you float over it from about 13:10 to 16:40 on today's tide. It
+ *   dries at low water."
+ * A pin in water no tide clears says so (it does not dry); a pin in water
+ * beyond a drying band: "the way in to your destination pin crosses 800 m of
+ * the Hoogsand Flats, which dries 1.2 m, …". `off` is the pin's
+ * RouteResult.pinOffWater; `nowMs` the clock "today" is read by.
+ */
+export function pinDryRunCaveat(
+    run: DryRun | null | undefined,
+    off?: PinOffWater,
+    nowMs: number = Date.now(),
+): string | null {
+    if (!usable(run) || !run.pin) return null;
+    const { end, at } = run.pin;
+    const need = `you need ${m1(run.needM)} (${needParts(run)})`;
+    const tide = pinTideWords(run, nowMs);
+    const len = lengthWords(run.lengthM);
+    if (at === 'beyond') {
+        const way =
+            end === 'destination' ? 'the way in to your destination pin' : 'the way out from your departure pin';
+        return `${DRY_RUN_CAVEAT_PREFIX}: ${way} crosses ${len} of ${run.place}, which ${depthWords(run)}, and ${need}; ${tide}.`;
+    }
+    const pin = end === 'destination' ? 'your destination pin' : 'your departure pin';
+    const stretch = end === 'destination' ? `the last ${len} to it` : `the first ${len} from it`;
+    const dries = off === 'drying' || (off !== 'no-tide' && run.shallowestM !== null && run.shallowestM < 0);
+    const where = dries ? 'is on a drying bank' : 'is in water no tide clears for your boat';
+    return `${DRY_RUN_CAVEAT_PREFIX}: ${pin} ${where} — ${stretch} ${depthWords(run)} and ${need}; ${tide}.${dries ? ' It dries at low water.' : ''}`;
+}
 
 /**
  * The route note for its dry stretches, or null when it has none:
@@ -55,7 +186,8 @@ const usable = (run: DryRun | null | undefined): run is DryRun =>
  *   2.5 m, so no tide clears it. Check it on the chart before you go."
  */
 export function dryRunCaveat(runs: readonly DryRun[] | null | undefined): string | null {
-    const ok = (Array.isArray(runs) ? runs : []).filter(usable);
+    // A pin's own tail has its own sentence (pinDryRunCaveat).
+    const ok = (Array.isArray(runs) ? runs : []).filter(usable).filter((r) => !r.pin);
     if (ok.length === 0) return null;
     if (ok.length === 1) {
         const r = ok[0];
@@ -86,13 +218,15 @@ export function dryRunCaveat(runs: readonly DryRun[] | null | undefined): string
  * "No tide clears part of this route" only where every stretch's tide is
  * known; "No tide data for part of this route" where none is; else "Red on
  * part of this route" (review fix-up, 2026-10-09: the title stated as proven
- * what the note said was unknown).
+ * what the note said was unknown). A pin's tail some tide floats the boat
+ * over (125-05b) is red all the same, never "no tide clears".
  */
 export function dryRunNoticeTitle(runs: readonly DryRun[] | null | undefined): string | null {
     const ok = (Array.isArray(runs) ? runs : []).filter(usable);
     if (ok.length === 0) return null;
     const noData = ok.filter((r) => r.tide === null).length;
-    return noData === 0
+    const noClear = ok.filter((r) => r.tide !== null && (!r.pin || noTideFloats(r))).length;
+    return noClear === ok.length
         ? 'No tide clears part of this route'
         : noData === ok.length
           ? 'No tide data for part of this route'
@@ -144,6 +278,16 @@ export function savedDryRuns(v: unknown): DryRun[] | undefined {
         const r = x as Record<string, unknown>;
         const tide = r.tide as { topM?: unknown; days?: unknown } | null | undefined;
         const mid = r.mid;
+        const pin = r.pin as { end?: unknown; at?: unknown } | undefined;
+        const floats = r.floats as
+            | { fromMs?: unknown; toMs?: unknown; open?: unknown; later?: unknown }
+            | null
+            | undefined;
+        const later = Array.isArray(floats?.later)
+            ? (floats.later as { fromMs?: unknown; toMs?: unknown }[]).flatMap((w) =>
+                  w && finite(w.fromMs) && finite(w.toMs) ? [{ fromMs: w.fromMs, toMs: w.toMs }] : [],
+              )
+            : [];
         const run: DryRun = {
             startSeg: finite(r.startSeg) ? r.startSeg : 0,
             startT: finite(r.startT) ? r.startT : 0,
@@ -162,6 +306,24 @@ export function savedDryRuns(v: unknown): DryRun[] | undefined {
                     : tide && finite(tide.topM) && finite(tide.days)
                       ? { topM: tide.topM, days: tide.days }
                       : { topM: Number.NaN, days: Number.NaN },
+            // A pin's tail (125-05b): malformed, no words; a window that is
+            // not one is left out — the words fall back to the tide's top.
+            ...(pin === undefined ? {} : { pin: pin as DryRun['pin'] }),
+            ...(floats === null
+                ? { floats: null }
+                : floats && finite(floats.fromMs) && finite(floats.toMs)
+                  ? {
+                        floats: {
+                            fromMs: floats.fromMs,
+                            toMs: floats.toMs,
+                            ...(floats.open === true ? { open: true as const } : {}),
+                            ...(later.length > 0 ? { later } : {}),
+                        },
+                    }
+                  : {}),
+            // When its windows were worked from: a reopened plan drops the
+            // ones that have closed (review fix-up, 2026-10-09).
+            ...(finite(r.floatsWorkedMs) ? { floatsWorkedMs: r.floatsWorkedMs } : {}),
         };
         if (!usable(run)) return undefined;
         out.push(run);
