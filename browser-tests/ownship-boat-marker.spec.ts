@@ -34,11 +34,13 @@ interface Open {
     unit?: string;
     /** The real right-rail zoom control and Locate row. */
     furniture?: boolean;
+    /** state 'current': the phone's mark as a live fix or a last known one. */
+    phone?: 'live' | 'last';
 }
 
 async function open(
     page: Page,
-    { width, height, state, base = 'plain', theme = 'dark', route, bearing, name, wind, unit, furniture }: Open,
+    { width, height, state, base = 'plain', theme = 'dark', route, bearing, name, wind, unit, furniture, phone }: Open,
 ) {
     await page.setViewportSize({ width, height });
     await page.route('**/*', (r) => (new URL(r.request().url()).hostname === '127.0.0.1' ? r.continue() : r.abort()));
@@ -61,6 +63,7 @@ async function open(
     if (wind) query.set('wind', wind);
     if (unit) query.set('unit', unit);
     if (furniture) query.set('furniture', '1');
+    if (phone === 'last') query.set('phone', 'last');
     await page.goto(`/e2e/fixtures/ownship-boat-marker.html?${query}`);
     await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
     await page.evaluate(async () => {
@@ -240,17 +243,26 @@ test.describe('the little boat and its badge', () => {
     });
 });
 
-test.describe('Current Location: the phone gets its own plain dot', () => {
+test.describe('Current Location: the phone gets its own mark', () => {
     for (const size of SIZES) {
         test(`the dot at the centre, the boat on the boat, at ${size.width}x${size.height}`, async ({ page }) => {
             await open(page, { ...size, state: 'current' });
             const dot = await page.locator('.loc-dot').evaluate((el) => {
                 const b = el.getBoundingClientRect();
-                return { x: b.left + b.width / 2, y: b.top + b.height / 2, aria: el.getAttribute('aria-label') };
+                return {
+                    x: b.left + b.width / 2,
+                    y: b.top + b.height / 2,
+                    width: b.width,
+                    aria: el.getAttribute('aria-label'),
+                    glyph: !!el.querySelector('svg[data-glyph="phone"]'),
+                };
             });
             expect(Math.abs(dot.x - size.width / 2)).toBeLessThan(1);
             expect(Math.abs(dot.y - size.height / 2)).toBeLessThan(1);
             expect(dot.aria).toBe('Your phone');
+            // A little phone in a badge, not the old 8 px dot (Shane 2026-10-08).
+            expect(dot.width).toBeGreaterThanOrEqual(24);
+            expect(dot.glyph).toBe(true);
             // The boat stays where she is, far off this view: never drawn at the phone.
             const m = await measure(page);
             const onScreen = m.fix.x >= 0 && m.fix.x <= size.width && m.fix.y >= 0 && m.fix.y <= size.height;
@@ -258,6 +270,50 @@ test.describe('Current Location: the phone gets its own plain dot', () => {
             await shot(page, `after-current-${size.width}`);
         });
     }
+});
+
+test.describe('Current Location: the phone reads as a phone on every base', () => {
+    for (const base of ['plain', 'relief', 'sat'] as const) {
+        for (const phone of ['live', 'last'] as const) {
+            test(`${phone} fix · ${base}`, async ({ page }) => {
+                await open(page, { width: 390, height: 844, state: 'current', base, phone, furniture: true });
+                const mark = await page.locator('.loc-dot').evaluate((el) => {
+                    const cs = getComputedStyle(el);
+                    const glyph = el.querySelector('svg[data-glyph="phone"]')!;
+                    const g = glyph.getBoundingClientRect();
+                    return {
+                        background: cs.backgroundColor,
+                        color: cs.color,
+                        border: cs.borderTopColor,
+                        glyphWidth: g.width,
+                        glyphHeight: g.height,
+                        last: el.classList.contains('loc-dot--last'),
+                        aria: el.getAttribute('aria-label'),
+                    };
+                });
+                // White phone, white rim: blue live, grey last, never the boat's colours.
+                expect(mark.color).toBe('rgb(255, 255, 255)');
+                expect(mark.border).toBe('rgb(255, 255, 255)');
+                expect(mark.background).toBe(phone === 'live' ? 'rgb(37, 99, 235)' : 'rgb(100, 116, 139)');
+                expect(mark.last).toBe(phone === 'last');
+                expect(mark.aria).toBe(phone === 'live' ? 'Your phone' : 'Your phone, last fix 2 h ago');
+                expect(mark.glyphHeight).toBeGreaterThanOrEqual(14);
+                // Locate draws the same phone, and says where it goes.
+                const locate = page.getByRole('button', { name: 'Locate me', exact: true });
+                await expect(locate.locator('svg[data-glyph="phone"]')).toHaveCount(1);
+                await expect(locate).toHaveAccessibleDescription('Goes to your phone');
+                await shot(page, `after-current-${phone}-${base}`);
+            });
+        }
+    }
+
+    test('on the boat, Locate keeps its crosshair', async ({ page }) => {
+        await open(page, { width: 390, height: 844, state: 'stopped', furniture: true });
+        const locate = page.getByRole('button', { name: 'Locate me', exact: true });
+        await expect(locate.locator('svg[data-glyph="crosshair"]')).toHaveCount(1);
+        await expect(locate).toHaveAccessibleDescription('Goes to the boat');
+        await expect(page.locator('.loc-dot')).toHaveCount(0);
+    });
 });
 
 test.describe('legible on every base, in every palette', () => {
