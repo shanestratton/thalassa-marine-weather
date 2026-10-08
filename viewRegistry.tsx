@@ -21,6 +21,7 @@ import { lazyRetry } from './utils/lazyRetry';
 import type { Feature } from './services/SubscriptionService';
 import { authScopedStorageKey } from './services/authIdentityScope';
 import { FEATURE_VISIBILITY } from './utils/featureVisibility';
+import type { ChatPageSelection } from './components/ChatPage';
 
 // ── Lazy-loaded components ───────────────────────────────────────────────────
 const GalleyPage = lazyRetry(
@@ -304,6 +305,8 @@ export interface ViewContext {
     /** Unread Scuttlebutt DMs, the Vessel tab's badge; the Vessel page's
      *  Scuttlebutt card says it too. */
     chatUnread?: number;
+    /** Explicit App injection only; absence preserves ordinary chat routing. */
+    privateMessageSelection?: ChatPageSelection;
 }
 
 /** Configuration for a single registered view. */
@@ -382,7 +385,10 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: ChatPage,
         boundaryName: 'Chat',
         group: 'vessel',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+        getProps: (ctx) => ({
+            onBack: () => ctx.setPage('vessel'),
+            ...(Object.hasOwn(ctx, 'privateMessageSelection') ? { selection: ctx.privateMessageSelection } : {}),
+        }),
     },
     // Sightings (Shane 2026-10-05: "call it sightings"): entered from
     // Scuttlebutt's card, so Back returns to Scuttlebutt and says so.

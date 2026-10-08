@@ -86,7 +86,8 @@ account, with positive disposable-actor hosted checks. A bounded native private-
 adapter exchange now passes actual Auth verification and hosted HTTPS with two fresh
 fixture principals in one disposable simulator. A dedicated Research entry now
 installs private legacy denial before loading the real Thalassa message page;
-the ordinary app/router still has no experimental startup admission. Production
+an optional App/registry native-selection seam is now prepared, but the ordinary
+app/router still has no experimental startup admission. Production
 cutover is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
 production database change, production encryption indicator, production deployment
@@ -120,6 +121,76 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 8 October App private message routing preparation
+
+The App now accepts a deliberate native-only chat selection and passes it only
+through the actual chat registry entry. Initial absence keeps ordinary routing
+unchanged. An explicit invalid selection becomes unavailable, never legacy.
+Normalization installs irreversible process denial before inspecting selection
+getters; App runs it before its first hook and private push permit capture.
+Once selected, a monotonic ref prevents prop removal or account change from
+reopening legacy routing for that App mount. Back callbacks and unrelated route
+props remain unchanged. No ordinary entry injects or activates the native lane.
+
+**36 new routing fixtures passed within 725 overlapping app/pilot tests in 33
+suites.** They execute the helper, registry props and ChatPage validators with
+mocked lazy pages; App ordering and the monotonic assignment are source contracts,
+not an actual App/bootstrap mount. Focused strict types, named lint with no
+warnings/errors and formatting passed. App also typechecked using an owned
+temporary, lock-integrity-verified `@dnd-kit/sortable` declaration because that
+package is absent from shared dependencies. Explicit existing peer/React paths
+resolved the temporary declaration; no package was installed or executed, and
+the shared dependency tree was untouched. Compiler/declaration inputs and the
+initial missing-declaration, missing-package and temporary-resolution failures
+are retained in the
+[routing manifest](../experiments/scuttlebutt-e2ee/review/app-routing-2026-10-08.json).
+The existing Leaflet declaration was included, not replaced or weakened.
+
+The trusted React-props helper must first determine ownership; a hostile Proxy
+ownership trap can execute before that check discovers an explicit selection,
+or claim absence. It is not an untrusted admission boundary. The public value
+normalizer denies unconditionally before value inspection. Frozen selections
+retain the trusted runtime's identity, not immutability or provenance; ChatPage
+shape validation grants no native authority or readiness.
+
+The routing ref lasts one App mount. A new mount without injection may render
+legacy chat even though process-wide private legacy permits remain denied.
+The separate isolated root must deny before imports and supply a closed selection
+on every mount. Production Auth initialization still precedes App rendering;
+this seam is preparation, **not full-app startup isolation or functioning E2EE
+in ordinary Thalassa**. Native/provider/hosted/device checks were not rerun by
+this routing change. Legacy page, ChatService, Auth/bootstrap and ordinary entry
+sources remain unchanged. Current master was observed at `76911385`; reconcile
+its newer changes before any proposed merge. No master, primary sync, hosted,
+human Research, yacht or production change occurred.
+
+#### Next isolated full App composition
+
+Use a separate `full-app-pilot` entry/config rather than the production index or
+Vite configuration. Keep actual App, registry, providers, bootstrap and private
+push filters so their ordering is testable. Project Auth presentation from the
+single existing Research controller; never start a second SDK/Auth loop. Exact
+build substitutions must close production Supabase, telemetry, native storage,
+Preferences, push registration and production transport/plugin boundaries.
+
+Anonymous startup alone is unsafe: bootstrap admits anchor restoration when
+both compared owners are null, settings hydration can invoke native plugins/Pi
+cache, and authenticated App startup resumes ShipLog. Deny the instrument/GPS,
+AIS share, internet probe, anchor/Pi/ShipLog and vessel DB/sync leaves; preserve
+actual UI/store orchestration behind those gates. Isolated memory cache/version
+operations must settle so WeatherContext can finish loading. Browser I/O denial
+and a native plugin/HTTP backstop must be installed before dynamic App imports.
+
+Use `envDir: false` **and** `envPrefix: []`, fixed build constants and an
+allowlisted runner environment. A nonexistent environment-file directory does
+not stop Vite from copying inherited prefixed variables. Next acceptance is a
+real App/provider/bootstrap fixture mount with unavailable selection on every
+remount, one original Research authority, held-completion/account/binding races,
+actual private push filtering and zero unexpected browser/native I/O. Only then
+attempt the isolated full build and subsequent WKWebView execution. Dependency
+inputs must remain owned/read-only; no shared installs. Physical testing and
+independent security assessment remain separate release gates.
 
 ### 8 October actual protected UI exchange with simulated services
 

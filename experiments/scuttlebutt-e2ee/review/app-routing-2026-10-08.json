@@ -1,0 +1,240 @@
+{
+    "schemaVersion": 1,
+    "recordedAt": "2026-10-08T12:24:35.424Z",
+    "category": "App routing preparation with isolated helper/registry/ChatPage fixtures and static App ordering contract; not full-App bootstrap or native execution",
+    "status": "verified-routing-preparation-only",
+    "sourceBase": "91469d3758ff1eda5bd99ff77458e2ebb35c45d5",
+    "branch": "codex/scuttlebutt-e2ee-integration-2026-10-06",
+    "foundationRef": "3c30f47c8c50b7bc36307f827f152586f4b1f8aa",
+    "observedMasterRef": "7691138504845023bd1e5fe76338a2d2d4653c5a",
+    "toolchain": {
+        "node": "v24.19.0",
+        "installedTools": {
+            "typescript": "5.9.3",
+            "vitest": "4.1.10",
+            "eslint": "9.39.5",
+            "prettier": "3.8.1"
+        },
+        "projectPackageSha256": "14bed644ea682828e92c3922370879a1e05531bbadb3ffcbc3161c7f6711ec07",
+        "projectLockSha256": "230cf218a5a6f7c6eb368a2ca8b6019e1d9b16338fa4017d821af8665cf32932",
+        "sharedRuntimeReadOnly": true,
+        "freshDependencyInstall": false
+    },
+    "sourceHashes": {
+        "App.tsx": "a1ba182bded8592093c4a6002183ee91064877d54e971c1e1a3f8962d58512ae",
+        "viewRegistry.tsx": "103a55c49edb5646809979db8b146d89a8f23f08e832f5328010230b5db48898",
+        "services/chat/e2ee/appPrivateMessageSelection.ts": "69db118f4c0ae1a27049787879fb8b2fcbb707d4cacc03f777157eaf78f9d738",
+        "tests/AppPrivateMessageSelection.test.tsx": "8da4cbb456fc85893e00202483e1cb348f6a40df31a80c888968d7ed035341f3",
+        "experiments/scuttlebutt-e2ee/pilot/vitest.config.mjs": "a34556b7b79db8a482a1ef6ca63796a26b0ea19c9d8aba125e8b7cc908639e7e",
+        "experiments/scuttlebutt-e2ee/pilot/tsconfig.json": "b1a59385d33b992dad4ffa2faa5e33fb02955e94c88424986ed621fb750372aa",
+        "src/components/leaflet-velocity-ts.d.ts": "55d1bec7c291903a672f4ecf577cc6844db9198d33731c7ac7283e890c559a4c",
+        "components/ChatPage.tsx": "53226bf670af117510e7eb32d11a17f1fbf7d8c2382cc151abe24499b226d45e",
+        "components/LegacyChatPage.tsx": "13cac8a0063a10c08b0375ffb23f8f3df8f77344ccf44145751c457f0754f04e",
+        "services/chat/e2ee/privateMessageCutover.ts": "2216a6459be8afe06856271839073deb44171d48d66ca1f907bc73c622a1ca85",
+        "stores/authStore.ts": "6b46b9de630789b164fdb341bb22efa50a4c700247fb68e4147e6d3c2d8e5b32",
+        "hooks/useAppBootstrap.ts": "413ce91c640e0f9b847e064691ccb7f7a272abffd2a77ad3646a746a78f58e2b",
+        "index.tsx": "9561dc89d77b04ea209b4ed842cb8f42f3776d266e335f213793e2ece219bf5a"
+    },
+    "preservedSources": [
+        {
+            "path": "components/LegacyChatPage.tsx",
+            "headSha256": "13cac8a0063a10c08b0375ffb23f8f3df8f77344ccf44145751c457f0754f04e",
+            "workingSha256": "13cac8a0063a10c08b0375ffb23f8f3df8f77344ccf44145751c457f0754f04e",
+            "unchanged": true
+        },
+        {
+            "path": "services/ChatService.ts",
+            "headSha256": "812c863bf98f1cd4908ca0812652c1e428ec800c354c8abc99c8f450fe44a7bb",
+            "workingSha256": "812c863bf98f1cd4908ca0812652c1e428ec800c354c8abc99c8f450fe44a7bb",
+            "unchanged": true
+        },
+        {
+            "path": "hooks/useAppBootstrap.ts",
+            "headSha256": "413ce91c640e0f9b847e064691ccb7f7a272abffd2a77ad3646a746a78f58e2b",
+            "workingSha256": "413ce91c640e0f9b847e064691ccb7f7a272abffd2a77ad3646a746a78f58e2b",
+            "unchanged": true
+        },
+        {
+            "path": "stores/authStore.ts",
+            "headSha256": "6b46b9de630789b164fdb341bb22efa50a4c700247fb68e4147e6d3c2d8e5b32",
+            "workingSha256": "6b46b9de630789b164fdb341bb22efa50a4c700247fb68e4147e6d3c2d8e5b32",
+            "unchanged": true
+        },
+        {
+            "path": "index.tsx",
+            "headSha256": "9561dc89d77b04ea209b4ed842cb8f42f3776d266e335f213793e2ece219bf5a",
+            "workingSha256": "9561dc89d77b04ea209b4ed842cb8f42f3776d266e335f213793e2ece219bf5a",
+            "unchanged": true
+        }
+    ],
+    "executed": {
+        "focusedRouting": {
+            "tests": 36,
+            "suites": 1,
+            "passed": true,
+            "receipt": "First direct guarded Vitest command in this heartbeat; overlapping exact cases are retained in pilot stdout below."
+        },
+        "overlappingPilot": {
+            "tests": 725,
+            "suites": 33,
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-checks-1NU3WY/checks.json",
+                "sha256": "e807e0fe87fbebf17260cdaf32e6d2723c1c58b94ec214e3cacba57b890d30c9"
+            },
+            "stdout": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-checks-1NU3WY/pilot-regression.stdout.log",
+                "sha256": "29dd176085dd4616b37c669973501e29b4fe131b7468d9d188d53f6071f311da"
+            }
+        },
+        "focusedStrictTypes": {
+            "passed": true,
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-verified-bmNHB7/checks.json",
+                "sha256": "4e3a7180d06d072ccd2bf289f98b8d9e5cfc14baf82d5aa07242fb53aea64045"
+            },
+            "note": "Includes actual registry graph and existing leaflet declaration; no new declaration added."
+        },
+        "appStrictTypes": {
+            "passed": true,
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-finish-yy78eE/checks.json",
+                "sha256": "abeee5af83c2ac175decee0240bab8dad4842a376799fb197a48f87c3c444a42"
+            },
+            "temporaryConfig": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-owned-route-dependency-XTzaw8/full-app.tsconfig.json",
+                "sha256": "db62e505495acb490be66cedf88cf18f173b8254f4b89b94946512cdac9fb0cf"
+            },
+            "dependencyReceipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-owned-route-dependency-XTzaw8/dependency-receipt.json",
+                "sha256": "57d07e74d37397abeda1ae7454aace80a1c7514ee98d44796521310588ca778c"
+            },
+            "note": "App included using a SHA-512 lock-verified sortable 8.0.0 declaration in owned temporary storage with explicit existing peer/React paths. No shared dependency installation or execution. The dependency metadata receipt predates temporary configuration corrections; the final temporaryConfig hash and passing compiler receipt are authoritative for the executed resolver."
+        },
+        "namedLint": {
+            "passed": true,
+            "errors": 0,
+            "warnings": 0,
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-finish-yy78eE/checks.json",
+                "sha256": "abeee5af83c2ac175decee0240bab8dad4842a376799fb197a48f87c3c444a42"
+            }
+        },
+        "namedFormatting": {
+            "passed": true,
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-finish-yy78eE/checks.json",
+                "sha256": "abeee5af83c2ac175decee0240bab8dad4842a376799fb197a48f87c3c444a42"
+            }
+        }
+    },
+    "retainedReceipts": [
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-checks-1NU3WY/checks.json",
+            "sha256": "e807e0fe87fbebf17260cdaf32e6d2723c1c58b94ec214e3cacba57b890d30c9"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-verified-bmNHB7/checks.json",
+            "sha256": "4e3a7180d06d072ccd2bf289f98b8d9e5cfc14baf82d5aa07242fb53aea64045"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-finish-yy78eE/checks.json",
+            "sha256": "abeee5af83c2ac175decee0240bab8dad4842a376799fb197a48f87c3c444a42"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-final-UhyPpu/checks.json",
+            "sha256": "709331a911b3fd94f29ffc260bb0e7b42bfabe870400258a5e9740aa3afd920a"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-complete-Lv6mTf/checks.json",
+            "sha256": "66828ae2018b9f494c73571e6d9f2a43c783554e26915e34c1755b34b79dae53"
+        }
+    ],
+    "retainedFailures": [
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-checks-1NU3WY/checks.json",
+                "sha256": "e807e0fe87fbebf17260cdaf32e6d2723c1c58b94ec214e3cacba57b890d30c9"
+            },
+            "failure": "Initial focused type scope omitted the repository existing leaflet-velocity-ts declaration; added its include, not a new declaration."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-final-UhyPpu/checks.json",
+                "sha256": "709331a911b3fd94f29ffc260bb0e7b42bfabe870400258a5e9740aa3afd920a"
+            },
+            "failure": "Including actual App encountered missing installed sortable package. No shared node_modules write; temporary lock-verified declaration resolution used instead."
+        },
+        {
+            "artifact": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-owned-route-dependency-XTzaw8",
+            "failure": "First upstream package metadata check expected types; the verified package uses typings. The original package was not modified."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-verified-bmNHB7/checks.json",
+                "sha256": "4e3a7180d06d072ccd2bf289f98b8d9e5cfc14baf82d5aa07242fb53aea64045"
+            },
+            "failure": "Temporary full-App type config inherited vite/client type entry outside module-resolution roots; replaced only that temp types entry with node and explicit real Vite declaration."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-app-route-complete-Lv6mTf/checks.json",
+                "sha256": "66828ae2018b9f494c73571e6d9f2a43c783554e26915e34c1755b34b79dae53"
+            },
+            "failure": "Temporary sortable declaration lacked outside peer-module resolution, producing a misleading required resizeObserverConfig error. Explicit existing core/utilities/React paths corrected resolution without source changes."
+        }
+    ],
+    "evidenceLimits": [
+        "Actual App is source-contract checked and typechecked, not mounted in this slice. Actual helper/registry/ChatPage run with lazy pages mocked; no SDK/Auth/provider/native/relay execution.",
+        "Routing selection is denial only. ChatPage checks runtime shape, not provenance, immutability, peer trust or native-issued permission. Frozen selection retains trusted runtime identity.",
+        "Explicit selection denies before value/property getters. The trusted React-props convenience checks ownership first; a hostile hasOwn Proxy trap may run or return absent before denial. It is not an untrusted admission boundary.",
+        "The App routing latch is monotonic only for one mount. A new mount with absent injection can render legacy, while process legacy permits remain denied. The isolated root must deny before imports and inject closed selection on every mount.",
+        "Static production Auth module initialization still precedes App rendering; the render-time seam cannot isolate the full App graph.",
+        "Ordinary missing-prop App behavior, back callbacks and non-chat props stay unchanged. No shipping activation or standalone E2EE security badge is introduced.",
+        "725 overlapping fixtures include the 36 new cases; do not add them to previous Research counts or transfer previous native evidence.",
+        "External package declaration checks establish only the stated compiler input, not shipped-binary provenance or licensing clearance."
+    ],
+    "remainingGates": [
+        {
+            "gate": "Separate full-App isolated entry, one Research authority and all bootstrap native/browser sideeffect gates",
+            "state": "next-unimplemented"
+        },
+        {
+            "gate": "Actual full-App protected navigation and cold/remount/lifecycle integration",
+            "state": "unrun"
+        },
+        {
+            "gate": "Actual initiator Research UI and adversarial retry/lifecycle",
+            "state": "unrun"
+        },
+        {
+            "gate": "Multi-peer/device/prekey lifecycle, renewal, replacement, retention and recovery",
+            "state": "incomplete"
+        },
+        {
+            "gate": "Independent PostgreSQL concurrency",
+            "state": "incomplete"
+        },
+        {
+            "gate": "Physical iPhone/iPad current-candidate acceptance",
+            "state": "requires-human"
+        },
+        {
+            "gate": "Dependency/licence review and fresh native binary provenance",
+            "state": "open"
+        },
+        {
+            "gate": "Independent security assessment",
+            "state": "uncommissioned-new-authority-required"
+        }
+    ],
+    "isolation": {
+        "masterMergedOrPushed": false,
+        "primaryEditedOrSynced": false,
+        "sharedDependenciesWritten": false,
+        "hostedChanges": false,
+        "humanResearchChanges": false,
+        "yachtOrShoreWatchChanges": false,
+        "productionActivation": false,
+        "externalSourceShared": false
+    }
+}

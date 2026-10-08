@@ -223,6 +223,25 @@ no automatic setup/recovery. Inspect the no-legacy graph and the native and JS
 publication checks separately rather than transferring earlier hosted evidence
 to this new candidate.
 
+The [8 October App routing evidence](../experiments/scuttlebutt-e2ee/review/app-routing-2026-10-08.json)
+adds deliberate native-only selection to App and the real chat registry. Missing
+injection preserves ordinary behavior; explicit invalid selection refuses. A
+render-time denial precedes hooks, and a monotonic ref prevents downgrade after
+prop removal within that mount. Thirty-six new helper/registry/ChatPage cases
+pass within 725 overlapping pilot fixtures; named lint/format and strict types
+pass. App typechecking uses a lock-verified missing-package declaration in owned
+temporary storage, with initial compiler-resolution failures retained. It does
+not mount App or execute SDK/native/provider messaging.
+
+The ref does not survive a fresh App mount, and production Auth modules evaluate
+before rendering. A separate isolated entry must fence imports and supply closed
+selection on every mount. The trusted-props helper is not hostile-Proxy safe
+before ownership detection; the explicit value normalizer denies before getters.
+Runtime shape is not provenance or native permission. Review the full-app Auth,
+storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gates
+before treating this routing seam as startup integration. No ordinary activation,
+shared dependency write, primary sync, master or production change is included.
+
 ## User problem and intended pilot
 
 The [8 October protected window evidence](../experiments/scuttlebutt-e2ee/review/protected-window-2026-10-08.json)
