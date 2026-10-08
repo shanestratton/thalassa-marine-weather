@@ -88,6 +88,12 @@ export default defineConfig({
         // in wide fonts, clear of the tab bar, and the IEC 62288 circle-and-cross is
         // drawn and placed by the real engines (e2e/fixtures/distress-beacon.tsx).
         'distress-beacon-layout.spec.ts',
+        // The little Log map on Relief + Sat (build 125, 125-13a): Mapbox GL in the
+        // live, fullscreen and planned cards at 320 × 568 and 390 × 844 in wide
+        // fonts, offline tiles from made-up coastlines, through the Pi with no
+        // internet, a plain sea with no style; its JS heap in Chromium
+        // (e2e/fixtures/log-mini-map.tsx).
+        'log-mini-map-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

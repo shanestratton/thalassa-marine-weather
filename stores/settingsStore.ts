@@ -1421,6 +1421,9 @@ export function mergeSettings(parsed: Record<string, unknown>): UserSettings {
             waveHeight: p.units?.waveHeight || p.units?.length || 'm',
         },
         vessel: { ...DEFAULT_SETTINGS.vessel, ...(p.vessel || {}) },
+        // The old Satellite base left the Obs picker (125-13a, Shane
+        // 2026-10-09): a saved one becomes Relief + Sat (useMapBase reads it so).
+        ...(p.obsChartBase === 'satellite' ? { obsChartBase: 'reliefSat' as const } : {}),
         heroWidgets: validHeroWidgets,
         rowOrder: migrateRowOrder(Array.isArray(p.rowOrder) ? p.rowOrder : [...(DEFAULT_SETTINGS.rowOrder || [])]),
         subscriptionTier: tier,

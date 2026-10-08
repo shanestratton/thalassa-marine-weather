@@ -47,6 +47,8 @@ describe('Pi tile proxy display gate', () => {
             'components/map/useMapInit.ts',
             'components/chat/PinMapViewer.tsx',
             'components/map/ThalassaMap.tsx',
+            // The Log page's Mapbox maps (125-13a).
+            'components/map/logMap.ts',
         ]) {
             const src = read(file);
             // Anchor on the Pi passthrough itself — useMapInit has three

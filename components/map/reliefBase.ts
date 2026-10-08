@@ -108,6 +108,24 @@ export const HIDDEN_BASE_GEOMETRY = /^(road|tunnel)-|^(aeroway|building)/;
  */
 export const LAND_STRUCTURE = /^(land-structure|bridge)-/;
 
+/**
+ * Hide what only ever showed through gaps in imagery (roads, tunnels,
+ * buildings, aeroways, and road, transit, airport and POI labels) and paint
+ * man-made land the land colour. For a map drawn on these bases alone: the
+ * Ocean page, and the Log maps (logMap.ts); place names stay.
+ */
+export function hideBaseClutter(map: mapboxgl.Map): void {
+    for (const layer of map.getStyle()?.layers ?? []) {
+        const hide =
+            (layer.type !== 'symbol' && HIDDEN_BASE_GEOMETRY.test(layer.id)) ||
+            (layer.type === 'symbol' && /road|motorway|highway|shield|trunk|transit|airport|poi/i.test(layer.id));
+        if (hide) map.setLayoutProperty(layer.id, 'visibility', 'none');
+        if ((layer.type === 'line' || layer.type === 'fill') && LAND_STRUCTURE.test(layer.id)) {
+            map.setPaintProperty(layer.id, `${layer.type}-color` as 'fill-color', '#333b45');
+        }
+    }
+}
+
 export type ReliefPalette = 'day' | 'night' | 'enc';
 type Ramp = ReadonlyArray<readonly [number, string]>;
 
