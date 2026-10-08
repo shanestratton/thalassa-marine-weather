@@ -13,6 +13,59 @@ should alter as the yacht progresses along the route."
 instruments show dashes, the phone never stands in for SOG/COG; (3) the forecast block gets a change-model button;
 (4) the scrubber runs out to 7 days.
 
+## Standard, no switch — build 124 (2026-10-08)
+
+**Ask — Shane, 2026-10-08, on build 123:** "the HUD is not working on the obs page when you pull up a route????", then
+"I cannot see the setting in preference, however, I don't think that we need a setting for it. It should just be the
+standard setup for routes. Or tracks on the log page."
+
+**There is no Passage HUD switch.** The Obs Layers → Map → Passage HUD row, the session-only enabled flag and its
+storage key are gone. The pane is on the chart whenever it has something to show (`hooks/usePassageHudAvailable.ts`):
+a followed route, a recording running or paused, or a route previewed on Obs. The only choice left is the skipper's:
+readings open or tucked into the HUD tab, remembered on the device. Being on the chart is not an activation: a launch
+with a followed route, or a route pulled up on Obs, opens no weather layer (Obs starts clean). A recording starting is
+still the one activation (LIVE readings open, Inspect off, wind plus available rain/squalls, Passage overlay on), and
+the chart applies it only while a recording is on it: a recording started and stopped in Log before Obs was first
+opened never replays its layers onto the first route later pulled up.
+
+**The whole-route overview is asked for, never implied.** `usePassageRouteFrame` fits the followed route and the boat
+and takes the camera back after any programmatic move. It used to engage only once the skipper switched the HUD on;
+with no switch it now waits for an ask (`askPassageOverview` in `stores/passageHudStore.ts`): the HUD's own Route &
+track, its Ahead departure, or a recording starting. The ask lasts while the Passage overlay stays on. Layers →
+Passage alone draws the line and leaves the camera where it is (Obs: layer toggles never move the camera).
+
+**The HUD follows the route on screen** (`components/map/mapHub/obsRoutePick.ts`):
+
+- Picking the **followed** route in Layers → Routes keeps the Passage overlay (it used to switch it off, leaving a
+  strip with no ghost, waypoints or framing) and the HUD is the followed route's, live.
+- Picking **any other** route switches the overlay off, as before, and the HUD **previews** that route until it is
+  cleared or replaced — even while another route is followed. Clear it and the followed route's live strip, or the
+  recording's, is back.
+- Picking the running recording's own track in Layers → Tracks keeps the overlay while no route is followed (the
+  overlay is drawing that track); any other track, or any track while a route is followed (the overlay draws the
+  route), switches it off. A sailed track is never previewed: nothing lies ahead on it, and the chart key (the big i)
+  says so.
+- "The followed route" means the same id, or the same line as the follow store keeps it (sanitised: a repeated vertex
+  in the saved trace still matches).
+- Pulling a route up opens the HUD's readings.
+
+**The preview** is labelled "Preview — not following" above everything, live or forecast; with the readings tucked
+away the HUD tab beside its ghost and scrubber reads **Preview** (amber) instead of HUD. Its LIVE face shows the
+route's length from its first point and its name, then the boat's live instruments; its departure control (**Depart**,
+sharing the bottom row with Hide) opens the existing departure dialog at the next whole hour on the device clock, at
+least 15 minutes away (`nextPreviewDeparture`), and Leave now remains. The look-ahead then leaves from the route's
+**first point**, not from the boat. A preview watches no GPS and writes no follow state: no `startFollowing`, no
+route-authority or plan-link rows, no destination flag (the flag rides the Passage overlay, which a preview never
+turns on), nothing for the 24 h follow drop to find. Its forecast boat is drawn without the Passage overlay.
+
+**Credits.** The open strip now starts below the Sat cloud credit (`[data-testid="sat-ir-credit"]`) and the
+Blitzortung credit too (MapHub's credits-strip slot, `[data-testid="lightning-credit"]` — not the chip's label, which
+the chart key's own copy low in the strip's column shares), as it already did for Copernicus and the rain credits. Measured (browser-tests/
+passage-hud-preview-layout.spec.ts, 320 × 568 and 375 × 667, wide fonts, Chromium and WebKit): the strip covers no
+credit, the tab bar or the weather controls, and its label, Depart/Live and Hide are whole and hit-testable. At
+320 × 568 under the Sat cloud credit the readings window is small while the weather panel or the look-ahead scrubber
+is up (it scrolls); once the weather controls tuck themselves away the route cell is whole.
+
 ## Phase 1 — the live strip (built 2026-09-18)
 
 ### Route-free recording — 2026-09-25
@@ -96,7 +149,7 @@ HUD/scrubber/weather synchronization. Responsive synthetic layout fixture:
 
 ### On-water corrections — 2026-09-20
 
-**Entry: OBS → Layers → Passage HUD.** It is available with a route
+**Entry (superseded in build 124: there is no switch, see above): OBS → Layers → Passage HUD.** It is available with a route
 being followed from Log or an active/paused recording; the Settings switch has been removed. Activation opens
 the HUD and Passage overlay, disables Inspect and enables wind plus available
 rain/squalls. These overlays do not take over the passage camera. Current squall
@@ -136,17 +189,19 @@ without repeatedly promoting above each other.
 
 The older phase notes below describe the original layout and dashed-line design.
 
-**Manual entry.** OBS → Layers → Passage HUD, while following a route from Log
-or recording. Successful recording starts also open the LIVE HUD.
+**Entry.** None needed since build 124: the HUD is on the chart while following a route from Log,
+recording, or previewing a route picked on Obs. Successful recording starts also open the LIVE HUD.
 
 | Piece                                                                          | File                                     |
 | ------------------------------------------------------------------------------ | ---------------------------------------- |
-| Enabled and open/closed switches, remembered on the device                     | `stores/passageHudStore.ts`              |
+| Open/closed, remembered on the device; the previewed route                     | `stores/passageHudStore.ts`              |
+| Is the HUD on the chart? (no switch)                                           | `hooks/usePassageHudAvailable.ts`        |
+| Routes/Tracks picks and the preview the chart publishes                        | `components/map/mapHub/obsRoutePick.ts`  |
 | Distance ALONG the followed route, off-track, which stretch of an out-and-back | `services/routeProgress.ts`              |
 | The six instrument values, re-rendering only when one changes                  | `hooks/usePassageHudInstruments.ts`      |
 | Numbers and tags, tested against the real GPS status resolver                  | `components/passage/passageHudFormat.ts` |
 | The strip and its closed tab                                                   | `components/passage/PassageHudPane.tsx`  |
-| The route-gated OBS layer and weather setup                                    | `components/map/passageHudLayer.ts`      |
+| The weather setup applied once per recording activation                        | `components/map/passageHudLayer.ts`      |
 | Mount, the strip's Back action, `data-passage-hud` on the chart `<main>`       | `App.tsx`                                |
 | Geometry, neighbours stepping aside, surfaces that hide it                     | `index.css` (`.thalassa-passage-hud*`)   |
 
@@ -196,9 +251,10 @@ small phones is older than this change.
 
 ### Re-test on the boat
 
-1. Follow a route in Log, then OBS → Layers → **Passage HUD**. Inspect turns off;
-   wind and available rain/squalls appear. Hide the readings during look-ahead:
-   the scrubber and playback remain, and LIVE returns to current conditions.
+1. Follow a route in Log, then open OBS: the HUD is there (tab or strip), no switch. Start a recording: Inspect turns
+   off; wind and available rain/squalls appear. Hide the readings during look-ahead: the scrubber and playback
+   remain, and LIVE returns to current conditions. Pull up another route in Layers → Routes: the strip reads
+   "Preview — not following"; Depart previews it from its first point; clear the route and the followed strip is back.
 2. Under way with the Pi live: the six numbers match the Instrument Panel; VIA PI; GPS LIVE.
 3. Follow a route from the Log page: TO GO leads, tagged BOAT GPS. Tap the route button: the violet route, amber
    track and flag appear and the button lights; turn them off with Passage in the layer button.
@@ -319,9 +375,9 @@ the transient nudge card over the strip's lower cells until Not now is tapped.
 
 ### Never remembered
 
-Look-ahead is not written to storage. Leaving the chart, hiding the strip, switching it off in Preferences, stopping the
-route, or the strip standing down by CSS (storm card, planner, landscape phone) all return to LIVE and take the ghost
-and its line off the chart.
+Look-ahead is not written to storage. Leaving the chart, stopping the route, a previewed route changing or being
+cleared, or the strip standing down by CSS (storm card, planner, landscape phone) all return to LIVE and take the ghost
+and its line off the chart. Hiding the readings does not: the scrubber stays.
 
 ### Known limits
 

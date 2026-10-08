@@ -222,9 +222,10 @@ import { usePassageRouteFrame } from './usePassageRouteFrame';
 import { usePassageWaypointLayer } from './usePassageWaypointLayer';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
 import { setPassageOverlay, usePassageOverlay } from '../../stores/chartPassageOverlay';
-import { usePassageHudEnabled, usePassageHudOpen, usePassageLookAheadOn } from '../../stores/passageHudStore';
+import { usePassageHudOpen, usePassageLookAheadOn, usePassageOverviewAsked } from '../../stores/passageHudStore';
 import { setPassageSquallInfoVisible } from '../../stores/passageHudInfoStore';
-import { passageHudLayerSources, usePassageHudLayerActivation } from './passageHudLayer';
+import { usePassageHudLayerActivation } from './passageHudLayer';
+import { pickObsRoute, pickObsTrack, useObsRoutePreview } from './mapHub/obsRoutePick';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { useMobMarker } from './useMobMarker';
 import { useAnchorSwingLayer } from './useAnchorSwingLayer';
@@ -2486,6 +2487,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     /** Currently-displayed planned route. Passage uses the Log's exact
      *  followed geometry; the Routes picker can display a saved plan. */
     const [activeChartRoute, setActiveChartRoute] = useState<RouteOrTrack | null>(null);
+    /** The route last pulled up from Layers → Routes: previewed on the HUD while it is on screen (obsRoutePick). */
+    const [pickedChartRoute, setPickedChartRoute] = useState<RouteOrTrack | null>(null);
     /** Currently-displayed recorded track on the chart. Null when none. */
     const [activeChartTrack, setActiveChartTrack] = useState<RouteOrTrack | null>(null);
     const [routePickerOpen, setRoutePickerOpen] = useState(false);
@@ -2513,10 +2516,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // The "Passage" overlay switch — OFF by default (Shane 2026-09-09: the
     // punter adds the current route from the layer FAB when he wants it).
     const passageOverlay = usePassageOverlay();
-    const passageHudEnabled = usePassageHudEnabled();
     const passageHudOpen = usePassageHudOpen();
     const passageLookingAhead = usePassageLookAheadOn();
-    const { activeVoyageMode, hasRecording } = useActiveVoyageChartSync(
+    const { activeVoyageMode, activeVoyageId, hasRecording } = useActiveVoyageChartSync(
         setActiveChartRoute,
         setActiveChartTrack,
         passageOverlay,
@@ -2727,15 +2729,30 @@ export const MapHub: React.FC<MapHubProps> = ({
     const isFollowingRoute = useFollowRouteStore((s) => s.isFollowing);
     const followedRouteCoords = useFollowRouteStore((s) => s.routeCoords);
     const followedVoyageId = useFollowRouteStore((s) => s.voyageId);
+    // The HUD follows the route on screen (build 124, obsRoutePick): a route
+    // pulled up from Layers → Routes that is not the followed one is previewed.
+    const obsRoutePreview = useObsRoutePreview({
+        activeChartRoute,
+        pickedRoute: pickedChartRoute,
+        publishes: !embedded && !isPinView,
+        allowed: !pickerMode,
+    });
+    // No switch (build 124): the HUD is on this chart for a recording, a
+    // followed route or a previewed one.
     const passageHudOnChart =
-        passageHudEnabled &&
-        (hasRecording || (isFollowingRoute && followedRouteCoords.length >= 2)) &&
+        (hasRecording || (isFollowingRoute && followedRouteCoords.length >= 2) || obsRoutePreview !== null) &&
         !embedded &&
         !pickerMode &&
         !isPinView;
+    // The whole-route overview holds the camera only once asked for — the HUD's
+    // Route & track or Ahead, or a recording starting — never because a layer
+    // came on (build 124: with no switch, Layers → Passage alone must not move
+    // the camera; stores/passageHudStore askPassageOverview).
+    const passageOverviewAsked = usePassageOverviewAsked();
     const passageOverviewAvailable =
         passageHudOnChart &&
         passageOverlay &&
+        passageOverviewAsked &&
         isFollowingRoute &&
         followedRouteCoords.length >= 2 &&
         !planningSurface &&
@@ -2766,8 +2783,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // The followed route's flag is part of the same overlay: off until asked for.
     useDestinationFlag(mapRef, mapReady && !planningSurface && passageOverlay, { onTap: () => setStopFollowAsk(true) });
     // Passage strip look-ahead: where she will be at the scrubbed moment. The
-    // strip works out the place; this only draws it (passageHudStore).
-    useRouteGhostMarker(mapRef, mapReady && !planningSurface && passageOverlay);
+    // strip works out the place; this only draws it (passageHudStore). A
+    // previewed route is on the chart without the Passage overlay.
+    useRouteGhostMarker(mapRef, mapReady && !planningSurface && (passageOverlay || obsRoutePreview !== null));
     // Active MOB fix — plain mapReady, NOT gated on planningSurface: an
     // active MOB must never vanish because the planner happens to be open.
     useMobMarker(mapRef, mapReady);
@@ -2976,10 +2994,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         true, // Do not restore weather/MPA overlays into a fresh OBS.
     );
     usePassageHudLayerActivation({
-        isFollowing: isFollowingRoute,
-        hasRecording,
-        routeCoords: followedRouteCoords,
-        enabled: passageHudOnChart,
+        available: passageHudOnChart,
+        // Only a recording's activation applies layers: a followed route or a
+        // preview on the chart must not replay an old, unapplied one.
+        recording: hasRecording,
         weather,
         setWeatherInspectMode,
         closeWeatherInspect,
@@ -3718,20 +3736,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // are niche). Without optional overlays the fan says
                             // "Routes"; with feature-gated MPA context the mixed
                             // category says "Map", never "Charts".
+                            // No Passage HUD row (build 124): the HUD is standard for a
+                            // followed route, a recording or a route pulled up here.
                             sources: [
-                                ...passageHudLayerSources({
-                                    isFollowing: isFollowingRoute,
-                                    hasRecording,
-                                    routeCoords: followedRouteCoords,
-                                    enabled: passageHudEnabled,
-                                    weather,
-                                    setWeatherInspectMode,
-                                    closeWeatherInspect,
-                                    setLightningVisible,
-                                    setCycloneVisible,
-                                    setSquallVisible,
-                                    setAisVisible,
-                                }),
                                 // CAPAD protected-area context belongs with map
                                 // overlays, not the tactical danger menu. Its
                                 // popup remains explicitly indicative and
@@ -3780,6 +3787,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     onToggle: () => setRoutePickerOpen((v) => !v),
                                     onClear: () => {
                                         setActiveChartRoute(null);
+                                        setPickedChartRoute(null);
                                         setRoutePickerOpen(false);
                                     },
                                     // Opens the picker sheet — the menu must
@@ -4926,38 +4934,45 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* Routes picker — the same saved library as Plan.
                     Selection becomes activeChartRoute; the
-                    useRouteTrackLayer renders + fits bounds. */}
+                    useRouteTrackLayer renders + fits bounds. The HUD
+                    previews it unless it is the followed route, whose
+                    Passage overlay it keeps (mapHub/obsRoutePick). */}
                 {routePickerOpen && !planningSurface && !embedded && !pickerMode && !isPinView && (
                     <Suspense fallback={<RouteTrackPickerLoading label="Opening routes…" />}>
                         <RouteTrackPicker
                             visible
                             variant="route"
                             selectedId={activeChartRoute?.id ?? null}
-                            onSelect={(item) => {
-                                setActiveChartRoute(item);
-                                if (item) setActiveChartTrack(null);
-                                // A manual choice owns the chart; background
-                                // passage refresh must not re-add the other line.
-                                setPassageOverlay(false);
-                            }}
+                            onSelect={(item) =>
+                                pickObsRoute(item, {
+                                    setActiveChartRoute,
+                                    setActiveChartTrack,
+                                    setPickedRoute: setPickedChartRoute,
+                                })
+                            }
                             onClose={() => setRoutePickerOpen(false)}
                         />
                     </Suspense>
                 )}
 
                 {/* Tracks picker — actually-sailed passages, exclusive
-                    with a selected saved route. Recording is unaffected. */}
+                    with a selected saved route. Recording is unaffected; its
+                    own track keeps the Passage overlay. No HUD preview:
+                    nothing lies ahead on a sailed track. */}
                 {trackPickerOpen && !planningSurface && !embedded && !pickerMode && !isPinView && (
                     <Suspense fallback={<RouteTrackPickerLoading label="Opening tracks…" />}>
                         <RouteTrackPicker
                             visible
                             variant="track"
                             selectedId={activeChartTrack?.id ?? null}
-                            onSelect={(item) => {
-                                setActiveChartTrack(item);
-                                if (item) setActiveChartRoute(null);
-                                setPassageOverlay(false);
-                            }}
+                            onSelect={(item) =>
+                                pickObsTrack(item, {
+                                    setActiveChartRoute,
+                                    setActiveChartTrack,
+                                    setPickedRoute: setPickedChartRoute,
+                                    activeVoyageId,
+                                })
+                            }
                             onClose={() => setTrackPickerOpen(false)}
                         />
                     </Suspense>
@@ -4997,6 +5012,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                     of the shared key's collapsed state. */}
                 {!pickerMode && !planningSurface && !embedded && !isPinView && browseLightningVisible && (
                     <div
+                        // What the passage HUD clears: the chart key's own copy of this
+                        // chip (ObsLayerKey) carries the same label, low in its column.
+                        data-testid="lightning-credit"
                         className={`${CREDITS_STRIP_POSITION_CLASS} z-510 max-w-[calc(100%-120px)] pointer-events-none`}
                         style={{
                             top: creditsStripTop(

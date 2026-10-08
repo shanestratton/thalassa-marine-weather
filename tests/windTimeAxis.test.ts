@@ -16,7 +16,6 @@ import {
     getPassageUnsyncedLayers,
     getPassageWindCoverageHours,
     setPassageAheadMs,
-    setPassageHudEnabled,
     setPassageHudOpen,
     startPassageLookAhead,
     stopPassageLookAhead,
@@ -159,7 +158,6 @@ describe('the passage look-ahead drives the chart’s wind BY THE CLOCK', () => 
         sessionStorage.setItem('thalassa_active_layers', JSON.stringify(['wind']));
         WindStore.reset();
         __resetPassageHudForTests();
-        setPassageHudEnabled(true);
         setPassageHudOpen(true);
     });
     afterEach(() => {

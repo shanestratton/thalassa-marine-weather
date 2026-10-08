@@ -174,6 +174,13 @@ export function ObsLayerKey(props: ObsLayerKeyProps) {
                             Amber · recorded track already sailed.
                         </p>
                     )}
+                    {/* Where a skipper looks for a HUD forecast on a past track (build 124). */}
+                    {props.track && (
+                        <p data-testid="obs-key-track-no-hud">
+                            A sailed track has no Passage HUD look-ahead: nothing lies ahead on it. Pick a route under
+                            Routes to preview one.
+                        </p>
+                    )}
                     {props.passage && (
                         <p>
                             A hollow amber boat is a forecast estimate. A dashed join is unchecked, not a route to

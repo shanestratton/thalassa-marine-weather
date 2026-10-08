@@ -6,7 +6,12 @@ import { useMapHubLayerVisibility } from '../components/map/useMapHubLayerVisibi
 import { useWeatherLayers } from '../components/map/useWeatherLayers';
 import { useOpenSeaMapRasterHide } from '../components/map/mapHub/useOpenSeaMapRasterHide';
 import { useEncAtOpen } from '../components/map/mapHub/useEncAtOpen';
-import { __resetPassageHudForTests, isPassageHudEnabled } from '../stores/passageHudStore';
+import {
+    __resetPassageHudForTests,
+    getPassageHudActivation,
+    getPassageHudPreviewRoute,
+    getPassageLookAhead,
+} from '../stores/passageHudStore';
 import { __resetPassageOverlayForTests, isPassageOverlayOn } from '../stores/chartPassageOverlay';
 
 vi.mock('../services/MobService', () => ({
@@ -59,12 +64,15 @@ describe('clean OBS startup', () => {
         expect([...result.current.activeLayers]).toEqual(['rain']);
     });
 
-    it('does not restore Passage/HUD from a previous launch', () => {
-        localStorage.setItem('thalassa_passage_hud_enabled_v1', '1');
+    it('does not restore Passage, the HUD’s weather layers, a look-ahead or a preview from a previous launch', () => {
+        // There is no HUD switch to restore (build 124): the HUD is standard. A
+        // launch is never an activation, so it opens no weather layer.
         localStorage.setItem('thalassa_chart_passage_overlay_v1', '1');
         __resetPassageHudForTests();
         __resetPassageOverlayForTests();
-        expect(isPassageHudEnabled()).toBe(false);
+        expect(getPassageHudActivation()).toBe(0);
+        expect(getPassageHudPreviewRoute()).toBeNull();
+        expect(getPassageLookAhead().on).toBe(false);
         expect(isPassageOverlayOn()).toBe(false);
     });
 

@@ -27,9 +27,7 @@ import {
     __resetPassageHudForTests,
     getPassageHudActivation,
     getPassageLookAhead,
-    isPassageHudEnabled,
     isPassageHudOpen,
-    setPassageHudEnabled,
     setPassageHudOpen,
     startPassageLookAhead,
 } from '../stores/passageHudStore';
@@ -89,21 +87,23 @@ describe('HUD recording subscription', () => {
 describe('automatic recording HUD activation', () => {
     it('keeps idle and failed starts clean, then opens LIVE instruments and passage for route-free recording', () => {
         renderHook(useHudRecordingActivation);
-        expect(isPassageHudEnabled()).toBe(false);
+        expect(getPassageHudActivation()).toBe(0);
+        expect(isPassageHudOpen()).toBe(false);
         expect(isPassageOverlayOn()).toBe(false);
         act(() => publish({ currentVoyageId: 'failed-start' }));
-        expect(isPassageHudEnabled()).toBe(false);
+        expect(getPassageHudActivation()).toBe(0);
+        expect(isPassageHudOpen()).toBe(false);
         act(() => {
             startPassageLookAhead();
             publish({ isTracking: true, currentVoyageId: 'just-recording' });
         });
-        expect(isPassageHudEnabled()).toBe(true);
+        expect(getPassageHudActivation()).toBe(1);
         expect(isPassageHudOpen()).toBe(true);
         expect(isPassageOverlayOn()).toBe(true);
         expect(getPassageLookAhead().on).toBe(false);
     });
 
-    it('activates an already running recording on app entry, then respects Hide and Off across resume and remount', () => {
+    it('activates an already running recording on app entry, then respects Hide and Passage off across resume and remount', () => {
         publish({ isTracking: true, currentVoyageId: 'recording-a' });
         const first = renderHook(useHudRecordingActivation);
         const activation = getPassageHudActivation();
@@ -113,21 +113,19 @@ describe('automatic recording HUD activation', () => {
         act(() => publish({ isTracking: true, currentVoyageId: 'recording-a' }));
         expect(isPassageHudOpen()).toBe(false);
         expect(getPassageHudActivation()).toBe(activation);
-        act(() => {
-            setPassageHudEnabled(false);
-            setPassageOverlay(false);
-        });
+        act(() => setPassageOverlay(false));
         first.unmount();
         renderHook(useHudRecordingActivation);
-        expect(isPassageHudEnabled()).toBe(false);
+        expect(isPassageHudOpen()).toBe(false);
         expect(isPassageOverlayOn()).toBe(false);
+        expect(getPassageHudActivation()).toBe(activation);
         act(() => publish({ isTracking: true, currentVoyageId: 'recording-b' }));
-        expect(isPassageHudEnabled()).toBe(true);
         expect(isPassageHudOpen()).toBe(true);
+        expect(isPassageOverlayOn()).toBe(true);
         expect(getPassageHudActivation()).toBe(activation + 1);
     });
 
-    it('starts a new recording LIVE even when the previous HUD was still enabled', () => {
+    it('starts a new recording LIVE even when the previous HUD was still open', () => {
         renderHook(useHudRecordingActivation);
         act(() => publish({ isTracking: true, currentVoyageId: 'recording-a' }));
         const activation = getPassageHudActivation();
@@ -145,19 +143,17 @@ describe('automatic recording HUD activation', () => {
             recorder.state = { isTracking: false, isPaused: false, isRapidMode: false };
             setAuthIdentityScope('other-hud-skipper');
         });
-        expect(isPassageHudEnabled()).toBe(false);
         expect(isPassageHudOpen()).toBe(false);
         expect(isPassageOverlayOn()).toBe(false);
         expect(getPassageLookAhead().on).toBe(false);
         act(() => publish({ isTracking: true, currentVoyageId: 'recording-a' }));
-        expect(isPassageHudEnabled()).toBe(true);
+        expect(isPassageHudOpen()).toBe(true);
         act(() => {
             recorder.state = { isTracking: false, isPaused: false, isRapidMode: false };
             setAuthIdentityScope('hud-skipper');
         });
-        expect(isPassageHudEnabled()).toBe(false);
+        expect(isPassageHudOpen()).toBe(false);
         act(() => publish({ isTracking: true, currentVoyageId: 'recording-a' }));
-        expect(isPassageHudEnabled()).toBe(true);
         expect(isPassageHudOpen()).toBe(true);
     });
 });

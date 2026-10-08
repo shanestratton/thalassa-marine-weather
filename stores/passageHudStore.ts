@@ -7,9 +7,14 @@
  * direction and true and apparent … most of the info needs to be on a pane
  * that can be hidden to one side (left i am thinking)."
  *
- * This is the one switch for that pane. Enabled only for the current app
- * session; a fresh OBS starts clean. Same shape as chartPassageOverlay: a module value, a listener set,
- * and useSyncExternalStore for the components — no zustand, nothing to hydrate.
+ * NO SWITCH (build 124, Shane 2026-10-08: "I don't think that we need a setting
+ * for it. It should just be the standard setup for routes. Or tracks on the log
+ * page."). The pane is on the chart whenever there is something to show — a
+ * followed route, a recording running or paused, or a route PREVIEWED on Obs
+ * (below) — see hooks/usePassageHudAvailable. This module keeps only whether
+ * the readings are open or tucked away, remembered on this device. Same shape
+ * as chartPassageOverlay: a module value, a listener set, and
+ * useSyncExternalStore for the components — no zustand, nothing to hydrate.
  *
  * PHASE 2 — LOOK AHEAD (Shane 2026-09-18: "ok next phase"). The same module
  * now carries the one time axis the chart shares while the skipper is looking
@@ -29,32 +34,34 @@
  *
  * NEVER PERSISTED. Look-ahead is a glance, not a state to boot into: the chart
  * must never open showing tomorrow's wind to someone who did not ask for it.
+ *
+ * THE PREVIEW (build 124). A route pulled up on Obs (Layers → Routes) that is
+ * not the followed one is previewed on the pane: looked ahead from its first
+ * point at a departure the skipper chooses, labelled "Preview — not following".
+ * The chart publishes it here (components/map/mapHub/obsRoutePick); nothing in
+ * it is follow state, and it is never persisted either.
  */
 import { useSyncExternalStore } from 'react';
 import { PASSAGE_DEPARTURE_MAX_MS } from '../services/passageDeparture';
 import type { RoutePoint } from '../services/routeProgress';
 import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../services/authIdentityScope';
-import { setPassageOverlay } from './chartPassageOverlay';
+import { isPassageOverlayOn, setPassageOverlay, subscribePassageOverlay } from './chartPassageOverlay';
 
 export { PASSAGE_DEPARTURE_MAX_MS } from '../services/passageDeparture';
 
 const KEY = 'thalassa_passage_hud_open_v1';
-/** Off until a recording starts or the skipper enables the HUD from chart layers. */
-const ENABLED_KEY = 'thalassa_passage_hud_enabled_v1';
 
-function readFlag(key: string): boolean {
+const read = (): boolean => {
     try {
-        return localStorage.getItem(key) === '1';
+        return localStorage.getItem(KEY) === '1';
     } catch {
         return false;
     }
-}
-const read = (): boolean => readFlag(KEY);
+};
 
 let open = read();
-// OBS starts with no layers. Keep this switch in memory during navigation,
-// but do not resurrect the HUD (and its weather layers) after a restart.
-let enabled = false;
+// OBS starts with no layers: a launch never applies the HUD's weather layers.
+// Only an activation (a recording starting, below) does, once.
 let activation = 0;
 const activatedRecordings = new Set<string>();
 const listeners = new Set<() => void>();
@@ -92,43 +99,7 @@ export function usePassageHudOpen(): boolean {
     return useSyncExternalStore(subscribePassageHud, isPassageHudOpen, isPassageHudOpen);
 }
 
-/**
- * Whether the strip exists on the chart at all. Browsing starts clean;
- * a successful recording opens it once, and chart layers remain its manual switch.
- */
-export function isPassageHudEnabled(): boolean {
-    return enabled;
-}
-
-export function setPassageHudEnabled(next: boolean): void {
-    if (next === enabled) return;
-    enabled = next;
-    if (next) activation += 1;
-    try {
-        if (next) localStorage.setItem(ENABLED_KEY, '1');
-        else localStorage.removeItem(ENABLED_KEY);
-    } catch {
-        /* storage unavailable — the in-session value still rules */
-    }
-    // Switching it off must not leave the chart's furniture stepped aside for
-    // a strip that is no longer there.
-    if (!next && open) {
-        open = false;
-        try {
-            localStorage.removeItem(KEY);
-        } catch {
-            /* as above */
-        }
-    }
-    if (!next) stopPassageLookAhead();
-    listeners.forEach((fn) => fn());
-}
-
-export function usePassageHudEnabled(): boolean {
-    return useSyncExternalStore(subscribePassageHud, isPassageHudEnabled, isPassageHudEnabled);
-}
-
-/** A new enable or recording gets one set of initial layers, without enforcing them later. */
+/** A new recording gets one set of initial layers, without enforcing them later. */
 export function getPassageHudActivation(): number {
     return activation;
 }
@@ -146,14 +117,96 @@ export function activatePassageHudForRecording(recordingId: string): void {
     if (activatedRecordings.has(key)) return;
     activatedRecordings.add(key);
     stopPassageLookAhead();
-    if (enabled) {
-        activation += 1;
-        listeners.forEach((fn) => fn());
-    } else {
-        setPassageHudEnabled(true);
-    }
+    activation += 1;
+    // A recording starting brings the passage up, as the old switch did.
+    overviewAsked = true;
+    listeners.forEach((fn) => fn());
     setPassageHudOpen(true);
     setPassageOverlay(true);
+}
+
+// ── The whole-route overview: asked for, never implied ─────────
+//
+// The overview (components/map/usePassageRouteFrame) fits the whole followed
+// route and the boat, and takes the camera back after any programmatic move.
+// Before build 124 it engaged only once the skipper switched the HUD on. With
+// no switch, being on the chart is not enough: a plain Layers → Passage toggle
+// must not move the camera (Obs: layer toggles never do). So it waits for an
+// ask — the HUD's own Route & track or Ahead, or a recording starting — and
+// the ask lasts while the Passage overlay stays on. Session-only, never stored.
+
+let overviewAsked = false;
+
+export function isPassageOverviewAsked(): boolean {
+    return overviewAsked;
+}
+
+/** The HUD asks for the passage on the chart, framed whole. Call before turning the overlay on. */
+export function askPassageOverview(): void {
+    if (overviewAsked) return;
+    overviewAsked = true;
+    listeners.forEach((fn) => fn());
+}
+
+export function usePassageOverviewAsked(): boolean {
+    return useSyncExternalStore(subscribePassageHud, isPassageOverviewAsked, isPassageOverviewAsked);
+}
+
+// The overlay going off (Layers, a pick, an account change) withdraws the ask.
+subscribePassageOverlay(() => {
+    if (!overviewAsked || isPassageOverlayOn()) return;
+    overviewAsked = false;
+    listeners.forEach((fn) => fn());
+});
+
+// ── The preview: a route pulled up on Obs, not followed ────────
+
+export interface PassageHudPreviewRoute {
+    id: string;
+    /** What the chart's Routes picker calls it. */
+    label: string;
+    /** The line as drawn on the chart — the same array, so caches key on it. */
+    points: readonly RoutePoint[];
+}
+
+let preview: PassageHudPreviewRoute | null = null;
+const previewListeners = new Set<() => void>();
+
+export function getPassageHudPreviewRoute(): PassageHudPreviewRoute | null {
+    return preview;
+}
+
+/**
+ * Set or clear the previewed route. Any change ends a running look-ahead: the
+ * ghost, its line and the scrubber belonged to the route that was on screen.
+ * Writes nothing anywhere else — a preview is not a follow.
+ */
+export function setPassageHudPreviewRoute(next: PassageHudPreviewRoute | null): void {
+    const clean = next && next.points.length >= 2 ? next : null;
+    if (
+        clean === preview ||
+        (clean &&
+            preview &&
+            clean.id === preview.id &&
+            clean.label === preview.label &&
+            clean.points === preview.points)
+    ) {
+        return;
+    }
+    preview = clean;
+    stopPassageLookAhead();
+    previewListeners.forEach((fn) => fn());
+}
+
+export function subscribePassageHudPreviewRoute(fn: () => void): () => void {
+    previewListeners.add(fn);
+    return () => {
+        previewListeners.delete(fn);
+    };
+}
+
+export function usePassageHudPreviewRoute(): PassageHudPreviewRoute | null {
+    return useSyncExternalStore(subscribePassageHudPreviewRoute, getPassageHudPreviewRoute, getPassageHudPreviewRoute);
 }
 
 // ── Look ahead ─────────────────────────────────────────────────
@@ -486,8 +539,9 @@ export function usePassageUnsyncedLayers(): readonly string[] {
 /** Test seam. */
 export function __resetPassageHudForTests(): void {
     open = read();
-    enabled = false;
     activation = 0;
+    overviewAsked = false;
+    preview = null;
     activatedRecordings.clear();
     lookAhead = LIVE;
     ghost = null;
@@ -501,8 +555,12 @@ export function __resetPassageHudForTests(): void {
 
 // Account changes synchronously remove the previous owner's HUD and forecast.
 subscribeAuthIdentityScope(() => {
-    setPassageHudEnabled(false);
+    setPassageHudPreviewRoute(null);
     setPassageHudOpen(false);
     stopPassageLookAhead();
     setPassageOverlay(false);
+    if (overviewAsked) {
+        overviewAsked = false;
+        listeners.forEach((fn) => fn());
+    }
 });

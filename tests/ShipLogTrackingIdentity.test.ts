@@ -353,7 +353,7 @@ import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { useFollowRouteStore } from '../stores/followRouteStore';
 import { summarizeEntries } from '../services/shiplog/VoyageSummary';
 import { useHudRecording, useHudRecordingActivation } from '../hooks/useHudRecording';
-import { __resetPassageHudForTests, isPassageHudEnabled } from '../stores/passageHudStore';
+import { __resetPassageHudForTests, getPassageHudActivation } from '../stores/passageHudStore';
 
 beforeAll(() => {
     vi.useFakeTimers();
@@ -599,7 +599,8 @@ describe('ShipLogService tracking owner fence', () => {
         };
         const first = renderHook(useRecordingObserver);
         expect(first.result.current.isTracking).toBe(false);
-        expect(isPassageHudEnabled()).toBe(false);
+        // No activation: the HUD's first layers and its opening wait for a verified start.
+        expect(getPassageHudActivation()).toBe(0);
         first.unmount();
         const remounted = renderHook(useRecordingObserver);
         expect(remounted.result.current.isTracking).toBe(false);
@@ -612,7 +613,8 @@ describe('ShipLogService tracking owner fence', () => {
             await failed;
         });
         expect(remounted.result.current.isTracking).toBe(false);
-        expect(isPassageHudEnabled()).toBe(false);
+        // No activation: the HUD's first layers and its opening wait for a verified start.
+        expect(getPassageHudActivation()).toBe(0);
         expect(ShipLogService.getTrackingStatus().isTracking).toBe(false);
         expect(ShipLogService.getPublishedTrackingStatus().isTracking).toBe(false);
         remounted.unmount();

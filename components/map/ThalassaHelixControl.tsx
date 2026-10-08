@@ -18,7 +18,8 @@ import { daylightUiColor } from '../../utils/daylightUiColor';
 import { PauseIcon, PlayIcon } from '../Icons';
 import { CHL_GRADIENT, CURRENT_WAVE_GRADIENT, MLD_GRADIENT, SST_GRADIENT } from './marineLayerRamps';
 import { WIND_PARTICLE_GRADIENT } from './windRamp';
-import { usePassageHudEnabled, usePassageHudOpen } from '../../stores/passageHudStore';
+import { usePassageHudOpen } from '../../stores/passageHudStore';
+import { usePassageHudAvailable } from '../../hooks/usePassageHudAvailable';
 
 // ── Layer definitions for the generic legend ──
 export type HelixLayer =
@@ -294,9 +295,9 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
         // 49 x 68 px hidden), so while the strip is open the legend starts
         // folded to its chip — and the skipper's own tap still wins either way.
         const hudOpen = usePassageHudOpen();
-        const hudEnabled = usePassageHudEnabled();
+        const hudShown = usePassageHudAvailable();
         const [legendChoice, setLegendChoice] = useState<boolean | null>(null);
-        const showLegend = legendChoice ?? !(hudEnabled && hudOpen && !embedded);
+        const showLegend = legendChoice ?? !(hudShown && hudOpen && !embedded);
         const setShowLegend = setLegendChoice;
 
         const config = activeLayer ? LAYER_CONFIGS[activeLayer] : null;

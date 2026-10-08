@@ -200,11 +200,10 @@ describe('MapHub wiring (source pins)', () => {
         expect(hub).toContain("label: 'Passage'");
         expect(hub).toContain('enabled: passageOverlay');
         expect(hub).toMatch(/const passageOverviewAvailable =\s*passageHudOnChart &&\s*passageOverlay &&/);
-        expect(hub).toMatch(
-            /setActiveChartRoute\(item\);\s*if \(item\) setActiveChartTrack\(null\);[\s\S]*?setPassageOverlay\(false\);/,
-        );
-        expect(hub).toMatch(
-            /setActiveChartTrack\(item\);\s*if \(item\) setActiveChartRoute\(null\);\s*setPassageOverlay\(false\);/,
-        );
+        // A manual pick owns the chart and switches the overlay off — except the
+        // followed route itself, or the running recording's own track (build 124,
+        // components/map/mapHub/obsRoutePick.ts and tests/ObsRoutePick.test.tsx).
+        expect(hub).toMatch(/onSelect=\{\(item\) =>\s*pickObsRoute\(item, \{/);
+        expect(hub).toMatch(/onSelect=\{\(item\) =>\s*pickObsTrack\(item, \{/);
     });
 });

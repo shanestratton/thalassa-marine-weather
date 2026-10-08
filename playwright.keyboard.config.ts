@@ -43,6 +43,10 @@ export default defineConfig({
         'shore-watch-layout.spec.ts',
         'passage-log-layout.spec.ts',
         'passage-recording-layout.spec.ts',
+        // A route pulled up on Obs is previewed on the HUD, labelled, with a
+        // departure; the open strip clears the Sat cloud and lightning credits
+        // at 320 x 568 and 375 x 667 in wide fonts (e2e/fixtures/passage-recording.tsx, build 124 HS).
+        'passage-hud-preview-layout.spec.ts',
         // "Your draft is set at 2.40 m. Please confirm." (e2e/fixtures/draft-confirm.tsx).
         'draft-confirm-layout.spec.ts',
         // "Anchor is 33 m from the boat, bearing 212 °T": the Move anchor sheet

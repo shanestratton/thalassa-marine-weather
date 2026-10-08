@@ -75,7 +75,6 @@ const base = [
 ];
 const withStrip = [
     ...base,
-    ['thalassa_passage_hud_enabled_v1', '1'],
     ['thalassa_passage_hud_open_v1', '1'],
     ['thalassa_follow_route::anonymous', JSON.stringify(follow)],
 ];

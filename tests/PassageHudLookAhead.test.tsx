@@ -202,11 +202,9 @@ import {
     getPassageGhostJoinPath,
     getPassageGhostPath,
     getPassageLookAhead,
-    isPassageHudEnabled,
     isPassageHudOpen,
     reportPassageWindCoverage,
     setPassageAheadMs,
-    setPassageHudEnabled,
     setPassageHudOpen,
     setPassageSpeedPref,
 } from '../stores/passageHudStore';
@@ -284,7 +282,6 @@ beforeEach(() => {
     __clearRouteForecastCacheForTests();
     __clearRouteSpreadCacheForTests();
     WindStore.reset();
-    setPassageHudEnabled(true);
     setPassageHudOpen(true);
     NmeaStore.clearRemote();
     useFollowRouteStore.getState().startFollowing(PLAN, 'voyage-1', ROUTE);
@@ -432,7 +429,6 @@ describe('asking to look ahead', () => {
         useFollowRouteStore.getState().stopFollowing();
         const { container } = render(<PassageHudPane />);
         expect(container).toBeEmptyDOMElement();
-        expect(isPassageHudEnabled()).toBe(false);
     });
 
     it('needs a cruising speed, and says where to set one', () => {
@@ -1522,13 +1518,14 @@ describe('the glance ends', () => {
         }
     });
 
-    it('disabling the minimized HUD ends the forecast and removes all of its controls', async () => {
+    it('the HUD leaving the chart while minimized ends the forecast and removes all of its controls', async () => {
         underWay();
         const view = render(<PassageHudPane />);
         await lookAhead();
         act(() => setPassageAheadMs(9 * HOUR));
         fireEvent.click(screen.getByRole('button', { name: 'Hide passage instruments' }));
-        act(() => setPassageHudEnabled(false));
+        // No switch any more (build 124): it goes when there is nothing left to show.
+        act(() => useFollowRouteStore.getState().stopFollowing());
         expect(view.container).toBeEmptyDOMElement();
         expect(getPassageLookAhead()).toEqual({ on: false, aheadMs: 0, playing: false, departureMs: null });
         expect(getPassageGhost()).toBeNull();
@@ -1564,7 +1561,6 @@ describe('the glance ends', () => {
         await lookAhead();
         act(() => useFollowRouteStore.getState().stopFollowing());
         expect(getPassageLookAhead().on).toBe(false);
-        expect(isPassageHudEnabled()).toBe(false);
         expect(screen.queryByTestId('passage-hud')).toBeNull();
         expect(screen.queryByTestId('route-time-scrubber')).toBeNull();
         expect(getPassageGhost()).toBeNull();
@@ -1579,7 +1575,6 @@ describe('the glance ends', () => {
         act(() => setPassageAheadMs(2 * HOUR));
         expect(getPassageGhost()).not.toBeNull();
         act(() => useFollowRouteStore.getState().stopFollowing());
-        expect(isPassageHudEnabled()).toBe(true);
         expect(getPassageLookAhead()).toEqual({ on: false, aheadMs: 0, playing: false, departureMs: null });
         expect(getPassageGhost()).toBeNull();
         expect(getPassageGhostJoinPath()).toBeNull();
