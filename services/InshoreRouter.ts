@@ -64,7 +64,8 @@ import {
     routeCrossesUncheckedShallow,
     tideCeilingLookup,
 } from './engine/tideCeiling';
-import { routeAreaTideCeilings } from './routing/tideCeilings';
+import { pinTailTideWindows, routeAreaTideCeilings } from './routing/tideCeilings';
+import type { TideCurve } from './TideHeightService';
 import {
     cellFinenessRank,
     shadowingCells,
@@ -979,11 +980,17 @@ async function tryInshoreRouteInner(
     // the Pi's cache or the Supabase proxy is the only source): skip the
     // fetches rather than wait out their timeouts before every offline route.
     const tideReachable = piCache.isAvailable() || typeof navigator === 'undefined' || navigator.onLine !== false;
+    // The curves themselves are kept too: a pin's dry tail (package 125-05b)
+    // says when the boat floats over it, worked from its place's curve.
+    let tideCurves: Map<string, TideCurve> | undefined;
     const tideCeilingsLoad: Promise<readonly TideCeiling[]> = opts.tideCeilings
         ? Promise.resolve(opts.tideCeilings)
         : tideReachable
           ? routeAreaTideCeilings(origin, destination, opts.departureMs ?? Date.now())
-                .then((r) => r.ceilings)
+                .then((r) => {
+                    tideCurves = r.curves;
+                    return r.ceilings;
+                })
                 .catch(() => [] as TideCeiling[])
           : Promise.resolve([] as TideCeiling[]);
 
@@ -2440,8 +2447,15 @@ async function tryInshoreRouteInner(
         ...((result as { depthBend?: DepthBend }).depthBend
             ? { depthBend: (result as { depthBend?: DepthBend }).depthBend }
             : {}),
+        // A pin's dry tail with when the boat floats over it (125-05b).
         ...((result as { dryRuns?: DryRun[] }).dryRuns?.length
-            ? { dryRuns: (result as { dryRuns?: DryRun[] }).dryRuns }
+            ? {
+                  dryRuns: pinTailTideWindows(
+                      (result as { dryRuns?: DryRun[] }).dryRuns,
+                      tideCurves,
+                      Math.max(Date.now(), opts.departureMs ?? Date.now()),
+                  ),
+              }
             : {}),
         ...(structuresUnknownOn(result.polyline).length > 0
             ? { structuresUnknownCells: structuresUnknownOn(result.polyline) }

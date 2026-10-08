@@ -386,8 +386,16 @@ export interface RouteDebug {
     chartedEndDry?: string;
     /** Metres cut off an end whose pin is off the water (pinOffWater, round 3
      *  2026-09-30): the route stops at the edge of the drying bank or land
-     *  instead of running on across it to the pin. */
+     *  instead of running on across it to the pin. Since package 125-05b only
+     *  a pin on land, or a dry pin no tail reaches without crossing land. */
     pinEdgeTrimM?: { origin?: number; destination?: number };
+    /** Package 125-05b (Shane, 2026-10-08: "better we just have red at the
+     *  "dry" zones"): an end whose route runs on across dry ground to its pin
+     *  — a pin on a drying bank or in water no tide clears, or a pin in water
+     *  the route stopped more than 500 m short of across a drying band — and
+     *  the tail's red stretch (DryPinTail). That end's snap then reads the
+     *  pin itself, 0 m. */
+    dryPinTail?: { origin?: DryPinTail; destination?: DryPinTail };
     /** Segments the final hazard audit flagged caution: within the
      *  obstruction buffer of a charted hazard of unknown or too-shallow depth
      *  (round-3 review, 2026-09-30; safetyAudit hazardBufferSegments). */
@@ -625,6 +633,9 @@ export interface ShallowRunInfo {
     /** Some of the run has no chart depth at all (round-4 review, 2026-09-30):
      * red whatever the tide, and its chip says so. */
     partUncharted?: boolean;
+    /** The run is a pin's red dry tail (package 125-05b; RouteDebug.dryPinTail):
+     *  red whatever the tide, its chip naming the ground it dries. */
+    dryTail?: true;
 }
 
 /**
@@ -770,8 +781,10 @@ export const AMBER_SURVEY_REASONS: ReadonlySet<SurveyRunReason> = new Set([
 /**
  * Why a pin is not water a route can reach it through (RouteResult.pinOffWater):
  * on charted land, on a drying bank, or — owner decision 11 (2026-10-01) — in
- * water no tide the app knows clears for this boat. The route stops at the
- * edge of the water it can use.
+ * water no tide the app knows clears for this boat. On land the route stops at
+ * the edge of the water it can use; on dry ground, since package 125-05b, it
+ * runs on to the pin, the tail red and named (RouteDebug.dryPinTail, DryRun
+ * `pin`) — or stops at the edge where no tail reaches the pin without land.
  */
 export type PinOffWater = 'land' | 'drying' | 'no-tide';
 
@@ -826,6 +839,12 @@ export interface DepthBend {
  * (owner decision 11 still closes it while one exists); the planner draws it
  * red and names each stretch (services/routing/dryRunWords). Needs-tide water
  * a tide clears is not dry: it is amber (owner decision 10).
+ *
+ * A pin's own dry tail (package 125-05b, `pin`) is the exception: the ground
+ * between the route's water and a pin on a drying bank (or in water no tide
+ * clears), or the drying band a pin in water beyond it is reached across, is
+ * red and named whatever the tide — with, when the app has the tide curve,
+ * when the boat floats over it (`floats`).
  */
 export interface DryRun {
     /** Where along the route, as segment + fraction at each end. */
@@ -850,6 +869,50 @@ export interface DryRun {
     /** The highest tide known there (the curve's own top) and the days behind
      *  it — null where no tide is known: no tide data. */
     tide: { topM: number; days: number } | null;
+    /** Package 125-05b: the stretch is a pin's own red tail — `end`'s pin is
+     *  ON the dry ground ('on': a drying bank, or water no tide clears), or is
+     *  water BEYOND it ('beyond'). Absent on any other stretch. */
+    pin?: { end: 'origin' | 'destination'; at: 'on' | 'beyond' };
+    /** A pin tail's first window, from the departure, in the next 24 hours
+     *  when the tide floats the boat over it (draft + UKC over its shallowest
+     *  charted depth; services/routing/tidalWindow), worked by the app from
+     *  the tide curve the router's ceilings were read from — `open` when it
+     *  is already floating at the departure — and the day's later windows
+     *  (`later`: a destination is reached hours after the departure, so the
+     *  first window may close before the boat arrives; review fix-up,
+     *  2026-10-09). Null: the curve covers that day and there is no such
+     *  window. Absent: not worked (no curve). */
+    floats?: {
+        fromMs: number;
+        toMs: number;
+        open?: true;
+        later?: { fromMs: number; toMs: number }[];
+    } | null;
+    /** When `floats` was worked from (the later of now and the departure):
+     *  its "next 24 hours" start here. A saved plan reopened later drops the
+     *  windows that have closed, and a "none" from another day (review
+     *  fix-up, 2026-10-09). */
+    floatsWorkedMs?: number;
+}
+
+/**
+ * A pin's red dry tail on a finished route (package 125-05b;
+ * RouteDebug.dryPinTail): the segments over the dry ground (startSeg..endSeg,
+ * whole segments), whether the pin is on it or water beyond it, the tail's
+ * metres from the route's water to the pin, and how far the grid's own snap
+ * had left the route from the pin.
+ */
+export interface DryPinTail {
+    startSeg: number;
+    endSeg: number;
+    at: 'on' | 'beyond';
+    lengthM: number;
+    snapM: number;
+    /** The segments the whole tail takes, from its pin's end — the origin's
+     *  first `segs`, the destination's last — its water up to the dry ground
+     *  included: what the no-tide reads of a finished route and the fine
+     *  pass's caution count leave out (review fix-up, 2026-10-09). */
+    segs: number;
 }
 
 export interface RouteResult {
@@ -976,12 +1039,15 @@ export interface RouteResult {
     /**
      * A pin that is NOT water a route can reach it through (owner decision 7,
      * round 2, 2026-09-30): on charted land, or on a drying bank (DRVAL1 < 0).
-     * No charted 'needs tide' tail: the route stops at the EDGE — the last
+     * No charted 'needs tide' tail: the route stopped at the EDGE — the last
      * water the chart paints neither drying nor land, nearest the pin (round
      * 3, 2026-09-30; it used to run on across the drying bank to the cell the
      * pin snapped to, red with its drying depth). debug.pinEdgeTrimM says how
-     * much was cut. The planner's route notice says which. Absent when both
-     * pins are water.
+     * much was cut. Since package 125-05b a pin on a drying bank (or in water
+     * no tide clears) gets the route run on to it from there instead, its dry
+     * tail red and named (dryRuns, `pin`); a pin on land still stops at the
+     * edge. The planner's route notice says which. Absent when both pins are
+     * water.
      */
     pinOffWater?: { origin?: PinOffWater; destination?: PinOffWater };
     /** A pin in charted-shallow water and its tail (PinTail); absent when neither pin is. */

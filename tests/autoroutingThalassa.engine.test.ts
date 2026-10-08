@@ -481,3 +481,100 @@ describe('Auto never draws a route across charted land, synthetic cells', { time
         );
     });
 });
+
+/**
+ * Package 125-05b (Shane, 2026-10-08: "tried to do a route from the newport
+ * canals to tangalooma, i got some message about it being dry at both ends????
+ * … better we just have red at the "dry" zones, rather than just shit caning
+ * the whole route"). A pin on a drying beach gets Auto's route all the way to
+ * it, the beach red and named; a pin in a harbour behind drying flats is no
+ * longer "no route by water" — the flats are crossed, red and named. A gap of
+ * charted land is still no route.
+ */
+describe('Auto to a pin on drying ground (125-05b), synthetic cells', { timeout: 180_000 }, () => {
+    /** The island with 500 m of beach drying 0.4 m along its west face. */
+    function beachScene(): void {
+        const { x0, y0, x1, y1 } = ISLAND;
+        install({
+            LNDARE: fc([area('LNDARE', rect(x0, y0, x1, y1))]),
+            DEPARE: fc([
+                sea(-E, -E, x0 - 500, E),
+                sea(x1, -E, E, E),
+                sea(x0 - 500, -E, x1, y0),
+                sea(x0 - 500, y1, x1, E),
+                area('DEPARE', rect(x0 - 500, y0, x0, y1), { DRVAL1: -0.4, DRVAL2: 0 }),
+            ]),
+        });
+    }
+    /** Sea to the west; 800 m of flats drying 1.2 m; a 1–2 m harbour basin
+     *  in the land beyond — or, with `landGap`, 800 m of land instead. */
+    function harbourScene(landGap = false): void {
+        const gap = landGap
+            ? { LNDARE: [area('LNDARE', rect(0, -2000, 800, 2000))], DEPARE: [] as Feature[] }
+            : {
+                  LNDARE: [] as Feature[],
+                  DEPARE: [area('DEPARE', rect(0, -2000, 800, 2000), { DRVAL1: -1.2, DRVAL2: 0 })],
+              };
+        install({
+            LNDARE: fc([
+                ...gap.LNDARE,
+                area('LNDARE', rect(800, -2000, 3000, -500)),
+                area('LNDARE', rect(800, 500, 3000, 2000)),
+                area('LNDARE', rect(1300, -500, 3000, 500)),
+            ]),
+            DEPARE: fc([
+                sea(-E, -E, 0, E),
+                sea(0, -E, 3000, -2000),
+                sea(0, 2000, 3000, E),
+                sea(3000, -E, E, E),
+                ...gap.DEPARE,
+                area('DEPARE', rect(800, -500, 1300, 500), { DRVAL1: 1, DRVAL2: 2 }),
+            ]),
+        });
+    }
+    const endGapM = (coords: [number, number][], pin: [number, number]): number => {
+        const [x, y] = xy(coords[coords.length - 1]);
+        return Math.hypot(x - pin[0], y - pin[1]);
+    };
+
+    it('a pin on the drying beach: Auto routes to it, the beach red and named — never "stops at its edge"', async () => {
+        beachScene();
+        const pin: [number, number] = [ISLAND.x0 - 320, 0];
+        const route = await auto([-5000, 0], pin);
+        // Was: ended at the deep water ~200–300 m short, "the route stops at its edge".
+        expect(endGapM(route.coordinates, pin)).toBeLessThan(2);
+        expect(route.warnings).toContainEqual(
+            expect.stringMatching(
+                /^Red on this route: your destination pin is on a drying bank — the last 1[789]0 m to it dries 0\.4 m and you need 2\.9 m \(2\.4 m draft \+ 0\.5 m under the keel\); there is no tide data for it\. It dries at low water\.$/,
+            ),
+        );
+        expect(route.warnings.some((w) => /stops at its edge|short of your destination pin/.test(w))).toBe(false);
+        expect(Math.round(metresInside(route.coordinates, ISLAND)), 'metres on the island').toBe(0);
+    });
+
+    for (const ceilings of [[], ceilingsAt(2.5)]) {
+        it(`a harbour pin behind 800 m of drying flats${ceilings.length ? ', a 2.5 m top' : ''}: routed across them, red and named — not "no route by water"`, async () => {
+            harbourScene();
+            h.ceilings = ceilings;
+            const pin: [number, number] = [850, 0];
+            const route = await auto([-5000, 0], pin);
+            expect(endGapM(route.coordinates, pin)).toBeLessThan(2);
+            expect(route.warnings).toContainEqual(
+                expect.stringMatching(
+                    /^Red on this route: the way in to your destination pin crosses (7[89]0|8[0-4]0) m of .+, which dries 1\.2 m, and you need 2\.9 m/,
+                ),
+            );
+            for (const land of [
+                { x0: 800, y0: -2000, x1: 3000, y1: -500 },
+                { x0: 800, y0: 500, x1: 3000, y1: 2000 },
+                { x0: 1300, y0: -500, x1: 3000, y1: 500 },
+            ])
+                expect(Math.round(metresInside(route.coordinates, land)), 'metres on land').toBe(0);
+        });
+    }
+
+    it('the same harbour behind 800 m of charted land: still no route — it says why', async () => {
+        harbourScene(true);
+        await expect(auto([-5000, 0], [850, 0])).rejects.toThrow(/No route by water to your destination|charted land/);
+    });
+});
