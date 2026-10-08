@@ -50,6 +50,8 @@ export interface CachedPosition {
     altitude: number | null;
     heading: number | null;
     speed: number;
+    /** The engine gave no speed: `speed` is a placeholder 0 (build 125, 125-01). */
+    speedUnknown?: boolean;
     timestamp: number; // epoch-ms
     receivedAt: number; // epoch-ms — when WE received it (for staleness checks)
     /**
@@ -1218,6 +1220,7 @@ class BgGeoManagerClass {
             altitude: loc.coords.altitude ?? null,
             heading: loc.coords.heading ?? null,
             speed: loc.coords.speed ?? 0,
+            ...(loc.coords.speed == null ? { speedUnknown: true } : {}),
             timestamp: loc.timestamp ? new Date(loc.timestamp).getTime() : Date.now(),
             receivedAt: Date.now(),
         };

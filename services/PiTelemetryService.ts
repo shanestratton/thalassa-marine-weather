@@ -34,6 +34,7 @@ import { piCache } from './PiCacheService';
 import { snapshotFromWire, wireNumber } from './telemetryWire';
 import type { AisTarget } from '../types/navigation';
 import { createLogger } from '../utils/createLogger';
+import { AIS_COG_NOT_AVAILABLE, AIS_SOG_NOT_AVAILABLE } from '../utils/collisionRule';
 
 const log = createLogger('PiTelemetry');
 
@@ -113,8 +114,12 @@ export function aisTargetFromWire(raw: unknown): AisTarget | null {
         lon,
         lastUpdated,
         name: typeof r.name === 'string' ? r.name : '',
-        cog: wireNumber(r.cog) ?? 0,
-        sog: wireNumber(r.sog) ?? 0,
+        // Missing is 'not available' (ITU 360 / 102.3), never 0 (build 125, 125-01).
+        // The Pi's serialiser (pi-cache/src/lanTelemetry.ts) still sends a missing
+        // Signal K course or speed as 0 until its 126-04 update, so on that lane
+        // this guard does not yet catch them.
+        cog: wireNumber(r.cog) ?? AIS_COG_NOT_AVAILABLE,
+        sog: wireNumber(r.sog) ?? AIS_SOG_NOT_AVAILABLE,
         heading: wireNumber(r.heading) ?? 511,
         navStatus: wireNumber(r.navStatus) ?? 15,
         shipType: wireNumber(r.shipType) ?? 0,

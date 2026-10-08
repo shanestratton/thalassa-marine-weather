@@ -25,8 +25,9 @@ import { VesselMetadataService } from '../../services/VesselMetadataService';
 import { getMmsiFlag } from '../../utils/MmsiDecoder';
 import { canAccess } from '../../services/SubscriptionService';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
+import { aisCogDeg, aisHeadingDeg, aisSogKn } from '../../utils/collisionRule';
 import { satelliteModeBlocks } from '../../services/networkPolicy';
-import { publishInternetAisFeatures } from '../../services/AisGuardWatch';
+import { publishInternetAisFeatures, readCollisionInputs } from '../../services/AisGuardWatch';
 import { calculateDistance, destinationPoint } from '../../utils/navigationCalculations';
 import { AIS_DANGER_COLOR, typeBucketColor } from './aisPresentationPalette';
 
@@ -206,10 +207,10 @@ export function normaliseInternetAisFeature(value: unknown, now = Date.now()): G
         shipTypeValue != null && Number.isInteger(shipTypeValue) && shipTypeValue >= 0 && shipTypeValue <= 99
             ? shipTypeValue
             : 0;
-    const sogValue = finiteAisDisplayNumber(properties.sog);
-    const sog = sogValue != null && sogValue >= 0 && sogValue < 102.3 ? sogValue : 0;
-    const cogValue = finiteAisDisplayNumber(properties.cog);
-    const cog = cogValue != null && cogValue >= 0 && cogValue < 360 ? cogValue : 0;
+    // 'Not available' (or garbage) stays null, never 0: a 0 is a stopped boat
+    // pointing north, and the collision rule would read it as one (125-01).
+    const sog = aisSogKn(properties.sog);
+    const cog = aisCogDeg(properties.cog);
     const headingValue = finiteAisDisplayNumber(properties.heading);
     const heading =
         headingValue != null &&
@@ -636,9 +637,12 @@ export function targetPresentation(p: Record<string, unknown>): {
 } {
     const navStatus = typeof p.navStatus === 'number' ? p.navStatus : 15;
     const shipType = typeof p.shipType === 'number' ? p.shipType : 0;
-    const sog = typeof p.sog === 'number' && Number.isFinite(p.sog) ? p.sog : null;
-    const heading = typeof p.heading === 'number' && p.heading !== 511 && Number.isFinite(p.heading) ? p.heading : null;
-    const cog = typeof p.cog === 'number' && Number.isFinite(p.cog) && p.cog > 0 ? p.cog : null;
+    // AIS 'not available' (SOG 102.3, COG 360, heading 511) is unknown: a
+    // receiver target reporting SOG 102.3 is not a fast boat pointing north.
+    const sog = aisSogKn(p.sog);
+    const heading = aisHeadingDeg(p.heading);
+    const reportedCog = aisCogDeg(p.cog);
+    const cog = reportedCog !== null && reportedCog > 0 ? reportedCog : null;
 
     const moving = sog !== null && sog >= 0.5;
     const orientation = heading !== null ? heading : moving && cog !== null ? cog : null;
@@ -848,12 +852,13 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
         for (const feat of clipped.features) {
             const p = feat.properties;
             if (!p) continue;
-            const sog = finiteAisDisplayNumber(p.sog) ?? 0;
-            const cog = finiteAisDisplayNumber(p.cog) ?? 0;
+            const sog = aisSogKn(p.sog) ?? 0;
+            const cog = aisCogDeg(p.cog);
             const stale = finiteAisDisplayNumber(p.staleMinutes) ?? 0;
 
-            // Skip stationary, very stale, or no-position vessels
-            if (sog < 0.5 || stale > 60) continue;
+            // Skip stationary, very stale, or no-position vessels — and one
+            // with no course: an unknown COG is not due north.
+            if (sog < 0.5 || cog === null || stale > 60) continue;
             const coords = (feat.geometry as GeoJSON.Point)?.coordinates;
             if (!coords || coords.length < 2) continue;
 
@@ -1199,10 +1204,13 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             // a GeoJSON property.
             const navStatus = normaliseAisNavStatus(p.navStatus ?? p.nav_status);
             const status = navStatusLabel(navStatus);
-            const sogVal = finiteAisDisplayNumber(p.sog) ?? 0;
-            const cogValue = finiteAisDisplayNumber(p.cog);
+            // 'Not available' (102.3 / 360) or missing reads as unknown, never as a
+            // 0 that says Stationary or due north (build 125, 125-01).
+            const sogValue = aisSogKn(p.sog);
+            const sogVal = sogValue ?? 0;
+            const cogValue = aisCogDeg(p.cog);
             const cogVal = cogValue ?? 0;
-            const sog = sogVal > 0 ? `${sogVal.toFixed(1)} kn` : 'Stationary';
+            const sog = sogValue == null ? '—' : sogVal > 0 ? `${sogVal.toFixed(1)} kn` : 'Stationary';
             const cogStr = cogValue != null ? `${cogValue.toFixed(0)}°` : '—';
             const headingValue = finiteAisDisplayNumber(p.heading);
             const hdg = headingValue != null && headingValue !== 511 ? `${headingValue.toFixed(0)}°` : '—';
@@ -1258,12 +1266,31 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             }
 
             // ── CPA / TCPA ──
-            const nmea = NmeaStore.getState();
-            const own = resolveOwnshipPosition(nmea, LocationStore.getState());
+            // The collision alarm's own inputs and rule (utils/collisionRule.ts):
+            // her own course and speed (boat GPS, else this phone; unknown stays
+            // unknown), the pair in use, the skipper's thresholds and the
+            // report's age, read by AisGuardWatch.readCollisionInputs exactly
+            // as the alarm reads them. So the chip says DANGER exactly when the
+            // alarm would sound. Our own transponder gets no CPA at all.
+            const { own: ownPosition, motion, prefs, ownMmsis } = readCollisionInputs();
+            const own = ownMmsis.has(Number(mmsi)) ? null : ownPosition;
             const targetStaleMinutes = finiteAisDisplayNumber(p.staleMinutes);
             const cpaResult =
-                own && targetStaleMinutes != null && targetStaleMinutes <= 30
-                    ? computeCpa(own.lat, own.lon, own.cog, own.sog, targetLat, targetLon, cogVal, sogVal, navStatus)
+                own && targetStaleMinutes != null
+                    ? computeCpa(
+                          own.lat,
+                          own.lon,
+                          motion.cogDeg,
+                          motion.sogKn,
+                          targetLat,
+                          targetLon,
+                          cogValue,
+                          sogValue,
+                          navStatus,
+                          prefs,
+                          targetStaleMinutes * 60,
+                          motion.pair,
+                      )
                     : null;
 
             let cpaSection = '';
@@ -1280,7 +1307,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                 };
                 const noneLabel = tcpa < 0 ? '↔ Diverging' : '🔇 No Risk';
                 const rl: Record<string, string> = {
-                    DANGER: '⚠️ DANGER — Risk of Collision',
+                    DANGER: cpaResult.closeQuarters ? '⚠️ CLOSE QUARTERS' : '⚠️ DANGER — Risk of Collision',
                     CAUTION: '⚡ CAUTION — Close Approach',
                     SAFE: '✅ Safe Passage',
                     NONE: noneLabel,
@@ -1316,6 +1343,11 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                         </div>
                     </div>
                 `;
+            } else if (own) {
+                // Range only: no honest CPA (unknown course or speed, or a report
+                // over ten minutes old). Say so rather than show nothing, which
+                // reads as 'no risk'. Fixed text: no network input reaches it.
+                cpaSection = `<div style="margin-bottom:10px;padding:6px 10px;border-radius:8px;border:1px solid var(--day-ui-border, rgba(255,255,255,0.08));font-size:11px;color:var(--day-ui-muted, #94a3b8);text-align:center;">CPA unknown: no course or speed, or an old report</div>`;
             }
 
             const detailBtnId = `vessel-detail-${popupInstanceId}`;

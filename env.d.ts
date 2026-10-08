@@ -90,6 +90,8 @@ declare module '*.png' {
     export default src;
 }
 declare const __BUILD_STAMP__: string;
+/** True only in a THALASSA_DEBUG_AIS_INJECTOR=1 device-smoke build (125-01); false in every release. */
+declare const __THALASSA_DEBUG_AIS_INJECTOR__: boolean;
 /** Short commit SHA the bundle was built from ('unknown' when git is unavailable). */
 declare const __COMMIT_SHA__: string;
 /** iOS build number (CURRENT_PROJECT_VERSION) supplied as VITE_APP_BUILD; '' when unset. */

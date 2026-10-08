@@ -9,6 +9,12 @@ import UserNotifications
  * it does not set the native interruption level. This bridge schedules a fixed,
  * verified set with real `.timeSensitive` content. It never requests or uses
  * Apple's Critical Alert entitlement.
+ *
+ * Build 125 (125-01): also the shared safety-notification path. Collision (and,
+ * from 125-02, distress) alerts use scheduleSafetyAlert/cancelSafetyAlert with
+ * their own fixed identifiers, the same FIFO and the same verified-settings
+ * check. Nothing on that path reads, replaces or removes an anchor identifier,
+ * and it always leaves the anchor room for its full 21-request set.
  */
 @objc(AnchorSafetyNotificationPlugin)
 public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
@@ -17,7 +23,9 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "checkReadiness", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "scheduleAlarm", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "cancelAlarm", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "cancelAlarm", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "scheduleSafetyAlert", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelSafetyAlert", returnType: CAPPluginReturnPromise)
     ]
 
     private struct PluginFailure: Error {
@@ -59,6 +67,17 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
     private var cleanupIdentifiers: [String] {
         let legacyIdentifiers = ["99001"] + (0..<20).map { String(99100 + $0) }
         return requestIdentifiers + legacyIdentifiers
+    }
+
+    // Shared safety alerts: one fixed identifier set per kind, never the anchor's.
+    private static let safetyAlertKinds: [String: String] = [
+        "collision": "thalassa.collision-watch",
+        "distress": "thalassa.distress-watch"
+    ]
+    private let safetyAlertRequestCount = 3
+
+    private func safetyIdentifiers(_ prefix: String) -> [String] {
+        ["\(prefix).primary"] + (0..<(safetyAlertRequestCount - 1)).map { "\(prefix).repeat.\($0)" }
     }
 
     @objc func checkReadiness(_ call: CAPPluginCall) {
@@ -146,6 +165,76 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
                     return
                 }
                 self.resolve(call, ["cancelled": true])
+                finish()
+            }
+        }
+    }
+
+    @objc func scheduleSafetyAlert(_ call: CAPPluginCall) {
+        guard
+            let kind = call.getString("kind"),
+            let prefix = Self.safetyAlertKinds[kind],
+            let title = validatedText(call.getString("title"), maximumLength: 180),
+            let body = validatedText(call.getString("body"), maximumLength: 1_000)
+        else {
+            call.reject("A safety alert needs a known kind, a title and a message.", "SAFETY_NOTIFICATION_INVALID_CONTENT")
+            return
+        }
+
+        enqueueMutatingOperation { [weak self] finish in
+            guard let self else {
+                finish()
+                return
+            }
+            self.withVerifiedSettings { result in
+                switch result {
+                case .failure(let failure):
+                    self.reject(call, failure)
+                    finish()
+                case .success:
+                    self.removeAndConfirmSafetyAlerts(prefix) { removed in
+                        guard removed else {
+                            self.reject(
+                                call,
+                                PluginFailure(
+                                    code: "SAFETY_NOTIFICATION_REPLACEMENT_CLEANUP_FAILED",
+                                    message: "iOS did not confirm removal of the previous alert."
+                                )
+                            )
+                            finish()
+                            return
+                        }
+                        self.addSafetyAlertRequests(
+                            prefix: prefix, kind: kind, title: title, body: body, call: call, finish: finish
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @objc func cancelSafetyAlert(_ call: CAPPluginCall) {
+        guard let kind = call.getString("kind"), let prefix = Self.safetyAlertKinds[kind] else {
+            call.reject("Unknown safety alert kind.", "SAFETY_NOTIFICATION_INVALID_KIND")
+            return
+        }
+        enqueueMutatingOperation { [weak self] finish in
+            guard let self else {
+                finish()
+                return
+            }
+            self.removeAndConfirmSafetyAlerts(prefix) { removed in
+                if removed {
+                    self.resolve(call, ["cancelled": true])
+                } else {
+                    self.reject(
+                        call,
+                        PluginFailure(
+                            code: "SAFETY_NOTIFICATION_CANCEL_NOT_CONFIRMED",
+                            message: "iOS did not confirm removal of every alert."
+                        )
+                    )
+                }
                 finish()
             }
         }
@@ -336,6 +425,42 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    private func removeAndConfirmSafetyAlerts(
+        _ prefix: String,
+        attemptsRemaining: Int = 2,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let identifiers = safetyIdentifiers(prefix)
+        notificationCenter.removePendingNotificationRequests(withIdentifiers: identifiers)
+        notificationCenter.removeDeliveredNotifications(withIdentifiers: identifiers)
+        notificationCenter.getPendingNotificationRequests { [weak self] pending in
+            guard let self else {
+                completion(false)
+                return
+            }
+            self.notificationCenter.getDeliveredNotifications { delivered in
+                let ids = Set(identifiers)
+                let left = pending.contains { ids.contains($0.identifier) }
+                    || delivered.contains { ids.contains($0.request.identifier) }
+                guard left else {
+                    completion(true)
+                    return
+                }
+                guard attemptsRemaining > 0 else {
+                    completion(false)
+                    return
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    self.removeAndConfirmSafetyAlerts(
+                        prefix,
+                        attemptsRemaining: attemptsRemaining - 1,
+                        completion: completion
+                    )
+                }
+            }
+        }
+    }
+
     private func enqueueMutatingOperation(_ operation: @escaping MutatingOperation) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -509,6 +634,105 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
             // Give the primary notification enough lead time for all 21 adds
             // and the mandatory pending-request readback to finish before iOS
             // can deliver/remove it from that pending set.
+            let interval = index == 0 ? 5.0 : Double(index * 30)
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
+            return UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+        }
+    }
+
+    private func addSafetyAlertRequests(
+        prefix: String,
+        kind: String,
+        title: String,
+        body: String,
+        call: CAPPluginCall,
+        finish: @escaping () -> Void
+    ) {
+        notificationCenter.getPendingNotificationRequests { [weak self] pending in
+            guard let self else {
+                finish()
+                return
+            }
+            let own = Set(self.safetyIdentifiers(prefix))
+            let anchor = Set(self.cleanupIdentifiers)
+            let otherCount = pending.filter { !own.contains($0.identifier) && !anchor.contains($0.identifier) }.count
+            // The anchor keeps priority: after this set is added there must
+            // still be room for its whole 21-request set.
+            guard self.maximumPendingNotificationCount - otherCount - self.safetyAlertRequestCount
+                >= self.alarmRequestCount else {
+                self.reject(
+                    call,
+                    PluginFailure(
+                        code: "SAFETY_NOTIFICATION_CAPACITY_EXCEEDED",
+                        message: "Too many notifications are pending to add this alert and still keep Anchor Watch's. Clear pending notifications."
+                    )
+                )
+                finish()
+                return
+            }
+
+            let group = DispatchGroup()
+            var addErrors: [Error] = []
+            for request in self.makeSafetyAlertRequests(prefix: prefix, kind: kind, title: title, body: body) {
+                group.enter()
+                self.notificationCenter.add(request) { error in
+                    DispatchQueue.main.async {
+                        if let error { addErrors.append(error) }
+                        group.leave()
+                    }
+                }
+            }
+
+            group.notify(queue: .main) {
+                self.notificationCenter.getPendingNotificationRequests { after in
+                    let matching = after.filter { own.contains($0.identifier) }
+                    let allTimeSensitive: Bool
+                    if #available(iOS 15.0, *) {
+                        allTimeSensitive = matching.allSatisfy { $0.content.interruptionLevel == .timeSensitive }
+                    } else {
+                        allTimeSensitive = false
+                    }
+                    guard addErrors.isEmpty, matching.count == self.safetyAlertRequestCount, allTimeSensitive else {
+                        self.removeAndConfirmSafetyAlerts(prefix) { _ in
+                            self.reject(
+                                call,
+                                PluginFailure(
+                                    code: "SAFETY_NOTIFICATION_SCHEDULE_NOT_CONFIRMED",
+                                    message: "iOS did not retain the Time Sensitive alert set, so it was removed."
+                                )
+                            )
+                            finish()
+                        }
+                        return
+                    }
+                    self.resolve(call, ["scheduled": matching.count, "interruptionLevel": "timeSensitive"])
+                    finish()
+                }
+            }
+        }
+    }
+
+    private func makeSafetyAlertRequests(
+        prefix: String,
+        kind: String,
+        title: String,
+        body: String
+    ) -> [UNNotificationRequest] {
+        safetyIdentifiers(prefix).enumerated().map { index, identifier in
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            // The anchor's bundled siren. Silent mode, volume and Focus still
+            // govern what is heard: Time Sensitive passes Focus only where the
+            // skipper allows it.
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(Self.alarmSoundName))
+            content.threadIdentifier = prefix
+            content.userInfo = ["kind": kind, "source": prefix]
+            if #available(iOS 15.0, *) {
+                content.interruptionLevel = .timeSensitive
+            }
+            // As the anchor's: the in-app alarm sounds at once, and the lead
+            // lets the readback finish before iOS delivers the primary.
             let interval = index == 0 ? 5.0 : Double(index * 30)
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
             return UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)

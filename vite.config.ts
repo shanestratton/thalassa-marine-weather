@@ -18,6 +18,7 @@ import {
 } from './scripts/public-beta-feature-profile.mjs';
 import { MINIFIED_PUBLIC_SCRIPTS, minifyPublicScriptWhitespace } from './scripts/minify-public-scripts.mjs';
 import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
+import { debugAisInjectorFenceError } from './scripts/debug-ais-injector-fence.mjs';
 import { handleOcean } from './api/ocean/[view]';
 
 // Define __dirname for ESM context
@@ -124,6 +125,31 @@ function releaseMinifyPublicScripts(): Plugin {
                 const source = fs.readFileSync(target, 'utf8');
                 fs.writeFileSync(target, await minifyPublicScriptWhitespace(source, fileName));
             }
+        },
+    };
+}
+
+/**
+ * The debug AIS injector (build 125, 125-01) compiles only for the 125-11
+ * device smoke: `THALASSA_DEBUG_AIS_INJECTOR=1 npm run build`. Read from the
+ * process environment only, so no .env file can switch it on quietly.
+ * Everything else gets the literal false (components/settings/debugAisInjectorGate.ts
+ * folds away), and this fence fails a build that carries the injector anyway.
+ */
+const debugAisInjectorEnabled = process.env.THALASSA_DEBUG_AIS_INJECTOR === '1';
+
+function releaseDebugAisInjectorFence(enabled: boolean): Plugin {
+    return {
+        name: 'release-debug-ais-injector-fence',
+        apply: 'build',
+        generateBundle(_options, bundle) {
+            const chunks = Object.values(bundle).flatMap((output) =>
+                output.type === 'chunk' ? [{ fileName: output.fileName, code: output.code }] : [],
+            );
+            const error = debugAisInjectorFenceError(chunks, enabled);
+            if (error) this.error(error);
+            if (enabled)
+                this.warn('The debug AIS injector is compiled into this build: device smoke only, never upload it.');
         },
     };
 }
@@ -502,6 +528,7 @@ export default defineConfig(({ mode }) => {
             mode === 'production' && releasePublicInputFence(),
             mode === 'production' && releaseMinifyPublicScripts(),
             mode === 'production' && releaseParkedPagesStayOut(),
+            releaseDebugAisInjectorFence(debugAisInjectorEnabled),
             mode === 'production' &&
                 visualizer({
                     filename: 'bundle-stats.html',
@@ -527,6 +554,8 @@ export default defineConfig(({ mode }) => {
             // CI supplies GITHUB_SHA; a local build asks git; neither is fatal.
             __COMMIT_SHA__: JSON.stringify(resolveCommitSha()),
             __APP_BUILD__: JSON.stringify(String(process.env.VITE_APP_BUILD ?? '').trim()),
+            // The debug AIS injector's gate (see releaseDebugAisInjectorFence).
+            __THALASSA_DEBUG_AIS_INJECTOR__: JSON.stringify(debugAisInjectorEnabled),
 
             // Paid provider secrets never enter the browser bundle. All three
             // providers are accessed through authenticated, rate-limited relays.
