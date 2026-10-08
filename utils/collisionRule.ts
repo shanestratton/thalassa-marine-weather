@@ -15,6 +15,16 @@
  * Defaults are the ones recommended to Shane in the 125 roadmap (they ship
  * unless he says otherwise): CPA 0.5 NM / TCPA 15 min offshore, 0.2 NM / 6 min
  * inshore or under 3 kn of our own speed.
+ *
+ * 125-01b: stopped, the rule asks whether we are at anchor (`atAnchor`, an
+ * explicit input on our own ship: an anchor watch is on, never a nav status).
+ * At a berth, stopped stays awareness only; at anchor, close quarters still
+ * sounds for a vessel under way, the classic night danger of a ship motoring
+ * or dragging down onto an anchored boat. At anchor, our own speed up to 2 kn
+ * is the boat swinging and yawing on her cable: real GPS motion, but not
+ * travel, so she is graded stopped (no velocity of our own). Our own drag is
+ * the anchor alarm's job. And us stopped with her no longer under way is
+ * evidence that an encounter is over (collisionSettled).
  */
 
 // ── AIS 'not available' (ITU-R M.1371) ──────────────────────────────────────
@@ -83,12 +93,24 @@ export const COLLISION_RULE = Object.freeze({
     inshoreBelowOwnSogKn: 2.5,
     /** Under 3 kn of our own, targets slower than this are berths, not traffic. */
     minTargetSogKn: 0.5,
-    /** Below this we are stopped: awareness only (the anchor watch owns that case). */
+    /**
+     * Below this we are stopped: awareness only at a berth; at anchor, close
+     * quarters with a vessel under way. At anchor, up to atAnchorUnderWayAboveKn
+     * of our own is stopped too (swinging and yawing).
+     */
     ownStoppedBelowKn: 0.5,
     /** A moored/anchored/aground claim is believed only at or under this speed. */
     stationaryClaimMaxSogKn: 2,
     /** Inside both limits while we're moving, it always alarms: no mute, no threshold, no target filter. */
     closeQuarters: Object.freeze({ cpaNm: 0.1, tcpaMin: 3 }),
+    /**
+     * At anchor, under way means a known speed over this (the stationary-claim
+     * line). Stopped at anchor, close quarters still sounds for a vessel making
+     * more; her speed decides, never her nav status, and a neighbour swinging
+     * or drifting at 2 kn or less does not. Our own speed up to this at anchor
+     * is swinging and yawing: we are graded stopped.
+     */
+    atAnchorUnderWayAboveKn: 2,
     muteMinutes: 30,
     /** No CPA from a report older than this: she has moved on (dead reckoning is 128-01). */
     maxReportAgeSec: 600,
@@ -137,13 +159,30 @@ export function collisionPairFor(ownSogKn: number | null, previous: CollisionPai
 }
 
 /**
- * What our own motion lets the rule do: 'unknown' gives no CPA at all,
- * 'stopped' (under 0.5 kn) is awareness only, never an alarm.
+ * Whether the rule grades us as stopped: under 0.5 kn, or at anchor up to
+ * 2 kn (125-01b), where our own speed is the boat swinging and yawing on her
+ * cable, not travel. Over that at anchor she is under way (motoring off, or
+ * dragging fast) and the under-way rule applies. Unknown speed is never still.
  */
-export function ownMotionState(sogKn: number | null, cogDeg: number | null): 'moving' | 'stopped' | 'unknown' {
+export function collisionOwnStill(ownSogKn: number | null, atAnchor: boolean): boolean {
+    const sog = aisSogKn(ownSogKn);
+    if (sog === null) return false;
+    return sog < COLLISION_RULE.ownStoppedBelowKn || (atAnchor && sog <= COLLISION_RULE.atAnchorUnderWayAboveKn);
+}
+
+/**
+ * What our own motion lets the rule do: 'unknown' gives no CPA at all,
+ * 'stopped' (under 0.5 kn, or swinging at anchor up to 2 kn, course or none)
+ * is awareness only, except close quarters with a vessel under way at anchor.
+ */
+export function ownMotionState(
+    sogKn: number | null,
+    cogDeg: number | null,
+    atAnchor = false,
+): 'moving' | 'stopped' | 'unknown' {
     const sog = aisSogKn(sogKn);
     if (sog === null) return 'unknown';
-    if (sog < COLLISION_RULE.ownStoppedBelowKn) return 'stopped';
+    if (collisionOwnStill(sog, atAnchor)) return 'stopped';
     return aisCogDeg(cogDeg) === null ? 'unknown' : 'moving';
 }
 
@@ -204,7 +243,10 @@ export type CollisionRisk = 'DANGER' | 'CAUTION' | 'SAFE' | 'NONE';
 
 export interface CollisionGrade {
     risk: CollisionRisk;
-    /** CPA < 0.1 NM and TCPA < 3 min while we're moving: alarms whatever a mute, threshold or filter says. */
+    /**
+     * CPA < 0.1 NM and TCPA < 3 min while we're moving, or stopped at anchor
+     * with a vessel under way: alarms whatever a mute, threshold or filter says.
+     */
     closeQuarters: boolean;
     /** Which of the skipper's pairs applied (see collisionPairFor). */
     pair: CollisionPairName;
@@ -217,13 +259,19 @@ export interface CollisionGrade {
  *    believed only while its speed agrees (≤ 2 kn, inclusive). Stale 'moored'
  *    on a 12 kt ship is common, so there is no bare nav-status filter.
  *  - Diverging (TCPA < 0) is NONE; more than 60 min out is SAFE.
- *  - Our own speed under 0.5 kn: awareness only, never an alarm.
+ *  - Our own speed under 0.5 kn: awareness only, never an alarm, except
+ *    close quarters at anchor (below). At anchor (`atAnchor`), up to 2 kn of
+ *    our own is stopped too: swinging and yawing are not travel.
  *  - While the inshore pair applies (`pair`, else from our speed: under
  *    3 kn), targets under 0.5 kn or believed moored are berths, not traffic:
  *    they never reach the DANGER line.
  *  - Close quarters (CPA < 0.1 NM, TCPA < 3 min, us making 0.5 kn or more)
  *    always alarms, whatever the target filters, thresholds or a mute say:
  *    a stopped or berthed boat dead ahead still counts.
+ *  - Stopped with `atAnchor` (an anchor watch on), close quarters still
+ *    alarms for a vessel under way: her known speed over 2 kn. Stopped
+ *    without it (a berth), nothing alarms: boats pass a marina berth inside
+ *    0.1 NM all day.
  */
 export function gradeCollisionRisk(
     cpaNm: number,
@@ -233,6 +281,7 @@ export function gradeCollisionRisk(
     targetNavStatus?: number | null,
     prefs: CollisionPrefs = DEFAULT_COLLISION_PREFS,
     pair?: CollisionPairName | null,
+    atAnchor = false,
 ): CollisionGrade {
     const rule = COLLISION_RULE;
     const pairName = pair ?? collisionPairFor(ownSogKn, null);
@@ -243,8 +292,13 @@ export function gradeCollisionRisk(
         claimsStationary && (!Number.isFinite(targetSogKn) || targetSogKn <= rule.stationaryClaimMaxSogKn);
     const berthed = inshore && (believedStationary || targetSogKn < rule.minTargetSogKn);
 
+    // Stopped: under 0.5 kn, or swinging at anchor up to 2 kn. A NaN speed is
+    // neither stopped nor moving, so it never reaches close quarters.
+    const ownStill = ownSogKn < rule.ownStoppedBelowKn || (atAnchor && ownSogKn <= rule.atAnchorUnderWayAboveKn);
+    const ownMoving = ownSogKn >= rule.ownStoppedBelowKn && !ownStill;
+    const targetUnderWay = Number.isFinite(targetSogKn) && targetSogKn > rule.atAnchorUnderWayAboveKn;
     const closeQuarters =
-        ownSogKn >= rule.ownStoppedBelowKn &&
+        (ownMoving || (ownStill && atAnchor && targetUnderWay)) &&
         tcpaMin >= 0 &&
         cpaNm < rule.closeQuarters.cpaNm &&
         tcpaMin < rule.closeQuarters.tcpaMin;
@@ -254,7 +308,7 @@ export function gradeCollisionRisk(
     if (believedStationary || tcpaMin < 0) return grade('NONE');
     if (tcpaMin > rule.horizonMin) return grade('SAFE');
 
-    if (ownSogKn < rule.ownStoppedBelowKn) {
+    if (ownStill) {
         return grade(cpaNm < 0.2 && tcpaMin < 10 && targetSogKn > 3 ? 'CAUTION' : 'NONE');
     }
 
@@ -273,6 +327,17 @@ export interface CollisionVessel {
     cogDeg: number | null;
     /** Own ship only: the pair in use (collisionPairFor's hysteresis). Absent: from our speed alone. */
     pair?: CollisionPairName | null;
+}
+
+/** Our own ship: where she is, how she moves, and whether she is at anchor. */
+export interface CollisionOwnShip extends CollisionVessel {
+    /**
+     * An anchor watch is on for this position (services/collisionAnchorWatch.ts
+     * reads it from the one anchor-watch truth). Required, so every caller says:
+     * the chip, the alarm and Calypso all pass AisGuardWatch.readCollisionInputs'
+     * value, and the Pi's copy (126-04) its own watch's.
+     */
+    atAnchor: boolean;
 }
 
 /** A target, as reported. Raw AIS values are fine: 102.3 / 360 are read as unknown here. */
@@ -310,16 +375,21 @@ export function collisionSourceCanAlarm(source: unknown): boolean {
 
 /** Assess one target. Null only when either position is invalid. */
 export function assessCollision(
-    own: CollisionVessel,
+    own: CollisionOwnShip,
     target: CollisionTarget,
     prefs: CollisionPrefs = DEFAULT_COLLISION_PREFS,
 ): CollisionAssessment | null {
     if (!validPosition(own.lat, own.lon) || !validPosition(target.lat, target.lon)) return null;
     const { rangeNm, bearingDeg } = rangeBearing(own.lat, own.lon, target.lat, target.lon);
-    const ownSog = aisSogKn(own.sogKn);
-    const pair = own.pair ?? collisionPairFor(ownSog, null);
+    const atAnchor = own.atAnchor === true;
+    const reportedOwnSog = aisSogKn(own.sogKn);
+    const pair = own.pair ?? collisionPairFor(reportedOwnSog, null);
+    // Swinging and yawing at anchor (up to 2 kn) is not travel: graded as a
+    // boat lying still, with no velocity of her own and no course needed.
+    const swinging = atAnchor && collisionOwnStill(reportedOwnSog, true);
+    const ownSog = swinging ? 0 : reportedOwnSog;
     const targetSog = aisSogKn(target.sogKn);
-    const ownV = velocity(ownSog, aisCogDeg(own.cogDeg));
+    const ownV = swinging ? ([0, 0] as [number, number]) : velocity(ownSog, aisCogDeg(own.cogDeg));
     const targetV = velocity(targetSog, aisCogDeg(target.cogDeg));
     const age = finite(target.reportAgeSec);
 
@@ -374,7 +444,7 @@ export function assessCollision(
         cpaNm = Math.hypot(dx + dvx * tcpaHours, dy + dvy * tcpaHours);
     }
     const tcpaMin = tcpaHours * 60;
-    const grade = gradeCollisionRisk(cpaNm, tcpaMin, ownSog, targetSog, target.navStatus, prefs, pair);
+    const grade = gradeCollisionRisk(cpaNm, tcpaMin, ownSog, targetSog, target.navStatus, prefs, pair, atAnchor);
     return {
         ...grade,
         rangeNm,
@@ -414,6 +484,28 @@ export function collisionOpening(a: CollisionAssessment, prefs: CollisionPrefs =
     if (a.tcpaMin < 0) return true;
     const limits = prefs[a.pair];
     return a.cpaNm >= 2 * limits.cpaNm || a.tcpaMin >= 2 * limits.tcpaMin;
+}
+
+/**
+ * Evidence of another kind that an encounter is over (125-01b): we are
+ * stopped (at a berth, or swinging at anchor) and she is no longer under way
+ * (her known speed 2 kn or less). Nothing about the pair can sound then,
+ * however close she lies, and two boats lying still never show as opening,
+ * so without this an encounter with a vessel that anchored near us never
+ * ended, and its acknowledgement silenced her next approach. The alarm needs
+ * it held for a full anchored report cycle before it ends the encounter
+ * (services/CollisionAlarmService.ts). Never from an unknown: range-only, our
+ * own speed or hers unknown.
+ */
+export function collisionSettled(
+    a: CollisionAssessment,
+    own: Pick<CollisionOwnShip, 'sogKn' | 'atAnchor'>,
+    targetSogKn: number | null,
+): boolean {
+    if (a.rangeOnly || a.alarm || a.cpaNm === null || a.tcpaMin === null) return false;
+    const herSog = aisSogKn(targetSogKn);
+    if (herSog === null || herSog > COLLISION_RULE.atAnchorUnderWayAboveKn) return false;
+    return collisionOwnStill(own.sogKn, own.atAnchor === true);
 }
 
 // ── Distress beacons (build 125, 125-02) ────────────────────────────────────

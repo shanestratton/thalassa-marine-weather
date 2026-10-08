@@ -18,7 +18,10 @@
  * never a mute. A vessel the watch has lost before she was shown clear reads
  * CPA UNKNOWN, never 'passed'. Above the cards, the collision watch says
  * plainly when it cannot watch or cannot sound ('blind', 'paused', no fix,
- * own motion unknown, stopped) rather than looking like an empty sea. While a collision card shows, the stack rises above the night tint
+ * own motion unknown, stopped at a berth; 125-01b: at anchor, where only close
+ * quarters with a vessel under way sounds, blind there on its own 10 min line,
+ * and stopped with the anchor watch kept elsewhere) rather than looking like
+ * an empty sea. While a collision card shows, the stack rises above the night tint
  * (an alarm reads at full brightness) but stays under the anchor alarm.
  *
  * Build 125 (125-02): distress beacons go on top of everything. A beacon her
@@ -37,10 +40,13 @@ import {
     AisGuardAlertStore,
     distressLines,
     type DistressBeacon,
+    COLLISION_BLIND_AT_ANCHOR_NOTICE,
     COLLISION_BLIND_NOTICE,
     COLLISION_NO_FIX_NOTICE,
     COLLISION_NO_MOTION_NOTICE,
     COLLISION_PAUSED_NOTICE,
+    COLLISION_AT_ANCHOR_NOTICE,
+    COLLISION_STOPPED_ELSEWHERE_NOTICE,
     COLLISION_STOPPED_NOTICE,
     COLLISION_UNCHECKED_NOTICE,
     collisionLines,
@@ -82,6 +88,8 @@ function noticeText(n: CollisionWatchNotice): string | null {
     switch (n.state) {
         case 'blind':
             return COLLISION_BLIND_NOTICE;
+        case 'blind-at-anchor':
+            return COLLISION_BLIND_AT_ANCHOR_NOTICE;
         case 'paused':
             return COLLISION_PAUSED_NOTICE;
         case 'no-fix':
@@ -90,6 +98,10 @@ function noticeText(n: CollisionWatchNotice): string | null {
             return COLLISION_NO_MOTION_NOTICE;
         case 'stopped':
             return COLLISION_STOPPED_NOTICE;
+        case 'stopped-elsewhere':
+            return COLLISION_STOPPED_ELSEWHERE_NOTICE;
+        case 'at-anchor':
+            return COLLISION_AT_ANCHOR_NOTICE;
         case 'unchecked':
             return COLLISION_UNCHECKED_NOTICE;
         case 'resumed': {
@@ -101,6 +113,11 @@ function noticeText(n: CollisionWatchNotice): string | null {
         default:
             return null;
     }
+}
+
+/** A number keeps its unit on its line ('0.1 NM', '60 s'): the strip wraps at 320 pt in wide fonts. */
+function keepUnits(text: string): string {
+    return text.replace(/(\d) (NM|kn|s|min)\b/g, '$1\u00a0$2');
 }
 
 /** The IEC 62288 AIS-SART mark, as on the chart. */
@@ -329,7 +346,7 @@ export const AisGuardAlert: React.FC = () => {
                         fontWeight: 700,
                     }}
                 >
-                    <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{status}</span>
+                    <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{keepUnits(status)}</span>
                     {notice?.state === 'resumed' && (
                         <button
                             type="button"
