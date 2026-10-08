@@ -1,13 +1,15 @@
 /**
  * Settings → Preferences, smoke builds only: start and stop the fictional
- * crossing target for the 125-11 locked-phone + Focus test, and (125-02) a
- * fictional AIS-SART in test or active mode. Reached only through
+ * crossing target for the 125-11 locked-phone + Focus test, (125-02) a
+ * fictional AIS-SART in test or active mode, and (125-01b) an anchored pass:
+ * a ship under way 0.05 NM off while we are stopped. Reached only through
  * ./debugAisInjectorGate.ts; never in a release build.
  */
 import React from 'react';
 import { Row, Section } from './SettingsPrimitives';
 import {
     debugAisInjectorRunning,
+    startDebugAnchorPass,
     startDebugCrossing,
     startDebugSart,
     stopDebugAisInjector,
@@ -43,6 +45,22 @@ export const DebugAisInjectorSection: React.FC = () => {
                         }}
                     >
                         Stop
+                    </button>
+                </div>
+            </Row>
+            <Row>
+                <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white font-medium">Anchored pass</p>
+                    <p className="text-xs text-gray-400">Anchor watch on: it must sound. Off: quiet.</p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                    <button
+                        type="button"
+                        className="min-h-11 rounded-lg border border-white/10 px-3 text-xs font-bold text-white"
+                        aria-label="Start the anchored pass"
+                        onClick={() => setStatus(startDebugAnchorPass())}
+                    >
+                        Start
                     </button>
                 </div>
             </Row>

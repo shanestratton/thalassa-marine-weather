@@ -34,7 +34,9 @@
  * is reported as unknown and never feeds a CPA. Its inputs — our position,
  * our course and speed, the pair in use, the skipper's thresholds and our
  * own MMSIs — are the alarm's own (AisGuardWatch.readCollisionInputs), so
- * with any saved thresholds Calypso's `alarm` is exactly the alarm's.
+ * with any saved thresholds Calypso's `alarm` is exactly the alarm's. That
+ * includes whether we are at anchor (125-01b): stopped with an anchor watch
+ * on, close quarters with a vessel under way alarms; at a berth it does not.
  */
 
 import { AisStore } from '../../AisStore';
@@ -65,7 +67,7 @@ export async function aisProximity(
     maxCount: number,
 ): Promise<{ content: string; isError: boolean }> {
     const now = Date.now();
-    const { own: fix, motion, prefs, ownMmsis } = readCollisionInputs(now);
+    const { own: fix, motion, prefs, ownMmsis, atAnchor } = readCollisionInputs(now);
     if (!fix) {
         return {
             content: JSON.stringify({
@@ -99,7 +101,7 @@ export async function aisProximity(
         if (ownMmsis.has(target.mmsi)) continue;
         const ageSec = Math.round((now - target.lastUpdated) / 1000);
         const a = assessCollision(
-            { lat: fix.lat, lon: fix.lon, sogKn: ownSog, cogDeg: ownCog, pair: motion.pair },
+            { lat: fix.lat, lon: fix.lon, sogKn: ownSog, cogDeg: ownCog, pair: motion.pair, atAnchor },
             {
                 lat: target.lat,
                 lon: target.lon,
@@ -139,6 +141,7 @@ export async function aisProximity(
             own_position_source: fix.source === 'gps' ? 'phone' : 'nmea',
             own_cog: ownCog ?? null,
             own_sog: ownSog ?? null,
+            at_anchor: atAnchor,
             range_searched_nm: range,
             total_in_range: reports.length,
             targets: top,

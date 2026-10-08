@@ -1354,9 +1354,10 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             // her own course and speed (boat GPS, else this phone; unknown stays
             // unknown), the pair in use, the skipper's thresholds and the
             // report's age, read by AisGuardWatch.readCollisionInputs exactly
-            // as the alarm reads them. So the chip says DANGER exactly when the
-            // alarm would sound. Our own transponder gets no CPA at all.
-            const { own: ownPosition, motion, prefs, ownMmsis } = readCollisionInputs();
+            // as the alarm reads them, and whether we are at anchor (125-01b).
+            // So the chip says DANGER exactly when the alarm would sound. Our
+            // own transponder gets no CPA at all.
+            const { own: ownPosition, motion, prefs, ownMmsis, atAnchor } = readCollisionInputs();
             const own = ownMmsis.has(Number(mmsi)) ? null : ownPosition;
             const targetStaleMinutes = finiteAisDisplayNumber(p.staleMinutes);
             const cpaResult =
@@ -1374,6 +1375,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                           prefs,
                           targetStaleMinutes * 60,
                           motion.pair,
+                          atAnchor,
                       )
                     : null;
 

@@ -20,6 +20,9 @@ const hoisted = vi.hoisted(() => ({
         pair: 'inshore' | 'offshore';
     },
     local: [] as GeoJSON.Feature[],
+    atAnchor: false,
+    elsewhere: false,
+    anchorSourceAsked: [] as unknown[],
     update: vi.fn(),
     disarm: vi.fn(),
     noFix: vi.fn(),
@@ -43,6 +46,12 @@ vi.mock('../services/ownshipPosition', () => ({
     resolveOwnMotion: () => hoisted.motion,
 }));
 vi.mock('../services/GpsService', () => ({ GpsService: { getLastKnownPosition: () => null } }));
+vi.mock('../services/collisionAnchorWatch', () => ({
+    readCollisionAnchorWatch: (own: { source?: unknown } | null) => {
+        hoisted.anchorSourceAsked.push(own?.source ?? null);
+        return hoisted.atAnchor ? 'at-anchor' : hoisted.elsewhere ? 'elsewhere' : 'none';
+    },
+}));
 vi.mock('../services/NmeaStore', () => ({ NmeaStore: { getState: () => ({}) } }));
 vi.mock('../stores/LocationStore', () => ({ LocationStore: { getState: () => ({}) } }));
 vi.mock('../stores/settingsStore', () => ({
@@ -106,6 +115,9 @@ beforeEach(() => {
     hoisted.local = [];
     hoisted.heardAt = 0;
     hoisted.ownMmsiHeard = null;
+    hoisted.atAnchor = false;
+    hoisted.elsewhere = false;
+    hoisted.anchorSourceAsked = [];
     for (const fn of [hoisted.update, hoisted.disarm, hoisted.noFix, hoisted.unchecked, hoisted.checkFeatures]) {
         fn.mockClear();
     }
@@ -123,7 +135,13 @@ describe('collision watch on the guard loop', () => {
         expect(only.reportAgeSec).toBe(4);
         expect(only.assessment.alarm).toBe(true);
         expect(only.assessment.risk).toBe('DANGER');
-        expect(hoisted.update.mock.calls[0][1]).toEqual({ nowMs: NOW, lastAisAt: NOW - 4_000, own: 'moving' });
+        expect(hoisted.update.mock.calls[0][1]).toEqual({
+            nowMs: NOW,
+            lastAisAt: NOW - 4_000,
+            own: 'moving',
+            atAnchor: false,
+            anchorWatchElsewhere: false,
+        });
     });
 
     it('hands over a quiet target too, graded, so the alarm can tell opening from lost', () => {
@@ -171,7 +189,13 @@ describe('collision watch on the guard loop', () => {
     it('treats a swept-out receiver list as no AIS, never as a clear sea', () => {
         hoisted.local = [];
         runGuardCheck(NOW);
-        expect(hoisted.update.mock.calls[0][1]).toEqual({ nowMs: NOW, lastAisAt: 0, own: 'moving' });
+        expect(hoisted.update.mock.calls[0][1]).toEqual({
+            nowMs: NOW,
+            lastAisAt: 0,
+            own: 'moving',
+            atAnchor: false,
+            anchorWatchElsewhere: false,
+        });
     });
 
     it('counts AIS as heard from any message the receiver decoded, not only targets still held', () => {
@@ -213,6 +237,80 @@ describe('collision watch on the guard loop', () => {
         runGuardCheck(NOW);
         expect(hoisted.noFix).toHaveBeenCalledWith(NOW);
         expect(hoisted.update).not.toHaveBeenCalled();
+    });
+
+    it('at anchor (125-01b): stopped, a ship under way inside close quarters reaches the alarm; a drifter does not', () => {
+        hoisted.atAnchor = true;
+        hoisted.motion = { sogKn: 0.1, cogDeg: null, source: 'nmea', pair: 'inshore' };
+        // Due north, heading south: 0.2 NM at 6 kn is 2 min out; at 1.5 kn, 0.05 NM is 2 min out.
+        hoisted.local = [
+            feature(123400111, 0.2, { sog: 6 }),
+            feature(123400112, 0.05, { sog: 1.5 }),
+            feature(123400113, 0.2, { sog: 6, navStatus: 5 }), // 'moored', making 6 kn
+        ];
+        runGuardCheck(NOW);
+        // The anchor truth is asked about the position the rule grades (the boat's GPS here).
+        expect(hoisted.anchorSourceAsked).toContain('nmea');
+        expect(hoisted.update.mock.calls.at(-1)![1]).toMatchObject({ own: 'stopped', atAnchor: true });
+        const list = candidates();
+        expect(list.map((c) => c.mmsi).sort()).toEqual([123400111, 123400113]);
+        for (const c of list) expect(c.assessment.closeQuarters).toBe(true);
+    });
+
+    it('at a berth (no anchor watch): the same ships reach the alarm graded, but none alarms', () => {
+        hoisted.motion = { sogKn: 0.1, cogDeg: null, source: 'nmea', pair: 'inshore' };
+        hoisted.local = [feature(123400111, 0.2, { sog: 6 }), feature(123400112, 0.05, { sog: 1.5 })];
+        runGuardCheck(NOW);
+        expect(hoisted.update.mock.calls.at(-1)![1]).toMatchObject({ own: 'stopped', atAnchor: false });
+        expect(
+            graded()
+                .map((c) => c.mmsi)
+                .sort(),
+        ).toEqual([123400111, 123400112]);
+        expect(candidates()).toEqual([]);
+    });
+
+    it('yawing at anchor (125-01b review): 0.8 kn with no course is stopped, a swinging neighbour stays quiet', () => {
+        hoisted.atAnchor = true;
+        hoisted.motion = { sogKn: 0.8, cogDeg: null, source: 'nmea', pair: 'inshore' };
+        hoisted.local = [
+            feature(123400114, 0.12, { sog: 0.9 }), // a neighbour swinging toward us
+            feature(123400115, 0.2, { sog: 6 }), // a ship under way, 2 min out
+        ];
+        runGuardCheck(NOW);
+        expect(hoisted.update.mock.calls.at(-1)![1]).toMatchObject({ own: 'stopped', atAnchor: true });
+        expect(candidates().map((c) => c.mmsi)).toEqual([123400115]);
+        const neighbour = graded().find((c) => c.mmsi === 123400114)!;
+        expect(neighbour.assessment.alarm).toBe(false);
+        // She is not under way and we are stopped: evidence an encounter with her is over.
+        expect(neighbour.settled).toBe(true);
+        expect(graded().find((c) => c.mmsi === 123400115)!.settled).toBe(false);
+        // The same yaw with no anchor watch is a boat under way with no course: unknown, no CPA.
+        hoisted.atAnchor = false;
+        runGuardCheck(NOW);
+        expect(hoisted.update.mock.calls.at(-1)![1]).toMatchObject({ own: 'unknown', atAnchor: false });
+        expect(graded().every((c) => c.settled === false)).toBe(true);
+    });
+
+    it('under way, nothing is settled: an encounter ends only on an opening CPA', () => {
+        hoisted.local = [feature(123400116, 1.5, { sog: 1 })];
+        runGuardCheck(NOW);
+        expect(graded()[0].settled).toBe(false);
+    });
+
+    it('an anchor watch kept elsewhere reaches the strip, and is not at anchor for the rule', () => {
+        hoisted.elsewhere = true;
+        hoisted.motion = { sogKn: 0.1, cogDeg: null, source: 'phone', pair: 'inshore' };
+        hoisted.own = { lat: -33.9, lon: 18.4, sog: 0, cog: 0, timestamp: NOW, source: 'gps' };
+        hoisted.local = [feature(123400117, 0.2, { sog: 6 })];
+        runGuardCheck(NOW);
+        expect(hoisted.anchorSourceAsked.at(-1)).toBe('gps');
+        expect(hoisted.update.mock.calls.at(-1)![1]).toMatchObject({
+            own: 'stopped',
+            atAnchor: false,
+            anchorWatchElsewhere: true,
+        });
+        expect(candidates()).toEqual([]);
     });
 
     it('our own motion unknown: range only, no alarm', () => {

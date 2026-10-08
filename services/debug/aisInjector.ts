@@ -30,6 +30,14 @@
  * mode (status 15, 'SART TEST') or active (status 14, 'SART ACTIVE'), drifting
  * so Go to it has a moving mark. Starting it active after test is the
  * test-to-active switch that must sound again.
+ *
+ * Build 125, 125-01b: the anchored pass. A ship under way (6 kn) passes
+ * 0.05 NM off, CPA in 5 min. With the anchor watch on, close quarters must
+ * sound once she is inside 3 min; with no anchor watch (a berth) the same pass
+ * must stay quiet. When our real motion already reads stopped (fresh and under
+ * 0.5 kn) it is left alone, so a locked-phone smoke runs the real chain (our
+ * own speed going stale shows as 'no motion' and no alarm); only unknown or
+ * moving is overridden with a fictional 0 kn, and the panel says which.
  */
 import { processAisSentence } from '../AisDecoder';
 import { AisStore } from '../AisStore';
@@ -159,10 +167,12 @@ const CROSSING_MINUTES = 8;
 const CROSSER_KN = 10;
 
 export interface DebugCrossing {
-    /** 'under-way': our real motion; 'berth': a fictional own motion for the rule. */
-    mode: 'under-way' | 'berth';
+    /** 'under-way': our real motion; 'berth': a fictional own motion; 'anchor': told we are stopped. */
+    mode: 'under-way' | 'berth' | 'anchor';
     /** What the rule is told about us for the run (the real motion when under way). */
-    ownMotion: { sogKn: number; cogDeg: number };
+    ownMotion: { sogKn: number; cogDeg: number | null };
+    /** The run overrides our real motion with `ownMotion` (smoke builds only). */
+    forcesOwnMotion: boolean;
     /** Her reported speed and course (her real ones, not the relative track's). */
     speedKn: number;
     courseDeg: number;
@@ -189,6 +199,7 @@ export function planDebugCrossing(
         return {
             mode: 'under-way',
             ownMotion: { sogKn: motion.sogKn!, cogDeg: motion.cogDeg! },
+            forcesOwnMotion: false,
             speedKn,
             courseDeg: plan.courseDeg,
             positionAt: (elapsedMs) =>
@@ -210,10 +221,48 @@ export function planDebugCrossing(
     return {
         mode: 'berth',
         ownMotion: { sogKn: DEBUG_OWN_MOTION_KN, cogDeg: ourCourse },
+        forcesOwnMotion: true,
         speedKn,
         courseDeg,
         positionAt: (elapsedMs) => project(start.lat, start.lon, relCourse, (relKn * elapsedMs) / 3_600_000),
         summary: `${summary} We are not making way, so for this test the alarm is told we make ${DEBUG_OWN_MOTION_KN} kn on ${String(Math.round(ourCourse)).padStart(3, '0')}°.`,
+    };
+}
+
+/** The anchored smoke's ship under way: MID 123, a name nobody sails under. */
+export const DEBUG_PASSER = { mmsi: 123456790, name: 'DEBUG PASSER' } as const;
+const PASS_KN = 6;
+const PASS_OFF_NM = 0.05;
+const PASS_MINUTES = 5;
+
+/**
+ * The anchored smoke (125-01b): from the south on 000°, she passes `offNm`
+ * east of us `minutes` from the start. Our real motion (`motion`) is used as
+ * it is when it reads stopped (known, under 0.5 kn); unknown or moving, the
+ * run is told we are stopped. Pure, so a test can prove it as started.
+ */
+export function planDebugAnchorPass(
+    position: { lat: number; lon: number },
+    motion: { sogKn: number | null; cogDeg: number | null },
+    minutes = PASS_MINUTES,
+    speedKn = PASS_KN,
+    offNm = PASS_OFF_NM,
+): DebugCrossing {
+    const cpaPoint = project(position.lat, position.lon, 90, offNm);
+    const start = project(cpaPoint.lat, cpaPoint.lon, 180, (speedKn * minutes) / 60);
+    const stopped = motion.sogKn !== null && motion.sogKn >= 0 && motion.sogKn < 0.5;
+    const reads = motion.sogKn === null ? 'unknown' : `${Math.round(motion.sogKn * 10) / 10} kn`;
+    const us = stopped
+        ? `Our own motion reads stopped (${reads}), so the alarm runs on it as is.`
+        : `Our own motion reads ${reads}, so for this test the alarm is told we are stopped.`;
+    return {
+        mode: 'anchor',
+        ownMotion: stopped ? { sogKn: motion.sogKn!, cogDeg: motion.cogDeg } : { sogKn: 0, cogDeg: 0 },
+        forcesOwnMotion: !stopped,
+        speedKn,
+        courseDeg: 0,
+        positionAt: (elapsedMs) => project(start.lat, start.lon, 0, (speedKn * elapsedMs) / 3_600_000),
+        summary: `${DEBUG_PASSER.name}, under way at ${speedKn} kn, passes ${offNm} NM off in ${minutes} min. ${us} With the anchor watch on, close quarters should sound about ${minutes - 3} min in; with no anchor watch it must stay quiet.`,
     };
 }
 
@@ -237,8 +286,11 @@ function feed(sentence: string): void {
     if (decoded) AisStore.update(decoded);
 }
 
-/** Start the crossing target. Returns a sentence for the panel, never throws. */
-export function startDebugCrossing(): string {
+/** Run one fictional ship (the crossing or the anchored pass), replacing any running. */
+function runShip(
+    ship: { mmsi: number; name: string },
+    plan: (position: { lat: number; lon: number }) => DebugCrossing,
+): string {
     // Its own run only: a beacon already running keeps going, so the smoke can
     // hear the distress and collision alarms together.
     if (timer) clearInterval(timer);
@@ -246,12 +298,15 @@ export function startDebugCrossing(): string {
     setDebugOwnMotion(null);
     const position = getCachedOwnshipPosition();
     if (!position) return 'No position fix: the injector needs one to place her.';
-    const crossing = planDebugCrossing(
-        position,
-        resolveOwnMotion(NmeaStore.getState(), GpsService.getLastKnownPosition()),
-    );
+    const crossing = plan(position);
     const startedAt = Date.now();
-    if (crossing.mode === 'berth') setDebugOwnMotion({ ...crossing.ownMotion, until: startedAt + RUN_MS });
+    if (crossing.forcesOwnMotion) {
+        setDebugOwnMotion({
+            sogKn: crossing.ownMotion.sogKn,
+            cogDeg: crossing.ownMotion.cogDeg ?? 0,
+            until: startedAt + RUN_MS,
+        });
+    }
     const tick = () => {
         const elapsed = Date.now() - startedAt;
         if (elapsed > RUN_MS) {
@@ -263,7 +318,7 @@ export function startDebugCrossing(): string {
         const at = crossing.positionAt(elapsed);
         feed(
             encodeAisPositionReport({
-                mmsi: DEBUG_CROSSER.mmsi,
+                mmsi: ship.mmsi,
                 navStatus: 0,
                 sogKn: crossing.speedKn,
                 lat: at.lat,
@@ -273,11 +328,25 @@ export function startDebugCrossing(): string {
             }),
         );
     };
-    feed(encodeAisStaticName(DEBUG_CROSSER.mmsi, DEBUG_CROSSER.name));
+    feed(encodeAisStaticName(ship.mmsi, ship.name));
     tick();
     timer = setInterval(tick, UPDATE_MS);
-    console.warn(`[${MARKER}] fictional crossing target started (${crossing.mode})`);
+    console.warn(`[${MARKER}] fictional target started (${crossing.mode})`);
     return crossing.summary;
+}
+
+/** Start the crossing target. Returns a sentence for the panel, never throws. */
+export function startDebugCrossing(): string {
+    return runShip(DEBUG_CROSSER, (position) =>
+        planDebugCrossing(position, resolveOwnMotion(NmeaStore.getState(), GpsService.getLastKnownPosition())),
+    );
+}
+
+/** Start the anchored pass (125-01b). Returns a sentence for the panel, never throws. */
+export function startDebugAnchorPass(): string {
+    return runShip(DEBUG_PASSER, (position) =>
+        planDebugAnchorPass(position, resolveOwnMotion(NmeaStore.getState(), GpsService.getLastKnownPosition())),
+    );
 }
 
 /**

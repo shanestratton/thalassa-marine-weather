@@ -40,6 +40,7 @@ import { AisLegend } from '../components/map/AisLegend';
 import { SoundCheckModal } from '../components/anchor-watch/SoundCheckModal';
 import {
     AisGuardAlertStore,
+    COLLISION_AT_ANCHOR_NOTICE,
     COLLISION_BLIND_NOTICE,
     COLLISION_NO_MOTION_NOTICE,
     COLLISION_PAUSED_NOTICE,
@@ -215,6 +216,37 @@ describe('the honest notices', () => {
         expect(screen.getByRole('status')).toHaveTextContent(COLLISION_UNCHECKED_NOTICE);
     });
 
+    it('stopped at a berth and stopped at anchor say which, and what each means (125-01b)', () => {
+        render(<AisGuardAlert />);
+        act(() => AisGuardAlertStore.setWatchNotice({ state: 'stopped', since: T0 }));
+        expect(screen.getByRole('status')).toHaveTextContent(
+            'Collision watch: stopped with no anchor watch, so it stays quiet until you make 0.5 kn',
+        );
+        act(() => AisGuardAlertStore.setWatchNotice({ state: 'at-anchor', since: T0 }));
+        expect(screen.getByRole('status')).toHaveTextContent(COLLISION_AT_ANCHOR_NOTICE);
+        expect(screen.getByRole('status')).toHaveTextContent(
+            'Collision watch at anchor: it still sounds for a vessel under way coming within 0.1 NM',
+        );
+        // A number keeps its unit on its line at 320 pt ('0.1 / NM' read badly in WebKit).
+        expect(screen.getByRole('status').textContent).toContain('0.1\u00a0NM');
+        // A status line, not a dismissible notice.
+        expect(screen.queryByRole('button', { name: 'Dismiss collision watch notice' })).toBeNull();
+    });
+
+    it('at anchor, blind on its own 10 min line; stopped with the watch kept elsewhere says so (125-01b review)', () => {
+        render(<AisGuardAlert />);
+        act(() => AisGuardAlertStore.setWatchNotice({ state: 'blind-at-anchor', since: T0 }));
+        expect(screen.getByRole('status')).toHaveTextContent('Collision watch blind: no AIS for 10 min');
+        expect(screen.getByRole('status').textContent).toContain('10\u00a0min');
+        act(() => AisGuardAlertStore.setWatchNotice({ state: 'stopped-elsewhere', since: T0 }));
+        expect(screen.getByRole('status')).toHaveTextContent(
+            'Collision watch: stopped, and the anchor watch is kept elsewhere, so it stays quiet until you make 0.5 kn',
+        );
+        // Never 'no anchor watch' while one is on.
+        expect(screen.getByRole('status').textContent).not.toMatch(/no anchor watch/);
+        expect(screen.queryByRole('button', { name: 'Dismiss collision watch notice' })).toBeNull();
+    });
+
     it('a pause of seconds is said in seconds, never rounded up to a minute', () => {
         render(<AisGuardAlert />);
         act(() =>
@@ -324,9 +356,16 @@ describe('Settings → Preferences', () => {
         // Exact about when it can sound: under way only, close quarters included.
         expect(section.textContent).toMatch(/While you make 0\.5 kn or more/);
         expect(section.textContent).toMatch(/Close quarters .*always sounds then/);
-        expect(section.textContent).toMatch(/Stopped, it stays quiet and says so/);
-        // No promise that an anchor watch makes it sound: at anchor it cannot.
-        expect(section.textContent).not.toMatch(/anchor watch\)/);
+        // 125-01b: plain about the two ways of being stopped.
+        expect(section.textContent).toContain('Stopped at a berth: the collision alarm stays quiet.');
+        expect(section.textContent).toContain(
+            'At anchor (anchor watch on): it still sounds for a vessel under way coming within 0.1 NM.',
+        );
+        expect(section.textContent).not.toMatch(/Stopped, it stays quiet and says so/);
+        // Locked, it watches only while something keeps Thalassa running: the Pi's watch does not.
+        expect(section.textContent).toMatch(
+            /a voyage track keeps it running under way, an anchor watch kept on this phone at anchor/,
+        );
         // Honest about iOS: no promise beyond what a Time Sensitive notification delivers.
         expect(section.textContent).toMatch(/Time Sensitive/);
         expect(section.textContent).not.toMatch(/Critical Alert|always wakes|guaranteed/i);

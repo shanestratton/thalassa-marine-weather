@@ -40,6 +40,14 @@
  * does. A shield armed before build 125 keeps its ring but waits for the
  * collision sound check before it sounds.
  *
+ * AT ANCHOR (125-01b) is one of those inputs: whether an anchor watch is on
+ * for the position we grade (services/collisionAnchorWatch.ts, from the one
+ * anchor-watch truth). Stopped there (swinging up to 2 kn included), close
+ * quarters still sounds for a vessel under way; stopped at a berth, nothing
+ * does. A watch that is on but kept elsewhere is told to the strip as such.
+ * Each graded target also carries `settled` (collisionSettled): us stopped
+ * and her no longer under way, which ends an encounter at anchor.
+ *
  * DISTRESS BEACONS (build 125, 125-02) are watched on the same loop but not
  * behind the shield: runDistressCheck runs whether or not the guard is armed,
  * once per burst of AIS reports (a microtask after the first; the Pi lane
@@ -64,6 +72,7 @@ import {
     aisSogKn,
     assessCollision,
     collisionOpening,
+    collisionSettled,
     collisionSourceCanAlarm,
     distressKindOfMmsi,
     ownMotionState,
@@ -72,6 +81,7 @@ import {
 } from '../utils/collisionRule';
 import { CollisionAlarmService, type CollisionAlarmCandidate } from './CollisionAlarmService';
 import { DistressAlarmService, collectDistressBeacons } from './DistressAlarmService';
+import { readCollisionAnchorWatch, type CollisionAnchorWatch } from './collisionAnchorWatch';
 
 const log = createLogger('AisGuardWatch');
 
@@ -114,15 +124,23 @@ export interface CollisionInputs {
     motion: OwnMotion;
     prefs: CollisionPrefs;
     ownMmsis: Set<number>;
+    /** An anchor watch is on for the position we grade (services/collisionAnchorWatch.ts): the rule's input. */
+    atAnchor: boolean;
+    /** The same, said in full: 'elsewhere' is a watch that is on but not for this position. */
+    anchorWatch: CollisionAnchorWatch;
 }
 
 export function readCollisionInputs(nowMs: number = Date.now()): CollisionInputs {
     const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState(), nowMs);
+    const ownAt = own ? { lat: own.lat, lon: own.lon, source: own.source } : null;
+    const anchorWatch = readCollisionAnchorWatch(ownAt);
     return {
-        own: own ? { lat: own.lat, lon: own.lon, source: own.source } : null,
+        own: ownAt,
         motion: resolveOwnMotion(NmeaStore.getState(), GpsService.getLastKnownPosition(), nowMs),
         prefs: sanitiseCollisionPrefs(useSettingsStore.getState().settings?.collisionAlarm),
         ownMmsis: ownMmsis(),
+        atAnchor: anchorWatch === 'at-anchor',
+        anchorWatch,
     };
 }
 
@@ -139,7 +157,7 @@ function reportAgeSec(p: Record<string, unknown>, nowMs: number): number | null 
  * can tell 'opening' from 'lost'. Exported for tests. Source is whatever
  * tagged the feature: 'local' for the receiver, 'cloud' for network AIS —
  * anything else (an app-shared position) is never graded for the alarm, and
- * our own MMSIs never are.
+ * our own MMSIs never are. `atAnchor` is readCollisionInputs' (125-01b).
  */
 export function gradeCollisionTargets(
     own: { lat: number; lon: number },
@@ -148,6 +166,7 @@ export function gradeCollisionTargets(
     prefs: CollisionPrefs,
     ownMmsi: number | ReadonlySet<number> | undefined,
     nowMs: number,
+    atAnchor: boolean,
 ): CollisionAlarmCandidate[] {
     const isOwn = (mmsi: number) => (typeof ownMmsi === 'number' ? mmsi === ownMmsi : !!ownMmsi?.has(mmsi));
     const out: CollisionAlarmCandidate[] = [];
@@ -163,7 +182,7 @@ export function gradeCollisionTargets(
         const age = reportAgeSec(p, nowMs);
         const sogKn = aisSogKn(p.sog);
         const assessment = assessCollision(
-            { lat: own.lat, lon: own.lon, sogKn: motion.sogKn, cogDeg: motion.cogDeg, pair: motion.pair },
+            { lat: own.lat, lon: own.lon, sogKn: motion.sogKn, cogDeg: motion.cogDeg, pair: motion.pair, atAnchor },
             {
                 lat: Number(coords[1]),
                 lon: Number(coords[0]),
@@ -184,6 +203,7 @@ export function gradeCollisionTargets(
             source: String(source),
             sogKn,
             opening: collisionOpening(assessment, prefs),
+            settled: collisionSettled(assessment, { sogKn: motion.sogKn, atAnchor }, sogKn),
         });
     }
     return out;
@@ -197,8 +217,11 @@ export function collisionCandidates(
     prefs: CollisionPrefs,
     ownMmsi: number | ReadonlySet<number> | undefined,
     nowMs: number,
+    atAnchor: boolean,
 ): CollisionAlarmCandidate[] {
-    return gradeCollisionTargets(own, motion, features, prefs, ownMmsi, nowMs).filter((c) => c.assessment.alarm);
+    return gradeCollisionTargets(own, motion, features, prefs, ownMmsi, nowMs, atAnchor).filter(
+        (c) => c.assessment.alarm,
+    );
 }
 
 /** The newest report among the targets we hold (0 = none); the store's own clock covers the rest. */
@@ -258,13 +281,15 @@ export function runGuardCheck(nowMs: number = Date.now()): number {
 
     if (collisionArmed) {
         CollisionAlarmService.update(
-            gradeCollisionTargets(own, inputs.motion, features, inputs.prefs, inputs.ownMmsis, nowMs),
+            gradeCollisionTargets(own, inputs.motion, features, inputs.prefs, inputs.ownMmsis, nowMs, inputs.atAnchor),
             {
                 nowMs,
                 // When AIS was last HEARD by any lane: any decoded message (our own
                 // transponder's and static ones too), not just the targets still held.
                 lastAisAt: Math.max(newestReportAt(features, nowMs), AisStore.getLastHeardAt()),
-                own: ownMotionState(inputs.motion.sogKn, inputs.motion.cogDeg),
+                own: ownMotionState(inputs.motion.sogKn, inputs.motion.cogDeg, inputs.atAnchor),
+                atAnchor: inputs.atAnchor,
+                anchorWatchElsewhere: inputs.anchorWatch === 'elsewhere',
             },
         );
     } else {
