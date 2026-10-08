@@ -4,10 +4,11 @@
  * GPS locate and weather-location recenter floating action buttons, plus the
  * one-handed zoom pair on the right rail.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { triggerHaptic } from '../../utils/system';
 import { chartMapBeside, onChartMapsChanged } from './chartMapRegistry';
+import { PHONE_GLYPH_PATHS } from './phoneMarker';
 
 // PARKED (Shane 2026-07-17: "remove that bottom right fab, and replace it
 // with the fab which is immediately to the left of it"): the recenter-on-
@@ -45,6 +46,13 @@ interface MapActionFabsProps {
     onLocateMe: () => void | Promise<LocateResult | null | void>;
     onRecenter: () => void;
     recenterDisabled: boolean;
+    /**
+     * Where Locate goes, when the chart knows (Obs follows the location box):
+     * 'phone' draws the button as the phone it flies to, the same phone as
+     * the chart's own mark, so Current Location is never a guess (Shane
+     * 2026-10-08). Omitted or 'boat': the crosshair, as always.
+     */
+    target?: 'phone' | 'boat';
 }
 
 /** Camera events carry originalEvent only when a person moved the map. */
@@ -52,9 +60,10 @@ function isGesture(event: unknown): boolean {
     return !!event && typeof event === 'object' && 'originalEvent' in event && !!event.originalEvent;
 }
 
-export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRecenter, recenterDisabled }) => {
+export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRecenter, recenterDisabled, target }) => {
     const rootRef = useRef<HTMLDivElement>(null);
     const [locate, setLocate] = useState<LocateState>('idle');
+    const targetId = useId();
     const [announcement, setAnnouncement] = useState('');
     const stopWatchingLocate = useRef<(() => void) | null>(null);
     /** Ends a "No position fix" line the handler's own answer put up. */
@@ -218,10 +227,19 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
                     </span>
                 )}
 
+                {/* Where it goes, for VoiceOver: the name stays "Locate me". */}
+                {target && (
+                    <span id={targetId} className="sr-only">
+                        {target === 'phone' ? 'Goes to your phone' : 'Goes to the boat'}
+                    </span>
+                )}
+
                 {/* GPS Locate Me — fly to device position */}
                 <button
                     type="button"
                     aria-label="Locate me"
+                    aria-describedby={target ? targetId : undefined}
+                    data-target={target}
                     aria-busy={locate === 'finding'}
                     onClick={handleLocate}
                     className="relative w-[max(44px,3rem)] h-[max(44px,3rem)] bg-slate-900/90 border border-white/8 rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
@@ -234,17 +252,36 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
                         />
                     )}
                     {/* White like the layers glyph beside it: one glyph colour on the rail. */}
-                    <svg
-                        className="w-5 h-5 text-white"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        aria-hidden="true"
-                    >
-                        <circle cx="12" cy="12" r="3" />
-                        <path strokeLinecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
-                    </svg>
+                    {target === 'phone' ? (
+                        <svg
+                            className="w-5 h-5 text-white"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                            data-glyph="phone"
+                        >
+                            {PHONE_GLYPH_PATHS.map((d) => (
+                                <path key={d} d={d} />
+                            ))}
+                        </svg>
+                    ) : (
+                        <svg
+                            className="w-5 h-5 text-white"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            aria-hidden="true"
+                            data-glyph="crosshair"
+                        >
+                            <circle cx="12" cy="12" r="3" />
+                            <path strokeLinecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+                        </svg>
+                    )}
                 </button>
 
                 {/* Recenter on weather location — parked, see RECENTER_FAB_VISIBLE */}
