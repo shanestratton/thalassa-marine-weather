@@ -403,6 +403,13 @@ function sameDraft(a: { draftM: number; draftAssumed: boolean }, b: { draftM: nu
     return a.draftAssumed === b.draftAssumed && Math.abs(a.draftM - b.draftM) <= 0.01;
 }
 
+/** A check dated more than five minutes ahead of this device's clock (125-07):
+ *  a skewed clock elsewhere. Readers of another device's check treat it as
+ *  absent — it would otherwise outrank, and then block, real checks here. */
+export function traceCheckFromTheFuture(checkedAt: string, nowMs: number): boolean {
+    return Date.parse(checkedAt) - nowMs > 5 * 60_000;
+}
+
 function checkAged(checkedAt: string, nowMs: number): boolean {
     const checkedMs = Date.parse(checkedAt);
     return !Number.isFinite(checkedMs) || nowMs - checkedMs > FOLLOW_MAX_AGE_MS || checkedMs - nowMs > 5 * 60_000;

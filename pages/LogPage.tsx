@@ -92,7 +92,7 @@ import { isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { LogSightingEntry } from '../components/sightings/LogSightingEntry';
 import { tracedRouteDirectUseStatus, tracedRouteFollowGeometry } from '../services/traceDirectUseGate';
-import { cancelTraceChecks, enqueueTraceChecks } from '../services/traceBackgroundCheck';
+import { actOnCurrentTraceCheckReport, cancelTraceChecks, enqueueTraceChecks } from '../services/traceBackgroundCheck';
 import { getTraceCheckOutcome } from '../services/traceCheckOutcomes';
 import type { TraceFollowStatus } from '../services/traceVerification';
 import { useTraceBackgroundChecks } from './log/useTraceBackgroundChecks';
@@ -762,15 +762,18 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         sheetTraceIds,
         plannedTraceIds,
         onStatusesChanged: refreshFollowStatuses,
-        onReport: (savedRouteId, report) => {
+        onReport: (savedRouteId, { report, points }) => {
+            // The pins come WITH the report (125-07): re-reading the trace here
+            // could pair a sync's new pins with verdicts graded on the old.
+            if (report.verdicts.length !== points.length - 1) return;
             void import('../services/routeTracer').then(({ loadSavedTraces }) => {
                 const trace = loadSavedTraces().find((t) => t.id === savedRouteId);
-                if (!trace || report.verdicts.length !== trace.points.length - 1) return;
+                if (!trace) return;
                 setAckedLegs(new Set());
                 setAckReport({
                     savedRouteId,
                     name: trace.name,
-                    points: trace.points,
+                    points,
                     report,
                     priorDepartureMs: trace.verification?.departureMs ?? null,
                 });
@@ -783,6 +786,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      * cheap) — never the check itself, which already ran. The moment the gate
      * allows, bank the envelope (the one safe bank) and the row goes green.
      */
+    const reviewTraceCheck = traceChecks.review;
     const acknowledgeLeg = React.useCallback(
         (legIndex: number) => {
             if (!ackReport) return;
@@ -795,17 +799,30 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     import('../services/routeTracer'),
                 ]);
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                const gate = releaseWithAcks(ackReport.points, ackReport.report, nextAcks, ackReport.priorDepartureMs);
-                if (!gate.allowed || !gate.verification) return; // more legs to go
-                const bank = bankTraceVerification(ackReport.savedRouteId, gate.verification, actionScope);
-                if (!bank.banked) log.warn(`acknowledged check not banked (${bank.reason})`);
-                refreshFollowStatuses();
+                // The memoKey again, at the moment of banking (125-07): a draft
+                // sync or new charts while the sheet was open must not bank
+                // verdicts graded for another keel. Compared and banked in one
+                // synchronous step.
+                const outcome = await actOnCurrentTraceCheckReport(ackReport.savedRouteId, ackReport.report, (held) => {
+                    const gate = releaseWithAcks(held.points, held.report, nextAcks, ackReport.priorDepartureMs);
+                    if (!gate.allowed || !gate.verification) return 'more' as const; // more legs to go
+                    return bankTraceVerification(ackReport.savedRouteId, gate.verification, actionScope);
+                });
+                if (outcome === 'more') return;
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
                 setAckReport(null);
                 setAckedLegs(new Set());
-                setFollowNotice(bank.reason === 'storage' ? TRACE_CHECK_STORAGE_FULL : null);
+                if (!outcome) {
+                    log.warn('acknowledgement not banked: the route, draft or charts changed; re-checking');
+                    reviewTraceCheck(ackReport.savedRouteId);
+                    return;
+                }
+                if (!outcome.banked) log.warn(`acknowledged check not banked (${outcome.reason})`);
+                refreshFollowStatuses();
+                setFollowNotice(outcome.reason === 'storage' ? TRACE_CHECK_STORAGE_FULL : null);
             })();
         },
-        [ackReport, ackedLegs, identityScope, refreshFollowStatuses],
+        [ackReport, ackedLegs, identityScope, refreshFollowStatuses, reviewTraceCheck],
     );
 
     /**

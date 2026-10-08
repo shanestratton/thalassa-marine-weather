@@ -191,7 +191,12 @@ import {
     getVersion as getEncRegistryVersion,
 } from '../../services/enc/EncCellMetadata';
 import { evaluateTraceRelease, traceRegistryScope } from '../../services/traceVerification';
-import { setTracerActive, tracerBlocksBackgroundChecks } from '../../services/traceBackgroundCheck';
+import {
+    registerTraceCheckMemoryRelease,
+    setTracerActive,
+    tracerBlocksBackgroundChecks,
+    tracerWindowsAfterRelease,
+} from '../../services/traceBackgroundCheck';
 import { useTracerAutoBank, type TideLabelFor } from './useTracerAutoBank';
 import { useEncChartInventory } from './useEncChartInventory';
 import { DETAIL_SCRUB_MAX, applyChartDetailLevel, browseDetailLevel } from './encDetailScrubber';
@@ -508,6 +513,26 @@ export const MapHub: React.FC<MapHubProps> = ({
         tracerCtxRef.current = ctx;
         tracerCtxLruRef.current = holdTracerCtx(tracerCtxLruRef.current, ctx);
     }, []);
+    // A background route check frees these windows before each check and at
+    // the end of its queue (125-07): kept alive here, hidden, they sat under
+    // every ~200 MB cold window it built. The queue never calls this while the
+    // tracer is on screen or grading. A hidden trace that still holds pins
+    // keeps the window it is using (its snapping reads it); the rest go.
+    const tracingPinsRef = useRef(false);
+    tracingPinsRef.current = coordCaptureMode && capturedCoords.length > 0;
+    useEffect(
+        () =>
+            registerTraceCheckMemoryRelease(() => {
+                const kept = tracerWindowsAfterRelease(
+                    tracerCtxRef.current,
+                    tracerCtxLruRef.current,
+                    tracingPinsRef.current,
+                );
+                tracerCtxRef.current = kept.current;
+                tracerCtxLruRef.current = kept.lru;
+            }),
+        [],
+    );
     /** Draft the caches were graded with — invalidation must key on THIS,
      *  not on tracerCtxRef (Done nulls the ctx but keeps the cache; draft
      *  edits between Done and reopen used to serve stale-keel verdicts). */

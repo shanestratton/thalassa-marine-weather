@@ -19,7 +19,7 @@ vi.mock('../services/native/memoryGauge', () => ({
     recentAvailableMemory: vi.fn(() => native.reading),
 }));
 
-import { awaitHeapHeadroom, heapTag, NATIVE_AVAILABLE_FLOOR_MB } from '../utils/heapGauge';
+import { awaitHeapHeadroom, heapHeadroomOk, heapTag, NATIVE_AVAILABLE_FLOOR_MB } from '../utils/heapGauge';
 
 beforeEach(() => {
     native.reading = null;
@@ -79,5 +79,32 @@ describe('heapTag on WKWebView', () => {
 
     it('stays empty with no reading — existing crumb formats unchanged', () => {
         expect(heapTag()).toBe('');
+    });
+});
+
+describe('heapHeadroomOk — the line a dark boot re-check is skipped below (125-07)', () => {
+    it('no gauge anywhere is not headroom: unknown, so a boot pass stays off', async () => {
+        await expect(heapHeadroomOk()).resolves.toBeNull();
+    });
+
+    it('reads the same native floor the brake uses, and a warning is never headroom', async () => {
+        native.reading = { availableMB: NATIVE_AVAILABLE_FLOOR_MB + 50, warning: false };
+        await expect(heapHeadroomOk()).resolves.toBe(true);
+        native.reading = { availableMB: NATIVE_AVAILABLE_FLOOR_MB - 1, warning: false };
+        await expect(heapHeadroomOk()).resolves.toBe(false);
+        native.reading = { availableMB: NATIVE_AVAILABLE_FLOOR_MB + 500, warning: true };
+        await expect(heapHeadroomOk()).resolves.toBe(false);
+    });
+
+    it('on Chrome the JS heap gauge decides, against the soft ceiling', async () => {
+        const perf = performance as unknown as { memory?: unknown };
+        perf.memory = { usedJSHeapSize: 400 * 1048576, jsHeapSizeLimit: 4096 * 1048576 };
+        try {
+            await expect(heapHeadroomOk()).resolves.toBe(true);
+            perf.memory = { usedJSHeapSize: 1200 * 1048576, jsHeapSizeLimit: 4096 * 1048576 };
+            await expect(heapHeadroomOk()).resolves.toBe(false);
+        } finally {
+            delete perf.memory;
+        }
     });
 });
