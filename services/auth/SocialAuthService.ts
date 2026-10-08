@@ -32,6 +32,7 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../supabase';
 import { createLogger } from '../../utils/createLogger';
 import { bindAppleCredentialUser, clearBoundAppleCredential } from './appleCredentialState';
+import { fenceSignedOutOnThisDevice } from '../../stores/authStore';
 
 const log = createLogger('SocialAuth');
 
@@ -71,23 +72,144 @@ function nativeErrorCode(error: unknown): string {
     return String((error as { code?: unknown }).code ?? '');
 }
 
+// ── Failure reporting ──────────────────────────────────────────
+/**
+ * The four steps of a native Apple sign-in, in order. Until build 124 a
+ * failure after Supabase accepted Apple's token closed the sheet silently, so
+ * nobody could say which step broke (Shane, 2026-10-08: "it did work the 3rd
+ * time I tried").
+ */
+type AppleSignInStep = 'authorize' | 'supabase_id_token' | 'bind_credential' | 'register_token';
+
+/** A short, fixed token for a report: digits, letters and _.- only, never free text. */
+function reportToken(value: unknown): string {
+    const token = String(value ?? '')
+        .replace(/[^A-Za-z0-9_.-]/g, '_')
+        .slice(0, 40);
+    return token || 'none';
+}
+
+/**
+ * Report a failed step to Sentry (log.error with a real Error) and hand back
+ * the Error the sign-in sheet shows. Only the step, a code and a reason class
+ * are reported: never an Apple token, authorization code, nonce, Supabase
+ * token, email or Apple user id, and never a raw error message that could
+ * carry one.
+ */
+function appleSignInFailure(step: AppleSignInStep, rawCode: unknown, rawReason: unknown, message: string): Error {
+    const code = reportToken(rawCode);
+    const reason = reportToken(rawReason);
+    const report = `apple_signin_failed step=${step} code=${code} reason=${reason}`;
+    log.error(report, new Error(report));
+    return new Error(message);
+}
+
+const APPLE_OFFLINE = "Apple Sign-In couldn't reach Thalassa. Check your connection and try again.";
+
+/**
+ * Apple's ASAuthorizationError code for a failed authorize(): the code the
+ * patched plugin rejects with, or the one iOS writes into its localized
+ * description in every language ("…AuthorizationError error 1000.").
+ */
+function appleAuthorizationCode(error: unknown): string | null {
+    const code = nativeErrorCode(error);
+    if (/^\d{3,5}$/.test(code)) return code;
+    const message = error instanceof Error ? error.message : '';
+    return /AuthorizationError\D{0,24}?(\d{3,5})\b/.exec(message)?.[1] ?? null;
+}
+
+/** The fixed native rejections from AppleCredentialStatePlugin.bindCredential, by class. */
+function bindFailureReason(error: unknown): string {
+    const message = error instanceof Error ? error.message : '';
+    if (message.includes('is not authorized')) return 'not_authorized';
+    if (message.includes('secure the Apple credential binding')) return 'keychain';
+    if (message.includes('verify the Apple credential state')) return 'state_check';
+    if (message.includes('valid Apple user identifier')) return 'invalid_user';
+    return 'unknown';
+}
+
+interface FunctionsInvokeError {
+    name?: string;
+    context?: { status?: number; json?: () => Promise<unknown> };
+}
+
+/**
+ * register-apple-token's failure, as a step-tagged Error (no error at all means
+ * a 2xx reply that is not a registration). Its replies carry no secret, but
+ * only the HTTP status and the 409 `retryable` flag are read.
+ */
+async function registrationFailure(error: unknown): Promise<Error> {
+    const failure = (code: unknown, reason: string, label: unknown = code) =>
+        appleSignInFailure(
+            'register_token',
+            code,
+            reason,
+            `Apple Sign-In couldn't finish (server, ${label}). Try again.`,
+        );
+    if (!error) return failure(200, 'invalid_response', 'invalid reply');
+    const { name, context } = error as FunctionsInvokeError;
+    if (name === 'FunctionsFetchError')
+        return appleSignInFailure('register_token', 'fetch', 'fetch_error', APPLE_OFFLINE);
+    if (name === 'FunctionsRelayError') return failure('relay', 'relay_error');
+    if (name !== 'FunctionsHttpError' || typeof context?.status !== 'number') return failure('error', 'unknown');
+    let body: unknown = null;
+    try {
+        body = await context.json?.();
+    } catch {
+        // Not JSON: the status still names the failure.
+    }
+    if (context.status === 409 && (body as { retryable?: unknown } | null)?.retryable === true) {
+        return appleSignInFailure(
+            'register_token',
+            409,
+            'retryable',
+            'Another Apple sign-in for this account finished at the same moment. Try again.',
+        );
+    }
+    return failure(context.status, 'http_error');
+}
+
+/** auth-js's own network-free session removal (it fires SIGNED_OUT); not public API. */
+interface LocalSessionRemoval {
+    _removeSession?: () => Promise<void>;
+}
+
 async function discardUnsecuredAppleSession(): Promise<void> {
     if (!supabase) return;
     await clearBoundAppleCredential().catch((error) => {
         log.warn(
             'Could not clear the unsecured Apple credential binding:',
-            error instanceof Error ? error.message : 'unknown error',
+            error instanceof Error ? error.name : 'unknown error',
         );
     });
+    let failedAs: string | null = null;
     try {
         const { error } = await supabase.auth.signOut({ scope: 'local' });
-        if (error) log.warn('Could not discard the unsecured Apple session:', error.message);
+        if (error) failedAs = error.name ?? 'AuthError';
     } catch (error) {
-        log.warn(
-            'Could not discard the unsecured Apple session:',
-            error instanceof Error ? error.message : 'unknown error',
-        );
+        failedAs = error instanceof Error ? error.name : 'unknown error';
     }
+    if (failedAs === null) return;
+
+    // Fail closed. signOut({ scope: 'local' }) still calls Supabase's /logout
+    // first, and keeps the session when that call fails: offline or a 5xx,
+    // the very fault most likely to have failed the step. A session whose
+    // Apple token was never registered (and whose device binding is already
+    // cleared, so revocation monitoring cannot see it) must not stay signed
+    // in, so remove it on this device without the network, then fence the
+    // app's signed-in state the way an Apple revocation does.
+    log.warn('Could not discard the unsecured Apple session; removing it on this device:', failedAs);
+    try {
+        const removal = (supabase.auth as unknown as LocalSessionRemoval)._removeSession;
+        if (typeof removal !== 'function') throw new TypeError('no local removal');
+        await removal.call(supabase.auth);
+    } catch (error) {
+        // The error's class name only (a DOMException is not always an Error).
+        const name = (error as { name?: unknown } | null)?.name;
+        const report = `apple_signin_discard_failed reason=${reportToken(typeof name === 'string' ? name : 'unknown')}`;
+        log.error(report, new Error(report));
+    }
+    await fenceSignedOutOnThisDevice();
 }
 
 // ── Apple ──────────────────────────────────────────────────────
@@ -116,28 +238,52 @@ export async function signInWithApple(): Promise<Session> {
             nonce: hashedNonce,
         });
     } catch (err) {
-        // User cancelled the system sheet → friendly silent return.
-        // Plugin throws a CapacitorException with code 1000/1001 on cancel.
-        const msg = err instanceof Error ? err.message : String(err);
-        const code = nativeErrorCode(err);
-        if (/cancel/i.test(msg) || /1000|1001/.test(msg) || /1000|1001/.test(code)) {
+        // Only ASAuthorizationError.canceled (1001), or a plugin that says
+        // "cancel" without a code, is the sailor closing the sheet: a silent
+        // return. 1000 (unknown) is a failed sign-in, not a cancel. Until build
+        // 124 it was swallowed as one, so a tap could do nothing at all.
+        const code = appleAuthorizationCode(err);
+        const message = err instanceof Error ? err.message : String(err);
+        if (code === '1001' || (code === null && /cancel/i.test(message))) {
             throw new Error('CANCELLED');
         }
-        log.warn('Apple authorize failed:', msg);
-        throw new Error("Apple Sign-In didn't complete. Try again or use another method.");
+        if (code !== null) {
+            throw appleSignInFailure(
+                'authorize',
+                code,
+                'apple_error',
+                `Apple Sign-In didn't complete (Apple error ${code}). Try again.`,
+            );
+        }
+        throw appleSignInFailure(
+            'authorize',
+            nativeErrorCode(err) || null,
+            'bridge',
+            "Apple Sign-In didn't complete. Try again or use another method.",
+        );
     }
 
     const idToken = appleResponse.response?.identityToken;
     if (!idToken) {
-        throw new Error('Apple returned no identity token. Try again.');
+        throw appleSignInFailure(
+            'authorize',
+            null,
+            'no_identity_token',
+            'Apple returned no identity token. Try again.',
+        );
     }
     const authorizationCode = appleResponse.response?.authorizationCode;
     if (!authorizationCode) {
-        throw new Error('Apple returned no authorization code. Try again.');
+        throw appleSignInFailure(
+            'authorize',
+            null,
+            'no_authorization_code',
+            'Apple returned no authorization code. Try again.',
+        );
     }
     const appleUserId = appleResponse.response?.user;
     if (!appleUserId) {
-        throw new Error('Apple returned no user identifier. Try again.');
+        throw appleSignInFailure('authorize', null, 'no_user', 'Apple returned no user identifier. Try again.');
     }
 
     const { data, error } = await supabase.auth.signInWithIdToken({
@@ -147,8 +293,17 @@ export async function signInWithApple(): Promise<Session> {
     });
 
     if (error || !data.session) {
-        log.warn('Supabase signInWithIdToken (apple) failed:', error?.message);
-        throw new Error(error?.message ?? "Sign-in didn't complete on our end. Try again.");
+        const status = (error as { status?: number } | null)?.status;
+        const reason = (error as { code?: string } | null)?.code ?? error?.name ?? 'no_session';
+        if (error?.name === 'AuthRetryableFetchError' && !status) {
+            throw appleSignInFailure('supabase_id_token', 0, reason, APPLE_OFFLINE);
+        }
+        throw appleSignInFailure(
+            'supabase_id_token',
+            status ?? 'none',
+            reason,
+            `Apple Sign-In couldn't finish (account, ${status ?? 'no session'}). Try again.`,
+        );
     }
 
     // Secure and verify the opaque Apple user binding before consuming the
@@ -158,12 +313,14 @@ export async function signInWithApple(): Promise<Session> {
     try {
         await bindAppleCredentialUser(appleUserId);
     } catch (bindingError) {
-        log.warn(
-            'Native Apple credential-state binding failed:',
-            bindingError instanceof Error ? bindingError.message : 'unknown error',
+        const failure = appleSignInFailure(
+            'bind_credential',
+            'native',
+            bindFailureReason(bindingError),
+            "Apple Sign-In couldn't finish securely on this device. Try again.",
         );
         await discardUnsecuredAppleSession();
-        throw new Error("Apple Sign-In couldn't finish securely. Please try again.");
+        throw failure;
     }
 
     // TN3194 lifecycle registration is intentionally after authenticated
@@ -173,9 +330,9 @@ export async function signInWithApple(): Promise<Session> {
         body: { authorizationCode },
     });
     if (registrationError || registration?.registered !== true) {
-        log.warn('Server-side Apple token registration failed:', registrationError?.message ?? 'invalid response');
+        const failure = await registrationFailure(registrationError);
         await discardUnsecuredAppleSession();
-        throw new Error("Apple Sign-In couldn't finish securely. Please try again.");
+        throw failure;
     }
 
     // Persist name parts to user_metadata on FIRST sign-in only — Apple

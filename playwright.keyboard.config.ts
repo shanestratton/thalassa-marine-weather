@@ -66,6 +66,9 @@ export default defineConfig({
         // Her GPS silent at Start: the stand-in question and the phone notice fit
         // at 320 × 568 with large text, centred above the tab bar (e2e/fixtures/stand-in-question.tsx).
         'stand-in-question-layout.spec.ts',
+        // A failed Sign in with Apple on the sign-in sheet: three providers, the
+        // longest prompt and the failure banner fit 320 × 568 (e2e/fixtures/sign-in.tsx).
+        'sign-in-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
@@ -93,5 +96,11 @@ export default defineConfig({
         url: 'http://127.0.0.1:4199/e2e/fixtures/keyboard.html',
         reuseExistingServer: false,
         timeout: 60_000,
+        // The sign-in sheet's worst case is all three providers (sign-in-layout:
+        // a browser shows email, Apple and Google, the same three buttons as a
+        // phone). Only SignInScreen and googleSignIn read these, and no other
+        // fixture opens the sheet. Google also needs VITE_GOOGLE_OAUTH_CLIENT_ID,
+        // which .env.local and the CI job both carry.
+        env: { VITE_APPLE_WEB_SIGN_IN_ENABLED: 'true', VITE_GOOGLE_SIGN_IN_ENABLED: 'true' },
     },
 });

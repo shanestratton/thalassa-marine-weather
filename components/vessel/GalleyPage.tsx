@@ -19,6 +19,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/Button';
 import { SignInButton } from '../ui/SignInButton';
 import { SignInScreen } from '../SignInScreen';
+import { appleSignInHoldsSheet } from '../../services/auth/appleSignInAttempt';
 import { CartIcon, ClipboardIcon, FoodIcon, PackageIcon, ShareIcon, StarIcon } from '../Icons';
 import {
     getMealsByStatus,
@@ -124,7 +125,9 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
         setActiveCookingMeal(null);
         setEditorRecipe(null);
         setShowGroceryList(false);
-        setShowSignIn(false);
+        // Mid Apple sign-in the account changes before its last steps run: the
+        // sheet closes itself once they finish, or shows the failed step.
+        if (!appleSignInHoldsSheet()) setShowSignIn(false);
 
         if (operationScope.userId !== currentUserId) {
             return () => {
