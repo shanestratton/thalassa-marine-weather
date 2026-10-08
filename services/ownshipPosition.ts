@@ -1,6 +1,7 @@
 import { GpsService, type GpsPosition } from './GpsService';
 import { NmeaStore } from './NmeaStore';
 import { LocationStore } from '../stores/LocationStore';
+import { collisionPairFor, type CollisionPairName } from '../utils/collisionRule';
 
 const DEFAULT_MAX_NMEA_AGE_MS = 15_000;
 const DEFAULT_MAX_GPS_AGE_MS = 60_000;
@@ -172,6 +173,88 @@ export function resolveOwnshipPosition(
         timestamp: selectedLocation.timestamp,
         source: 'gps',
     };
+}
+
+/** Own-ship motion for the collision rule. Unknown is null, never 0. */
+export interface OwnMotion {
+    sogKn: number | null;
+    cogDeg: number | null;
+    source: 'nmea' | 'phone' | null;
+    /**
+     * The skipper's threshold pair in use (utils/collisionRule.ts
+     * collisionPairFor): offshore from 3 kn, inshore again only under 2.5 kn.
+     * Carried here so the alarm, the chip and Calypso share one hysteresis.
+     */
+    pair: CollisionPairName;
+}
+
+/** The last pair in use, shared by every caller (the hysteresis needs a memory). */
+let lastCollisionPair: CollisionPairName | null = null;
+
+/**
+ * Smoke builds only (THALASSA_DEBUG_AIS_INJECTOR=1, package 125-11): a
+ * fictional own motion so the debug injector's crossing can sound at a berth.
+ * The build-time constant is the literal false in every other build, so the
+ * branch reading it folds away and nothing can set it.
+ */
+let debugOwnMotion: { sogKn: number; cogDeg: number; until: number } | null = null;
+
+export function setDebugOwnMotion(next: { sogKn: number; cogDeg: number; until: number } | null): void {
+    if (__THALASSA_DEBUG_AIS_INJECTOR__) debugOwnMotion = next;
+}
+
+function withPair(motion: Omit<OwnMotion, 'pair'>): OwnMotion {
+    lastCollisionPair = collisionPairFor(motion.sogKn, lastCollisionPair);
+    return { ...motion, pair: lastCollisionPair };
+}
+
+/**
+ * Our own course and speed for the collision rule (build 125, 125-01): the
+ * boat's own GPS (NmeaStore SOG/COG, any lane) is the truth, else this phone's
+ * last fix. The two are never mixed, since a boat speed with a phone course
+ * is a vector nobody measured, and nothing unknown becomes 0:
+ * `resolveOwnshipPosition` keeps its 0s for its existing callers, but a CPA
+ * from a made-up 0 kn own ship would grade every crossing as someone else's.
+ * A phone fix whose platform gave no speed (speedUnknown) is unknown too.
+ */
+export function resolveOwnMotion(
+    nmea: Pick<OwnshipNavigationInput, 'sog' | 'cog'>,
+    phone: GpsPosition | null,
+    now = Date.now(),
+): OwnMotion {
+    if (__THALASSA_DEBUG_AIS_INJECTOR__ && debugOwnMotion && now < debugOwnMotion.until) {
+        return withPair({ sogKn: debugOwnMotion.sogKn, cogDeg: debugOwnMotion.cogDeg, source: 'nmea' });
+    }
+    const sog = freshMovementMetric(nmea.sog, now, DEFAULT_MAX_NMEA_AGE_MS);
+    if (sog !== null) {
+        return withPair({
+            sogKn: sog,
+            cogDeg: freshMovementMetric(nmea.cog, now, DEFAULT_MAX_NMEA_AGE_MS, 360),
+            source: 'nmea',
+        });
+    }
+    const age = phone ? now - phone.timestamp : Number.NaN;
+    if (
+        !phone ||
+        phone.speedUnknown === true ||
+        !Number.isFinite(phone.speed) ||
+        phone.speed < 0 ||
+        !(age >= -MAX_FUTURE_SKEW_MS && age <= DEFAULT_MAX_GPS_AGE_MS)
+    ) {
+        return withPair({ sogKn: null, cogDeg: null, source: null });
+    }
+    const heading = phone.heading;
+    return withPair({
+        sogKn: phone.speed * METRES_PER_SECOND_TO_KNOTS,
+        cogDeg: heading != null && Number.isFinite(heading) && heading >= 0 && heading < 360 ? heading : null,
+        source: 'phone',
+    });
+}
+
+/** Test seam: forget the pair hysteresis's memory. */
+export function __resetOwnMotionForTests(): void {
+    lastCollisionPair = null;
+    debugOwnMotion = null;
 }
 
 function fromGpsPosition(position: GpsPosition | null, now: number, maxAgeMs: number): OwnshipPosition | null {

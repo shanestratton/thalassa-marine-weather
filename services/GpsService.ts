@@ -38,6 +38,17 @@ export interface GpsPosition {
     heading: number | null;
     speed: number; // m/s
     timestamp: number; // epoch-ms
+    /**
+     * True when the platform gave no speed, so `speed` is a placeholder 0 and
+     * not a measurement. The collision rule reads that as unknown, never as a
+     * stopped boat (build 125, 125-01).
+     */
+    speedUnknown?: boolean;
+}
+
+/** The speedUnknown stamp, only when it applies (fixes keep their old shape otherwise). */
+function unknownSpeed(speed: number | null | undefined): { speedUnknown?: true } {
+    return speed == null ? { speedUnknown: true } : {};
 }
 
 export type GpsCallback = (pos: GpsPosition) => void;
@@ -262,7 +273,16 @@ class GpsServiceClass {
                         return null;
                     }
                     if (requestedAt - timestamp <= staleLimitMs) {
-                        return { latitude, longitude, accuracy, altitude, heading, speed: speed ?? 0, timestamp };
+                        return {
+                            latitude,
+                            longitude,
+                            accuracy,
+                            altitude,
+                            heading,
+                            speed: speed ?? 0,
+                            ...unknownSpeed(speed),
+                            timestamp,
+                        };
                     }
                 }
 
@@ -441,6 +461,7 @@ class GpsServiceClass {
                         altitude: cached.altitude,
                         heading: cached.heading,
                         speed: cached.speed,
+                        ...(cached.speedUnknown ? { speedUnknown: true } : {}),
                         timestamp: cached.timestamp,
                     });
                 });
@@ -455,6 +476,7 @@ class GpsServiceClass {
                         altitude: last.altitude,
                         heading: last.heading,
                         speed: last.speed,
+                        ...(last.speedUnknown ? { speedUnknown: true } : {}),
                         timestamp: last.timestamp,
                     });
                 }
@@ -514,6 +536,7 @@ class GpsServiceClass {
                             altitude,
                             heading,
                             speed: speed ?? 0,
+                            ...unknownSpeed(speed),
                             timestamp: position.timestamp,
                         });
                     },
@@ -588,6 +611,7 @@ class GpsServiceClass {
                         altitude: pos.coords.altitude,
                         heading: pos.coords.heading,
                         speed: pos.coords.speed ?? 0,
+                        ...unknownSpeed(pos.coords.speed),
                         timestamp,
                     });
                 },
@@ -608,6 +632,7 @@ class GpsServiceClass {
                     altitude: pos.coords.altitude,
                     heading: pos.coords.heading,
                     speed: pos.coords.speed ?? 0,
+                    ...unknownSpeed(pos.coords.speed),
                     timestamp: pos.timestamp,
                 }),
             (err) => {

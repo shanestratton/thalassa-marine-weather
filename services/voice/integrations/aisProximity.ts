@@ -25,85 +25,34 @@
  *   - Own-ship SOG/COG comes from NmeaStore (preferred) or phone
  *     GPS. If we have neither, we still report range + bearing for
  *     each target but skip CPA/TCPA — those need own-ship motion.
+ *
+ * Build 125 (125-01): the CPA maths, the risk grade and the alarm flag are
+ * the collision rule's (utils/collisionRule.ts), the same one the chart's
+ * CPA chip and the collision alarm use. This file used to carry its own copy,
+ * with its own idea of 'alarming', so Calypso could call quiet a ship the
+ * chip called DANGER. A speed or course that is 'not available' (102.3 / 360)
+ * is reported as unknown and never feeds a CPA. Its inputs — our position,
+ * our course and speed, the pair in use, the skipper's thresholds and our
+ * own MMSIs — are the alarm's own (AisGuardWatch.readCollisionInputs), so
+ * with any saved thresholds Calypso's `alarm` is exactly the alarm's.
  */
 
 import { AisStore } from '../../AisStore';
-import type { AisTarget } from '../../../types/navigation';
-import { getCurrentFix } from './voyage';
-import { calculateDistance, calculateBearing } from '../../../utils/navigationCalculations';
+import { readCollisionInputs } from '../../AisGuardWatch';
+import { aisCogDeg, aisSogKn, assessCollision, type CollisionRisk } from '../../../utils/collisionRule';
 
 interface AisReport {
     mmsi: number;
     name: string;
     range_nm: number;
     bearing_true: number;
-    target_sog: number;
-    target_cog: number;
+    target_sog: number | null;
+    target_cog: number | null;
     cpa_nm: number | null;
     tcpa_min: number | null;
+    risk: CollisionRisk | null;
+    alarm: boolean;
     age_sec: number;
-}
-
-function toRad(d: number): number {
-    return (d * Math.PI) / 180;
-}
-
-/**
- * Closest Point of Approach calculation in flat-earth approximation
- * (valid out to ~50nm — beyond that the curvature error is bigger
- * than the AIS reporting precision anyway).
- *
- * Convert each vessel's COG/SOG to a velocity vector in nm/hour, take
- * the relative motion of the target vs own ship, and project the
- * relative position onto that. The result is the time at which
- * relative range is minimum (TCPA), and the perpendicular distance
- * is the CPA.
- *
- * Returns null on degenerate cases (zero relative speed → vessels are
- * locked at constant range; no defined CPA).
- */
-function computeCpaTcpa(
-    ownLat: number,
-    ownLon: number,
-    ownCog: number,
-    ownSog: number,
-    target: AisTarget,
-): { cpa_nm: number; tcpa_min: number } | null {
-    // Convert COG/SOG to north/east velocity components in nm/hour.
-    // Sailor's coordinate system: north = +y, east = +x.
-    const ownVx = ownSog * Math.sin(toRad(ownCog));
-    const ownVy = ownSog * Math.cos(toRad(ownCog));
-    const tgtVx = target.sog * Math.sin(toRad(target.cog));
-    const tgtVy = target.sog * Math.cos(toRad(target.cog));
-
-    // Relative position from own ship to target, in nm. Quick local
-    // flat-earth: 1° lat ≈ 60nm; 1° lon ≈ 60·cos(lat)nm.
-    const rx = (target.lon - ownLon) * 60 * Math.cos(toRad(ownLat));
-    const ry = (target.lat - ownLat) * 60;
-
-    // Relative velocity (target minus own).
-    const vx = tgtVx - ownVx;
-    const vy = tgtVy - ownVy;
-
-    const vSquared = vx * vx + vy * vy;
-    if (vSquared < 0.0001) return null; // < 0.01 kts relative speed → no defined CPA
-
-    // TCPA = -(r·v) / |v|² (in hours)
-    const tcpaHrs = -(rx * vx + ry * vy) / vSquared;
-    if (tcpaHrs < 0) {
-        // Vessels are diverging — closest approach is in the past.
-        // Calypso doesn't report on receding traffic.
-        return { cpa_nm: distanceNmFromVec(rx, ry), tcpa_min: tcpaHrs * 60 };
-    }
-    // Position at CPA = r + v·t
-    const cpaX = rx + vx * tcpaHrs;
-    const cpaY = ry + vy * tcpaHrs;
-    const cpaNm = Math.sqrt(cpaX * cpaX + cpaY * cpaY);
-    return { cpa_nm: cpaNm, tcpa_min: tcpaHrs * 60 };
-}
-
-function distanceNmFromVec(dx: number, dy: number): number {
-    return Math.sqrt(dx * dx + dy * dy);
 }
 
 /**
@@ -115,7 +64,8 @@ export async function aisProximity(
     maxRangeNm: number,
     maxCount: number,
 ): Promise<{ content: string; isError: boolean }> {
-    const fix = await getCurrentFix();
+    const now = Date.now();
+    const { own: fix, motion, prefs, ownMmsis } = readCollisionInputs(now);
     if (!fix) {
         return {
             content: JSON.stringify({
@@ -131,7 +81,7 @@ export async function aisProximity(
         return {
             content: JSON.stringify({
                 status: 'no_targets',
-                position_source: fix.source,
+                position_source: fix.source === 'gps' ? 'phone' : 'nmea',
                 note: 'No AIS targets in receiver range right now. Could be open ocean, AIS antenna issue, or nothing nearby — say so plainly.',
             }),
             isError: false,
@@ -140,34 +90,43 @@ export async function aisProximity(
 
     const range = Math.max(0.5, Math.min(50, maxRangeNm || 10));
     const count = Math.max(1, Math.min(10, maxCount || 3));
-    const ownCog = fix.cog;
-    const ownSog = fix.sog;
+    const ownCog = motion.cogDeg;
+    const ownSog = motion.sogKn;
 
     const reports: AisReport[] = [];
-    const now = Date.now();
     for (const target of targets.values()) {
-        const r = calculateDistance(fix.lat, fix.lon, target.lat, target.lon);
-        if (r > range) continue;
-        const b = calculateBearing(fix.lat, fix.lon, target.lat, target.lon);
-        let cpaNm: number | null = null;
-        let tcpaMin: number | null = null;
-        if (typeof ownCog === 'number' && typeof ownSog === 'number' && ownSog > 0.2) {
-            const cpa = computeCpaTcpa(fix.lat, fix.lon, ownCog, ownSog, target);
-            if (cpa) {
-                cpaNm = Number(cpa.cpa_nm.toFixed(2));
-                tcpaMin = Number(cpa.tcpa_min.toFixed(1));
-            }
-        }
+        // Our own transponder is not traffic.
+        if (ownMmsis.has(target.mmsi)) continue;
+        const ageSec = Math.round((now - target.lastUpdated) / 1000);
+        const a = assessCollision(
+            { lat: fix.lat, lon: fix.lon, sogKn: ownSog, cogDeg: ownCog, pair: motion.pair },
+            {
+                lat: target.lat,
+                lon: target.lon,
+                sogKn: target.sog,
+                cogDeg: target.cog,
+                navStatus: target.navStatus,
+                reportAgeSec: ageSec,
+                // Everything in AisStore came off the boat's own receiver.
+                source: 'local',
+            },
+            prefs,
+        );
+        if (!a || a.rangeNm > range) continue;
+        const sog = aisSogKn(target.sog);
+        const cog = aisCogDeg(target.cog);
         reports.push({
             mmsi: target.mmsi,
             name: target.name || `MMSI ${target.mmsi}`,
-            range_nm: Number(r.toFixed(2)),
-            bearing_true: Math.round(b),
-            target_sog: Number(target.sog.toFixed(1)),
-            target_cog: Math.round(target.cog),
-            cpa_nm: cpaNm,
-            tcpa_min: tcpaMin,
-            age_sec: Math.round((now - target.lastUpdated) / 1000),
+            range_nm: Number(a.rangeNm.toFixed(2)),
+            bearing_true: Math.round(a.bearingDeg),
+            target_sog: sog === null ? null : Number(sog.toFixed(1)),
+            target_cog: cog === null ? null : Math.round(cog),
+            cpa_nm: a.cpaNm === null ? null : Number(a.cpaNm.toFixed(2)),
+            tcpa_min: a.tcpaMin === null ? null : Number(a.tcpaMin.toFixed(1)),
+            risk: a.rangeOnly ? null : a.risk,
+            alarm: a.alarm,
+            age_sec: ageSec,
         });
     }
 
@@ -177,7 +136,7 @@ export async function aisProximity(
     return {
         content: JSON.stringify({
             status: 'targets',
-            own_position_source: fix.source,
+            own_position_source: fix.source === 'gps' ? 'phone' : 'nmea',
             own_cog: ownCog ?? null,
             own_sog: ownSog ?? null,
             range_searched_nm: range,
@@ -186,7 +145,7 @@ export async function aisProximity(
             note:
                 top.length === 0
                     ? `Nothing within ${range} nautical miles. Say so plainly.`
-                    : "Narrate naturally — vessel name, range, bearing, then CPA/TCPA only when CPA < 1nm OR TCPA < 30 min (those are the alarming ones). Quiet ones get one line each. Skip targets with negative TCPA — they're receding.",
+                    : "Narrate naturally — vessel name, range, bearing. Give CPA/TCPA first for any target with alarm true (the collision alarm's own rule) or risk CAUTION; quiet ones get one line each. Skip targets with negative TCPA — they're receding. A null CPA means her course or speed is unknown: say range and bearing only, never guess.",
         }),
         isError: false,
     };

@@ -83,11 +83,14 @@ describe('internet AIS feature boundary', () => {
             NOW,
         );
 
+        // Build 125 (125-01): garbage or 'not available' speed and course stay
+        // null. They used to become 0, a stopped boat pointing north, which the
+        // collision rule would have read as a measurement.
         expect(normalised?.properties).toMatchObject({
             updatedAt: '',
             staleMinutes: 1440,
-            sog: 0,
-            cog: 0,
+            sog: null,
+            cog: null,
             heading: 511,
             navStatus: 15,
             shipType: 0,

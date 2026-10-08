@@ -6,12 +6,23 @@
  *   TCPA = time (minutes) until CPA occurs (negative = vessels are diverging)
  *
  * Reference: COLREGS / ITU-R M.1371-5
+ *
+ * Build 125 (package 125-01): this is now a thin face on utils/collisionRule.ts,
+ * the one rule the popup's chip, the collision alarm and Calypso all use, so
+ * the chip can never call DANGER what the alarm stays quiet about (or the
+ * other way round). The geometry wraps the antimeridian, and a speed or course
+ * that is 'not available' (SOG 102.3, COG 360) or simply unknown gives no CPA
+ * at all instead of a CPA computed from a made-up 0.
  */
 
-import { calculateDistance, calculateBearing } from './navigationCalculations';
-
-const DEG_TO_RAD = Math.PI / 180;
-const NM_PER_DEG_LAT = 60; // 1° latitude ≈ 60 NM
+import {
+    DEFAULT_COLLISION_PREFS,
+    assessCollision,
+    gradeCollisionRisk,
+    type CollisionPairName,
+    type CollisionPrefs,
+    type CollisionRisk,
+} from './collisionRule';
 
 export interface CpaResult {
     /** Closest Point of Approach in nautical miles */
@@ -23,158 +34,73 @@ export interface CpaResult {
     /** Bearing from own vessel to target (degrees true) */
     bearing: number;
     /** Risk level based on CPA + TCPA */
-    risk: 'DANGER' | 'CAUTION' | 'SAFE' | 'NONE';
+    risk: CollisionRisk;
+    /** CPA < 0.1 NM and TCPA < 3 min while we're moving: always an alarm. */
+    closeQuarters: boolean;
 }
 
 /**
  * Compute CPA and TCPA between own vessel and a target.
  *
- * All positions in decimal degrees, COG in degrees true, SOG in knots.
- * navStatus is the AIS navigational status of the target (optional).
- * Returns null if either vessel has no valid position.
+ * All positions in decimal degrees, COG in degrees true, SOG in knots; pass
+ * null for anything unknown. `prefs` is the skipper's threshold pair
+ * (Settings → Preferences), defaulting to the recommended one; `reportAgeSec`
+ * is the age of the target's report; `ownPair` is the pair in use (the
+ * alarm's hysteresis, from resolveOwnMotion), else it follows our speed.
+ *
+ * Returns null when either position is invalid, or when there is no honest
+ * CPA to give: either vessel's motion is unknown, or the report is too old.
  */
 export function computeCpa(
     ownLat: number,
     ownLon: number,
-    ownCog: number,
-    ownSog: number,
+    ownCog: number | null,
+    ownSog: number | null,
     targetLat: number,
     targetLon: number,
-    targetCog: number,
-    targetSog: number,
+    targetCog: number | null,
+    targetSog: number | null,
     targetNavStatus?: number,
+    prefs: CollisionPrefs = DEFAULT_COLLISION_PREFS,
+    reportAgeSec?: number | null,
+    ownPair?: CollisionPairName | null,
 ): CpaResult | null {
-    if (!isFinite(ownLat) || !isFinite(ownLon)) return null;
-    if (!isFinite(targetLat) || !isFinite(targetLon)) return null;
-
-    // Current distance & bearing
-    const distance = calculateDistance(ownLat, ownLon, targetLat, targetLon);
-    const bearing = calculateBearing(ownLat, ownLon, targetLat, targetLon);
-
-    // ── Both vessels stationary → nobody is going anywhere ──
-    if (ownSog < 0.5 && targetSog < 0.5) {
-        return {
-            cpa: distance,
-            tcpa: 0,
-            distance,
-            bearing,
-            risk: 'NONE', // Two parked boats can't collide
-        };
-    }
-
-    // Convert to local Cartesian (NM) relative to own vessel
-    const cosLat = Math.cos(ownLat * DEG_TO_RAD);
-
-    // Relative position of target (NM)
-    const dx = (targetLon - ownLon) * NM_PER_DEG_LAT * cosLat;
-    const dy = (targetLat - ownLat) * NM_PER_DEG_LAT;
-
-    // Velocity components (NM/hour) — COG is clockwise from north
-    const ownVx = ownSog * Math.sin(ownCog * DEG_TO_RAD);
-    const ownVy = ownSog * Math.cos(ownCog * DEG_TO_RAD);
-    const tgtVx = targetSog * Math.sin(targetCog * DEG_TO_RAD);
-    const tgtVy = targetSog * Math.cos(targetCog * DEG_TO_RAD);
-
-    // Relative velocity
-    const dvx = tgtVx - ownVx;
-    const dvy = tgtVy - ownVy;
-
-    const dvSq = dvx * dvx + dvy * dvy;
-
-    let tcpaHours: number;
-    let cpa: number;
-
-    if (dvSq < 0.001) {
-        // Vessels are on nearly parallel courses at similar speeds
-        tcpaHours = 0;
-        cpa = distance;
-    } else {
-        // TCPA = -(Δr · Δv) / |Δv|²
-        tcpaHours = -(dx * dvx + dy * dvy) / dvSq;
-
-        // Position at TCPA
-        const cpaDx = dx + dvx * tcpaHours;
-        const cpaDy = dy + dvy * tcpaHours;
-        cpa = Math.sqrt(cpaDx * cpaDx + cpaDy * cpaDy);
-    }
-
-    const tcpaMinutes = tcpaHours * 60;
-
+    const a = assessCollision(
+        { lat: ownLat, lon: ownLon, sogKn: ownSog, cogDeg: ownCog, pair: ownPair },
+        {
+            lat: targetLat,
+            lon: targetLon,
+            sogKn: targetSog,
+            cogDeg: targetCog,
+            navStatus: targetNavStatus,
+            reportAgeSec,
+        },
+        prefs,
+    );
+    if (!a || a.rangeOnly || a.cpaNm === null || a.tcpaMin === null) return null;
     return {
-        cpa: Math.round(cpa * 100) / 100,
-        tcpa: Math.round(tcpaMinutes * 10) / 10,
-        distance: Math.round(distance * 100) / 100,
-        bearing: Math.round(bearing * 10) / 10,
-        risk: riskLevel(cpa, tcpaMinutes, ownSog, targetSog, targetNavStatus),
+        cpa: Math.round(a.cpaNm * 100) / 100,
+        tcpa: Math.round(a.tcpaMin * 10) / 10,
+        distance: Math.round(a.rangeNm * 100) / 100,
+        bearing: Math.round(a.bearingDeg * 10) / 10,
+        risk: a.risk,
+        closeQuarters: a.closeQuarters,
     };
 }
 
 /**
- * Determine collision risk level — harbour-aware.
- *
- * Context rules (prevents false alarms in marinas/harbours):
- *  - Target is anchored/moored (nav_status 1, 5, 6) → NONE (they're parked)
- *  - Own vessel stationary (SOG < 0.5) → max CAUTION (awareness, not alarm)
- *  - Diverging (TCPA < 0) or far future (> 60 min) → NONE/SAFE
- *  - Low combined speed (< 3 kn) → relaxed thresholds (harbour speeds)
- *  - Normal underway situation → standard COLREGS thresholds
+ * Determine collision risk level — harbour-aware, with the skipper's
+ * thresholds. The rule itself (and why each line is there) lives in
+ * utils/collisionRule.ts → gradeCollisionRisk.
  */
-function riskLevel(
+export function riskLevel(
     cpaNm: number,
     tcpaMinutes: number,
     ownSog: number,
     targetSog: number,
     targetNavStatus?: number,
-): 'DANGER' | 'CAUTION' | 'SAFE' | 'NONE' {
-    // ── Target is anchored, moored, or not under command ──
-    // CROSS-CHECKED AGAINST OBSERVED SPEED, because nav_status is
-    // self-reported and stale nav_status is one of the commonest AIS data
-    // faults there is: skippers leave it on "moored" after getting underway.
-    // Taking that claim at face value returned NONE unconditionally, so a
-    // vessel making 12 kt with nav_status 5 never raised DANGER, never
-    // rendered the collision chip, and had its CPA/TCPA painted neutral —
-    // the geometry was computed and then thrown away on the target's word.
-    //
-    // Believe the claim only while the speed agrees with it. The bound is
-    // INCLUSIVE at 2 kt because the existing spec deliberately places 2 kt
-    // inside the anchored envelope (utils/cpaCalculation.test.ts: "target
-    // anchored (nav_status 1) → NONE even if close", targetSog 2) — an anchored
-    // vessel swinging on a strong tide really does show a couple of knots over
-    // ground. That boundary was someone's considered call and is not what was
-    // broken here; a 12 kt "moored" target is.
-    const STATIONARY_CLAIM_MAX_SOG_KTS = 2;
-    const claimsStationary = targetNavStatus === 1 || targetNavStatus === 5 || targetNavStatus === 6;
-    const isTargetStationary =
-        claimsStationary && (!Number.isFinite(targetSog) || targetSog <= STATIONARY_CLAIM_MAX_SOG_KTS);
-    if (isTargetStationary) return 'NONE';
-
-    // ── Diverging or already past ──
-    if (tcpaMinutes < 0) return 'NONE';
-
-    // ── More than 60 minutes away ──
-    if (tcpaMinutes > 60) return 'SAFE';
-
-    // ── Own vessel is stationary — awareness only, not alarm ──
-    if (ownSog < 0.5) {
-        // Still show CAUTION if something is barrelling toward us close
-        if (cpaNm < 0.2 && tcpaMinutes < 10 && targetSog > 3) return 'CAUTION';
-        return 'NONE';
-    }
-
-    // ── Low combined speed (harbour / marina / slow manoeuvring) ──
-    const combinedSpeed = ownSog + targetSog;
-    if (combinedSpeed < 3) {
-        // Very relaxed — only warn if really close and imminent
-        if (cpaNm < 0.1 && tcpaMinutes < 5) return 'CAUTION';
-        return 'SAFE';
-    }
-
-    // ── Standard underway COLREGS thresholds ──
-    // DANGER: CPA < 0.5 NM within 15 min (imminent close quarters)
-    if (cpaNm < 0.5 && tcpaMinutes < 15) return 'DANGER';
-    // CAUTION: CPA < 1.0 NM within 30 min
-    if (cpaNm < 1.0 && tcpaMinutes < 30) return 'CAUTION';
-    // CAUTION: CPA < 0.5 NM within 60 min (approaching close quarters)
-    if (cpaNm < 0.5 && tcpaMinutes < 60) return 'CAUTION';
-    return 'SAFE';
+    prefs: CollisionPrefs = DEFAULT_COLLISION_PREFS,
+    pair?: CollisionPairName | null,
+): CollisionRisk {
+    return gradeCollisionRisk(cpaNm, tcpaMinutes, ownSog, targetSog, targetNavStatus, prefs, pair).risk;
 }

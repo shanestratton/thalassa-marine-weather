@@ -80,6 +80,10 @@ export default defineConfig({
         // A failed Sign in with Apple on the sign-in sheet: three providers, the
         // longest prompt and the failure banner fit 320 × 568 (e2e/fixtures/sign-in.tsx).
         'sign-in-layout.spec.ts',
+        // The collision alarm (build 125): its cards, notice and sound check fit
+        // 320 × 568 in wide fonts, clear of the tab bar (e2e/fixtures/collision-alarm.tsx),
+        // and Preferences → Collision alarm fits under the real header.
+        'collision-alarm-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

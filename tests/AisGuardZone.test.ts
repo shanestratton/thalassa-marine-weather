@@ -287,6 +287,32 @@ describe('AisGuardZone', () => {
             });
         });
 
+        it('build 125: a shield armed before 125 restores armed but NOT collision-checked', () => {
+            // The configuration above is exactly what 124 saved: no collisionChecked.
+            const userId = 'guard-pre125-account';
+            const ownerKey = `user:${userId}`;
+            const scope = { key: ownerKey, userId, generation: getAuthIdentityScope().generation };
+            localStorage.setItem(
+                authScopedStorageKey(GUARD_STORAGE_KEY, scope),
+                JSON.stringify({ version: 2, ownerKey, ownerUserId: userId, enabled: true, radiusNm: 2 }),
+            );
+            setAuthIdentityScope(userId);
+            expect(AisGuardZone.getState().enabled).toBe(true);
+            expect(AisGuardZone.getState().collisionChecked).toBeUndefined();
+        });
+
+        it('build 125: arming through the sound check records it, persists it, and disarming drops it', () => {
+            AisGuardZone.armAfterSoundCheck();
+            expect(AisGuardZone.getState()).toMatchObject({ enabled: true, collisionChecked: true });
+            const saved = JSON.parse(localStorage.getItem(authScopedStorageKey(GUARD_STORAGE_KEY))!);
+            expect(saved.collisionChecked).toBe(true);
+            AisGuardZone.setEnabled(false);
+            expect(AisGuardZone.getState().collisionChecked).toBeUndefined();
+            // A plain re-enable (no sound check) leaves the collision alarm waiting.
+            AisGuardZone.setEnabled(true);
+            expect(AisGuardZone.getState().collisionChecked).toBeUndefined();
+        });
+
         it('rejects an owner-mismatched scoped configuration', () => {
             const userId = 'guard-mismatched-account';
             const ownerKey = `user:${userId}`;
