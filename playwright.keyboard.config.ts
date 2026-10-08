@@ -88,6 +88,10 @@ export default defineConfig({
         // in wide fonts, clear of the tab bar, and the IEC 62288 circle-and-cross is
         // drawn and placed by the real engines (e2e/fixtures/distress-beacon.tsx).
         'distress-beacon-layout.spec.ts',
+        // A forgotten device stops holding the public page (build 125, 125-12): the Log
+        // notice's in-place takeover, its confirm and the Vessel card with the Pi primary
+        // fit 320 × 568 in wide fonts under the app's header (e2e/fixtures/skipper-takeover.tsx).
+        'skipper-takeover-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

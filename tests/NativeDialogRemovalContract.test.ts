@@ -7,6 +7,7 @@ const ownedFiles = [
     'components/VesselHub.tsx',
     'components/settings/CalypsoIntegrationsTab.tsx',
     'components/vessel/EncCellManager.tsx',
+    'components/vessel/SkipperTakeover.tsx',
 ];
 
 function source(path: string): string {
@@ -28,10 +29,15 @@ describe('native browser dialog removal contract', () => {
         expect(crew).toContain('scopeStillOwnsPage(scope)');
 
         const vessel = source('components/VesselHub.tsx');
-        expect(vessel).toContain('<ConfirmDialog');
         expect(vessel).toContain('actionInFlight.current');
-        expect(vessel).toContain('isAuthIdentityScopeCurrent(request.scope)');
-        expect(vessel).toContain('sameClaim');
+        // The skipper takeover's confirm moved into the hook the Log notice
+        // shares (build 125, 125-12), fences and all.
+        expect(vessel).toContain('useSkipperTakeover({ claim, authenticatedUserId, apply: applyClaim })');
+        const takeover = source('components/vessel/SkipperTakeover.tsx');
+        expect(takeover).toContain('<ConfirmDialog');
+        expect(takeover).toContain('inFlight.current');
+        expect(takeover).toContain('isAuthIdentityScopeCurrent(pending.scope)');
+        expect(takeover).toContain('stillInForce');
     });
 
     it('uses accessible inline Gmail errors and a labelled ENC URL sheet', () => {

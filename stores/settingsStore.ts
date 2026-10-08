@@ -30,6 +30,7 @@ import { getErrorMessage } from '../utils/createLogger';
 import { tierIsPro } from '../services/SubscriptionService';
 import { getSubscriptionStatus, type SubscriptionStatus } from '../managers/SubscriptionManager';
 import { createLogger } from '../utils/createLogger';
+import { sameClaim, type SkipperClaim } from '../services/skipperDevice';
 import {
     createOwnedVesselProfile,
     defaultVesselProfile,
@@ -1357,6 +1358,45 @@ export function writeSettingsMirror(s: UserSettings, scope: AuthIdentityScope = 
  * connectivity exists, which is the only time publishing works anyway.
  */
 let _lastClaimRefreshMs = 0;
+
+type CloudClaimRead = { ok: true; claim: SkipperClaim | undefined } | { ok: false };
+
+/** One read of the cloud claim, after this device's own settings writes have
+ *  landed — a read that overtook a takeover made a moment ago would revert it
+ *  here (and the App banner would then call this device displaced). */
+async function readCloudSkipperClaim(scope: AuthIdentityScope): Promise<CloudClaimRead> {
+    if (!supabase || !scope.userId) return { ok: false };
+    // Capped: a hung settings write must not stall the trickle tick behind it.
+    const ownWrites = _settingsSyncTails.get(scope.key);
+    if (ownWrites) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([ownWrites, new Promise<void>((resolve) => (timer = setTimeout(resolve, 5_000)))]);
+        clearTimeout(timer);
+    }
+    const { data, error } = await supabase
+        .from('user_settings')
+        .select('settings->skipperDevice')
+        .eq('user_id', scope.userId)
+        .maybeSingle();
+    if (error || !isAuthIdentityScopeCurrent(scope) || _hydratedScopeKey !== scope.key) return { ok: false };
+    // PostgREST returns JSON null for a released claim — normalise to
+    // undefined, which is what the optional type field actually means.
+    const claim = (data as { skipperDevice?: SkipperClaim | null } | null)?.skipperDevice ?? undefined;
+    return { ok: true, claim };
+}
+
+/** Apply a claim the cloud holds, echo-free (see refreshSkipperClaim). */
+async function applySkipperClaimLocally(scope: AuthIdentityScope, claim: SkipperClaim | undefined): Promise<void> {
+    const local = useSettingsStore.getState().settings;
+    if (sameClaim(local.skipperDevice, claim)) return;
+    const updated = { ...local, skipperDevice: claim };
+    useSettingsStore.setState({ settings: updated });
+    // Persist BOTH stores or a cold boot resurrects the stale claim from
+    // Preferences and this device silently believes it publishes again.
+    writeSettingsMirror(updated, scope);
+    await writeSettingsToPreferences(scope, updated);
+}
+
 export async function refreshSkipperClaim(opts: { maxAgeMs?: number } = {}): Promise<void> {
     const maxAgeMs = opts.maxAgeMs ?? 60_000;
     const scope = getAuthIdentityScope();
@@ -1366,29 +1406,65 @@ export async function refreshSkipperClaim(opts: { maxAgeMs?: number } = {}): Pro
     if (now - _lastClaimRefreshMs < maxAgeMs) return;
     _lastClaimRefreshMs = now;
     try {
-        const { data, error } = await supabase
-            .from('user_settings')
-            .select('settings->skipperDevice')
-            .eq('user_id', scope.userId)
-            .maybeSingle();
-        if (error || !isAuthIdentityScopeCurrent(scope) || _hydratedScopeKey !== scope.key) return;
-        // PostgREST returns JSON null for a released claim — normalise to
-        // undefined, which is what the optional type field actually means.
-        const cloudClaim =
-            (data as { skipperDevice?: UserSettings['skipperDevice'] | null } | null)?.skipperDevice ?? undefined;
-        const local = useSettingsStore.getState().settings;
-        const same =
-            local.skipperDevice?.deviceId === cloudClaim?.deviceId &&
-            local.skipperDevice?.claimedAt === cloudClaim?.claimedAt;
-        if (same) return;
-        const updated = { ...local, skipperDevice: cloudClaim };
-        useSettingsStore.setState({ settings: updated });
-        // Persist BOTH stores or a cold boot resurrects the stale claim from
-        // Preferences and this device silently believes it publishes again.
-        writeSettingsMirror(updated, scope);
-        await writeSettingsToPreferences(scope, updated);
+        const read = await readCloudSkipperClaim(scope);
+        // The holder's heartbeat (lastSeenAt) counts as a change, so the other
+        // device sees it alive (build 125).
+        if (read.ok) await applySkipperClaimLocally(scope, read.claim);
     } catch {
         /* offline — the local claim stands, see the header comment */
+    }
+}
+
+/**
+ * Write the claim only if the cloud still holds `expected` (build 125: the
+ * holder's heartbeat and the automatic handover of a forgotten claim).
+ *
+ * user_settings is written only through merge_user_settings and there is no
+ * compare-and-swap without a migration, so this re-reads the cloud claim just
+ * before writing — narrowing the window to one round trip — and stands down
+ * when it moved, applying the newer claim here instead ('changed'): a heartbeat
+ * that landed means the holder is alive, a takeover means this device was
+ * displaced. A written claim is applied locally without an upload echo.
+ * Offline or refused: 'failed', and the local claim is untouched.
+ *
+ * It also stands down when THIS device's own claim moved since the caller
+ * looked — a Release or a takeover tapped here during the round trip is the
+ * newer word. If that happens while the write is in flight, either may reach
+ * the server last, so this device's latest claim goes back on its own ordered
+ * settings queue and lands after both. (Across devices the same race needs a
+ * server-side compare-and-swap: a later migration.)
+ */
+export async function writeSkipperClaimIfUnchanged(
+    expected: SkipperClaim | null | undefined,
+    next: SkipperClaim,
+): Promise<'written' | 'changed' | 'failed'> {
+    const scope = getAuthIdentityScope();
+    if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope)) return 'failed';
+    if (_hydratedScopeKey !== scope.key) return 'failed';
+    const localClaim = () => useSettingsStore.getState().settings.skipperDevice;
+    try {
+        if (!sameClaim(localClaim(), expected)) return 'changed';
+        const read = await readCloudSkipperClaim(scope);
+        if (!read.ok) return 'failed';
+        if (!sameClaim(localClaim(), expected)) return 'changed';
+        if (!sameClaim(read.claim, expected)) {
+            await applySkipperClaimLocally(scope, read.claim);
+            return 'changed';
+        }
+        const { error } = await supabase.rpc('merge_user_settings', { p_patch: { skipperDevice: next } });
+        if (error || !isAuthIdentityScopeCurrent(scope) || _hydratedScopeKey !== scope.key) return 'failed';
+        _lastClaimRefreshMs = Date.now();
+        const latest = localClaim();
+        if (!sameClaim(latest, expected)) {
+            void queueSettingsSync(scope, { skipperDevice: latest ?? null }).catch((error) => {
+                log.warn(`[skipperClaim] re-sending this device's claim deferred: ${getErrorMessage(error)}`);
+            });
+            return 'changed';
+        }
+        await applySkipperClaimLocally(scope, next);
+        return 'written';
+    } catch {
+        return 'failed';
     }
 }
 
