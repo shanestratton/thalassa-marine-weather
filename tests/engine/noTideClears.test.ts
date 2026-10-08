@@ -302,19 +302,32 @@ describe('decision 11 — water no tide can clear is avoided', () => {
         expect(throughPassage(r)).toBe(true);
     });
 
-    it('a pin in water that never dries but no tide clears: the route stops at its edge, and says so', () => {
+    // Package 125-05b (Shane, 2026-10-08: "better we just have red at the
+    // "dry" zones, rather than just shit caning the whole route"): the route
+    // runs on to the pin across the flat, red and named. It used to stop at
+    // the flat's edge, 1 km short of the pin.
+    it('a pin in water that never dries but no tide clears: the route runs on to it, red, the tail named', () => {
         const layers = chart({ d1: -2.2, d2: 0 }, { pocket: true });
         const q = { ...REQ, toLat: -27.51, toLon: 153.47, tideCeilings: ceilings(2.5) };
         const r = routeInshore(layers, q);
         expect(isResult(r), 'error' in r ? r.error : '').toBe(true);
         if (!isResult(r)) return;
         expect(r.pinOffWater?.destination).toBe('no-tide');
-        // It ends at the flat's edge (the pin is 1 km inside it), not at the pin.
         const [lon, lat] = r.polyline[r.polyline.length - 1];
-        const inside =
-            lon > POCKET[0] + 1e-4 && lon < POCKET[2] - 1e-4 && lat > POCKET[1] + 1e-4 && lat < POCKET[3] - 1e-4;
-        expect(inside).toBe(false);
-        expect(noTideClearsRuns(layers, r.polyline, tideCeilingLookup(q.tideCeilings), 2.9)).toEqual([]);
+        expect(Math.abs(lon - q.toLon) + Math.abs(lat - q.toLat)).toBeLessThan(1e-7);
+        const tail = r.dryRuns?.find((d) => d.pin?.end === 'destination');
+        expect(tail, JSON.stringify(r.dryRuns)).toBeDefined();
+        expect(tail!.pin).toEqual({ end: 'destination', at: 'on' });
+        expect(tail!.shallowestM).toBe(0);
+        expect(tail!.deepestM).toBe(0.3);
+        expect(tail!.tide).toEqual({ topM: 2.5, days: 14 });
+        expect(tail!.lengthM).toBeGreaterThan(950);
+        expect(tail!.lengthM).toBeLessThan(1200);
+        // That water is crossed by the tail alone: inside the flat, to the pin.
+        const runs = noTideClearsRuns(layers, r.polyline, tideCeilingLookup(q.tideCeilings), 2.9);
+        expect(runs).toHaveLength(1);
+        expect(runs[0].end[0]).toBeCloseTo(q.toLon, 6);
+        expect(runs[0].start[0]).toBeGreaterThan(POCKET[0] - 1e-4);
     });
 });
 

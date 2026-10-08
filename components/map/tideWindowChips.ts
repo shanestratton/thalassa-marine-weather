@@ -422,6 +422,17 @@ export function shallowEndWords(
 }
 
 /**
+ * A pin's red dry tail's chip (package 125-05b; ShallowRunInfo.dryTail): the
+ * ground it crosses, in a second — "dries 0.4 m to the pin". Red whatever the
+ * tide; the route notes say when the boat floats over it.
+ */
+export function dryTailChipWords(run: Pick<ShallowRunInfo, 'minDepthM'>): string {
+    const d = run.minDepthM;
+    if (d === null) return 'dry ground to the pin — check the chart';
+    return d < 0 ? `dries ${fmtM(-d)} to the pin` : `${fmtDepth(d)} m charted · no tide clears it`;
+}
+
+/**
  * Why a shallow run is red whatever the tide (round-4 review, 2026-09-30),
  * in a punter's words — the router's own reason (ShallowRunInfo
  * chartsDisagree / nearHazard / partUncharted, the canal), never "red for
@@ -580,6 +591,13 @@ export function tideRunChips(input: {
     };
     const chipped = new Set<TidePiece>();
     for (const { run, survey } of plan.windowed) {
+        // A pin's dry tail: red, by what it dries (125-05b).
+        if (run.dryTail) {
+            const text = joinChip(dryTailChipWords(run), survey);
+            chips.push({ lat: run.midLat, lon: run.midLon, text, tone: 'red' });
+            placed.push(`${(run.lengthM / 1852).toFixed(2)}NM dry tail→red"${text}"`);
+            continue;
+        }
         const depth = run.minDepthM as number;
         const riseM = needM - depth;
         if (!(riseM > 0)) {

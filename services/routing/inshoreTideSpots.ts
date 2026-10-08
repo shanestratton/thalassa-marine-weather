@@ -66,6 +66,7 @@ export function readPersistedShallowRuns(value: unknown): ShallowRunInfo[] {
             midLon,
             ...(hasMinAt ? { minAtLat, minAtLon } : {}),
             ...(candidate.ntmSurveyed === true ? { ntmSurveyed: true } : {}),
+            ...(candidate.dryTail === true ? { dryTail: true as const } : {}),
         });
     }
     return runs;
@@ -114,6 +115,12 @@ function nearestLegIndex(polyline: readonly LonLat[], lat: number, lon: number):
  * from an unvouched depth would be fabricated confidence. When the engine
  * supplied the exact shallowest point, use its nearest route leg; old saved
  * plans fall back to the run midpoint segment index.
+ *
+ * A pin's red dry tail (ShallowRunInfo.dryTail, package 125-05b) is no gate
+ * either (review fix-up, 2026-10-09): it is red whatever the tide, and its
+ * route note says when the boat floats over it. As a gate, a beach that no
+ * tide floats a keel over blocked every departure of the whole route — the
+ * "shit caning the whole route" Shane asked to stop (2026-10-08).
  */
 export function shallowRunsToDepartureSpots(
     polyline: readonly LonLat[],
@@ -125,7 +132,7 @@ export function shallowRunsToDepartureSpots(
     const spots: ShallowSpot[] = [];
     const seen = new Set<string>();
     for (const run of runs) {
-        if (!Number.isFinite(run.minDepthM)) continue;
+        if (!Number.isFinite(run.minDepthM) || run.dryTail) continue;
 
         const exactLeg =
             Number.isFinite(run.minAtLat) && Number.isFinite(run.minAtLon)
@@ -153,6 +160,8 @@ export function tideAnchorForShallowRuns(runs: readonly ShallowRunInfo[]): { lat
     const anchor = runs
         .filter(
             (run) =>
+                // A pin's dry tail is no gate (shallowRunsToDepartureSpots).
+                !run.dryTail &&
                 Number.isFinite(run.minDepthM) &&
                 Number.isFinite(run.lengthM) &&
                 Number.isFinite(run.midLat) &&

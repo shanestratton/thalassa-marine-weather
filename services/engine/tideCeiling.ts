@@ -51,7 +51,7 @@
  * PURE: no I/O.
  */
 import type { Feature, MultiPolygon, Polygon } from 'geojson';
-import type { DryRun, InshoreLayers, TideBarrier, TideCeiling } from './types';
+import type { DryPinTail, DryRun, InshoreLayers, TideBarrier, TideCeiling } from './types';
 import { M_PER_DEG_LAT } from './constants';
 import { douglasPeucker, geometryBbox, haversineM, mPerDegLon, pointInGeometry } from './geometry';
 import { MinHeap } from './aStar';
@@ -618,7 +618,8 @@ export function classifyNoTideRuns(
  * 0–2 m canal band at a 2.5 m top) is not dry: decision 10 already draws it
  * by its shallowest end, and naming every such stretch would cry wolf on
  * every canal exit. Samples closer than STRETCH_JOIN_M are one stretch. In
- * route order.
+ * route order. Segments `skipSeg` accepts are not read: a pin's own dry tail
+ * (package 125-05b), named by pinTailDryRun.
  */
 export function collectDryRuns(
     layers: InshoreLayers,
@@ -627,6 +628,7 @@ export function collectDryRuns(
     draftM: number,
     needM: number,
     stepM = 10,
+    skipSeg?: (seg: number) => boolean,
 ): DryRun[] {
     if (polyline.length < 2 || !Number.isFinite(needM)) return [];
     const bands = chartAreaIndexFor(layers).depth;
@@ -675,6 +677,8 @@ export function collectDryRuns(
         const segM = haversineM(latA, lonA, latB, lonB);
         const steps = Math.max(1, Math.ceil(segM / stepM));
         for (let k = i === 0 ? 0 : 1; k <= steps; k++) {
+            // A skipped segment's samples, and the vertex it starts with.
+            if (skipSeg?.(i) || (k === steps && skipSeg?.(i + 1))) continue;
             const t = k / steps;
             const hit = dryAt(i, t, [lonA + (lonB - lonA) * t, latA + (latB - latA) * t], alongM + segM * t);
             if (hit) samples.push(hit);
@@ -720,6 +724,88 @@ export function collectDryRuns(
         });
     }
     return runs;
+}
+
+/**
+ * A pin's own red tail as a dry stretch (package 125-05b; RouteDebug
+ * .dryPinTail): its segments' dry ground — charted drying, or water decision
+ * 11 proves no tide clears, read every `stepM` against the chart as
+ * collectDryRuns reads it — named WHATEVER the tide: the highest tide known
+ * there is said, not used to leave it out. Its length is the tail's own
+ * (its segments, cut at the dry ground's edges). Null when none of it reads
+ * dry.
+ */
+export function pinTailDryRun(
+    layers: InshoreLayers,
+    polyline: readonly (readonly [number, number])[],
+    span: Pick<DryPinTail, 'startSeg' | 'endSeg' | 'at'>,
+    end: 'origin' | 'destination',
+    ceilings: CeilingLookup,
+    draftM: number,
+    needM: number,
+    stepM = 10,
+): DryRun | null {
+    const bands = chartAreaIndexFor(layers).depth;
+    if (bands.length === 0 || span.startSeg < 0 || span.endSeg < span.startSeg || span.endSeg + 1 >= polyline.length)
+        return null;
+    let dry = false;
+    let shallowestM: number | null = Infinity;
+    let deepestM = -Infinity;
+    let tide: CeilingAt | null = null;
+    let lengthM = 0;
+    for (let i = span.startSeg; i <= span.endSeg; i++) {
+        const [lonA, latA] = polyline[i];
+        const [lonB, latB] = polyline[i + 1];
+        const segM = haversineM(latA, lonA, latB, lonB);
+        lengthM += segM;
+        const steps = Math.max(1, Math.ceil(segM / stepM));
+        for (let k = 0; k <= steps; k++) {
+            const lon = lonA + ((lonB - lonA) * k) / steps;
+            const lat = latA + ((latB - latA) * k) / steps;
+            const range = chartedDepthRangeAt(bands, lon, lat);
+            if (!range) continue;
+            const t = ceilings.at(lat, lon);
+            const s = range.shallowestM;
+            const proved = !!t && range.deepestM !== null && range.deepestM + t.highestM < needM - 1e-6;
+            if (!((s !== null && s < 0) || proved)) continue;
+            dry = true;
+            shallowestM = shallowestM === null || s === null ? null : Math.min(shallowestM, s);
+            deepestM = Math.max(deepestM, range.deepestM ?? s ?? 0);
+            if (t && (!tide || t.topM > tide.topM)) tide = t;
+        }
+    }
+    if (!dry) return null;
+    // Its middle by length.
+    let mid: [number, number] = [polyline[span.startSeg][0], polyline[span.startSeg][1]];
+    let acc = 0;
+    for (let i = span.startSeg; i <= span.endSeg; i++) {
+        const a = polyline[i];
+        const b = polyline[i + 1];
+        const m = haversineM(a[1], a[0], b[1], b[0]);
+        if (acc + m >= lengthM / 2) {
+            const f = m > 0 ? (lengthM / 2 - acc) / m : 0;
+            mid = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+            break;
+        }
+        acc += m;
+    }
+    const first = polyline[span.startSeg];
+    const last = polyline[span.endSeg + 1];
+    return {
+        startSeg: span.startSeg,
+        startT: 0,
+        endSeg: span.endSeg,
+        endT: 1,
+        lengthM,
+        mid,
+        place: noTideRunPlace(layers, { start: [first[0], first[1]], mid, end: [last[0], last[1]] }),
+        shallowestM: shallowestM === Infinity ? null : shallowestM,
+        deepestM,
+        draftM,
+        needM,
+        tide: tide ? { topM: tide.topM, days: tide.days } : null,
+        pin: { end, at: span.at },
+    };
 }
 
 /**
