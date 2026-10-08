@@ -8,11 +8,14 @@ begin
   raise 'One private manifest required' unless ARGV.length == 1
   manifest_path = File.realpath(ARGV[0])
   manifest = JSON.parse(File.read(manifest_path))
-  raise 'Unsupported generator inputs' unless manifest.keys.sort ==
-    %w[bindingSwift bundleId moduleMap platform projectRoot sources].sort
+  base_keys = %w[bindingSwift bundleId moduleMap platform projectRoot sources].sort
+  raise 'Unsupported generator inputs' unless manifest.keys.sort == base_keys ||
+    (manifest.keys.sort == (base_keys + ['localUiFixture']).sort &&
+      [true, false].include?(manifest['localUiFixture']))
   root = File.realpath(manifest.fetch('projectRoot'))
   raise 'Unexpected bundle or platform' unless manifest['bundleId'] == 'app.thalassa.research.scuttlebutt-auth' &&
     %w[iphoneos iphonesimulator].include?(manifest['platform'])
+  raise 'Local UI fixture is simulator-only' if manifest['localUiFixture'] && manifest['platform'] != 'iphonesimulator'
   raise 'Manifest must be local to project' unless File.dirname(manifest_path) == root
   raise 'Private project required' unless File.stat(root).uid == Process.uid && (File.stat(root).mode & 0777) == 0700
   project_path = File.join(root, 'ScuttlebuttResearchAuth.xcodeproj')
@@ -44,6 +47,11 @@ begin
   resources = project.main_group.new_group('Research resources')
   %w[capacitor.config.json research-config.json config.xml].each do |name|
     target.resources_build_phase.add_file_reference(resources.new_file(File.join(root, name)))
+  end
+  if manifest['localUiFixture']
+    fixture = File.join(root, 'research-local-ui-fixture.json')
+    raise 'Fixture resource missing' unless File.file?(fixture) && !File.symlink?(fixture)
+    target.resources_build_phase.add_file_reference(resources.new_file(fixture))
   end
   public_ref = resources.new_file(File.join(root, 'public'))
   public_ref.last_known_file_type = 'folder'
@@ -96,6 +104,16 @@ begin
     'DEBUG_INFORMATION_FORMAT' => 'dwarf'
   }
   target.build_configurations.each { |config| config.build_settings.merge!(settings) }
+  if manifest['localUiFixture']
+    paths = %w[research.simulated.xcent research.simulated.xcent.der].map { |name| File.join(root, name) }
+    raise 'Simulator link entitlements missing' unless paths.all? { |path| File.file?(path) && !File.symlink?(path) }
+    target.build_configurations.each do |config|
+      config.build_settings['OTHER_LDFLAGS'] += [
+        '-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__entitlements', '-Xlinker', paths[0],
+        '-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__ents_der', '-Xlinker', paths[1]
+      ]
+    end
+  end
   project.build_configurations.each do |config|
     config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '17.0'
     config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'

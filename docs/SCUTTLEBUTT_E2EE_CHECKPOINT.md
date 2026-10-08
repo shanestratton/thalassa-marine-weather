@@ -121,6 +121,64 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 8 October actual iOS startup with simulated Auth
+
+The dedicated Research entry now runs in a real WKWebView with the real
+Capacitor bridge, Supabase JS SDK, native account host, cached provider,
+Keychain and sealed storage on one newly owned iOS 26.5 simulator. **Ten DOM
+assertions and eight native guard groups passed.** The SDK made one password
+request to the injected response fixture; cold native selection made two
+independent verifier requests, before owner creation and within AuthSession.
+Neither request reached a server. Browser connections are denied by CSP and
+fixed network shims; native Auth and relay requests use catch-all URLProtocol
+fixtures. Unexpected network requests were zero.
+
+After explicit sign-in, native admission remained `unknown`, registration and
+claim remained `none`, and pairing remained `unpaired`. Message issue, private
+read/send/retry, enrollment, claim and permanent-protection calls were all zero.
+Native history and unresolved counts were zero. Password clearing and the
+blocked private view passed. This closes the fresh, unregistered Research
+startup case, **not protected messaging through the UI, live SDK login, full-app
+router integration or physical-device acceptance**.
+
+All fixture hooks require a simulator-only compilation flag and a fresh local
+installation. Ordinary manifests omit the fixture resource and linker sections;
+mistaken physical fixture builds refuse. The real host signature receives no
+simulated iOS entitlement grants. XML and DER simulator entitlements instead
+occupy measured Mach-O sections, matching the prior native probes. The unsigned
+build is preserved; only a separate fresh copy is ad-hoc signed. Both successful
+owned simulators and their native state were removed. Human Research apps and
+the eight spent hosted actors were untouched.
+
+Retained failures include canonical temp-path rejection, a linker-signed debug
+stub failing unsigned verification, simulator launch refusals with iOS rights
+incorrectly attached to the Mac signature, and a wrong fixture expectation of
+one rather than two cold verifier requests. The signing control launched without
+those host rights but could not initialize native credentials; the final linked
+simulator-section builds passed. Fixed progress diagnostics contain no errors,
+credentials or DOM contents. Invalid reports leave SDK counts unavailable, not
+invented. The [native window manifest](../experiments/scuttlebutt-e2ee/review/native-window-2026-10-08.json)
+links exact sources, receipts, regression results and failures. Earlier receipts
+without section inspection describe requested embedding only; the final build
+measures both section hashes.
+
+Focused regression passed **227 tests in eight suites**, including 16 new
+script/generator cases and 51 synthetic Mach-O parser cases. These fixtures do
+not add SDK/native execution evidence to the separate simulator run. Focused
+strict types and named lint pass. Two temporary type-config failures are retained;
+explicit local type roots and the Vite declaration corrected the harness without
+changing application source. A separate **18-source unflagged Research iOS build
+compiled unsigned**, without fixture resources or simulator linker rights. It
+was not signed, installed or executed and is not a production Thalassa build.
+
+Next is protected setup and actual PM view/send/receive under a fresh, owned
+local fixture, then full-app admission and lifecycle/recovery work. Existing
+physical signing pins still refuse this new source; no human update is implied.
+Production cutover, prekey renewal/replacement, retention/recovery policy,
+independent concurrency, dependency/provenance obligations, physical acceptance
+and independent security review remain open. No master, primary sync, hosted
+deployment, yacht or production change occurred.
+
 ### 8 October isolated message page lifecycle fixtures
 
 The dedicated page now creates one effect-owned composition per mount instead

@@ -73,8 +73,12 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func transportWhileLocked() throws -> VodozemacRelayTransport {
         if let messageTransport { return messageTransport }
+#if E2EE_LOCAL_UI_FIXTURE
+        let transport = try ResearchLocalUiFixture.relayTransport()
+#else
         let transport = try VodozemacRelayTransport(serviceOrigin: ResearchAuthConfiguration.origin,
             serviceBasePath: "/functions/v1/scuttlebutt-e2ee-pilot")
+#endif
         messageTransport = transport
         return transport
     }
@@ -92,7 +96,10 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func exactOptions(_ call: CAPPluginCall, _ names: Set<String>) -> Bool {
-        Set(call.jsObjectRepresentation.keys) == names
+#if E2EE_LOCAL_UI_FIXTURE
+        guard ResearchLocalUiFixture.allow(method: call.methodName) else { return false }
+#endif
+        return Set(call.jsObjectRepresentation.keys) == names
     }
 
     @objc public func configuration(_ call: CAPPluginCall) {
@@ -188,6 +195,10 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     @objc public func messageSendPending(_ call: CAPPluginCall) {
+#if E2EE_LOCAL_UI_FIXTURE
+        // Refuse before even malformed pre-helper options can bypass counting.
+        guard ResearchLocalUiFixture.allow(method: call.methodName) else { call.resolve(Self.unavailable); return }
+#endif
         // Extract bounded string before Task. No caller options object is kept
         // as an authority source while the original native snapshot awaits HTTP.
         guard let id = call.getString("clientMessageId"), id.utf8.count == 36 else {
@@ -218,6 +229,9 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     @objc public func privateMessagePermissions(_ call: CAPPluginCall) {
+#if E2EE_LOCAL_UI_FIXTURE
+        guard ResearchLocalUiFixture.allow(method: call.methodName) else { call.resolve(Self.unavailable); return }
+#endif
         guard let peer = call.getString("peerAccountId") else { call.resolve(Self.unavailable); return }
         privateMessageAsync(call, names: ["peerAccountId"]) {
             try await $0.permissions(lifecycleVersion: $1, peerAccountId: peer)
@@ -227,6 +241,9 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         privateMessageAsync(call, names: []) { try await $0.inbox(lifecycleVersion: $1) }
     }
     @objc public func privateMessageSendText(_ call: CAPPluginCall) {
+#if E2EE_LOCAL_UI_FIXTURE
+        guard ResearchLocalUiFixture.allow(method: call.methodName) else { call.resolve(Self.unavailable); return }
+#endif
         guard let peer = call.getString("peerAccountId"), let id = call.getString("clientMessageId"),
               let text = call.getString("text") else { call.resolve(Self.unavailable); return }
         privateMessageAsync(call, names: ["peerAccountId", "clientMessageId", "text"]) {
@@ -234,6 +251,9 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     @objc public func privateMessageRetryPending(_ call: CAPPluginCall) {
+#if E2EE_LOCAL_UI_FIXTURE
+        guard ResearchLocalUiFixture.allow(method: call.methodName) else { call.resolve(Self.unavailable); return }
+#endif
         guard let peer = call.getString("peerAccountId"), let id = call.getString("clientMessageId") else {
             call.resolve(Self.unavailable); return
         }

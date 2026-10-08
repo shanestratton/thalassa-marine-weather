@@ -26,7 +26,11 @@ struct ResearchAuthConfiguration {
               config["conversationId"] as? String == conversation,
               let key = config["publicApiKey"] as? String else { throw ResearchAuthHostError.unavailable }
         // Reject accidental privileged credentials before exposing public config.
+#if E2EE_LOCAL_UI_FIXTURE
+        let verifier = try ResearchLocalUiFixture.authenticator(publicApiKey: key)
+#else
         let verifier = try VodozemacSupabaseAuth(projectOrigin: origin, publicApiKey: key)
+#endif
         return ResearchAuthConfiguration(publicApiKey: key, authenticator: verifier)
     }
 }
@@ -44,6 +48,10 @@ final class ResearchAuthHost {
         let root = support.appendingPathComponent("ScuttlebuttResearchAuth", isDirectory: true)
         let marker = try Self.readMarker()
         let rootExists = manager.fileExists(atPath: root.path)
+#if E2EE_LOCAL_UI_FIXTURE
+        // Fresh owned simulator only. Never reset/reuse an existing native install.
+        try ResearchLocalUiFixture.requireFreshInstallation(markerPresent: marker != nil, rootExists: rootExists)
+#endif
         let directory: VodozemacAccountDirectory
         switch (marker, rootExists) {
         case (nil, false):
@@ -97,6 +105,9 @@ final class ResearchAuthHost {
         // fresh same-account Auth. Logout, replacement and partial installation
         // are not restart continuity and cannot be silently repaired here.
         facade = VodozemacSessionFacade(directory: directory)
+#if E2EE_LOCAL_UI_FIXTURE
+        try ResearchLocalUiFixture.attach(facade)
+#endif
     }
 
     private static func query() -> [String: Any] {

@@ -11,6 +11,7 @@
  * API-key response. No key values or raw failures enter console/receipts.
  */
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { createHash, randomUUID } from 'node:crypto';
 import {
     chmodSync,
@@ -32,6 +33,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { inspectSimulatorEntitlementSections } from './machOEntitlementEvidence.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXPERIMENT = resolve(HERE, '..'),
@@ -248,7 +250,10 @@ try {
     assert(cacheArg && productsArg && distArg);
     let platform = 'iphoneos',
         keyFile,
-        priorBuildFile;
+        priorBuildFile,
+        localUiFile,
+        priorExchangeFile,
+        frameworkReceiptFile;
     const seen = new Set();
     for (let index = 0; index < options.length; index += 2) {
         const flag = options[index],
@@ -264,7 +269,38 @@ try {
         } else if (flag === '--prior-build-receipt') {
             assert(isAbsolute(value));
             priorBuildFile = value;
+        } else if (flag === '--local-ui-fixture-file') {
+            assert(isAbsolute(value));
+            localUiFile = value;
+        } else if (flag === '--prior-native-exchange-receipt') {
+            assert(isAbsolute(value));
+            priorExchangeFile = value;
+        } else if (flag === '--local-ui-frameworks-receipt') {
+            assert(isAbsolute(value));
+            frameworkReceiptFile = value;
         } else assert(false, 'Unsupported isolated build argument');
+    }
+    assert(
+        localUiFile
+            ? platform === 'iphonesimulator' && !keyFile && !priorBuildFile && priorExchangeFile && frameworkReceiptFile
+            : !priorExchangeFile && !frameworkReceiptFile,
+        'Local UI proof requires its own bounded simulator evidence',
+    );
+    let localUi;
+    if (localUiFile) {
+        regular(localUiFile, 128 * 1024);
+        localUi = JSON.parse(readFileSync(localUiFile, 'utf8'));
+        assert(
+            Object.keys(localUi).sort().join(',') === 'runID,script,version' &&
+                localUi.version === 1 &&
+                typeof localUi.runID === 'string' &&
+                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(localUi.runID),
+        );
+        const script = readFileSync(join(EXPERIMENT, 'app-pilot/localUiFixture.js'), 'utf8');
+        assert(
+            script.split('__RESEARCH_LOCAL_UI_RUN_ID__').length === 2 &&
+                localUi.script === script.replace('__RESEARCH_LOCAL_UI_RUN_ID__', localUi.runID),
+        );
     }
     const cache = directory(cacheArg),
         products = directory(productsArg),
@@ -293,7 +329,7 @@ try {
             return false;
         }
     });
-    if (!priorBuildFile) assert(completed, 'A completed native relay proof cache is required');
+    if (!priorBuildFile && !localUiFile) assert(completed, 'A completed native relay proof cache is required');
     const bindingRoot = directory(join(cache, 'bindings')),
         bindingFiles = tree(bindingRoot);
     const swift = bindingFiles.filter((path) => path.endsWith('.swift'));
@@ -354,6 +390,57 @@ try {
             );
         }
         priorEvidenceSha256 = createHash('sha256').update(bytes).digest('hex');
+    } else if (localUiFile) {
+        regular(priorExchangeFile, 256 * 1024);
+        regular(frameworkReceiptFile, 256 * 1024);
+        const exchange = JSON.parse(readFileSync(priorExchangeFile, 'utf8'));
+        const suffixes = [
+            'target/aarch64-apple-ios-sim/debug/libthalassa_vodozemac_native.a',
+            'bindings/thalassa_vodozemac_native.swift',
+            'bindings/thalassa_vodozemac_nativeFFI.h',
+            'bindings/thalassa_vodozemac_nativeFFI.modulemap',
+        ];
+        assert(
+            exchange.status === 'passed' &&
+                exchange.observation === 'native-encrypted-https-sql-proof-passed' &&
+                exchange.disposableSimulatorRemoved === true &&
+                exchange.physicalPhoneExecution === false &&
+                exchange.providerManifestSha256 === pin.manifestSha256 &&
+                exchange.providerLockSha256 === pin.lockfileSha256 &&
+                exchange.completedPhases?.map((value) => value.phase).join(',') ===
+                    'tls-refuse,prepare,private-messages,opening,retry,reply,successor,verify,recovery,cleanup' &&
+                exchange.completedPhases.every((value) => value.stage === 'complete') &&
+                Object.keys(exchange.cacheHashes).length === 4,
+        );
+        for (const suffix of suffixes) {
+            const entries = Object.entries(exchange.cacheHashes).filter(([path]) => path.endsWith('/' + suffix));
+            assert(entries.length === 1 && hash(join(cache, suffix)) === entries[0][1]);
+        }
+        const frameworks = JSON.parse(readFileSync(frameworkReceiptFile, 'utf8'));
+        assert(
+            frameworks.version === 1 &&
+                frameworks.status === 'passed' &&
+                frameworks.platform === platform &&
+                frameworks.packageName === '@capacitor/ios' &&
+                frameworks.packageVersion === '8.5.2' &&
+                frameworks.unsigned === true &&
+                frameworks.sourceInventorySha256 ===
+                    '857c1beede78d3d6d3fe2e7ee7423ecf0a0cc7e95a86575bfc1d9d9e23bbae4b' &&
+                realpathSync(frameworks.products) === products,
+        );
+        for (const name of ['Capacitor', 'Cordova']) {
+            const dir = directory(join(products, name + '.framework')),
+                expected = frameworks.frameworkHashes[name];
+            assert(
+                expected &&
+                    tree(dir)
+                        .map((path) => relative(dir, path))
+                        .sort()
+                        .join('\n') === Object.keys(expected).sort().join('\n') &&
+                    tree(dir).every((path) => hash(path) === expected[relative(dir, path)]),
+            );
+        }
+        priorEvidenceSha256 = hash(priorExchangeFile);
     } else priorEvidenceSha256 = hash(join(cache, completed));
     const sourcePaths = [
         ...[
@@ -379,6 +466,7 @@ try {
             'VodozemacSessionFacade.swift',
         ].map((name) => join(EXPERIMENT, name)),
     ];
+    if (localUiFile) sourcePaths.push(join(HERE, 'ResearchLocalUiFixture.swift'));
     sourcePaths.forEach((path) => regular(path, 1024 * 1024));
     scratch = mkdtempSync(join(tmpdir(), 'thalassa-messaging-build-'));
     chmodSync(scratch, 0o700);
@@ -426,16 +514,29 @@ try {
         cachedFrameworkSignatures:
             'Any existing cached framework signatures are preserved; this runner performs no signing.',
         outputRoot: scratch,
+        localUiFixture: !!localUiFile,
+        localUiFrameworksReceiptSha256: localUiFile ? hash(frameworkReceiptFile) : null,
     };
     saveReceipt();
     console.info('Nonsecret research messaging build receipt: ' + receiptPath);
     stage = 'public pilot configuration';
-    const config = publicConfig(keyFile);
+    const config = localUiFile
+        ? {
+              key: 'sb_publishable_research_local_ui_fixture',
+              source: 'synthetic-local-ui-only',
+              healthyProjectChecked: false,
+          }
+        : publicConfig(keyFile);
     receipt.publicConfigurationSource = config.source;
     receipt.healthyPilotProjectChecked = config.healthyProjectChecked;
     const nativeConfig = { projectOrigin: ORIGIN, publicApiKey: config.key, conversationId: CONVERSATION };
     const projectRoot = join(scratch, 'Project');
     mkdirSync(projectRoot, { mode: 0o700 });
+    if (localUiFile)
+        writeFileSync(join(projectRoot, 'research-local-ui-fixture.json'), JSON.stringify(localUi), {
+            mode: 0o600,
+            flag: 'wx',
+        });
     writeFileSync(join(projectRoot, 'research-config.json'), JSON.stringify(nativeConfig, null, 2) + '\n', {
         mode: 0o600,
         flag: 'wx',
@@ -480,8 +581,12 @@ try {
     assert(hash(join(projectRoot, 'Provider/libthalassa_vodozemac_native.a')) === receipt.providerSha256);
     mkdirSync(join(projectRoot, 'Frameworks'), { mode: 0o700 });
     const frameworkSources = {
-        Capacitor: directory(join(products, priorBuild ? 'Capacitor.framework' : 'Capacitor/Capacitor.framework')),
-        Cordova: directory(join(products, priorBuild ? 'Cordova.framework' : 'CapacitorCordova/Cordova.framework')),
+        Capacitor: directory(
+            join(products, priorBuild || localUiFile ? 'Capacitor.framework' : 'Capacitor/Capacitor.framework'),
+        ),
+        Cordova: directory(
+            join(products, priorBuild || localUiFile ? 'Cordova.framework' : 'CapacitorCordova/Cordova.framework'),
+        ),
     };
     for (const [name, source] of Object.entries(frameworkSources)) {
         const supported = JSON.parse(
@@ -503,8 +608,35 @@ try {
         );
     }
     const generator = join(HERE, 'generate_project.rb');
+    if (localUiFile) {
+        // Simulator security reads these Mach-O sections, as in the controlled
+        // native probes. They are NOT host codesign entitlement grants. Attaching
+        // simulated iOS application/keychain rights to the Mac signature prevents
+        // SpringBoard launch; real host signing stays ad-hoc with no entitlements.
+        const xml = join(projectRoot, 'research.simulated.xcent');
+        const der = xml + '.der';
+        writeFileSync(
+            xml,
+            '<?xml version="1.0"?><plist version="1.0"><dict><key>application-identifier</key><string>RESEARCH00.' +
+                BUNDLE +
+                '</string><key>keychain-access-groups</key><array><string>RESEARCH00.' +
+                BUNDLE +
+                '</string></array></dict></plist>',
+            { mode: 0o600, flag: 'wx' },
+        );
+        quiet('/usr/bin/xcrun', ['derq', 'query', '-f', 'xml', '-i', xml, '-o', der, '--raw']);
+        chmodSync(der, 0o600);
+        receipt.simulatorLinkEntitlements = {
+            xmlSha256: hash(xml),
+            derSha256: hash(der),
+            requestedMachOEmbedding: true,
+            embeddedInMachO: null,
+            hostCodesignGrant: false,
+        };
+    }
     regular(generator, 64 * 1024);
     receipt.generatorSha256 = hash(generator);
+    receipt.entitlementInspectorSha256 = hash(join(HERE, 'machOEntitlementEvidence.mjs'));
     receipt.runnerSha256 = hash(fileURLToPath(import.meta.url));
     writeFileSync(
         join(projectRoot, 'generator-input.json'),
@@ -515,6 +647,7 @@ try {
             sources: sourcePaths.map((path) => relative(dirname(path), path)),
             bindingSwift: relative(bindingRoot, swift[0]),
             moduleMap: relative(bindingRoot, maps[0]),
+            localUiFixture: !!localUiFile,
         }) + '\n',
         { mode: 0o600, flag: 'wx' },
     );
@@ -530,6 +663,11 @@ try {
     receipt.status = 'building';
     saveReceipt();
     const derivedData = join(scratch, 'DerivedData');
+    receipt.toolchain = {
+        xcode: quiet('/usr/bin/xcodebuild', ['-version']).trim(),
+        developerDirectory: quiet('/usr/bin/xcode-select', ['-p']).trim(),
+        sdkVersion: quiet('/usr/bin/xcrun', ['--sdk', platform, '--show-sdk-version']).trim(),
+    };
     quiet(
         '/usr/bin/xcodebuild',
         [
@@ -557,12 +695,15 @@ try {
             'CODE_SIGNING_ALLOWED=NO',
             'CODE_SIGNING_REQUIRED=NO',
             'CODE_SIGN_IDENTITY=',
+            'AD_HOC_CODE_SIGNING_ALLOWED=NO',
+            'ENABLE_DEBUG_DYLIB=NO',
             'COMPILER_INDEX_STORE_ENABLE=NO',
             'INDEX_ENABLE_DATA_STORE=NO',
             'CLANG_MODULE_CACHE_PATH=' + join(scratch, 'Modules'),
             'MODULE_CACHE_DIR=' + join(scratch, 'Modules'),
             'SDK_STAT_CACHE_DIR=' + join(scratch, 'SDKStatCaches'),
             'COMPILATION_CACHE_ENABLE_CACHING=NO',
+            ...(localUiFile ? ['SWIFT_ACTIVE_COMPILATION_CONDITIONS=E2EE_LOCAL_UI_FIXTURE'] : []),
             'build',
         ],
         300_000,
@@ -582,11 +723,24 @@ try {
     assert(!signature.error && signature.status !== 0 && /code object is not signed at all/.test(signature.stderr));
     receipt.applicationSignatureCheckedAbsent = true;
     receipt.unsignedApplication = true;
+    if (localUiFile) {
+        receipt.simulatorLinkEntitlements.measuredSections = inspectSimulatorEntitlementSections(
+            readFileSync(executable),
+            {
+                __entitlements: receipt.simulatorLinkEntitlements.xmlSha256,
+                __ents_der: receipt.simulatorLinkEntitlements.derSha256,
+            },
+        );
+        receipt.simulatorLinkEntitlements.embeddedInMachO = true;
+        receipt.simulatorLinkEntitlements.inspectorSha256 = receipt.entitlementInspectorSha256;
+    }
     receipt.executableSha256 = hash(executable);
     receipt.artifactHashes = Object.fromEntries(
         tree(receipt.artifact).map((path) => [relative(receipt.artifact, path), hash(path)]),
     );
     for (const [path, expected] of Object.entries(receipt.sourceHashes)) assert(hash(path) === expected);
+    assert(hash(generator) === receipt.generatorSha256);
+    assert(hash(join(HERE, 'machOEntitlementEvidence.mjs')) === receipt.entitlementInspectorSha256);
     for (const [name, expected] of Object.entries(receipt.cachedBindingHashes))
         assert(hash(join(bindingRoot, name)) === expected);
     assert(hash(provider) === receipt.providerSha256);
