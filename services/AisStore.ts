@@ -7,8 +7,15 @@
  * Follows the same singleton pub/sub pattern as NmeaStore and WindStore.
  */
 import type { AisTarget } from '../types/navigation';
+import type { AisDecoded } from './AisDecoder';
 import { createLogger } from '../utils/createLogger';
-import { AIS_COG_NOT_AVAILABLE, AIS_HEADING_NOT_AVAILABLE, AIS_SOG_NOT_AVAILABLE } from '../utils/collisionRule';
+import {
+    AIS_COG_NOT_AVAILABLE,
+    AIS_HEADING_NOT_AVAILABLE,
+    AIS_SOG_NOT_AVAILABLE,
+    aisTargetIsDistressBeacon,
+    distressTextSignal,
+} from '../utils/collisionRule';
 
 const log = createLogger('AIS');
 
@@ -16,6 +23,14 @@ const log = createLogger('AIS');
 const SWEEP_INTERVAL_MS = 60_000; // Check for stale targets every 60s
 const TARGET_EXPIRY_MS = 10 * 60_000; // Remove targets silent for 10 minutes
 const MAX_TARGETS = 500; // Cap to prevent memory issues in busy ports
+/** Message 14 texts held at once (shore stations broadcast them too). */
+const MAX_SAFETY_TEXTS = 100;
+
+/** A message 14's text and when it was heard (build 125, 125-02). */
+export interface AisSafetyText {
+    text: string;
+    at: number;
+}
 
 export type AisStoreListener = (targets: Map<number, AisTarget>) => void;
 
@@ -35,6 +50,9 @@ interface AisGeoJSONFeature {
         destination: string;
         statusColor: string;
         lastUpdated: number;
+        /** The MMSI's latest message 14 text (a beacon's 'SART ACTIVE' / 'SART TEST'), when one was heard. */
+        safetyText?: string;
+        safetyTextAt?: number;
     };
 }
 
@@ -52,6 +70,11 @@ class AisStoreClass {
     private lastHeardAt = 0;
     /** Our own MMSI, learned from the boat's own transponder (!AIVDO). */
     private ownMmsi: number | null = null;
+    /**
+     * Message 14 texts by MMSI (build 125, 125-02). Kept apart from the
+     * targets: a text carries no position, so it never makes a target at 0,0.
+     */
+    private safety = new Map<number, AisSafetyText>();
 
     // ── Public API ──
 
@@ -69,6 +92,7 @@ class AisStoreClass {
             this.sweepTimer = null;
         }
         this.targets.clear();
+        this.safety.clear();
         this.lastHeardAt = 0;
         this.notify();
         log.info('AIS store stopped');
@@ -82,7 +106,7 @@ class AisStoreClass {
      * when no MMSI was typed into Settings → Vessel. It still updates the
      * store as before.
      */
-    ingest(partial: Partial<AisTarget>, ownShip: boolean): void {
+    ingest(partial: AisDecoded, ownShip: boolean): void {
         if (ownShip && partial.mmsi) this.ownMmsi = partial.mmsi;
         this.update(partial);
     }
@@ -97,11 +121,29 @@ class AisStoreClass {
         return this.lastHeardAt;
     }
 
+    /** The MMSI's latest message 14 text, or null. */
+    getSafetyText(mmsi: number): AisSafetyText | null {
+        return this.safety.get(mmsi) ?? null;
+    }
+
+    /** Every message 14 text held, by MMSI: the distress watch reads beacons heard before their position. */
+    getSafetyTexts(): ReadonlyMap<number, AisSafetyText> {
+        return this.safety;
+    }
+
     /** Merge-upsert a partial AIS target (from decoder) */
-    update(partial: Partial<AisTarget>): void {
+    update(partial: AisDecoded): void {
         if (!partial.mmsi) return;
         const heardAt = Math.min(Date.now(), partial.lastUpdated ?? Date.now());
         if (Number.isFinite(heardAt) && heardAt > this.lastHeardAt) this.lastHeardAt = heardAt;
+
+        // Message 14: its text against the MMSI, and no target. Listeners hear
+        // it at once, so a beacon heard before its position still alarms.
+        if (typeof partial.safetyText === 'string') {
+            this.recordSafetyText(partial.mmsi, partial.safetyText, heardAt);
+            this.notify();
+            return;
+        }
 
         const existing = this.targets.get(partial.mmsi);
         if (existing) {
@@ -162,6 +204,7 @@ class AisStoreClass {
         for (const target of this.targets.values()) {
             // Skip targets without valid position
             if (target.lat === 0 && target.lon === 0) continue;
+            const safety = this.safety.get(target.mmsi);
 
             features.push({
                 type: 'Feature',
@@ -181,6 +224,7 @@ class AisStoreClass {
                     destination: target.destination,
                     statusColor: navStatusColor(target.navStatus),
                     lastUpdated: target.lastUpdated,
+                    ...(safety ? { safetyText: safety.text, safetyTextAt: safety.at } : {}),
                 },
             });
         }
@@ -194,14 +238,43 @@ class AisStoreClass {
         for (const cb of this.listeners) cb(this.targets);
     }
 
-    /** Remove targets with no update for TARGET_EXPIRY_MS */
+    /** A beacon (a 97x MMSI, status 14, or a beacon's own text) is never swept or evicted (125-02). */
+    private isBeacon(mmsi: number, navStatus?: number): boolean {
+        if (aisTargetIsDistressBeacon(mmsi, navStatus)) return true;
+        return distressTextSignal(this.safety.get(mmsi)?.text, mmsi) !== null;
+    }
+
+    private recordSafetyText(mmsi: number, text: string, at: number): void {
+        if (!this.safety.has(mmsi) && this.safety.size >= MAX_SAFETY_TEXTS) {
+            // Room for the new one: the oldest station's text goes, a beacon's last.
+            let oldest: number | null = null;
+            let oldestBeacon: number | null = null;
+            for (const [key, entry] of this.safety) {
+                const slot = this.isBeacon(key, this.targets.get(key)?.navStatus) ? 'beacon' : 'station';
+                if (slot === 'station' && (oldest === null || entry.at < this.safety.get(oldest)!.at)) oldest = key;
+                if (slot === 'beacon' && (oldestBeacon === null || entry.at < this.safety.get(oldestBeacon)!.at)) {
+                    oldestBeacon = key;
+                }
+            }
+            const drop = oldest ?? oldestBeacon;
+            if (drop !== null) this.safety.delete(drop);
+        }
+        this.safety.set(mmsi, { text, at });
+    }
+
+    /** Remove targets with no update for TARGET_EXPIRY_MS. A beacon stays, its age shown wherever it is drawn. */
     private sweep(): void {
         const now = Date.now();
         let removed = 0;
         for (const [mmsi, target] of this.targets) {
-            if (now - target.lastUpdated > TARGET_EXPIRY_MS) {
+            if (now - target.lastUpdated > TARGET_EXPIRY_MS && !this.isBeacon(mmsi, target.navStatus)) {
                 this.targets.delete(mmsi);
                 removed++;
+            }
+        }
+        for (const [mmsi, entry] of this.safety) {
+            if (now - entry.at > TARGET_EXPIRY_MS && !this.isBeacon(mmsi, this.targets.get(mmsi)?.navStatus)) {
+                this.safety.delete(mmsi);
             }
         }
         if (removed > 0) {
@@ -210,17 +283,29 @@ class AisStoreClass {
         }
     }
 
-    /** Evict oldest target when at capacity */
+    /**
+     * Evict the oldest target when at capacity, never a beacon. Only a store
+     * holding nothing but beacons (500 of them is a spoofer, not a sea) drops
+     * its oldest beacon, so memory stays bounded.
+     */
     private evictOldest(): void {
         let oldestMmsi = 0;
         let oldestTime = Infinity;
+        let oldestBeaconMmsi = 0;
+        let oldestBeaconTime = Infinity;
         for (const [mmsi, target] of this.targets) {
-            if (target.lastUpdated < oldestTime) {
+            if (this.isBeacon(mmsi, target.navStatus)) {
+                if (target.lastUpdated < oldestBeaconTime) {
+                    oldestBeaconTime = target.lastUpdated;
+                    oldestBeaconMmsi = mmsi;
+                }
+            } else if (target.lastUpdated < oldestTime) {
                 oldestTime = target.lastUpdated;
                 oldestMmsi = mmsi;
             }
         }
-        if (oldestMmsi) this.targets.delete(oldestMmsi);
+        const drop = oldestMmsi || oldestBeaconMmsi;
+        if (drop) this.targets.delete(drop);
     }
 }
 
@@ -235,6 +320,7 @@ class AisStoreClass {
  *   6 = Aground → red
  *   7 = Engaged in fishing → cyan
  *   8 = Under way sailing → green
+ *   14 = AIS-SART / MOB / EPIRB active → distress red (125-02)
  *   15 = Not defined / Class B → sky blue
  */
 function navStatusColor(status: number): string {
@@ -257,6 +343,8 @@ function navStatusColor(status: number): string {
             return '#06b6d4'; // Fishing — cyan
         case 8:
             return '#22c55e'; // Under way (sail) — green
+        case 14:
+            return '#ff1a1a'; // AIS-SART / MOB / EPIRB active — distress red
         case 15:
             return '#38bdf8'; // Not defined / Class B — sky blue
         default:

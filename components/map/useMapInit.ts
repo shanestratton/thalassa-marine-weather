@@ -30,6 +30,7 @@ import { deferEncPrewarm } from './encPrewarmLifecycle';
 import { obsFollowStartFix } from './obsCentre';
 import { OBS_PLACE_ZOOM, OBS_VESSEL_ZOOM, type ObsStartTarget } from './useObsStartupCamera';
 import { inshoreRouteLineLayers, surveyDashLayers, unverifiedRouteDashLayers } from './inshoreRouteState';
+import { AIS_TARGET_ICON_IMAGE, AIS_TARGET_ICON_SIZE, registerAisDistressSymbol } from './aisDistressSymbol';
 
 /** Map instances created THIS PROCESS — the flight trail's #N. */
 let mapInstanceSeq = 0;
@@ -1163,6 +1164,8 @@ export function useMapInit(opts: UseMapInitOptions) {
             dotCtx.arc(dotSize / 2, dotSize / 2, dotSize * 0.42, 0, Math.PI * 2);
             dotCtx.stroke();
             map.addImage('ais-stopped', dotCtx.getImageData(0, 0, dotSize, dotSize), { sdf: true });
+            // Distress beacons: the IEC 62288 circle-and-cross (build 125, 125-02).
+            registerAisDistressSymbol(map);
 
             map.addSource('ais-targets', {
                 type: 'geojson',
@@ -1269,17 +1272,12 @@ export function useMapInit(opts: UseMapInitOptions) {
                 source: 'ais-targets',
                 layout: {
                     // Motion picks the shape: underway-with-orientation is the
-                    // rotated boat, everything else the dot (see
+                    // rotated boat, everything else the dot, and a distress
+                    // beacon is always the circle-and-cross (see
                     // targetPresentation in useAisStreamLayer — precomputed,
                     // the established pattern for this source).
-                    'icon-image': [
-                        'match',
-                        ['coalesce', ['get', 'iconKind'], 'boat'],
-                        'dot',
-                        'ais-stopped',
-                        'ais-boat',
-                    ],
-                    'icon-size': ['interpolate', ['linear'], ['zoom'], 3, 0.2, 7, 0.35, 10, 0.5, 14, 0.8],
+                    'icon-image': AIS_TARGET_ICON_IMAGE as unknown as mapboxgl.Expression,
+                    'icon-size': AIS_TARGET_ICON_SIZE as unknown as mapboxgl.Expression,
                     // Precomputed orientation (heading-first, COG only when
                     // moving); dots ignore rotation by shape.
                     'icon-rotate': ['coalesce', ['get', 'orientation'], 0],
@@ -1293,21 +1291,27 @@ export function useMapInit(opts: UseMapInitOptions) {
                     // any feature that predates the presentation pass.
                     'icon-color': ['coalesce', ['get', 'typeColor'], ['get', 'statusColor']],
                     // Ghost ship effect: fade vessels by age (staleMinutes)
-                    // 0-30 min: fully opaque, 30-120 min: fading, 120+: ghostly
+                    // 0-30 min: fully opaque, 30-120 min: fading, 120+: ghostly.
+                    // A distress beacon never fades: its label says its age.
                     'icon-opacity': [
-                        'interpolate',
-                        ['linear'],
-                        ['coalesce', ['get', 'staleMinutes'], 0],
-                        0,
-                        1, // Fresh: fully visible
-                        30,
-                        0.8, // 30 min: slightly faded
-                        60,
-                        0.5, // 1 hour: half opacity
-                        120,
-                        0.25, // 2 hours: ghostly
-                        720,
-                        0.15, // 12 hours: very ghostly
+                        'case',
+                        ['==', ['get', 'iconKind'], 'sart'],
+                        1,
+                        [
+                            'interpolate',
+                            ['linear'],
+                            ['coalesce', ['get', 'staleMinutes'], 0],
+                            0,
+                            1, // Fresh: fully visible
+                            30,
+                            0.8, // 30 min: slightly faded
+                            60,
+                            0.5, // 1 hour: half opacity
+                            120,
+                            0.25, // 2 hours: ghostly
+                            720,
+                            0.15, // 12 hours: very ghostly
+                        ],
                     ],
                 },
             });
@@ -1322,14 +1326,22 @@ export function useMapInit(opts: UseMapInitOptions) {
                 layout: { visibility: 'none' },
             });
 
-            // Vessel name labels — visible at higher zoom
+            // Vessel name labels — visible at higher zoom. A distress beacon's
+            // label ('SART ACTIVE · 12 min') shows at every zoom and wins
+            // placement over a vessel's name (build 125, 125-02).
             map.addLayer({
                 id: 'ais-targets-label',
                 type: 'symbol',
                 source: 'ais-targets',
-                minzoom: 10,
                 layout: {
-                    'text-field': ['get', 'name'],
+                    'text-field': [
+                        'step',
+                        ['zoom'],
+                        ['coalesce', ['get', 'distressLabel'], ''],
+                        10,
+                        ['coalesce', ['get', 'distressLabel'], ['get', 'name']],
+                    ],
+                    'symbol-sort-key': ['case', ['has', 'distressLabel'], 0, 1],
                     'text-size': ['interpolate', ['linear'], ['zoom'], 10, 9, 14, 12],
                     'text-offset': [0, 1.4],
                     'text-anchor': 'top',

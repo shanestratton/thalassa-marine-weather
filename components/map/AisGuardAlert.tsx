@@ -20,11 +20,23 @@
  * plainly when it cannot watch or cannot sound ('blind', 'paused', no fix,
  * own motion unknown, stopped) rather than looking like an empty sea. While a collision card shows, the stack rises above the night tint
  * (an alarm reads at full brightness) but stays under the anchor alarm.
+ *
+ * Build 125 (125-02): distress beacons go on top of everything. A beacon her
+ * own radio hears going active is a red card (the IEC 62288 circle-and-cross)
+ * that sounds until Silence alarm, which keeps the card; then Dismiss. With a
+ * position it offers Go to it (the Man Overboard page steers to it and follows
+ * it); without one it says 'Position not yet received'. One relayed over the
+ * internet is the same card, silent, saying so, with its age. A caution (a
+ * beacon's MMSI, neither active nor test) is amber and silent. Test beacons
+ * are drawn on the chart, not carded.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import type { GuardAlert } from '../../services/AisGuardZone';
+import { useUIStore } from '../../stores/uiStore';
 import {
     AisGuardAlertStore,
+    distressLines,
+    type DistressBeacon,
     COLLISION_BLIND_NOTICE,
     COLLISION_NO_FIX_NOTICE,
     COLLISION_NO_MOTION_NOTICE,
@@ -91,6 +103,95 @@ function noticeText(n: CollisionWatchNotice): string | null {
     }
 }
 
+/** The IEC 62288 AIS-SART mark, as on the chart. */
+function DistressGlyph() {
+    return (
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" style={{ flexShrink: 0, marginTop: 1 }}>
+            <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2.2" />
+            <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" stroke="currentColor" strokeWidth="2.2" />
+        </svg>
+    );
+}
+
+function DistressCard({ beacon, nowMs }: { beacon: DistressBeacon; nowMs: number }) {
+    const lines = distressLines(beacon, nowMs);
+    const sounding = AisGuardAlertStore.distressSounding(beacon);
+    const caution = beacon.state === 'caution';
+    const button: React.CSSProperties = {
+        ...ACTION,
+        flex: 1,
+        minWidth: 0,
+        padding: '0 8px',
+        borderRadius: 10,
+        border: '1px solid rgba(254, 202, 202, 0.35)',
+        background: 'rgba(0, 0, 0, 0.18)',
+        color: 'inherit',
+        fontSize: 13,
+        fontWeight: 800,
+    };
+    return (
+        <div
+            role="alert"
+            data-distress={beacon.state}
+            style={{
+                ...CARD,
+                ...(caution
+                    ? {
+                          background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.95))',
+                          border: '2px solid rgba(245, 158, 11, 0.8)',
+                          color: 'var(--day-ui-warning, #fcd34d)',
+                          boxShadow: 'none',
+                      }
+                    : { border: '2px solid rgba(255, 26, 26, 0.9)' }),
+            }}
+        >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <DistressGlyph />
+                <div style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.5 }}>{lines.title}</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, marginTop: 2 }}>{lines.who}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>{lines.where}</div>
+                    <div style={{ fontSize: 13, opacity: 0.9 }}>{lines.heard}</div>
+                </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                {sounding ? (
+                    <button
+                        type="button"
+                        style={button}
+                        aria-label={`Silence the distress alarm for ${lines.who}`}
+                        onClick={() => AisGuardAlertStore.silenceDistress(beacon.mmsi)}
+                    >
+                        Silence alarm
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        style={button}
+                        aria-label={`Dismiss ${lines.label}`}
+                        onClick={() => AisGuardAlertStore.dismissDistress(beacon.mmsi)}
+                    >
+                        Dismiss
+                    </button>
+                )}
+                {lines.canGoTo && (
+                    <button
+                        type="button"
+                        style={button}
+                        aria-label={`Go to ${lines.label}`}
+                        onClick={() => {
+                            AisGuardAlertStore.goToDistress(beacon.mmsi);
+                            useUIStore.getState().setPage('mob');
+                        }}
+                    >
+                        Go to it
+                    </button>
+                )}
+            </div>
+        </div>
+    );
+}
+
 function CollisionCard({ alert }: { alert: CollisionAlertCard }) {
     const c = alert.collision;
     const lines = collisionLines(alert);
@@ -152,14 +253,39 @@ export const AisGuardAlert: React.FC = () => {
     // not raise it again for a vessel that never left the ring.
     const [alerts, setAlerts] = useState<GuardAlert[]>(() => AisGuardAlertStore.get());
     const [notice, setNotice] = useState<CollisionWatchNotice | null>(() => AisGuardAlertStore.getWatchNotice());
+    const [distress, setDistress] = useState<DistressBeacon[]>(() => AisGuardAlertStore.distressCards());
+    const [nowMs, setNowMs] = useState(() => Date.now());
     useEffect(() => AisGuardAlertStore.subscribe(setAlerts), []);
     useEffect(() => AisGuardAlertStore.subscribeNotice(setNotice), []);
+    useEffect(
+        () =>
+            AisGuardAlertStore.subscribeDistress(() => {
+                setDistress(AisGuardAlertStore.distressCards());
+                setNowMs(Date.now());
+            }),
+        [],
+    );
+    // A beacon's 'heard 12 s ago' keeps counting while its card shows.
+    const showingDistress = distress.length > 0;
+    useEffect(() => {
+        if (!showingDistress) return;
+        const timer = setInterval(() => setNowMs(Date.now()), 5_000);
+        return () => clearInterval(timer);
+    }, [showingDistress]);
 
     const dismiss = useCallback((mmsi: number) => AisGuardAlertStore.dismiss(mmsi), []);
 
+    // On the Go to it page the followed beacon's card stands aside: it would
+    // cover the bearing, and the page carries the same facts and its Silence.
+    const view = useUIStore((s) => s.currentView);
+    const goTo = AisGuardAlertStore.getDistressGoTo();
+    const shownDistress = view === 'mob' && goTo !== null ? distress.filter((b) => b.mmsi !== goTo) : distress;
+
     const status = notice ? noticeText(notice) : null;
-    if (alerts.length === 0 && !status) return null;
-    const alarming = alerts.some((a) => a.collision && !a.collision.cleared);
+    if (alerts.length === 0 && !status && shownDistress.length === 0) return null;
+    const alarming =
+        alerts.some((a) => a.collision && !a.collision.cleared) ||
+        shownDistress.some((b) => AisGuardAlertStore.distressSounding(b));
 
     return (
         <div
@@ -182,6 +308,10 @@ export const AisGuardAlert: React.FC = () => {
                 pointerEvents: 'auto',
             }}
         >
+            {/* Distress first: it outranks every other alarm (125-02). */}
+            {shownDistress.map((beacon) => (
+                <DistressCard key={`d-${beacon.mmsi}`} beacon={beacon} nowMs={nowMs} />
+            ))}
             {status && (
                 <div
                     role="status"
