@@ -9,6 +9,9 @@
  *  - mounted mid-alarm (app relaunch), the overlay is up on first paint
  *  - Silence routes to AnchorWatchService.acknowledgeAlarm
  *  - the alarm resolving clears the overlay; unmount unsubscribes
+ *  - build 125 (125-03): a drag alarm offers Move anchor, which opens the
+ *    Move anchor sheet in alarm mode over the alarm; never for a GPS-lost
+ *    alarm, nor while the boat's Pi keeps the watch
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -30,6 +33,8 @@ const mocks = vi.hoisted(() => {
         }),
         getSnapshot: vi.fn(() => state.snapshot),
         acknowledgeAlarm: vi.fn(),
+        piKeeping: false,
+        toastSuccess: vi.fn(),
     };
 });
 
@@ -39,6 +44,28 @@ vi.mock('../services/AnchorWatchService', () => ({
         getSnapshot: mocks.getSnapshot,
         acknowledgeAlarm: mocks.acknowledgeAlarm,
     },
+}));
+
+vi.mock('../services/anchorPiWatchKeeper', () => ({
+    AnchorPiWatchKeeper: { isKeeping: () => mocks.piKeeping, keepingSessionCode: () => null },
+}));
+
+vi.mock('../components/Toast', () => ({ toast: { success: mocks.toastSuccess, error: vi.fn() } }));
+
+// The sheet itself has its own suite (MoveAnchorSheet.test.tsx). Here it is a
+// stand-in that shows which mode the gate opened it in and lets the test
+// finish or cancel it.
+vi.mock('../components/anchor-watch/MoveAnchorSheet', () => ({
+    MoveAnchorSheet: (props: { mode?: string; onClose: () => void; onMoved?: () => void }) => (
+        <div role="dialog" aria-label="Move anchor" data-mode={props.mode ?? 'watch'}>
+            <button type="button" onClick={props.onClose}>
+                Cancel
+            </button>
+            <button type="button" onClick={() => props.onMoved?.()}>
+                Finish the move
+            </button>
+        </div>
+    ),
 }));
 
 function snap(over: Partial<AnchorWatchSnapshot> = {}): AnchorWatchSnapshot {
@@ -88,6 +115,8 @@ beforeEach(() => {
     mocks.subscribe.mockClear();
     mocks.getSnapshot.mockClear();
     mocks.acknowledgeAlarm.mockClear();
+    mocks.toastSuccess.mockClear();
+    mocks.piKeeping = false;
 });
 
 afterEach(() => {
@@ -160,5 +189,74 @@ describe('GlobalAnchorAlarmGate', () => {
         // A late emission after unmount must be inert.
         expect(() => emitSnapshot(alarmSnap())).not.toThrow();
         expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+});
+
+describe('GlobalAnchorAlarmGate: Move anchor from the alarm (build 125, 125-03)', () => {
+    const moveButton = () => screen.queryByRole('button', { name: 'Move anchor' });
+
+    it('a drag alarm offers Move anchor, which opens the sheet in alarm mode over the alarm', () => {
+        render(<GlobalAnchorAlarmGate />);
+        emitSnapshot(alarmSnap());
+        expect(screen.queryByRole('dialog', { name: 'Move anchor' })).not.toBeInTheDocument();
+
+        fireEvent.click(moveButton()!);
+
+        const sheet = screen.getByRole('dialog', { name: 'Move anchor' });
+        expect(sheet).toHaveAttribute('data-mode', 'alarm');
+        // The alarm stays up behind it, Silence and all.
+        expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /acknowledge alarm/i })).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+        expect(screen.queryByRole('dialog', { name: 'Move anchor' })).not.toBeInTheDocument();
+        expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    });
+
+    it('never for a GPS-lost alarm: a blind watch cannot judge a move', () => {
+        render(<GlobalAnchorAlarmGate />);
+        emitSnapshot(alarmSnap({ alarmCause: 'gps-lost' }));
+        expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+        expect(moveButton()).not.toBeInTheDocument();
+    });
+
+    it('never while the boat’s Pi keeps the watch', () => {
+        mocks.piKeeping = true;
+        render(<GlobalAnchorAlarmGate />);
+        emitSnapshot(alarmSnap());
+        expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+        expect(moveButton()).not.toBeInTheDocument();
+    });
+
+    it('a finished move says so; the alarm stopping closes the sheet, and the next alarm does not reopen it', () => {
+        render(<GlobalAnchorAlarmGate />);
+        emitSnapshot(alarmSnap());
+        fireEvent.click(moveButton()!);
+        fireEvent.click(screen.getByRole('button', { name: 'Finish the move' }));
+        expect(mocks.toastSuccess).toHaveBeenCalledWith(expect.stringMatching(/anchor moved/i));
+        expect(mocks.toastSuccess.mock.calls[0][0]).toMatch(/drift/i);
+
+        emitSnapshot(snap({ state: 'watching' }));
+        expect(screen.queryByRole('dialog', { name: 'Move anchor' })).not.toBeInTheDocument();
+
+        emitSnapshot(alarmSnap());
+        expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Move anchor' })).not.toBeInTheDocument();
+    });
+
+    it('a sheet left open closes when the alarm turns GPS-lost under it', () => {
+        render(<GlobalAnchorAlarmGate />);
+        emitSnapshot(alarmSnap());
+        fireEvent.click(moveButton()!);
+        emitSnapshot(alarmSnap({ alarmCause: 'gps-lost' }));
+        expect(screen.queryByRole('dialog', { name: 'Move anchor' })).not.toBeInTheDocument();
+    });
+
+    it('says why it sounded again after a move', () => {
+        render(<GlobalAnchorAlarmGate />);
+        emitSnapshot(alarmSnap({ alarmDetail: 'She is further from the anchor than when it was moved.' }));
+        expect(screen.getByRole('alertdialog')).toHaveTextContent(
+            'She is further from the anchor than when it was moved.',
+        );
     });
 });
