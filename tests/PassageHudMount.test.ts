@@ -28,11 +28,13 @@ describe('the passage pane on the Obs chart', () => {
         expect(offlineAt).toBeGreaterThan(paneAt);
     });
 
-    it('is switched on from the OBS layer FAB, with no Settings activation', () => {
-        expect(paneCode).toContain('usePassageHudEnabled');
+    it('is standard, with no switch: on the chart whenever it has something to show (build 124)', () => {
+        expect(paneCode).toContain('const available = passageHudAvailable({ following, preview, recording });');
+        expect(paneCode).not.toContain('PassageHudEnabled');
         expect(readFileSync('components/settings/GeneralTab.tsx', 'utf8')).not.toContain('PassageStripSection');
-        expect(readFileSync('components/map/MapHub.tsx', 'utf8')).toContain('...passageHudLayerSources({');
-        expect(app).toMatch(/chartVisible && passageHudEnabled && passageHudOpen && !mapPickerActive && !tracerActive/);
+        expect(readFileSync('components/map/MapHub.tsx', 'utf8')).not.toContain('passageHudLayerSources');
+        expect(app).toContain("import { usePassageHudAvailable } from './hooks/usePassageHudAvailable';");
+        expect(app).toMatch(/chartVisible && passageHudShown && passageHudOpen && !mapPickerActive && !tracerActive/);
     });
 
     it('doubles the original strip width for larger instruments', () => {
@@ -146,7 +148,7 @@ describe('the passage pane on the Obs chart', () => {
 
     it('folds the wind legend while it is open, without taking the skipper’s own tap away', () => {
         const helix = readFileSync('components/map/ThalassaHelixControl.tsx', 'utf8');
-        expect(helix).toContain('const showLegend = legendChoice ?? !(hudEnabled && hudOpen && !embedded);');
+        expect(helix).toContain('const showLegend = legendChoice ?? !(hudShown && hudOpen && !embedded);');
     });
 
     it('sits under the consensus matrix and the offline card, over the legend and the credits', () => {
@@ -210,7 +212,10 @@ describe('the look-ahead scrubber, ghost and wind timeline', () => {
 
     it('the chart draws the ghost from ONE hook line, off on the planning surfaces', () => {
         expect(mapHub).toContain("import { useRouteGhostMarker } from './useRouteGhostMarker';");
-        expect(mapHub).toContain('useRouteGhostMarker(mapRef, mapReady && !planningSurface && passageOverlay);');
+        // A route previewed on Obs (build 124) is on the chart without the Passage overlay.
+        expect(mapHub).toContain(
+            'useRouteGhostMarker(mapRef, mapReady && !planningSurface && (passageOverlay || obsRoutePreview !== null));',
+        );
     });
 
     it('there is never a second time slider: the chart’s own controls stand down, and their credits do not', () => {
@@ -471,11 +476,17 @@ describe('phase 3: spread, speed and rain', () => {
             return matches[0];
         };
         const scroller = elementWith('className', 'thalassa-passage-hud-cells min-h-0 flex-1 overflow-y-auto');
-        const lookAhead = elementWith('data-testid', 'hud-look-ahead');
+        // The Ahead/Live button is one renderer (a preview puts it in the bottom
+        // row): the warnings render before either of its places in the strip.
+        elementWith('data-testid', 'hud-look-ahead');
+        const lookAheadAt = pane.indexOf('{followingRoute && renderLookAhead(');
+        const bottomRowAt = pane.indexOf("renderLookAhead('h-11 w-1/2 border-r border-white/10', true)");
+        expect(lookAheadAt).toBeGreaterThan(-1);
+        expect(bottomRowAt).toBeGreaterThan(lookAheadAt);
         for (const id of ['hud-models-split', 'hud-forecast-note']) {
             const warning = elementWith('data-testid', id);
             expect(warning.getStart(source), id).toBeGreaterThan(scroller.getEnd());
-            expect(warning.getEnd(), id).toBeLessThan(lookAhead.getStart(source));
+            expect(warning.getEnd(), id).toBeLessThan(lookAheadAt);
         }
     });
 });

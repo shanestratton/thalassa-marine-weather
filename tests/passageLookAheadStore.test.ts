@@ -27,8 +27,8 @@ import {
     reportPassageUnsyncedLayers,
     reportPassageWindCoverage,
     setPassageAheadMs,
-    setPassageHudEnabled,
     setPassageHudOpen,
+    setPassageHudPreviewRoute,
     setPassageLookAheadPlaying,
     setPassageSpeedPref,
     startPassageLookAhead,
@@ -38,13 +38,25 @@ import {
 } from '../stores/passageHudStore';
 
 const HOUR = 3_600_000;
+/** A departure an hour from the real clock: inside the five-day window whatever the date. */
+const NOW_FOR_PREVIEW = () => Date.now() + HOUR;
 
 beforeEach(() => {
     localStorage.clear();
     __resetPassageHudForTests();
-    setPassageHudEnabled(true);
     setPassageHudOpen(true);
 });
+
+/** A fictional Aegean hop for the preview cases. */
+const PREVIEW = {
+    id: 'saved-piraeus-aegina',
+    label: 'Piraeus → Aegina',
+    points: [
+        { lat: 37.94, lon: 23.63 },
+        { lat: 37.82, lon: 23.55 },
+        { lat: 37.75, lon: 23.43 },
+    ],
+};
 
 describe('live until asked', () => {
     it('starts live, at now, not playing', () => {
@@ -183,7 +195,7 @@ describe('a chosen departure', () => {
 
     it.each([
         ['return to live', stopPassageLookAhead],
-        ['disable the HUD', () => setPassageHudEnabled(false)],
+        ['preview another route', () => setPassageHudPreviewRoute(PREVIEW)],
         ['reset the session', __resetPassageHudForTests],
     ])('clears the departure when asked to %s', (_name, reset) => {
         startPassageLookAhead(NOW + HOUR);
@@ -259,7 +271,8 @@ describe('minimizing instruments and ending the forecast', () => {
         expect(getPassageGhost()).toBe(ghost);
     });
 
-    it('disabling the HUD ends the forecast even while the instruments are minimized', () => {
+    it('clearing a previewed route ends its forecast even while the instruments are minimized', () => {
+        setPassageHudPreviewRoute(PREVIEW);
         startPassageLookAhead();
         setPassageAheadMs(12 * HOUR);
         setPassageLookAheadPlaying(true);
@@ -273,11 +286,22 @@ describe('minimizing instruments and ending the forecast', () => {
             { lat: -26, lon: 153 },
         ]);
         setPassageHudOpen(false);
-        setPassageHudEnabled(false);
+        setPassageHudPreviewRoute(null);
         expect(getPassageLookAhead()).toEqual({ on: false, departureMs: null, aheadMs: 0, playing: false });
         expect(getPassageGhost()).toBeNull();
         expect(getPassageGhostPath()).toBeNull();
         expect(getPassageGhostJoinPath()).toBeNull();
+    });
+
+    it('the same preview published again is no change: its glance runs on', () => {
+        setPassageHudPreviewRoute(PREVIEW);
+        startPassageLookAhead(NOW_FOR_PREVIEW());
+        setPassageAheadMs(5 * HOUR);
+        setPassageHudPreviewRoute({ ...PREVIEW });
+        expect(getPassageLookAhead()).toMatchObject({ on: true, aheadMs: 5 * HOUR });
+        // A one-point line is no route: nothing to preview.
+        setPassageHudPreviewRoute({ ...PREVIEW, points: PREVIEW.points.slice(0, 1) });
+        expect(getPassageLookAhead().on).toBe(false);
     });
 
     it('back to live resets the offset: the next glance starts from now again', () => {

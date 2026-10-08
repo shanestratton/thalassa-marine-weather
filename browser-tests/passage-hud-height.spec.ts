@@ -11,7 +11,9 @@ async function routeFixture(page: Page, baseURL: string) {
         '/services/GpsService.ts': `const p={latitude:-27.5,longitude:153,timestamp:Date.now()};export const GpsService={getLastKnownPosition:()=>p,watchPosition:()=>()=>{}};`,
         '/services/GpsReceiverStatusService.ts': `const state={active:true,kind:'vessel-nmea',label:'On-board GPS',detail:'Live via the Pi · GPS · 11 sats · HDOP 0.9',isNmea:true,satellites:11,hdop:0.9,avgAccuracy:null,qualityLabel:null,deviceName:'layout-only'};export const GpsReceiverStatusService={getStatus:()=>state,refresh:async()=>state};`,
         '/stores/settingsStore.ts': `const state={settings:{vessel:{cruisingSpeed:6,length:42,type:'sail'},units:{waveHeight:'m'}}};export const useSettingsStore=Object.assign(s=>s(state),{getState:()=>state,subscribe:()=>()=>{}});`,
-        '/services/weather/openMeteoProxy.ts': `export const fetchOpenMeteoPoints=async(op,points,params)=>{
+        // Every export, so nothing else in the graph fails to link (the fixture went blank
+        // without fetchOpenMeteoProxy): only the route samplers are answered.
+        '/services/weather/openMeteoProxy.ts': `export const fetchOpenMeteoProxy=async()=>{throw new Error('layout fixture: no network');};export const fetchOpenMeteoPoints=async(op,points,params)=>{
             const time=Array.from({length:170},(_,h)=>Math.floor(Date.now()/3600000)*3600+h*3600);
             const col=value=>time.map(()=>value);
             if(op==='marine')return points.map(p=>({latitude:p.lat,longitude:p.lon,hourly_units:{wave_height_meteofrance_wave:'m',wave_period_meteofrance_wave:'s',ocean_current_velocity_marine_best_match:'km/h',ocean_current_direction_marine_best_match:'°'},hourly:{time,wave_height_meteofrance_wave:col(1.4),wave_period_meteofrance_wave:col(7),wave_direction_meteofrance_wave:col(120),ocean_current_velocity_marine_best_match:col(1.852),ocean_current_direction_marine_best_match:col(0)}}));

@@ -348,3 +348,44 @@ describe('passage route overview camera', () => {
         expect(c.raw.fitBounds).not.toHaveBeenCalled();
     });
 });
+
+describe('the overview waits for the HUD to ask (build 124: the HUD has no switch)', () => {
+    // MapHub's gate: passageHudOnChart && passageOverlay && passageOverviewAsked
+    // && following … (pinned in tests/PassageHudStandard.test.tsx). Before the
+    // switch went, the overview engaged only after the skipper turned the HUD
+    // on; now a plain Layers → Passage toggle must still not move the camera.
+    type OverviewStore = {
+        __resetPassageHudForTests: () => void;
+        askPassageOverview: () => void;
+        usePassageOverviewAsked: () => boolean;
+    };
+    it('Layers → Passage alone frames nothing; the HUD’s own ask frames the route', async () => {
+        const overlay = await import('../stores/chartPassageOverlay');
+        const hud = (await import('../stores/passageHudStore')) as unknown as OverviewStore;
+        overlay.__resetPassageOverlayForTests();
+        hud.__resetPassageHudForTests();
+        const c = chart();
+        renderHook(() => {
+            const on = overlay.usePassageOverlay();
+            const asked = hud.usePassageOverviewAsked();
+            return usePassageRouteFrame({ mapRef: c.ref, mapReady: true, enabled: on && asked, route: ROUTE });
+        });
+        act(() => overlay.setPassageOverlay(true));
+        flush();
+        c.emit('moveend');
+        flush();
+        expect(c.raw.fitBounds).not.toHaveBeenCalled();
+        act(() => hud.askPassageOverview());
+        flush();
+        expect(c.raw.fitBounds).toHaveBeenCalledOnce();
+        // Overlay off withdraws the ask; back on from Layers, the camera stays put.
+        act(() => overlay.setPassageOverlay(false));
+        act(() => overlay.setPassageOverlay(true));
+        c.displace();
+        c.emit('moveend');
+        flush();
+        expect(c.raw.fitBounds).toHaveBeenCalledOnce();
+        overlay.__resetPassageOverlayForTests();
+        hud.__resetPassageHudForTests();
+    });
+});

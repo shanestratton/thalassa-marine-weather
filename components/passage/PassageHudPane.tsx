@@ -38,10 +38,22 @@
  * storm card, the planning surfaces and a landscape phone. It sits at z-549,
  * one under the offline card (z-550). Not a dialog: the chart stays live.
  *
- * OBS Layers → Passage HUD, offered for a followed route or an active/paused
- * recording. Recording starts open the LIVE readings once per session.
- * Activation opens the readings, turns off Inspect and shows
- * wind plus available rain/squalls without taking over the chart camera.
+ * STANDARD, NO SWITCH (build 124, Shane 2026-10-08: "I don't think that we need
+ * a setting for it. It should just be the standard setup for routes. Or tracks
+ * on the log page."). The pane is on the chart for a followed route, a recording
+ * running or paused, or a route PREVIEWED on Obs; the only choice left is
+ * whether its readings are open. A recording starting opens the LIVE readings
+ * once and, that once, turns off Inspect and shows wind plus available
+ * rain/squalls, without taking over the chart camera.
+ *
+ * THE HUD FOLLOWS THE ROUTE ON SCREEN. A route pulled up on Obs (Layers →
+ * Routes) that is not the followed one is previewed here, labelled "Preview —
+ * not following" for as long as it is up: looked ahead from its FIRST POINT at a
+ * departure chosen in the departure dialog (the next whole hour, offered
+ * first). It never watches the GPS, never follows, never turns on the Passage
+ * overlay (which would put the followed line back on screen in its place).
+ * Clear the pick and the followed route's live strip, or the recording's, is
+ * back.
  *
  * HONESTY:
  *   - dead instruments are dashes, not the last number, and NOT the phone's
@@ -62,18 +74,18 @@
  */
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
+    askPassageOverview,
     LOOK_AHEAD_MAX_MS,
     publishPassageGhost,
     publishPassageGhostPath,
     publishPassageGhostJoinPath,
-    setPassageHudEnabled,
     setPassageAheadMs,
     setPassageLookAheadPlaying,
     startPassageLookAhead,
     stopPassageLookAhead,
     togglePassageHud,
-    usePassageHudEnabled,
     usePassageHudOpen,
+    usePassageHudPreviewRoute,
     usePassageLookAhead,
     usePassageRainCoverageHours,
     usePassageSpeedPref,
@@ -82,12 +94,20 @@ import {
 } from '../../stores/passageHudStore';
 import { usePassageHudInstruments, type HudMetric } from '../../hooks/usePassageHudInstruments';
 import { useHudRecording } from '../../hooks/useHudRecording';
+import { passageHudAvailable } from '../../hooks/usePassageHudAvailable';
 import type { TrackingState } from '../../services/shiplog/TrackingStateStore';
 import { PassageRecordingMetrics } from './PassageRecordingMetrics';
 import { usePassageEta } from '../../hooks/usePassageEta';
 import { useFollowRouteStore } from '../../stores/followRouteStore';
 import { setPassageOverlay, usePassageOverlay } from '../../stores/chartPassageOverlay';
-import { MOTION_MIN_NM, buildRouteIndex, progressAlongRoute, type RouteProgress } from '../../services/routeProgress';
+import {
+    MOTION_MIN_NM,
+    buildRouteIndex,
+    progressAlongRoute,
+    routeLengthNm,
+    type RoutePoint,
+    type RouteProgress,
+} from '../../services/routeProgress';
 import {
     SPREAD_SOME_DEG,
     SPREAD_SOME_KTS,
@@ -134,7 +154,7 @@ import { WindStore } from '../../stores/WindStore';
 import { PASSAGE_MODEL_CHOICES, PassageModelModal, passageModelChoice } from './PassageModelModal';
 import { RouteTimeScrubber, fmtAhead, fmtMoment, type SpreadBandPoint } from './RouteTimeScrubber';
 import { PassageDepartureModal } from './PassageDepartureModal';
-import { passageDepartureTime } from '../../services/passageDeparture';
+import { nextPreviewDeparture, passageDepartureTime } from '../../services/passageDeparture';
 import {
     suggestPassageDeparture,
     type PassageDepartureSuggestionState,
@@ -250,24 +270,78 @@ interface RouteFix {
     ageMin: number;
 }
 
-const ClosedTab: React.FC<{ onToggle: () => void }> = ({ onToggle }) => (
+/**
+ * Where a look-ahead leaves from: her reckoned fix on a followed route, or a
+ * previewed route's own first point ('route-start') — a place on the line, not
+ * a position anyone measured.
+ */
+type RouteStart = Omit<RouteFix, 'source'> & { source: FixSource | 'route-start' };
+
+/** A previewed route's start: its first point, nothing sailed, nothing to join. */
+function routeStartOf(points: readonly RoutePoint[]): RouteStart {
+    const totalNm = routeLengthNm(points);
+    const first = { lat: points[0].lat, lon: points[0].lon };
+    return {
+        position: first,
+        progress: {
+            alongNm: 0,
+            remainingNm: totalNm,
+            toGoNm: totalNm,
+            totalNm,
+            offTrackNm: 0,
+            legIndex: 0,
+            abeam: first,
+        },
+        source: 'route-start',
+        ageMin: 0,
+    };
+}
+
+/**
+ * The tab left on the chart when the readings are tucked away. A preview's
+ * ghost and scrubber stay up beside it, so the tab says Preview, in amber:
+ * tucked away, a preview must still never look like the followed passage. At
+ * the app's legibility floor the word alone fills the tab in wide fonts
+ * (measured 64 of its 65 px at 320 × 568, Chromium and WebKit), so it drops
+ * the arrow; the tab's pull shape still says it opens.
+ */
+const ClosedTab: React.FC<{ onToggle: () => void; previewing: boolean }> = ({ onToggle, previewing }) => (
     <button
         type="button"
         onClick={onToggle}
-        aria-label="Show passage instruments"
+        aria-label={previewing ? 'Show route preview, not following' : 'Show passage instruments'}
         aria-expanded={false}
         data-testid="passage-hud-toggle"
-        className="thalassa-passage-hud-tab absolute left-0 z-549 flex h-20 w-7 flex-col items-center justify-center gap-1 rounded-r-xl border border-l-0 border-white/15 bg-slate-950/90 shadow-xl backdrop-blur-md active:scale-95"
+        className={`thalassa-passage-hud-tab absolute left-0 z-549 flex h-20 w-7 flex-col items-center justify-center gap-1 rounded-r-xl border border-l-0 bg-slate-950/90 shadow-xl backdrop-blur-md active:scale-95 ${
+            previewing ? 'border-amber-300/60' : 'border-white/15'
+        }`}
     >
-        <svg className="h-3.5 w-3.5 text-sky-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-        <span
-            className="text-[10px] font-black uppercase tracking-widest text-white/70"
-            style={{ writingMode: 'vertical-rl' }}
-        >
-            HUD
-        </span>
+        {previewing ? (
+            <span
+                className="text-[10px] font-black uppercase leading-none tracking-normal text-amber-200"
+                style={{ writingMode: 'vertical-rl' }}
+            >
+                Preview
+            </span>
+        ) : (
+            <>
+                <svg
+                    className="h-3.5 w-3.5 text-sky-300"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={3}
+                >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+                <span
+                    className="text-[10px] font-black uppercase tracking-widest text-white/70"
+                    style={{ writingMode: 'vertical-rl' }}
+                >
+                    HUD
+                </span>
+            </>
+        )}
     </button>
 );
 
@@ -304,8 +378,14 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     const overlayOn = usePassageOverlay();
     const isFollowing = useFollowRouteStore((s) => s.isFollowing);
     const voyagePlan = useFollowRouteStore((s) => s.voyagePlan);
-    const routeCoords = useFollowRouteStore((s) => s.routeCoords);
-    const following = isFollowing && routeCoords.length >= 2;
+    const followedCoords = useFollowRouteStore((s) => s.routeCoords);
+    // The route on screen: a previewed one when it is up, else the followed one.
+    const preview = usePassageHudPreviewRoute();
+    const previewing = preview !== null;
+    const followingRoute = !previewing && isFollowing && followedCoords.length >= 2;
+    /** A line to look along — followed or previewed. Only `followingRoute` is her own passage. */
+    const following = previewing || followingRoute;
+    const routeCoords = preview ? preview.points : followedCoords;
     const recordingAvailable = !!recording.currentVoyageId && (recording.isTracking || recording.isPaused);
 
     // The lane and her course can change while the route effect is running;
@@ -331,7 +411,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     // ── Progress along the followed route ──
     const [fix, setFix] = useState<RouteFix | null>(null);
     useEffect(() => {
-        if (!following) {
+        // A previewed route is not one she is on: no GPS is watched for it.
+        if (!followingRoute) {
             setFix(null);
             return;
         }
@@ -414,7 +495,10 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             clearInterval(id);
             unwatch();
         };
-    }, [following, routeCoords]);
+    }, [followingRoute, routeCoords]);
+    // Where a look-ahead leaves from: her fix, or a previewed route's first point.
+    const previewStart = useMemo(() => (preview ? routeStartOf(preview.points) : null), [preview]);
+    const start: RouteStart | null = previewStart ?? fix;
 
     // ── What the GPS receiver is doing ──
     const [receiver, setReceiver] = useState<GpsReceiverStatus>(() => GpsReceiverStatusService.getStatus());
@@ -488,12 +572,20 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
 
         // The wider pane reaches into the top-centre credit strip on phones.
         // Measure the credits as they wrap or appear, then start below them.
-        // Credit wording, placement and links remain intact.
+        // Credit wording, placement and links remain intact. Every credit the
+        // strip can hold is here: Copernicus, the rain radar/forecast, the Sat
+        // cloud and the lightning feed (build 124 — the strip lay over the last
+        // two, measured at 320 and 375 px in wide fonts).
         let clearance = 0;
         let frame = 0;
         const observed = new Set<Element>();
+        // Lightning by MapHub's credits-strip slot, not the chip's label: the
+        // chart key renders the same labelled chip low in this column.
+        const ownCredits =
+            '[aria-label^="Copernicus Marine data attribution"], [data-testid="sat-ir-credit"], ' +
+            '[data-testid="lightning-credit"]';
         const creditSelector =
-            '[aria-label^="Copernicus Marine data attribution"], ' +
+            `${ownCredits}, ` +
             'a[aria-label="Rain radar data by RainViewer"], a[aria-label="Rain forecast imagery by Rainbow.ai"]';
         const measure = () => {
             frame = 0;
@@ -501,7 +593,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             const normalTop = bounds.top - clearance;
             let nextClearance = 0;
             const credits: Element[] = [
-                ...chart.querySelectorAll('[aria-label^="Copernicus Marine data attribution"]'),
+                ...chart.querySelectorAll(ownCredits),
                 ...[
                     ...chart.querySelectorAll(
                         'a[aria-label="Rain radar data by RainViewer"], a[aria-label="Rain forecast imagery by Rainbow.ai"]',
@@ -854,19 +946,19 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
         [speedPref, cruiseKts, isSail, polarData, closeHauledDeg],
     );
     const routeIndex = useMemo(() => (following ? buildRouteIndex(routeCoords) : null), [following, routeCoords]);
-    const canLookAhead = following && !!fix && cruiseKts > 0;
+    const canLookAhead = following && !!start && cruiseKts > 0;
     useEffect(() => {
         if (!canLookAhead) setDepartureOpen(false);
     }, [canLookAhead]);
-    const startAlongNm = fix?.progress.alongNm ?? null;
-    const backNm = fix?.progress.offTrackNm ?? 0;
+    const startAlongNm = start?.progress.alongNm ?? null;
+    const backNm = start?.progress.offTrackNm ?? 0;
     const comfort = useSettingsStore((st) => st.settings.comfortParams);
     const departureSuggestion = useMemo<PassageDepartureSuggestionState | undefined>(() => {
         if (!departureOpen) return undefined;
         if (!forecastSettled || !seaMine) return { status: 'loading' };
         return suggestPassageDeparture({
             index: routeIndex,
-            startAlongNm: fix?.source === 'phone-old' ? null : startAlongNm,
+            startAlongNm: start?.source === 'phone-old' ? null : startAlongNm,
             backNm,
             cruiseKts: profileCruiseKts,
             forecast,
@@ -892,7 +984,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
         comfort,
         nowMs,
         model.label,
-        fix?.source,
+        start?.source,
     ]);
     // Re-walked when she has moved a twentieth of a mile, the forecast or the
     // speed model changed, or the clock ticked (30 s) — never per scrub tick.
@@ -913,7 +1005,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     );
     const arrivalMs = plan?.arrivalMs ?? null;
     const liveEta = usePassageEta({
-        routeKey: following ? routeCoords : null,
+        // Her own progress only: a previewed route has no live ETA.
+        routeKey: followingRoute ? routeCoords : null,
         remainingNm: fix && fix.source !== 'phone-old' ? fix.progress.remainingNm + backNm : null,
         cruiseKts,
         departureMs: look.departureMs,
@@ -923,8 +1016,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     // the timestamped boat-motion history provides a damped recent average.
     const etaAt = look.on ? (arrivalMs === null ? null : departureTimeMs + arrivalMs) : liveEta.arrivalMs;
     const etaSpeed = look.on
-        ? arrivalMs && fix
-            ? (fix.progress.remainingNm + backNm) / (arrivalMs / 3_600_000)
+        ? arrivalMs && start
+            ? (start.progress.remainingNm + backNm) / (arrivalMs / 3_600_000)
             : cruiseKts
         : liveEta.speedKts;
     const etaBasis = look.on
@@ -1031,8 +1124,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     // An off-route start is a forecast-only straight joining estimate, never
     // a cleared navigation leg or a change to the route followed from Log.
     const station =
-        look.on && routeIndex && moment && fix && startAlongNm !== null
-            ? passageGhostAt({ index: routeIndex, moment, start: fix.position, startAlongNm, backNm })
+        look.on && routeIndex && moment && start && startAlongNm !== null
+            ? passageGhostAt({ index: routeIndex, moment, start: start.position, startAlongNm, backNm })
             : null;
     const ghostLabel = `${fmtAhead(aheadMs, look.departureMs != null)}${station?.joining ? ' · JOIN EST.' : ''}`;
     const ghostLat = station?.lat ?? null;
@@ -1049,9 +1142,9 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     // …and the line she rides: from abeam of the boat to the destination. The
     // Obs chart draws no followed-route line of its own, so this is the only
     // one there is for a skipper who has not cast off a named voyage.
-    const abeamLat = fix?.progress.abeam.lat ?? null;
-    const abeamLon = fix?.progress.abeam.lon ?? null;
-    const abeamLeg = fix?.progress.legIndex ?? null;
+    const abeamLat = start?.progress.abeam.lat ?? null;
+    const abeamLon = start?.progress.abeam.lon ?? null;
+    const abeamLeg = start?.progress.legIndex ?? null;
     useEffect(() => {
         publishPassageGhostPath(
             look.on && abeamLat !== null && abeamLon !== null && abeamLeg !== null
@@ -1060,8 +1153,8 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
         );
     }, [look.on, abeamLat, abeamLon, abeamLeg, routeCoords]);
 
-    const startLat = fix?.position.lat ?? null;
-    const startLon = fix?.position.lon ?? null;
+    const startLat = start?.position.lat ?? null;
+    const startLon = start?.position.lon ?? null;
     useEffect(() => {
         publishPassageGhostJoinPath(
             look.on && backNm > 0 && startLat !== null && startLon !== null && abeamLat !== null && abeamLon !== null
@@ -1209,7 +1302,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             : `${Math.floor(forecastAgeMs / 3_600_000)} H OLD`;
     const forecastNote = !look.on
         ? null
-        : !fix
+        : !start
           ? 'NO FIX'
           : station?.joining
             ? 'JOIN ESTIMATE'
@@ -1230,45 +1323,121 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     const cogMetric: HudMetric = makingWay ? inst.cog : { value: null, freshness: inst.cog.freshness };
     const anyValue = [inst.sog, inst.cog, inst.aws, inst.awa, inst.tws, inst.twd].some((m) => m.value !== null);
     const connected = inst.connectionStatus === 'connected' || inst.connectionStatus === 'remote';
-    const routeName =
-        voyagePlan?.origin && voyagePlan?.destination
-            ? `${voyagePlan.origin} → ${voyagePlan.destination}`
-            : voyagePlan?.destination || 'the followed route';
+    const routeName = preview
+        ? preview.label || 'the previewed route'
+        : voyagePlan?.origin && voyagePlan?.destination
+          ? `${voyagePlan.origin} → ${voyagePlan.destination}`
+          : voyagePlan?.destination || 'the followed route';
+    const previewTotalNm = previewStart?.progress.totalNm ?? 0;
     const gpsTag = receiver.active ? gpsStateTag(receiver.detail) : null;
 
-    const routeSentence = !following
-        ? 'No route being followed. Follow one from the Log page and the distance left along it appears here.'
-        : !fix
-          ? `Following ${routeName}. No position — waiting for the boat’s GPS or this phone’s.`
-          : `Following ${routeName}: ${fmtNm(fix.progress.toGoNm)} nautical miles to go, ${fmtNm(
-                fix.progress.alongNm,
-            )} of ${fmtNm(fix.progress.totalNm)} along the route${
-                fix.progress.offTrackNm >= 0.5 ? `, including ${fmtNm(fix.progress.offTrackNm)} back to the line` : ''
-            }. ${fixSourceSentence(fix.source, fix.ageMin)}.`;
+    const routeSentence = previewing
+        ? `Preview of ${routeName}, not followed: ${fmtNm(previewTotalNm)} nautical miles from its first point. Choose a departure to look ahead along it.`
+        : !following
+          ? 'No route being followed. Follow one from the Log page and the distance left along it appears here.'
+          : !fix
+            ? `Following ${routeName}. No position — waiting for the boat’s GPS or this phone’s.`
+            : `Following ${routeName}: ${fmtNm(fix.progress.toGoNm)} nautical miles to go, ${fmtNm(
+                  fix.progress.alongNm,
+              )} of ${fmtNm(fix.progress.totalNm)} along the route${
+                  fix.progress.offTrackNm >= 0.5 ? `, including ${fmtNm(fix.progress.offTrackNm)} back to the line` : ''
+              }. ${fixSourceSentence(fix.source, fix.ageMin)}.`;
 
     const forecastRouteSentence =
-        !station || !fix
+        !station || !start
             ? 'Looking ahead: no position to start from'
             : `At ${fmtMoment(departureTimeMs + aheadMs)}, ${fmtAhead(aheadMs, look.departureMs != null)}${look.departureMs != null ? ` from departure ${fmtMoment(departureTimeMs)}` : ''}, making ${planKts.toFixed(
                   1,
-              )} knots along ${routeName}: ${fmtNm(planToGoNm)} nautical miles to go, ${planArrived ? 'arrived' : HOW_WORDS[planHow]}${''}. A plan, not a measurement.`;
+              )} knots along ${routeName}: ${fmtNm(planToGoNm)} nautical miles to go, ${planArrived ? 'arrived' : HOW_WORDS[planHow]}${''}. A plan, not a measurement.${
+                  previewing ? ' A preview from the route’s first point; the route is not being followed.' : ''
+              }`;
 
     const cogSentence =
         inst.sog.value !== null && !makingWay
             ? 'Course over ground: not making way, no course to show'
             : `Course over ground ${fmtBearing(cogMetric)} true`;
 
+    // LOOK AHEAD / back to LIVE. For a preview it is the departure control, in
+    // half the bottom row: there the word alone, with no arrow (62 px at 320).
+    const renderLookAhead = (layout: string, half = false) => (
+        <button
+            type="button"
+            data-testid="hud-look-ahead"
+            disabled={!look.on && !canLookAhead}
+            aria-pressed={look.on}
+            aria-label={
+                look.on
+                    ? 'Back to live instruments'
+                    : previewing
+                      ? canLookAhead
+                          ? `Choose a departure to preview ${routeName}`
+                          : `Choose a departure to preview ${routeName} — set a cruising speed in Settings, Vessel`
+                      : canLookAhead
+                        ? 'Look ahead along the route'
+                        : !following
+                          ? 'Look ahead along the route — follow a route first'
+                          : cruiseKts > 0
+                            ? 'Look ahead along the route — waiting for a position'
+                            : 'Look ahead along the route — set a cruising speed in Settings, Vessel'
+            }
+            onClick={() => {
+                void triggerHaptic('light');
+                if (look.on) {
+                    stopPassageLookAhead();
+                    return;
+                }
+                setDepartureOpen(true);
+            }}
+            className={`flex shrink-0 items-center justify-center gap-1 text-[11px] font-black uppercase active:scale-95 disabled:active:scale-100 ${
+                half ? 'min-w-0 tracking-normal' : 'tracking-wide'
+            } ${layout} ${look.on ? 'text-emerald-300' : canLookAhead ? 'text-amber-300' : 'text-white/40'}`}
+        >
+            {look.on ? 'Live' : previewing ? 'Depart' : 'Ahead'}
+            {!half && (
+                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.5}>
+                    <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d={look.on ? 'M15 19l-7-7 7-7' : 'M9 5l7 7-7 7'}
+                    />
+                </svg>
+            )}
+        </button>
+    );
+
     return (
         <>
             <aside
                 ref={asideRef}
-                aria-label={look.on ? 'Passage forecast, looking ahead along the route' : 'Passage instruments'}
+                aria-label={
+                    previewing
+                        ? look.on
+                            ? 'Route preview forecast, not following'
+                            : 'Route preview, not following'
+                        : look.on
+                          ? 'Passage forecast, looking ahead along the route'
+                          : 'Passage instruments'
+                }
                 data-testid="passage-hud"
                 data-mode={look.on ? 'forecast' : 'live'}
+                data-subject={previewing ? 'preview' : followingRoute ? 'route' : 'recording'}
                 style={open ? undefined : { display: 'none' }}
                 aria-hidden={!open}
                 className="thalassa-passage-hud absolute left-0 z-549 flex w-[9.5rem] flex-col overflow-hidden rounded-r-2xl border border-l-0 border-white/15 bg-slate-950/92 shadow-2xl backdrop-blur-xl"
             >
+                {/* A preview never looks like a live passage: its label stands
+                    above everything, live or forecast, for as long as it is up. */}
+                {previewing && (
+                    <p
+                        className="shrink-0 border-b border-violet-300/30 bg-violet-400/15 px-1 py-1 text-center text-[10px] font-black uppercase leading-tight tracking-wide text-violet-200"
+                        data-testid="hud-preview"
+                        role="status"
+                    >
+                        Preview
+                        <span className="sr-only"> — </span>
+                        <span className="block normal-case tracking-normal text-violet-100">not following</span>
+                    </p>
+                )}
                 {look.on ? (
                     <p
                         className="shrink-0 border-b border-amber-300/30 bg-amber-300/10 py-1 text-center text-[10px] font-black uppercase leading-tight tracking-widest text-amber-300"
@@ -1303,7 +1472,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                                         station ? 'text-amber-200' : 'text-white/40'
                                     }`}
                                 >
-                                    {station && fix ? fmtNm(planToGoNm) : DASH}
+                                    {station && start ? fmtNm(planToGoNm) : DASH}
                                     {station && <span className="ml-1 text-[13px] font-bold text-gray-400">NM</span>}
                                 </p>
                                 <p className="text-[10px] font-black uppercase leading-none text-gray-400">
@@ -1527,7 +1696,27 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                         </>
                     ) : (
                         <>
-                            {following ? (
+                            {previewing ? (
+                                // The previewed route: its whole length from its first
+                                // point, and its name. No ETA until a departure is chosen.
+                                <div
+                                    className="border-b border-white/10 px-1 py-1 text-center"
+                                    data-testid="hud-route"
+                                    title={routeSentence}
+                                    aria-label={routeSentence}
+                                >
+                                    <p className="text-[10px] font-black uppercase leading-none text-violet-200">
+                                        Route
+                                    </p>
+                                    <p className="font-mono text-[32px] font-black leading-tight tabular-nums text-white">
+                                        {fmtNm(previewTotalNm)}
+                                        <span className="ml-1 text-[13px] font-bold text-gray-400">NM</span>
+                                    </p>
+                                    <p className="truncate text-[10px] font-black leading-tight text-gray-300">
+                                        {routeName}
+                                    </p>
+                                </div>
+                            ) : followingRoute ? (
                                 <>
                                     <div
                                         className="border-b border-white/10 px-1 py-1 text-center"
@@ -1684,101 +1873,67 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                 {/* LOOK AHEAD / back to LIVE. Entering draws the route too — the
                 same explicit ON as the button below: a ghost with no line to
                 ride is a boat adrift on the chart. OFF still lives in the
-                layer button. */}
-                {following && (
-                    <button
-                        type="button"
-                        data-testid="hud-look-ahead"
-                        disabled={!look.on && !canLookAhead}
-                        aria-pressed={look.on}
-                        aria-label={
-                            look.on
-                                ? 'Back to live instruments'
-                                : canLookAhead
-                                  ? 'Look ahead along the route'
-                                  : !following
-                                    ? 'Look ahead along the route — follow a route first'
-                                    : cruiseKts > 0
-                                      ? 'Look ahead along the route — waiting for a position'
-                                      : 'Look ahead along the route — set a cruising speed in Settings, Vessel'
-                        }
-                        onClick={() => {
-                            void triggerHaptic('light');
-                            if (look.on) {
-                                stopPassageLookAhead();
-                                return;
-                            }
-                            setDepartureOpen(true);
-                        }}
-                        className={`flex h-10 shrink-0 items-center justify-center gap-1 border-t border-white/10 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:active:scale-100 ${
-                            look.on ? 'text-emerald-300' : canLookAhead ? 'text-amber-300' : 'text-white/40'
-                        }`}
-                    >
-                        {look.on ? 'Live' : 'Ahead'}
-                        <svg
-                            className="h-3 w-3"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={3.5}
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d={look.on ? 'M15 19l-7-7 7-7' : 'M9 5l7 7-7 7'}
-                            />
-                        </svg>
-                    </button>
-                )}
+                layer button. A preview keeps it in the bottom row instead. */}
+                {followingRoute && renderLookAhead('h-10 border-t border-white/10')}
 
                 <div className="flex shrink-0 border-t border-white/10">
-                    {/* Route & track: the same ON the layer button performs. OFF lives
-                    there, because only MapHub's own path clears what it drew. */}
-                    <button
-                        type="button"
-                        data-testid="hud-show-passage"
-                        disabled={!(following || voyageActive || recordingAvailable) || overlayOn}
-                        aria-pressed={overlayOn}
-                        aria-label={
-                            overlayOn
-                                ? `${following ? 'Route and track are' : 'Recorded track is'} on the chart. Turn them off with Passage in the layer button.`
-                                : following || voyageActive || recordingAvailable
-                                  ? following
-                                      ? 'Show route and track on the chart'
-                                      : 'Show recorded track on the chart'
-                                  : 'Show route and track on the chart — cast off or follow a route first'
-                        }
-                        title={
-                            overlayOn
-                                ? 'On the chart — turn off with Passage in the layer button'
-                                : following
-                                  ? 'Show route & track'
-                                  : 'Show recorded track'
-                        }
-                        onClick={() => {
-                            void triggerHaptic('light');
-                            setPassageOverlay(true);
-                        }}
-                        className="flex h-11 w-1/2 items-center justify-center border-r border-white/10 active:scale-95 disabled:active:scale-100"
-                    >
-                        <svg
-                            className={`h-5 w-5 ${
+                    {/* A preview's departure shares this row: the strip's fixed height
+                    is what a 320 x 568 phone under two credits can least spare. Its
+                    route is already on the chart, and the Passage overlay would put
+                    the followed line there in its place, so it has no Route & track. */}
+                    {previewing ? (
+                        renderLookAhead('h-11 w-1/2 border-r border-white/10', true)
+                    ) : (
+                        // Route & track: the same ON the layer button performs. OFF lives
+                        // there, because only MapHub's own path clears what it drew.
+                        <button
+                            type="button"
+                            data-testid="hud-show-passage"
+                            disabled={!(followingRoute || voyageActive || recordingAvailable) || overlayOn}
+                            aria-pressed={overlayOn}
+                            aria-label={
                                 overlayOn
-                                    ? 'text-sky-300'
-                                    : following || voyageActive || recordingAvailable
-                                      ? 'text-white'
-                                      : 'text-white/40'
-                            }`}
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={2.2}
+                                    ? `${followingRoute ? 'Route and track are' : 'Recorded track is'} on the chart. Turn them off with Passage in the layer button.`
+                                    : followingRoute || voyageActive || recordingAvailable
+                                      ? followingRoute
+                                          ? 'Show route and track on the chart'
+                                          : 'Show recorded track on the chart'
+                                      : 'Show route and track on the chart — cast off or follow a route first'
+                            }
+                            title={
+                                overlayOn
+                                    ? 'On the chart — turn off with Passage in the layer button'
+                                    : followingRoute
+                                      ? 'Show route & track'
+                                      : 'Show recorded track'
+                            }
+                            onClick={() => {
+                                void triggerHaptic('light');
+                                // The skipper's ask: the whole route framed (a Layers toggle never is).
+                                askPassageOverview();
+                                setPassageOverlay(true);
+                            }}
+                            className="flex h-11 w-1/2 items-center justify-center border-r border-white/10 active:scale-95 disabled:active:scale-100"
                         >
-                            <circle cx="6" cy="18" r="2.2" />
-                            <circle cx="18" cy="6" r="2.2" />
-                            <path strokeLinecap="round" strokeDasharray="3 3" d="M8 17c4-1 3-8 8-10" />
-                        </svg>
-                    </button>
+                            <svg
+                                className={`h-5 w-5 ${
+                                    overlayOn
+                                        ? 'text-sky-300'
+                                        : followingRoute || voyageActive || recordingAvailable
+                                          ? 'text-white'
+                                          : 'text-white/40'
+                                }`}
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={2.2}
+                            >
+                                <circle cx="6" cy="18" r="2.2" />
+                                <circle cx="18" cy="6" r="2.2" />
+                                <path strokeLinecap="round" strokeDasharray="3 3" d="M8 17c4-1 3-8 8-10" />
+                            </svg>
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={onToggle}
@@ -1799,7 +1954,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                     </button>
                 </div>
             </aside>
-            {!open && <ClosedTab onToggle={onToggle} />}
+            {!open && <ClosedTab onToggle={onToggle} previewing={previewing} />}
             {look.on && (
                 <RouteTimeScrubber
                     aheadMs={aheadMs}
@@ -1832,7 +1987,10 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             )}
             <PassageDepartureModal
                 visible={departureOpen}
-                departureMs={look.departureMs}
+                // A preview offers the next whole hour first (read off the real
+                // clock: the dialog takes it once, as it opens); its glance, once
+                // started, keeps the departure chosen (or Leave now).
+                departureMs={previewing && !look.on ? nextPreviewDeparture(Date.now()) : look.departureMs}
                 routeName={routeName}
                 cruiseKts={cruiseKts}
                 suggestion={departureSuggestion}
@@ -1845,7 +2003,12 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                     lastMaxRef.current = 0;
                     parkedAtEndRef.current = false;
                     setNowMs(Date.now());
-                    setPassageOverlay(true);
+                    // A preview's route is the one on the chart already; the
+                    // overlay would swap the followed line in for it.
+                    if (!previewing) {
+                        askPassageOverview();
+                        setPassageOverlay(true);
+                    }
                     startPassageLookAhead(departureMs);
                     setDepartureOpen(false);
                 }}
@@ -1862,19 +2025,18 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
 };
 
 export const PassageHudPane: React.FC = () => {
-    const enabled = usePassageHudEnabled();
     const open = usePassageHudOpen();
     const following = useFollowRouteStore((s) => s.isFollowing && s.routeCoords.length >= 2);
+    const preview = usePassageHudPreviewRoute();
     const recording = useHudRecording();
-    const available = following || (!!recording.currentVoyageId && (recording.isTracking || recording.isPaused));
-    useEffect(() => {
-        if (enabled && !available) setPassageHudEnabled(false);
-    }, [enabled, available]);
+    // No switch (build 124): on the chart whenever there is something to show.
+    // When there is not, the pane unmounts, and that ends any glance with it.
+    const available = passageHudAvailable({ following, preview, recording });
     const toggle = () => {
         void triggerHaptic('light');
         togglePassageHud();
     };
-    if (!enabled || !available) return null;
+    if (!available) return null;
     // Keep the forecast controller and scrubber alive when only readings hide.
     return <OpenPane open={open} onToggle={toggle} recording={recording} />;
 };

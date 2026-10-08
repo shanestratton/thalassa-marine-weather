@@ -83,13 +83,7 @@ vi.mock('../hooks/usePassageRecordingMetrics', () => ({ usePassageRecordingMetri
 import { PassageHudPane, __forgetReckoningForTests } from '../components/passage/PassageHudPane';
 import { NmeaStore, type RemoteInstrumentSnapshot } from '../services/NmeaStore';
 import { useFollowRouteStore } from '../stores/followRouteStore';
-import {
-    __resetPassageHudForTests,
-    isPassageHudEnabled,
-    isPassageHudOpen,
-    setPassageHudEnabled,
-    setPassageHudOpen,
-} from '../stores/passageHudStore';
+import { __resetPassageHudForTests, isPassageHudOpen, setPassageHudOpen } from '../stores/passageHudStore';
 import { __resetPassageOverlayForTests, isPassageOverlayOn, setPassageOverlay } from '../stores/chartPassageOverlay';
 import type { VoyagePlan } from '../types';
 
@@ -132,7 +126,6 @@ beforeEach(() => {
     localStorage.clear();
     __resetPassageHudForTests();
     __resetPassageOverlayForTests();
-    setPassageHudEnabled(true);
     recording.state = { isTracking: false, isPaused: false, isRapidMode: false };
     recording.metrics = {
         distanceNm: 12.4,
@@ -155,19 +148,18 @@ afterEach(() => {
     useFollowRouteStore.getState().stopFollowing();
 });
 
-describe('off until the skipper enables the followed route HUD', () => {
-    it('renders nothing at all by default — no tab, no strip', () => {
-        setPassageHudEnabled(false);
+describe('standard for a followed route, with no switch (build 124)', () => {
+    it('renders nothing at all with nothing to show — no tab, no strip', () => {
+        useFollowRouteStore.getState().stopFollowing();
         setPassageHudOpen(true);
         const { container } = render(<PassageHudPane />);
         expect(container.firstChild).toBeNull();
     });
 
-    it('switching it off also closes it, so nothing stays stepped aside for a strip that is gone', () => {
-        setPassageHudOpen(true);
-        setPassageHudEnabled(false);
-        expect(isPassageHudOpen()).toBe(false);
-        expect(localStorage.getItem('thalassa_passage_hud_open_v1')).toBeNull();
+    it('a followed route has the HUD with nothing switched on', () => {
+        render(<PassageHudPane />);
+        expect(screen.getByRole('button', { name: 'Show passage instruments' })).toBeTruthy();
+        expect(screen.getByTestId('passage-hud')).toHaveAttribute('data-subject', 'route');
     });
 });
 
@@ -332,11 +324,10 @@ describe('the six numbers, live from the boat', () => {
 describe('the route she is following', () => {
     beforeEach(() => setPassageHudOpen(true));
 
-    it('hides the HUD and disables its layer when no route is followed', () => {
+    it('is not on the chart, and watches no GPS, when no route is followed', () => {
         useFollowRouteStore.getState().stopFollowing();
         const { container } = render(<PassageHudPane />);
         expect(container).toBeEmptyDOMElement();
-        expect(isPassageHudEnabled()).toBe(false);
         expect(gps.callbacks.size).toBe(0);
     });
 
@@ -489,10 +480,8 @@ describe('the chart’s Passage overlay stays the skipper’s switch', () => {
         view.unmount();
         // A voyage card alone does not establish an active recorder.
         voyage.active = { id: 'v1' };
-        setPassageHudEnabled(true);
         const recording = render(<PassageHudPane />);
         expect(recording.container).toBeEmptyDOMElement();
-        expect(isPassageHudEnabled()).toBe(false);
     });
 });
 
@@ -541,7 +530,6 @@ describe('just recording without a followed route', () => {
         recording.state = { isTracking: false, isPaused: false, isRapidMode: false };
         view.rerender(<PassageHudPane />);
         expect(view.container).toBeEmptyDOMElement();
-        expect(isPassageHudEnabled()).toBe(false);
     });
 
     it('retires the previous route metrics immediately when following ends during recording', () => {

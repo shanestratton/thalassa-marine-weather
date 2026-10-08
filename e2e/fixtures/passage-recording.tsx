@@ -2,10 +2,17 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PassageHudPane } from '../../components/passage/PassageHudPane';
 import { MapWeatherControls } from '../../components/map/MapWeatherControls';
+import { SatelliteIrCredit } from '../../components/map/SatelliteIrCredit';
+import { BlitzortungAttribution } from '../../components/map/BlitzortungAttribution';
+import {
+    CREDITS_STRIP_POSITION_CLASS,
+    creditsStripTop,
+    satelliteCreditOffsetPx,
+} from '../../components/map/creditsStrip';
 import type { useWeatherLayers } from '../../components/map/useWeatherLayers';
 import {
-    setPassageHudEnabled,
     setPassageHudOpen,
+    setPassageHudPreviewRoute,
     startPassageLookAhead,
     stopPassageLookAhead,
     usePassageHudOpen,
@@ -19,14 +26,31 @@ import '../../index.css';
 // real component tree. No account, GPS, recorder or weather fetch is started.
 useFollowRouteStore.getState().stopFollowing();
 stopPassageLookAhead();
-setPassageHudEnabled(true);
 setPassageHudOpen(true);
 const mode = new URLSearchParams(location.search).get('mode') ?? 'recording';
+// ?credits=1: the Sat cloud and lightning credits are up in the credits strip,
+// at MapHub's own slots, as on a chart with both layers on (build 124 HS).
+// ?credits=sat: the Sat cloud's alone — lightning is off behind its licence flag.
+const creditsParam = new URLSearchParams(location.search).get('credits');
+const credits = creditsParam === '1' || creditsParam === 'sat';
+const lightningCredit = creditsParam === '1';
 // ?extras=1: a non-weather layer key is on too, as on a real passage (the route,
 // track and passage layers), so the controls are labelled 'layer controls' and
 // stay offered while looking ahead.
 const extras = new URLSearchParams(location.search).get('extras') === '1';
-if (mode !== 'recording') {
+if (mode === 'preview') {
+    // A route pulled up on Obs and not followed (build 124 HS): a fictional
+    // Channel crossing, previewed — nothing is followed.
+    setPassageHudPreviewRoute({
+        id: 'layout-preview',
+        label: 'Cowes → Cherbourg',
+        points: [
+            { lat: 50.77, lon: -1.3 },
+            { lat: 50.3, lon: -1.45 },
+            { lat: 49.66, lon: -1.62 },
+        ],
+    });
+} else if (mode !== 'recording') {
     useFollowRouteStore
         .getState()
         .startFollowing(
@@ -91,8 +115,40 @@ function Fixture() {
                 <span className="text-slate-400">Synthetic chart · no network</span>
             </header>
             <div className="absolute right-5 top-24 max-w-40 text-right text-xs leading-relaxed text-slate-400">
-                {mode === 'recording' ? 'Recording without a followed route' : 'Following a sample route'}
+                {mode === 'recording'
+                    ? 'Recording without a followed route'
+                    : mode === 'preview'
+                      ? 'Previewing a route pulled up on Obs'
+                      : 'Following a sample route'}
             </div>
+            {credits && (
+                <>
+                    {lightningCredit && (
+                        <div
+                            data-testid="lightning-credit"
+                            className={`${CREDITS_STRIP_POSITION_CLASS} z-510 max-w-[calc(100%-120px)] pointer-events-none`}
+                            style={{ top: creditsStripTop(0) }}
+                        >
+                            <BlitzortungAttribution visible compact />
+                        </div>
+                    )}
+                    <SatelliteIrCredit
+                        state={{
+                            status: 'ready',
+                            frameTimeMs: Date.now() - 2 * 3_600_000,
+                            frameCount: 6,
+                            // The widest the chip gets in open water: the low-angle caveat.
+                            coverage: { outside: null, edgeNorth: false, edgeSouth: false, lowAngle: true },
+                            playing: false,
+                            following: false,
+                        }}
+                        top={creditsStripTop(
+                            satelliteCreditOffsetPx({ rain: false, cmems: false, lightning: lightningCredit }),
+                        )}
+                        onTogglePlay={() => undefined}
+                    />
+                </>
+            )}
             <PassageHudPane />
             <MapWeatherControls
                 weather={weather}

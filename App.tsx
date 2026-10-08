@@ -14,7 +14,8 @@ import { Dashboard } from './components/Dashboard';
 import { SearchIcon, MapIcon, RouteIcon, ClipboardIcon, SailBoatIcon } from './components/Icons';
 import { AisGuardAlert } from './components/map/AisGuardAlert';
 import { PassageHudPane } from './components/passage/PassageHudPane';
-import { usePassageHudEnabled, usePassageHudOpen } from './stores/passageHudStore';
+import { usePassageHudOpen } from './stores/passageHudStore';
+import { usePassageHudAvailable } from './hooks/usePassageHudAvailable';
 import { LocationStarMenu } from './components/LocationStarMenu';
 import { SkeletonDashboard, SkeletonPage } from './components/SkeletonLoader';
 import { NotificationManager } from './components/NotificationManager';
@@ -157,7 +158,7 @@ const App: React.FC = () => {
     }, [currentView]);
     const chartVisible = currentView === 'map';
     const passageHudOpen = usePassageHudOpen();
-    const passageHudEnabled = usePassageHudEnabled();
+    const passageHudShown = usePassageHudAvailable();
     useHudRecordingActivation();
 
     // --- AUTH: deferred to save-time, not boot-time. ---
@@ -1588,7 +1589,7 @@ const App: React.FC = () => {
                             // While the passage pane is open the legend and the ENC notice
                             // step out of its column (index.css, [data-passage-hud='open']).
                             data-passage-hud={
-                                chartVisible && passageHudEnabled && passageHudOpen && !mapPickerActive && !tracerActive
+                                chartVisible && passageHudShown && passageHudOpen && !mapPickerActive && !tracerActive
                                     ? 'open'
                                     : undefined
                             }

@@ -1,23 +1,19 @@
 import { useEffect, useRef } from 'react';
 import { satelliteModeBlocks } from '../../services/networkPolicy';
 import { setPassageOverlay } from '../../stores/chartPassageOverlay';
-import {
-    isPassageHudEnabled,
-    usePassageHudActivation,
-    setPassageHudEnabled,
-    setPassageHudOpen,
-    stopPassageLookAhead,
-} from '../../stores/passageHudStore';
-import type { RadialHelmMenuProps } from './RadialHelmMenu';
+import { usePassageHudActivation } from '../../stores/passageHudStore';
 import type { useWeatherLayers } from './useWeatherLayers';
 
-type ChartSource = NonNullable<NonNullable<RadialHelmMenuProps['chartsState']>['sources']>[number];
-
 interface PassageHudLayerArgs {
-    isFollowing: boolean;
-    hasRecording?: boolean;
-    routeCoords: ReadonlyArray<{ lat: number; lon: number }>;
-    enabled: boolean;
+    /** The HUD is on this chart: a followed route, a recording or a previewed route (MapHub's passageHudOnChart). */
+    available: boolean;
+    /**
+     * A recording, running or paused, is on this chart. Activations come only
+     * from recordings, and the counter is never consumed off the chart: a
+     * recording started and stopped in Log before Obs was first opened must not
+     * replay for the first route later pulled up on Obs.
+     */
+    recording: boolean;
     weather: Pick<ReturnType<typeof useWeatherLayers>, 'setLayerVisibility'>;
     setWeatherInspectMode: (visible: boolean) => void;
     closeWeatherInspect: () => void;
@@ -27,13 +23,20 @@ interface PassageHudLayerArgs {
     setAisVisible: (visible: boolean) => void;
 }
 
-/** Apply the initial instruments/weather layers once per HUD activation. */
+/**
+ * Apply the initial instruments/weather layers once per HUD activation — a
+ * recording starting (stores/passageHudStore, activatePassageHudForRecording).
+ *
+ * There is no switch any more (build 124): the HUD is simply on the chart for a
+ * followed route, a recording or a previewed route. Being there is NOT an
+ * activation, so a launch with a followed route, or a route pulled up on Obs,
+ * opens no weather layer on the skipper's behalf: Obs starts clean.
+ */
 export function usePassageHudLayerActivation(args: PassageHudLayerArgs): void {
-    const active = args.enabled && (args.hasRecording || (args.isFollowing && args.routeCoords.length >= 2));
     const activation = usePassageHudActivation();
     const activatedRef = useRef<number | null>(null);
     useEffect(() => {
-        if (!active || activatedRef.current === activation) return;
+        if (!args.available || !args.recording || activation === 0 || activatedRef.current === activation) return;
         // Mark first: the setters below re-render MapHub. Later manual weather
         // choices must remain choices, not get reapplied by this effect.
         activatedRef.current = activation;
@@ -52,28 +55,5 @@ export function usePassageHudLayerActivation(args: PassageHudLayerArgs): void {
         }
         setPassageOverlay(true);
         // Preserve the restored open/collapsed preference; only the FAB opens it.
-    }, [active, activation, args]);
-}
-
-/** The manual switch for instruments around a followed route or current recording. */
-export function passageHudLayerSources(args: PassageHudLayerArgs): ChartSource[] {
-    if (!args.hasRecording && (!args.isFollowing || args.routeCoords.length < 2)) return [];
-    return [
-        {
-            id: 'passage-hud',
-            label: 'Passage HUD',
-            iconKind: 'generic',
-            enabled: args.enabled,
-            onToggle: () => {
-                if (isPassageHudEnabled()) {
-                    setPassageHudEnabled(false);
-                    setPassageHudOpen(false);
-                    stopPassageLookAhead();
-                    return;
-                }
-                setPassageHudEnabled(true);
-                setPassageHudOpen(true);
-            },
-        },
-    ];
+    }, [args.available, args.recording, activation, args]);
 }
