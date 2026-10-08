@@ -256,7 +256,15 @@ describe('end to end: Signal K → the Pi → the phone → the alarms', () => {
         expect(aisSogKn(target.sog)).toBeNull();
 
         const motion = { sogKn: 6, cogDeg: 0, source: 'nmea' as const, pair: 'offshore' as const };
-        const [graded] = gradeCollisionTargets(OWN, motion, localFeatures(), DEFAULT_COLLISION_PREFS, new Set(), now);
+        const [graded] = gradeCollisionTargets(
+            OWN,
+            motion,
+            localFeatures(),
+            DEFAULT_COLLISION_PREFS,
+            new Set(),
+            now,
+            false,
+        );
         expect(graded.mmsi).toBe(SHIP);
         expect(graded.assessment.rangeOnly).toBe(true);
         expect(graded.assessment.reason).toBe('target-motion-unknown');
@@ -265,7 +273,7 @@ describe('end to end: Signal K → the Pi → the phone → the alarms', () => {
 
         // What the old wire's 0 made of her: a stopped boat, CPA and all.
         const asStopped = assessCollision(
-            { ...OWN, sogKn: 6, cogDeg: 0, pair: 'offshore' },
+            { ...OWN, sogKn: 6, cogDeg: 0, pair: 'offshore', atAnchor: false },
             { lat: target.lat, lon: target.lon, sogKn: 0, cogDeg: 0, source: 'local' },
         )!;
         expect(asStopped.rangeOnly).toBe(false);
@@ -334,7 +342,15 @@ describe('end to end: Signal K → the Pi → the phone → the alarms', () => {
         expect(target.navStatus).toBeNull();
 
         const motion = { sogKn: 6, cogDeg: 0, source: 'nmea' as const, pair: 'offshore' as const };
-        const [graded] = gradeCollisionTargets(OWN, motion, localFeatures(), DEFAULT_COLLISION_PREFS, new Set(), now);
+        const [graded] = gradeCollisionTargets(
+            OWN,
+            motion,
+            localFeatures(),
+            DEFAULT_COLLISION_PREFS,
+            new Set(),
+            now,
+            false,
+        );
         expect(graded.assessment.rangeOnly).toBe(true);
         expect(graded.assessment.reason).toBe('target-motion-unknown');
         expect(graded.assessment.cpaNm).toBeNull();

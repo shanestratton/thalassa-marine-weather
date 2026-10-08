@@ -43,17 +43,38 @@ const MUTE_MS = 30 * 60_000;
 export type CollisionAlertCard = GuardAlert & { collision: CollisionAlertDetail };
 
 export const COLLISION_BLIND_NOTICE = 'Collision watch blind: no AIS for 60 s';
+/** At anchor transponders report every 3 min: blind on a longer line there (125-01b review). */
+export const COLLISION_BLIND_AT_ANCHOR_NOTICE = 'Collision watch blind: no AIS for 10 min';
 export const COLLISION_PAUSED_NOTICE =
     'Collision watch paused: Thalassa is in the background without a track or anchor watch';
 export const COLLISION_NO_FIX_NOTICE = 'Collision watch: no position fix, so no CPA';
 export const COLLISION_NO_MOTION_NOTICE = 'Collision watch: our own course and speed are unknown, so no CPA';
-export const COLLISION_STOPPED_NOTICE = 'Collision watch: stopped, so it stays quiet until you make 0.5 kn';
+/** Stopped at a berth (no anchor watch): nothing sounds (125-01b says which kind of stopped). */
+export const COLLISION_STOPPED_NOTICE =
+    'Collision watch: stopped with no anchor watch, so it stays quiet until you make 0.5 kn';
+/** Stopped, an anchor watch on but kept elsewhere (the Pi, or another device, away from us): quiet. */
+export const COLLISION_STOPPED_ELSEWHERE_NOTICE =
+    'Collision watch: stopped, and the anchor watch is kept elsewhere, so it stays quiet until you make 0.5 kn';
+/** Stopped with an anchor watch on: close quarters with a vessel under way still sounds (125-01b). */
+export const COLLISION_AT_ANCHOR_NOTICE =
+    'Collision watch at anchor: it still sounds for a vessel under way coming within 0.1 NM';
 export const COLLISION_UNCHECKED_NOTICE =
     'Collision alarm off until its sound check: turn the shield off and on again to run it';
 
 /** What the armed collision watch can honestly say about itself. Null = not armed. */
 export interface CollisionWatchNotice {
-    state: 'watching' | 'blind' | 'paused' | 'resumed' | 'no-fix' | 'no-motion' | 'stopped' | 'unchecked';
+    state:
+        | 'watching'
+        | 'blind'
+        | 'paused'
+        | 'resumed'
+        | 'no-fix'
+        | 'no-motion'
+        | 'stopped'
+        | 'stopped-elsewhere'
+        | 'at-anchor'
+        | 'blind-at-anchor'
+        | 'unchecked';
     since: number;
     pausedFrom?: number;
     resumedAt?: number;

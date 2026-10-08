@@ -490,14 +490,17 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 The locked-phone line says what iOS delivers and no more: Time
                 Sensitive passes Focus only where the skipper allows it, and a
                 suspended app watches nothing. NM everywhere: CPA is a nautical
-                quantity whatever the distance unit. */}
+                quantity whatever the distance unit. 125-01b: stopped, it says
+                which kind of stopped (a berth, or an anchor watch on) and what
+                each means. */}
             <Section title="Collision alarm">
                 <div className="p-4 space-y-3">
                     <p className="text-xs text-gray-400">
                         While you make 0.5 kn or more, it sounds when another vessel's course will bring her inside
                         these limits. Offshore applies from 3 kn, inshore again below 2.5 kn. Close quarters (0.1 NM
-                        within 3 min) always sounds then, and a mute never silences it. Stopped, it stays quiet and says
-                        so. Arm it with the shield in the chart's AIS key.
+                        within 3 min) always sounds then, and a mute never silences it. Stopped at a berth: the
+                        collision alarm stays quiet. At anchor (anchor watch on): it still sounds for a vessel under way
+                        coming within 0.1 NM. Arm it with the shield in the chart's AIS key.
                     </p>
                     <div className="grid grid-cols-2 gap-3">
                         {COLLISION_FIELDS.map(({ pair, field, label }) => {
@@ -536,8 +539,9 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                     <p className="text-xs text-gray-400">
                         With the phone locked it keeps watching only while Thalassa keeps running (a voyage track keeps
-                        it running under way) and reaches the lock screen only if Time Sensitive notifications are
-                        allowed for Thalassa. Focus lets them through only if you allow it.
+                        it running under way, an anchor watch kept on this phone at anchor) and reaches the lock screen
+                        only if Time Sensitive notifications are allowed for Thalassa. Focus lets them through only if
+                        you allow it.
                     </p>
                 </div>
             </Section>

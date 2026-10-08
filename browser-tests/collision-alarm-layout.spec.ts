@@ -6,7 +6,8 @@ import { ONBOARDED_STORAGE } from '../e2e/helpers/storageState';
  * WebKit with wide fonts (Verdana on a Mac, DejaVu Sans on the Linux runner):
  *
  *  - the card stack (close quarters, network DANGER, a lost contact, a
- *    guard-ring entry and the 'blind' notice, or the longest notice) fits
+ *    guard-ring entry and the 'blind' notice, the longest notice, or 125-01b's
+ *    berth, kept-elsewhere, at-anchor and blind-at-anchor notices) fits
  *    320x568 and 375x667: centred, clear of the tab bar, nothing cut off or
  *    sideways, every button a whole 44 pt target;
  *  - the sound check the shield opens fits the same, centred above the tab
@@ -62,8 +63,15 @@ function controlIssues(page: Page, containerSelector: string) {
 
 const NOTICES = {
     blind: 'Collision watch blind: no AIS for 60 s',
-    // The longest the strip can say.
+    // The longest before 125-01b.
     unchecked: 'Collision alarm off until its sound check: turn the shield off and on again to run it',
+    // 125-01b: stopped at a berth, stopped at anchor, and blind at anchor.
+    stopped: 'Collision watch: stopped with no anchor watch, so it stays quiet until you make 0.5 kn',
+    'at-anchor': 'Collision watch at anchor: it still sounds for a vessel under way coming within 0.1 NM',
+    'blind-at-anchor': 'Collision watch blind: no AIS for 10 min',
+    // 125-01b review: stopped, the watch kept elsewhere (now the longest the strip can say).
+    'stopped-elsewhere':
+        'Collision watch: stopped, and the anchor watch is kept elsewhere, so it stays quiet until you make 0.5 kn',
 } as const;
 
 for (const size of SIZES) {

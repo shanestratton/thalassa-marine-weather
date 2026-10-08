@@ -9,6 +9,12 @@
  * (CPA < 0.1 NM and TCPA < 3 min while we're moving) always alarms; a mute
  * lasts 30 min and never silences close quarters.
  *
+ * 125-01b: stopped with an anchor watch on (`atAnchor`, an explicit input),
+ * close quarters still sounds for a vessel under way (known SOG over 2 kn);
+ * stopped at a berth (no anchor watch) nothing sounds, as 125-01 shipped. At
+ * anchor, our own speed up to 2 kn is swinging and yawing, not travel: we are
+ * graded stopped. Us stopped and her no longer under way ends an encounter.
+ *
  * Positions are worldwide on purpose (the Solent, Chesapeake Bay, Fiji across
  * the antimeridian): Thalassa is a global app.
  */
@@ -26,13 +32,16 @@ import {
     aisSogKn,
     assessCollision,
     collisionOpening,
+    collisionOwnStill,
     collisionPairFor,
+    collisionSettled,
     collisionShouldSound,
     collisionSourceCanAlarm,
+    gradeCollisionRisk,
     ownMotionState,
     sanitiseCollisionPrefs,
+    type CollisionOwnShip,
     type CollisionTarget,
-    type CollisionVessel,
 } from '../utils/collisionRule';
 import { computeCpa } from '../utils/cpaCalculation';
 
@@ -50,7 +59,13 @@ function offset(lat: number, lon: number, bearingDeg: number, distNm: number): {
 const SOLENT = { lat: 50.75, lon: -1.3 };
 const CHESAPEAKE = { lat: 37.0, lon: -76.1 };
 
-const own = (sogKn: number | null, cogDeg: number | null, at = SOLENT): CollisionVessel => ({ ...at, sogKn, cogDeg });
+/** Our own ship. `atAnchor` is explicit (125-01b): no anchor watch unless a test says so. */
+const own = (sogKn: number | null, cogDeg: number | null, at = SOLENT, atAnchor = false): CollisionOwnShip => ({
+    ...at,
+    sogKn,
+    cogDeg,
+    atAnchor,
+});
 const tgt = (
     at: { lat: number; lon: number },
     sogKn: number | null,
@@ -302,53 +317,92 @@ describe("'not available' never feeds a CPA", () => {
 });
 
 describe('the chip and the alarm agree', () => {
-    it('for a grid of encounters, DANGER or close quarters on the chip is exactly the alarm', () => {
+    it('for a grid of encounters, DANGER or close quarters on the chip is exactly the alarm, at a berth or at anchor', () => {
         let checked = 0;
-        let alarms = 0;
-        for (const ownSog of [0, 0.3, 1, 2.5, 3, 6, 12]) {
-            for (const range of [0.05, 0.15, 0.4, 1, 2.5]) {
-                for (const bearing of [0, 30, 90, 200]) {
-                    for (const targetCog of [0, 90, 180, 225]) {
-                        for (const [targetSog, navStatus] of [
-                            [0, 15],
-                            [0.3, 0],
-                            [1.5, 1],
-                            [6, 5],
-                            [14, 0],
-                        ] as const) {
-                            const at = offset(CHESAPEAKE.lat, CHESAPEAKE.lon, bearing, range);
-                            const chip = computeCpa(
-                                CHESAPEAKE.lat,
-                                CHESAPEAKE.lon,
-                                0,
-                                ownSog,
-                                at.lat,
-                                at.lon,
-                                targetCog,
-                                targetSog,
-                                navStatus,
-                            );
-                            const alarm = assessCollision(
-                                own(ownSog, 0, CHESAPEAKE),
-                                tgt(at, targetSog, targetCog, { navStatus }),
-                            )!;
-                            expect(chip).not.toBeNull();
-                            const chipAlarms = chip!.risk === 'DANGER' || chip!.closeQuarters;
-                            expect(chipAlarms, JSON.stringify({ ownSog, range, bearing, targetCog, targetSog })).toBe(
-                                alarm.alarm,
-                            );
-                            expect(chip!.risk).toBe(alarm.risk);
-                            checked += 1;
-                            if (alarm.alarm) alarms += 1;
+        let anchorOnly = 0;
+        const alarmsBy = { berth: 0, anchor: 0 };
+        for (const atAnchor of [false, true]) {
+            for (const ownSog of [0, 0.3, 1, 2.5, 3, 6, 12]) {
+                for (const range of [0.05, 0.15, 0.4, 1, 2.5]) {
+                    for (const bearing of [0, 30, 90, 200]) {
+                        for (const targetCog of [0, 90, 180, 225]) {
+                            for (const [targetSog, navStatus] of [
+                                [0, 15],
+                                [0.3, 0],
+                                [1.5, 1],
+                                [6, 5],
+                                [14, 0],
+                            ] as const) {
+                                const at = offset(CHESAPEAKE.lat, CHESAPEAKE.lon, bearing, range);
+                                const chip = computeCpa(
+                                    CHESAPEAKE.lat,
+                                    CHESAPEAKE.lon,
+                                    0,
+                                    ownSog,
+                                    at.lat,
+                                    at.lon,
+                                    targetCog,
+                                    targetSog,
+                                    navStatus,
+                                    DEFAULT_COLLISION_PREFS,
+                                    undefined,
+                                    undefined,
+                                    atAnchor,
+                                );
+                                const alarm = assessCollision(
+                                    own(ownSog, 0, CHESAPEAKE, atAnchor),
+                                    tgt(at, targetSog, targetCog, { navStatus }),
+                                )!;
+                                const where = JSON.stringify({
+                                    atAnchor,
+                                    ownSog,
+                                    range,
+                                    bearing,
+                                    targetCog,
+                                    targetSog,
+                                });
+                                expect(chip).not.toBeNull();
+                                const chipAlarms = chip!.risk === 'DANGER' || chip!.closeQuarters;
+                                expect(chipAlarms, where).toBe(alarm.alarm);
+                                expect(chip!.risk, where).toBe(alarm.risk);
+                                expect(chip!.closeQuarters, where).toBe(alarm.closeQuarters);
+                                // An anchor watch changes things only while we make 2 kn or
+                                // less: we are graded stopped (swinging is not travel), and
+                                // then only close quarters with a vessel under way (over
+                                // 2 kn) sounds. Over 2 kn it is exactly the 125-01 rule.
+                                const berth = assessCollision(
+                                    own(ownSog, 0, CHESAPEAKE, false),
+                                    tgt(at, targetSog, targetCog, { navStatus }),
+                                )!;
+                                if (!atAnchor || ownSog > 2) {
+                                    expect(alarm, where).toEqual(berth);
+                                } else {
+                                    const still = assessCollision(
+                                        own(0, null, CHESAPEAKE, true),
+                                        tgt(at, targetSog, targetCog, { navStatus }),
+                                    )!;
+                                    expect(alarm, where).toEqual(still);
+                                    if (alarm.alarm) {
+                                        expect(alarm.closeQuarters, where).toBe(true);
+                                        expect(targetSog, where).toBeGreaterThan(2);
+                                    }
+                                    if (alarm.alarm && !berth.alarm) anchorOnly += 1;
+                                }
+                                checked += 1;
+                                if (alarm.alarm) alarmsBy[atAnchor ? 'anchor' : 'berth'] += 1;
+                            }
                         }
                     }
                 }
             }
         }
-        expect(checked).toBe(7 * 5 * 4 * 4 * 5);
-        // Not vacuous: the grid really contains alarms and non-alarms.
-        expect(alarms).toBeGreaterThan(50);
-        expect(alarms).toBeLessThan(checked - 50);
+        expect(checked).toBe(2 * 7 * 5 * 4 * 4 * 5);
+        // Not vacuous: the grid really contains alarms and non-alarms, and the
+        // anchor watch really adds close-quarters alarms while we are stopped.
+        expect(alarmsBy.berth).toBeGreaterThan(50);
+        expect(alarmsBy.berth).toBeLessThan(checked / 2 - 50);
+        expect(alarmsBy.anchor).toBeGreaterThan(0);
+        expect(anchorOnly).toBeGreaterThan(10);
     });
 });
 
@@ -372,7 +426,7 @@ describe('mute and close quarters', () => {
     it('close quarters needs us moving, a real approach and both limits', () => {
         const ahead = offset(SOLENT.lat, SOLENT.lon, 0, 0.2);
         expect(assessCollision(own(6, 0), tgt(ahead, 6, 180))!.closeQuarters).toBe(true);
-        // Stopped: awareness only (the anchor watch owns that case).
+        // Stopped at a berth (no anchor watch): awareness only. At anchor: see below.
         expect(assessCollision(own(0, 0), tgt(ahead, 6, 180))!.closeQuarters).toBe(false);
         // Passing 0.15 NM off: not close quarters.
         const abeam = offset(ahead.lat, ahead.lon, 90, 0.15);
@@ -387,6 +441,233 @@ describe('mute and close quarters', () => {
         const a = assessCollision(own(6, 0), tgt(offset(SOLENT.lat, SOLENT.lon, 0, 0.2), 6, 180), tiny)!;
         expect(a.closeQuarters).toBe(true);
         expect(a.alarm).toBe(true);
+    });
+});
+
+describe('close quarters at anchor (125-01b)', () => {
+    // Anchored in Brest roads, then in the lee of Moorea, then off Fiji across
+    // the antimeridian: a global app.
+    const BREST = { lat: 48.36, lon: -4.53 };
+    const MOOREA = { lat: -17.49, lon: -149.85 };
+    const FIJI = { lat: -16.9, lon: 179.995 };
+    const NOW = Date.UTC(2026, 9, 9, 23, 30, 0);
+
+    /** A vessel steaming north whose CPA is `offNm` east of `at`, `tcpaMin` minutes from now. */
+    function passing(
+        sogKn: number,
+        offNm: number,
+        tcpaMin: number,
+        extra: Partial<CollisionTarget> = {},
+        at = BREST,
+    ): CollisionTarget {
+        const cpaPoint = offset(at.lat, at.lon, 90, offNm);
+        const start = offset(cpaPoint.lat, cpaPoint.lon, 180, (sogKn * tcpaMin) / 60);
+        return tgt(start, sogKn, 0, extra);
+    }
+    /** Stopped: swinging at anchor (COG not available, as a stopped GPS often says). */
+    const stopped = (atAnchor: boolean, at = BREST, sogKn = 0): CollisionOwnShip => own(sogKn, null, at, atAnchor);
+
+    it('under way means a known speed over 2 kn', () => {
+        expect(COLLISION_RULE.atAnchorUnderWayAboveKn).toBe(2);
+    });
+
+    it('stopped at a berth (no anchor watch): never alarms, close quarters included', () => {
+        for (const sog of [2.5, 6, 14]) {
+            const a = assessCollision(stopped(false), passing(sog, 0.05, 2))!;
+            expect(a.cpaNm!, `${sog} kn`).toBeLessThan(0.1);
+            expect(a.closeQuarters, `${sog} kn`).toBe(false);
+            expect(a.alarm, `${sog} kn`).toBe(false);
+        }
+    });
+
+    it('stopped with the anchor watch on: a 6 kn ship passing 0.05 NM off in 2 min sounds close quarters', () => {
+        for (const at of [BREST, MOOREA, FIJI]) {
+            const a = assessCollision(stopped(true, at), passing(6, 0.05, 2, {}, at))!;
+            const where = JSON.stringify(at);
+            expect(a.rangeOnly, where).toBe(false);
+            expect(a.cpaNm!, where).toBeCloseTo(0.05, 2);
+            expect(a.tcpaMin!, where).toBeCloseTo(2, 1);
+            expect(a.closeQuarters, where).toBe(true);
+            expect(a.risk, where).toBe('DANGER');
+            expect(a.alarm, where).toBe(true);
+            // Close quarters: a mute never silences it.
+            expect(collisionShouldSound(a, NOW + 29 * 60_000, NOW), where).toBe(true);
+        }
+        // Swinging on her chain at 0.4 kn is still stopped.
+        expect(assessCollision(stopped(true, BREST, 0.4), passing(6, 0.05, 2))!.alarm).toBe(true);
+    });
+
+    it('a 1.5 kn drifter at 0.05 NM does not; at or under 2 kn never does, just over it does', () => {
+        const drifter = assessCollision(stopped(true), passing(1.5, 0.05, 2))!;
+        expect(drifter.cpaNm!).toBeCloseTo(0.05, 2);
+        expect(drifter.closeQuarters).toBe(false);
+        expect(drifter.alarm).toBe(false);
+        expect(assessCollision(stopped(true), passing(2, 0.05, 2))!.alarm).toBe(false);
+        expect(assessCollision(stopped(true), passing(2.1, 0.05, 2))!.alarm).toBe(true);
+    });
+
+    it('the speed decides, never a nav status alone', () => {
+        // 'Moored' left on a ship making 6 kn: she is under way, and it sounds.
+        expect(assessCollision(stopped(true), passing(6, 0.05, 2, { navStatus: 5 }))!.alarm).toBe(true);
+        expect(assessCollision(stopped(true), passing(6, 0.05, 2, { navStatus: 1 }))!.alarm).toBe(true);
+        // 'Under way using engine' on a neighbour swinging at 1.5 kn: quiet.
+        expect(assessCollision(stopped(true), passing(1.5, 0.05, 2, { navStatus: 0 }))!.alarm).toBe(false);
+        // An anchored neighbour at 0.3 kn: quiet.
+        expect(assessCollision(stopped(true), passing(0.3, 0.05, 1, { navStatus: 1 }))!.alarm).toBe(false);
+    });
+
+    it('an unknown speed or course never feeds a CPA, at anchor too', () => {
+        const unknownSog = assessCollision(stopped(true), passing(6, 0.05, 2, { sogKn: AIS_SOG_NOT_AVAILABLE }))!;
+        expect(unknownSog.rangeOnly).toBe(true);
+        expect(unknownSog.cpaNm).toBeNull();
+        expect(unknownSog.alarm).toBe(false);
+        const unknownCog = assessCollision(stopped(true), passing(6, 0.05, 2, { cogDeg: AIS_COG_NOT_AVAILABLE }))!;
+        expect(unknownCog.rangeOnly).toBe(true);
+        expect(unknownCog.alarm).toBe(false);
+        const noSpeed = assessCollision(stopped(true), passing(6, 0.05, 2, { sogKn: null }))!;
+        expect(noSpeed.alarm).toBe(false);
+        // And our own speed unknown: no CPA, whatever the anchor watch says.
+        expect(assessCollision(own(null, null, BREST, true), passing(6, 0.05, 2))!.alarm).toBe(false);
+    });
+
+    it('only inside both limits: 0.15 NM off, 4 min out or already opening stays quiet', () => {
+        expect(assessCollision(stopped(true), passing(6, 0.15, 2))!.alarm).toBe(false);
+        expect(assessCollision(stopped(true), passing(6, 0.05, 4))!.alarm).toBe(false);
+        expect(assessCollision(stopped(true), passing(6, 0.05, -1))!.alarm).toBe(false);
+    });
+
+    it('only real sensors: an app-reported boat under way never sounds', () => {
+        const a = assessCollision(stopped(true), passing(6, 0.05, 2, { source: 'app' }))!;
+        expect(a.closeQuarters).toBe(true);
+        expect(a.alarm).toBe(false);
+    });
+
+    it('us over 2 kn (motoring off, or dragging fast): exactly as 125-01, whether or not an anchor watch is on', () => {
+        for (const ownSog of [2.1, 2.5, 6]) {
+            for (const target of [
+                passing(6, 0.05, 2),
+                passing(1.5, 0.05, 2),
+                passing(8, 0.3, 8),
+                passing(0, 0.05, 1, { cogDeg: AIS_COG_NOT_AVAILABLE }),
+            ]) {
+                const anchored = assessCollision(own(ownSog, 0, BREST, true), target)!;
+                const berth = assessCollision(own(ownSog, 0, BREST, false), target)!;
+                expect(anchored, `${ownSog} kn`).toEqual(berth);
+            }
+        }
+        // Without an anchor watch, 0.5 kn and up is under way, as 125-01 shipped.
+        for (const ownSog of [0.5, 1]) {
+            const a = assessCollision(own(ownSog, 0, BREST, false), passing(1.5, 0.05, 2))!;
+            expect(a.alarm, `${ownSog} kn at a berth`).toBe(true);
+        }
+    });
+
+    it('yawing at anchor is not travel: up to 2 kn of our own, at anchor we are graded stopped', () => {
+        // Off Horta in a breezy anchorage: our boat yaws at 0.6 kn on 090°, and a
+        // Class B neighbour (no nav status) 0.12 NM north swings toward us at 0.9 kn.
+        const HORTA = { lat: 38.53, lon: -28.62 };
+        const neighbour = tgt(offset(HORTA.lat, HORTA.lon, 0, 0.12), 0.9, 180, { navStatus: null });
+        // Without the anchor watch that is 125-01's DANGER (CPA ~0.06 NM, ~5 min): a moving boat.
+        const underWay = assessCollision(own(0.6, 90, HORTA, false), neighbour)!;
+        expect(underWay.risk).toBe('DANGER');
+        expect(underWay.alarm).toBe(true);
+        for (const yaw of [0.4, 0.6, 1.5, 2]) {
+            const a = assessCollision(own(yaw, 90, HORTA, true), neighbour)!;
+            expect(a.alarm, `${yaw} kn`).toBe(false);
+            expect(a.closeQuarters, `${yaw} kn`).toBe(false);
+            expect(a.risk, `${yaw} kn`).toBe('NONE');
+            // Graded exactly as a boat lying still: the yaw gives us no velocity.
+            expect(a, `${yaw} kn`).toEqual(assessCollision(own(0, null, HORTA, true), neighbour));
+        }
+        // A neighbour lying 50 m off at 0 kn, us yawing toward her at 0.6 kn: no close quarters at anchor.
+        const lying = tgt(offset(HORTA.lat, HORTA.lon, 0, 0.027), 0, null);
+        expect(assessCollision(own(0.6, 0, HORTA, false), lying)!.closeQuarters).toBe(true);
+        const yawingAt = assessCollision(own(0.6, 0, HORTA, true), lying)!;
+        expect(yawingAt.closeQuarters).toBe(false);
+        expect(yawingAt.alarm).toBe(false);
+        // Yawing, a ship under way still sounds close quarters, on her own track.
+        const ship = passing(6, 0.05, 2, {}, HORTA);
+        for (const [sog, cog] of [
+            [1.5, 90],
+            [1, null],
+            [2, 270],
+        ] as const) {
+            const a = assessCollision(own(sog, cog, HORTA, true), ship)!;
+            const where = `${sog} kn on ${cog}`;
+            // No course from a GPS swinging on her chain is a stopped boat, not an unknown one.
+            expect(a.rangeOnly, where).toBe(false);
+            expect(a.cpaNm!, where).toBeCloseTo(0.05, 2);
+            expect(a.tcpaMin!, where).toBeCloseTo(2, 1);
+            expect(a.closeQuarters, where).toBe(true);
+            expect(a.alarm, where).toBe(true);
+        }
+        // Over 2 kn of our own we are under way, anchor watch or not: 125-01's rule.
+        expect(assessCollision(own(2.1, 90, HORTA, true), neighbour)).toEqual(
+            assessCollision(own(2.1, 90, HORTA, false), neighbour),
+        );
+    });
+
+    it('the grade agrees: at anchor, up to 2 kn of our own is stopped', () => {
+        expect(gradeCollisionRisk(0.064, 5.4, 0.6, 0.9, null, DEFAULT_COLLISION_PREFS, 'inshore', false).risk).toBe(
+            'DANGER',
+        );
+        expect(gradeCollisionRisk(0.064, 5.4, 0.6, 0.9, null, DEFAULT_COLLISION_PREFS, 'inshore', true).risk).toBe(
+            'NONE',
+        );
+        expect(gradeCollisionRisk(0.02, 2, 1.5, 0, null, DEFAULT_COLLISION_PREFS, 'inshore', true).closeQuarters).toBe(
+            false,
+        );
+        expect(gradeCollisionRisk(0.05, 2, 1.5, 6, 0, DEFAULT_COLLISION_PREFS, 'inshore', true).closeQuarters).toBe(
+            true,
+        );
+        expect(gradeCollisionRisk(0.02, 2, 2.1, 0, null, DEFAULT_COLLISION_PREFS, 'inshore', true).closeQuarters).toBe(
+            true,
+        );
+        // An unknown own speed never becomes close quarters.
+        expect(
+            gradeCollisionRisk(0.02, 2, Number.NaN, 6, 0, DEFAULT_COLLISION_PREFS, 'inshore', true).closeQuarters,
+        ).toBe(false);
+    });
+
+    it('the grade takes atAnchor explicitly; without it, stopped stays awareness only', () => {
+        expect(gradeCollisionRisk(0.05, 2, 0, 6, 0, DEFAULT_COLLISION_PREFS, 'inshore', true)).toEqual({
+            risk: 'DANGER',
+            closeQuarters: true,
+            pair: 'inshore',
+        });
+        expect(gradeCollisionRisk(0.05, 2, 0, 6, 0, DEFAULT_COLLISION_PREFS, 'inshore').closeQuarters).toBe(false);
+        expect(gradeCollisionRisk(0.05, 2, 0, 6, 0, DEFAULT_COLLISION_PREFS, 'inshore', false).risk).not.toBe('DANGER');
+        expect(
+            gradeCollisionRisk(0.05, 2, 0, Number.NaN, 0, DEFAULT_COLLISION_PREFS, 'inshore', true).closeQuarters,
+        ).toBe(false);
+        expect(gradeCollisionRisk(0.05, 2, 0, 2, 0, DEFAULT_COLLISION_PREFS, 'inshore', true).closeQuarters).toBe(
+            false,
+        );
+    });
+
+    it('the chip says CLOSE QUARTERS exactly when the alarm does', () => {
+        const target = passing(6, 0.05, 2);
+        for (const atAnchor of [false, true]) {
+            const chip = computeCpa(
+                BREST.lat,
+                BREST.lon,
+                null,
+                0,
+                target.lat,
+                target.lon,
+                0,
+                6,
+                0,
+                DEFAULT_COLLISION_PREFS,
+                5,
+                'inshore',
+                atAnchor,
+            )!;
+            const alarm = assessCollision(stopped(atAnchor), target)!;
+            expect(chip.closeQuarters).toBe(atAnchor);
+            expect(chip.closeQuarters).toBe(alarm.closeQuarters);
+            expect(chip.risk).toBe(alarm.risk);
+        }
     });
 });
 
@@ -439,6 +720,66 @@ describe('evidence that an encounter is over', () => {
         expect(ownMotionState(6, null)).toBe('unknown');
         expect(ownMotionState(null, 90)).toBe('unknown');
         expect(ownMotionState(102.3, 90)).toBe('unknown');
+    });
+
+    it('at anchor (125-01b), swinging up to 2 kn is stopped, course or none; over it, under way', () => {
+        expect(ownMotionState(1, 90, false)).toBe('moving');
+        expect(ownMotionState(1, null, false)).toBe('unknown');
+        expect(ownMotionState(1, 90, true)).toBe('stopped');
+        expect(ownMotionState(1, null, true)).toBe('stopped');
+        expect(ownMotionState(2, 270, true)).toBe('stopped');
+        expect(ownMotionState(2.1, 270, true)).toBe('moving');
+        expect(ownMotionState(2.1, null, true)).toBe('unknown');
+        expect(ownMotionState(null, 90, true)).toBe('unknown');
+        expect(ownMotionState(102.3, 90, true)).toBe('unknown');
+        expect(collisionOwnStill(0.3, false)).toBe(true);
+        expect(collisionOwnStill(0.6, false)).toBe(false);
+        expect(collisionOwnStill(0.6, true)).toBe(true);
+        expect(collisionOwnStill(2, true)).toBe(true);
+        expect(collisionOwnStill(2.1, true)).toBe(false);
+        expect(collisionOwnStill(null, true)).toBe(false);
+    });
+
+    it('at anchor or at a berth (125-01b): us stopped and her no longer under way is evidence the encounter is over', () => {
+        // Simon's Town: she motored in and anchored 0.07 NM off.
+        const SIMONS_TOWN = { lat: -34.19, lon: 18.43 };
+        const near = offset(SIMONS_TOWN.lat, SIMONS_TOWN.lon, 160, 0.07);
+        for (const atAnchor of [true, false]) {
+            for (const [ourSog, herSog, herCog, settled] of [
+                [0, 0, null, true], // both lying still: no relative motion
+                [0, 0.3, 200, true],
+                [0, 1, 340, true], // swinging toward us at 1 kn
+                [0, 2, 340, true], // exactly 2 kn: not under way
+                [0.3, 1.5, 340, true],
+                [0, 2.1, 340, false], // under way again: a new approach is possible
+                [0, 6, 340, false],
+            ] as const) {
+                const us = own(ourSog, null, SIMONS_TOWN, atAnchor);
+                const a = assessCollision(us, tgt(near, herSog, herCog))!;
+                const where = JSON.stringify({ atAnchor, ourSog, herSog });
+                expect(a.alarm && settled, where).toBe(false);
+                expect(collisionSettled(a, us, herSog), where).toBe(settled);
+            }
+        }
+        // Yawing at anchor is still stopped; the same yaw at a berth is under way.
+        const yawing = own(1.2, 90, SIMONS_TOWN, true);
+        expect(collisionSettled(assessCollision(yawing, tgt(near, 0.5, 340))!, yawing, 0.5)).toBe(true);
+        const making = own(1.2, 90, SIMONS_TOWN, false);
+        expect(collisionSettled(assessCollision(making, tgt(near, 0.5, 340))!, making, 0.5)).toBe(false);
+        // Over 2 kn of our own at anchor: under way.
+        const off = own(3, 90, SIMONS_TOWN, true);
+        expect(collisionSettled(assessCollision(off, tgt(near, 0.5, 340))!, off, 0.5)).toBe(false);
+        // Never from an unknown: her speed, her course, a stale report, or our own speed.
+        const still = own(0, null, SIMONS_TOWN, true);
+        const unknownSog = assessCollision(still, tgt(near, AIS_SOG_NOT_AVAILABLE, 340))!;
+        expect(collisionSettled(unknownSog, still, AIS_SOG_NOT_AVAILABLE)).toBe(false);
+        expect(collisionSettled(unknownSog, still, null)).toBe(false);
+        const unknownCog = assessCollision(still, tgt(near, 1, AIS_COG_NOT_AVAILABLE))!;
+        expect(collisionSettled(unknownCog, still, 1)).toBe(false);
+        const stale = assessCollision(still, tgt(near, 1, 340, { reportAgeSec: 900 }))!;
+        expect(collisionSettled(stale, still, 1)).toBe(false);
+        const blindUs = own(null, null, SIMONS_TOWN, true);
+        expect(collisionSettled(assessCollision(blindUs, tgt(near, 1, 340))!, blindUs, 1)).toBe(false);
     });
 });
 

@@ -2,7 +2,8 @@
  * The collision alarm, rendered for real (build 125, 125-01): the app-wide
  * card stack (components/map/AisGuardAlert.tsx) with a close-quarters card, a
  * network-AIS DANGER card, a lost contact (CPA UNKNOWN), a guard-ring card and
- * a watch notice ('blind', or ?notice= another, e.g. the longest); or
+ * a watch notice ('blind', or ?notice= another, e.g. the longest, or 125-01b's
+ * 'stopped' at a berth, 'stopped-elsewhere', 'at-anchor' and 'blind-at-anchor'); or
  * (?view=check) the sound check the shield opens before arming. The app's CSS
  * and the real stores; the tab bar's real geometry. No network.
  *
@@ -58,7 +59,14 @@ const [{ AisGuardAlert }, { SoundCheckModal }, { AisGuardAlertStore }] = await P
 
 const now = Date.now();
 if (params.get('view') !== 'check') {
-    const notice = (params.get('notice') ?? 'blind') as 'blind' | 'unchecked' | 'no-motion' | 'stopped';
+    const notice = (params.get('notice') ?? 'blind') as
+        | 'blind'
+        | 'unchecked'
+        | 'no-motion'
+        | 'stopped'
+        | 'stopped-elsewhere'
+        | 'at-anchor'
+        | 'blind-at-anchor';
     AisGuardAlertStore.setWatchNotice({ state: notice, since: now });
     AisGuardAlertStore.setCollision(
         [

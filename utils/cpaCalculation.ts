@@ -35,7 +35,7 @@ export interface CpaResult {
     bearing: number;
     /** Risk level based on CPA + TCPA */
     risk: CollisionRisk;
-    /** CPA < 0.1 NM and TCPA < 3 min while we're moving: always an alarm. */
+    /** CPA < 0.1 NM and TCPA < 3 min while we're moving, or at anchor from a vessel under way: always an alarm. */
     closeQuarters: boolean;
 }
 
@@ -46,7 +46,9 @@ export interface CpaResult {
  * null for anything unknown. `prefs` is the skipper's threshold pair
  * (Settings → Preferences), defaulting to the recommended one; `reportAgeSec`
  * is the age of the target's report; `ownPair` is the pair in use (the
- * alarm's hysteresis, from resolveOwnMotion), else it follows our speed.
+ * alarm's hysteresis, from resolveOwnMotion), else it follows our speed;
+ * `atAnchor` is the alarm's own (AisGuardWatch.readCollisionInputs): stopped
+ * at anchor, close quarters with a vessel under way is still CLOSE QUARTERS.
  *
  * Returns null when either position is invalid, or when there is no honest
  * CPA to give: either vessel's motion is unknown, or the report is too old.
@@ -64,9 +66,10 @@ export function computeCpa(
     prefs: CollisionPrefs = DEFAULT_COLLISION_PREFS,
     reportAgeSec?: number | null,
     ownPair?: CollisionPairName | null,
+    atAnchor = false,
 ): CpaResult | null {
     const a = assessCollision(
-        { lat: ownLat, lon: ownLon, sogKn: ownSog, cogDeg: ownCog, pair: ownPair },
+        { lat: ownLat, lon: ownLon, sogKn: ownSog, cogDeg: ownCog, pair: ownPair, atAnchor },
         {
             lat: targetLat,
             lon: targetLon,
@@ -101,6 +104,7 @@ export function riskLevel(
     targetNavStatus?: number,
     prefs: CollisionPrefs = DEFAULT_COLLISION_PREFS,
     pair?: CollisionPairName | null,
+    atAnchor = false,
 ): CollisionRisk {
-    return gradeCollisionRisk(cpaNm, tcpaMinutes, ownSog, targetSog, targetNavStatus, prefs, pair).risk;
+    return gradeCollisionRisk(cpaNm, tcpaMinutes, ownSog, targetSog, targetNavStatus, prefs, pair, atAnchor).risk;
 }
