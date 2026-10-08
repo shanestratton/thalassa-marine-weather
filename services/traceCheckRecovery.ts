@@ -14,11 +14,25 @@
  *
  * A recovered September check still shows amber "Last checked 12 Sep" (the
  * 30-day rule) — honest and followable; the background re-check refreshes it.
+ *
+ * 125-07: once saved_routes.verification exists, the account's own copy of
+ * the check is read FIRST, for any route (a day sail has no passage mirror);
+ * the passage notes stay the fallback — checks banked before the column
+ * existed live only there. Both go through the same safe bank. A check read
+ * from the column is not sent back to it; one from the notes is (that is how
+ * the column fills without a backfill). A check dated in the future (another
+ * device's skewed clock) is never banked from either.
  */
 import { supabase } from './supabase';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 import { bankTraceVerification, loadSavedTraces } from './routeTracer';
-import { parseTraceVerificationNote, traceFollowStatus } from './traceVerification';
+import { pullSavedRouteVerifications } from './savedRoutesSync';
+import {
+    normaliseTraceVerification,
+    parseTraceVerificationNote,
+    traceCheckFromTheFuture,
+    traceFollowStatus,
+} from './traceVerification';
 import { useSettingsStore } from '../stores/settingsStore';
 import { vesselDraftIsAssumed, vesselDraftMetres } from './units';
 import { createLogger } from '../utils/createLogger';
@@ -40,14 +54,42 @@ export async function recoverTraceChecks(
             nowMs: Date.now(),
         };
         const wanted = traceIds ? new Set(traceIds) : null;
+        const unchecked = () =>
+            loadSavedTraces(scope).filter(
+                (trace) =>
+                    (!wanted || wanted.has(trace.id)) &&
+                    traceFollowStatus(trace.verification, trace.points, context).tone !== 'checked',
+            );
+
+        // The account's copy first (empty until the column has been seen).
+        let banked = 0;
+        const fromAccount = await pullSavedRouteVerifications(
+            unchecked().map((trace) => trace.id),
+            scope,
+        );
+        if (!isAuthIdentityScopeCurrent(scope)) return 0;
+        for (const [traceId, raw] of fromAccount) {
+            const current = loadSavedTraces(scope).find((trace) => trace.id === traceId);
+            const proof = current ? normaliseTraceVerification(raw, current.points) : null;
+            if (!proof) continue;
+            if (traceCheckFromTheFuture(proof.checkedAt, context.nowMs)) {
+                log.warn(`recovery ignored an account check dated in the future for ${traceId}`);
+                continue;
+            }
+            const result = bankTraceVerification(traceId, proof, scope, { refreshMirror: false, syncColumn: false });
+            if (result.banked) banked += 1;
+        }
+
         const byVoyage = new Map<string, string>();
-        for (const trace of loadSavedTraces(scope)) {
+        for (const trace of unchecked()) {
             const voyageId = trace.passageVoyageId?.trim();
-            if (!voyageId || !UUID_RE.test(voyageId) || (wanted && !wanted.has(trace.id))) continue;
-            if (traceFollowStatus(trace.verification, trace.points, context).tone === 'checked') continue;
+            if (!voyageId || !UUID_RE.test(voyageId)) continue;
             byVoyage.set(voyageId, trace.id);
         }
-        if (byVoyage.size === 0) return 0;
+        if (byVoyage.size === 0) {
+            if (banked > 0) log.warn(`recovered ${banked} route check${banked === 1 ? '' : 's'} from the account`);
+            return banked;
+        }
 
         const { data, error } = await supabase
             .from('voyages')
@@ -60,10 +102,9 @@ export async function recoverTraceChecks(
         }
         if (error || !Array.isArray(data)) {
             log.warn(`recovery skipped: voyages query failed (${error?.message ?? 'no rows'})`);
-            return 0;
+            return banked;
         }
 
-        let banked = 0;
         for (const row of data as Array<{ id: string; notes: string | null; saved_route_id: string | null }>) {
             const traceId = byVoyage.get(row.id);
             if (!traceId || row.saved_route_id !== traceId) {
@@ -74,6 +115,10 @@ export async function recoverTraceChecks(
             const proof = current ? parseTraceVerificationNote(row.notes, current.points) : null;
             if (!proof) {
                 log.warn(`recovery found no proof for these pins on ${row.id}`);
+                continue;
+            }
+            if (traceCheckFromTheFuture(proof.checkedAt, context.nowMs)) {
+                log.warn(`recovery ignored a passage check dated in the future for ${traceId}`);
                 continue;
             }
             const result = bankTraceVerification(traceId, proof, scope, { refreshMirror: false });

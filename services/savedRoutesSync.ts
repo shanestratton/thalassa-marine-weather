@@ -11,28 +11,30 @@
  */
 import { supabase, isSupabaseConfigured } from './supabase';
 import {
-    capSavedTracesPreservingTrips,
     clearSyncedSavedTraceTombstones,
     getSavedTraceTombstones,
     loadSavedTraces,
     notifySavedRoutesChanged,
+    persistSavedTraceLibrary,
     repairOrphanedSavedTraceChains,
     type SavedTrace,
     type TracePoint,
 } from './routeTracer';
 import { createLogger } from '../utils/createLogger';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 import {
-    authScopedStorageKey,
-    getAuthIdentityScope,
-    isAuthIdentityScopeCurrent,
-    type AuthIdentityScope,
-} from './authIdentityScope';
-import { normaliseTraceVerification } from './traceVerification';
+    normaliseTraceVerification,
+    traceCheckFromTheFuture,
+    traceFollowStatus,
+    type TraceFollowContext,
+    type TraceVerification,
+} from './traceVerification';
+import { useSettingsStore } from '../stores/settingsStore';
+import { vesselDraftIsAssumed, vesselDraftMetres } from './units';
 import { AUTOROUTING_PROPOSAL_MAX_POINTS, normaliseAutoroutingProposalEvidence } from './autoroutingProposalEvidence';
 
 const log = createLogger('savedRoutesSync');
 
-const TRACES_KEY = 'thalassa_traced_routes_v1';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** The optional column is deployed independently of this client. Keep the
@@ -50,6 +52,7 @@ interface SavedRouteWireRow {
     planned_route_id?: unknown;
     passage_voyage_id?: unknown;
     proposal_evidence?: unknown;
+    verification?: unknown;
 }
 
 /**
@@ -68,16 +71,202 @@ function validPassageVoyageId(value: unknown): value is string {
     return typeof value === 'string' && UUID_RE.test(value.trim());
 }
 
-function writeLocal(all: SavedTrace[], scope: AuthIdentityScope): void {
-    if (!isAuthIdentityScopeCurrent(scope)) return;
-    try {
-        localStorage.setItem(
-            authScopedStorageKey(TRACES_KEY, scope),
-            JSON.stringify(capSavedTracesPreservingTrips(all)),
-        );
-    } catch {
-        /* quota — local set unchanged */
+function writeLocal(all: SavedTrace[], scope: AuthIdentityScope, pendingIds: ReadonlySet<string>): void {
+    // The library's one writer: capped (a followed trip exempt, and the routes
+    // still on their way to the account kept), and a refused write leaves the
+    // library exactly as it was.
+    if (!persistSavedTraceLibrary(all, scope, pendingIds))
+        log.warn('sync merge not stored: this phone refused the write');
+}
+
+// ── saved_routes.verification (125-07) ──────────────────────────────────────
+//
+// A route check used to live only on the phone that made it. The column
+// carries it to a reinstall or a second phone. Its migration
+// (20261009140000_saved_routes_verification.sql) waits for Shane's db push,
+// and PostgREST refuses a whole row that names an unknown column — so the
+// sync PROBES first, and nothing reads or writes the column until it has been
+// SEEN. Present is remembered for the session; absent is asked again after an
+// hour (the push may land while the app is open); a probe that failed or
+// timed out is asked again on the next sync. Until then the app is exactly
+// build 124: the passage-notes copy (traceCheckRecovery) is the fallback.
+
+const VERIFICATION_PROBE_TIMEOUT_MS = 5_000;
+const VERIFICATION_ABSENT_RECHECK_MS = 60 * 60_000;
+/** Compact JSON. A 10,000-pin envelope is ~300 KB (the geometry key alone
+ *  ~220 KB) and ~380 KB at worst (every leg a caution, every one acknowledged);
+ *  jsonb's separator spaces add ~20 KB to that, still inside the server's
+ *  512 KiB bound. So this only ever stops a corrupt one. */
+const VERIFICATION_MAX_JSON = 400_000;
+const tooLargeLogged = new Set<string>();
+
+let verificationColumn: { present: true } | { present: false; at: number } | null = null;
+let verificationProbe: Promise<boolean> | null = null;
+
+function markVerificationColumnAbsent(): void {
+    verificationColumn = { present: false, at: Date.now() };
+}
+
+/** Has the column been SEEN this session? A synchronous peek: everything but
+ *  the sync's own probe uses this, so no other path spends a request on it. */
+export function savedRoutesVerificationColumnKnownPresent(): boolean {
+    return verificationColumn?.present === true;
+}
+
+/** Ask (or remember) whether saved_routes.verification exists. Never throws;
+ *  false unless it was seen. */
+export async function savedRoutesVerificationColumnPresent(now = Date.now()): Promise<boolean> {
+    if (verificationColumn?.present) return true;
+    if (verificationColumn && now - verificationColumn.at < VERIFICATION_ABSENT_RECHECK_MS) return false;
+    if (verificationProbe) return verificationProbe;
+    verificationProbe = (async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            if (!isSupabaseConfigured() || !supabase) return false;
+            const probe = supabase.from('saved_routes').select('verification').limit(0);
+            const result = await Promise.race([
+                Promise.resolve(probe),
+                new Promise<null>((resolve) => {
+                    timer = setTimeout(() => resolve(null), VERIFICATION_PROBE_TIMEOUT_MS);
+                }),
+            ]);
+            if (!result) return false; // timed out: unknown, ask next time
+            if (!result.error) {
+                verificationColumn = { present: true };
+                log.warn('saved_routes.verification is present: route checks travel with the account');
+                return true;
+            }
+            if (missingColumn(result.error, 'verification')) {
+                if (verificationColumn === null) log.warn('saved_routes.verification is not there yet');
+                verificationColumn = { present: false, at: now };
+            }
+            return false;
+        } catch {
+            return false; // offline or no client: unknown, ask next time
+        } finally {
+            if (timer) clearTimeout(timer);
+            verificationProbe = null;
+        }
+    })();
+    return verificationProbe;
+}
+
+/** The check as it may go on the wire: proving these pins, and sane in size. */
+function wireVerification(value: unknown, points?: readonly TracePoint[]): TraceVerification | null {
+    const verification = normaliseTraceVerification(value, points);
+    if (!verification) return null;
+    const size = JSON.stringify(verification).length;
+    if (size <= VERIFICATION_MAX_JSON) return verification;
+    if (!tooLargeLogged.has(verification.geometryKey)) {
+        tooLargeLogged.add(verification.geometryKey);
+        log.warn(`check kept on this device: ${size} characters is over the account's ${VERIFICATION_MAX_JSON}`);
     }
+    return null;
+}
+
+/** This device's keel and clock: what a check has to be green against HERE. */
+function deviceCheckContext(): TraceFollowContext {
+    const vessel = useSettingsStore.getState().settings?.vessel;
+    return { draftM: vesselDraftMetres(vessel), draftAssumed: vesselDraftIsAssumed(vessel), nowMs: Date.now() };
+}
+
+/**
+ * Which of two checks for the same pins this device keeps (125-07). An
+ * account check dated in the future (a skewed clock elsewhere) is absent. A
+ * check that is green HERE — this keel, not assumed, in date — beats one that
+ * is not, whatever their dates: a newer check made on an iPad still at
+ * another draft, or a fresh install whose draft had not loaded, must not turn
+ * this phone's good check amber. Otherwise the newer wins (a tie keeps
+ * `local`). Both were re-proved against the same pins; nothing turns green
+ * here that traceFollowStatus would not.
+ */
+function preferredVerification(
+    local: TraceVerification | null,
+    remote: TraceVerification | null,
+    points: readonly TracePoint[],
+    context: TraceFollowContext,
+): TraceVerification | null {
+    const account = remote && !traceCheckFromTheFuture(remote.checkedAt, context.nowMs) ? remote : null;
+    if (!local || !account) return local ?? account;
+    const greenHere = (check: TraceVerification) => traceFollowStatus(check, points, context).tone === 'checked';
+    const localGreen = greenHere(local);
+    if (localGreen !== greenHere(account)) return localGreen ? local : account;
+    return Date.parse(account.checkedAt) > Date.parse(local.checkedAt) ? account : local;
+}
+
+/**
+ * Put a check on the account copy of a route — the check ONLY, never the pins
+ * or updated_at (a bank is not an edit), and only onto `revision`, the row
+ * version the check was made for: if another device has moved the route since,
+ * nothing changes. Writes nothing until the column has been seen.
+ */
+export async function pushSavedRouteVerification(
+    traceId: string,
+    value: TraceVerification,
+    revision: string,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<PushResult> {
+    const id = traceId.trim();
+    const verification = wireVerification(value);
+    if (!id || !revision || !verification) return 'error';
+    if (!savedRoutesVerificationColumnKnownPresent()) return 'schema-pending';
+    if (!scope.userId) return 'signedout';
+    if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
+    if (!(await signedIn(scope))) return isAuthIdentityScopeCurrent(scope) ? 'signedout' : 'stale';
+    const { data, error } = await supabase!
+        .from('saved_routes')
+        .update({ verification })
+        .eq('id', id)
+        .eq('user_id', scope.userId)
+        .eq('deleted', false)
+        .eq('updated_at', revision)
+        .select('id');
+    if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
+    if (missingColumn(error, 'verification')) {
+        markVerificationColumnAbsent();
+        return 'schema-pending';
+    }
+    if (error) {
+        log.warn(`check not sent for ${id}: ${error.message}`);
+        return 'error';
+    }
+    if (!Array.isArray(data) || data.length === 0) {
+        log.warn(`check kept on this device for ${id}: the account copy has moved on`);
+        return 'stale';
+    }
+    return 'ok';
+}
+
+/** The account's checks for these routes, raw (callers re-prove them against
+ *  their own pins). Empty until the column has been seen; never throws. */
+export async function pullSavedRouteVerifications(
+    ids: readonly string[],
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+): Promise<Map<string, unknown>> {
+    const out = new Map<string, unknown>();
+    try {
+        if (ids.length === 0 || !scope.userId || !supabase || !savedRoutesVerificationColumnKnownPresent()) return out;
+        const { data, error } = await supabase
+            .from('saved_routes')
+            .select('id, verification')
+            .in('id', [...ids])
+            .eq('user_id', scope.userId)
+            .eq('deleted', false);
+        if (!isAuthIdentityScopeCurrent(scope) || error || !Array.isArray(data)) return out;
+        for (const row of data as Array<{ id: string; verification: unknown }>) {
+            if (row.verification != null) out.set(row.id, row.verification);
+        }
+    } catch (error) {
+        log.warn('account checks not read:', error);
+    }
+    return out;
+}
+
+/** Tests only. */
+export function __resetSavedRoutesVerificationColumnForTests(): void {
+    verificationColumn = null;
+    verificationProbe = null;
+    tooLargeLogged.clear();
 }
 
 async function signedIn(scope: AuthIdentityScope): Promise<boolean> {
@@ -94,13 +283,14 @@ async function signedIn(scope: AuthIdentityScope): Promise<boolean> {
  *  that only landed on THIS device never silently poses as synced. */
 export type PushResult = 'ok' | 'signedout' | 'toolarge' | 'error' | 'stale' | 'schema-pending';
 
-function missingProposalEvidenceColumn(error: unknown): boolean {
+/** 42703: undefined column (Postgres). PGRST204: not in PostgREST's schema cache. */
+function missingColumn(error: unknown, column: 'proposal_evidence' | 'verification'): boolean {
     if (!error || typeof error !== 'object') return false;
     const value = error as { code?: unknown; message?: unknown };
     return (
         ['42703', 'PGRST204'].includes(String(value.code)) &&
         typeof value.message === 'string' &&
-        value.message.includes('proposal_evidence')
+        value.message.includes(column)
     );
 }
 
@@ -128,6 +318,7 @@ export async function pushSavedRoute(
         points: trace.points.map(({ lat, lon }) => ({ lat, lon })),
         ...(proposalEvidence ? { proposalEvidence } : {}),
     };
+    const verification = wireVerification(trace.verification, snapshot.points);
     if (!scope.userId) return 'signedout';
     if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
     if (!(await signedIn(scope))) {
@@ -158,14 +349,24 @@ export async function pushSavedRoute(
         passage_voyage_id: validPassageVoyageId(snapshot.passageVoyageId) ? snapshot.passageVoyageId.trim() : null,
         proposal_evidence: proposalEvidence ?? null,
         deleted: false,
+        // Only once the column has been seen, and only a check that proves
+        // these pins. A route without one leaves the account's copy alone:
+        // every reader re-proves it against the row's own points.
+        ...(verification && savedRoutesVerificationColumnKnownPresent() ? { verification } : {}),
     };
     let { error } = await supabase!.from('saved_routes').upsert(payload);
-    if (missingProposalEvidenceColumn(error)) {
+    if ('verification' in payload && missingColumn(error, 'verification')) {
+        markVerificationColumnAbsent();
+        if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
+        const { verification: _absent, ...withoutCheck } = payload;
+        ({ error } = await supabase!.from('saved_routes').upsert(withoutCheck));
+    }
+    if (missingColumn(error, 'proposal_evidence')) {
         if (proposalEvidence) return isAuthIdentityScopeCurrent(scope) ? 'schema-pending' : 'stale';
         if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
         // Legacy ordinary routes may use the old schema. A proposal with
         // evidence NEVER takes this metadata-dropping compatibility branch.
-        const { proposal_evidence: _unsupported, ...legacy } = payload;
+        const { proposal_evidence: _unsupported, verification: _check, ...legacy } = payload;
         ({ error } = await supabase!.from('saved_routes').upsert(legacy));
     }
     if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
@@ -215,17 +416,26 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
         return isAuthIdentityScopeCurrent(scope) ? local : loadSavedTraces();
     }
     try {
+        // 125-07: read the check column only once it has been seen.
+        let withChecks = await savedRoutesVerificationColumnPresent();
+        if (!isAuthIdentityScopeCurrent(scope)) return loadSavedTraces();
         const fields =
             'id, name, points, created_at, updated_at, deleted, trip_id, leg_ordinal, dest_name, planned_route_id, passage_voyage_id';
         const fetchRows = (withEvidence: boolean) =>
             supabase!
                 .from('saved_routes')
-                .select(`${fields}${withEvidence ? ', proposal_evidence' : ''}`)
+                .select(`${fields}${withEvidence ? ', proposal_evidence' : ''}${withChecks ? ', verification' : ''}`)
                 .order('updated_at', { ascending: false })
                 .limit(100)
                 .returns<SavedRouteWireRow[]>();
         let { data, error } = await fetchRows(true);
-        if (missingProposalEvidenceColumn(error)) {
+        if (withChecks && missingColumn(error, 'verification')) {
+            markVerificationColumnAbsent();
+            withChecks = false;
+            if (!isAuthIdentityScopeCurrent(scope)) return loadSavedTraces();
+            ({ data, error } = await fetchRows(true));
+        }
+        if (missingColumn(error, 'proposal_evidence')) {
             if (!isAuthIdentityScopeCurrent(scope)) return loadSavedTraces();
             ({ data, error } = await fetchRows(false));
         }
@@ -242,6 +452,8 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
         const localById = new Map(fresh.map((trace) => [trace.id, trace]));
         const deletedIds = new Set(rows.filter((r) => r.deleted).map((r) => r.id as string));
         const allDeletedIds = new Set([...deletedIds, ...Object.keys(freshTombstones)]);
+        const checksToSend: Array<{ id: string; verification: TraceVerification; revision: string }> = [];
+        const context = deviceCheckContext();
         const remote: SavedTrace[] = rows
             .filter((r) => !r.deleted && !allDeletedIds.has(r.id as string) && Array.isArray(r.points))
             .map((r) => {
@@ -266,12 +478,26 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
                 const evidenceValue = r.proposal_evidence ?? localById.get(r.id as string)?.proposalEvidence;
                 const proposalEvidence = normaliseAutoroutingProposalEvidence(evidenceValue, points);
                 if (evidenceValue !== undefined && evidenceValue !== null && !proposalEvidence) return null;
-                // saved_routes predates verification metadata. Keep a local
-                // envelope across its own cloud round-trip only when it still
-                // proves the returned coordinates. A different device safely
-                // receives no envelope and re-checks before direct use; its
-                // Passage Planning mirror carries the durable Cast Off proof.
-                const verification = normaliseTraceVerification(localById.get(r.id as string)?.verification, points);
+                // A check counts only while it proves the returned
+                // coordinates — this device's copy across its own round-trip
+                // (124), or the account's (125-07, once the column exists).
+                // The newer wins; a newer local one goes back up below.
+                const localCheck = normaliseTraceVerification(localById.get(r.id as string)?.verification, points);
+                const accountCheck = withChecks ? normaliseTraceVerification(r.verification, points) : null;
+                const verification = preferredVerification(localCheck, accountCheck, points, context);
+                // Up only when this device's check is the NEWER one: kept over
+                // a newer account copy (another keel), it stays here — writing
+                // it back would flip the other device, and then this one.
+                if (
+                    withChecks &&
+                    localCheck &&
+                    verification === localCheck &&
+                    (!accountCheck || Date.parse(localCheck.checkedAt) > Date.parse(accountCheck.checkedAt)) &&
+                    typeof r.updated_at === 'string' &&
+                    r.updated_at
+                ) {
+                    checksToSend.push({ id: r.id as string, verification: localCheck, revision: r.updated_at });
+                }
                 return {
                     id: r.id as string,
                     name: r.name as string,
@@ -334,7 +560,15 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
         // Publish every promoted leg so the next device cannot recreate the
         // old missing-root chain on its next pull.
         for (const trace of repaired.changed) void pushSavedRoute(trace, scope);
-        writeLocal(repaired.traces, scope);
+        // Catch the account's check column up where this device holds a newer
+        // check for the very pins the account has (a check banked offline, or
+        // before the column existed). A full re-push above already carries it.
+        const fullyPushed = new Set([...localWins, ...repaired.changed.map((trace) => trace.id)]);
+        for (const check of checksToSend) {
+            if (!fullyPushed.has(check.id))
+                void pushSavedRouteVerification(check.id, check.verification, check.revision, scope);
+        }
+        writeLocal(repaired.traces, scope, new Set([...localOnly, ...localNewer].map((t) => t.id)));
         // Server tombstones are durable acknowledgement of our local fence.
         // Do not clear fences merely because a live row disappeared from a
         // paged result — only an explicit deleted row is safe confirmation.
@@ -372,7 +606,7 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
             traces
                 .map(
                     (t) =>
-                        `${t.id}:${t.updatedAt ?? t.createdAt}:${t.points.length}:${t.verification?.geometryKey ?? ''}:${t.proposalEvidence?.savedAt ?? ''}`,
+                        `${t.id}:${t.updatedAt ?? t.createdAt}:${t.points.length}:${t.verification?.geometryKey ?? ''}:${t.verification?.checkedAt ?? ''}:${t.proposalEvidence?.savedAt ?? ''}`,
                 )
                 .sort()
                 .join('|');

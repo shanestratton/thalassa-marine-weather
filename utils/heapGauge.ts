@@ -89,6 +89,20 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  */
 export const NATIVE_AVAILABLE_FLOOR_MB = 250;
 
+/**
+ * Is there headroom NOW, by the same two lines the brake uses? true / false,
+ * or null when no gauge reads at all (iOS without the native plugin, plain
+ * Safari, jsdom). A brake proceeds on null; an optional job — the dark boot
+ * re-check (125-07) — treats null as no headroom and skips.
+ */
+export async function heapHeadroomOk(ceilingMB = HEAP_SOFT_CEILING_MB): Promise<boolean | null> {
+    const heap = heapMB();
+    if (heap) return heap.used < ceilingMB;
+    const native = await refreshAvailableMemory();
+    if (!native) return null;
+    return native.availableMB >= NATIVE_AVAILABLE_FLOOR_MB && !native.warning;
+}
+
 export async function awaitHeapHeadroom(ceilingMB = HEAP_SOFT_CEILING_MB, maxWaitMs = 4000): Promise<void> {
     const first = heapMB();
     if (first) {
