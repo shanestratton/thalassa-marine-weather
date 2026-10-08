@@ -361,6 +361,16 @@ describe('seaway arbitration corpus — graph vs Stage II baseline', () => {
         //     the bay, clear of the bands it used to skirt (see the golden's
         //     re-pin).
         //   • dog-leg-channel 2.55 as before: uniformly deep water, no ring.
+        // RE-PIN directNM (package 125-06, the same-tide pull, 2026-10-09;
+        // every shadow outcome unchanged; regenerated, each golden measured in
+        // its own process): a turn that buys no tide is no turn
+        // (engine/stringPull sameTideNoWorse). Out of the Newport entrance the
+        // routes cross the 2–5 m band charted 2.0 m on the line they are
+        // going, not north-east to 5 m water first.
+        //   • newport-rivergate 23.21 → 23.11, newport-tangalooma 19.97 →
+        //     19.53, newport-rivergate-marks 22.75 → 22.71 (see the goldens'
+        //     re-pins).
+        //   • dog-leg-channel 2.55 as before: uniformly deep water.
         const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as { rows: ArbitrationRow[] };
         expect(rows).toEqual(baseline.rows);
     });

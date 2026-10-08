@@ -7,6 +7,7 @@ import { getRegistryFingerprint } from './enc/EncCellMetadata';
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 import {
     autoroutingProposalGeometryKey,
+    autoroutingRegistryScope,
     normaliseAutoroutingProposalEvidence,
     type SavedAutoroutingProposalEvidence,
 } from './autoroutingProposalEvidence';
@@ -98,7 +99,9 @@ export function evaluateAutoroutingProposalSave(
         basis.vesselProfileKey !== JSON.stringify(route.vesselProfile ?? null)
     )
         return deny('The vessel profile changed. Recheck before saving.');
-    if (basis.registryFingerprint !== getRegistryFingerprint()) return deny('Charts changed. Recheck before saving.');
+    // The charts round this route, as its review was bound (125-06).
+    if (basis.registryFingerprint !== getRegistryFingerprint(autoroutingRegistryScope(route.coordinates)))
+        return deny('Charts changed. Recheck before saving.');
     if (!Number.isFinite(Date.parse(basis.checkedAt))) return deny('The review completion time is missing. Recheck.');
     if (review.legs.length !== route.coordinates.length - 1 || ![...review.legs].every(Boolean))
         return deny('Every proposal leg needs a completed check before saving.');

@@ -28,6 +28,7 @@ import { setEncPlottingMode, setEncPopupSuppression } from '../map/EncVectorLaye
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
 import { hazardDepthForDraft } from '../../services/HazardQueryService';
 import { trialReviewFeatures } from '../../services/autoroutingReview';
+import { routeNotesToReview } from '../../services/autoroutingNotes';
 import { buildTrialWaypointPlan, displayWaypointForPathIndex } from '../../services/autoroutingDisplayWaypoints';
 import { moveAutoroutingDisplayWaypoint } from '../../services/autoroutingWaypointEdit';
 import { nearestTrialWaypoint } from '../../services/autoroutingWaypointHit';
@@ -235,6 +236,8 @@ export function AutoroutingTrialWorkspace({
     const proposalRef = useRef(proposal);
     proposalRef.current = proposal;
     const shownProposal = proposal && backstopRetry?.base === proposal ? backstopRetry.route : proposal;
+    // What this route found — not the lines every Auto route carries (125-06).
+    const notesToReview = shownProposal ? routeNotesToReview(shownProposal.warnings).length : 0;
     const backstopUnavailable =
         !!shownProposal &&
         !reviewProposal &&
@@ -1168,10 +1171,9 @@ export function AutoroutingTrialWorkspace({
                             {dangerReported && (
                                 <span className="block font-bold">Danger reported · review required</span>
                             )}
-                            {shownProposal && shownProposal.warnings.length > 0 && (
+                            {notesToReview > 0 && (
                                 <span className="block">
-                                    {shownProposal.warnings.length} route{' '}
-                                    {shownProposal.warnings.length === 1 ? 'note' : 'notes'} · review required
+                                    {notesToReview} route {notesToReview === 1 ? 'note' : 'notes'} · review required
                                 </span>
                             )}
                             {proposal?.localEdit && (

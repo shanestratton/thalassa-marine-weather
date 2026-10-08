@@ -22,6 +22,7 @@ import { AUTO_ROUTE_TRIAL_OFF, isAutorouteTrialOn } from './autorouteTrialSwitch
 import { listCells } from './enc/EncCellMetadata';
 import { validateAutoroutingVesselProfile } from '../supabase/functions/_shared/autorouting-vessel';
 import { thalassaVesselWarnings } from './autoroutingVesselProfile';
+import { THALASSA_PLANNED_ONLY_WARNING, THALASSA_ROUTED_ON_PHONE } from './autoroutingNotes';
 import { inshoreRouteCaveats, nearShallowSummary } from '../components/map/inshoreRouteNotice';
 import { waterPackRefusal, type WaterPackEnd } from './waterPack/waterPackWords';
 import {
@@ -53,9 +54,7 @@ export type { AutoroutingTrialRequest, AutoroutingTrialRoute, AutoroutingTrialSt
 
 const log = createLogger('autoroutingThalassa');
 
-/** First line of every Auto proposal: what it is, before anything it found. */
-export const THALASSA_PLANNED_ONLY_WARNING =
-    'Proposal only: not cleared for navigation. Review every leg against the chart before you save or use it.';
+export { THALASSA_PLANNED_ONLY_WARNING } from './autoroutingNotes';
 /** The router's under-keel clearance (InshoreRouter safetyM, owner decision 11). */
 const UKC_M = 0.5;
 /** A route end this far from its pin is said (the fix-first follow-up, 2026-10-01). */
@@ -485,7 +484,7 @@ export async function calculateThalassaProposal(
         );
     const warnings = [
         THALASSA_PLANNED_ONLY_WARNING,
-        `Routed on this phone by Thalassa from your installed charts: draft ${draftM.toFixed(2)} m + ${UKC_M} m under the keel at chart datum (LAT). Tide is shown, never assumed.`,
+        `${THALASSA_ROUTED_ON_PHONE} draft ${draftM.toFixed(2)} m + ${UKC_M} m under the keel at chart datum (LAT). Tide is shown, never assumed.`,
         ...engineCaveats,
         ...extra,
         ...notices,

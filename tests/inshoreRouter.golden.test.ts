@@ -234,7 +234,15 @@ describe('GOLDEN: Newport → Rivergate (Brisbane River, real AU cells)', () => 
         // band's clearance is a near stretch (+44 m in all, 346 → 390 m; red
         // drawn 8,404 → 8,451 m — it was 8,486 m whole-segment at 85dc7e07).
         // Own process; the route is unchanged.
-        expect(open.length).toBe(7);
+        //
+        // RE-PIN 7 → 6 (package 125-06, the same-tide pull; own process):
+        // out of the Newport entrance the route crosses the 2–5 m band
+        // charted 2.0 m on the line it is going, not north-east to 5 m water
+        // first (23.205 → 23.107 NM, inside the pin above; 32 → 30 points;
+        // caution 21, drying ground 30 m and land 0 m unchanged; red drawn
+        // 8,420 → 8,819 m, that band). One open-water approach to a band's
+        // clearance went with the turn.
+        expect(open.length).toBe(6);
         expect(open.every((x) => x.tideUnknown === true || x.tideLiftable !== true)).toBe(true);
         expect(near.filter(nearSpanBlocks)).toEqual(open);
         const states = inshoreSegmentStates(r)!;
@@ -458,10 +466,22 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
     // 10 m of the channel 28.2 and 28.4 m off a 0–2 m band is not drawn: the
     // marks own the line there (fix-up review, that day). 0 m of land and
     // drying ground as before.
-    it('distance pinned at 19.97 NM ±2%', () => {
+    //
+    // RE-PIN 19.97 → 19.53 NM (package 125-06, a turn that buys no tide is
+    // no turn; Shane, 2026-10-08: "no reason to go to port here??? why not go
+    // straight??? the depth is the same"; measured in its own process):
+    // 25 → 24 points. Out of the Newport entrance the route ran 1.3 km
+    // north-east over the 2–5 m band charted 2.0 m to reach 5 m water, then
+    // east; the same tide carries the boat over that band heading east, so
+    // the line now crosses ~2.0 km of it that way (1.5 times, all within 2 km
+    // of the entrance: engine/stringPull sameTideNoWorse, then the turn slid
+    // to where it must, slideSameTideTurns) — 812 m shorter. Red drawn with
+    // no tide loaded 6,669 → 7,501 m (that band, never shallower than its
+    // 2.0 m), green 9,372 → 7,736 m; 0 m of land and drying ground as before.
+    it('distance pinned at 19.53 NM ±2%', () => {
         expectConnected(r);
-        expect(r.distanceNM).toBeGreaterThan(19.97 * 0.98);
-        expect(r.distanceNM).toBeLessThan(19.97 * 1.02);
+        expect(r.distanceNM).toBeGreaterThan(19.53 * 0.98);
+        expect(r.distanceNM).toBeLessThan(19.53 * 1.02);
     });
 
     // Owner decision 7 (2026-09-30): the Tangalooma pin sat in charted
@@ -493,7 +513,7 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
         expect(auditUnvouchedHardLand(layers, r.polyline).maxRunM).toBe(0);
     });
 
-    it('caution cells at or below the lock-in baseline (12)', () => {
+    it('caution cells at or below the lock-in baseline (13)', () => {
         expectConnected(r);
         // RE-PIN 10→11 (3-tier Phase 4 + along-segment caution, 42bf48c8):
         // route distance is byte-identical (18.43 NM pinned green), only the
@@ -548,7 +568,14 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
         // RE-PIN 13 → 12 (the real-chart check, 2026-10-03; own process): the
         // line across the bay the clearance ring picks touches one caution
         // cell fewer (24 → 25 points).
-        expect(cautionCount(r)).toBeLessThanOrEqual(12);
+        //
+        // RE-PIN 12 → 13 (package 125-06, the same-tide pull; own process):
+        // the turn east from the entrance is made in two short legs over the
+        // 2.0 m band (the corners slid to where they must,
+        // engine/stringPull slideSameTideTurns), and the line on is cut where
+        // that band ends (cutAtShallowWater) — one more caution segment, all
+        // of it the band's own water.
+        expect(cautionCount(r)).toBeLessThanOrEqual(13);
     });
 
     // RE-PIN (owner decision 10, 2026-09-30): red OR needs-tide amber where

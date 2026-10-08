@@ -72,6 +72,7 @@ import type { EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardRe
 import { crumb } from '../../utils/flightRecorder';
 import { awaitHeapHeadroom, heapTag } from '../../utils/heapGauge';
 import { createSerialQueue } from '../../utils/serialQueue';
+import { setHydrationProgress } from './encHydrationProgress';
 
 /** All windowed merge BUILDS pass through here, one at a time — the byte
  *  budget bounds each register, this bounds how many exist at once. */
@@ -1853,44 +1854,9 @@ const HYDRATION_NOTIFY_BATCH = 8;
 const HYDRATION_NOTIFY_MAX_INTERVAL_MS = 10_000;
 
 // ── Hydration progress (2026-07-12 audit, UX MAJOR) ───────────────
-// Downloading was completely SILENT: a registered-but-not-yet-
-// downloaded cell rendered as the same dark shell as genuinely
-// uncharted water, and a cruiser panning to tomorrow's anchorage
-// concluded the app had no chart there. The map surfaces this as a
-// "Chart downloading… (n of m)" chip.
-
-export interface EncHydrationProgress {
-    /** Cells still to attempt in the current walk (0 = idle). */
-    remaining: number;
-    /** Size of the walk when it started. */
-    total: number;
-}
-
-let hydrationProgress: EncHydrationProgress = { remaining: 0, total: 0 };
-const hydrationListeners = new Set<(p: EncHydrationProgress) => void>();
-
-function setHydrationProgress(next: EncHydrationProgress): void {
-    hydrationProgress = next;
-    for (const l of hydrationListeners) {
-        try {
-            l(hydrationProgress);
-        } catch {
-            /* listener errors never break the walk */
-        }
-    }
-}
-
-export function getHydrationProgress(): EncHydrationProgress {
-    return hydrationProgress;
-}
-
-/** Subscribe to hydration progress. Returns an unsubscribe fn. */
-export function subscribeHydration(listener: (p: EncHydrationProgress) => void): () => void {
-    hydrationListeners.add(listener);
-    return () => {
-        hydrationListeners.delete(listener);
-    };
-}
+// The "Chart downloading… (n of m)" chip's state lives in
+// encHydrationProgress (package 125-06: Auto's review reads it too).
+export { getHydrationProgress, subscribeHydration, type EncHydrationProgress } from './encHydrationProgress';
 
 /**
  * Fetch missing cell blobs from the cloud bucket, one at a time, in
