@@ -72,6 +72,8 @@ describe('foreground location privacy boundary', () => {
             // location at all, so requiring the call here would fail the
             // boundary on a file that has nothing to guard.
             'components/OnboardingWizard.tsx',
+            // Plan Your Day's "This phone" (build 124): asked only on her tap.
+            'components/dayPlanner/TodayPlacePicker.tsx',
         ]) {
             const source = read(path);
             expect(source, path).toContain('GpsService.requestCurrentForegroundPosition(');

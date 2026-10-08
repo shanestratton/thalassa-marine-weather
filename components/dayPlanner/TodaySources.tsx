@@ -8,6 +8,7 @@ import {
     addDays,
     hhmm,
     limitsLine,
+    unsetLimitSource,
     wallTime,
     weekdayShort,
     type DayPlanLimits,
@@ -110,7 +111,23 @@ export function TodaySources({
             >
                 Change
             </button>
-            {changing && <ComfortQuickConfig expanded onExpandedChange={setChanging} />}
+            {changing && (
+                // Seeded from the limits in force, gusts included: not the editor's own 35 kt / 4 m.
+                <ComfortQuickConfig
+                    expanded
+                    onExpandedChange={setChanging}
+                    inForce={{
+                        windKts: limits.wind.poor,
+                        gustKts: limits.gust.poor,
+                        waveM: limits.wave.poor,
+                        from: unsetLimitSource(limits),
+                    }}
+                />
+            )}
+            <p>
+                Morning, afternoon and evening are rated on the wind and gusts at {base.start.name}. The sea is checked
+                only along the way to each stop, and a stop with no wave reading is never Inside.
+            </p>
 
             <h3 className="today-h3">Models</h3>
             {base.atmos ? (
@@ -139,6 +156,12 @@ export function TodaySources({
                         : 'Tides: no prediction here'}
                 </li>
                 <li>Places: © OpenStreetMap contributors (ODbL)</li>
+                {base.placesStatus === 'partial' && (
+                    <li>Part of the area&rsquo;s places didn&rsquo;t load: the list may be short.</li>
+                )}
+                {base.placesStatus === 'failed' && (
+                    <li>Places didn&rsquo;t load: OpenStreetMap didn&rsquo;t answer.</li>
+                )}
                 {candidates.some((c) => c.source === 'atlas') && (
                     <li>Queensland anchorage atlas (OpenStreetMap + GBRMPA)</li>
                 )}

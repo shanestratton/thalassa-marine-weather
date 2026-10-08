@@ -57,9 +57,23 @@ interface ComfortQuickConfigProps {
      */
     expanded?: boolean;
     onExpandedChange?: (expanded: boolean) => void;
+    /**
+     * Plan Your Day's Sources and limits (build 124): the limits in force
+     * where none is set here (her boat's, or a typical cruiser's), so the
+     * sliders start where the plan is rather than at 35 kt / 4 m, which read
+     * as her limits and made "dragging down" loosen them. Adds a gust slider;
+     * leaves out the angle bands, which only the router reads.
+     */
+    inForce?: { windKts: number; gustKts: number; waveM: number; from: string | null };
 }
 
-export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({ expanded: expandedProp, onExpandedChange }) => {
+const one = (v: number) => Math.round(v * 10) / 10;
+
+export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({
+    expanded: expandedProp,
+    onExpandedChange,
+    inForce,
+}) => {
     const { settings, updateSettings } = useSettings();
     const [internalExpanded, setInternalExpanded] = useState(false);
     // Controlled-or-uncontrolled: prefer parent-provided state when present
@@ -72,8 +86,11 @@ export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({ expanded
     };
 
     const params: ComfortParams = settings.comfortParams ?? {};
-    const maxWind = params.maxWindKts ?? 35;
-    const maxWave = params.maxWaveM ?? 4;
+    // The route planner's own use is unchanged: its 35 kt / 4 m stand-ins, unrounded.
+    const maxWind = inForce ? one(params.maxWindKts ?? inForce.windKts) : (params.maxWindKts ?? 35);
+    const maxWave = inForce ? one(params.maxWaveM ?? inForce.waveM) : (params.maxWaveM ?? 4);
+    const maxGust = inForce ? one(params.maxGustKts ?? inForce.gustKts) : null;
+    const unset = !!inForce && [params.maxWindKts, params.maxGustKts, params.maxWaveM].some((v) => v === undefined);
     const angles = params.preferredAngles ?? [];
 
     // "Effective" angles = selected, OR all if empty (= no preference).
@@ -108,7 +125,9 @@ export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({ expanded
         : effectiveAngles.length === 1
           ? ANGLE_PILLS.find((a) => a.key === effectiveAngles[0])?.label
           : `${effectiveAngles.length} angles`;
-    const summary = `≤${maxWind}kt · ≤${maxWave}m · ${angleSummary}`;
+    const summary = inForce
+        ? `≤${maxWind}kt · gusts ≤${maxGust}kt · ≤${maxWave}m`
+        : `≤${maxWind}kt · ≤${maxWave}m · ${angleSummary}`;
 
     return (
         <div className="rounded-xl bg-slate-900/40 border border-white/10 overflow-hidden">
@@ -165,6 +184,27 @@ export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({ expanded
                         </div>
                     </div>
 
+                    {maxGust !== null && (
+                        <div>
+                            <div className="flex justify-between items-center mb-1.5">
+                                <span className="text-[11px] font-bold text-slate-300 uppercase tracking-widest">
+                                    💨 Max Gust
+                                </span>
+                                <span className="text-xs font-bold text-cyan-400 tabular-nums">{maxGust} kt</span>
+                            </div>
+                            <input
+                                type="range"
+                                min={10}
+                                max={60}
+                                step={1}
+                                value={maxGust}
+                                onChange={(e) => updateField('maxGustKts', Number(e.target.value))}
+                                className="w-full accent-cyan-500"
+                                aria-label="Max acceptable gust"
+                            />
+                        </div>
+                    )}
+
                     {/* Max Wave */}
                     <div>
                         <div className="flex justify-between items-center mb-1.5">
@@ -177,7 +217,7 @@ export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({ expanded
                             type="range"
                             min={0.5}
                             max={6}
-                            step={0.5}
+                            step={inForce ? 0.1 : 0.5}
                             value={maxWave}
                             onChange={(e) => updateField('maxWaveM', Number(e.target.value))}
                             className="w-full accent-cyan-500"
@@ -190,48 +230,56 @@ export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({ expanded
                         </div>
                     </div>
 
-                    {/* Multi-select Wind Angles */}
-                    <div>
-                        <div className="flex items-center justify-between mb-2">
-                            <span className="text-[11px] font-bold text-slate-300 uppercase tracking-widest">
-                                🧭 Acceptable Wind Angles
-                            </span>
-                            {!allSelected && (
-                                <button
-                                    type="button"
-                                    onClick={() => updateField('preferredAngles', undefined)}
-                                    className="min-h-[44px] text-[10px] text-slate-500 hover:text-slate-300 underline-offset-2 hover:underline"
-                                >
-                                    select all
-                                </button>
-                            )}
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                            {ANGLE_PILLS.map(({ key, label, desc }) => {
-                                const active = effectiveAngles.includes(key);
-                                return (
-                                    <button
-                                        key={key}
-                                        type="button"
-                                        onClick={() => toggleAngle(key)}
-                                        title={desc}
-                                        aria-pressed={active}
-                                        className={`px-2.5 py-1 min-h-[44px] rounded-full text-[11px] font-bold border transition-colors active:scale-[0.97] ${
-                                            active
-                                                ? 'bg-violet-500/20 border-violet-500/40 text-violet-200'
-                                                : 'bg-white/2 border-white/10 text-slate-500 hover:text-slate-300'
-                                        }`}
-                                    >
-                                        {label}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                        <p className="mt-1.5 text-xs text-slate-400 leading-relaxed">
-                            Routes whose true wind angle falls outside your selection are dropped. Empty / all = no
-                            preference. Cruisers who hate beating typically deselect it.
+                    {unset && inForce?.from && (
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                            Sliders you haven&rsquo;t moved show {inForce.from}&rsquo;s limits.
                         </p>
-                    </div>
+                    )}
+
+                    {/* Multi-select Wind Angles: the router's alone */}
+                    {!inForce && (
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-[11px] font-bold text-slate-300 uppercase tracking-widest">
+                                    🧭 Acceptable Wind Angles
+                                </span>
+                                {!allSelected && (
+                                    <button
+                                        type="button"
+                                        onClick={() => updateField('preferredAngles', undefined)}
+                                        className="min-h-[44px] text-[10px] text-slate-500 hover:text-slate-300 underline-offset-2 hover:underline"
+                                    >
+                                        select all
+                                    </button>
+                                )}
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {ANGLE_PILLS.map(({ key, label, desc }) => {
+                                    const active = effectiveAngles.includes(key);
+                                    return (
+                                        <button
+                                            key={key}
+                                            type="button"
+                                            onClick={() => toggleAngle(key)}
+                                            title={desc}
+                                            aria-pressed={active}
+                                            className={`px-2.5 py-1 min-h-[44px] rounded-full text-[11px] font-bold border transition-colors active:scale-[0.97] ${
+                                                active
+                                                    ? 'bg-violet-500/20 border-violet-500/40 text-violet-200'
+                                                    : 'bg-white/2 border-white/10 text-slate-500 hover:text-slate-300'
+                                            }`}
+                                        >
+                                            {label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="mt-1.5 text-xs text-slate-400 leading-relaxed">
+                                Routes whose true wind angle falls outside your selection are dropped. Empty / all = no
+                                preference. Cruisers who hate beating typically deselect it.
+                            </p>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

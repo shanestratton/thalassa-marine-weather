@@ -32,7 +32,7 @@ import {
     subscribeAuthIdentityScope,
 } from '../../services/authIdentityScope';
 import { plannerFixAge, readPlannerVesselPosition } from '../../services/plannerVesselPosition';
-import { readPlanDeparture, setPlanDeparture } from '../../services/planDeparture';
+import { setPlanDeparture } from '../../services/planDeparture';
 import { DEFAULT_CRUISING_POLAR } from '../../services/defaultPolar';
 import { closeHauledDegFor } from '../../services/sailing/pointOfSail';
 import { vesselCruisingSpeedKts } from '../../services/units';
@@ -134,7 +134,6 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
     const [stay, setStay] = useState<StayOption>(DEFAULT_STAY);
     const [screen, setScreen] = useState<Screen>(null);
     const [pickerFocus, setPickerFocus] = useState<'list' | 'type'>('list');
-    const [plannedDepartureMs] = useState(() => readPlanDeparture(scope, sources.now()));
     const requested = useRef(new Set<string>());
     const legsAbort = useRef<AbortController | null>(null);
     const onCloseRef = useRef(onClose);
@@ -229,13 +228,12 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                           speed,
                           usingDefaultVessel,
                           date,
-                          plannedDepartureMs,
                           legs,
                           boatFixAgeMs,
                       }),
                   )
                 : null,
-        [base, stay, limits, speed, usingDefaultVessel, date, plannedDepartureMs, legs, boatFixAgeMs],
+        [base, stay, limits, speed, usingDefaultVessel, date, legs, boatFixAgeMs],
     );
 
     // ── Route forecasts for the stops the engine names (each once per place) ──
@@ -292,7 +290,15 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
 
     const detailRow =
         screen && typeof screen === 'object' && view ? (view.top.find((r) => r.id === screen.stop) ?? null) : null;
-    const allCount = view ? view.fits.length + view.notToday.length : 0;
+    const allCount = view ? view.fits.length + view.unchecked.length + view.notToday.length : 0;
+    // Places: still asked (none in yet), or none could be read. Never the
+    // "fits" copy over an empty list that is only empty because it failed.
+    const placesLine =
+        start && base && !base.places
+            ? base.placesStatus === 'failed'
+                ? "Places didn't load: OpenStreetMap didn't answer."
+                : 'Finding places…'
+            : null;
     const headline = loadError
         ? { text: loadError }
         : locating
@@ -356,7 +362,7 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                                     type="button"
                                     className="today-link"
                                     aria-haspopup="dialog"
-                                    disabled={!view}
+                                    disabled={!view || !base?.places}
                                     onClick={() => setScreen('places')}
                                 >
                                     All places <span className="today-nowrap">({allCount}) ›</span>
@@ -435,7 +441,7 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                                             <span className="today-cell-word">{'\u00a0'}</span>
                                         </li>
                                     );
-                                const cell = partCell(part);
+                                const cell = partCell(part, base.atmos?.models.length ?? 0);
                                 return (
                                     <li
                                         key={label}
@@ -487,6 +493,15 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                             {view?.facts.text ?? ' '}
                         </p>
                         {view?.notices.top && <NoticeLine notice={view.notices.top} onAct={onNotice} />}
+                        {placesLine && (
+                            <p
+                                className={base?.placesStatus === 'failed' ? 'today-notice' : 'today-facts'}
+                                role="status"
+                                data-testid="day-plan-places"
+                            >
+                                {placesLine}
+                            </p>
+                        )}
                         {view && view.top.length > 0 && view.state !== 'no-daylight' && (
                             <ul aria-label="Stops" className="today-stops">
                                 {view.top.map((row) => (
@@ -637,39 +652,53 @@ function AllPlaces({
         const at = base.places?.candidates.find((x) => x.id === id)?.mappedAtMs;
         return at === undefined ? null : `mapped ${dayMonth(at, base.zone)}`;
     };
+    const row = (r: StopRow) =>
+        swept.has(r.id) ? (
+            <li key={r.id}>
+                <StopButton row={r} onOpen={() => onOpen(r.id)} />
+            </li>
+        ) : (
+            <li key={r.id} className="today-place-line">
+                {r.name} · {r.shelter} · {lowerFirst(r.line2)}
+                {r.mapped ? ` · ${r.mapped}` : ''}
+            </li>
+        );
     return (
         <TodayModal title={`Places near ${base.start.name}`} onClose={onClose} className="today-list-card">
+            {base.placesStatus === 'loading' && (
+                <p className="today-place-line" role="status">
+                    Still asking OpenStreetMap for more places…
+                </p>
+            )}
+            {base.placesStatus === 'partial' && (
+                <p className="today-place-line">Part of the area didn&rsquo;t load: this list may be short.</p>
+            )}
             <h3 className="today-h3">Fits {day}</h3>
             {view.fits.length ? (
-                <ul className="today-stops">
-                    {view.fits.map((row) =>
-                        swept.has(row.id) ? (
-                            <li key={row.id}>
-                                <StopButton row={row} onOpen={() => onOpen(row.id)} />
-                            </li>
-                        ) : (
-                            <li key={row.id} className="today-place-line">
-                                {row.name} · {row.shelter} · {lowerFirst(row.line2)}
-                                {row.mapped ? ` · ${row.mapped}` : ''}
-                            </li>
-                        ),
-                    )}
-                </ul>
+                <ul className="today-stops">{view.fits.map(row)}</ul>
             ) : (
-                <p className="today-place-line">Nothing fits {day}.</p>
+                <p className="today-place-line">
+                    Nothing {view.unchecked.length ? 'checked so far ' : ''}fits {day}.
+                </p>
+            )}
+            {view.unchecked.length > 0 && (
+                <>
+                    <h3 className="today-h3">Weather not checked</h3>
+                    <ul className="today-stops">{view.unchecked.map(row)}</ul>
+                </>
             )}
             <h3 className="today-h3">Not {day}</h3>
             {view.notToday.length ? (
                 <ul>
-                    {view.notToday.map((row) => (
-                        <li key={row.id} className="today-place-line">
-                            {row.name} · {row.reason}
-                            {mapped(row.id) ? ` · ${mapped(row.id)}` : ''}
+                    {view.notToday.map((r) => (
+                        <li key={r.id} className="today-place-line">
+                            {r.name} · {r.reason}
+                            {mapped(r.id) ? ` · ${mapped(r.id)}` : ''}
                         </li>
                     ))}
                 </ul>
             ) : (
-                <p className="today-place-line">Every place in reach fits.</p>
+                <p className="today-place-line">Nothing ruled out.</p>
             )}
         </TodayModal>
     );

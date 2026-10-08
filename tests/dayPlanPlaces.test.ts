@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import type { AnchorageProps } from '../services/anchorages/AnchorageService';
 import type { CruisingPoint } from '../services/anchorages/cruisingReference';
 import type { Segment } from '../services/weather/shelter/shelterGeometry';
+import { SHARED_DESTINATION_NOTES } from '../services/dayPlanner/destinations';
 import {
     DISTANCE_FACTORS,
     closureOn,
@@ -118,6 +119,23 @@ describe('gatherPlaces: the merge', () => {
         expect(cid.reviewed?.parks).toBe('Queensland Parks');
         expect(cid.reviewed?.landingTide).toBe('mid-to-high');
         expect(places.region?.id).toBe('whitsundays');
+    });
+
+    it("carries the stop's own Parks notes (the shark warning), without the catalogue's shared boilerplate", () => {
+        const places = gatherPlaces({
+            start: AIRLIE,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: [CID],
+            osm: [],
+            coastline: null,
+        });
+        const reviewed = places.candidates.find((c) => c.id === 'osm-node3020491514')!.reviewed!;
+        expect(reviewed.accessNotes[0]).toMatch(/^Do not swim in Cid Harbour: .*dangerous sharks/);
+        expect(reviewed.accessNotes.join(' ')).toMatch(/not a beach landing/);
+        for (const note of [...reviewed.accessNotes, ...reviewed.uncertaintyNotes])
+            expect(SHARED_DESTINATION_NOTES.has(note)).toBe(false);
+        expect(reviewed.accessWinds).toBeUndefined();
     });
 
     it('a marina is never a destination; it names the start and feeds the marina line', () => {

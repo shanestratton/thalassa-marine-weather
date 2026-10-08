@@ -290,6 +290,43 @@ describe('loadToday: everything about the place, as it arrives', () => {
         expect(updates.at(-1)).toEqual(base);
     });
 
+    it('reports the offline atlas at once, while OpenStreetMap and the coastline are still answering', async () => {
+        const cell = deferred<{ points: CruisingPoint[]; stale: boolean }>();
+        const coast = deferred<null>();
+        const deps = fakes({ loadReferenceTile: () => cell.promise, loadCoastline: () => coast.promise });
+        const updates: TodayBase[] = [];
+        const done = loadToday(
+            { start: MARINA, cruiseKts: 6 },
+            { signal: new AbortController().signal, deps, onUpdate: (b) => updates.push(b) },
+        );
+        await flush();
+        const early = updates.at(-1)!;
+        // The stops and the marina's name, before Overpass has said a word.
+        expect(early.placesStatus).toBe('loading');
+        expect(early.places?.candidates.map((c) => c.id)).toContain(CID_ID);
+        expect(early.start.name).toBe('Airlie Bay');
+        expect(early.marina?.name).toBe('Whitsunday Sailing Club');
+        cell.resolve({ points: [], stale: false });
+        coast.resolve(null);
+        const base = await done;
+        expect(base.placesStatus).toBe('ok');
+        expect(base.places?.candidates.map((c) => c.id)).toContain(CID_ID);
+    });
+
+    it('with no atlas (worldwide), nothing is reported as places until OpenStreetMap answers', async () => {
+        const cell = deferred<{ points: CruisingPoint[]; stale: boolean }>();
+        const deps = fakes({ loadAtlas: async () => [], loadReferenceTile: () => cell.promise });
+        const updates: TodayBase[] = [];
+        const done = loadToday(
+            { start: NOUMEA, cruiseKts: 6 },
+            { signal: new AbortController().signal, deps, onUpdate: (b) => updates.push(b) },
+        );
+        await flush();
+        expect(updates.every((b) => b.places === null && b.placesStatus === 'loading')).toBe(true);
+        cell.resolve({ points: [osmPoint(301, 'Baie fictive', { lat: -22.3, lon: 166.45 })], stale: false });
+        expect((await done).places?.candidates.map((c) => c.name)).toEqual(['Baie fictive']);
+    });
+
     it('asks each source once, over the reach any stay could need in the three days shown', async () => {
         const deps = fakes();
         const base = await loadToday({ start: MARINA, cruiseKts: 6 }, { signal: new AbortController().signal, deps });
@@ -741,7 +778,6 @@ describe("Shane's case through the loader and the engine", () => {
             limits: resolveDayPlanLimits(undefined, DEFAULT_VESSEL, true),
             speed: SAIL,
             usingDefaultVessel: true,
-            plannedDepartureMs: null,
         };
         const first = planDay(todayInput(base, args));
         expect(first.needsLegs.length).toBeGreaterThan(0);
@@ -777,7 +813,6 @@ describe("Shane's case through the loader and the engine", () => {
             limits: resolveDayPlanLimits(undefined, DEFAULT_VESSEL, true),
             speed: SAIL,
             usingDefaultVessel: true,
-            plannedDepartureMs: NOW + 2 * H,
             date: '2026-10-09',
             boatFixAgeMs: 7 * H,
         });
@@ -789,7 +824,7 @@ describe("Shane's case through the loader and the engine", () => {
             weather: 'loading',
             places: null,
             tides: null,
-            plannedDepartureMs: NOW + 2 * H,
+            placesStatus: 'failed',
             boatFixAgeMs: 7 * H,
         });
     });

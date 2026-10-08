@@ -20,14 +20,17 @@ import {
     type ScoredDeparture,
 } from '../services/passageDepartureSuggestion';
 import {
+    areaVerdict,
     dayParts,
     dayWindow,
     distanceLine,
     hhmm,
+    partCell,
     pickHeadlineMember,
     planDay,
     pointHours,
     resolveDayPlanLimits,
+    stopDetail,
     type DayPlanInput,
     type DayPlanLimits,
     type DayPlanView,
@@ -244,7 +247,6 @@ function input(over: Partial<DayPlanInput> = {}): DayPlanInput {
         zone: BRISBANE,
         start: MARINA,
         stay: '2h',
-        plannedDepartureMs: null,
         limits: DEFAULT_LIMITS,
         speed: SAIL,
         usingDefaultVessel: false,
@@ -296,11 +298,51 @@ describe("Shane's case: Coral Sea Marina, Thursday 8 October, a south-east trade
         expect(view.ranked.map((stop) => stop.candidate.id)).not.toContain('osm-node2838871153');
     });
 
-    it('Whitehaven either fits or reads home after dark', () => {
+    it('Whitehaven either fits, is listed with its route weather not checked, or reads home after dark', () => {
         const id = 'osm-node2982151597';
         const fits = view.fits.some((row) => row.id === id);
+        const unchecked = view.unchecked.some((row) => row.id === id);
         const dark = view.notToday.find((row) => row.id === id)?.reason ?? '';
-        expect(fits || /home after dark/.test(dark)).toBe(true);
+        expect(fits || unchecked || /home after dark/.test(dark)).toBe(true);
+    });
+
+    it('only a stop whose own route weather was checked is listed as fitting', () => {
+        expect(view.fits.length).toBeGreaterThan(0);
+        for (const row of view.fits) {
+            expect(row.plan?.weatherLoaded).toBe(true);
+            expect(['inside', 'near']).toContain(row.level);
+        }
+        // The rest of the ranked stops: "route weather not checked", never "Fits".
+        expect(view.unchecked.length).toBeGreaterThan(0);
+        for (const row of view.unchecked) expect(row.line2).toMatch(/route weather not checked$/);
+    });
+
+    it('Cid Harbour keeps its Parks shark warning, under the stay, in its detail', () => {
+        const cid = view.top.find((row) => row.id === 'osm-node3020491514')!;
+        expect(cid.candidate.reviewed?.accessNotes.join(' ')).toMatch(/Do not swim in Cid Harbour.*sharks/);
+        const detail = stopDetail({
+            plan: cid.plan!,
+            stay: '2h',
+            window: view.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: true,
+        });
+        const ashore = detail.rows.findIndex((row) => row.startsWith('Ashore '));
+        const shark = detail.rows.findIndex((row) => /^Do not swim in Cid Harbour: .*sharks/.test(row));
+        expect(ashore).toBeGreaterThan(-1);
+        expect(shark).toBeGreaterThan(ashore);
+        // The catalogue's shared boilerplate is said once elsewhere, not per stop.
+        expect(detail.rows.join(' ')).not.toMatch(/bring-your-own picnic|Position is an existing mapped/);
+    });
+
+    it('Chance Bay is held at Some chop in the south-east trade its Parks note warns of', () => {
+        // Its baked land table reads 0.1–0.4 NM from 090° to 160°: "Very sheltered" by geometry alone.
+        const chance = view.ranked.find((stop) => stop.candidate.id === 'osm-node8925547809')!;
+        expect(chance.stay?.grade).toBe('tenable');
+        expect(chance.stay?.reasons[0]).toBe('South-easterlies can make access difficult (Queensland Parks)');
+        const row = [...view.fits, ...view.unchecked].find((r) => r.id === 'osm-node8925547809');
+        expect(row?.shelter).toBe('Some chop');
     });
 
     it('reads its limits from the default boat and its times in the place’s zone', () => {
@@ -377,14 +419,27 @@ describe('a split day', () => {
 // ── Thunder, from the models' own weather codes ────────────────
 
 describe('thunder', () => {
-    it('comes from weather_code in the point block, and is named, never ruled out', () => {
+    it('comes from weather_code in the point block, and is named in the part it falls in', () => {
         expect(ATMOS_VARS).toContain('weather_code');
         const limits = resolveDayPlanLimits({ maxWindKts: 25, maxGustKts: 35 }, null, false);
         const block = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 10, dir: 90, code: m < 3 ? 95 : 3 }));
         const view = planDay(input({ limits, atmos: block }));
         expect(view.parts[0].thunder).toBe(3);
         expect(view.parts[0].level).toBe('near');
-        expect(view.headline.text).toMatch(/ Thunder in 3 of 7 models this morning\.$/);
+        const cell = partCell(view.parts[0], 7);
+        expect(cell.word).toBe('Thunder');
+        expect(cell.glyph).toBe('≈');
+        expect(cell.ariaLabel).toMatch(/, near your wind limits, thunder in 3 of 7 models$/);
+    });
+
+    it('stays out of the headline, which keeps its line budget (it ran to five lines at 320 px)', () => {
+        const limits = resolveDayPlanLimits({ maxWindKts: 30, maxGustKts: 40 }, null, false);
+        const kts = [9, 11, 14, 16, 18, 21, 24];
+        const block = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: kts[m], dir: 135, code: m < 3 ? 95 : 3 }));
+        const view = planDay(input({ limits, atmos: block }));
+        expect(view.parts.every((p) => p.thunder === 3)).toBe(true);
+        expect(view.headline.text).toBe('Models split this morning: SE 9 to 24 kn. Plan for the strong end.');
+        expect(view.headline.text).not.toMatch(/Thunder/);
     });
 });
 
@@ -402,6 +457,22 @@ describe('over all day', () => {
         expect(view.headline.link).toEqual({ label: 'Sat looks lighter ›', date: '2026-10-10' });
     });
 
+    it('beyond the best three, the wind in the area rules each stop out: nothing is listed as fitting', () => {
+        expect(view.state).toBe('stay-put');
+        expect(view.fits).toEqual([]);
+        expect(view.unchecked).toEqual([]);
+        const swept = new Set(view.top.map((row) => row.id));
+        const rest = view.ranked.filter((stop) => !swept.has(stop.candidate.id));
+        expect(rest.length).toBeGreaterThan(5);
+        for (const stop of rest) {
+            const reason = view.notToday.find((row) => row.id === stop.candidate.id)?.reason ?? '';
+            expect(reason).toMatch(/^over your limits: (SE \d+ kn|gusts \d+ kn) in the area$|^over your limits: /);
+        }
+        // e.g. Chance Bay, "very sheltered" by its land table, in a 29 kn day.
+        const chance = view.notToday.find((row) => row.id === 'osm-node8925547809');
+        expect(chance?.reason).toBe('over your limits: SE 27 kn in the area');
+    });
+
     it('still lists every place, ranked, each with a plain reason', () => {
         expect(view.top.length).toBeGreaterThanOrEqual(2);
         for (const row of view.top) {
@@ -410,8 +481,189 @@ describe('over all day', () => {
             expect(row.reason).toMatch(/over your limits/);
         }
         expect(view.notToday.length).toBeGreaterThanOrEqual(view.top.length);
-        const listed = new Set([...view.fits, ...view.notToday].map((row) => row.id));
+        const listed = new Set([...view.fits, ...view.unchecked, ...view.notToday].map((row) => row.id));
         for (const stop of view.ranked) expect(listed.has(stop.candidate.id)).toBe(true);
+    });
+});
+
+describe('a day over her limits with a gap in it', () => {
+    it('lists a stop that fits the gap with that, never under "Fits" beneath "Stay put"', () => {
+        // A blow all day but 07:00–13:00 local, at a fictional bight 6 NM off.
+        const gapFrom = Date.UTC(2026, 9, 7, 21);
+        const gapTo = Date.UTC(2026, 9, 8, 3);
+        const blow = atmos(Math.floor(NOW / H) * H, (m, t) =>
+            t >= gapFrom && t < gapTo ? { kts: 9 + (m % 3), dir: 135 } : { kts: 27 + (m % 3), dir: 135, gust: 36 },
+        );
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: [],
+            osm: [{ points: [osmPoint(9301, 'Fictional Gap Bight', -20.265, 148.8254)], stale: false }],
+            coastline: null,
+        });
+        const view = planWithLegs({ atmos: blow, places, stay: '1h' }, (_, t) =>
+            t >= gapFrom && t < gapTo ? { kts: 10, dir: 135, gust: 14 } : { kts: 28, dir: 135, gust: 36 },
+        );
+        expect(view.state).toBe('stay-put');
+        expect(view.top[0].level).toBe('near');
+        expect(view.fits).toEqual([]);
+        expect(view.notToday.find((row) => row.name === 'Fictional Gap Bight')?.reason).toMatch(
+            /^over your limits most of the day \(a gap: leave 07:00\)$/,
+        );
+    });
+
+    it('a departure is Over whenever the strip is Over for the hours she is under way', () => {
+        // The route model is light (12 kn), but the seven at the point say 27–29 after 09:00.
+        const after9 = Date.UTC(2026, 9, 7, 23);
+        const block = atmos(Math.floor(NOW / H) * H, (m, t) =>
+            t < after9 ? { kts: 9 + (m % 3), dir: 135 } : { kts: 27 + (m % 3), dir: 135, gust: 34 },
+        );
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: [],
+            osm: [{ points: [osmPoint(9302, 'Fictional Far Reach', -20.265, 149.05)], stale: false }],
+            coastline: null,
+        });
+        const view = planWithLegs({ atmos: block, places }, () => ({ kts: 12, dir: 135, gust: 16 }));
+        const best = view.top[0].plan!.best!;
+        expect(best.level).toBe('over');
+        expect(best.reason).toBe('over your limits: SE 28 kn in the area');
+    });
+});
+
+describe('the sea, when nothing along the way reads it', () => {
+    const limits = resolveDayPlanLimits({ maxWindKts: 30, maxGustKts: 40, maxWaveM: 3 }, null, false);
+    const calm = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 7 + (m % 2), dir: 135, gust: 11 }));
+    const cid = () =>
+        gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: QLD_TILE.features.filter((f) => f.properties.id === 'osm-node3020491514'),
+            osm: [],
+            coastline: null,
+        });
+    const light = () => ({ kts: 8, dir: 135, gust: 12 });
+
+    it('with a reading, a calm day is Inside, and the headline says it is the WIND that is', () => {
+        const view = planWithLegs({ limits, atmos: calm, places: cid() }, light);
+        expect(view.top[0].level).toBe('inside');
+        expect(view.headline.text).toMatch(/^Inside your wind limits all day\./);
+        expect(partCell(view.parts[0]).ariaLabel).toMatch(/inside your wind limits$/);
+    });
+
+    it('with none (the sea did not load), the same stop is Near at best, and says why', () => {
+        const first = planDay(input({ limits, atmos: calm, places: cid() }));
+        const legs = legsFor(first, light);
+        for (const [id, leg] of legs) legs.set(id, { ...leg, sea: null });
+        const view = planDay(input({ limits, atmos: calm, places: cid(), legs }));
+        expect(view.top[0].level).toBe('near');
+        const detail = stopDetail({
+            plan: view.top[0].plan!,
+            stay: '2h',
+            window: view.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: false,
+        });
+        expect(detail.rows).toContain("Sea: not checked, the wave forecast didn't load");
+    });
+
+    it('with none inshore (every station snapped too far), Near at best too', () => {
+        const first = planDay(input({ limits, atmos: calm, places: cid() }));
+        const legs = legsFor(first, light);
+        for (const [id, leg] of legs) {
+            const sea = leg.sea!;
+            legs.set(id, {
+                ...leg,
+                sea: {
+                    ...sea,
+                    stations: sea.stations.map((st) => ({ ...st, inshore: true, waveM: st.waveM.map(() => null) })),
+                },
+            });
+        }
+        const view = planDay(input({ limits, atmos: calm, places: cid(), legs }));
+        expect(view.top[0].level).toBe('near');
+    });
+});
+
+describe('shelter not known', () => {
+    it('is never Inside: an OpenStreetMap stop with no coastline is held at Near', () => {
+        const limits = resolveDayPlanLimits({ maxWindKts: 30, maxGustKts: 40, maxWaveM: 3 }, null, false);
+        const calm = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 7 + (m % 2), dir: 135, gust: 11 }));
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: [],
+            osm: [{ points: [osmPoint(9303, 'Fictional Open Cove', -20.265, 148.8254)], stale: false }],
+            coastline: null,
+        });
+        const view = planWithLegs({ limits, atmos: calm, places }, () => ({ kts: 8, dir: 135, gust: 12 }));
+        expect(view.top[0].shelter).toBe('Shelter not known');
+        expect(view.top[0].level).toBe('near');
+        expect(view.top[0].glyph).toBe('≈');
+    });
+});
+
+describe('a stop whose route weather failed', () => {
+    it('shows no times (they would be a no-wind walk), and is listed as weather that did not load', () => {
+        const first = planDay(input({}));
+        const legs = new Map(
+            first.needsLegs.map((need) => [
+                need.id,
+                { headline: null, headlineModel: 'ECMWF', spread: null, sea: null, failed: true } as StopLegs,
+            ]),
+        );
+        const view = planDay(input({ legs }));
+        for (const row of view.top) {
+            expect(row.line2).toMatch(/^About \d+ NM · weather not checked$/);
+            expect(row.glyph).toBe('?');
+            expect(view.notToday.find((r) => r.id === row.id)?.reason).toBe("weather didn't load");
+        }
+        expect(view.fits).toEqual([]);
+    });
+});
+
+describe('places still loading', () => {
+    it('never says "no anchorages mapped" while OpenStreetMap is still answering', () => {
+        const empty = gatherPlaces({ start: MARINA, nowMs: NOW, radiusNm: 30, atlas: [], osm: [], coastline: null });
+        const loading = planDay(input({ places: empty, placesStatus: 'loading' }));
+        expect(loading.state).not.toBe('no-places');
+        expect(loading.headline.text).not.toMatch(/No anchorages mapped/);
+        const settled = planDay(input({ places: empty, placesStatus: 'ok' }));
+        expect(settled.state).toBe('no-places');
+        expect(settled.headline.text).toBe('No anchorages mapped near here in OpenStreetMap.');
+    });
+});
+
+describe('the earliest leave', () => {
+    it('is never the Plan page departure: the morning is not hidden, and 06:30 is not too late', () => {
+        const window = dayWindow({ date: '2026-10-08', lat: MARINA.lat, lon: MARINA.lon, zone: BRISBANE, nowMs: NOW });
+        expect(hhmm(window.earliestLeaveMs!, BRISBANE)).toBe('07:00');
+        const view = planDay(input({}));
+        expect(view.tooLate).toBe(false);
+        expect(view.date).toBe('2026-10-08');
+    });
+});
+
+describe('areaVerdict', () => {
+    it('finds the calm hours: a stop is out only when every departure meets the blow', () => {
+        const blowFrom = Date.UTC(2026, 9, 8, 2); // 12:00 local
+        const block = atmos(Math.floor(NOW / H) * H, (m, t) =>
+            t < blowFrom ? { kts: 9, dir: 135 } : { kts: 30, dir: 135, gust: 38 },
+        );
+        const view = planDay(input({ atmos: block }));
+        const hours = pointHours(block);
+        const near = view.ranked.find((stop) => stop.estNm < 6)!;
+        const far = view.ranked.find((stop) => stop.estNm > 20)!;
+        expect(areaVerdict(near, view.window, '1h', hours, DEFAULT_LIMITS)).toBeNull();
+        expect(areaVerdict(far, view.window, '4h', hours, DEFAULT_LIMITS)).toBe(
+            'over your limits: SE 30 kn in the area',
+        );
     });
 });
 

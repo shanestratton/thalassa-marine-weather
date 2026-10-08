@@ -104,11 +104,16 @@ export interface PlotDayAction {
     savedRoute?: string;
 }
 
-/** More pins than any drawn route needs; a request over this is refused. */
-export const PLOT_DAY_MAX_POINTS = 500;
+/** The most points a saved route may hold (saved_routes and
+ *  AUTOROUTING_PROPOSAL_MAX_POINTS): an Auto route runs to hundreds. */
+export const SAVED_ROUTE_MAX_POINTS = 10_000;
+/** A saved route out and turned round for home (the stop not twice): the most
+ *  a plot-day request can honestly need. Over this it is refused. */
+export const PLOT_DAY_MAX_POINTS = 2 * SAVED_ROUTE_MAX_POINTS - 1;
 
-/** What the chart accepts from a plot-day request: two to 500 real
- *  positions, and a name. Null when the pins are not usable. */
+/** What the chart accepts from a plot-day request: two to
+ *  PLOT_DAY_MAX_POINTS real positions, and a name. Null when the pins are
+ *  not usable. */
 export function plotDayPins(
     action: PlotDayAction,
 ): { points: { lat: number; lon: number }[]; name: string; stop: string; savedRoute: string | null } | null {

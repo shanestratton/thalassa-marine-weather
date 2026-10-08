@@ -58,9 +58,16 @@ export function savedPlanPlaces(
     return out;
 }
 
-/** This phone's position: a fix under five minutes old (asks for permission on a tap), else the app's last GPS fix. */
+/**
+ * This phone's position: a fix under five minutes old, else the app's last
+ * GPS fix. Asked only on her tap, through the foreground-only request (it
+ * asks for coarse permission then and never starts the background engine:
+ * tests/ForegroundLocationBoundary.test.ts).
+ */
 export async function readPhonePosition(): Promise<LatLon | null> {
-    const fix = await GpsService.getCurrentPosition({ staleLimitMs: 5 * 60_000, timeoutSec: 10 }).catch(() => null);
+    const fix = await GpsService.requestCurrentForegroundPosition({ staleLimitMs: 5 * 60_000, timeoutSec: 10 }).catch(
+        () => null,
+    );
     if (fix && valid({ lat: fix.latitude, lon: fix.longitude })) return { lat: fix.latitude, lon: fix.longitude };
     const last = LocationStore.getState();
     return last.source === 'gps' && valid(last) && Date.now() - last.timestamp < 6 * 3_600_000

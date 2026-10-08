@@ -65,7 +65,7 @@ import {
     type AgreementLevel,
 } from '../weather/dayAgreement';
 import { getFirstLight, getLastLight, localNoon } from '../../utils/celestial';
-import type { PlotDayAction } from '../deepLink';
+import { PLOT_DAY_MAX_POINTS, type PlotDayAction } from '../deepLink';
 import type { ComfortParams } from '../../types/settings';
 import type { VesselProfile } from '../../types/vessel';
 import type { Tide } from '../../types/weather';
@@ -152,6 +152,7 @@ export interface DayPlanLimits {
 const positive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
 const round1 = (v: number) => Math.round(v * 10) / 10;
 const round2 = (v: number) => Math.round(v * 100) / 100;
+const capital = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 /**
  * The skipper's own limits, metric by metric: Comfort settings first (that
@@ -194,6 +195,12 @@ const SOURCE_WORDS: Record<LimitSource, string> = {
     vessel: 'your boat',
     default: 'a typical cruiser',
 };
+
+/** Whose limits stand where she has set none: "your boat", or null when every one is her own. */
+export function unsetLimitSource(limits: DayPlanLimits): string | null {
+    const other = [limits.wind, limits.gust, limits.wave].find((m) => m.source !== 'comfort');
+    return other ? SOURCE_WORDS[other.source] : null;
+}
 
 /** "Wind 13/20 kn · gusts 18/25 kn · sea 0.8/1.5 m (from your boat)". */
 export function limitsLine(limits: DayPlanLimits): string {
@@ -330,7 +337,12 @@ export interface DayWindow {
     /** Civil first and last light; under the midnight sun, the 14 h planning day. */
     firstLightMs: number | null;
     lastLightMs: number | null;
-    /** Today: the latest of now + 30 min, first light and a set departure on that day. */
+    /**
+     * Today: the later of now + 30 min and first light; another day, first
+     * light. The Plan page's departure is NOT a floor: it may be left from
+     * another passage (or an earlier Plot on chart), and it silently hid the
+     * morning and declared "too late" at breakfast.
+     */
     earliestLeaveMs: number | null;
     /** Hours from the earliest leave to half an hour before last light. */
     usableH: number;
@@ -342,8 +354,6 @@ export interface DayWindowArgs {
     lon: number;
     zone: string;
     nowMs: number;
-    /** The Plan page's departure (thalassa_trace_departure_ms), if set. */
-    plannedDepartureMs?: number | null;
 }
 
 export function dayWindow(args: DayWindowArgs): DayWindow {
@@ -365,14 +375,8 @@ export function dayWindow(args: DayWindowArgs): DayWindow {
         lastLightMs = last.at.getTime();
     }
     let earliestLeaveMs: number | null = null;
-    if (firstLightMs !== null) {
-        const planned = args.plannedDepartureMs;
-        const leaves = [firstLightMs];
-        if (isToday) leaves.push(ceilQuarter(nowMs + LEAVE_LEAD_MS));
-        if (typeof planned === 'number' && Number.isFinite(planned) && localDate(planned, zone) === date)
-            leaves.push(planned);
-        earliestLeaveMs = Math.max(...leaves);
-    }
+    if (firstLightMs !== null)
+        earliestLeaveMs = isToday ? Math.max(firstLightMs, ceilQuarter(nowMs + LEAVE_LEAD_MS)) : firstLightMs;
     const usableH =
         earliestLeaveMs === null || lastLightMs === null
             ? 0
@@ -617,6 +621,38 @@ export function insideUntilMs(
     return lastLightMs;
 }
 
+/**
+ * The hour at the point most over her limits between `fromMs` and `toMs`
+ * (by how far over, wind or gust), or null when none is. The day's strip is
+ * judged on these hours, so a stop is never Inside while the strip says Over
+ * for the time she would be under way.
+ */
+function overHourBetween(
+    hours: readonly PointHour[],
+    limits: DayPlanLimits,
+    fromMs: number,
+    toMs: number,
+): PointHour | null {
+    let worst: PointHour | null = null;
+    let worstBy = -Infinity;
+    for (const h of hours) {
+        if (h.t + HOUR <= fromMs || h.t >= toMs || hourLevel(h, limits) !== 'over') continue;
+        const by = Math.max((h.medianKts ?? 0) / limits.wind.poor, (h.gustMaxKts ?? 0) / limits.gust.poor);
+        if (by > worstBy) {
+            worst = h;
+            worstBy = by;
+        }
+    }
+    return worst;
+}
+
+/** "over your limits: SE 29 kn in the area", or its gusts: the point block, not the route. */
+function areaOverReason(h: PointHour, limits: DayPlanLimits): string {
+    if (h.medianKts !== null && h.medianKts >= limits.wind.poor)
+        return `over your limits: ${h.dirDeg === null ? '' : `${compass8(h.dirDeg)} `}${Math.round(h.medianKts)} kn in the area`;
+    return `over your limits: gusts ${Math.round(h.gustMaxKts ?? 0)} kn in the area`;
+}
+
 const PART_WORD: Record<PartLevel, string> = {
     inside: 'Inside',
     near: 'Near',
@@ -626,10 +662,12 @@ const PART_WORD: Record<PartLevel, string> = {
     dark: 'Dark',
 };
 const PART_GLYPH: Record<PartLevel, string> = { inside: '✓', near: '≈', over: '✕', none: '?', past: '–', dark: '–' };
+// The day's three parts are judged on WIND and gusts at one point; the sea
+// is read only along the way to each stop, so a part never claims it.
 const PART_ARIA: Record<PartLevel, string> = {
-    inside: 'inside your limits',
-    near: 'near your limits',
-    over: 'over your limits',
+    inside: 'inside your wind limits',
+    near: 'near your wind limits',
+    over: 'over your wind limits',
     none: 'no forecast',
     past: 'already past',
     dark: 'no daylight',
@@ -644,8 +682,17 @@ export function windSpan(dirDeg: number | null, lo: number | null, hi: number | 
     return dirDeg === null ? speed : `${compass8(dirDeg)} ${speed}`;
 }
 
-/** One verdict cell: "Morning" / ✓ "SE 12–15" / "Inside", and its spoken form. */
-export function partCell(part: PartVerdict): {
+/**
+ * One verdict cell: "Morning" / ✓ "SE 12–15" / "Inside", and its spoken form.
+ * Thunder in two or more models shows in the cell itself ("Thunder" for the
+ * word it holds at Near), in whichever part it falls: appended to the
+ * headline it ran to four and five lines at 320 px and pushed the card into
+ * a scroll.
+ */
+export function partCell(
+    part: PartVerdict,
+    blockModels = 0,
+): {
     label: string;
     glyph: string;
     wind: string;
@@ -664,11 +711,13 @@ export function partCell(part: PartVerdict): {
         spoken.push(part.gustKts === null ? 'no gust forecast' : `gusts ${Math.round(part.gustKts)}`);
     }
     spoken.push(PART_ARIA[part.level]);
+    const thunder = part.thunder >= 2 && part.level !== 'past' && part.level !== 'dark';
+    if (thunder) spoken.push(`thunder in ${part.thunder}${blockModels ? ` of ${blockModels}` : ''} models`);
     return {
         label,
         glyph: PART_GLYPH[part.level],
         wind,
-        word: PART_WORD[part.level],
+        word: thunder && part.level === 'near' ? 'Thunder' : PART_WORD[part.level],
         ariaLabel: `${label}: ${spoken.join(', ')}`,
     };
 }
@@ -733,8 +782,6 @@ export interface DayHeadlineArgs {
     dayName: string;
     agreement: AgreementLevel | null;
     lighterDay?: { date: string; label: string } | null;
-    /** Models in the point block, for "Thunder in 3 of 7 models". */
-    blockModels: number;
     hours: readonly PointHour[];
     limits: DayPlanLimits;
     window: DayWindow;
@@ -766,11 +813,12 @@ export function dayHeadline(args: DayHeadlineArgs): Headline {
             `Models split ${partPhrase(best.part, isToday, dayName)}: ${dir}${Math.round(best.memberLoKts ?? 0)} to ` +
             `${Math.round(best.memberHiKts ?? 0)} kn. Plan for the strong end.`;
     } else if (active.every((p) => p.level === 'inside')) {
-        text = `Inside your limits all day.${args.agreement ? ` ${AGREEMENT_WORDS[args.agreement]}.` : ''}`;
+        // "wind": the parts never read the sea (only the route to a stop does).
+        text = `Inside your wind limits all day.${args.agreement ? ` ${AGREEMENT_WORDS[args.agreement]}.` : ''}`;
     } else if (best.level === 'inside') {
         const from = window.isToday ? Math.max(best.startMs, window.earliestLeaveMs ?? best.startMs) : best.startMs;
         const until = insideUntilMs(args.hours, args.limits, from, window.lastLightMs ?? best.endMs);
-        text = `${PART_TITLE[best.part]}'s your window: inside your limits until about ${hhmm(until, window.zone)}.`;
+        text = `${PART_TITLE[best.part]}'s your window: inside your wind limits until about ${hhmm(until, window.zone)}.`;
         const later = active.find((p) => p.startMs > best.startMs && (p.level === 'near' || p.level === 'over'));
         if (later) text += ` ${PART_TITLE[later.part]} gets ${later.level} your limits.`;
     } else {
@@ -778,8 +826,6 @@ export function dayHeadline(args: DayHeadlineArgs): Headline {
         const span = windSpan(best.dirDeg, best.loKts, best.hiKts);
         text = `Near your limits at best: ${span ? `${span} kn, ` : ''}${gust}.`;
     }
-    if (best.thunder >= 2)
-        text += ` Thunder in ${best.thunder} of ${args.blockModels} models ${partPhrase(best.part, isToday, dayName)}.`;
     return link ? { text, link } : { text };
 }
 
@@ -909,6 +955,34 @@ export function shelterWord(verdict: AnchorageVerdict | null, tableKnown: boolea
     }
 }
 
+/** A wind at least this strong, from a direction a reviewed stop's access note names, holds it at "Some chop". */
+const ACCESS_WIND_MIN_KTS = 10;
+
+/**
+ * A reviewed stop whose own access note names a wind ("south-easterly winds
+ * can make access difficult", Chance Bay) is held at "Some chop" in that
+ * wind, however sheltered the land around it reads: its baked table has
+ * land 0.1–0.4 NM off from 090° to 160°, so a south-east trade made it "Very
+ * sheltered", and the one note that says otherwise was the reviewed fact.
+ */
+function parksHeld(candidate: PlaceCandidate, hours: readonly VerdictHour[], verdict: AnchorageVerdict) {
+    const winds = candidate.reviewed?.accessWinds;
+    if (!winds?.length || (verdict.grade !== 'bombproof' && verdict.grade !== 'good')) return verdict;
+    const hit = hours.find(
+        (h) => h.windKts >= ACCESS_WIND_MIN_KTS && (winds as readonly string[]).includes(compass8(h.windDirDeg)),
+    );
+    if (!hit) return verdict;
+    return {
+        ...verdict,
+        grade: 'tenable' as const,
+        score: Math.min(verdict.score, 70),
+        reasons: [
+            `${capital(compassWords(hit.windDirDeg))}erlies can make access difficult (${candidate.reviewed!.parks})`,
+            ...verdict.reasons,
+        ],
+    };
+}
+
 /** Land-only shelter for a stay window, from area hours (pre-rank) or route samples (the sweep). */
 function scoreStay(
     candidate: PlaceCandidate,
@@ -918,7 +992,7 @@ function scoreStay(
 ): AnchorageVerdict | null {
     const table = candidate.fetchLandNM;
     if (!table || !hours.length) return null;
-    return scoreAnchorage({
+    const verdict = scoreAnchorage({
         // Reefs are not shelter: the land table stands in for both.
         anchorage: {
             id: candidate.id,
@@ -933,6 +1007,7 @@ function scoreStay(
         perModelWinds: perModelWinds.length >= 2 ? perModelWinds : undefined,
         timeZone: zone,
     });
+    return parksHeld(candidate, hours, verdict);
 }
 
 function areaStay(
@@ -1041,6 +1116,40 @@ export function preRank(args: {
     return { ranked, notToday };
 }
 
+/**
+ * A stop beyond the best three, on the area wind alone: is there an hourly
+ * departure (as the sweep would try them) whose time under way, at cruising
+ * speed, has no hour at the point over her limits? Null when there is (or
+ * there is no forecast to say); else the plain reason, from the first try.
+ */
+export function areaVerdict(
+    pre: PreRankedStop,
+    window: DayWindow,
+    stay: StayOption,
+    hours: readonly PointHour[],
+    limits: DayPlanLimits,
+): string | null {
+    const earliest = window.earliestLeaveMs;
+    const last = window.lastLightMs;
+    if (earliest === null || last === null || !hours.length || !Number.isFinite(pre.outH)) return null;
+    const outMs = pre.outH * HOUR;
+    const stayH = stayHours(stay);
+    const first = ceilLocalHour(earliest, window.zone);
+    let firstOver: PointHour | null = null;
+    for (let k = 0; k < MAX_DEPARTURES; k++) {
+        const leave = first + k * HOUR;
+        const arrive = leave + outMs;
+        const end = stayH === null ? arrive : arrive + stayH * HOUR + outMs;
+        if (k > 0 && (stayH === null ? arrive > last - LIGHT_MARGIN_MS : end > last)) break;
+        const over =
+            overHourBetween(hours, limits, leave, arrive) ??
+            (stayH === null ? null : overHourBetween(hours, limits, arrive + stayH * HOUR, end));
+        if (!over) return null;
+        firstOver ??= over;
+    }
+    return firstOver ? areaOverReason(firstOver, limits) : null;
+}
+
 // ── One stop: the departure sweep ──────────────────────────────
 
 /** A stop's one-way leg forecasts, from todayLoader. The home leg is mirrored here. */
@@ -1115,6 +1224,8 @@ export interface StopPlan {
     headlineModel: string;
     substituted: boolean;
     weatherLoaded: boolean;
+    /** The wave forecast along the leg loaded (it may still read nothing inshore). */
+    seaLoaded: boolean;
 }
 
 const STOP_RANK: Record<StopLevel, number> = { inside: 0, near: 1, unknown: 2, over: 3 };
@@ -1340,6 +1451,7 @@ export function planStop(args: PlanStopArgs): StopPlan {
         headlineModel: legs.headlineModel,
         substituted: !!legs.substituted,
         weatherLoaded,
+        seaLoaded: !!legs.sea,
     };
     if (!index || !homeIndex || earliest === null || last === null)
         return { ...base, departures: [], best: null, window: [], level: 'unknown' };
@@ -1383,12 +1495,22 @@ export function planStop(args: PlanStopArgs): StopPlan {
         const unknown = !weatherLoaded || legsList.some((l) => l.unknown);
         const split = legsList.some((l) => l.spreadLevel === 'split');
         const memberMax = Math.max(...legsList.map((l) => l.memberMax));
+        // No wave reading anywhere on the way (snapped inshore, or the sea did
+        // not load): her sea limit was never checked, so never Inside.
+        const seaUnread = legsList.every((l) => l.waveLoM === null);
+        // The day's strip at the point, for the hours she is under way.
+        const areaOver =
+            overHourBetween(hours, limits, departureMs, arriveMs ?? departureMs + LEG_MAX_MS) ??
+            (stayEndMs !== null && stayH !== null
+                ? overHourBetween(hours, limits, stayEndMs, homeMs ?? stayEndMs + LEG_MAX_MS)
+                : null);
 
         let reason: string | null = null;
         const dir = windiest.maxWindDir === null ? '' : `${compass8(windiest.maxWindDir)} `;
         if (maxWind >= limits.wind.poor) reason = `over your limits: ${dir}${Math.round(maxWind)} kn on the way`;
         else if (maxGust >= limits.gust.poor) reason = `over your limits: gusts ${Math.round(maxGust)} kn on the way`;
         else if (maxWave >= limits.wave.poor) reason = `over your limits: ${maxWave.toFixed(1)} m sea on the way`;
+        else if (areaOver) reason = areaOverReason(areaOver, limits);
         else if (thunder >= 2) reason = `thunder in ${thunder} of ${args.blockModels} models on the way`;
         else if (stayVerdict?.grade === 'poor')
             reason = `over your limits: ${lowerFirst(stayVerdict.reasons[0] ?? 'exposed for the stay')}`;
@@ -1409,7 +1531,10 @@ export function planStop(args: PlanStopArgs): StopPlan {
             split ||
             light === 'near' ||
             stayVerdict?.grade === 'tenable' ||
-            !gustComplete
+            !gustComplete ||
+            seaUnread ||
+            // No shelter table (no coastline): "Shelter not known" is never Inside.
+            !c.fetchLandNM
         )
             level = 'near';
         else level = 'inside';
@@ -1474,11 +1599,12 @@ export function routeCoords(start: LatLon, candidate: PlaceCandidate): LatLon[] 
  * "Plot on chart": the pins for the Manual plotter. A day trip is out and
  * home, start → stop → start; an overnight stay is one way. A saved route
  * that joins the two is used as drawn, turned round for the trip home (the
- * stop is not dropped twice). The points are copies.
+ * stop is not dropped twice). The points are copies. A route too long for
+ * the chart to take there and back (over PLOT_DAY_MAX_POINTS pins) falls
+ * back to straight pins rather than being refused on the chart.
  */
 export function plotDayAction(start: LatLon, candidate: PlaceCandidate, stay: StayOption): PlotDayAction {
-    const out = routeCoords(start, candidate).map((p) => ({ lat: p.lat, lon: p.lon }));
-    const points =
+    const pins = (out: LatLon[]) =>
         stay === 'overnight'
             ? out
             : [
@@ -1488,7 +1614,15 @@ export function plotDayAction(start: LatLon, candidate: PlaceCandidate, stay: St
                       .slice(1)
                       .map((p) => ({ ...p })),
               ];
-    const saved = candidate.distance.basis === 'saved' ? candidate.distance.route?.name : undefined;
+    let points = pins(routeCoords(start, candidate).map((p) => ({ lat: p.lat, lon: p.lon })));
+    let saved = candidate.distance.basis === 'saved' ? candidate.distance.route?.name : undefined;
+    if (points.length > PLOT_DAY_MAX_POINTS) {
+        points = pins([
+            { lat: start.lat, lon: start.lon },
+            { lat: candidate.lat, lon: candidate.lon },
+        ]);
+        saved = undefined;
+    }
     return {
         kind: 'plot-day',
         points,
@@ -1534,7 +1668,6 @@ export function distanceLine(distance: DistanceEstimate): string {
 
 const aboutNm = (d: DistanceEstimate) =>
     d.basis === 'saved' ? `${d.nm.toFixed(1)} NM` : `about ${Math.round(d.nm)} NM`;
-const capital = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 export interface StopRow {
     id: string;
@@ -1572,7 +1705,9 @@ function stopRow(
     const shelter = shelterWord(verdict, !!c.fetchLandNM);
     const level: StopLevel | null = plan ? plan.level : null;
     let line2: string;
-    if (best && best.arriveMs !== null) {
+    // Times only from a route forecast that loaded: a failed leg's walk is at
+    // cruising speed in no wind, and is not shown as if it were a plan.
+    if (plan?.weatherLoaded && best && best.arriveMs !== null) {
         line2 =
             stay === 'overnight'
                 ? `Leave ${hhmm(best.departureMs, zone)} · there ${hhmm(best.arriveMs, zone)} · ${aboutNm(c.distance)}`
@@ -1661,7 +1796,6 @@ export interface DayPlanInput {
     /** A chosen chip; omitted, today (or tomorrow when today is too late). */
     date?: string | null;
     stay: StayOption;
-    plannedDepartureMs?: number | null;
     limits: DayPlanLimits;
     speed: PassageSpeedModel;
     usingDefaultVessel: boolean;
@@ -1670,11 +1804,15 @@ export interface DayPlanInput {
     weather: 'ok' | 'loading' | 'offline' | 'failed';
     /** null while the places load. */
     places: GatheredPlaces | null;
+    /** 'loading' while OpenStreetMap is still answering (the atlas may already be in). */
+    placesStatus?: PlacesStatus;
     tides: readonly Tide[] | null;
     legs?: ReadonlyMap<string, StopLegs>;
     boatFixAgeMs?: number | null;
     cyclone?: CycloneNotice | null;
 }
+
+export type PlacesStatus = 'loading' | 'ok' | 'partial' | 'failed';
 
 export type DayPlanState = 'ok' | 'loading' | 'no-daylight' | 'no-places' | 'nothing-in-reach' | 'stay-put';
 
@@ -1695,8 +1833,12 @@ export interface DayPlanView {
     ranked: PreRankedStop[];
     /** Up to three, ranked; Over ones included (nothing is hidden on a rough day). */
     top: StopRow[];
-    /** All places: "Fits {today}". */
+    /** All places: "Fits {today}": stops whose route weather was checked and is not over her limits. */
     fits: StopRow[];
+    /** All places: "Weather not checked": the area wind leaves room, but the
+     *  route was not checked (beyond the best three, offline, still loading,
+     *  or past the end of the forecast). Never listed as fitting. */
+    unchecked: StopRow[];
     /** All places: "Not {today}", one line each with its reason. */
     notToday: NotTodayRow[];
     /** The stops that want route forecasts: the one-way leg each. */
@@ -1708,8 +1850,7 @@ export interface DayPlanView {
 export function planDay(input: DayPlanInput): DayPlanView {
     const { nowMs, zone, start, stay, limits, speed } = input;
     const dates = chipDates(nowMs, zone, 3);
-    const windowFor = (date: string) =>
-        dayWindow({ date, lat: start.lat, lon: start.lon, zone, nowMs, plannedDepartureMs: input.plannedDepartureMs });
+    const windowFor = (date: string) => dayWindow({ date, lat: start.lat, lon: start.lon, zone, nowMs });
     let date = input.date ?? dates[0];
     let tooLate = false;
     let todayWindow: DayWindow | null = null;
@@ -1776,33 +1917,39 @@ export function planDay(input: DayPlanInput): DayPlanView {
         .slice(SWEEP_STOPS)
         .map((pre) => ({ pre, row: stopRow(pre, null, stay, zone, weatherOk ? 'unswept' : 'no-weather') }));
 
+    // All places. Only a stop whose own route weather was checked FITS; the
+    // rest are judged on the area wind at the point (an hourly departure
+    // whose time under way has no hour over her limits) and listed as not
+    // checked, or not today with the reason. Nothing unknown reads as fitting.
     const notToday: NotTodayRow[] = [];
     const fits: StopRow[] = [];
+    const unchecked: StopRow[] = [];
+    const notRow = (row: StopRow, reason: string): NotTodayRow => ({
+        id: row.id,
+        name: row.name,
+        reason,
+        straightNm: row.candidate.straightNm,
+    });
     for (const row of topRows) {
         const failed = row.plan && !row.plan.weatherLoaded;
-        if (row.level === 'over' || failed)
-            notToday.push({
-                id: row.id,
-                name: row.name,
-                reason: row.reason ?? "weather didn't load",
-                straightNm: row.candidate.straightNm,
-            });
-        else fits.push(row);
+        if (row.level === 'over' || failed) notToday.push(notRow(row, row.reason ?? "weather didn't load"));
+        else if (row.level === 'inside' || row.level === 'near') fits.push(row);
+        else unchecked.push(row);
     }
     for (const { pre, row } of restRows) {
+        const over = weatherOk ? areaVerdict(pre, window, stay, hours, limits) : null;
         if (pre.stay?.grade === 'poor')
-            notToday.push({
-                id: row.id,
-                name: row.name,
-                reason: `over your limits: ${lowerFirst(pre.stay.reasons[0] ?? 'exposed for the stay')}`,
-                straightNm: row.candidate.straightNm,
-            });
-        else fits.push(row);
+            notToday.push(
+                notRow(row, `over your limits: ${lowerFirst(pre.stay.reasons[0] ?? 'exposed for the stay')}`),
+            );
+        else if (over) notToday.push(notRow(row, over));
+        else unchecked.push(row);
     }
     notToday.push(...missedLight, ...closed, ...(places?.excluded ?? []));
-    notToday.sort((a, b) => a.straightNm - b.straightNm || a.name.localeCompare(b.name));
 
-    // The headline, by priority.
+    // The headline, by priority. While OpenStreetMap is still answering the
+    // places are the offline atlas only: "nothing mapped" would be premature.
+    const placesSettled = input.placesStatus !== 'loading';
     const reachNm = reachRadiusNm(speed.cruiseKts, window.usableH, stayHours(stay) ?? 'overnight');
     const active = parts.filter((p) => p.level !== 'past' && p.level !== 'dark');
     let state: DayPlanState = 'ok';
@@ -1825,15 +1972,14 @@ export function planDay(input: DayPlanInput): DayPlanView {
             dayName,
             agreement: chips.find((c) => c.date === date)?.agreement ?? null,
             lighterDay: lighter ? { date: lighter, label: chipLabel(lighter) } : null,
-            blockModels,
             hours,
             limits,
             window,
         });
-    } else if (places && !places.candidates.length && !places.excluded.length) {
+    } else if (placesSettled && places && !places.candidates.length && !places.excluded.length) {
         state = 'no-places';
         headline = { text: 'No anchorages mapped near here in OpenStreetMap.' };
-    } else if (places && !ranked.length) {
+    } else if (placesSettled && places && !ranked.length) {
         state = 'nothing-in-reach';
         const next = dates[dates.indexOf(date) + 1];
         headline = {
@@ -1848,12 +1994,27 @@ export function planDay(input: DayPlanInput): DayPlanView {
             dayName,
             agreement: chips.find((c) => c.date === date)?.agreement ?? null,
             lighterDay: lighter ? { date: lighter, label: chipLabel(lighter) } : null,
-            blockModels,
             hours,
             limits,
             window,
         });
     }
+
+    // A day over her limits fits nothing: a stop that found a gap in it is
+    // listed with that, never under "Fits" beneath "Stay put".
+    if (state === 'stay-put')
+        for (const row of fits.splice(0)) {
+            const best = row.plan?.best;
+            notToday.push(
+                notRow(
+                    row,
+                    best
+                        ? `over your limits most of the day (a gap: leave ${hhmm(best.departureMs, zone)})`
+                        : 'over your limits most of the day',
+                ),
+            );
+        }
+    notToday.sort((a, b) => a.straightNm - b.straightNm || a.name.localeCompare(b.name));
 
     return {
         date,
@@ -1869,6 +2030,7 @@ export function planDay(input: DayPlanInput): DayPlanView {
         ranked,
         top: topRows,
         fits,
+        unchecked,
         notToday,
         needsLegs,
         notices: notices({
@@ -1886,6 +2048,17 @@ export function planDay(input: DayPlanInput): DayPlanView {
 }
 
 // ── The stop's detail (Screen 2) ───────────────────────────────
+
+export const LEAVING_MARINA = 'Leaving a marina: check its approach depth against the tide before you go.';
+
+/**
+ * A reviewed stop's own notes, access first, one row each under the stay
+ * they belong to: Cid Harbour's shark warning, Chance Bay's south-easterlies.
+ * Never dropped, whatever else the detail can or cannot say.
+ */
+export function parksNotes(candidate: PlaceCandidate): string[] {
+    return [...(candidate.reviewed?.accessNotes ?? []), ...(candidate.reviewed?.uncertaintyNotes ?? [])];
+}
 
 export interface StopDetailArgs {
     plan: StopPlan;
@@ -1941,6 +2114,7 @@ export function stopDetail(args: StopDetailArgs): StopDetail {
                 );
             else rows.push(`Landing: ${parks} say mid to high tide. No tide prediction here.`);
         }
+        rows.push(...parksNotes(c));
         if (d.home) {
             const spreadNote =
                 d.home.spreadLevel === 'some' || d.home.spreadLevel === 'split'
@@ -1962,13 +2136,16 @@ export function stopDetail(args: StopDetailArgs): StopDetail {
         const lo = Math.min(...legs.flatMap((l) => (l.waveLoM === null ? [] : [l.waveLoM])));
         const hi = Math.max(...legs.flatMap((l) => (l.waveHiM === null ? [] : [l.waveHiM])));
         rows.push(
-            Number.isFinite(lo) && Number.isFinite(hi)
-                ? `Sea on the way ${lo.toFixed(1) === hi.toFixed(1) ? lo.toFixed(1) : `${lo.toFixed(1)}–${hi.toFixed(1)}`} m (Météo-France)${d.stopSeaInshore ? ` · no reading inside ${c.name.split(' · ')[0]}` : ''}`
-                : 'Sea: no wave model this close inshore',
+            !plan.seaLoaded
+                ? "Sea: not checked, the wave forecast didn't load"
+                : Number.isFinite(lo) && Number.isFinite(hi)
+                  ? `Sea on the way ${lo.toFixed(1) === hi.toFixed(1) ? lo.toFixed(1) : `${lo.toFixed(1)}–${hi.toFixed(1)}`} m (Météo-France)${d.stopSeaInshore ? ` · no reading inside ${c.name.split(' · ')[0]}` : ''}`
+                  : 'Sea: no wave model this close inshore',
         );
     }
+    if (!d) rows.push(...parksNotes(c));
     rows.push(distanceLine(c.distance));
-    if (args.leavingMarina) rows.push('Leaving a marina: check its approach depth against the tide before you go.');
+    if (args.leavingMarina) rows.push(LEAVING_MARINA);
     const how =
         speed.mode === 'polar' && speed.isSail
             ? `Times from ${args.polarIsOwn ? 'your polar' : 'a typical cruising polar'} at ${speed.cruiseKts.toFixed(1)} kn`

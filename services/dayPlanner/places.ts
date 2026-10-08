@@ -43,7 +43,12 @@ import {
 import { routeLengthNm } from '../routeProgress';
 import { assessFetch, type Segment } from '../weather/shelter/shelterGeometry';
 import { calculateDistance } from '../../utils/navigationCalculations';
-import type { DayPlannerActivity, DayPlannerDestination } from './destinations';
+import {
+    SHARED_DESTINATION_NOTES,
+    type CompassPoint,
+    type DayPlannerActivity,
+    type DayPlannerDestination,
+} from './destinations';
 import { DAY_PLANNER_REGIONS, findDayPlannerRegion, type DayPlannerRegion } from './regions';
 
 /** Only this many stops are ranked; the rest are named in All places. */
@@ -116,6 +121,14 @@ export interface ReviewedStop {
     activities: readonly DayPlannerActivity[];
     closures: readonly PlaceClosure[];
     landingTide?: 'mid-to-high';
+    /** The stop's own notes from its source, access first: shown on its
+     *  detail (Cid Harbour's shark warning, Chance Bay's south-easterlies).
+     *  The catalogue's shared boilerplate is left out: "Not a clearance" and
+     *  Sources' "Not checked" say it once. */
+    accessNotes: readonly string[];
+    uncertaintyNotes: readonly string[];
+    /** Winds its access note says make access difficult: the stop is held at "Some chop" in them. */
+    accessWinds?: readonly CompassPoint[];
     sourceLabel: string;
     sourceUrl: string;
 }
@@ -430,6 +443,9 @@ function reviewedOf(destination: DayPlannerDestination): ReviewedStop {
         activities: destination.activities,
         closures: destination.knownClosures ?? [],
         ...(destination.landingTide ? { landingTide: destination.landingTide } : {}),
+        accessNotes: destination.accessNotes.filter((note) => !SHARED_DESTINATION_NOTES.has(note)),
+        uncertaintyNotes: destination.uncertaintyNotes.filter((note) => !SHARED_DESTINATION_NOTES.has(note)),
+        ...(destination.accessWinds?.length ? { accessWinds: [...destination.accessWinds] } : {}),
         sourceLabel: destination.sourceLabel,
         sourceUrl: destination.sourceUrl,
     };

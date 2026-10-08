@@ -79,6 +79,19 @@ export const SPLIT_KTS = [9, 11, 14, 16, 18, 21, 24];
 export const splitBlock = (from = Math.floor(NOW / H) * H) =>
     pointBlock(from, (m) => ({ kts: SPLIT_KTS[m], dir: 135, gust: SPLIT_KTS[m] + 4 }));
 
+/**
+ * Light trades, and from noon on the place's clock (AEST) three of the seven
+ * models put thunder in (WMO 95): the morning Inside, the afternoon and
+ * evening Near with "Thunder" in their cells.
+ */
+export const thunderBlock = (from = Math.floor(NOW / H) * H) =>
+    pointBlock(from, (m, t) => {
+        const afternoon = (new Date(t).getUTCHours() + 10) % 24 >= 12;
+        return afternoon
+            ? { kts: 10 + (m % 4), dir: 120, code: m < 3 ? 95 : 3 }
+            : { kts: 8 + (m % 4), dir: 120, code: 2 };
+    });
+
 export function routeForecast(
     model: string,
     coords: readonly LatLon[],
@@ -182,7 +195,7 @@ export function osmAnchorage(node: number, name: string, at: LatLon, retrievedAt
     };
 }
 
-export type DayPlanScenario = 'normal' | 'split' | 'over' | 'offline' | 'failed';
+export type DayPlanScenario = 'normal' | 'split' | 'over' | 'offline' | 'failed' | 'thunder';
 
 /**
  * Every source the loader reads, answered at once from synthetic data. The
@@ -201,7 +214,7 @@ export function fakeTodayDeps(
     const scenario = options.scenario ?? 'normal';
     const now = options.nowMs ?? NOW;
     const from = Math.floor(now / H) * H;
-    const kts = scenario === 'over' ? 30 : 14;
+    const kts = scenario === 'over' ? 30 : scenario === 'thunder' ? 10 : 14;
     return {
         now: () => now,
         online: () => scenario !== 'offline',
@@ -214,7 +227,9 @@ export function fakeTodayDeps(
                               ? blowBlock(from)
                               : scenario === 'split'
                                 ? splitBlock(from)
-                                : tradeBlock(from),
+                                : scenario === 'thunder'
+                                  ? thunderBlock(from)
+                                  : tradeBlock(from),
                       marine: null,
                   },
         loadAtlas: async () => options.atlas ?? [],
