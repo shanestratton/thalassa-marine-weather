@@ -109,15 +109,18 @@ Object.assign(window, { __draftFixture: fixture });
 function Fixture() {
     const [outcome, setOutcome] = useState(fixture.outcome);
     const ask = async () => {
-        const confirmed = await requireConfirmedDraft('day-plan');
+        const confirmed = await requireConfirmedDraft('autorouting-trial');
         fixture.outcome = confirmed ? 'ran' : 'did not run';
         setOutcome(fixture.outcome);
     };
     return (
         <main className="h-dvh overflow-hidden bg-slate-950 p-4 text-white">
             <h1 className="ui-page-title">Plan</h1>
+            {/* A draft-dependent way in (RoutingModeDialog's Auto routing).
+                Plan Your Day was this fixture's button until build 124: it
+                reads no depth now, so it no longer asks. */}
             <button type="button" className="mt-4 min-h-11 rounded-xl bg-white/10 px-4" onClick={() => void ask()}>
-                Plan Your Day
+                Auto routing
             </button>
             <output data-testid="outcome" className="mt-4 block text-sm text-slate-300">
                 {outcome}

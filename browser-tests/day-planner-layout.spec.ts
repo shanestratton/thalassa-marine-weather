@@ -1,390 +1,384 @@
-import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { WHITSUNDAYS_DAY_DESTINATIONS } from '../services/dayPlanner/destinations';
+import { expect, test, type Page } from '@playwright/test';
+import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
+
+/**
+ * Plan Your Day, "Today on the water" (build 124): the sheet opens straight
+ * onto today, and every screen of it fits the house rules, measured on the
+ * real sheet, engine and loader fed by synthetic sources
+ * (e2e/fixtures/day-planner.tsx), under the app's tab bar.
+ *
+ * Wide fonts throughout (Verdana on a Mac, DejaVu Sans on the Linux runner),
+ * so a Mac run wraps text no narrower than CI does. Screen 1 is a centred
+ * card clear of the tab bar; at ordinary text nothing scrolls, at large text
+ * only the body between the header and the footer may. Two stops under 640 px
+ * tall, three above; two columns in phone landscape. Every control is a 44 pt
+ * target and nothing overflows sideways.
+ *
+ * Every mode the fixture has is measured at every size: an ordinary day at
+ * Airlie Beach, a day the models split, a day over her limits, offline, no
+ * position, the default boat, too late for today (opened at 16:00), Nouméa
+ * (worldwide, no Queensland atlas), Tromsø under the midnight sun, and a
+ * thunder afternoon (the window headline at its longest over the default-boat
+ * notice; the thunder sits in its verdict cells). Phone landscape includes
+ * the Plus and Pro Max phones (926 x 428, 932 x 430), two columns too. The
+ * phone's own clock is set to London, half a world from Airlie and Nouméa and
+ * an hour behind Tromsø, and every time a stop row shows must sit inside the
+ * light on the PLACE's clock, from the earliest she can leave there.
+ */
+
+// The phone's clock, deliberately not the place's.
+test.use({ timezoneId: 'Europe/London' });
 
 const sizes = [
-    { width: 320, height: 568, pane: false },
-    { width: 390, height: 844, pane: false },
-    { width: 1024, height: 768, pane: true },
+    { name: '320x568', width: 320, height: 568, query: '', stops: 2, mayScroll: false },
+    { name: '375x667', width: 375, height: 667, query: '', stops: 3, mayScroll: false },
+    { name: '390x844', width: 390, height: 844, query: '', stops: 3, mayScroll: false },
+    { name: '844x390 landscape', width: 844, height: 390, query: '', stops: 2, mayScroll: false, landscape: true },
+    { name: '926x428 landscape', width: 926, height: 428, query: '', stops: 2, mayScroll: false, landscape: true },
+    { name: '932x430 landscape', width: 932, height: 430, query: '', stops: 2, mayScroll: false, landscape: true },
+    { name: '1024x768 split pane', width: 1024, height: 768, query: '&pane=true', stops: 3, mayScroll: false },
+    { name: 'large text 320x568', width: 320, height: 568, query: '&largeText', stops: 2, mayScroll: true },
+    { name: 'large text 390x844', width: 390, height: 844, query: '&largeText', stops: 3, mayScroll: true },
 ];
+const modes = [
+    'normal',
+    'split',
+    'over',
+    'offline',
+    'no-position',
+    'default-boat',
+    'too-late',
+    'noumea',
+    'tromso',
+    'thunder',
+] as const;
+type Mode = (typeof modes)[number];
 
-async function openFixture(page: Page, size: (typeof sizes)[number], mode: string, extra = '', openSheet = true) {
+/**
+ * Each place's own clock: the facts line's light (first and last light, or
+ * Tromsø's 06:00–20:00 planning day under the midnight sun) and the earliest a
+ * stop row may say "Leave", now + 30 min rounded up to the hour the sweep runs
+ * on. Opened at 06:30 at Airlie Beach (AEST), 07:30 at Nouméa (UTC+11), 08:00
+ * at Tromsø (CEST); too late opens on tomorrow, from first light.
+ */
+const AIRLIE = { facts: /^☀ (05:\d\d)–(18:\d\d) · /, leaveFrom: '07:00' };
+const PLACE_CLOCK: Record<
+    Exclude<Mode, 'no-position'>,
+    { facts: RegExp; leaveFrom: string | null; light?: string[] }
+> = {
+    normal: AIRLIE,
+    split: AIRLIE,
+    over: AIRLIE,
+    offline: AIRLIE,
+    'default-boat': AIRLIE,
+    thunder: AIRLIE,
+    'too-late': { facts: AIRLIE.facts, leaveFrom: null },
+    noumea: { facts: /^☀ (05:\d\d)–(18:\d\d) · /, leaveFrom: '08:00' },
+    tromso: {
+        facts: /^☀ Light all day: plan capped at 14 h · No tide prediction here$/,
+        leaveFrom: '09:00',
+        light: ['06:00', '20:00'],
+    },
+};
+
+/**
+ * The visible stop rows against the place's light: each leaves between the
+ * earliest she can and last light, and a row that is not over her limits is
+ * home by last light (an over row may say "home 19:14": that is its reason).
+ * Returns what is off the place's clock.
+ */
+async function placeClockIssues(page: Page, mode: Exclude<Mode, 'no-position'>): Promise<string[]> {
+    const clock = PLACE_CLOCK[mode];
+    const facts = (await page.getByTestId('day-plan-facts').textContent())?.trim() ?? '';
+    const match = clock.facts.exec(facts);
+    if (!match) return [`facts "${facts}" are not on the place's clock`];
+    const [first, last] = clock.light ?? [match[1], match[2]];
+    const from = clock.leaveFrom && clock.leaveFrom > first ? clock.leaveFrom : first;
+    const rows = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('.today-main .today-stops > li')]
+            .filter((li) => getComputedStyle(li).display !== 'none')
+            .map((li) => ({
+                glyph: li.querySelector('.today-stop-glyph')?.textContent?.trim() ?? '',
+                line: li.querySelector('.today-stop-l2')?.textContent ?? '',
+            })),
+    );
+    const issues: string[] = [];
+    for (const { glyph, line } of rows) {
+        const [leave, ...rest] = line.match(/\b\d\d:\d\d\b/g) ?? [];
+        if (leave && (leave < from || leave > last)) issues.push(`"${line}": leaves ${leave}, outside ${from}–${last}`);
+        if (glyph !== '✕')
+            for (const time of rest) if (time > last) issues.push(`"${line}" (${glyph}): ${time} is after ${last}`);
+    }
+    return issues;
+}
+
+async function open(page: Page, size: { width: number; height: number }, query: string) {
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.route('**/*', (route) => {
         const url = new URL(route.request().url());
-        return ['127.0.0.1', 'localhost'].includes(url.hostname) &&
-            route.request().method() === 'GET' &&
-            !url.pathname.startsWith('/api/')
+        return ['127.0.0.1', 'localhost'].includes(url.hostname) && route.request().method() === 'GET'
             ? route.continue()
             : route.abort();
     });
-    await page.setViewportSize(size);
-    await page.goto(`/e2e/fixtures/day-planner.html?mode=${mode}&pane=${size.pane}${extra}`);
-    if (openSheet) {
-        await page.getByRole('button', { name: /Plan Your Day/ }).click();
-        await expect(page.getByRole('dialog', { name: 'Plan Your Day', exact: true })).toBeVisible();
-    } else {
-        await expect(page.getByRole('button', { name: /Plan Your Day/ })).toBeVisible();
-    }
-    await page.evaluate(async () => {
-        await document.fonts.ready;
-    });
+    await applyWideFonts(page);
+    await page.setViewportSize({ width: size.width, height: size.height });
+    await page.goto(`/e2e/fixtures/day-planner.html?${query.replace(/^&/, '')}`);
+    const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+    await expect(dialog).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    await expectWideFaceDrawn(dialog.getByRole('heading', { name: 'Plan Your Day' }));
     return errors;
 }
 
-async function assertLayout(page: Page) {
-    const issues = await page.evaluate(() => {
-        const messages: string[] = [];
-        const pane = document.querySelector('[data-testid="day-planner-pane"]')!.getBoundingClientRect();
-        const sheet = document.querySelector<HTMLElement>('.day-plan-sheet')!;
-        const box = sheet.getBoundingClientRect();
-        if (
-            box.left < pane.left - 1 ||
-            box.right > pane.right + 1 ||
-            box.top < pane.top - 1 ||
-            box.bottom > pane.bottom + 1
-        )
-            messages.push('Sheet escapes its viewport/pane.');
-        for (const selector of ['.day-plan-header', '.day-plan-body', '.day-plan-footer']) {
-            const element = sheet.querySelector<HTMLElement>(selector)!;
-            if (element.scrollWidth > element.clientWidth + 1) {
-                const overflowing = [...element.querySelectorAll<HTMLElement>('*')]
-                    .filter((child) => child.clientWidth && child.scrollWidth > child.clientWidth + 1)
-                    .map((child) => `${child.tagName}.${child.className}: ${child.scrollWidth}/${child.clientWidth}`);
-                messages.push(
-                    `${selector} overflows horizontally (${element.scrollWidth}/${element.clientWidth}): ${overflowing.join(', ')}.`,
+/** Every geometric house rule for the top card, measured in the page. Returns what broke. */
+function layoutIssues(page: Page, mayScroll: boolean) {
+    return page.evaluate((mayScroll) => {
+        const issues: string[] = [];
+        const cards = [...document.querySelectorAll<HTMLElement>('.today-card')];
+        const card = cards[cards.length - 1];
+        const overlay = card?.parentElement;
+        if (!card || !overlay) return ['no card'];
+        const box = card.getBoundingClientRect();
+        const lay = overlay.getBoundingClientRect();
+        const pad = getComputedStyle(overlay);
+        const nav = document.querySelector('nav[aria-label="Main"]')!.getBoundingClientRect();
+        // Centred in what the overlay leaves it (top inset; tab bar + 1rem below).
+        const left = box.left - (lay.left + parseFloat(pad.paddingLeft));
+        const right = lay.right - parseFloat(pad.paddingRight) - box.right;
+        const above = box.top - (lay.top + parseFloat(pad.paddingTop));
+        const below = lay.bottom - parseFloat(pad.paddingBottom) - box.bottom;
+        if (Math.abs(left - right) > 2) issues.push(`not centred across: ${left} vs ${right}`);
+        if (Math.abs(above - below) > 2) issues.push(`not centred down: ${above} vs ${below}`);
+        // 16 px clear of the tab bar's 4rem row (its 1 px top border is part of the bar).
+        if (box.bottom > nav.top + 1 - 16 + 0.5)
+            issues.push(`card bottom ${box.bottom} within 16 px of the tab bar ${nav.top}`);
+        if (box.top < 0 || box.left < 0 || box.right > innerWidth + 0.5) issues.push('card off screen');
+        const body = card.querySelector<HTMLElement>('.today-body');
+        if (body && !mayScroll && body.scrollHeight - body.clientHeight > 1)
+            issues.push(`body scrolls by ${body.scrollHeight - body.clientHeight}px at ordinary text`);
+        for (const selector of ['.today-head', '.today-foot-row', '.today-credit', '.today-actions']) {
+            const el = card.querySelector(selector);
+            if (!el) continue;
+            const r = el.getBoundingClientRect();
+            if (r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5) issues.push(`${selector} is clipped`);
+        }
+        for (const control of card.querySelectorAll<HTMLElement>('button, select, input')) {
+            const r = control.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) continue; // a third stop row hidden by its tier
+            // Scrolled out of the body at large text is fine; it must be whole once there.
+            if (r.width < 44 - 0.5 || r.height < 44 - 0.5)
+                issues.push(
+                    `${control.getAttribute('aria-label') ?? control.textContent?.trim()} is ${r.width}×${r.height}`,
+                );
+        }
+        // A link that wraps never leaves its › or ↗ alone on a line ("All places (3)" / "›").
+        // (A stop row's chevron is its own centred column, not the end of a line.)
+        for (const control of card.querySelectorAll<HTMLElement>('button:not(.today-stop)')) {
+            if (!control.getClientRects().length) continue;
+            const chars: [Text, number][] = [];
+            const walker = document.createTreeWalker(control, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null)
+                for (let i = 0; i < node.data.length; i++) if (node.data[i].trim()) chars.push([node, i]);
+            const last = chars[chars.length - 1];
+            const before = chars[chars.length - 2];
+            if (!last || !before || !/[›↗]/.test(last[0].data[last[1]])) continue;
+            const bottom = ([node, i]: [Text, number]) => {
+                const range = document.createRange();
+                range.setStart(node, i);
+                range.setEnd(node, i + 1);
+                return range.getBoundingClientRect().bottom;
+            };
+            if (Math.abs(bottom(last) - bottom(before)) > 4)
+                issues.push(`"${control.textContent?.trim()}" leaves its ${last[0].data[last[1]]} alone on a line`);
+        }
+        // The stop's name is what she is looking for: the shelter word gives way, never the name.
+        if (!mayScroll)
+            for (const name of card.querySelectorAll<HTMLElement>('.today-stop-name'))
+                if (name.getClientRects().length && name.scrollWidth > name.clientWidth + 1)
+                    issues.push(`the stop name "${name.textContent}" is cut`);
+        if (document.documentElement.scrollWidth > innerWidth) issues.push('the page scrolls sideways');
+        if (card.scrollWidth > card.clientWidth + 1) issues.push('the card overflows sideways');
+        return issues;
+    }, mayScroll);
+}
+
+const visibleStops = (page: Page) =>
+    page.evaluate(
+        () =>
+            [...document.querySelectorAll('.today-main .today-col-b .today-stops > li')].filter(
+                (li) => getComputedStyle(li).display !== 'none',
+            ).length,
+    );
+
+for (const size of sizes) {
+    for (const mode of modes) {
+        test(`screen 1 fits ${size.name}: ${mode}`, async ({ page }) => {
+            const errors = await open(page, size, `&mode=${mode}${size.query}`);
+            const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+            if (mode === 'no-position') {
+                await expect(dialog.getByTestId('day-plan-headline')).toHaveText('Where are you planning from?');
+                for (const name of ['This phone', 'Saved place', 'Type a place'])
+                    await expect(dialog.getByRole('button', { name, exact: true })).toBeVisible();
+            } else {
+                await expect(dialog.getByRole('list', { name: 'The day' }).getByRole('listitem')).toHaveCount(3);
+                const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
+                await expect(stops.first()).toBeVisible();
+                await expect.poll(() => visibleStops(page)).toBe(size.stops);
+                // Measured once the route forecasts are in: the rows at their longest.
+                await expect(stops.first().locator('.today-stop-l2')).toHaveText(
+                    mode === 'offline'
+                        ? /weather not checked$/
+                        : /^Leave \d\d:\d\d · there \d\d:\d\d · home \d\d:\d\d$/,
+                );
+                await expect(dialog.getByTestId('day-plan-credit')).toContainText('Not a clearance');
+            }
+            if (mode === 'default-boat' || mode === 'thunder')
+                await expect(
+                    dialog.getByRole('button', { name: 'Typical 6 kn boat: set yours in Vessel ›' }),
+                ).toBeVisible();
+            if (mode === 'offline')
+                await expect(dialog.getByText('Offline: light and cached tides only')).toBeVisible();
+            // Tromsø's OpenStreetMap cells are three days old: used, and dated.
+            if (mode === 'tromso')
+                await expect(dialog.getByText('Map data from 18 Jun', { exact: true })).toBeVisible();
+            if (mode === 'over') await expect(dialog.getByTestId('day-plan-headline')).toContainText('Stay put today');
+            if (mode === 'thunder') {
+                // In the cells it falls in; the headline keeps its own budget.
+                await expect(dialog.locator('.today-cell-word', { hasText: 'Thunder' })).toHaveCount(2);
+                await expect(dialog.getByTestId('day-plan-headline')).toHaveText(
+                    /^Morning's your window: inside your wind limits until about 12:00\. Afternoon gets near your limits\.$/,
                 );
             }
-        }
-        for (const element of sheet.querySelectorAll<HTMLElement>(
-            '.day-plan-body input, .day-plan-body select, .day-plan-body label',
-        )) {
-            const rect = element.getBoundingClientRect();
-            // Closed departure details have no rendered geometry; the form test
-            // opens them separately so those fields receive the same checks.
-            if (!rect.width || !rect.height) continue;
-            const description =
-                element instanceof HTMLInputElement || element instanceof HTMLSelectElement
-                    ? `${element.tagName.toLowerCase()} ${element.labels?.[0]?.textContent?.trim() ?? element.type}`
-                    : `label ${element.textContent?.trim()}`;
-            if (
-                (element instanceof HTMLSelectElement ||
-                    (element instanceof HTMLInputElement && element.type !== 'checkbox')) &&
-                rect.height < 44
-            )
-                messages.push(`${description} is shorter than the 44px touch target (${rect.height}px).`);
-            const fieldset = element.closest('fieldset');
-            if (!fieldset) {
-                messages.push(`${description} has no containing fieldset.`);
-                continue;
+            if (mode === 'split') {
+                await expect(dialog.getByTestId('day-plan-headline')).toHaveText(/^Models split /);
+                // A split hour caps the part at Near: never Inside.
+                await expect(dialog.locator('.today-cell[data-level="inside"]')).toHaveCount(0);
             }
-            const fieldsetBox = fieldset.getBoundingClientRect();
-            for (const [name, bounds] of [
-                ['fieldset', fieldsetBox],
-                ['sheet', box],
-            ] as const) {
-                if (rect.left < bounds.left - 1 || rect.right > bounds.right + 1)
-                    messages.push(`${description} escapes its ${name} horizontally.`);
+            if (mode === 'too-late') {
+                await expect(dialog.getByTestId('day-plan-headline')).toHaveText(
+                    /^Too late for a day out: last light 18:\d\d\. Showing tomorrow\.$/,
+                );
+                await expect(
+                    dialog.getByRole('group', { name: 'Day' }).getByRole('button', { pressed: true }),
+                ).toHaveText(/Fri$/);
             }
-            // A label's box can fit while its text still paints outside it.
-            if (element.tagName === 'LABEL') {
-                const textNodes = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-                let node: Node | null;
-                while ((node = textNodes.nextNode())) {
-                    if (!node.textContent?.trim() || node.parentElement?.closest('input, select')) continue;
-                    const range = document.createRange();
-                    range.selectNodeContents(node);
-                    for (const textBox of range.getClientRects()) {
-                        if (!textBox.width || !textBox.height) continue;
-                        if (
-                            textBox.left < fieldsetBox.left - 1 ||
-                            textBox.right > fieldsetBox.right + 1 ||
-                            textBox.left < box.left - 1 ||
-                            textBox.right > box.right + 1
-                        )
-                            messages.push(`${description} text escapes its fieldset or sheet horizontally.`);
-                    }
-                }
+            if (mode !== 'no-position') {
+                await expect(dialog.getByTestId('day-plan-facts')).toHaveText(PLACE_CLOCK[mode].facts);
+                expect(await placeClockIssues(page, mode)).toEqual([]);
             }
-        }
-        const footer = sheet.querySelector('.day-plan-footer')!.getBoundingClientRect();
-        for (const element of sheet.querySelectorAll<HTMLButtonElement>('.day-plan-footer button')) {
-            const rect = element.getBoundingClientRect();
-            const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-            if (
-                rect.top < footer.top - 1 ||
-                rect.bottom > footer.bottom + 1 ||
-                (hit !== element && !element.contains(hit))
-            )
-                messages.push('Footer action is obscured.');
-        }
-        if (document.documentElement.scrollWidth > window.innerWidth + 1)
-            messages.push('Document overflows horizontally.');
-        return messages;
-    });
-    expect(issues).toEqual([]);
-}
-
-async function screenshot(page: Page, testInfo: TestInfo, name: string) {
-    const path = testInfo.outputPath(`${name}.png`);
-    await page.screenshot({ path, animations: 'disabled' });
-    await testInfo.attach(name, { path, contentType: 'image/png' });
-}
-
-function hoursAfter(localDateTime: string, hours: number) {
-    const date = new Date(`${localDateTime}Z`);
-    date.setUTCHours(date.getUTCHours() + hours);
-    return date.toISOString().slice(0, 16);
-}
-
-for (const size of sizes)
-    for (const mode of ['dark', 'light']) {
-        test(`Day planner actual form fits ${size.width}px ${mode}${size.pane ? ' split pane' : ''}`, async ({
-            page,
-        }, testInfo) => {
-            const errors = await openFixture(page, size, mode);
-            await expect(page.getByText('Yacht position · reported just now', { exact: true })).toBeVisible();
-            await expect(page.getByRole('button', { name: 'Find my day', exact: true })).toBeEnabled();
-            await expect(page.getByRole('heading', { name: 'Plan Your Day', exact: true })).toBeVisible();
-            await expect(page.getByRole('button', { name: 'Return trip', exact: true })).toHaveAttribute(
-                'aria-pressed',
-                'true',
-            );
-            await assertLayout(page);
-            await screenshot(page, testInfo, `day-planner-${size.width}-${mode}-top`);
-
-            await page.getByText('Position details', { exact: true }).click();
-            await expect(page.getByLabel('Latitude', { exact: true })).toBeVisible();
-            await assertLayout(page);
-            await page.getByText('Position details', { exact: true }).click();
-
-            const destination = page.getByRole('combobox', { name: 'Destination', exact: true });
-            await destination.scrollIntoViewIfNeeded();
-            await expect(destination).toHaveValue('');
-            await expect(destination.locator('option')).toHaveText([
-                'All local destinations',
-                ...WHITSUNDAYS_DAY_DESTINATIONS.map(({ name }) => name),
-            ]);
-            const longestDestination = WHITSUNDAYS_DAY_DESTINATIONS.reduce((longest, current) =>
-                current.name.length > longest.name.length ? current : longest,
-            );
-            await destination.selectOption(longestDestination.id);
-            await expect(destination).toHaveValue(longestDestination.id);
-            const noPreference = page.getByRole('button', { name: 'No preference', exact: true });
-            await expect(noPreference).toHaveAttribute('aria-pressed', 'true');
-            await page.getByRole('button', { name: 'Snorkel', exact: true }).click();
-            await expect(noPreference).toHaveAttribute('aria-pressed', 'false');
-            await noPreference.click();
-            await expect(noPreference).toHaveAttribute('aria-pressed', 'true');
-            await expect(page.getByRole('button', { name: 'Find my day', exact: true })).toBeEnabled();
-            await assertLayout(page);
-            await screenshot(page, testInfo, `day-planner-${size.width}-${mode}-destination`);
-
-            const leaveAt = page.getByLabel('Leave at', { exact: true });
-            const departure = await leaveAt.inputValue();
-            const returnBy = page.getByLabel('Back by (optional)', { exact: true });
-            await returnBy.scrollIntoViewIfNeeded();
-            await expect(returnBy).toHaveValue('');
-            await assertLayout(page);
-            await screenshot(page, testInfo, `day-planner-${size.width}-${mode}-return-empty`);
-            const deadline = hoursAfter(departure, 8);
-            await returnBy.fill(deadline);
-            await expect(returnBy).toHaveValue(deadline);
-            await assertLayout(page);
-            await screenshot(page, testInfo, `day-planner-${size.width}-${mode}-return-filled`);
-
-            await page.getByRole('button', { name: 'Stay overnight', exact: true }).click();
-            await expect(page.getByRole('button', { name: 'Stay overnight', exact: true })).toHaveAttribute(
-                'aria-pressed',
-                'true',
-            );
-            const stayUntil = page.getByLabel('Stay until', { exact: true });
-            await stayUntil.scrollIntoViewIfNeeded();
-            await expect(stayUntil).toBeVisible();
-            const overnightEnd = hoursAfter(departure, 24);
-            await stayUntil.fill(overnightEnd);
-            await expect(stayUntil).toHaveValue(overnightEnd);
-            await expect(returnBy).toHaveCount(0);
-            await assertLayout(page);
-            await screenshot(page, testInfo, `day-planner-${size.width}-${mode}-overnight`);
-            await page.getByRole('button', { name: 'Close day planner', exact: true }).click();
-            await expect(page.getByRole('dialog')).toHaveCount(0);
+            if (size.landscape)
+                // Two columns: the day on the left, the stops on the right.
+                expect(
+                    await page.evaluate(() => {
+                        const a = document.querySelector('.today-main .today-col-a')?.getBoundingClientRect();
+                        const b = document.querySelector('.today-main .today-col-b')?.getBoundingClientRect();
+                        return !a || !b || b.left >= a.right;
+                    }),
+                ).toBe(true);
+            expect(await layoutIssues(page, size.mayScroll)).toEqual([]);
             expect(errors).toEqual([]);
-            expect(
-                await page.evaluate(
-                    () =>
-                        (window as unknown as { __dayPlannerFixture: { providerCalls: number } }).__dayPlannerFixture
-                            .providerCalls,
-                ),
-            ).toBe(0);
         });
     }
+}
 
-test('Missing synthetic GPS requires explicit manual departure confirmation', async ({ page }, testInfo) => {
-    const errors = await openFixture(page, sizes[1], 'dark', '&position=missing');
-    const find = page.getByRole('button', { name: 'Find my day', exact: true });
-    await expect(find).toBeDisabled();
-    await page.getByLabel('Latitude', { exact: true }).fill('-20.258');
-    await page.getByLabel('Longitude', { exact: true }).fill('148.815');
-    await expect(find).toBeDisabled();
-    await page.getByRole('checkbox', { name: 'Use this position as my departure.' }).check();
-    await expect(find).toBeEnabled();
-    await assertLayout(page);
-    await screenshot(page, testInfo, 'day-planner-manual-confirmed');
-    expect(errors).toEqual([]);
-});
+for (const size of sizes.filter((s) => !s.mayScroll)) {
+    test(`the nested screens are centred and clear of the tab bar at ${size.name}`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=default-boat${size.query}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        const first = dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first();
+        await expect(first.locator('.today-stop-l2')).toHaveText(/^Leave /);
 
-for (const mode of ['dark', 'light']) {
-    test(`Worldwide mapped mode is explicit and fits a narrow phone in ${mode}`, async ({ page }, testInfo) => {
-        const errors = await openFixture(page, sizes[0], mode, '&region=noumea');
-        const coverage = page.getByLabel('Destination coverage', { exact: true });
-        await coverage.scrollIntoViewIfNeeded();
-        await expect(coverage).toContainText('Mapped stops · local details unverified');
-        await page.getByRole('button', { name: 'Explore mapped stops', exact: true }).scrollIntoViewIfNeeded();
-        await expect(page.getByRole('button', { name: 'Explore mapped stops', exact: true })).toHaveAttribute(
-            'aria-pressed',
-            'true',
+        // The stop's detail fits outright at ordinary text from 375 x 667 up, with
+        // its leave chips, a reviewed stop's own Parks notes and both buttons; in
+        // phone landscape it may scroll inside itself, buttons whole. At 320 x 568
+        // the Parks notes (Maureen's Cove: northerlies, reef markers) push the
+        // later rows into a scroll, the first note in view as it opens. Its times
+        // are Airlie Beach's, not the phone's.
+        await first.click();
+        const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot on chart' }) });
+        await expect(detail.getByRole('list', { name: 'How the day goes' })).toBeVisible();
+        await expect(detail.getByRole('group', { name: 'Leave at' })).toBeVisible();
+        await expect(detail.locator('.today-sub')).toHaveText(/ · times in AEST$/);
+        const parks = detail.locator('.today-rows li[data-parks]');
+        expect(await parks.count()).toBeGreaterThan(0);
+        expect(await layoutIssues(page, size.height < 640)).toEqual([]);
+        expect(
+            await parks.first().evaluate((note) => {
+                const body = note.closest('.today-body')!.getBoundingClientRect();
+                const r = note.getBoundingClientRect();
+                return r.top >= body.top - 0.5 && r.bottom <= body.bottom + 0.5;
+            }),
+        ).toBe(true);
+        await detail.getByRole('button', { name: 'Back', exact: true }).click();
+
+        for (const [opener, name] of [
+            [/^Plan from: /, 'Plan from'],
+            [/^All places/, /^Places near /],
+            ['Sources and limits', 'Sources and limits'],
+        ] as const) {
+            await dialog.getByRole('button', { name: opener }).click();
+            const nested = page.getByRole('dialog', { name });
+            await expect(nested).toBeVisible();
+            expect(await layoutIssues(page, true)).toEqual([]);
+            await nested.getByRole('button', { name: 'Close', exact: true }).click();
+            await expect(nested).toHaveCount(0);
+        }
+        expect(errors).toEqual([]);
+    });
+}
+
+for (const size of sizes.filter((s) => !s.mayScroll)) {
+    test(`a stop with no Parks notes has a detail that fits outright at ${size.name} (Nouméa)`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=noumea${size.query}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        const first = dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first();
+        await expect(first.locator('.today-stop-l2')).toHaveText(/^Leave /);
+        await first.click();
+        const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot on chart' }) });
+        await expect(detail.getByRole('group', { name: 'Leave at' })).toBeVisible();
+        await expect(detail.locator('.today-rows li[data-parks]')).toHaveCount(0);
+        expect(await layoutIssues(page, size.height < 568)).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+}
+
+for (const size of [sizes[0], sizes[2]]) {
+    test(`an overnight stay fits ${size.name}, and so does its stop's detail`, async ({ page }) => {
+        const errors = await open(page, size, '&mode=normal');
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        await dialog.getByRole('combobox', { name: 'Stay' }).selectOption('overnight');
+        await expect(dialog.locator('.today-stay')).toContainText('Overnight');
+        const first = dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first();
+        await expect(first.locator('.today-stop-l2')).toHaveText(
+            /^Leave \d\d:\d\d · there \d\d:\d\d · (about )?[\d.]+ NM$/,
         );
-        await expect(page.getByRole('button', { name: 'Snorkel', exact: true })).toHaveCount(0);
-        await expect(page.getByRole('combobox', { name: 'Destination', exact: true })).toHaveCount(0);
-        await assertLayout(page);
-        await screenshot(page, testInfo, `day-planner-worldwide-${mode}`);
-        await page.getByLabel('Leave at', { exact: true }).scrollIntoViewIfNeeded();
-        await expect(page.getByText(/Departure-area time: Pacific\/Noumea/)).toBeVisible();
-        await expect(page.getByRole('button', { name: 'Find my day', exact: true })).toBeEnabled();
-        await assertLayout(page);
+        expect(await layoutIssues(page, false)).toEqual([]);
+        expect(await placeClockIssues(page, 'normal')).toEqual([]);
+
+        await first.click();
+        const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot on chart' }) });
+        await expect(detail.getByRole('list', { name: 'How the day goes' })).toContainText(
+            /At anchor \d\d:\d\d → 09:00 tomorrow/,
+        );
+        // A reviewed stop's Parks notes may push it into a scroll under 640 px tall.
+        expect(await layoutIssues(page, size.height < 640)).toEqual([]);
         expect(errors).toEqual([]);
     });
 }
 
-test('Signed-out synthetic form cannot calculate', async ({ page }) => {
-    const errors = await openFixture(page, sizes[1], 'light', '&auth=signed-out');
-    await expect(page.getByRole('button', { name: 'Find my day', exact: true })).toBeDisabled();
-    await expect(
-        page.getByText('Sign in to calculate routes and save a private day plan.', { exact: true }),
-    ).toBeAttached();
-    expect(errors).toEqual([]);
+test('Plot on chart hands the chart straight pins there and back, and closes the planner', async ({ page }) => {
+    await open(page, sizes[2], '&mode=normal');
+    const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+    await dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().click();
+    await page.getByRole('button', { name: 'Plot on chart' }).click();
+    await expect(dialog).toHaveCount(0);
+    const plotted = await page.evaluate(
+        () =>
+            (window as unknown as { __dayPlannerFixture: { plotted: { kind: string; points: unknown[] }[] } })
+                .__dayPlannerFixture.plotted,
+    );
+    expect(plotted).toHaveLength(1);
+    expect(plotted[0].kind).toBe('plot-day');
+    expect(plotted[0].points).toHaveLength(3);
 });
-
-for (const size of sizes.filter((candidate) => !candidate.pane)) {
-    test(`Plan front door preserves controls at ${size.width}px`, async ({ page }, testInfo) => {
-        const errors = await openFixture(page, size, 'dark', '&surface=plan', false);
-        const entry = page.getByRole('button', { name: /Plan Your Day/ });
-        const plotting = page.getByRole('button', { name: 'Start plotting', exact: true });
-        const controls = [
-            entry,
-            plotting,
-            page.getByRole('button', { name: 'Past voyages', exact: true }),
-            page.getByRole('button', { name: 'Saved routes', exact: true }),
-            page.getByRole('button', { name: 'Route Planner actions', exact: true }),
-            page.getByRole('button', { name: 'Now', exact: true }),
-        ];
-        for (const control of controls) {
-            await expect(control).toBeVisible();
-            await expect(control).toBeInViewport();
-            expect(
-                await control.evaluate((element) => {
-                    const rect = element.getBoundingClientRect();
-                    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-                    return hit === element || element.contains(hit);
-                }),
-            ).toBe(true);
-        }
-        const entryBox = (await entry.boundingBox())!;
-        const plottingBox = (await plotting.boundingBox())!;
-        expect(entryBox.y + entryBox.height).toBeLessThanOrEqual(plottingBox.y);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
-        await screenshot(page, testInfo, `day-planner-front-door-${size.width}`);
-        await entry.click();
-        await expect(page.getByRole('dialog', { name: 'Plan Your Day', exact: true })).toBeVisible();
-        await assertLayout(page);
-        await page.getByRole('button', { name: 'Close day planner', exact: true }).click();
-        await expect(plotting).toBeVisible();
-        expect(errors).toEqual([]);
-    });
-}
-
-for (const size of sizes.filter((candidate) => !candidate.pane)) {
-    for (const mode of ['dark', 'light']) {
-        test(`Shared catalogue picker fits ${size.width}px ${mode} with complete and missing route choices`, async ({
-            page,
-        }, testInfo) => {
-            const errors = await openFixture(page, size, mode, '&catalogue=ready');
-            const browse = page.getByRole('button', { name: 'Browse shared catalogue', exact: true });
-            await browse.scrollIntoViewIfNeeded();
-            await expect(browse).toBeEnabled();
-            expect(
-                await page.evaluate(
-                    () =>
-                        (window as unknown as { __dayPlannerFixture: { catalogueRequests: unknown[] } })
-                            .__dayPlannerFixture.catalogueRequests,
-                ),
-            ).toHaveLength(0);
-            await browse.click();
-            const selection = page.getByRole('combobox', { name: 'Shared destination or trip', exact: true });
-            await expect(selection.locator('option')).toHaveCount(2);
-            await selection.selectOption('00000000-0000-4000-8000-000000000001:1');
-            const outbound = page.getByRole('combobox', { name: 'Outbound route reference', exact: true });
-            const returning = page.getByRole('combobox', { name: 'Return route reference', exact: true });
-            await expect(outbound).toHaveValue('00000000-0000-4000-8000-000000000004:1');
-            await expect(returning).toHaveValue('00000000-0000-4000-8000-000000000005:1');
-            await expect(page.getByRole('button', { name: 'Find my day', exact: true })).toBeEnabled();
-            await outbound.scrollIntoViewIfNeeded();
-            await assertLayout(page);
-            await screenshot(page, testInfo, `day-planner-catalogue-${size.width}-${mode}-ready`);
-            await page.getByText('Catalogue source review', { exact: true }).click();
-            await page
-                .getByText('Synthetic source with a deliberately long description to verify mobile text wrapping', {
-                    exact: true,
-                })
-                .scrollIntoViewIfNeeded();
-            await assertLayout(page);
-            await screenshot(page, testInfo, `day-planner-catalogue-${size.width}-${mode}-sources`);
-            const calls = await page.evaluate(
-                () =>
-                    (
-                        window as unknown as {
-                            __dayPlannerFixture: {
-                                catalogueRequests: { name: string; args: Record<string, unknown> }[];
-                                providerCalls: number;
-                            };
-                        }
-                    ).__dayPlannerFixture,
-            );
-            expect(calls.catalogueRequests).toEqual([
-                {
-                    name: 'nearby_cruising_catalogue',
-                    args: { p_latitude: -20.258, p_longitude: 148.815, p_radius_nm: 30, p_limit: 24 },
-                },
-                {
-                    name: 'cruising_catalogue_detail',
-                    args: { p_id: '00000000-0000-4000-8000-000000000001', p_version: 1 },
-                },
-            ]);
-            expect(calls.providerCalls).toBe(0);
-            expect(errors).toEqual([]);
-
-            const missingErrors = await openFixture(page, size, mode, '&catalogue=missing-return');
-            await page.getByRole('button', { name: 'Browse shared catalogue', exact: true }).click();
-            await expect(selection.locator('option')).toHaveCount(2);
-            await selection.selectOption('00000000-0000-4000-8000-000000000001:1');
-            await expect(returning).toHaveValue('');
-            await expect(returning.locator('option')).toHaveText(['No reviewed route available']);
-            await expect(page.getByRole('button', { name: 'Find my day', exact: true })).toBeDisabled();
-            await returning.scrollIntoViewIfNeeded();
-            await expect(page.getByText(/A return route is not assumed from the outbound route/)).toBeVisible();
-            await assertLayout(page);
-            await screenshot(page, testInfo, `day-planner-catalogue-${size.width}-${mode}-missing-return`);
-            await selection.selectOption('');
-            await expect(page.getByRole('button', { name: 'Find my day', exact: true })).toBeEnabled();
-            expect(missingErrors).toEqual([]);
-            expect(
-                await page.evaluate(
-                    () =>
-                        (window as unknown as { __dayPlannerFixture: { providerCalls: number } }).__dayPlannerFixture
-                            .providerCalls,
-                ),
-            ).toBe(0);
-        });
-    }
-}

@@ -58,7 +58,7 @@ describe('no SevenCs client code', () => {
         expect(files.length).toBeGreaterThan(100);
         expect(files).toContain('services/autoroutingThalassa.ts');
         expect(files).toContain('components/autorouting/AutoroutingTrialWorkspace.tsx');
-        expect(files).toContain('services/dayPlanner/runtime.ts');
+        expect(files).toContain('services/dayPlanner/today.ts');
         expect(files).toContain('services/InshoreRouter.ts');
         expect(files).toContain('e2e/fixtures/autorouting-trial.tsx');
         for (const retired of RETIRED_UNTIL_DELETED) expect(files).toContain(retired);

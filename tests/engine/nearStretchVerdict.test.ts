@@ -10,8 +10,8 @@
  *      proves none clears the band, or no tide was loaded for the place to
  *      prove one does (nearSpanBlocks; the fix-up review's high finding — a
  *      line 1 m from a reef drying 3 m, drawn red 'no tide data', was
- *      saveable). Plan My Day refuses an amber one too, as the tide it cannot
- *      verify (the review's medium finding).
+ *      saveable). (Plan My Day refused an amber one too until build 124,
+ *      when the planner stopped routing; that case went with it.)
  *   2. Inside water the marks own (a dredged channel, a fairway, a mark
  *      pair's gate) a near stretch was neither drawn nor named — Tangalooma's
  *      last leg passed 27.4 m from a 0–2 m band where 30 m is kept, inside its
@@ -68,11 +68,9 @@ import {
     savedInshoreRouteCaveats,
 } from '../../components/map/inshoreRouteNotice';
 import { evaluateAutoroutingProposalSave } from '../../services/autoroutingProposalSave';
-import { assessDayPlanRoute } from '../../services/dayPlanner/engine';
 import { inshoreRouteToGeoJSON } from '../../services/InshoreRouter';
 import { lineExposureReader, LINE_STATE, pullTaut, chartMarkPoints } from '../../services/engine/stringPull';
 import type { AutoroutingTrialRoute } from '../../types/autorouting';
-import type { TrialRouteReview } from '../../services/autoroutingReview';
 
 const fc = (...features: Feature[]): FeatureCollection => ({ type: 'FeatureCollection', features });
 const box = (x0: number, y0: number, x1: number, y1: number): number[][] => [
@@ -95,8 +93,6 @@ const BBOX: [number, number, number, number] = [W, SOUTH, W + 0.03, SOUTH + 0.01
 const KX = 111_320 * Math.cos((41 * Math.PI) / 180);
 const NEAR_SAVE =
     'Part of this route passes too close to water charted shallower than this boat needs. It cannot be saved.';
-const NEAR_PLAN = /passes too close to water charted shallower than this boat needs/;
-const TIDE_PLAN = 'The route depends on a tide or tidal clearance that this planner cannot verify.';
 
 type Band = { x0: number; y0: number; x1: number; y1: number; d1: number; d2: number; dredged?: boolean };
 
@@ -213,27 +209,6 @@ function read(
             elapsedMs: 1,
         },
     } as unknown as AutoroutingTrialRoute;
-    const review: TrialRouteReview = {
-        phase: 'complete',
-        legs: line.slice(1).map(() => ({
-            incomplete: false,
-            verdict: {
-                grade: 'clear',
-                issues: [],
-                minDepthM: 10,
-                minAt: null,
-                needsTide: false,
-                nudge: null,
-                nudgeTo: null,
-            },
-        })),
-    } as unknown as TrialRouteReview;
-    let plan: string | null = null;
-    try {
-        assessDayPlanRoute(route, review, DRAFT);
-    } catch (e) {
-        plan = (e as Error).message;
-    }
     return {
         grid,
         caution,
@@ -248,12 +223,11 @@ function read(
         ).map((s) => s.why),
         caveats: inshoreRouteCaveats({ nearShallow: nearShallowSummary(out.chartedShallowSpans) }),
         save: evaluateAutoroutingProposalSave(route, null, DRAFT, false),
-        plan,
     };
 }
 
-describe('1. Save refuses only a RED near stretch; Plan My Day an amber one too', () => {
-    it('a 2–5 m shoal 8 m off that the tide the route knows clears (amber): saved with its note, not planned', () => {
+describe('1. Save refuses only a RED near stretch', () => {
+    it('a 2–5 m shoal 8 m off that the tide the route knows clears (amber): saved with its note', () => {
         const r = read(charts(SHOAL), lineOff(8), { tideCeilings: ceiling(1.0) });
         expect(r.near).toHaveLength(1);
         expect(r.near[0].tideLiftable).toBe(true);
@@ -261,9 +235,6 @@ describe('1. Save refuses only a RED near stretch; Plan My Day an amber one too'
         expect(nearSpanBlocks(r.near[0])).toBe(false);
         // The next gate (the leg review), not the near stretch.
         expect(r.save).toEqual({ eligible: false, reason: 'Finish current chart checks before saving.' });
-        // Fix-up review (medium): the planner cannot check its departure
-        // against the band, so the tide is one it cannot verify.
-        expect(r.plan).toBe(TIDE_PLAN);
         expect(r.caveats).toEqual([
             'This route passes 8 m from water charted 2.0 m — closer than the 10 m the router keeps off it. Check the chart there before you go.',
         ]);
@@ -281,7 +252,6 @@ describe('1. Save refuses only a RED near stretch; Plan My Day an amber one too'
         expect(never.near[0].tideLiftable).toBeUndefined();
         expect(nearSpanBlocks(never.near[0])).toBe(true);
         expect(never.save).toEqual({ eligible: false, reason: NEAR_SAVE });
-        expect(never.plan).toMatch(NEAR_PLAN);
         expect(never.drawn.map(([st]) => st)).toEqual(['green', 'danger', 'green']);
     });
 
@@ -290,10 +260,9 @@ describe('1. Save refuses only a RED near stretch; Plan My Day an amber one too'
         expect(r.near).toHaveLength(1);
         expect(nearSpanBlocks(r.near[0])).toBe(true);
         expect(r.save).toEqual({ eligible: false, reason: NEAR_SAVE });
-        expect(r.plan).toMatch(NEAR_PLAN);
     });
 
-    it('NO tide loaded for the place: red for Save and Plan My Day, as the map draws it (owner decision 10)', () => {
+    it('NO tide loaded for the place: red for Save, as the map draws it (owner decision 10)', () => {
         // The fix-up review's probe: a reef drying 3 m 4 m and 1 m off, with
         // no tide ceiling, was saveable and planned amber while the map drew
         // it red 'no tide data'. 3e3a3603 refused it; so does this.
@@ -310,7 +279,6 @@ describe('1. Save refuses only a RED near stretch; Plan My Day an amber one too'
             expect(nearSpanBlocks(r.near[0])).toBe(true);
             expect(r.drawn.map(([st]) => st)).toEqual(['green', 'danger', 'green']);
             expect(r.save).toEqual({ eligible: false, reason: NEAR_SAVE });
-            expect(r.plan).toMatch(NEAR_PLAN);
             expect(r.caveats[0]).toContain(words);
         }
     });
@@ -332,7 +300,6 @@ describe('1. Save refuses only a RED near stretch; Plan My Day an amber one too'
         expect(r.near[0].tideLiftable).toBe(true);
         expect(r.near[0].tideUnknown).toBe(true);
         expect(r.save).toEqual({ eligible: false, reason: NEAR_SAVE });
-        expect(r.plan).toMatch(NEAR_PLAN);
     });
 });
 
@@ -387,7 +354,6 @@ describe('2. a near stretch inside a channel the marks own is a CHANNEL EDGE: am
             })?.title,
         ).toBe('Close to the channel edge');
         expect(r.save).toEqual({ eligible: false, reason: 'Finish current chart checks before saving.' });
-        expect(r.plan).toBeNull();
     });
 
     it("Tangalooma's last leg: 27.4 m from a 0–2 m band in its channel is named, not silent", () => {
@@ -446,7 +412,6 @@ describe('2. a near stretch inside a channel the marks own is a CHANNEL EDGE: am
                 expect(x.channelEdge).toBe(true);
             expect(r.drawn.some(([st]) => st === 'danger')).toBe(true);
             expect(r.save).toEqual({ eligible: false, reason: NEAR_SAVE });
-            expect(r.plan).toMatch(NEAR_PLAN);
         }
     });
 
