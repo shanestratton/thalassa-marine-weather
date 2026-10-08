@@ -209,6 +209,24 @@ export function setBlobCachePlottingMode(plotting: boolean): void {
     }
 }
 
+/**
+ * Give the parsed cells back between background route checks (125-07): evict
+ * down to the min-keep floor, budget unchanged. Each cold check window loads
+ * its corridor's cells; nothing on the Log page draws them, and a merge that
+ * still references a cell's geometry keeps it alive regardless. Returns how
+ * many were dropped.
+ */
+export function releaseBlobCache(): number {
+    let dropped = 0;
+    while (shouldEvictBlob(blobCache.size, blobCacheBytes, 0, 0)) {
+        const oldest = blobCache.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        dropBlob(oldest);
+        dropped += 1;
+    }
+    return dropped;
+}
+
 /** The budget in force, for tests and the [perf] line. */
 export function blobCacheBudgetBytes(): number {
     return blobBudgetBytes;

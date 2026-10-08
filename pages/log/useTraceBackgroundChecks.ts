@@ -5,21 +5,22 @@
  * mounted, so the page says when it is; and the page supplies the two lazy
  * triggers — the "Following a route?" sheet opening (recover from the server
  * first, then queue its amber rows in sheet order) and ten seconds visible
- * and idle (queue the amber traces the sheet would show). There is no
- * app-boot trigger until the cost is measured on the phone.
+ * and idle (queue the amber traces the sheet would show). The app-boot
+ * trigger (traceBackgroundCheck.runBootIdleRecheck) is built but DARK until
+ * the cost is measured on the phone.
  */
 import React, { useSyncExternalStore } from 'react';
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../../services/authIdentityScope';
 import {
     enqueueTraceChecks,
-    getTraceCheckReport,
+    getCurrentTraceCheckReport,
     getTraceCheckSnapshot,
     setLogPageActive,
     subscribeTraceChecks,
+    type HeldTraceCheckReport,
     type TraceCheckSnapshot,
 } from '../../services/traceBackgroundCheck';
 import { savedTraceFollowStatus } from '../../services/traceDirectUseGate';
-import type { RecheckReport } from '../../services/traceRecheck';
 
 const IDLE_MS = 10_000;
 
@@ -33,8 +34,9 @@ export function useTraceBackgroundChecks(opts: {
     plannedTraceIds: readonly string[];
     /** A check landed (or was recovered): re-read the rows' statuses. */
     onStatusesChanged: () => void;
-    /** A red row's report is ready to acknowledge in place. */
-    onReport: (savedRouteId: string, report: RecheckReport) => void;
+    /** A red row's report is ready to acknowledge in place — with the pins it
+     *  was graded on (never re-read: a sync may have moved them since). */
+    onReport: (savedRouteId: string, held: HeldTraceCheckReport) => void;
 }): { snapshot: TraceCheckSnapshot; review: (savedRouteId: string) => void } {
     const { identityScope, sheetTraceIds, plannedTraceIds, onStatusesChanged, onReport } = opts;
     const snapshot = useSyncExternalStore(subscribeTraceChecks, getTraceCheckSnapshot, getTraceCheckSnapshot);
@@ -111,21 +113,26 @@ export function useTraceBackgroundChecks(opts: {
         latest.current.onStatusesChanged();
     }, [settledKey]);
 
-    // Review: open the finding's report in place — re-running the check
-    // first when this session no longer holds it.
+    // Review: open the finding's report in place — but only while its memoKey
+    // still matches the route's pins, the draft and the charts (125-07);
+    // otherwise, or when this session no longer holds it, re-run the check.
     const [pendingReview, setPendingReview] = React.useState<string | null>(null);
     const review = React.useCallback((savedRouteId: string) => {
-        const report = getTraceCheckReport(savedRouteId);
-        if (report) return latest.current.onReport(savedRouteId, report);
-        setPendingReview(savedRouteId);
-        enqueueTraceChecks([savedRouteId], 'review');
+        void getCurrentTraceCheckReport(savedRouteId).then((held) => {
+            if (held) return latest.current.onReport(savedRouteId, held);
+            setPendingReview(savedRouteId);
+            enqueueTraceChecks([savedRouteId], 'review');
+        });
     }, []);
     const pendingState = pendingReview ? snapshot.states.get(pendingReview) : undefined;
     React.useEffect(() => {
         if (!pendingReview || pendingState?.phase !== 'done') return;
+        const id = pendingReview;
         setPendingReview(null);
-        const report = pendingState.result === 'finding' ? getTraceCheckReport(pendingReview) : undefined;
-        if (report) latest.current.onReport(pendingReview, report);
+        if (pendingState.result !== 'finding') return;
+        void getCurrentTraceCheckReport(id).then((held) => {
+            if (held) latest.current.onReport(id, held);
+        });
     }, [pendingReview, pendingState]);
 
     return { snapshot, review };
