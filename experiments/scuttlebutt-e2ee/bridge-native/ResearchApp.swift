@@ -3,15 +3,44 @@ import UIKit
 import Capacitor
 
 final class ResearchBridgeViewController: CAPBridgeViewController {
+#if E2EE_LOCAL_UI_FIXTURE
+    private var localUiFixtureReady = false
+#endif
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(ScuttlebuttResearchAuthPlugin())
+#if E2EE_LOCAL_UI_FIXTURE
+        ResearchLocalUiFixture.notePhase("bridge-created")
+        if let webView {
+            do {
+                // Capacitor's real content controller now exists, but its first
+                // document has not loaded. The shim precedes every app module.
+                try ResearchLocalUiFixture.install(in: webView)
+                localUiFixtureReady = true
+                ResearchLocalUiFixture.notePhase("fixture-installed")
+            } catch { ResearchLocalUiFixture.notePhase("fixture-install-failed") }
+        }
+#endif
     }
+#if E2EE_LOCAL_UI_FIXTURE
+    override func viewDidLoad() {
+        guard localUiFixtureReady else {
+            // Never fall through to real SDK/network when fixture setup fails.
+            webView?.loadHTMLString("<!doctype html><html><body><p>Local Research UI fixture unavailable.</p></body></html>",
+                baseURL: nil)
+            return
+        }
+        super.viewDidLoad()
+    }
+#endif
 }
 
 @main
 final class ResearchApp: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+#if E2EE_LOCAL_UI_FIXTURE
+        ResearchLocalUiFixture.notePhase("application-launched")
+#endif
         return true
     }
 
@@ -41,6 +70,9 @@ final class ResearchSceneDelegate: UIResponder, UIWindowSceneDelegate {
         // window may create the bridge and its isolated Auth host.
         guard session.role == .windowApplication,
               let windowScene = scene as? UIWindowScene else { return }
+#if E2EE_LOCAL_UI_FIXTURE
+        ResearchLocalUiFixture.notePhase("scene-connected")
+#endif
         let window = UIWindow(windowScene: windowScene)
         window.rootViewController = ResearchBridgeViewController()
         self.window = window

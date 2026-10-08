@@ -6,6 +6,15 @@ Two independent physical endpoints can expose custody, lifecycle and transport f
 
 ## Prerequisites and current blocks
 
+The [8 October native window fixture](../experiments/scuttlebutt-e2ee/review/native-window-2026-10-08.json)
+passes fresh, unregistered startup in a real WKWebView/Capacitor bridge on a new
+simulator, with the real SDK and native store but simulated Auth responses.
+Unknown admission remains blocked; no enrollment or message operation runs.
+It does not pass any physical case below, test the scene privacy cover, or
+establish protected PM delivery through the UI. The human installed candidate
+and keys are unchanged; the new build remains isolated and its existing physical
+signer pins intentionally refuse the modified sources.
+
 The 6 October ordinary-PM integration candidate is on
 `codex/scuttlebutt-e2ee-integration-2026-10-06`, not installed on either human
 device. Its separate physical-iOS build is unsigned, and its native adapter

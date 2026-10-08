@@ -225,6 +225,25 @@ to this new candidate.
 
 ## User problem and intended pilot
 
+The [8 October native window evidence](../experiments/scuttlebutt-e2ee/review/native-window-2026-10-08.json)
+executes the dedicated Research page in an actual WKWebView and Capacitor bridge
+with the real Supabase JS SDK and native provider/Keychain/sealed storage. Ten
+DOM assertions and eight native guard groups pass for a fresh unregistered
+account. One SDK request and two native verifier requests receive local fixtures;
+no network login or message exchange occurs. Unknown admission stays blocked,
+with zero enrollment, claim, protection, PM issue/read/send/retry or relay calls.
+This does not transfer the earlier hosted exchanges to the UI or close a
+physical acceptance case.
+
+Review the simulator-only compilation/resource gates and catch-all transports,
+the original native owner/binding, and the measured XML/DER Mach-O sections.
+Only a fresh copy is ad-hoc signed, without host entitlement grants; the unsigned
+artifact is retained. Startup failures and the corrected cold two-verifier
+expectation remain in the manifest. Human devices, spent hosted actors,
+production and master are unchanged. Protected UI exchange, full router and
+legacy/push enforcement, lifecycle/retention/recovery, independent concurrency,
+dependency provenance and external review remain release gates.
+
 Private DM content should be readable only at the intended endpoints, with ciphertext and public device material relayed by the service. An uncertain send must retry the same committed ciphertext; authentication, identity, storage or delivery failures must stop protected messaging visibly. Existing server-readable history must retain its accurate status.
 
 The proposed first pilot enforces one registered device per account and text-only DMs. The current coordinator is narrower still: one peer, conversation and session per store. Multi-peer support must have its own implementation and evidence before the pilot admits it. Attachments, groups, browser encryption and multi-device fanout are outside this initial scope. Unsupported clients must show private messaging as unavailable without plaintext fallback.

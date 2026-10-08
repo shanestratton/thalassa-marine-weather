@@ -1,0 +1,457 @@
+{
+    "version": 1,
+    "date": "2026-10-08",
+    "baseCommit": "3c84a84de246ee5171ed46d75e9e1ac21a3a7204",
+    "branch": "codex/scuttlebutt-e2ee-integration-2026-10-06",
+    "status": "actual-wk-capacitor-sdk-cold-startup-passed-synthetic-auth-not-protected-ui-or-release",
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/app-pilot/localUiFixture.js": "733a9543fe29f2930479a20c7c94d8bef95546077cfa7cb91d9c2723201b363c",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchApp.swift": "e49e1b4838da52c092a9acfdb30019d30050048d3c6e64e3cc738a23c49b2e3d",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchAuthHost.swift": "3a56713041ba5fd77aa488ee105bcaaacf2803cc5f243b52682cb3b31bc83bf2",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchLocalUiFixture.swift": "5e6255ec36d12eda603b2eab7072627d41179ab8a123cff71a78b0a4220e536d",
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "f4ffbf57c537cd81f51b7f2179d7d8366333c1c83caab2bf60dd67ccf6830c05",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "c629829dcc7f58f00563d8d36d21cca2808bf66b29a096053c8a4ca4a17e4880",
+        "experiments/scuttlebutt-e2ee/bridge-native/buildLocalUiFrameworks.mjs": "61941b2c69582f016b15e74615a318defcf9880800daae148b778a6277588103",
+        "experiments/scuttlebutt-e2ee/bridge-native/generate_local_ui_frameworks.rb": "257cc42219be337d988445f830d3d7bc506a0054fe39cc677211a8f913572718",
+        "experiments/scuttlebutt-e2ee/bridge-native/generate_project.rb": "d96ddddad8b5b633d482dd32a83204b821e146db975e8c88acbd6b718192c329",
+        "experiments/scuttlebutt-e2ee/bridge-native/localUiProof.mjs": "f15193ca133f78dac45ab2be3d689bc140380e6d96dbb036e3a0b5a9af58ef36",
+        "experiments/scuttlebutt-e2ee/bridge-native/machOEntitlementEvidence.mjs": "5c84c1f38049420b0a3137d31834bffbe084b61e6d331105cc7cb0efc5df3040",
+        "experiments/scuttlebutt-e2ee/relay/vitest.config.mjs": "5f30ae1271d344c86513073edfce4c7833b7d4948e77a53c8e7873a226be0bea",
+        "tests/E2eeResearchLocalUiFixture.test.ts": "ec8d40a2d8dc0f296dcad429ddad4e18dfaa6c237985d73317b3c2bcce8b61d1",
+        "tests/E2eeSimulatorEntitlements.test.ts": "77993e432296243fc9e5b5fe8ccc8296794a3db76b3ce7689f55c9c26ab8bd54"
+    },
+    "sharedNativeSourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchApp.swift": "e49e1b4838da52c092a9acfdb30019d30050048d3c6e64e3cc738a23c49b2e3d",
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "f4ffbf57c537cd81f51b7f2179d7d8366333c1c83caab2bf60dd67ccf6830c05",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchAuthHost.swift": "3a56713041ba5fd77aa488ee105bcaaacf2803cc5f243b52682cb3b31bc83bf2",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift": "cb3bd8fb92e8f922462007e12f228ee9fc7f10875bb32cd134d3646dd93ae4d1",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchPrivateMessageAdapter.swift": "ec0597684d323ed061e40cf81d3f8238adb78afdd100ef663133be0753d88c36",
+        "experiments/scuttlebutt-e2ee/VodozemacSealedStore.swift": "08a8c821035eca23e5730006c6c8989221eeb292e8637c14960d5444945e352f",
+        "experiments/scuttlebutt-e2ee/VodozemacDmFrame.swift": "f584998cd8e0cdc0ae6e22557b6d01e20a3081596f7198996a2a12c6699d7887",
+        "experiments/scuttlebutt-e2ee/VodozemacDmCoordinator.swift": "690d8ee170f9aed212317eb76d8d51cd930c3e18832012c11a7164062464b489",
+        "experiments/scuttlebutt-e2ee/VodozemacMessageOperations.swift": "bb6101fcc468ccee3c52c5d23c70e9ebf51785e9771610a9d7ba07c1caab56d9",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayCodec.swift": "b1ff7f6df1988bcde00dbd21ba571f1060d683d60624778c9e55bf7b19f340ec",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayTransport.swift": "32522d35d2b009a6ab4ffa63b1ee8a099f6cd8253efb46aa2f11eff7e13c02fe",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayResult.swift": "5603d96eee328194c8bd73990027cacc5f68d474a9b49ae0d90501d21e287e26",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayPolicy.swift": "1ff34288ffe3f92733effd1540858e50048d313ee36248ab1f4c7abe4cd1db5e",
+        "experiments/scuttlebutt-e2ee/VodozemacScopedRelayClient.swift": "28408a37cb00f98a194c27b2fcebc18b0528f5c8dc6d30c667d9331c09b340e8",
+        "experiments/scuttlebutt-e2ee/VodozemacSupabaseAuth.swift": "103cfe325fcd57342e8c5b0fe9601acfa6441977f860a8d499af193f195adc10",
+        "experiments/scuttlebutt-e2ee/VodozemacAuthSession.swift": "1db48cad76d4d4b1bc6c958fab675a8b9cafcc8ea771a2d2aaccadf2ecb243fe",
+        "experiments/scuttlebutt-e2ee/VodozemacAccountDirectory.swift": "8d229dd4e68b61e72c071440b2f70eb3a0c60cb25465e4e2daa30a4bbd49181b",
+        "experiments/scuttlebutt-e2ee/VodozemacSessionFacade.swift": "d53cbd065d4b3ba5cae11ded3284d5f3703fc8c9aa1522e7c0c2772d5dbc2dcc",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchLocalUiFixture.swift": "5e6255ec36d12eda603b2eab7072627d41179ab8a123cff71a78b0a4220e536d"
+    },
+    "artifacts": {
+        "uiRun": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-NYTSAw/ui-run.json",
+            "sha256": "af9eda3da2dcabb12bd2b4dc36d0ac9997d4f5bfa58577590ffaf4704dd3ce35"
+        },
+        "nativeReport": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-NYTSAw/native-ui-receipt.json",
+            "sha256": "fdb75a65bdc047a5acb416a01c47bc90f64539a20d4d67b7f9ac3a1fd798f978"
+        },
+        "nativeBuild": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-BRl7Uj/build-receipt.json",
+            "sha256": "a86065cfad429cb522e1e917daa01ddf1e13c727f410d6595f38890b0b267dca"
+        },
+        "signedArtifact": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-NYTSAw/signed-fixture/ScuttlebuttResearchAuth.app",
+        "signedArtifactHashes": {
+            "Frameworks/Capacitor.framework/Capacitor": "5cb972fd7b51d2a96395e7b07252ebcb6948570ba36b61e3fd4bbc8556c9c3a1",
+            "Frameworks/Capacitor.framework/Headers/CAPBridgeViewController+CDVScreenOrientationDelegate.h": "4361795b03f8b1ffb1f6d09e619c4fda70efccd4e11a349cf3b19cd28cc655a7",
+            "Frameworks/Capacitor.framework/Headers/CAPBridgedJSTypes.h": "f8cd2e3391186e7b067c2fc0062d693e03354223592ddc27c0461052b32c2ae3",
+            "Frameworks/Capacitor.framework/Headers/CAPBridgedPlugin.h": "e4bda27ddb41e1aacdd2c1aaa22c4bb762e275210a7e8341bf50c04a45d8ca93",
+            "Frameworks/Capacitor.framework/Headers/CAPInstanceConfiguration.h": "9e8d45ca898c2a7cac927e36af12bbaa5df73f84258544ad4bd5f969dcd936ca",
+            "Frameworks/Capacitor.framework/Headers/CAPInstanceDescriptor.h": "f5efe0da72d802d1ce0626d4e54d809281de8bdc3ab46e614a1b8e074111a88e",
+            "Frameworks/Capacitor.framework/Headers/CAPPlugin.h": "43488f84ffa6c860ade0d4d575522df5cf8fd67eeb914ba52224f8480d5404fd",
+            "Frameworks/Capacitor.framework/Headers/CAPPluginCall.h": "aa3ef7f3d40881a92b3ec0d3af3746c217544eeeb01b87c384bcbfda4c48d5c0",
+            "Frameworks/Capacitor.framework/Headers/CAPPluginMethod.h": "e8eb817ca3ec5e1ff0e09249d87199513ec892a038b7b581f90afb40ad2e77e9",
+            "Frameworks/Capacitor.framework/Headers/Capacitor-Swift.h": "41b9fe14382e828f4792331238fdeff779731dc33c2484a819f3975ed2a46bdc",
+            "Frameworks/Capacitor.framework/Headers/Capacitor.h": "09d66a0a23430722dbcdc187d82c5fa2c5b9fcda8e2afbea27fa88fad8f88276",
+            "Frameworks/Capacitor.framework/Info.plist": "cda6361c747d40ed171cac46f69df2446d875200e0ab645a3c8774ee34f1c249",
+            "Frameworks/Capacitor.framework/Modules/Capacitor.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo": "73c717a4ce6001e3c0816e285bdc8bf1fb8d6633250d3dd780710a99363dc698",
+            "Frameworks/Capacitor.framework/Modules/Capacitor.swiftmodule/arm64-apple-ios-simulator.abi.json": "4277ac6b49f8511196028a5ac20f5b1b1dfa754c24615d34068089f0b1739728",
+            "Frameworks/Capacitor.framework/Modules/Capacitor.swiftmodule/arm64-apple-ios-simulator.swiftdoc": "85ddf8dcf8a1aa66cb2af0b23f80203eb86182274cee4f9cf3c8ac72231e3743",
+            "Frameworks/Capacitor.framework/Modules/Capacitor.swiftmodule/arm64-apple-ios-simulator.swiftmodule": "048a7d855c2801cecb2c833c9ce175f9f816e74f9e63c8d31e9c943266d22a00",
+            "Frameworks/Capacitor.framework/Modules/module.modulemap": "eabc5c972ea2507840e10493a179587a33aa874014e1af6d3ba921c07175cb92",
+            "Frameworks/Capacitor.framework/PrivacyInfo.xcprivacy": "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17",
+            "Frameworks/Capacitor.framework/_CodeSignature/CodeResources": "7568f938e599fca7fa2f583e1c794d972ddf862ceea16a392ef13449d9f747e1",
+            "Frameworks/Capacitor.framework/native-bridge.js": "44ae55c944c91d5ebeb1ca2374e831d7920d1af6464faef8f0001a96252109bc",
+            "Frameworks/Cordova.framework/Cordova": "32e11d3ef00e69558a4962fb121c21c6ec1c165816bbab542b88b1899925d27f",
+            "Frameworks/Cordova.framework/Headers/AppDelegate.h": "68f3026b61fe09c54520f1008b2a822c3ddf5c1a56a8c1c95451f4510c74afb9",
+            "Frameworks/Cordova.framework/Headers/CDV.h": "5b015a36af3df0bb49cfc97f9092f75e48fd02c56f366d674667b7cde888db13",
+            "Frameworks/Cordova.framework/Headers/CDVAvailability.h": "5bb69006c12f30750782d05fb6c729badd90e34f4f24a65e733585c000893dc1",
+            "Frameworks/Cordova.framework/Headers/CDVAvailabilityDeprecated.h": "cb16b1a31420637e059e6dfe3eeb473f62c801610bd6ee4c656951c83f3f9d37",
+            "Frameworks/Cordova.framework/Headers/CDVCommandDelegate.h": "fdf61ee34a83ab1e803618f36d48d5a7bb6897f8ffe81beecef8947c5b3a4c54",
+            "Frameworks/Cordova.framework/Headers/CDVCommandDelegateImpl.h": "cda8d978ae516c4a1c5437c0f7e291dfb4f4b75845cea9a24a71cfcb38155666",
+            "Frameworks/Cordova.framework/Headers/CDVConfigParser.h": "6c46116e66b48ebe2b197fabea6f272035a33a1605835a3c582200aa07a9b28e",
+            "Frameworks/Cordova.framework/Headers/CDVInvokedUrlCommand.h": "2070e24a8bd657254f9453ebfc38293310d060f86f43b2304017cf2c0e4ec6f7",
+            "Frameworks/Cordova.framework/Headers/CDVPlugin+Resources.h": "67ead49587370b87199fb470b794743815098b0b22d8b54d91ed56338d10b4c7",
+            "Frameworks/Cordova.framework/Headers/CDVPlugin.h": "663e0357e15f8400faa1ecc1be7c7faa1e201cc1c01d6462625f9f39de900a4a",
+            "Frameworks/Cordova.framework/Headers/CDVPluginManager.h": "c0b46726f1ccdcd12664ee58a918b55d64c187012e0ad88ef14b9e6954b87ca5",
+            "Frameworks/Cordova.framework/Headers/CDVPluginResult.h": "ad46099ce88b85d75d62322184bf7c8bf7565a9319643912a74eed406d134632",
+            "Frameworks/Cordova.framework/Headers/CDVScreenOrientationDelegate.h": "d4ed94121a00091f2e2c5ae065c3059d622e9098aaf917587778249d8f115c73",
+            "Frameworks/Cordova.framework/Headers/CDVURLProtocol.h": "cd17b7c2a7d5eadd1a1607175ddf9f000f41ed8b7660f89464187eb31f4ccb41",
+            "Frameworks/Cordova.framework/Headers/CDVViewController.h": "88ad438279f01318c8295aad45b5a6f02c2cd927ab770685b2c3c85f03643d3e",
+            "Frameworks/Cordova.framework/Headers/CDVWebViewProcessPoolFactory.h": "b8b030b7dea5d453627e783fc023f00cbe7b84fa7136b3a2b311883da272a88c",
+            "Frameworks/Cordova.framework/Headers/CapacitorCordova.h": "86d9bf3495c19536b6ac18ce1ac6d7236f7bc8db104efaaaa5fba95b566a9214",
+            "Frameworks/Cordova.framework/Headers/NSDictionary+CordovaPreferences.h": "a8ac8abb1a41f220fb2a51bd6011d0620dd265a095a6e5764d06225ee8723256",
+            "Frameworks/Cordova.framework/Info.plist": "41868a2567f22bfdf395fc3172cfc02862582a1aea0774077f31559e296deca9",
+            "Frameworks/Cordova.framework/Modules/module.modulemap": "b160b38151320db63f1d93b7d44d480b6d5b507ae92c17c9fcb8abfa4ee45c59",
+            "Frameworks/Cordova.framework/PrivacyInfo.xcprivacy": "5a9b8fc0cddb10201bb47cc2804b3f004c7251476622d25bfc4eb54ed46e1084",
+            "Frameworks/Cordova.framework/_CodeSignature/CodeResources": "dcd5195925a2b669d9b36d373d489c9367e4e90d8647ea385e797abe58bacedf",
+            "Info.plist": "86b617096fdf2c74cb2a2ec07e071b6f83ce7ea67354628fd4d80551077201e9",
+            "PkgInfo": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0",
+            "ScuttlebuttResearchAuth": "9a394453f589a9ce9b3c4176c24c3089b97b7155e97b27c7accb46a140811f32",
+            "_CodeSignature/CodeResources": "e70f172fccec5e242285d99de52f4118c3ccada2bd8665864149abacb5a17ec0",
+            "capacitor.config.json": "b41ff18e7b71ef5f3b26dfa0732ef367c095e3ad1905942ed68bdd07ac6e775b",
+            "config.xml": "6f5bddc62d0d27100674e446bcd6a33ccbc69713e07f9c938a5cbdcf7cff3286",
+            "public/assets/PrivateMessagePilotPage-_M_8yUuF.js": "85a167471f8cb3e6ef41438aa435f09db2289a9e8537ae5f1ec50abcb0ed1b1b",
+            "public/assets/_thalassa-private-pilot-legacy-denied-uuUY_5R-.js": "79a00a67a84267aa8decff41eb752b6678e63e9c78a2b7ccf4e7de59923cea30",
+            "public/assets/index-BKP0fqz3.js": "c0f8016c7e9306b6e3efd2d9479e1ff01540dc1e8b9af61a80a4d17b5126cea9",
+            "public/assets/index-C00TXFhj.js": "53eab233f899f56d31188eae5c6cf21e2c68a8dfbf2208c63f7151e5b77a907c",
+            "public/assets/main-Ctbuh57S.css": "345b5ded06b2d8a59525d0cbb21827da5414a2a386f4ae265e1b5a27aea74322",
+            "public/assets/main-dM7R9jFf.js": "152d57cd59c5c18198d6fcf9098ee628dc3a6b404d17603f899228b49939fe4f",
+            "public/index.html": "f34c1e23b4f5ccb1abfd6fe4528ba228ec0ca68bc0f590dd52ba330ef0be7422",
+            "research-config.json": "2e00f0dc2f40188f12f1e33831c2f4dea11a8892e0db6f5668b11d7d8751245f",
+            "research-local-ui-fixture.json": "cba451494c1055ddebbe5c9a80e86d6e0c1c9a547c99e8e574c6bf070c338d77"
+        },
+        "unsignedArtifact": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-BRl7Uj/DerivedData/Build/Products/Debug-iphonesimulator/ScuttlebuttResearchAuth.app",
+        "unsignedArtifactHashes": {
+            "Frameworks/Capacitor.framework/Capacitor": "9750d5a93fc679decd2b32059e49341017ffdfde9d9cd3ba1933ff22169c3cb0",
+            "Frameworks/Capacitor.framework/Headers/CAPBridgeViewController+CDVScreenOrientationDelegate.h": "4361795b03f8b1ffb1f6d09e619c4fda70efccd4e11a349cf3b19cd28cc655a7",
+            "Frameworks/Capacitor.framework/Headers/CAPBridgedJSTypes.h": "f8cd2e3391186e7b067c2fc0062d693e03354223592ddc27c0461052b32c2ae3",
+            "Frameworks/Capacitor.framework/Headers/CAPBridgedPlugin.h": "e4bda27ddb41e1aacdd2c1aaa22c4bb762e275210a7e8341bf50c04a45d8ca93",
+            "Frameworks/Capacitor.framework/Headers/CAPInstanceConfiguration.h": "9e8d45ca898c2a7cac927e36af12bbaa5df73f84258544ad4bd5f969dcd936ca",
+            "Frameworks/Capacitor.framework/Headers/CAPInstanceDescriptor.h": "f5efe0da72d802d1ce0626d4e54d809281de8bdc3ab46e614a1b8e074111a88e",
+            "Frameworks/Capacitor.framework/Headers/CAPPlugin.h": "43488f84ffa6c860ade0d4d575522df5cf8fd67eeb914ba52224f8480d5404fd",
+            "Frameworks/Capacitor.framework/Headers/CAPPluginCall.h": "aa3ef7f3d40881a92b3ec0d3af3746c217544eeeb01b87c384bcbfda4c48d5c0",
+            "Frameworks/Capacitor.framework/Headers/CAPPluginMethod.h": "e8eb817ca3ec5e1ff0e09249d87199513ec892a038b7b581f90afb40ad2e77e9",
+            "Frameworks/Capacitor.framework/Headers/Capacitor-Swift.h": "41b9fe14382e828f4792331238fdeff779731dc33c2484a819f3975ed2a46bdc",
+            "Frameworks/Capacitor.framework/Headers/Capacitor.h": "09d66a0a23430722dbcdc187d82c5fa2c5b9fcda8e2afbea27fa88fad8f88276",
+            "Frameworks/Capacitor.framework/Info.plist": "cda6361c747d40ed171cac46f69df2446d875200e0ab645a3c8774ee34f1c249",
+            "Frameworks/Capacitor.framework/Modules/Capacitor.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo": "73c717a4ce6001e3c0816e285bdc8bf1fb8d6633250d3dd780710a99363dc698",
+            "Frameworks/Capacitor.framework/Modules/Capacitor.swiftmodule/arm64-apple-ios-simulator.abi.json": "4277ac6b49f8511196028a5ac20f5b1b1dfa754c24615d34068089f0b1739728",
+            "Frameworks/Capacitor.framework/Modules/Capacitor.swiftmodule/arm64-apple-ios-simulator.swiftdoc": "85ddf8dcf8a1aa66cb2af0b23f80203eb86182274cee4f9cf3c8ac72231e3743",
+            "Frameworks/Capacitor.framework/Modules/Capacitor.swiftmodule/arm64-apple-ios-simulator.swiftmodule": "048a7d855c2801cecb2c833c9ce175f9f816e74f9e63c8d31e9c943266d22a00",
+            "Frameworks/Capacitor.framework/Modules/module.modulemap": "eabc5c972ea2507840e10493a179587a33aa874014e1af6d3ba921c07175cb92",
+            "Frameworks/Capacitor.framework/PrivacyInfo.xcprivacy": "1bac827f49b2b8a5358491b9698203bf191791a6f1ba3a3ace3b1285d52d2d17",
+            "Frameworks/Capacitor.framework/native-bridge.js": "44ae55c944c91d5ebeb1ca2374e831d7920d1af6464faef8f0001a96252109bc",
+            "Frameworks/Cordova.framework/Cordova": "f5ff8c10c2dfbc6008be0e32b2c2b3998a8d8b026ebdc332a630100a24ea0953",
+            "Frameworks/Cordova.framework/Headers/AppDelegate.h": "68f3026b61fe09c54520f1008b2a822c3ddf5c1a56a8c1c95451f4510c74afb9",
+            "Frameworks/Cordova.framework/Headers/CDV.h": "5b015a36af3df0bb49cfc97f9092f75e48fd02c56f366d674667b7cde888db13",
+            "Frameworks/Cordova.framework/Headers/CDVAvailability.h": "5bb69006c12f30750782d05fb6c729badd90e34f4f24a65e733585c000893dc1",
+            "Frameworks/Cordova.framework/Headers/CDVAvailabilityDeprecated.h": "cb16b1a31420637e059e6dfe3eeb473f62c801610bd6ee4c656951c83f3f9d37",
+            "Frameworks/Cordova.framework/Headers/CDVCommandDelegate.h": "fdf61ee34a83ab1e803618f36d48d5a7bb6897f8ffe81beecef8947c5b3a4c54",
+            "Frameworks/Cordova.framework/Headers/CDVCommandDelegateImpl.h": "cda8d978ae516c4a1c5437c0f7e291dfb4f4b75845cea9a24a71cfcb38155666",
+            "Frameworks/Cordova.framework/Headers/CDVConfigParser.h": "6c46116e66b48ebe2b197fabea6f272035a33a1605835a3c582200aa07a9b28e",
+            "Frameworks/Cordova.framework/Headers/CDVInvokedUrlCommand.h": "2070e24a8bd657254f9453ebfc38293310d060f86f43b2304017cf2c0e4ec6f7",
+            "Frameworks/Cordova.framework/Headers/CDVPlugin+Resources.h": "67ead49587370b87199fb470b794743815098b0b22d8b54d91ed56338d10b4c7",
+            "Frameworks/Cordova.framework/Headers/CDVPlugin.h": "663e0357e15f8400faa1ecc1be7c7faa1e201cc1c01d6462625f9f39de900a4a",
+            "Frameworks/Cordova.framework/Headers/CDVPluginManager.h": "c0b46726f1ccdcd12664ee58a918b55d64c187012e0ad88ef14b9e6954b87ca5",
+            "Frameworks/Cordova.framework/Headers/CDVPluginResult.h": "ad46099ce88b85d75d62322184bf7c8bf7565a9319643912a74eed406d134632",
+            "Frameworks/Cordova.framework/Headers/CDVScreenOrientationDelegate.h": "d4ed94121a00091f2e2c5ae065c3059d622e9098aaf917587778249d8f115c73",
+            "Frameworks/Cordova.framework/Headers/CDVURLProtocol.h": "cd17b7c2a7d5eadd1a1607175ddf9f000f41ed8b7660f89464187eb31f4ccb41",
+            "Frameworks/Cordova.framework/Headers/CDVViewController.h": "88ad438279f01318c8295aad45b5a6f02c2cd927ab770685b2c3c85f03643d3e",
+            "Frameworks/Cordova.framework/Headers/CDVWebViewProcessPoolFactory.h": "b8b030b7dea5d453627e783fc023f00cbe7b84fa7136b3a2b311883da272a88c",
+            "Frameworks/Cordova.framework/Headers/CapacitorCordova.h": "86d9bf3495c19536b6ac18ce1ac6d7236f7bc8db104efaaaa5fba95b566a9214",
+            "Frameworks/Cordova.framework/Headers/NSDictionary+CordovaPreferences.h": "a8ac8abb1a41f220fb2a51bd6011d0620dd265a095a6e5764d06225ee8723256",
+            "Frameworks/Cordova.framework/Info.plist": "41868a2567f22bfdf395fc3172cfc02862582a1aea0774077f31559e296deca9",
+            "Frameworks/Cordova.framework/Modules/module.modulemap": "b160b38151320db63f1d93b7d44d480b6d5b507ae92c17c9fcb8abfa4ee45c59",
+            "Frameworks/Cordova.framework/PrivacyInfo.xcprivacy": "5a9b8fc0cddb10201bb47cc2804b3f004c7251476622d25bfc4eb54ed46e1084",
+            "Info.plist": "86b617096fdf2c74cb2a2ec07e071b6f83ce7ea67354628fd4d80551077201e9",
+            "PkgInfo": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0",
+            "ScuttlebuttResearchAuth": "71e41902d69b0f1dd459b8ee2e51cc8d764ded022ad5692bda5cc2260a987ada",
+            "capacitor.config.json": "b41ff18e7b71ef5f3b26dfa0732ef367c095e3ad1905942ed68bdd07ac6e775b",
+            "config.xml": "6f5bddc62d0d27100674e446bcd6a33ccbc69713e07f9c938a5cbdcf7cff3286",
+            "public/assets/PrivateMessagePilotPage-_M_8yUuF.js": "85a167471f8cb3e6ef41438aa435f09db2289a9e8537ae5f1ec50abcb0ed1b1b",
+            "public/assets/_thalassa-private-pilot-legacy-denied-uuUY_5R-.js": "79a00a67a84267aa8decff41eb752b6678e63e9c78a2b7ccf4e7de59923cea30",
+            "public/assets/index-BKP0fqz3.js": "c0f8016c7e9306b6e3efd2d9479e1ff01540dc1e8b9af61a80a4d17b5126cea9",
+            "public/assets/index-C00TXFhj.js": "53eab233f899f56d31188eae5c6cf21e2c68a8dfbf2208c63f7151e5b77a907c",
+            "public/assets/main-Ctbuh57S.css": "345b5ded06b2d8a59525d0cbb21827da5414a2a386f4ae265e1b5a27aea74322",
+            "public/assets/main-dM7R9jFf.js": "152d57cd59c5c18198d6fcf9098ee628dc3a6b404d17603f899228b49939fe4f",
+            "public/index.html": "f34c1e23b4f5ccb1abfd6fe4528ba228ec0ca68bc0f590dd52ba330ef0be7422",
+            "research-config.json": "2e00f0dc2f40188f12f1e33831c2f4dea11a8892e0db6f5668b11d7d8751245f",
+            "research-local-ui-fixture.json": "cba451494c1055ddebbe5c9a80e86d6e0c1c9a547c99e8e574c6bf070c338d77"
+        },
+        "frameworks": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-ui-frameworks-rPrCRB/frameworks-receipt.json",
+            "sha256": "75a2e8e774d4b57429f247b7f745f7756e0a28e458b6255ad2b1778a03381626"
+        },
+        "checks": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-final-checks-fK6kMS/checks.json",
+            "sha256": "4ea617fb5b0be6310f44dd6529ef7476c16b2d7c69fcff09c092d86843ea8b06"
+        },
+        "focusedPrior": {
+            "receipt": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-final-checks-Di3tB9/checks.json",
+            "name": "focused",
+            "args": [
+                "node_modules/vitest/vitest.mjs",
+                "run",
+                "--config",
+                "experiments/scuttlebutt-e2ee/relay/vitest.config.mjs",
+                "--configLoader",
+                "runner",
+                "tests/E2eeResearchLocalUiFixture.test.ts",
+                "tests/E2eeSimulatorEntitlements.test.ts",
+                "tests/E2eeResearchLaunchLifecycle.test.ts",
+                "tests/E2eeResearchScenePrivacy.test.ts",
+                "tests/E2eeResearchDeviceSigning.test.ts",
+                "tests/E2eeResearchNativePath.test.ts",
+                "tests/E2eePilotBridgeAuth.test.ts",
+                "tests/E2eeResearchPrivateAdmissionSource.test.ts"
+            ],
+            "exitCode": 0,
+            "log": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-final-checks-Di3tB9/focused.log",
+            "sha256": "859f0c2895d40892e7c35b318e56fd5d0f8101d0c241060e584a23abb5d43fc7"
+        },
+        "logs": [
+            {
+                "name": "focused-types",
+                "args": [
+                    "node_modules/typescript/bin/tsc",
+                    "--project",
+                    "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-final-checks-fK6kMS/types.json",
+                    "--noEmit"
+                ],
+                "exitCode": 0,
+                "log": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-final-checks-fK6kMS/focused-types.log",
+                "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+            },
+            {
+                "name": "lint",
+                "args": [
+                    "node_modules/eslint/bin/eslint.js",
+                    "experiments/scuttlebutt-e2ee/app-pilot/localUiFixture.js",
+                    "experiments/scuttlebutt-e2ee/bridge-native/build.mjs",
+                    "experiments/scuttlebutt-e2ee/bridge-native/buildLocalUiFrameworks.mjs",
+                    "experiments/scuttlebutt-e2ee/bridge-native/localUiProof.mjs",
+                    "experiments/scuttlebutt-e2ee/bridge-native/machOEntitlementEvidence.mjs",
+                    "tests/E2eeResearchLocalUiFixture.test.ts",
+                    "tests/E2eeSimulatorEntitlements.test.ts"
+                ],
+                "exitCode": 0,
+                "log": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-final-checks-fK6kMS/lint.log",
+                "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+            },
+            {
+                "name": "ordinary-unsigned-ios",
+                "args": [
+                    "experiments/scuttlebutt-e2ee/bridge-native/build.mjs",
+                    "/private/tmp/thalassa-private-startup-build.IDC7jI/native-cache",
+                    "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-3m2Pw3/Project/Frameworks",
+                    "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-NYTSAw/web",
+                    "--platform",
+                    "iphoneos",
+                    "--prior-build-receipt",
+                    "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-3m2Pw3/build-receipt.json",
+                    "--public-key-file",
+                    "/private/tmp/thalassa-private-startup-build.IDC7jI/public-config.json"
+                ],
+                "exitCode": 0,
+                "log": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-final-checks-fK6kMS/ordinary-unsigned-ios.log",
+                "sha256": "952e0721527b812bfc95c4ba2ec6c293f03c405f9e49a783f7a41acf6712c5bc"
+            }
+        ],
+        "ordinaryBuild": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-bHf9Ml/build-receipt.json",
+            "sha256": "45bc8bf64b47239df7fbf3bf5a4e7feffa337691972b2564936d506fd404784b"
+        },
+        "earlierPassedUi": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-hSx1SP/ui-run.json",
+            "sha256": "044e5f7268679a612f00dc21f0c1db741e1632d706b509529218b5c4abd063fc"
+        },
+        "retainedFailures": [
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-ui-frameworks-HlV27t/frameworks-receipt.json",
+                "sha256": "8fb05d10d6a96d7fd92e6ef500520f21747c697d32c691f788260e1ae0068d4d"
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-UWYJxu/ui-run.json",
+                "sha256": "0413fa5b6221e183198e518f3d41012f3282297b397dd17345dfd475b42ada79"
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-5xCEcF/ui-run.json",
+                "sha256": "79e9531b3ee5f382a7613b3f522d1fd089a844742ccb46a56d1a2ad24e546a20"
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-JFeOhb/ui-run.json",
+                "sha256": "9d25de9a5b1a45b65b171b66bb301ee63f882ccca952364d8e1874c0c6b8b05c"
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-OIaggX/ui-run.json",
+                "sha256": "b2c5b23587c0dfaf4dab044ebecc98be3c588e5e8406eda139acef3a602704c0"
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-final-checks-eCd1qd/checks.json",
+                "sha256": "ecfceaab4765889cb7b9aefa37d8e42511b82ca69d9dbec027d410db7f37c2c2"
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-final-checks-Di3tB9/checks.json",
+                "sha256": "8a04277a6c41a3b008f3d0d3d09f37b088f97d0d266d36a08dbc13477ff766d9"
+            }
+        ],
+        "controlledLaunchDiagnostics": [
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-owned-ui-diagnostic-NNR5zz/launch.json",
+                "sha256": "c5b8b96d01581d4505d593b2483a68cb73eceb39498c034578d32764fc710b66"
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-owned-ui-diagnostic-Pa22ho/launch.json",
+                "sha256": "39276b2b1419c757e5d605c555258307f148af0adee08607d84e62cfde8b0925"
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-owned-ui-diagnostic-Bt38Ym/launch.json",
+                "sha256": "3029593e887e5147677582357fe58522e8d650f02eedccbbc3697fe81de47872"
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-owned-ui-diagnostic-4W3TCG/launch.json",
+                "sha256": "214f5616d1a5f37f04e24bca612f5dce231ce6e8b1e800f597964a5981a431a2"
+            }
+        ]
+    },
+    "evidence": {
+        "domAssertions": 10,
+        "nativeGuardGroups": 8,
+        "nativeCounters": {
+            "authenticate": 1,
+            "configuration": 1,
+            "currentAccount": 3,
+            "fenceSession": 2,
+            "messageAccountMode": 0,
+            "messageClaimPeer": 0,
+            "messageConfirmPeer": 0,
+            "messageInspectPeerCard": 0,
+            "messagePairingCard": 0,
+            "messagePrepareText": 0,
+            "messagePrivateAdmission": 1,
+            "messageRefreshPolicy": 0,
+            "messageRegisterDevice": 0,
+            "messageRequireProtected": 0,
+            "messageSendPending": 0,
+            "messageState": 0,
+            "messageSyncInbox": 0,
+            "messageThread": 0,
+            "nativeAuthRequests": 2,
+            "privateMessageInbox": 0,
+            "privateMessageIssue": 0,
+            "privateMessagePermissions": 0,
+            "privateMessageReadiness": 0,
+            "privateMessageRetryPending": 0,
+            "privateMessageSendText": 0,
+            "privateMessageThread": 0,
+            "relayRequests": 0,
+            "unexpectedMethods": 0,
+            "unexpectedNativeRequests": 0
+        },
+        "sdkCounts": {
+            "password": 1,
+            "unexpected": 0
+        },
+        "cases": ["cold-denied", "sign-in", "unknown-admission", "no-private-open", "password-cleared"],
+        "realWkWebView": true,
+        "realCapacitorBridge": true,
+        "realSupabaseSdk": true,
+        "nativeAuthResponses": "local URLProtocol fixtures",
+        "sdkAuthResponses": "trusted WKUserScript local fixtures",
+        "networkLogin": false,
+        "realProviderKeychainSealedState": true,
+        "protectedUiExchange": false,
+        "physicalDeviceExecution": false,
+        "defaultResearchCompile": {
+            "platform": "iphoneos",
+            "sourceCount": 18,
+            "fixtureFlag": false,
+            "unsigned": true,
+            "executed": false
+        },
+        "scopedTests": 227,
+        "scopedSuites": 8,
+        "newScriptGeneratorTests": 16,
+        "newMachOParserTests": 51,
+        "focusedTypes": true,
+        "namedLint": true,
+        "simulatorLinkEntitlements": {
+            "xmlSha256": "5b1fc3f8da05827e0ecaaab9bfffb032cb75bf308ff59994c4e858ef536791dd",
+            "derSha256": "d44bc2e12d1e26a3debae0f003ba7e0045e71da99b8ae9c4897ee83a4f054df5",
+            "requestedMachOEmbedding": true,
+            "embeddedInMachO": true,
+            "hostCodesignGrant": false,
+            "measuredSections": {
+                "__entitlements": "5b1fc3f8da05827e0ecaaab9bfffb032cb75bf308ff59994c4e858ef536791dd",
+                "__ents_der": "d44bc2e12d1e26a3debae0f003ba7e0045e71da99b8ae9c4897ee83a4f054df5"
+            },
+            "inspectorSha256": "5c84c1f38049420b0a3137d31834bffbe084b61e6d331105cc7cb0efc5df3040"
+        },
+        "toolchain": {
+            "xcode": "Xcode 27.0\nBuild version 27A266a",
+            "developerDirectory": "/Applications/Xcode-26.6.app/Contents/Developer",
+            "sdkVersion": "27.0"
+        },
+        "ownedSimulatorRemoved": true,
+        "unsignedArtifactPreserved": true,
+        "hostEntitlementsSupplied": false
+    },
+    "isolation": {
+        "primaryEditedOrSynced": false,
+        "masterChanged": false,
+        "hostedActorsChanged": false,
+        "humanResearchDevicesChanged": false,
+        "productionDeployed": false,
+        "providerFreshlyBuilt": false,
+        "independentProvenanceAttested": false,
+        "independentSecurityReviewed": false
+    },
+    "failureInterpretations": [
+        "Noncanonical temp alias refused before framework compiler; later owned canonical root passed.",
+        "Debug trampoline remained linker-signed despite unsigned settings; disable debug dylib and keep signature-absence verification.",
+        "Simulated iOS rights attached to Mac codesign caused launch refusals. Empty host-rights control launched, but native credentials were unavailable. Mach-O simulator sections plus entitlement-free host signing passed.",
+        "Cold Directory and AuthSession each verify: the one-request fixture expectation refused a correct two-request run. Source-inspected exact two expectation then passed.",
+        "First temporary type config could not resolve Node/Vite types; the second lacked Vite ImportMeta declarations. Explicit local type roots and Vite declaration include passed without source changes.",
+        "Early embeddedInMachO flags were requested configuration, not measured evidence; final helper verifies exact XML/DER section hashes.",
+        "Earlier failed UI-run intent booleans are not evidence of execution; final realWkWebViewCapacitorSdk becomes true only after native pass."
+    ],
+    "readiness": [
+        {
+            "gate": "Fresh unregistered Research startup",
+            "status": "passed-local-synthetic-auth",
+            "evidence": "artifacts.uiRun"
+        },
+        {
+            "gate": "Protected setup and PM view/send/receive through actual SDK/native page",
+            "status": "unrun",
+            "next": "Fresh owned local fixture; do not reset spent hosted or human actors."
+        },
+        {
+            "gate": "Full Thalassa router and live legacy/push cutover",
+            "status": "not-integrated"
+        },
+        {
+            "gate": "Device/prekey renewal replacement retention recovery",
+            "status": "incomplete"
+        },
+        {
+            "gate": "Independent PostgreSQL concurrency and adversarial acceptance",
+            "status": "incomplete"
+        },
+        {
+            "gate": "Physical iPhone/iPad matrix",
+            "status": "partial-older-candidate-human-gate"
+        },
+        {
+            "gate": "Dependency licence/provenance obligations",
+            "status": "open"
+        },
+        {
+            "gate": "Independent security review",
+            "status": "uncommissioned-new-authority-needed"
+        }
+    ],
+    "limits": [
+        "One fresh owned simulator per run, no physical endpoints. Controlled DOM actions are not human visual or identity acceptance.",
+        "No server receives these login requests; the real SDK and native verifier use local responses. No E2EE message, peer enrollment, protection or PM capability is issued.",
+        "Eight guard groups are fixed checked conditions, not eight dynamically counted test assertions. Native method counts are reported separately.",
+        "Mach-O helper measures bytes and bounded geometry only, not signature grants, full loader semantics or independent binary provenance.",
+        "The ordinary unflagged Research compile packages isolated test web assets, not a usable production Thalassa build.",
+        "Existing physical signer pins intentionally reject modified source; no repin/signing/phone update is authorized by this slice."
+    ]
+}
