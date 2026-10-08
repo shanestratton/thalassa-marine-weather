@@ -129,8 +129,13 @@
     .today-main .today-col-b .today-stops > li:nth-child(3) { display: block; }
 }
 .today-foot { flex-shrink: 0; border-top: 1px solid #ffffff14; }
-.today-foot-row { display: flex; justify-content: space-between; gap: 4px; }
-.today-link { min-height: 44px; padding: 0 4px; color: #67e8f9; font-size: 0.8125rem; font-weight: 650; }
+.today-foot-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.today-link { min-height: 44px; padding: 0 4px; color: #67e8f9; font-size: 0.8125rem; font-weight: 650; line-height: 1.2; }
+/* All places keeps its line (it wraps only at large text); a long warnings
+   issuer takes two, right-aligned. Neither leaves its arrow alone. */
+.today-foot-row .today-link:first-child { flex: 0 0 auto; max-width: 50%; text-align: left; }
+.today-foot-row .today-link:last-child { min-width: 0; text-align: right; }
+.today-nowrap { white-space: nowrap; }
 .today-link:disabled,
 .today-icon:disabled { opacity: 0.45; }
 .today-credit { margin: 0; color: #94a3b8; font-size: 0.6875rem; line-height: 1.273; }

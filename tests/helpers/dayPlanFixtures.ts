@@ -74,6 +74,11 @@ export const tradeBlock = (from = Math.floor(NOW / H) * H) =>
 export const blowBlock = (from = Math.floor(NOW / H) * H) =>
     pointBlock(from, (m) => ({ kts: 28 + (m % 5), dir: 135, gust: 38 }));
 
+/** The models split: seven members 9 to 24 kn from the south-east, gusts 4 kn over each. */
+export const SPLIT_KTS = [9, 11, 14, 16, 18, 21, 24];
+export const splitBlock = (from = Math.floor(NOW / H) * H) =>
+    pointBlock(from, (m) => ({ kts: SPLIT_KTS[m], dir: 135, gust: SPLIT_KTS[m] + 4 }));
+
 export function routeForecast(
     model: string,
     coords: readonly LatLon[],
@@ -106,9 +111,18 @@ export function routeForecast(
     };
 }
 
-export function routeSpread(coords: readonly LatLon[], kts = 14, from?: number, fetchedAt = NOW): RouteSpread {
+/** The five route models, `kts` for the first and `step` more for each after it. */
+export function routeSpread(
+    coords: readonly LatLon[],
+    kts = 14,
+    from?: number,
+    fetchedAt = NOW,
+    step = 0.5,
+): RouteSpread {
     const members: Record<string, RouteForecast> = {};
-    ROUTE_MODELS.forEach((model, i) => (members[model] = routeForecast(model, coords, kts + i * 0.5, from, fetchedAt)));
+    ROUTE_MODELS.forEach(
+        (model, i) => (members[model] = routeForecast(model, coords, kts + i * step, from, fetchedAt)),
+    );
     return { asked: [...ROUTE_MODELS], members, missing: [], fetchedAt };
 }
 
@@ -168,7 +182,7 @@ export function osmAnchorage(node: number, name: string, at: LatLon, retrievedAt
     };
 }
 
-export type DayPlanScenario = 'normal' | 'over' | 'offline' | 'failed';
+export type DayPlanScenario = 'normal' | 'split' | 'over' | 'offline' | 'failed';
 
 /**
  * Every source the loader reads, answered at once from synthetic data. The
@@ -194,7 +208,15 @@ export function fakeTodayDeps(
         querySpread: async () =>
             scenario === 'failed'
                 ? { atmos: null, marine: null }
-                : { atmos: scenario === 'over' ? blowBlock(from) : tradeBlock(from), marine: null },
+                : {
+                      atmos:
+                          scenario === 'over'
+                              ? blowBlock(from)
+                              : scenario === 'split'
+                                ? splitBlock(from)
+                                : tradeBlock(from),
+                      marine: null,
+                  },
         loadAtlas: async () => options.atlas ?? [],
         loadReferenceTile: async () => ({ points: [...(options.osm ?? [])], stale: false }),
         loadCoastline: async () => null,
@@ -208,7 +230,9 @@ export function fakeTodayDeps(
                       tideGUIDetails: { stationName: 'Harbour Gauge', isSecondary: false },
                   },
         loadCyclones: async () => [],
-        loadRouteSpread: async (coords) => routeSpread(coords, kts, from, now),
+        // Split along the route too: the five route models 9 to 24 kn.
+        loadRouteSpread: async (coords) =>
+            scenario === 'split' ? routeSpread(coords, 9, from, now, 3.75) : routeSpread(coords, kts, from, now),
         loadRouteForecast: async (coords, model) => routeForecast(model, coords, kts, from, now),
         loadRouteSea: async (coords) => routeSea(coords, 0.5, from),
         loadTideCurve: async () => null,

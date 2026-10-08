@@ -359,7 +359,7 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                                     disabled={!view}
                                     onClick={() => setScreen('places')}
                                 >
-                                    All places ({allCount}) ›
+                                    All places <span className="today-nowrap">({allCount}) ›</span>
                                 </button>
                                 <button
                                     type="button"
@@ -367,7 +367,9 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                                     aria-label={`${warnings.name} warnings, opens outside the app`}
                                     onClick={() => void openExternalUrl(warnings.url)}
                                 >
-                                    {warnings.shortName} warnings ↗
+                                    {/* A long issuer name ("MeteoAlarm", "Environment Canada")
+                                        wraps before "warnings ↗", never before the arrow. */}
+                                    {warnings.shortName} <span className="today-nowrap">warnings ↗</span>
                                 </button>
                             </div>
                             <p className="today-credit" data-testid="day-plan-credit">

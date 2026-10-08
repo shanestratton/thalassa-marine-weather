@@ -13,7 +13,18 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  * only the body between the header and the footer may. Two stops under 640 px
  * tall, three above; two columns in phone landscape. Every control is a 44 pt
  * target and nothing overflows sideways.
+ *
+ * Every mode the fixture has is measured at every size: an ordinary day at
+ * Airlie Beach, a day the models split, a day over her limits, offline, no
+ * position, the default boat, too late for today (opened at 16:00), Nouméa
+ * (worldwide, no Queensland atlas) and Tromsø under the midnight sun. The
+ * phone's own clock is set to London, half a world from Airlie and Nouméa and
+ * an hour behind Tromsø, and every time a stop row shows must sit inside the
+ * light on the PLACE's clock, from the earliest she can leave there.
  */
+
+// The phone's clock, deliberately not the place's.
+test.use({ timezoneId: 'Europe/London' });
 
 const sizes = [
     { name: '320x568', width: 320, height: 568, query: '', stops: 2, mayScroll: false },
@@ -24,7 +35,75 @@ const sizes = [
     { name: 'large text 320x568', width: 320, height: 568, query: '&largeText', stops: 2, mayScroll: true },
     { name: 'large text 390x844', width: 390, height: 844, query: '&largeText', stops: 3, mayScroll: true },
 ];
-const modes = ['normal', 'default-boat', 'over', 'offline', 'no-position', 'noumea'] as const;
+const modes = [
+    'normal',
+    'split',
+    'over',
+    'offline',
+    'no-position',
+    'default-boat',
+    'too-late',
+    'noumea',
+    'tromso',
+] as const;
+type Mode = (typeof modes)[number];
+
+/**
+ * Each place's own clock: the facts line's light (first and last light, or
+ * Tromsø's 06:00–20:00 planning day under the midnight sun) and the earliest a
+ * stop row may say "Leave", now + 30 min rounded up to the hour the sweep runs
+ * on. Opened at 06:30 at Airlie Beach (AEST), 07:30 at Nouméa (UTC+11), 08:00
+ * at Tromsø (CEST); too late opens on tomorrow, from first light.
+ */
+const AIRLIE = { facts: /^☀ (05:\d\d)–(18:\d\d) · /, leaveFrom: '07:00' };
+const PLACE_CLOCK: Record<
+    Exclude<Mode, 'no-position'>,
+    { facts: RegExp; leaveFrom: string | null; light?: string[] }
+> = {
+    normal: AIRLIE,
+    split: AIRLIE,
+    over: AIRLIE,
+    offline: AIRLIE,
+    'default-boat': AIRLIE,
+    'too-late': { facts: AIRLIE.facts, leaveFrom: null },
+    noumea: { facts: /^☀ (05:\d\d)–(18:\d\d) · /, leaveFrom: '08:00' },
+    tromso: {
+        facts: /^☀ Light all day: plan capped at 14 h · No tide prediction here$/,
+        leaveFrom: '09:00',
+        light: ['06:00', '20:00'],
+    },
+};
+
+/**
+ * The visible stop rows against the place's light: each leaves between the
+ * earliest she can and last light, and a row that is not over her limits is
+ * home by last light (an over row may say "home 19:14": that is its reason).
+ * Returns what is off the place's clock.
+ */
+async function placeClockIssues(page: Page, mode: Exclude<Mode, 'no-position'>): Promise<string[]> {
+    const clock = PLACE_CLOCK[mode];
+    const facts = (await page.getByTestId('day-plan-facts').textContent())?.trim() ?? '';
+    const match = clock.facts.exec(facts);
+    if (!match) return [`facts "${facts}" are not on the place's clock`];
+    const [first, last] = clock.light ?? [match[1], match[2]];
+    const from = clock.leaveFrom && clock.leaveFrom > first ? clock.leaveFrom : first;
+    const rows = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('.today-main .today-stops > li')]
+            .filter((li) => getComputedStyle(li).display !== 'none')
+            .map((li) => ({
+                glyph: li.querySelector('.today-stop-glyph')?.textContent?.trim() ?? '',
+                line: li.querySelector('.today-stop-l2')?.textContent ?? '',
+            })),
+    );
+    const issues: string[] = [];
+    for (const { glyph, line } of rows) {
+        const [leave, ...rest] = line.match(/\b\d\d:\d\d\b/g) ?? [];
+        if (leave && (leave < from || leave > last)) issues.push(`"${line}": leaves ${leave}, outside ${from}–${last}`);
+        if (glyph !== '✕')
+            for (const time of rest) if (time > last) issues.push(`"${line}" (${glyph}): ${time} is after ${last}`);
+    }
+    return issues;
+}
 
 async function open(page: Page, size: { width: number; height: number }, query: string) {
     const errors: string[] = [];
@@ -86,6 +165,31 @@ function layoutIssues(page: Page, mayScroll: boolean) {
                     `${control.getAttribute('aria-label') ?? control.textContent?.trim()} is ${r.width}×${r.height}`,
                 );
         }
+        // A link that wraps never leaves its › or ↗ alone on a line ("All places (3)" / "›").
+        // (A stop row's chevron is its own centred column, not the end of a line.)
+        for (const control of card.querySelectorAll<HTMLElement>('button:not(.today-stop)')) {
+            if (!control.getClientRects().length) continue;
+            const chars: [Text, number][] = [];
+            const walker = document.createTreeWalker(control, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null)
+                for (let i = 0; i < node.data.length; i++) if (node.data[i].trim()) chars.push([node, i]);
+            const last = chars[chars.length - 1];
+            const before = chars[chars.length - 2];
+            if (!last || !before || !/[›↗]/.test(last[0].data[last[1]])) continue;
+            const bottom = ([node, i]: [Text, number]) => {
+                const range = document.createRange();
+                range.setStart(node, i);
+                range.setEnd(node, i + 1);
+                return range.getBoundingClientRect().bottom;
+            };
+            if (Math.abs(bottom(last) - bottom(before)) > 4)
+                issues.push(`"${control.textContent?.trim()}" leaves its ${last[0].data[last[1]]} alone on a line`);
+        }
+        // The stop's name is what she is looking for: the shelter word gives way, never the name.
+        if (!mayScroll)
+            for (const name of card.querySelectorAll<HTMLElement>('.today-stop-name'))
+                if (name.getClientRects().length && name.scrollWidth > name.clientWidth + 1)
+                    issues.push(`the stop name "${name.textContent}" is cut`);
         if (document.documentElement.scrollWidth > innerWidth) issues.push('the page scrolls sideways');
         if (card.scrollWidth > card.clientWidth + 1) issues.push('the card overflows sideways');
         return issues;
@@ -111,8 +215,15 @@ for (const size of sizes) {
                     await expect(dialog.getByRole('button', { name, exact: true })).toBeVisible();
             } else {
                 await expect(dialog.getByRole('list', { name: 'The day' }).getByRole('listitem')).toHaveCount(3);
-                await expect(dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first()).toBeVisible();
+                const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
+                await expect(stops.first()).toBeVisible();
                 await expect.poll(() => visibleStops(page)).toBe(size.stops);
+                // Measured once the route forecasts are in: the rows at their longest.
+                await expect(stops.first().locator('.today-stop-l2')).toHaveText(
+                    mode === 'offline'
+                        ? /weather not checked$/
+                        : /^Leave \d\d:\d\d · there \d\d:\d\d · home \d\d:\d\d$/,
+                );
                 await expect(dialog.getByTestId('day-plan-credit')).toContainText('Not a clearance');
             }
             if (mode === 'default-boat')
@@ -121,7 +232,27 @@ for (const size of sizes) {
                 ).toBeVisible();
             if (mode === 'offline')
                 await expect(dialog.getByText('Offline: light and cached tides only')).toBeVisible();
+            // Tromsø's OpenStreetMap cells are three days old: used, and dated.
+            if (mode === 'tromso')
+                await expect(dialog.getByText('Map data from 18 Jun', { exact: true })).toBeVisible();
             if (mode === 'over') await expect(dialog.getByTestId('day-plan-headline')).toContainText('Stay put today');
+            if (mode === 'split') {
+                await expect(dialog.getByTestId('day-plan-headline')).toHaveText(/^Models split /);
+                // A split hour caps the part at Near: never Inside.
+                await expect(dialog.locator('.today-cell[data-level="inside"]')).toHaveCount(0);
+            }
+            if (mode === 'too-late') {
+                await expect(dialog.getByTestId('day-plan-headline')).toHaveText(
+                    /^Too late for a day out: last light 18:\d\d\. Showing tomorrow\.$/,
+                );
+                await expect(
+                    dialog.getByRole('group', { name: 'Day' }).getByRole('button', { pressed: true }),
+                ).toHaveText(/Fri$/);
+            }
+            if (mode !== 'no-position') {
+                await expect(dialog.getByTestId('day-plan-facts')).toHaveText(PLACE_CLOCK[mode].facts);
+                expect(await placeClockIssues(page, mode)).toEqual([]);
+            }
             if (size.width === 844)
                 // Two columns: the day on the left, the stops on the right.
                 expect(
@@ -137,19 +268,22 @@ for (const size of sizes) {
     }
 }
 
-for (const size of sizes.filter((s) => !s.mayScroll && s.width < 844)) {
+for (const size of sizes.filter((s) => !s.mayScroll)) {
     test(`the nested screens are centred and clear of the tab bar at ${size.name}`, async ({ page }) => {
         const errors = await open(page, size, `&mode=default-boat${size.query}`);
         const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
         const first = dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first();
-        await expect(first).toBeVisible();
+        await expect(first.locator('.today-stop-l2')).toHaveText(/^Leave /);
 
-        // The stop's detail fits outright at ordinary text, with its leave chips and both buttons.
+        // The stop's detail fits outright at ordinary text from 320 x 568 up, with
+        // its leave chips and both buttons; in phone landscape it may scroll inside
+        // itself, buttons whole. Its times are Airlie Beach's, not the phone's.
         await first.click();
         const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot on chart' }) });
         await expect(detail.getByRole('list', { name: 'How the day goes' })).toBeVisible();
         await expect(detail.getByRole('group', { name: 'Leave at' })).toBeVisible();
-        expect(await layoutIssues(page, false)).toEqual([]);
+        await expect(detail.locator('.today-sub')).toHaveText(/ · times in AEST$/);
+        expect(await layoutIssues(page, size.height < 568)).toEqual([]);
         await detail.getByRole('button', { name: 'Back', exact: true }).click();
 
         for (const [opener, name] of [
@@ -164,6 +298,29 @@ for (const size of sizes.filter((s) => !s.mayScroll && s.width < 844)) {
             await nested.getByRole('button', { name: 'Close', exact: true }).click();
             await expect(nested).toHaveCount(0);
         }
+        expect(errors).toEqual([]);
+    });
+}
+
+for (const size of [sizes[0], sizes[2]]) {
+    test(`an overnight stay fits ${size.name}, and so does its stop's detail`, async ({ page }) => {
+        const errors = await open(page, size, '&mode=normal');
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        await dialog.getByRole('combobox', { name: 'Stay' }).selectOption('overnight');
+        await expect(dialog.locator('.today-stay')).toContainText('Overnight');
+        const first = dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first();
+        await expect(first.locator('.today-stop-l2')).toHaveText(
+            /^Leave \d\d:\d\d · there \d\d:\d\d · (about )?[\d.]+ NM$/,
+        );
+        expect(await layoutIssues(page, false)).toEqual([]);
+        expect(await placeClockIssues(page, 'normal')).toEqual([]);
+
+        await first.click();
+        const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot on chart' }) });
+        await expect(detail.getByRole('list', { name: 'How the day goes' })).toContainText(
+            /At anchor \d\d:\d\d → 09:00 tomorrow/,
+        );
+        expect(await layoutIssues(page, false)).toEqual([]);
         expect(errors).toEqual([]);
     });
 }

@@ -18,19 +18,24 @@ please answer with whatever your recommendation is").
   routing choice keeps Auto disabled and says "Auto route (trial) is off. Turn
   it on in Settings → Preferences. Manual is ready." `calculateThalassaProposal`
   refuses in the same words before the engine runs, whoever asks.
-- **Plan Your Day.** A Pro tap with the switch off opens nothing and says "Plan
-  Your Day routes with Auto route (trial), which is off. Turn it on in Settings
-  → Preferences." Switched off while the planner is open, it shuts. The runtime
-  (`runDayPlanner`) refuses in those words before any status, reference or
-  routing work.
+- **Plan Your Day** (until build 124). A Pro tap with the switch off opened
+  nothing and said "Plan Your Day routes with Auto route (trial), which is off.
+  Turn it on in Settings → Preferences." Switched off while the planner was
+  open, it shut, and the runtime (`runDayPlanner`) refused in those words
+  before any status, reference or routing work. **Since build 124 (2026-10-08)
+  Plan Your Day no longer reads the switch:** the rebuilt planner ("Today on the
+  water", [PLAN_MY_DAY.md](PLAN_MY_DAY.md)) never routes, so the switch gates
+  the Auto workspace only. `PLAN_YOUR_DAY_TRIAL_OFF` and the runtime are gone.
 - **Unchanged.** Pro, signed in and installed charts still apply on top; a free
   account is still offered the upgrade first. The manual planner's ⚡ Auto route
   and the passage planner do not read the switch. To widen Auto to every
   tester later, default the switch on (or drop it) — a decision for Shane.
 - Tests: `tests/AutorouteTrialSwitch.test.tsx` (real settings store, closed by
-  default for a beta Pro account, open when switched on, Plan Your Day the
-  same), plus the switch cases in `tests/autoroutingThalassa.test.ts` and
-  `tests/dayPlannerRuntime.test.ts`.
+  default for a beta Pro account, open when switched on; since build 124 Plan
+  Your Day opens with the switch off and its entry imports neither the switch
+  nor the planner services), plus the switch cases in
+  `tests/autoroutingThalassa.test.ts`. `tests/dayPlannerRuntime.test.ts` went
+  with the runtime in build 124.
 
 ## Auto runs Thalassa's own router on the phone — 2026-10-01
 
@@ -74,9 +79,10 @@ runs through the manual ⚡ Auto route and the passage planner) through
   migration `20261001120000_saved_proposal_evidence_thalassa_origin.sql` is
   pushed. Until then saves stay on the device ("sync pending a server update").
   Older `sevencs-trial` rows still read.
-- **Plan My Day** routes each leg the same way. Catalogue trips with required
-  checkpoints are excluded per stop ("needs checkpoints Auto cannot follow
-  yet"); the rest of the plan still runs.
+- **Plan My Day** routed each leg the same way until build 124, which
+  stopped routing in the planner altogether. Catalogue trips with required
+  checkpoints were excluded per stop ("needs checkpoints Auto cannot follow
+  yet"); the rest of the plan still ran.
 
 ### Review fix-ups — 2026-10-01, later the same day
 
