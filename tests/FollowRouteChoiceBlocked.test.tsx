@@ -1,149 +1,186 @@
 /**
- * Blocked rows on the "Following a route?" sheet stay VISIBLE — disabled,
- * with the follow gate's reason on the row. Third design in four days:
- * pick-then-refuse (Shane 2026-08-10: "just show tracks that are ready to be
- * followed"), then hide-the-blocked (Shane 2026-08-13: "the saved routes do
- * not show up on the startup screen to select one"). Visible-but-disabled
- * is the synthesis this test pins down.
+ * Rows on the "Following a route?" sheet: a warning, not a wall (build 124).
+ *
+ * Design history, five versions now: pick-then-refuse (Shane 2026-08-10: "just
+ * show tracks that are ready to be followed"), hide-the-blocked (2026-08-13:
+ * "the saved routes do not show up"), show-them-disabled (2026-08-13: "i
+ * cannot actually accept it. it has no way of selecting"), tap-to-fix — and
+ * now three states, because the check itself kept getting lost and "punters
+ * just aren't going to use it" (2026-10-08):
+ *
+ *  - green: checked, follow on tap;
+ *  - amber: not checked (yet), follow on tap, the reason on the row and a
+ *    trailing "Check now";
+ *  - red: a real check found something nobody acknowledged. Two taps, the
+ *    same "tap again" pattern as Sail, and a trailing Review / Fix in tracer.
  */
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { FollowRouteChoice } from '../pages/log/LogSubComponents';
 import type { VoyageSummary } from '../services/shiplog/VoyageSummary';
+import type { TraceFollowStatus } from '../services/traceVerification';
 
 vi.mock('../pages/log/useEndpointNames', () => ({
-    useEndpointNames: () => ({ startLabel: 'Newport', endLabel: 'Tangalooma' }),
+    useEndpointNames: () => ({ startLabel: 'Cowes', endLabel: 'Lymington' }),
 }));
 
 const summary: VoyageSummary = {
     voyageId: 'plan-1',
-    entryCount: 12,
+    entryCount: 41,
     startedAt: '2026-08-01T00:00:00.000Z',
     endedAt: '2026-08-01T04:00:00.000Z',
-    totalDistanceNM: 18.4,
+    totalDistanceNM: 12.4,
     avgSpeedKts: 5.2,
     hasManual: false,
     isPlannedRoute: true,
     isImported: false,
-    firstLat: -27.2,
-    firstLon: 153.1,
-    lastLat: -27.18,
-    lastLon: 153.37,
+    firstLat: 50.766,
+    firstLon: -1.297,
+    lastLat: 50.754,
+    lastLon: -1.533,
     firstIsOnWater: true,
     landFraction: 0,
 };
 
-afterEach(cleanup);
+const amber: TraceFollowStatus = { tone: 'unchecked', code: 'aged', reason: 'Last checked 4 Sep' };
+const red: TraceFollowStatus = { tone: 'finding', code: 'finding', reason: 'Pins 14→15: crosses charted land' };
+const green: TraceFollowStatus = {
+    tone: 'checked',
+    code: 'ok',
+    reason: null,
+    checkedAt: '2026-10-03T09:00:00.000Z',
+};
 
-describe('FollowRouteChoice with a follow-gate refusal', () => {
-    const REASON = 'This traced route has no valid check for its current waypoints.';
+const main = () => screen.getByRole('button', { name: /^Cowes → Lymington/ });
 
-    it('is TAPPABLE and routes to the fix rather than sitting inert', () => {
-        // The row was disabled until 2026-08-13, which read as broken:
-        // "i cannot actually accept it. it has no way of selecting". A
-        // disabled control with explanatory microcopy is still a dead end —
-        // every refusal this gate issues is fixable in Route Tracer, so the
-        // row has to carry you there.
+afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+});
+
+describe('an amber row follows on the first tap', () => {
+    it('says why on the row, and the row tap picks', () => {
         const onPick = vi.fn();
-        const onCheckRoute = vi.fn();
-        render(
-            <FollowRouteChoice summary={summary} blockReason={REASON} onCheckRoute={onCheckRoute} onPick={onPick} />,
-        );
-        const row = screen.getByRole('button');
-        expect(row).not.toBeDisabled();
-        expect(row.textContent).toContain('Newport → Tangalooma');
-        expect(row.textContent).toContain(REASON);
-        expect(row.textContent).toContain('Route Tracer');
-
-        row.click();
-        // Goes to the fix, and never silently starts following an unchecked line.
-        expect(onCheckRoute).toHaveBeenCalledTimes(1);
-        expect(onPick).not.toHaveBeenCalled();
-    });
-
-    it('falls back to inert when no route out is supplied', () => {
-        const onPick = vi.fn();
-        render(<FollowRouteChoice summary={summary} blockReason={REASON} onPick={onPick} />);
-        const row = screen.getByRole('button');
-        expect(row).toBeDisabled();
-        row.click();
-        expect(onPick).not.toHaveBeenCalled();
-    });
-
-    it('stays pickable with no reason', () => {
-        const onPick = vi.fn();
-        render(<FollowRouteChoice summary={summary} blockReason={null} onPick={onPick} />);
-        const row = screen.getByRole('button');
-        expect(row).not.toBeDisabled();
-        row.click();
+        const onCheckNow = vi.fn();
+        render(<FollowRouteChoice summary={summary} followStatus={amber} onCheckNow={onCheckNow} onPick={onPick} />);
+        expect(main().textContent).toContain('Last checked 4 Sep');
+        expect(main()).not.toBeDisabled();
+        fireEvent.click(main());
         expect(onPick).toHaveBeenCalledTimes(1);
+        expect(onPick.mock.calls[0][0]).not.toBe(true);
+        expect(onCheckNow).not.toHaveBeenCalled();
+    });
+
+    it('Check now runs the check and does not follow', () => {
+        const onPick = vi.fn();
+        const onCheckNow = vi.fn();
+        render(<FollowRouteChoice summary={summary} followStatus={amber} onCheckNow={onCheckNow} onPick={onPick} />);
+        fireEvent.click(screen.getByRole('button', { name: /^Check now/ }));
+        expect(onCheckNow).toHaveBeenCalledTimes(1);
+        expect(onPick).not.toHaveBeenCalled();
+    });
+
+    it('while checking, shows progress and a Stop, and still follows on tap', () => {
+        const onPick = vi.fn();
+        const onStopCheck = vi.fn();
+        render(
+            <FollowRouteChoice
+                summary={summary}
+                followStatus={amber}
+                checking
+                checkingLabel="Checking… 12 of 41"
+                onCheckNow={vi.fn()}
+                onStopCheck={onStopCheck}
+                onPick={onPick}
+            />,
+        );
+        expect(main().textContent).toContain('Checking… 12 of 41');
+        fireEvent.click(screen.getByRole('button', { name: /^Stop/ }));
+        expect(onStopCheck).toHaveBeenCalledTimes(1);
+        fireEvent.click(main());
+        expect(onPick).toHaveBeenCalledTimes(1);
+    });
+
+    it('never nests a button inside a button', () => {
+        const { container } = render(
+            <FollowRouteChoice summary={summary} followStatus={amber} onCheckNow={vi.fn()} onPick={vi.fn()} />,
+        );
+        expect(container.querySelectorAll('button button')).toHaveLength(0);
+        expect(container.querySelectorAll('button')).toHaveLength(2);
     });
 });
 
-/**
- * The blocked row's call to action changed meaning once the check could run in
- * place. The FIRST tap now re-runs the hazard check here; only an outcome that
- * genuinely needs a person — a danger leg to acknowledge, a land crossing to
- * re-route — sends the skipper to the tracer. The label has to say which of
- * those two things the next tap will do, or the row is lying about itself.
- */
-describe('FollowRouteChoice — checking in place', () => {
-    const REASON2 = 'This route check is over a month old.';
-
-    it('offers to run the check here by default', () => {
-        render(
-            <FollowRouteChoice
-                summary={summary}
-                blockReason={REASON2}
-                onCheckRoute={() => {}}
-                checkLabel="Tap to check this route now →"
-                onPick={() => {}}
-            />,
-        );
-        expect(screen.getByText(/check this route now/i)).toBeTruthy();
+describe('a red row takes two taps, like Sail', () => {
+    it('the first tap arms and does not pick; the second picks, accepting the finding', () => {
+        const onPick = vi.fn();
+        render(<FollowRouteChoice summary={summary} followStatus={red} onFixInTracer={vi.fn()} onPick={onPick} />);
+        expect(main().textContent).toContain('Pins 14→15: crosses charted land');
+        fireEvent.click(main());
+        expect(onPick).not.toHaveBeenCalled();
+        expect(main().textContent).toContain('Tap again to follow anyway');
+        fireEvent.click(main());
+        expect(onPick).toHaveBeenCalledTimes(1);
+        expect(onPick).toHaveBeenCalledWith(true);
     });
 
-    it('redirects to the tracer only once the check has said it cannot decide alone', () => {
-        render(
-            <FollowRouteChoice
-                summary={summary}
-                blockReason={REASON2}
-                onCheckRoute={() => {}}
-                checkLabel="Tap to open it in Route Tracer →"
-                onPick={() => {}}
-            />,
-        );
-        expect(screen.getByText(/open it in Route Tracer/i)).toBeTruthy();
+    it('disarms after 4 s, so a later tap only arms again', () => {
+        vi.useFakeTimers();
+        const onPick = vi.fn();
+        render(<FollowRouteChoice summary={summary} followStatus={red} onPick={onPick} />);
+        fireEvent.click(main());
+        expect(main().textContent).toContain('Tap again to follow anyway');
+        act(() => {
+            vi.advanceTimersByTime(4_100);
+        });
+        expect(main().textContent).not.toContain('Tap again to follow anyway');
+        fireEvent.click(main());
+        expect(onPick).not.toHaveBeenCalled();
     });
 
-    it('shows live progress rather than an indefinite spinner', () => {
-        // A cold recheck runs tens of seconds — a passage-scale route built 18
-        // windows in 62 s. An unlabelled wait that long reads as a hang.
+    it('offers Review when the finding can be acknowledged here', () => {
+        const onReview = vi.fn();
+        const onPick = vi.fn();
         render(
             <FollowRouteChoice
                 summary={summary}
-                blockReason={REASON2}
-                onCheckRoute={() => {}}
-                checking
-                checkingLabel="Checking 6 of 18"
-                onPick={() => {}}
+                followStatus={{ ...red, reason: 'Pins 3→4: charted wreck' }}
+                onReview={onReview}
+                onFixInTracer={vi.fn()}
+                onPick={onPick}
             />,
         );
-        expect(screen.getAllByText(/Checking 6 of 18/).length).toBeGreaterThan(0);
+        fireEvent.click(screen.getByRole('button', { name: /^Review/ }));
+        expect(onReview).toHaveBeenCalledTimes(1);
+        expect(onPick).not.toHaveBeenCalled();
     });
 
-    it('stays un-tappable while its own check is running', () => {
-        const onCheckRoute = vi.fn();
+    it('otherwise offers Fix in tracer', () => {
+        const onFixInTracer = vi.fn();
         render(
-            <FollowRouteChoice
-                summary={summary}
-                blockReason={REASON2}
-                onCheckRoute={onCheckRoute}
-                checking
-                onPick={() => {}}
-            />,
+            <FollowRouteChoice summary={summary} followStatus={red} onFixInTracer={onFixInTracer} onPick={vi.fn()} />,
         );
-        expect(screen.getByRole('button').hasAttribute('disabled')).toBe(true);
+        fireEvent.click(screen.getByRole('button', { name: /^Fix in tracer/ }));
+        expect(onFixInTracer).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('a green row is plain', () => {
+    it('shows when it was checked, has no trailing action, and picks on tap', () => {
+        const onPick = vi.fn();
+        const { container } = render(<FollowRouteChoice summary={summary} followStatus={green} onPick={onPick} />);
+        expect(main().textContent).toContain('12.4 NM · 41 pts · checked 3 Oct');
+        expect(container.querySelectorAll('button')).toHaveLength(1);
+        fireEvent.click(main());
+        expect(onPick).toHaveBeenCalledTimes(1);
+    });
+
+    it('an ordinary planner route (no trace, no status) is pickable with no tint', () => {
+        const onPick = vi.fn();
+        render(<FollowRouteChoice summary={summary} followStatus={null} onPick={onPick} />);
+        expect(main().textContent).toContain('12.4 NM · 41 pts');
+        expect(main().textContent).not.toContain('checked');
+        fireEvent.click(main());
+        expect(onPick).toHaveBeenCalledTimes(1);
     });
 });

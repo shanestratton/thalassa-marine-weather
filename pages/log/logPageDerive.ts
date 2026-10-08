@@ -15,10 +15,11 @@ import {
 import { orderSavedRouteRows, type SavedRouteOrderable } from '../../services/savedRouteOrder';
 import {
     localTraceLinkByVoyageId,
-    savedTraceFollowBlockReason,
+    savedTraceFollowStatus,
     tripIdentityByTraceId,
     type TraceTripIdentity,
 } from '../../services/traceDirectUseGate';
+import type { TraceFollowStatus } from '../../services/traceVerification';
 import {
     groupTracesByTrip,
     legBadgeOrdinal,
@@ -38,16 +39,40 @@ import {
 export interface FollowSheetDeps {
     tripByTraceId: () => ReadonlyMap<string, TraceTripIdentity>;
     traceLinkByVoyageId: () => ReadonlyMap<string, string>;
-    blockReason: (savedRouteId: string) => string | null;
+    followStatus: (savedRouteId: string) => TraceFollowStatus | null;
     traces: () => readonly SavedTrace[];
 }
 
 const liveDeps: FollowSheetDeps = {
     tripByTraceId: tripIdentityByTraceId,
     traceLinkByVoyageId: localTraceLinkByVoyageId,
-    blockReason: savedTraceFollowBlockReason,
+    followStatus: savedTraceFollowStatus,
     traces: () => loadSavedTraces(),
 };
+
+export function sameFollowStatus(a: TraceFollowStatus | null, b: TraceFollowStatus | null): boolean {
+    return (
+        a === b ||
+        (!!a && !!b && a.tone === b.tone && a.code === b.code && a.reason === b.reason && a.checkedAt === b.checkedAt)
+    );
+}
+
+/** Re-read each row's status from the store after a check lands — the sheet
+ *  is a snapshot taken when it opened. Same array back when nothing moved. */
+export function refreshFollowSheetStatuses(
+    choices: readonly FollowSheetChoice[],
+    deps: Pick<FollowSheetDeps, 'followStatus'> = liveDeps,
+): FollowSheetChoice[] {
+    let changed = false;
+    const next = choices.map((choice) => {
+        if (!choice.savedRouteId) return choice;
+        const followStatus = deps.followStatus(choice.savedRouteId);
+        if (sameFollowStatus(followStatus, choice.followStatus)) return choice;
+        changed = true;
+        return { ...choice, followStatus };
+    });
+    return changed ? next : (choices as FollowSheetChoice[]);
+}
 
 /**
  * The Log is the factual record of where the boat has actually been.
@@ -101,8 +126,8 @@ export function derivePlannedRouteLinkIds(entries: readonly ShipLogEntry[]): Map
 }
 
 /**
- * EVERY planned route reaches the sheet; ones the follow gate refuses render
- * disabled with the gate's reason on the row.
+ * EVERY planned route reaches the sheet, each carrying its follow status
+ * (build 124: green / amber followable / red two-tap).
  *
  * Two link sources, because entries may not be resident on a fresh boot:
  * the entry rows when loaded, else the local trace store's own
@@ -128,7 +153,7 @@ export function buildFollowSheetChoices(
         return {
             ...choice,
             savedRouteId: sid ?? null,
-            blockReason: sid ? deps.blockReason(sid) : null,
+            followStatus: sid ? deps.followStatus(sid) : null,
             ...(trip ?? {}),
         };
     });

@@ -10,8 +10,14 @@ vi.mock('../services/enc/EncCellMetadata', () => ({
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { saveTrace } from '../services/routeTracer';
-import { evaluateTraceRelease } from '../services/traceVerification';
-import { localTraceLinkByVoyageId, tracedRouteDirectUseBlockReason } from '../services/traceDirectUseGate';
+import { evaluateTraceRelease, traceGeometryKey } from '../services/traceVerification';
+import { recordTraceCheckOutcome } from '../services/traceCheckOutcomes';
+import {
+    localTraceLinkByVoyageId,
+    savedTraceFollowStatus,
+    tracedRouteDirectUseBlockReason,
+    tracedRouteDirectUseStatus,
+} from '../services/traceDirectUseGate';
 
 const points = [
     { lat: -27.47, lon: 153.02 },
@@ -30,9 +36,43 @@ describe('traced route direct-use gate', () => {
         expect(tracedRouteDirectUseBlockReason({ points })).toBeNull();
     });
 
-    it('blocks a linked legacy trace without exact verification', () => {
+    // Build 124 (Shane 2026-10-08: "maybe just a warning rather than having to
+    // almost start again"): a missing check is AMBER — said on the row, never
+    // a wall. Only a real check's unacknowledged finding is red.
+    it('warns, and never blocks, a linked trace without a check', () => {
         const { trace } = saveTrace('Legacy trace', points);
-        expect(tracedRouteDirectUseBlockReason({ savedRouteId: trace.id, points })).toMatch(/no valid check/i);
+        const status = tracedRouteDirectUseStatus({ savedRouteId: trace.id, points });
+        expect(status).toMatchObject({ tone: 'unchecked', code: 'none', blocked: false });
+        expect(status.reason).toBe('Not checked yet');
+        expect(tracedRouteDirectUseBlockReason({ savedRouteId: trace.id, points })).toBeNull();
+    });
+
+    it('a trace that is not on this device is amber, not a refusal', () => {
+        const status = tracedRouteDirectUseStatus({ savedRouteId: 'trace-on-another-phone', points });
+        expect(status).toMatchObject({ tone: 'unchecked', blocked: false });
+        expect(savedTraceFollowStatus('trace-on-another-phone')).toMatchObject({ tone: 'unchecked' });
+    });
+
+    it('a red finding blocks until the skipper accepts it, then follows', () => {
+        const { trace } = saveTrace('Wreck run', points);
+        recordTraceCheckOutcome(trace.id, {
+            geometryKey: traceGeometryKey(points),
+            draftM: 1.8,
+            draftAssumed: false,
+            encFingerprint: 'chart-set-v1',
+            at: new Date().toISOString(),
+            kind: 'finding',
+            reason: 'Pins 1→2: charted wreck',
+            legs: [{ from: 1, to: 2, message: 'charted wreck' }],
+        });
+        const red = tracedRouteDirectUseStatus({ savedRouteId: trace.id, points });
+        expect(red).toMatchObject({ tone: 'finding', blocked: true, reason: 'Pins 1→2: charted wreck' });
+        expect(tracedRouteDirectUseStatus({ savedRouteId: trace.id, points }, { acceptFinding: true })).toMatchObject({
+            tone: 'finding',
+            blocked: false,
+        });
+        expect(tracedRouteDirectUseBlockReason({ savedRouteId: trace.id, points })).toBe('Pins 1→2: charted wreck');
+        expect(savedTraceFollowStatus(trace.id).tone).toBe('finding');
     });
 
     it('allows only the checked geometry under the current draft and charts', () => {
@@ -66,22 +106,21 @@ describe('traced route direct-use gate', () => {
 
         expect(tracedRouteDirectUseBlockReason({ savedRouteId: trace.id, points }, now)).toBeNull();
 
-        // Geometry that was NOT the checked line stays blocked — Log follow
-        // steers route.points, so allowing this would verify one line and
-        // follow another.
-        const divergent = tracedRouteDirectUseBlockReason(
+        expect(tracedRouteDirectUseStatus({ savedRouteId: trace.id, points }, { nowMs: now })).toMatchObject({
+            tone: 'checked',
+            blocked: false,
+        });
+
+        // Geometry that was NOT the checked line is amber, naming the real
+        // cause: the trace IS checked, and re-checking cannot change a
+        // voyage's recorded track (Shane 2026-08-07). Never "check it again".
+        const divergent = tracedRouteDirectUseStatus(
             { savedRouteId: trace.id, points: [points[0], { ...points[1], lon: points[1].lon + 0.01 }] },
-            now,
+            { nowMs: now },
         );
-        expect(divergent).not.toBeNull();
-        // ...but it must name the real cause. This case previously reported
-        // "no valid check for its current waypoints — open Route Tracer and
-        // check it again", which is false (the trace IS checked) and
-        // unsatisfiable (re-checking cannot change a voyage's recorded track).
-        // LogPage builds route.points from ship-log ENTRIES, so a linked
-        // voyage hits this every time.
-        expect(divergent).toMatch(/recorded track/i);
-        expect(divergent).not.toMatch(/check it again/i);
+        expect(divergent).toMatchObject({ tone: 'unchecked', blocked: false });
+        expect(divergent.reason).toMatch(/recorded track/i);
+        expect(divergent.reason).not.toMatch(/check it again/i);
     });
 });
 

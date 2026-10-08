@@ -76,7 +76,13 @@ import {
     isAuthIdentityScopeCurrent,
     type AuthIdentityScope,
 } from './authIdentityScope';
-import { normaliseTraceVerification, traceVerificationSummary, type TraceVerification } from './traceVerification';
+import {
+    normaliseTraceVerification,
+    serialiseTraceVerificationNote,
+    traceVerificationSummary,
+    type TraceVerification,
+} from './traceVerification';
+import { clearTraceCheckOutcome } from './traceCheckOutcomes';
 import {
     normaliseAutoroutingProposalEvidence,
     type SavedAutoroutingProposalEvidence,
@@ -2512,6 +2518,12 @@ export function retroBadgeFirstLeg(tripId: string): SavedTrace | null {
  *  point 0 moves — the walk stops). Returns a human line for the toast, or
  *  null when nothing needed healing. */
 export function healTripChain(saved: SavedTrace): string | null {
+    return healTripChainDetailed(saved)?.message ?? null;
+}
+
+/** healTripChain plus WHICH leg it moved — that leg's check is void now, so
+ *  the caller queues it for a background re-check (build 124). */
+export function healTripChainDetailed(saved: SavedTrace): { message: string; healedId: string } | null {
     const tripId = saved.tripId ?? undefined;
     if (!tripId) return null;
     const ordinal = saved.legOrdinal ?? legBadgeOrdinal(saved.name);
@@ -2527,7 +2539,7 @@ export function healTripChain(saved: SavedTrace): string | null {
         legOrdinal: next.legOrdinal,
         destName: next.destName,
     });
-    return `"${next.name}" start moved to match`;
+    return { message: `"${next.name}" start moved to match`, healedId: next.id };
 }
 
 export function loadSavedTraces(scope: AuthIdentityScope = getAuthIdentityScope()): SavedTrace[] {
@@ -2634,6 +2646,73 @@ export function adoptServerRoute(
     }
     notifySavedRoutesChanged(scope);
     return trace;
+}
+
+const PASSAGE_VOYAGE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Bank a finished route check against a saved trace — the ONE safe write for
+ * every check that lands outside the tracer's Save (build 124: the Log's ack
+ * report, the tracer's auto-bank, the background re-check, server recovery).
+ *
+ *  - re-reads the store, so a check never lands on pins that moved while it
+ *    ran (the envelope must still prove the CURRENT points);
+ *  - never replaces a newer check with an older one;
+ *  - says when storage refused it, rather than letting the row stay amber
+ *    after a "successful" check on a full phone;
+ *  - clears an older could-not-check record, and refreshes the passage
+ *    mirror's durable copy WITHOUT timing, so the planned departure stands.
+ *
+ * LOCAL ONLY, and the route's own updatedAt is kept. The envelope is not a
+ * synced column, and a bank is not an edit: going through saveTrace bumped
+ * updatedAt and upserted this device's pins, so an automatic bank on a phone
+ * that had not synced since another device moved (or deleted) the route won
+ * last-writer-wins and reverted it. syncSavedRoutes carries the envelope
+ * across its own round-trip while the pins still match.
+ */
+export function bankTraceVerification(
+    traceId: string,
+    value: TraceVerification,
+    scope: AuthIdentityScope = getAuthIdentityScope(),
+    opts: { refreshMirror?: boolean } = {},
+): { banked: boolean; reason?: 'scope' | 'gone' | 'moved' | 'older' | 'storage' } {
+    if (!isAuthIdentityScopeCurrent(scope)) return { banked: false, reason: 'scope' };
+    const all = loadSavedTraces(scope);
+    const current = all.find((trace) => trace.id === traceId);
+    if (!current) return { banked: false, reason: 'gone' };
+    const verification = normaliseTraceVerification(value, current.points);
+    if (!verification) return { banked: false, reason: 'moved' };
+    if (current.verification && Date.parse(current.verification.checkedAt) >= Date.parse(verification.checkedAt)) {
+        return { banked: false, reason: 'older' };
+    }
+    let persisted = false;
+    try {
+        writeSavedTraces(
+            all.map((trace) => (trace.id === traceId ? { ...trace, verification } : trace)),
+            scope,
+        );
+        const stored = loadSavedTraces(scope).find((trace) => trace.id === traceId);
+        persisted =
+            normaliseTraceVerification(stored?.verification, stored?.points)?.checkedAt === verification.checkedAt;
+    } catch {
+        /* quota — persisted stays false */
+    }
+    if (!persisted) return { banked: false, reason: 'storage' };
+    clearTraceCheckOutcome(traceId, scope, verification.checkedAt);
+    notifySavedRoutesChanged(scope);
+    const voyageId = current.passageVoyageId?.trim();
+    if (opts.refreshMirror !== false && voyageId && PASSAGE_VOYAGE_UUID.test(voyageId)) {
+        const note = serialiseTraceVerificationNote(verification);
+        void import('./VoyageService')
+            .then(({ refreshSavedRouteVoyageVerification }) =>
+                refreshSavedRouteVoyageVerification(voyageId, traceId, note),
+            )
+            .then((result) => {
+                if (result?.error) log.warn(`check banked; passage mirror not refreshed (${result.error})`);
+            })
+            .catch((error) => log.warn('check banked; passage mirror refresh failed:', error));
+    }
+    return { banked: true };
 }
 
 /** persisted=false means storage refused (quota) — tell the skipper, don't

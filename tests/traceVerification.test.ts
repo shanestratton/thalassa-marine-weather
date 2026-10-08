@@ -195,6 +195,10 @@ describe('land crossings can never be acknowledged (Shane 2026-08-10)', () => {
 });
 
 describe('traceFollowBlockReason — following an accepted route stays gentle', () => {
+    // Build 124 (Shane 2026-10-08): the follow gate is a warning, not a wall.
+    // No check, a changed keel and an old check are all AMBER now — said on
+    // the row by traceFollowStatus (tests/traceFollowStatus.test.ts) — so the
+    // block-reason wrapper only ever returns a real check's red finding.
     const followCtx = { draftM: 1.8, draftAssumed: false, nowMs: Date.parse('2026-08-10T00:00:00.000Z') };
     const freshVerification = () =>
         evaluateTraceRelease(points, 'ready', [verdict('caution')], new Set(), context, '2026-08-09T00:00:00.000Z')
@@ -206,18 +210,10 @@ describe('traceFollowBlockReason — following an accepted route stays gentle', 
         expect(traceFollowBlockReason(freshVerification(), points, followCtx)).toBeNull();
     });
 
-    it('still refuses when there is no valid check for the steered geometry', () => {
+    it('no longer walls a moved line, a changed keel or a month-old check', () => {
         const moved = [points[0], { lat: -27.6, lon: 153.2 }];
-        expect(traceFollowBlockReason(freshVerification(), moved, followCtx)).toMatch(/no valid check/i);
-    });
-
-    it('still refuses when the keel changed since the check', () => {
-        expect(traceFollowBlockReason(freshVerification(), points, { ...followCtx, draftM: 2.6 })).toMatch(
-            /draft has changed/i,
-        );
-    });
-
-    it('still refuses a check older than 30 days', () => {
+        expect(traceFollowBlockReason(freshVerification(), moved, followCtx)).toBeNull();
+        expect(traceFollowBlockReason(freshVerification(), points, { ...followCtx, draftM: 2.6 })).toBeNull();
         const old = evaluateTraceRelease(
             points,
             'ready',
@@ -226,6 +222,6 @@ describe('traceFollowBlockReason — following an accepted route stays gentle', 
             context,
             '2026-06-01T00:00:00.000Z',
         ).verification;
-        expect(traceFollowBlockReason(old, points, followCtx)).toMatch(/over a month old/i);
+        expect(traceFollowBlockReason(old, points, followCtx)).toBeNull();
     });
 });

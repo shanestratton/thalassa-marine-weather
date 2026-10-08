@@ -93,7 +93,7 @@ const deps = (traces: SavedTrace[]): FollowSheetDeps => ({
             ],
         ]),
     traceLinkByVoyageId: () => new Map(),
-    blockReason: () => null,
+    followStatus: () => null,
     traces: () => traces,
 });
 
