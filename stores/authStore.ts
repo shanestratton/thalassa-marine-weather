@@ -103,7 +103,34 @@ export const useAuthStore = create<AuthState>()((set) => ({
     },
 }));
 
+/**
+ * What the auth client's own SIGNED_OUT does to the app, for a session that
+ * could not be signed out through Supabase (build 124: an Apple sign-in whose
+ * last step failed while offline): no identity scope, no user, no Sentry
+ * user, no push identity, browse-mode storage, as an Apple revocation leaves
+ * them. Idempotent, so it is safe after a SIGNED_OUT as well.
+ */
+export async function fenceSignedOutOnThisDevice(): Promise<void> {
+    setAuthIdentityScope(null);
+    useAuthStore.setState({ user: null, authChecked: true });
+    setSentryUser(null);
+    const cleanup = await Promise.allSettled([PushNotificationService.clearUser(), initLocalDatabase(null)]);
+    for (const step of cleanup) {
+        if (step.status === 'rejected') {
+            console.error('[Auth] Signed-out fence cleanup failed:', step.reason);
+        }
+    }
+}
+
 let nativeAppleRevocationHandling: Promise<void> | null = null;
+
+/**
+ * Counts Supabase SIGNED_IN events. Once a local sign-out has removed a
+ * session, the auth client has nothing left to recover or refresh, so a
+ * SIGNED_IN after that point can only be a new sign-in (build 124: a late
+ * Apple revocation must not sign out the retry that followed it).
+ */
+let signedInEvents = 0;
 
 function appleSubjects(user: User): string[] {
     return (user.identities ?? [])
@@ -130,6 +157,10 @@ export function handleNativeAppleCredentialRevocation(appleUserId: string): Prom
             return;
         }
 
+        const revokedUserId = currentUser.id;
+        // Set once the local sign-out has actually removed the revoked session.
+        let signedInEventsAfterSignOut: number | null = null;
+
         setAuthIdentityScope(null);
         useAuthStore.setState({ user: null, authChecked: true });
         setSentryUser(null);
@@ -137,7 +168,10 @@ export function handleNativeAppleCredentialRevocation(appleUserId: string): Prom
         const results = await Promise.allSettled([
             PushNotificationService.clearUser(),
             clearBoundAppleCredential(),
-            supabase?.auth.signOut({ scope: 'local' }) ?? Promise.resolve(),
+            (supabase?.auth.signOut({ scope: 'local' }) ?? Promise.resolve({ error: null })).then((result) => {
+                if (!result?.error) signedInEventsAfterSignOut = signedInEvents;
+                return result;
+            }),
             initLocalDatabase(null),
             /*
              * The anchor dashboard pairing is per-PERSON, not per-handset: a
@@ -160,7 +194,20 @@ export function handleNativeAppleCredentialRevocation(appleUserId: string): Prom
         }
 
         // Auth callbacks can run during sign-out. Reassert the terminal local
-        // unauthenticated state after every asynchronous subsystem settles.
+        // unauthenticated state after every asynchronous subsystem settles,
+        // unless someone has signed in since: a different account, or this
+        // one again in a session that began after the revoked one was removed
+        // (a retry while this ran). That retry is not the revoked session, and
+        // signing it out would bounce the sailor straight back out (cause 6).
+        const current = useAuthStore.getState().user;
+        const signedInSince =
+            current !== null &&
+            (current.id !== revokedUserId ||
+                (signedInEventsAfterSignOut !== null && signedInEvents !== signedInEventsAfterSignOut));
+        if (signedInSince) {
+            console.warn('[Auth] Apple revocation finished after a new sign-in; leaving the new session signed in.');
+            return;
+        }
         setAuthIdentityScope(null);
         setSentryUser(null);
         useAuthStore.setState({ user: null, authChecked: true });
@@ -241,8 +288,9 @@ function initAuth() {
             if (!authEventSeen) applyAuthIdentity(null);
         });
 
-    supabase.auth.onAuthStateChange((_event, session) => {
+    supabase.auth.onAuthStateChange((event, session) => {
         authEventSeen = true;
+        if (event === 'SIGNED_IN' && session?.user) signedInEvents += 1;
         const u = session?.user ?? null;
         applyAuthIdentity(u);
         if (!u) {
