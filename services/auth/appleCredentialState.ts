@@ -1,4 +1,7 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('AppleCredentialState');
 
 export interface AppleCredentialRevokedEvent {
     state: 'revoked' | 'not_found' | 'transferred' | 'unknown';
@@ -18,6 +21,23 @@ interface AppleCredentialStatePlugin {
 }
 
 const NativeAppleCredentialState = registerPlugin<AppleCredentialStatePlugin>('AppleCredentialState');
+
+const REVOCATION_STATES = new Set(['revoked', 'not_found', 'transferred', 'unknown']);
+
+/**
+ * Report a handled revocation to Sentry by its reason and state alone, never
+ * the Apple user id it carries. Until build 124 the sign-out it causes was
+ * silent, so a kick straight after Sign in with Apple left no trace.
+ */
+function reportRevocation(event: AppleCredentialRevokedEvent): void {
+    const reason =
+        String(event.reason ?? '')
+            .replace(/[^a-z_]/g, '')
+            .slice(0, 40) || 'none';
+    const state = REVOCATION_STATES.has(event.state) ? event.state : 'other';
+    const report = `apple_credential_revoked reason=${reason} state=${state}`;
+    log.error(report, new Error(report));
+}
 
 export async function bindAppleCredentialUser(userId: string): Promise<void> {
     if (Capacitor.getPlatform() !== 'ios') return;
@@ -44,6 +64,7 @@ export async function startAppleCredentialRevocationMonitoring(
     let revocationInFlight: Promise<void> | null = null;
     const handle = await NativeAppleCredentialState.addListener('credentialRevoked', (event) => {
         if (disposed || revocationInFlight) return;
+        reportRevocation(event);
         revocationInFlight = onRevoked(event).finally(() => {
             revocationInFlight = null;
         });

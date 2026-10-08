@@ -26,6 +26,17 @@ Apple's `/auth/revoke` ends the user's whole Sign in with Apple authorization fo
 
 The decisions live in `supabase/functions/register-apple-token/registration.ts` and `supabase/functions/apple-server-notification/notification.ts`, each with Deno behaviour tests beside it.
 
+## In the app (build 124)
+
+A native Apple sign-in has four steps: `authorize` (Apple's sheet), `supabase_id_token`, `bind_credential` (the Keychain-bound credential monitor) and `register_token` (this function). Supabase reports `SIGNED_IN` after the second, so:
+
+- the sign-in sheet stays open and busy until all four have finished, and a failure shows its step on the open sheet ("Apple Sign-In couldn't finish (server, 502). Try again."). The attempt lives in `services/auth/appleSignInAttempt.ts`, so a caller that unmounts the sheet at `SIGNED_IN` shows the failure when it renders the sheet again. Callers that close their sheet when the account changes (the Galley, the Vessel hub's claim card) skip that close while `appleSignInHoldsSheet()` is true. Only the sailor's own close (the button or Escape) drops a failure still to come; one that lands while a caller had the sheet closed is shown on the next open, within five minutes;
+- a failed `bind_credential` or `register_token` discards the new session. If `signOut({ scope: 'local' })` cannot reach Supabase (it still calls `/logout`, and keeps the session when that fails), the session is removed on the device without the network and the app is fenced signed out (`fenceSignedOutOnThisDevice`), so an unregistered session never stays signed in;
+- only `ASAuthorizationError` 1001 (canceled) is silent. 1000 (unknown) says "Apple Sign-In didn't complete (Apple error 1000). Try again.";
+- every failed step is reported to Sentry as `apple_signin_failed step=… code=… reason=…`, and every handled native revocation as `apple_credential_revoked reason=… state=…`. Neither carries a token, code, nonce, email or Apple user id (`tests/AppleSignInTelemetryNoSecrets.test.ts`);
+- `patches/@capacitor-community+apple-sign-in+7.1.0.patch` (applied by `npm ci`) starts the Apple sheet on the main thread with a presentation anchor, holds the pending call on the plugin, and rejects with the Apple error code;
+- a native revocation that finishes after the sailor has signed in again leaves the new session signed in (`stores/authStore.ts`).
+
 ## Release order
 
 Native Apple sign-in remains compile-time fail-closed: only the exact string `true` for `VITE_APPLE_SIGN_IN_ENABLED` exposes the native door. The committed public-beta profile now enables it and `ios/App/App/App.entitlements` carries `com.apple.developer.applesignin`; those two states are enforced as an exact pair by the release gate. Browser Apple OAuth is a separate lane, gated by `VITE_APPLE_WEB_SIGN_IN_ENABLED`, the Apple Services ID, and the Supabase callback/client secret.

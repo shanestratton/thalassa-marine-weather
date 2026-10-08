@@ -204,3 +204,128 @@ describe('authStore logout isolation', () => {
         expect(authMocks.clearAppleBinding).toHaveBeenCalled();
     });
 });
+
+describe('a native Apple revocation that finishes late (cause 6, build 124)', () => {
+    type AuthCallback = (event: string, session: { user: typeof accountA } | null) => void;
+    const authCallback = () => authMocks.onAuthStateChange.mock.calls[0][0] as AuthCallback;
+    function deferred() {
+        let resolve!: () => void;
+        const promise = new Promise<void>((res) => {
+            resolve = res;
+        });
+        return { promise, resolve };
+    }
+    // A fresh retry by the same sailor is the same Supabase user in a new session object.
+    const retriedAccountA = () => ({ ...accountA, last_sign_in_at: '2026-10-08T03:00:00Z' });
+
+    it('cannot sign out a fresh retry of the same account that landed while it was still tidying up', async () => {
+        const { identity, useAuthStore } = await loadAuthenticatedStore();
+        const { handleNativeAppleCredentialRevocation } = await import('../stores/authStore');
+        const pushRelease = deferred();
+        authMocks.clearPushUser.mockReturnValueOnce(pushRelease.promise);
+
+        const revocation = handleNativeAppleCredentialRevocation('apple-sub-account-a');
+        await vi.waitFor(() => expect(authMocks.signOut).toHaveBeenCalledWith({ scope: 'local' }));
+        expect(useAuthStore.getState().user).toBeNull();
+
+        // The sailor taps Sign in with Apple again; Supabase signs the retry in.
+        authCallback()('SIGNED_IN', { user: retriedAccountA() });
+        expect(useAuthStore.getState().user?.id).toBe('account-a');
+
+        pushRelease.resolve();
+        await revocation;
+
+        expect(useAuthStore.getState().user?.id).toBe('account-a');
+        expect(identity.getAuthIdentityScope().userId).toBe('account-a');
+    });
+
+    it('cannot sign out a different account that signed in while it was tidying up', async () => {
+        const { useAuthStore } = await loadAuthenticatedStore();
+        const { handleNativeAppleCredentialRevocation } = await import('../stores/authStore');
+        const pushRelease = deferred();
+        authMocks.clearPushUser.mockReturnValueOnce(pushRelease.promise);
+
+        const revocation = handleNativeAppleCredentialRevocation('apple-sub-account-a');
+        await vi.waitFor(() => expect(authMocks.signOut).toHaveBeenCalled());
+        authCallback()('SIGNED_IN', {
+            user: { ...accountA, id: 'account-b', identities: [] } as unknown as typeof accountA,
+        });
+        pushRelease.resolve();
+        await revocation;
+
+        expect(useAuthStore.getState().user?.id).toBe('account-b');
+    });
+
+    it('still fences the revoked session when a stale callback re-shows it before the local sign-out lands', async () => {
+        const { identity, useAuthStore } = await loadAuthenticatedStore();
+        const { handleNativeAppleCredentialRevocation } = await import('../stores/authStore');
+        const signOutDone = deferred();
+        authMocks.signOut.mockImplementationOnce(async () => {
+            await signOutDone.promise;
+            return { error: null };
+        });
+
+        const revocation = handleNativeAppleCredentialRevocation('apple-sub-account-a');
+        await vi.waitFor(() => expect(authMocks.signOut).toHaveBeenCalled());
+        // The revoked session itself, refreshed or recovered before it was removed.
+        authCallback()('TOKEN_REFRESHED', { user: accountA });
+        authCallback()('SIGNED_IN', { user: accountA });
+        signOutDone.resolve();
+        await revocation;
+
+        expect(useAuthStore.getState().user).toBeNull();
+        expect(identity.getAuthIdentityScope().userId).toBeNull();
+    });
+
+    it('fails closed when the local sign-out could not remove the revoked session', async () => {
+        const { useAuthStore } = await loadAuthenticatedStore();
+        const { handleNativeAppleCredentialRevocation } = await import('../stores/authStore');
+        const pushRelease = deferred();
+        authMocks.clearPushUser.mockReturnValueOnce(pushRelease.promise);
+        authMocks.signOut.mockResolvedValueOnce({ error: new Error('offline') });
+
+        const revocation = handleNativeAppleCredentialRevocation('apple-sub-account-a');
+        await vi.waitFor(() => expect(authMocks.signOut).toHaveBeenCalled());
+        await Promise.resolve();
+        authCallback()('SIGNED_IN', { user: accountA });
+        pushRelease.resolve();
+        await revocation;
+
+        expect(useAuthStore.getState().user).toBeNull();
+    });
+});
+
+describe('fenceSignedOutOnThisDevice (a discarded Apple session that Supabase could not sign out, build 124)', () => {
+    it('leaves every subsystem anonymous without calling Supabase', async () => {
+        const { identity, useAuthStore } = await loadAuthenticatedStore();
+        const { fenceSignedOutOnThisDevice } = await import('../stores/authStore');
+        authMocks.signOut.mockClear();
+        authMocks.clearPushUser.mockClear();
+        authMocks.initLocalDatabase.mockClear();
+        authMocks.setSentryUser.mockClear();
+
+        await fenceSignedOutOnThisDevice();
+
+        expect(useAuthStore.getState().user).toBeNull();
+        expect(useAuthStore.getState().authChecked).toBe(true);
+        expect(identity.getAuthIdentityScope().userId).toBeNull();
+        expect(authMocks.setSentryUser).toHaveBeenCalledWith(null);
+        expect(authMocks.clearPushUser).toHaveBeenCalledOnce();
+        expect(authMocks.initLocalDatabase).toHaveBeenCalledWith(null);
+        expect(authMocks.signOut).not.toHaveBeenCalled();
+    });
+
+    it('still fences when a cleanup step fails', async () => {
+        const { identity, useAuthStore } = await loadAuthenticatedStore();
+        const { fenceSignedOutOnThisDevice } = await import('../stores/authStore');
+        authMocks.clearPushUser.mockRejectedValueOnce(new Error('push release failed'));
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        await expect(fenceSignedOutOnThisDevice()).resolves.toBeUndefined();
+
+        expect(useAuthStore.getState().user).toBeNull();
+        expect(identity.getAuthIdentityScope().userId).toBeNull();
+        expect(authMocks.initLocalDatabase).toHaveBeenLastCalledWith(null);
+        consoleError.mockRestore();
+    });
+});

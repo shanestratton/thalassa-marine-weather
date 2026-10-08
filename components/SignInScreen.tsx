@@ -27,10 +27,18 @@
  * On a sailing app, identity reliability beats minor UI clutter.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { APPLE_WEB_SIGN_IN_ENABLED, signInWithApple, signInWithAppleOnWeb } from '../services/auth/SocialAuthService';
 import { GOOGLE_SIGN_IN_ENABLED, signInWithGoogle, signInWithGoogleOnWeb } from '../services/auth/googleSignIn';
+import {
+    beginAppleSignInAttempt,
+    clearAppleSignInFailure,
+    endAppleSignInAttempt,
+    getAppleSignInAttempt,
+    leaveAppleSignIn,
+    subscribeAppleSignInAttempt,
+} from '../services/auth/appleSignInAttempt';
 import { AuthModal } from './AuthModal';
 import { triggerHaptic } from '../utils/system';
 import { XIcon } from './Icons';
@@ -54,6 +62,17 @@ import { BRAND } from '../theme';
 // processor, and App ID endpoint are verified. A missing or false flag still
 // fails closed instead of exposing a broken door.
 const APPLE_NATIVE_SIGN_IN_ENABLED = import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true';
+
+// An Apple failure no sheet was showing when it landed (a caller had closed or
+// unmounted it mid-attempt) is shown when a sheet next opens, if it landed
+// this recently. Older ones belong to a visit that is over.
+const APPLE_FAILURE_UNSEEN_MS = 5 * 60_000;
+
+/** Opening a sheet: keep an unseen Apple failure for it, unless it is stale. */
+function dropStaleAppleFailure(): void {
+    const { failure, failedAt } = getAppleSignInAttempt();
+    if (failure && Date.now() - failedAt > APPLE_FAILURE_UNSEEN_MS) clearAppleSignInFailure();
+}
 
 interface SignInScreenProps {
     /**
@@ -81,13 +100,24 @@ interface SignInScreenProps {
 }
 
 export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, prompt }) => {
-    const [busy, setBusy] = useState<'apple' | 'google' | null>(null);
+    const [googleBusy, setGoogleBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [emailMode, setEmailMode] = useState(false);
     const authedUser = useAuthStore((s) => s.user);
+    // Apple's attempt lives outside this sheet: see appleSignInAttempt.ts.
+    const appleAttempt = useSyncExternalStore(
+        subscribeAppleSignInAttempt,
+        getAppleSignInAttempt,
+        getAppleSignInAttempt,
+    );
+    const busy: 'apple' | 'google' | null = appleAttempt.running ? 'apple' : googleBusy ? 'google' : null;
+    const shownError = error ?? appleAttempt.failure;
     const primaryActionRef = useRef<HTMLButtonElement>(null);
     const emailActionRef = useRef<HTMLButtonElement>(null);
     const emailModeWasOpenRef = useRef(false);
+    const openRef = useRef(isOpen !== false);
+    const mountedRef = useRef(false);
+    const wasOpenRef = useRef<boolean | null>(null);
     // Native and browser Apple are separate release lanes. Native wraps a
     // Capacitor plugin behind its entitlement/lifecycle gate; browser Apple
     // uses the configured Services ID through Supabase OAuth.
@@ -102,18 +132,65 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
     // Auto-dismiss in controlled mode once authentication succeeds.
     // The Apple/email handlers push the new session into
     // authStore via supabase.auth.onAuthStateChange; we just react
-    // to that landing.
+    // to that landing. Except mid-Apple: Supabase reports SIGNED_IN before
+    // the credential binding and register-apple-token have run, and either
+    // can still fail and discard that session. The sheet stays open and busy
+    // until the whole Apple chain has settled, and stays open on a failed
+    // step even if the discard could not sign the session out (build 124).
+    // Google and email clear any Apple failure as they start, so they
+    // dismiss exactly as before.
     useEffect(() => {
-        if (isOpen && authedUser && onClose) {
+        if (isOpen && authedUser && onClose && !appleAttempt.running && appleAttempt.failure === null) {
             onClose();
         }
-    }, [authedUser, isOpen, onClose]);
+    }, [appleAttempt.failure, appleAttempt.running, authedUser, isOpen, onClose]);
+
+    // A sheet that leaves while showing an Apple failure has had it seen, so
+    // the next visit starts clean (callers that render the sheet only while
+    // open unmount it rather than close it). Not mid-attempt: a caller that
+    // unmounts the sheet at SIGNED_IN still gets the outcome. Checked a tick
+    // later so StrictMode's replayed mount does not count as leaving.
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            const wasShowing = openRef.current;
+            queueMicrotask(() => {
+                if (!mountedRef.current && wasShowing && !getAppleSignInAttempt().running) {
+                    clearAppleSignInFailure();
+                }
+            });
+        };
+    }, []);
 
     // Each new visit begins with the three-method chooser, not a previous
-    // unfinished email/code step that happened to be open when dismissed.
+    // unfinished email/code step that happened to be open when dismissed,
+    // and with no failure the sailor has already seen. An Apple failure that
+    // landed while a caller (not the sailor) had the sheet closed was never
+    // seen, so it is kept for the next open.
     useEffect(() => {
-        if (isOpen === false) setEmailMode(false);
+        const open = isOpen !== false;
+        openRef.current = open;
+        const wasOpen = wasOpenRef.current;
+        wasOpenRef.current = open;
+        if (!open) setEmailMode(false);
+        if (open && wasOpen !== true) {
+            dropStaleAppleFailure();
+        } else if (!open && wasOpen === true) {
+            // Whatever failure this open sheet held, it was showing it.
+            setError(null);
+            clearAppleSignInFailure();
+        }
+        if (open && wasOpen === false) setError(null);
     }, [isOpen]);
+
+    // The sailor's own close (the button or Escape), as distinct from a caller
+    // closing the sheet: it drops a failure still to come from a running Apple
+    // attempt as well as one already shown.
+    const closeBySailor = useCallback(() => {
+        leaveAppleSignIn();
+        onClose?.();
+    }, [onClose]);
 
     // A nested portal can cause some WebViews to report <body> as the
     // previously focused element once the parent becomes aria-hidden.
@@ -128,12 +205,15 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
 
     const focusTrapRef = useFocusTrap<HTMLDivElement>(isOpen !== false, {
         initialFocusRef: primaryActionRef,
-        onEscape: onClose,
+        onEscape: onClose ? closeBySailor : undefined,
     });
 
     const handleApple = useCallback(async () => {
+        // One attempt app-wide: the native plugin holds a single pending call.
+        if (getAppleSignInAttempt().running) return;
         setError(null);
-        setBusy('apple');
+        beginAppleSignInAttempt();
+        let failure: string | null = null;
         try {
             if (!appleEnabled) throw new Error('Apple sign-in is not enabled in this beta. Use email instead.');
             if (isNative) {
@@ -145,15 +225,20 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
             }
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            if (msg !== 'CANCELLED') setError(msg);
+            if (msg !== 'CANCELLED') failure = msg;
         } finally {
-            setBusy(null);
+            // Shown on whichever sheet is up: this one, the one a caller
+            // renders again after unmounting this one at SIGNED_IN, or the
+            // next one opened. Dropped if the sailor closed the sheet while it
+            // ran (leaveAppleSignIn): they walked away.
+            endAppleSignInAttempt(failure);
         }
     }, [appleEnabled, isNative]);
 
     const handleGoogle = useCallback(async () => {
         setError(null);
-        setBusy('google');
+        clearAppleSignInFailure();
+        setGoogleBusy(true);
         try {
             if (!googleEnabled) throw new Error('Google sign-in is not enabled in this build. Use email instead.');
             // Native opens the system browser and awaits the redirect; web
@@ -168,9 +253,16 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
             const msg = err instanceof Error ? err.message : String(err);
             if (msg !== 'CANCELLED') setError(msg);
         } finally {
-            setBusy(null);
+            setGoogleBusy(false);
         }
     }, [googleEnabled, isNative]);
+
+    // Email, like Google, starts a different sign-in: an Apple failure banner
+    // from before is done with, and must not hold the sheet open after it.
+    const openEmail = useCallback(() => {
+        clearAppleSignInFailure();
+        setEmailMode(true);
+    }, []);
 
     // Controlled mode: respect isOpen.
     if (isOpen === false) return null;
@@ -183,13 +275,17 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 aria-modal={emailMode ? undefined : 'true'}
                 aria-labelledby="sign-in-title"
                 aria-hidden={emailMode || undefined}
-                className="bg-slate-950 flex flex-col items-center px-6 overflow-x-hidden overflow-y-auto overscroll-contain"
-                style={{
-                    paddingTop: onClose
-                        ? 'max(5rem, calc(env(safe-area-inset-top) + 4rem))'
-                        : 'max(1.5rem, env(safe-area-inset-top))',
-                    paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))',
-                }}
+                // Fits one screen (sign-in-layout spec). On a short screen (an
+                // SE, a mini, a phone at Display Zoom, landscape: 812 pt tall or
+                // less) the brand shrinks, its mark shares the close button's
+                // row, and the spacing tightens, so three providers, the longest
+                // caller prompt and a failure banner still fit 320 × 568, and a
+                // mini's safe-area insets still leave room (build 124).
+                className={`bg-slate-950 flex flex-col items-center px-6 overflow-x-hidden overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [@media(max-height:812px)]:pb-[max(1rem,env(safe-area-inset-bottom))] ${
+                    onClose
+                        ? 'pt-[max(5rem,calc(env(safe-area-inset-top)_+_4rem))] [@media(max-height:812px)]:pt-[max(1.5rem,env(safe-area-inset-top))]'
+                        : 'pt-[max(1.5rem,env(safe-area-inset-top))]'
+                }`}
             >
                 <h2 id="sign-in-title" className="sr-only">
                     Sign in to Thalassa
@@ -219,7 +315,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 {onClose && (
                     <button
                         type="button"
-                        onClick={onClose}
+                        onClick={closeBySailor}
                         aria-label="Close sign-in"
                         className="absolute top-6 right-6 z-20 w-11 h-11 rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 flex items-center justify-center text-white/70 transition-colors backdrop-blur-md"
                         style={{ top: 'max(1.5rem, env(safe-area-inset-top))' }}
@@ -236,9 +332,9 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 stay exactly as designed. The pulse keyframe (below)
                 animates a teal drop-shadow-sm around it so the mark
                 breathes like a beacon. */}
-                <div className="relative z-10 mt-auto mb-6 flex shrink-0 flex-col items-center text-center">
+                <div className="relative z-10 mt-auto mb-6 [@media(max-height:812px)]:mb-3 flex shrink-0 flex-col items-center text-center">
                     <div
-                        className="w-32 sm:w-40 flex items-center justify-center"
+                        className="w-32 sm:w-40 [@media(max-height:812px)]:w-10! flex items-center justify-center"
                         style={{
                             animation: 'signInPulse 4s ease-in-out infinite',
                         }}
@@ -249,21 +345,20 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                     Wide tracking reads as a premium marine wordmark; the
                     equal paddingLeft cancels the trailing letter-space so
                     the caps stay optically centred. */}
+                    {/* Sized to the width as well: at 2.75rem the tracked caps ran
+                    past a 320- or 375-wide screen's padding in a wide face. */}
                     <h1
-                        className="mt-5 text-[2.75rem] sm:text-6xl font-black uppercase leading-none text-white"
+                        className="mt-5 text-[min(2.75rem,10.5vw)] sm:text-6xl [@media(max-height:812px)]:mt-2 [@media(max-height:812px)]:text-[min(1.875rem,9vw)]! font-black uppercase leading-none text-white"
                         style={{ letterSpacing: '0.18em', paddingLeft: '0.18em' }}
                     >
                         Thalassa
                     </h1>
-                    <p
-                        className="mt-2.5 text-[10px] sm:text-[11px] font-bold uppercase text-white/60"
-                        style={{ letterSpacing: '0.34em', paddingLeft: '0.34em' }}
-                    >
+                    <p className="mt-2.5 [@media(max-height:812px)]:mt-1.5 text-[10px] sm:text-[11px] font-bold uppercase text-white/60 tracking-[0.34em] pl-[0.34em] [@media(max-height:812px)]:tracking-[0.2em] [@media(max-height:812px)]:pl-[0.2em]">
                         Marine Data &amp; Navigation
                     </p>
                     {/* Positioning tagline — the conversion promise. Middot
                     accents tinted to the brand palette against the sky line. */}
-                    <p className="mt-4 text-[13px] font-semibold tracking-wider text-sky-300/90">
+                    <p className="mt-4 [@media(max-height:812px)]:hidden text-[13px] font-semibold tracking-wider text-sky-300/90">
                         <span>Plan it</span>
                         <span className="mx-1.5" style={{ color: BRAND.accent }}>
                             ·
@@ -287,22 +382,22 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                     Makes the moment feel specific to what the user
                     was just doing. */}
                     {prompt && (
-                        <div className="mb-5 text-center">
+                        <div className="mb-5 [@media(max-height:812px)]:mb-3 text-center">
                             <p className="text-[13px] italic text-sky-200/90 leading-snug">{prompt}</p>
                         </div>
                     )}
 
-                    <div className="space-y-3">
+                    <div className="space-y-3 [@media(max-height:812px)]:space-y-2">
                         {/* Web/desktop primary: email OTP. It stays FIRST and keeps
                         the focus ref; social providers follow as alternatives. */}
                         {!appleNativeEnabled && (
                             <button
                                 ref={primaryActionRef}
                                 type="button"
-                                onClick={() => setEmailMode(true)}
+                                onClick={openEmail}
                                 aria-label="Sign in with email"
                                 disabled={busy !== null}
-                                className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-lg shadow-black/40"
+                                className="w-full h-12 [@media(max-height:812px)]:h-11 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-lg shadow-black/40"
                             >
                                 Sign in with email
                             </button>
@@ -320,7 +415,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                                     onClick={() => void handleApple()}
                                     disabled={busy !== null}
                                     aria-label="Sign in with Apple"
-                                    className="w-full h-12 rounded-xl bg-white text-black font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 shadow-lg shadow-black/40"
+                                    className="w-full h-12 [@media(max-height:812px)]:h-11 rounded-xl bg-white text-black font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 shadow-lg shadow-black/40"
                                 >
                                     {busy === 'apple' ? (
                                         <span className="text-sm">Signing in…</span>
@@ -350,7 +445,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                                 onClick={() => void handleGoogle()}
                                 disabled={busy !== null}
                                 aria-label="Sign in with Google"
-                                className="w-full h-12 rounded-xl bg-white text-[#1f1f1f] font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 shadow-lg shadow-black/40"
+                                className="w-full h-12 [@media(max-height:812px)]:h-11 rounded-xl bg-white text-[#1f1f1f] font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 shadow-lg shadow-black/40"
                             >
                                 {busy === 'google' ? (
                                     <span className="text-sm">Signing in…</span>
@@ -385,10 +480,10 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                             <button
                                 ref={emailActionRef}
                                 type="button"
-                                onClick={() => setEmailMode(true)}
+                                onClick={openEmail}
                                 disabled={busy !== null}
                                 aria-label="Sign in with email"
-                                className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 shadow-lg shadow-black/40"
+                                className="w-full h-12 [@media(max-height:812px)]:h-11 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50 shadow-lg shadow-black/40"
                             >
                                 Sign in with email
                             </button>
@@ -400,10 +495,14 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                         )}
                     </div>
 
-                    {/* Error banner — covers RLS, network, unknown provider failure */}
-                    {error && (
-                        <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200 leading-relaxed">
-                            {error}
+                    {/* Error banner — covers RLS, network, unknown provider failure,
+                    and the step a Sign in with Apple failed at */}
+                    {shownError && (
+                        <div
+                            role="alert"
+                            className="mt-3 [@media(max-height:812px)]:mt-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 [@media(max-height:812px)]:py-1.5 text-xs text-red-200 leading-relaxed [@media(max-height:812px)]:leading-snug"
+                        >
+                            {shownError}
                         </div>
                     )}
                 </div>
@@ -412,8 +511,8 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 Top/bottom auto margins centre the complete group when it fits;
                 on short screens they collapse so nothing overflows above the
                 scroll origin or floats across a provider button. */}
-                <footer className="relative z-10 mt-6 mb-auto w-full shrink-0 text-center">
-                    <p className="text-[10px] text-slate-500 leading-relaxed max-w-xs mx-auto">
+                <footer className="relative z-10 mt-6 [@media(max-height:812px)]:mt-3 mb-auto w-full shrink-0 text-center">
+                    <p className="text-[10px] text-slate-500 leading-relaxed [@media(max-height:812px)]:leading-snug max-w-xs mx-auto">
                         Signing in enables automatic private cloud sync. Location is sent only when a weather, map,
                         Guardian, route, or AI feature you request needs it.
                         <br />
