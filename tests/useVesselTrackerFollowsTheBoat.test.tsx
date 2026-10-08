@@ -884,6 +884,8 @@ describe('box = Current Location: the phone gets its own dot, the boat keeps her
         expect(dot?.lngLat).toEqual([HOME.lon, HOME.lat]);
         expect(dot?.element.dataset.source).toBe('phone');
         expect(dot?.element.getAttribute('aria-label')).toBe('Your phone');
+        // A little phone, not a dot (Shane 2026-10-08: "a little picture of a mobile phone").
+        expect(dot?.element.querySelector('svg[data-glyph="phone"]')).not.toBeNull();
         expect(vesselMarker()?.lngLat).toEqual([BOAT.lon, BOAT.lat]);
         expect(vesselMarker()?.element.dataset.source).toBe('vessel');
     });

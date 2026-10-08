@@ -28,6 +28,31 @@ describe('MapActionFabs', () => {
         expect(onLocateMe).toHaveBeenCalledTimes(1);
     });
 
+    // Shane 2026-10-08: Locate goes to the phone on Current Location and to
+    // the boat on hers; the button now draws which, and says it to VoiceOver.
+    it('draws the phone it goes to on Current Location, and says so', () => {
+        render(<MapActionFabs {...defaultProps} target="phone" />);
+        const button = screen.getByRole('button', { name: 'Locate me' });
+        expect(button.querySelector('svg[data-glyph="phone"]')).not.toBeNull();
+        expect(button.querySelector('svg[data-glyph="crosshair"]')).toBeNull();
+        expect(button).toHaveAccessibleDescription('Goes to your phone');
+    });
+
+    it('keeps the crosshair for the boat, and says so', () => {
+        render(<MapActionFabs {...defaultProps} target="boat" />);
+        const button = screen.getByRole('button', { name: 'Locate me' });
+        expect(button.querySelector('svg[data-glyph="crosshair"]')).not.toBeNull();
+        expect(button.querySelector('svg[data-glyph="phone"]')).toBeNull();
+        expect(button).toHaveAccessibleDescription('Goes to the boat');
+    });
+
+    it('with no target, the crosshair and no description, as before', () => {
+        render(<MapActionFabs {...defaultProps} />);
+        const button = screen.getByRole('button', { name: 'Locate me' });
+        expect(button.querySelector('svg[data-glyph="crosshair"]')).not.toBeNull();
+        expect(button).not.toHaveAttribute('aria-describedby');
+    });
+
     it('positions at the bottom with safe area inset', () => {
         const { container } = render(<MapActionFabs {...defaultProps} />);
         const wrapper = container.firstChild as HTMLElement;
