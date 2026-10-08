@@ -4,7 +4,11 @@ import { triggerHaptic } from '../../utils/system';
 
 export type MapBaseKind = ObsChartBase;
 
-/** Which layer groups a base lights. The imagery bases stay exclusive. */
+/**
+ * Which layer groups a base lights. The imagery bases stay exclusive.
+ * 'satellite' is no longer offered (125-13a) and useMapBase reads a saved one
+ * as Relief + Sat; the type keeps it readable for old saved settings.
+ */
 export function mapBaseVisibility(value: MapBaseKind) {
     return {
         relief: value === 'relief' || value === 'reliefSat',
@@ -17,10 +21,11 @@ export function mapBaseVisibility(value: MapBaseKind) {
 
 /* Short labels: the checked one rides in the top-centre pill between the zoom
    readout and the mic. The descriptions say what each base really shows.
-   Satellite is not "clean": MapHub lifts the base style's town names over the
-   raw imagery on purpose, so the difference from Hybrid is Hybrid's roads and
-   points of interest, not the names (UX scorecard run 9). Relief leads
-   (Shane 2026-10-04: the satellite stitching); see reliefBase.ts. */
+   Relief leads (Shane 2026-10-04: the satellite stitching); see reliefBase.ts.
+   The old Satellite base is gone (Shane 2026-10-09: "remove the old satellite
+   map"): Relief + Sat is the imagery-on-land answer to its stitching, and a
+   saved Satellite opens there (useMapBase). Hybrid, imagery with roads and
+   names, stays for now. */
 export const MAP_BASE_OPTIONS: ReadonlyArray<{
     id: MapBaseKind;
     label: string;
@@ -29,7 +34,6 @@ export const MAP_BASE_OPTIONS: ReadonlyArray<{
     { id: 'relief', label: 'Relief', description: 'Seafloor shape and depth' },
     { id: 'reliefSat', label: 'Relief + Sat', description: 'Seafloor, with satellite land' },
     { id: 'ocean', label: 'Ocean', description: 'Plain sea, depth offshore' },
-    { id: 'satellite', label: 'Satellite', description: 'Imagery with town names' },
     { id: 'hybrid', label: 'Hybrid', description: 'Imagery with roads and names' },
 ];
 

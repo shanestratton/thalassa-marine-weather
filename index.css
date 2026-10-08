@@ -3732,6 +3732,51 @@ body,
     box-shadow: inset 0 0 28px rgba(2, 6, 23, 0.55);
 }
 
+/* ── The Log page's Mapbox maps (125-13a, logMap.ts) ───────────────
+   The little map left Leaflet for Mapbox GL on Relief + Sat. The same soft
+   inner vignette as the Leaflet maps above, so the imagery sits IN its card:
+   over the canvas, under Mapbox's own controls (z-index 2), so the wordmark
+   and the compact credits stay on top and tappable. Fullscreen, they ride
+   above the home indicator. The card sits in white page text, which Mapbox's
+   opened credits would inherit onto their pale panel: the box's own colour
+   is the dark ink Mapbox gives the links, so every word of the licence line
+   reads. Before the style lands (and where there is no WebGL at all) the box
+   shows the app's dark, as the Leaflet maps' pre-tile void did; daylight.css
+   lightens it and the vignette with the rest of the light Log page. */
+.thalassa-log-gl-map {
+    color: rgba(0, 0, 0, 0.75);
+    background: #0b1220;
+}
+.thalassa-log-gl-map::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 0 28px rgba(2, 6, 23, 0.55);
+}
+.thalassa-log-gl-map.is-free .mapboxgl-ctrl-bottom-right {
+    bottom: env(safe-area-inset-bottom);
+}
+/* Opened, the credits are the licence line and must be read whole: above the
+   card's own buttons (z-10) or the fullscreen Sighting pill (z-1001), and
+   scrolling inside the map when they run longer than it (GA's wording fills
+   nine lines on a 320 px card). Closed, Mapbox's own corner rules stand: like
+   the chart's, every lift hangs on Mapbox's own aria-expanded toggle. */
+.thalassa-log-gl-map .mapboxgl-ctrl-top-right:has(button[aria-expanded='true']),
+.thalassa-log-gl-map.is-free .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true']) {
+    z-index: 11;
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    pointer-events: auto;
+}
+.thalassa-log-gl-map.is-free .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true']) {
+    z-index: 1002;
+    max-height: calc(100% - env(safe-area-inset-bottom) - env(safe-area-inset-top));
+}
+
 /* ── MOB button on the chart's helm menu ───────────────────────────
    Portrait default, moved out of the JSX so the landscape rule below can
    override it. The menu is anchored at top-[192px] and the "i" sits at

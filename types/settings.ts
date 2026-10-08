@@ -25,7 +25,11 @@ import type { PolarData } from './navigation';
  */
 export type PreferredAngle = 'beating' | 'close_reach' | 'beam_reach' | 'broad_reach' | 'running';
 
-/** The Obs chart's base, chosen in the map-base menu at the top of the page. */
+/**
+ * The Obs chart's base, chosen in the map-base menu at the top of the page.
+ * 'satellite' is no longer offered (125-13a); it stays readable for old saved
+ * settings, which open on 'reliefSat'.
+ */
 export type ObsChartBase = 'relief' | 'reliefSat' | 'ocean' | 'satellite' | 'hybrid';
 
 /** User-defined safety thresholds for passage planning.

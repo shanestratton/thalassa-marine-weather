@@ -38,6 +38,8 @@ const ALLOWED = new Map<string, string>([
     ['components/map/useMapInit.ts', 'Mapbox transformRequest, gated on canDisplayProxiedTiles'],
     ['components/map/ThalassaMap.tsx', 'Mapbox transformRequest, gated on canDisplayProxiedTiles'],
     ['components/chat/PinMapViewer.tsx', 'Mapbox transformRequest, gated on canDisplayProxiedTiles'],
+    // The Log page's Mapbox maps (125-13a): the same rule as useMapInit.
+    ['components/map/logMap.ts', 'Mapbox transformRequest, gated on canDisplayProxiedTiles'],
     // Fetches the URL it builds, but over pinnedPiRequest — the pin is
     // present, which is the whole point of the rule. Pinned by
     // PiTransportCompleteness.test.ts, which reads the transport itself.
@@ -100,6 +102,7 @@ describe('Pi passthrough transport guard', () => {
             'components/map/useMapInit.ts',
             'components/map/ThalassaMap.tsx',
             'components/chat/PinMapViewer.tsx',
+            'components/map/logMap.ts',
         ]) {
             const src = readFileSync(file, 'utf8');
             const at = src.indexOf('passthroughTileUrl(');

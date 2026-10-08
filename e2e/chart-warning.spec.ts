@@ -8,8 +8,8 @@ test.use({
     // The fixture style below is background-only, with no `composite` source,
     // so only an imagery base brings credits of its own: Relief and Ocean draw
     // the style's own sea, which the real dark-v11 always credits. Pin Hybrid
-    // rather than ride the build's default (Relief, once its tiles are served;
-    // Satellite before).
+    // rather than ride the build's default (Relief + Sat, once its tiles are
+    // served; Hybrid before).
     storageState: async ({ baseURL }, provide) => {
         await provide({
             ...ONBOARDED_STORAGE,
@@ -41,13 +41,18 @@ const LONG_CREDIT =
     'Seafloor relief derived from GEBCO Compilation Group (2026) GEBCO 2026 Grid; based on Great Barrier Reef ' +
     'Bathymetry 2020 30 m by Geoscience Australia, © Commonwealth of Australia, CC BY 4.0 (subject to its section 5 ' +
     'disclaimer of warranties); coastline © OpenStreetMap contributors. Not for navigation.';
+/** A short credit the fixture style carries on its own, whatever the base (a
+ *  made-up survey): it stands in for the credit the real dark-v11 always
+ *  shows, so a base with no imagery still has a credit line of its own, and
+ *  a stale line from the base before it can be told apart. */
+const SEA_CREDIT = '© Fixture Sea Survey';
 
 async function openEmptyChart(
     page: Page,
     baseURL: string,
     testInfo: TestInfo,
     tideFixture?: TideFixture,
-    { longCredits = false }: { longCredits?: boolean } = {},
+    { longCredits = false, seaCredit = false }: { longCredits?: boolean; seaCredit?: boolean } = {},
 ) {
     const origin = new URL(baseURL).origin;
     let tideResponses = 0;
@@ -105,19 +110,33 @@ async function openEmptyChart(
                     glyphs: 'mapbox://fonts/mapbox/{fontstack}/{range}.pbf',
                     // An empty source credits the map as soon as a visible
                     // layer uses it, like any real one.
-                    sources: longCredits
-                        ? {
-                              'long-credit': {
-                                  type: 'geojson',
-                                  data: { type: 'FeatureCollection', features: [] },
-                                  attribution: LONG_CREDIT,
-                              },
-                          }
-                        : {},
+                    sources: {
+                        ...(longCredits
+                            ? {
+                                  'long-credit': {
+                                      type: 'geojson',
+                                      data: { type: 'FeatureCollection', features: [] },
+                                      attribution: LONG_CREDIT,
+                                  },
+                              }
+                            : {}),
+                        ...(seaCredit
+                            ? {
+                                  'sea-credit': {
+                                      type: 'geojson',
+                                      data: { type: 'FeatureCollection', features: [] },
+                                      attribution: SEA_CREDIT,
+                                  },
+                              }
+                            : {}),
+                    },
                     layers: [
                         { id: 'background', type: 'background', paint: { 'background-color': '#0f2433' } },
                         ...(longCredits
                             ? [{ id: 'long-credit', type: 'fill', source: 'long-credit', paint: { 'fill-opacity': 0 } }]
+                            : []),
+                        ...(seaCredit
+                            ? [{ id: 'sea-credit', type: 'fill', source: 'sea-credit', paint: { 'fill-opacity': 0 } }]
                             : []),
                     ],
                 }),
@@ -728,10 +747,11 @@ for (const size of cases) {
 
         // Opening a picker intentionally overlays map information; the
         // coverage warning must not intercept its options as it loads.
-        // Satellite: on the fixture's empty style only imagery carries credits.
+        // Hybrid: on the fixture's empty style only imagery carries credits, and
+        // Hybrid is the one imagery base since the old Satellite went (125-13a).
         await page.getByRole('button', { name: /^Map base:/ }).click();
-        await page.getByRole('menuitemradio', { name: /^Satellite / }).click();
-        await expect(page.getByRole('button', { name: 'Map base: Satellite', exact: true })).toBeVisible();
+        await page.getByRole('menuitemradio', { name: /^Hybrid / }).click();
+        await expect(page.getByRole('button', { name: 'Map base: Hybrid', exact: true })).toBeVisible();
         await expect(warning).toBeVisible();
         await expectControlsClear('after-base-selection');
 
@@ -916,7 +936,7 @@ for (const size of [
                 localStorage.setItem(key, JSON.stringify(saved));
             }
         }, size.split);
-        await openEmptyChart(page, baseURL!, testInfo);
+        await openEmptyChart(page, baseURL!, testInfo, undefined, { seaCredit: true });
         const chart = page.locator('.thalassa-chart-map');
         const attribution = chart.locator('.mapboxgl-ctrl-attrib');
         const toggle = attribution.getByRole('button', { name: 'Toggle attribution', exact: true });
@@ -964,17 +984,36 @@ for (const size of [
         await expect(toggle).toHaveAttribute('aria-expanded', 'false');
         await expect(credits).not.toBeVisible();
         // Native source-change handling must survive the custom compact mode:
-        // from the pinned Hybrid to Satellite is a real source change, and
-        // Hybrid's OpenStreetMap credit must go with it.
+        // from the pinned Hybrid to Ocean is a real source change (the old
+        // Satellite base this used to switch to went in 125-13a), and
+        // Hybrid's imagery and OpenStreetMap credits must go with it. Ocean
+        // draws only the style's own sea here, whose credit (SEA_CREDIT, as
+        // dark-v11's own would) stays; then back to Hybrid, whose credits
+        // must return.
+        await expect(credits).toContainText(SEA_CREDIT);
+        await expect(credits).toContainText('Maxar');
+        await expect(credits).toContainText('OpenStreetMap');
         await page.getByRole('button', { name: /^Map base:/ }).click();
-        await page.getByRole('menuitemradio', { name: /^Satellite / }).click();
-        await expect(page.getByRole('button', { name: 'Map base: Satellite', exact: true })).toBeVisible();
+        await page.getByRole('menuitemradio', { name: /^Ocean / }).click();
+        await expect(page.getByRole('button', { name: 'Map base: Ocean', exact: true })).toBeVisible();
+        await expect(attribution).toHaveCount(1);
+        await expect(attribution).toHaveClass(/mapboxgl-compact/);
+        await toggle.click();
+        await expect(credits).toBeVisible();
+        await expect(credits).toContainText(SEA_CREDIT);
+        await expect(credits).not.toContainText('Maxar');
+        await expect(credits).not.toContainText('OpenStreetMap');
+        await toggle.click();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+        await page.getByRole('button', { name: /^Map base:/ }).click();
+        await page.getByRole('menuitemradio', { name: /^Hybrid / }).click();
+        await expect(page.getByRole('button', { name: 'Map base: Hybrid', exact: true })).toBeVisible();
         await expect(attribution).toHaveCount(1);
         await expect(attribution).toHaveClass(/mapboxgl-compact/);
         await toggle.click();
         await expect(credits).toBeVisible();
         await expect(credits).toContainText('Maxar');
-        await expect(credits).not.toContainText('OpenStreetMap');
+        await expect(credits).toContainText('OpenStreetMap');
         await expectFullHitTarget(toggle, 'Mapbox attribution toggle');
         await expectFullHitTarget(attribution, 'Opened Mapbox credits');
         await expectFullHitTarget(logo, 'Mapbox logo');

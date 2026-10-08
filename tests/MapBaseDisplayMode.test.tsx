@@ -32,10 +32,11 @@ describe('OBS opens on Relief (Shane 2026-10-04: the satellite stitching)', () =
     });
 
     // Review 2026-10-05: with no tile address (the R2 upload not done), a
-    // default of Relief is a flat blue sea where Satellite used to be. The
-    // build that ships before the upload keeps Satellite; Relief is a pick.
-    it('keeps Satellite as the default while no relief tiles are configured', () => {
-        expect(defaultMapBase('')).toBe('satellite');
+    // default of Relief is a flat blue sea. Satellite was the imagery fallback
+    // until it went (Shane 2026-10-09: "remove the old satellite map"); Hybrid,
+    // the imagery base that stays, takes its place.
+    it('falls back to Hybrid, the imagery base that stays, while no relief tiles are configured', () => {
+        expect(defaultMapBase('')).toBe('hybrid');
     });
 
     it('takes the default from this build’s tile address, with nothing saved, in day and dark alike', () => {
@@ -45,7 +46,7 @@ describe('OBS opens on Relief (Shane 2026-10-04: the satellite stitching)', () =
         expect(result.current.explicit).toBe(false);
     });
 
-    it.each(['relief', 'reliefSat', 'ocean', 'satellite', 'hybrid'] as const)(
+    it.each(['relief', 'reliefSat', 'ocean', 'hybrid'] as const)(
         'opens on a saved %s, and counts it as the skipper’s choice',
         (saved: MapBaseKind) => {
             const { result } = renderHook(() => useMapBase(saved));
@@ -53,6 +54,15 @@ describe('OBS opens on Relief (Shane 2026-10-04: the satellite stitching)', () =
             expect(result.current.explicit).toBe(true);
         },
     );
+
+    // The settings migration: an account that picked the old Satellite base
+    // opens on Relief + Sat, still counted as its own choice (so the planning
+    // surface follows it, as it followed Satellite).
+    it('opens a saved Satellite (the removed base) on Relief + Sat, as the skipper’s choice', () => {
+        const { result } = renderHook(() => useMapBase('satellite'));
+        expect(result.current.mapBase).toBe('reliefSat');
+        expect(result.current.explicit).toBe(true);
+    });
 
     it.each(['maptiler', 'terrain', 42, null])(
         'ignores an unknown saved value (%s) and falls back to the default',
@@ -76,9 +86,9 @@ describe('OBS opens on Relief (Shane 2026-10-04: the satellite stitching)', () =
         const { result, rerender } = renderHook(({ saved }) => useMapBase(saved), {
             initialProps: { saved: undefined as unknown },
         });
-        act(() => result.current.setMapBase('satellite'));
+        act(() => result.current.setMapBase('ocean'));
         rerender({ saved: 'hybrid' });
-        expect(result.current.mapBase).toBe('satellite');
+        expect(result.current.mapBase).toBe('ocean');
     });
 
     it('keeps the actual selector usable and saving', () => {

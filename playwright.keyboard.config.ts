@@ -92,6 +92,12 @@ export default defineConfig({
         // notice's in-place takeover, its confirm and the Vessel card with the Pi primary
         // fit 320 × 568 in wide fonts under the app's header (e2e/fixtures/skipper-takeover.tsx).
         'skipper-takeover-layout.spec.ts',
+        // The little Log map on Relief + Sat (build 125, 125-13a): Mapbox GL in the
+        // live, fullscreen and planned cards at 320 × 568 and 390 × 844 in wide
+        // fonts, offline tiles from made-up coastlines, through the Pi with no
+        // internet, a plain sea with no style; its JS heap in Chromium
+        // (e2e/fixtures/log-mini-map.tsx).
+        'log-mini-map-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
