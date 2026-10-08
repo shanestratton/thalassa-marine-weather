@@ -170,7 +170,9 @@ export function TodaySources({
                 aria-label={`Official warnings: ${warnings.name}, opens outside the app`}
                 onClick={() => void openExternalUrl(warnings.url)}
             >
-                Official warnings: {warnings.name} ↗
+                {/* A no-break space: the arrow never wraps onto a line of its own. */}
+                Official warnings: {warnings.name}
+                {'\u00a0'}↗
             </button>
             <p className="today-footnote">A planning aid. Cautions, not blocks. Not a clearance.</p>
         </TodayModal>

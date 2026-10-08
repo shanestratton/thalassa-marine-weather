@@ -1,6 +1,6 @@
 # Shared cruising-trip catalogue foundation
 
-Status: **empty schema deployed to Supabase on 28 September 2026; planner integration implemented on the feature branch, not deployed to the production website.** There are no seeded destinations, routes, publication claims or private sailed-track imports. The Whitsundays research pack is draft-only. This is not yet a populated worldwide collection of reviewed trips.
+Status: **deployed empty 2026-09-28; parked out of the UI from build 124** (8 October 2026, when Plan Your Day was rebuilt as "Today on the water", [PLAN_MY_DAY.md](PLAN_MY_DAY.md)). The read client `services/dayPlanner/catalogue.ts`, the migration and its CI check stay; nothing in the app calls the client. There are no seeded destinations, routes, publication claims or private sailed-track imports. The Whitsundays research pack is draft-only. This is not yet a populated worldwide collection of reviewed trips.
 
 ## Product boundary
 
@@ -39,6 +39,8 @@ The client validates identifiers, exact versions, publication/review dates, posi
 There is no cache or latest-version fallback. Withdrawal becomes effective on the next database read after the withdrawal transaction commits; the foundation does not revoke content already downloaded or push a notification to an open screen. The planner checks exact versions again before/after calculation and before saving. This is not realtime invalidation or a transaction spanning all reads and local saving: a later withdrawal cannot invalidate an already saved plan. Offline use, retention, version-history authorisation and saved-plan refresh rules remain separate work before integrating navigation or offline planning. Nearby requests send the supplied reference coordinates to Supabase; the client does not persist them, but deployment logging/retention policy still needs review.
 
 ## Feature-branch planner integration — 28 September 2026
+
+**Removed from the app in build 124.** The new Plan Your Day does not route, so it cannot follow a trip's checkpoints. The shared picker (`CatalogueTripPicker`), the catalogue planning modules (`cataloguePlanning.ts`, `cataloguePlanningTypes.ts`, `catalogueRouteConstraints.ts`) and the old planner runtime, engine and save code were deleted with their tests. The catalogue can come back once it has reviewed content and a router that can chain checkpoints. This section records the integration as it was.
 
 The shared picker is opt-in inside Plan Your Day: a signed-in user with a confirmed departure presses **Browse shared catalogue**. It requests at most 24 nearby destination/trip summaries within 30 NM, then loads details lazily. Empty coverage and failed reads have different messages; existing regional and mapped-stop planning remain available. The catalogue choice and local destination selections are mutually exclusive. Planner latitude remains limited to ±80°, despite the database's wider geographic support.
 
