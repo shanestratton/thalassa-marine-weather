@@ -110,7 +110,8 @@ describe('clean OBS startup', () => {
         // default; the case above pins the off default itself.
         expect(hub).toContain('const { encVisible, toggleEnc } = useEncAtOpen(ownshipStartup, settings.obsEncOnOpen);');
         expect(hub).toContain("const obsShowing = ownshipStartup && currentView === 'map';");
-        expect(hub).toContain('useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart)');
+        // Build 124: with MapHub's count of other surfaces having had the map.
+        expect(hub).toContain('useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart, surfaceEpoch)');
         expect(hub).not.toContain('lastFlownCoordsRef');
         expect(hub).toContain('encSafetyDepthM, encHazardDepthM, coordCaptureMode)');
         expect(hub).toContain('useAnchorSwingLayer(mapRef, mapReady)');

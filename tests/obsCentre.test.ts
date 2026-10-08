@@ -40,8 +40,12 @@ import {
     showObsCentreNotice,
     clearObsCentreNotice,
     subscribeObsCentreNotice,
+    locateOnObs,
+    obsFlyTo,
     type ObsCentreNotice,
 } from '../components/map/obsCentre';
+import { NO_CAMERA_PADDING, clearCameraPadding } from '../components/map/cameraPadding';
+import type mapboxgl from 'mapbox-gl';
 import { WEATHER_FOLLOW_TARGET_EVENT } from '../services/weatherPosition';
 
 /** Local clock times, so the words do not depend on the machine's time zone. */
@@ -244,5 +248,71 @@ describe('the phone’s last fix, kept across relaunches', () => {
         expect(storedPhoneFix(NOW)).toEqual({ lat: -27.1, lon: 153.1, timestamp: NOW });
         localStorage.setItem(authScopedStorageKey('thalassa_last_phone_fix'), '{not json');
         expect(storedPhoneFix(NOW)).toBeNull();
+    });
+});
+
+/**
+ * A map that keeps its padding as Mapbox GL 3 does, and logs each camera call
+ * in order. PLAN_CARD is what Plan's route fit (fitTraceBounds) left on the
+ * shared map before build 124.
+ */
+const PLAN_CARD = { top: 90, bottom: 130, left: 300, right: 40 };
+function paddedMap(padding: Partial<typeof PLAN_CARD> = PLAN_CARD) {
+    const state = { padding: { ...NO_CAMERA_PADDING, ...padding } };
+    const calls: Array<[string, unknown]> = [];
+    const map = {
+        getPadding: () => ({ ...state.padding }),
+        setPadding: vi.fn((next: typeof PLAN_CARD) => {
+            calls.push(['setPadding', next]);
+            state.padding = { ...next };
+        }),
+        flyTo: vi.fn((options: unknown) => calls.push(['flyTo', options])),
+        jumpTo: vi.fn((options: unknown) => calls.push(['jumpTo', options])),
+    };
+    return { map, calls, state, as: map as unknown as mapboxgl.Map };
+}
+
+describe('Obs never flies under a padding another surface left (build 124)', () => {
+    // Shane 2026-10-08: "when i click the locate fab, it goes to the first
+    // image which is not centred". The flight named no padding, so Mapbox
+    // reused Plan's and put her 130 pt right of centre.
+    it('Locate clears the padding, then flies to the fix at the canvas centre', async () => {
+        // A phone in Lisbon (the button is the same for every coast).
+        deps.lastKnown = { ...pos(38.69, -9.22, NOW - 1_000), accuracy: 5, altitude: null, heading: null, speed: 0 };
+        const { as, calls, state } = paddedMap();
+        const outcome = await locateOnObs(as, { kind: 'phone' }, { own: null, crew: null }, 14);
+        expect(calls).toEqual([
+            ['setPadding', { top: 0, right: 0, bottom: 0, left: 0 }],
+            ['flyTo', { center: [-9.22, 38.69], zoom: 14, duration: 1200 }],
+        ]);
+        expect(state.padding).toEqual(NO_CAMERA_PADDING);
+        expect(outcome).toEqual({ centred: true, announcement: 'Chart centred on your position.' });
+    });
+
+    it('a map with no padding is not touched first (no extra camera events)', () => {
+        const { as, calls, map } = paddedMap({});
+        obsFlyTo(as, { lat: 21.3, lon: -157.86 }, 14);
+        expect(map.setPadding).not.toHaveBeenCalled();
+        expect(calls).toEqual([['flyTo', { center: [-157.86, 21.3], zoom: 14, duration: 1200 }]]);
+    });
+
+    it('any side counts, and a map without getPadding (a test double, an old map) is simply flown', () => {
+        const { as, map } = paddedMap({ bottom: 130 });
+        expect(clearCameraPadding(as)).toBe(true);
+        expect(map.setPadding).toHaveBeenCalledExactlyOnceWith({ top: 0, right: 0, bottom: 0, left: 0 });
+        expect(clearCameraPadding(as)).toBe(false);
+        const flyTo = vi.fn();
+        expect(clearCameraPadding({ flyTo } as unknown as mapboxgl.Map)).toBe(false);
+        obsFlyTo({ flyTo } as unknown as mapboxgl.Map, { lat: -36.84, lon: 174.76 }, 14);
+        expect(flyTo).toHaveBeenCalledExactlyOnceWith({ center: [174.76, -36.84], zoom: 14, duration: 1200 });
+    });
+
+    it('a map that went away meanwhile does not throw', () => {
+        const gone = {
+            getPadding: () => {
+                throw new Error('map removed');
+            },
+        } as unknown as mapboxgl.Map;
+        expect(clearCameraPadding(gone)).toBe(false);
     });
 });

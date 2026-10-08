@@ -90,10 +90,30 @@ const maps = vi.hoisted(() => {
     class FakeMap {
         listeners = new Map<string, Set<(event?: unknown) => void>>();
         touchZoomRotate = { disableRotation: vi.fn() };
-        jumpTo = vi.fn();
+        /** Camera calls in order, padding included (build 124). */
+        camera: Array<[string, unknown]> = [];
+        /** Kept as Mapbox GL 3 keeps it: a camera call's padding stays unless it says otherwise. */
+        padding = { top: 0, right: 0, bottom: 0, left: 0 };
+        getPadding = vi.fn(() => ({ ...this.padding }));
+        setPadding = vi.fn((padding: { top: number; right: number; bottom: number; left: number }) => {
+            this.camera.push(['setPadding', padding]);
+            this.padding = { ...padding };
+            return this;
+        });
+        jumpTo = vi.fn((options: unknown) => {
+            this.camera.push(['jumpTo', options]);
+        });
         // No movestart, as Mapbox when a flight starts mid-ease: find-boat
         // must take the camera without relying on it.
-        flyTo = vi.fn((_options: unknown) => this);
+        flyTo = vi.fn((options: unknown) => {
+            this.camera.push(['flyTo', options]);
+            return this;
+        });
+        /** 'Show on map' (useMapFitRequest): no movestart either, as a framing applied while Obs is hidden. */
+        fitBounds = vi.fn((_bounds: unknown, options: unknown) => {
+            this.camera.push(['fitBounds', options]);
+            return this;
+        });
         addControl = vi.fn();
         remove = vi.fn();
         on = vi.fn((name: string, listener: (event?: unknown) => void) => {
@@ -130,8 +150,13 @@ import {
     OBS_VESSEL_ZOOM,
     obsStartTarget,
     useObsStartupCamera,
+    useSurfaceEpoch,
     type ObsStartTarget,
 } from '../components/map/useObsStartupCamera';
+import { noteLocationBoxPick } from '../components/map/locationBoxPicks';
+import { claimObsCamera } from '../components/map/obsCameraClaims';
+import { useMapFitRequest } from '../components/map/useMapFitRequest';
+import { requestMapFit } from '../stores/MapFitTargetStore';
 import {
     LOCATE_LOOKUP_DEADLINE_MS,
     OBS_LIVE_CHECK_MS,
@@ -227,9 +252,10 @@ const jumpedTo = (map: InstanceType<typeof maps.FakeMap>) =>
 
 function mountBox(target: ObsStartTarget = OBS_START_FOLLOW, ready = true, enabled = true) {
     const map = new maps.FakeMap();
-    const props = { mapRef: { current: map as unknown as mapboxgl.Map | null }, ready, enabled, target };
+    /** `epoch`: MapHub's count of other surfaces (Plan, the picker, a shared pin) having had the map. */
+    const props = { mapRef: { current: map as unknown as mapboxgl.Map | null }, ready, enabled, target, epoch: 0 };
     const view = renderHook(
-        ({ mapRef, ready, enabled, target }) => useObsStartupCamera(mapRef, ready, enabled, target),
+        ({ mapRef, ready, enabled, target, epoch }) => useObsStartupCamera(mapRef, ready, enabled, target, epoch),
         { initialProps: props },
     );
     return { ...view, map, props };
@@ -1434,5 +1460,443 @@ describe('Mapbox initial camera policy', () => {
         boatLive();
         mountMap(false, true);
         expect(maps.instances[0].options).toMatchObject({ center: [153.02, -27.47], zoom: 5 });
+    });
+});
+
+/**
+ * Build 124, Obs camera centring. Shane 2026-10-08: "it sometimes starts up
+ * like the 2nd image [the whole east coast at z3.9] ... when i click the
+ * locate fab, it goes to the first image which is not centred". Plan and Obs
+ * share one map: Plan's route fit left the camera on its whole-route view
+ * (and, before the fix, its route card's padding on the map), and Obs kept
+ * that view because its box had already settled.
+ */
+describe('back from Plan: Obs centres again (build 124)', () => {
+    /** Plan (or the picker, or a shared pin) had the map, and moved it. */
+    function planHadTheMap(
+        view: ReturnType<typeof mountBox>,
+        extra: Partial<ReturnType<typeof mountBox>['props']> = {},
+    ) {
+        const epoch = view.props.epoch + 1;
+        view.rerender({ ...view.props, ...extra, enabled: false, epoch });
+        view.props.epoch = epoch;
+        view.map.padding = { top: 90, bottom: 130, left: 300, right: 40 };
+    }
+
+    it('her live fix: the next visit is on her at z14 again, not on Plan’s route view', async () => {
+        follow('boat');
+        boatLive();
+        const view = mountBox();
+        await settleLookups();
+        expect(view.map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
+        planHadTheMap(view);
+        view.rerender({ ...view.props, enabled: true });
+        await settleLookups();
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(2);
+        expect(view.map.jumpTo).toHaveBeenLastCalledWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
+        // And with the whole canvas: the padding goes before the camera moves.
+        expect(view.map.camera.slice(-2)).toEqual([
+            ['setPadding', { top: 0, right: 0, bottom: 0, left: 0 }],
+            ['jumpTo', { center: [VESSEL.lon, VESSEL.lat], zoom: 14 }],
+        ]);
+    });
+
+    it('a plain visit to another tab (no other surface had the map) still keeps the view', async () => {
+        follow('boat');
+        boatLive();
+        const view = mountBox();
+        await settleLookups();
+        view.rerender({ ...view.props, enabled: false });
+        view.rerender({ ...view.props, enabled: true });
+        await settleLookups();
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(1);
+        expect(view.map.setPadding).not.toHaveBeenCalled();
+    });
+
+    it('a chosen place (Hawaii): back on it at z10', () => {
+        const view = mountBox(hawaii());
+        expect(view.map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [HAWAII.lon, HAWAII.lat], zoom: 10 });
+        planHadTheMap(view);
+        view.rerender({ ...view.props, target: hawaii(), enabled: true });
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(2);
+        expect(view.map.jumpTo).toHaveBeenLastCalledWith({ center: [HAWAII.lon, HAWAII.lat], zoom: 10 });
+    });
+
+    it('no live fix: her last known one and the message, as on a cold start', async () => {
+        follow('boat');
+        rememberBoatFix(busFixAt(VESSEL, NOW - 3 * HOUR), NOW - 3 * HOUR);
+        const view = mountBox();
+        await settleLookups();
+        expect(noticeText()).toBe("Showing Serene Summer's last known position · 3 h ago");
+        planHadTheMap(view);
+        view.rerender({ ...view.props, enabled: true });
+        await settleLookups();
+        expect(view.map.jumpTo).toHaveBeenLastCalledWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(2);
+        expect(noticeText()).toBe("Showing Serene Summer's last known position · 3 h ago");
+        // And her first live fix still lands once.
+        boatLive({ lat: -23.8, lon: 152.5 });
+        act(() => deps.nmeaListeners.forEach((listener) => listener()));
+        expect(view.map.jumpTo).toHaveBeenLastCalledWith({ center: [152.5, -23.8], zoom: 14 });
+        expect(getObsCentreNotice()).toBeNull();
+    });
+
+    it('counts only another surface taking the map: Plan, the picker, a shared pin', () => {
+        const { result, rerender } = renderHook(({ free }) => useSurfaceEpoch(free), { initialProps: { free: true } });
+        expect(result.current).toBe(0);
+        rerender({ free: true }); // a tab switch: Obs's own surface, unchanged
+        expect(result.current).toBe(0);
+        rerender({ free: false }); // Plan opens on the shared map
+        expect(result.current).toBe(1);
+        rerender({ free: false });
+        rerender({ free: true });
+        expect(result.current).toBe(1);
+        rerender({ free: false });
+        expect(result.current).toBe(2);
+        // A map built for Plan first has nothing of Obs's to lose.
+        const plan = renderHook(({ free }) => useSurfaceEpoch(free), { initialProps: { free: false } });
+        expect(plan.result.current).toBe(0);
+    });
+});
+
+describe('picking the row in the location box again re-centres Obs (build 124)', () => {
+    // Shane 2026-10-08: "it should read the boat once I select vessel in the
+    // location box". The follow key stays 'boat' when her row is picked
+    // again, so before 124 a settled Obs never moved.
+    /** What LocationStarMenu does for her row. */
+    const pickHerRow = () =>
+        act(() => {
+            noteLocationBoxPick();
+            follow('boat');
+        });
+
+    it('her row picked again: the next visit centres on her', async () => {
+        follow('boat');
+        boatLive();
+        const view = mountBox();
+        await settleLookups();
+        view.rerender({ ...view.props, enabled: false });
+        boatLive({ lat: -23.8, lon: 152.5 }); // she moved meanwhile
+        pickHerRow();
+        view.rerender({ ...view.props, enabled: true });
+        await settleLookups();
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(2);
+        expect(view.map.jumpTo).toHaveBeenLastCalledWith({ center: [152.5, -23.8], zoom: 14 });
+    });
+
+    it('picked from a Glass pinned beside a settled Obs: waits for the next visit, as a new box does', async () => {
+        follow('boat');
+        boatLive();
+        const view = mountBox();
+        await settleLookups();
+        pickHerRow();
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(1);
+        view.rerender({ ...view.props, enabled: false });
+        view.rerender({ ...view.props, enabled: true });
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(2);
+    });
+
+    // Review 2026-10-08: nothing moves for a pick made beside Obs, so what
+    // the skipper does next is his. Before, the next visit (however much
+    // later) threw it away for the pick.
+    it('picked from a Glass pinned beside Obs, then the skipper pans: his view stays at the next visit', async () => {
+        follow('boat');
+        boatLive();
+        const view = mountBox();
+        await settleLookups();
+        pickHerRow();
+        act(() => view.map.emit('dragstart', { originalEvent: new Event('pointermove') }));
+        view.rerender({ ...view.props, enabled: false });
+        view.rerender({ ...view.props, enabled: true });
+        await settleLookups();
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(1);
+    });
+
+    it('a place picked beside Obs (Suva), then find-boat: the flight stands at the next visit', async () => {
+        follow('boat');
+        boatLive();
+        const view = mountBox();
+        await settleLookups();
+        view.rerender({ ...view.props, target: suva() });
+        act(() => noteLocationBoxPick());
+        await act(async () => {
+            await locateVessel(view.map as unknown as mapboxgl.Map, findBoatOwner(true), NAMES, OBS_VESSEL_ZOOM);
+        });
+        expect(view.map.flyTo).toHaveBeenCalledTimes(1);
+        view.rerender({ ...view.props, target: suva(), enabled: false });
+        view.rerender({ ...view.props, target: suva(), enabled: true });
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(1);
+        expect(jumpedTo(view.map)).not.toContainEqual([SUVA.lon, SUVA.lat]);
+    });
+
+    it('a saved place picked again (Suva): back on it at z10', () => {
+        const view = mountBox(suva());
+        view.rerender({ ...view.props, target: suva(), enabled: false });
+        act(() => noteLocationBoxPick());
+        view.rerender({ ...view.props, target: suva(), enabled: true });
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(2);
+        expect(view.map.jumpTo).toHaveBeenLastCalledWith({ center: [SUVA.lon, SUVA.lat], zoom: 10 });
+    });
+});
+
+describe('Obs has the whole canvas (build 124)', () => {
+    const PLAN_CARD = { top: 90, bottom: 130, left: 300, right: 40 };
+    const ZERO = { top: 0, right: 0, bottom: 0, left: 0 };
+
+    it('a padding left on the map goes when Obs shows, even on a visit that keeps the view', async () => {
+        follow('boat');
+        boatLive();
+        const view = mountBox();
+        await settleLookups();
+        view.rerender({ ...view.props, enabled: false });
+        view.map.padding = { ...PLAN_CARD };
+        view.rerender({ ...view.props, enabled: true });
+        expect(view.map.setPadding).toHaveBeenCalledExactlyOnceWith(ZERO);
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(1); // the view is kept
+    });
+
+    it('the opening jump and the stand-in both clear it before they move', async () => {
+        follow('boat');
+        rememberBoatFix(busFixAt(VESSEL, NOW - 3 * HOUR), NOW - 3 * HOUR);
+        const map = new maps.FakeMap();
+        map.padding = { ...PLAN_CARD };
+        renderHook(() => useObsStartupCamera({ current: map as unknown as mapboxgl.Map }, true, true));
+        await settleLookups();
+        expect(map.camera[0]).toEqual(['setPadding', ZERO]);
+        expect(map.camera[1]).toEqual(['jumpTo', { center: [VESSEL.lon, VESSEL.lat], zoom: 14 }]);
+    });
+
+    it('find-boat clears it, then flies to her (the locate button)', async () => {
+        follow('boat');
+        boatLive();
+        const map = new maps.FakeMap();
+        map.padding = { ...PLAN_CARD };
+        await locateVessel(map as unknown as mapboxgl.Map, findBoatOwner(true), NAMES, OBS_VESSEL_ZOOM);
+        expect(map.camera).toEqual([
+            ['setPadding', ZERO],
+            ['flyTo', { center: [VESSEL.lon, VESSEL.lat], zoom: 14, duration: 1200 }],
+        ]);
+    });
+
+    it('her held fix, then she comes live: the second flight clears a padding left meanwhile', async () => {
+        follow('boat');
+        rememberBoatFix(busFixAt(VESSEL, NOW - 3 * HOUR), NOW - 3 * HOUR);
+        const map = new maps.FakeMap();
+        const watch = renderHook(() => useObsCentreNoticeWatch(true));
+        await act(async () => {
+            await locateVessel(map as unknown as mapboxgl.Map, findBoatOwner(true), NAMES, OBS_VESSEL_ZOOM);
+        });
+        map.padding = { ...PLAN_CARD };
+        boatLive({ lat: -23.8, lon: 152.5 });
+        act(() => deps.nmeaListeners.forEach((listener) => listener()));
+        expect(map.camera.slice(-2)).toEqual([
+            ['setPadding', ZERO],
+            ['flyTo', { center: [152.5, -23.8], zoom: 14, duration: 1200 }],
+        ]);
+        watch.unmount();
+    });
+
+    it('MapHub’s other Obs move (recentre on the location) clears it too', () => {
+        const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
+        const handler = hub.slice(hub.indexOf('onRecenter={() => {'), hub.indexOf('recenterDisabled='));
+        expect(handler).toMatch(/clearCameraPadding\(mapRef\.current\);\s*mapRef\.current\.flyTo\(/);
+        // And MapHub hands the startup camera its count of other surfaces.
+        expect(hub).toContain('const surfaceEpoch = useSurfaceEpoch(ownshipStartup);');
+        expect(hub).toContain('useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart, surfaceEpoch);');
+    });
+});
+
+describe('centring again with nothing to centre on keeps the camera (build 124 review)', () => {
+    // Review 2026-10-08: a skipper in Falmouth following Current Location
+    // with location denied pans Obs to Falmouth, plans Falmouth to A Coruña
+    // and comes back: Obs must not jump to the broad Australia + NZ view and
+    // nag, round trip after round trip. Only the same box again is quiet; a
+    // new box with no position still opens as a cold start does.
+    const FALMOUTH = { lat: 50.152, lon: -5.066 };
+    const pan = (view: ReturnType<typeof mountBox>) =>
+        act(() => view.map.emit('dragstart', { originalEvent: new Event('pointermove') }));
+    const planHadTheMap = (view: ReturnType<typeof mountBox>) => {
+        const epoch = view.props.epoch + 1;
+        view.rerender({ ...view.props, enabled: false, epoch });
+        view.props.epoch = epoch;
+    };
+
+    it('back from Plan, the phone with no fix ever: no broad view, no message; its first live fix still centres', async () => {
+        follow('phone');
+        const view = mountBox();
+        await settleLookups();
+        expect(view.map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: BROAD, zoom: 3 }); // the cold start
+        pan(view);
+        act(() => clearObsCentreNotice());
+        planHadTheMap(view);
+        view.rerender({ ...view.props, enabled: true });
+        await settleLookups();
+        act(() => vi.advanceTimersByTime(OBS_NOTICE_GRACE_MS * 2));
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(1);
+        expect(getObsCentreNotice()).toBeNull();
+        // Location allowed later, before he touched the chart: Falmouth at z14.
+        phoneLive(FALMOUTH, Date.now());
+        act(() => deps.locationListeners.forEach((listener) => listener()));
+        expect(view.map.jumpTo).toHaveBeenLastCalledWith({ center: [FALMOUTH.lon, FALMOUTH.lat], zoom: 14 });
+    });
+
+    it('back from Plan, a boat that has never reported: the camera stays, no message', async () => {
+        follow('boat');
+        const view = mountBox();
+        await settleLookups();
+        expect(noticeText()).toBe('No position from Serene Summer yet');
+        pan(view);
+        act(() => clearObsCentreNotice());
+        planHadTheMap(view);
+        view.rerender({ ...view.props, enabled: true });
+        await settleLookups();
+        act(() => vi.advanceTimersByTime(OBS_NOTICE_GRACE_MS * 2));
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(1);
+        expect(getObsCentreNotice()).toBeNull();
+    });
+
+    it('Current Location picked again with no fix: the camera stays, no message', async () => {
+        follow('phone');
+        const view = mountBox();
+        await settleLookups();
+        pan(view);
+        act(() => clearObsCentreNotice());
+        view.rerender({ ...view.props, enabled: false });
+        act(() => {
+            noteLocationBoxPick();
+            follow('phone');
+        });
+        view.rerender({ ...view.props, enabled: true });
+        await settleLookups();
+        act(() => vi.advanceTimersByTime(OBS_NOTICE_GRACE_MS * 2));
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(1);
+        expect(getObsCentreNotice()).toBeNull();
+    });
+
+    it('a NEW box with no position still opens as a cold start does: the broad view and its message', async () => {
+        phoneLive(FALMOUTH);
+        const view = mountBox();
+        await settleLookups();
+        expect(view.map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [FALMOUTH.lon, FALMOUTH.lat], zoom: 14 });
+        view.rerender({ ...view.props, enabled: false });
+        act(() => follow('boat'));
+        view.rerender({ ...view.props, enabled: true });
+        await settleLookups();
+        expect(view.map.jumpTo).toHaveBeenLastCalledWith({ center: BROAD, zoom: 3 });
+        expect(noticeText()).toBe('No position from Serene Summer yet');
+    });
+});
+
+describe("a 'Show on map' framing has the camera (build 124 review)", () => {
+    // Review 2026-10-08: the kept-alive map applies an ENC library 'Show on
+    // map' framing while Obs is hidden, then the map page shows. After Plan
+    // or a pick in the location box, Obs's next visit put the chart back on
+    // the boat over the cell the skipper asked to see.
+    /** MapHub's two hooks on one map, in MapHub's order. */
+    function mountHub() {
+        const map = new maps.FakeMap();
+        const props = {
+            mapRef: { current: map as unknown as mapboxgl.Map | null },
+            ready: true,
+            enabled: true,
+            target: OBS_START_FOLLOW,
+            epoch: 0,
+        };
+        const view = renderHook(
+            ({ mapRef, ready, enabled, target, epoch }) => {
+                useObsStartupCamera(mapRef, ready, enabled, target, epoch);
+                useMapFitRequest(mapRef, ready);
+            },
+            { initialProps: props },
+        );
+        return { ...view, map, props };
+    }
+    /** An ENC cell off Lisbon. */
+    const CELL: [number, number, number, number] = [-9.6, 38.5, -9.0, 38.8];
+    const showCellOnMap = () => act(() => requestMapFit({ bbox: CELL, paddingPx: 80, maxZoom: 11, label: 'cell' }));
+
+    it.each([
+        ['Plan had the map', (view: ReturnType<typeof mountHub>) => (view.props.epoch += 1)],
+        [
+            'her row was picked again',
+            () => {
+                noteLocationBoxPick();
+                follow('boat');
+            },
+        ],
+    ])('%s, then Show on map while Obs is hidden: Obs opens on the cell, not on her', async (_name, change) => {
+        follow('boat');
+        boatLive();
+        const view = mountHub();
+        await settleLookups();
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(1);
+        view.rerender({ ...view.props, enabled: false });
+        act(() => {
+            change(view);
+        });
+        view.rerender({ ...view.props, enabled: false });
+        showCellOnMap();
+        expect(view.map.fitBounds).toHaveBeenCalledTimes(1);
+        view.rerender({ ...view.props, enabled: true });
+        await settleLookups();
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(1);
+        expect(view.map.camera.at(-1)?.[0]).toBe('fitBounds');
+        // A pick after the framing is a new box again: the next visit is on her.
+        view.rerender({ ...view.props, enabled: false });
+        act(() => noteLocationBoxPick());
+        view.rerender({ ...view.props, enabled: true });
+        await settleLookups();
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(2);
+        expect(view.map.jumpTo).toHaveBeenLastCalledWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
+    });
+
+    it('a centring left on its stand-in stands down: her late live fix does not fly over the cell', async () => {
+        follow('boat');
+        rememberBoatFix(busFixAt(VESSEL, NOW - 3 * HOUR), NOW - 3 * HOUR);
+        const view = mountHub();
+        await settleLookups();
+        expect(noticeText()).toBe("Showing Serene Summer's last known position · 3 h ago");
+        view.rerender({ ...view.props, enabled: false });
+        showCellOnMap();
+        boatLive({ lat: -23.8, lon: 152.5 }); // she comes live while Obs is hidden
+        view.rerender({ ...view.props, enabled: true });
+        await settleLookups();
+        act(() => deps.nmeaListeners.forEach((listener) => listener()));
+        act(() => vi.advanceTimersByTime(OBS_LIVE_CHECK_MS * 2));
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(1); // the stand-in only
+        expect(view.map.camera.at(-1)?.[0]).toBe('fitBounds');
+        // The chart no longer shows her last known position.
+        expect(getObsCentreNotice()).toBeNull();
+    });
+
+    it('while Obs shows and its centring waits on the stand-in, the framing takes the camera at once', async () => {
+        follow('boat');
+        rememberBoatFix(busFixAt(VESSEL, NOW - 3 * HOUR), NOW - 3 * HOUR);
+        const view = mountHub();
+        await settleLookups();
+        showCellOnMap();
+        boatLive({ lat: -23.8, lon: 152.5 });
+        act(() => deps.nmeaListeners.forEach((listener) => listener()));
+        expect(view.map.jumpTo).toHaveBeenCalledTimes(1);
+        expect(view.map.camera.at(-1)?.[0]).toBe('fitBounds');
+    });
+
+    it("find-boat's stand-in is not flown over the framing when she comes live", async () => {
+        follow('boat');
+        rememberBoatFix(busFixAt(VESSEL, NOW - 3 * HOUR), NOW - 3 * HOUR);
+        const map = new maps.FakeMap();
+        const watch = renderHook(() => useObsCentreNoticeWatch(true));
+        await act(async () => {
+            await locateVessel(map as unknown as mapboxgl.Map, findBoatOwner(true), NAMES, OBS_VESSEL_ZOOM);
+        });
+        expect(map.flyTo).toHaveBeenCalledTimes(1);
+        // What useMapFitRequest does before its framing.
+        act(() => claimObsCamera(map as unknown as mapboxgl.Map));
+        boatLive({ lat: -23.8, lon: 152.5 });
+        act(() => deps.nmeaListeners.forEach((listener) => listener()));
+        expect(map.flyTo).toHaveBeenCalledTimes(1);
+        // She is live: the message about her last known position goes.
+        expect(getObsCentreNotice()).toBeNull();
+        watch.unmount();
     });
 });

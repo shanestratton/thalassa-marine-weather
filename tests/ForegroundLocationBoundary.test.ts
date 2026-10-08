@@ -58,7 +58,11 @@ describe('foreground location privacy boundary', () => {
             // deleted as dead code — nothing rendered it — so keeping it here
             // would only make the boundary fail on a file that no longer runs.
             'components/AddEntryModal.tsx',
-            'components/map/useVesselTracker.ts',
+            // components/map/useVesselTracker.ts came off this list on
+            // 2026-10-08 (build 124): its only foreground fix was flyToVessel's
+            // fallback to the phone, a callback nothing called, removed as
+            // dead code. Find-boat is obsCentre's locateVessel, which never
+            // asks the phone. The tracker now requests no fix of its own.
             // components/map/MapHub.tsx came off this list on 2026-10-06: its
             // Locate me fix moved to obsCentre's locatePhone, asked only when
             // the location box follows the phone (or for an account with no

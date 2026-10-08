@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type MutableRefObject } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { subscribeAuthIdentityScope } from '../../services/authIdentityScope';
 import { WEATHER_FOLLOW_TARGET_EVENT, getWeatherFollowKey } from '../../services/weatherPosition';
+import { clearCameraPadding } from './cameraPadding';
+import { getLocationBoxPicks, subscribeLocationBoxPicks } from './locationBoxPicks';
+import { onObsCameraClaim } from './obsCameraClaims';
 import {
     OBS_BROAD_CENTRE,
     clearObsCentreNotice,
     fixNow,
     lookUpFix,
     obsFollowSubject,
-    onObsCameraClaim,
     readPhonePermission,
     showObsCentreNotice,
     watchForLiveFix,
@@ -93,9 +95,46 @@ export function obsStartTarget(box: {
     return { kind: 'place', key, center: center ? { lat: center.lat, lon: center.lon } : null };
 }
 
-/** What the box points at right now; a follow target counts as a change of box. */
-function obsStartKey(target: ObsStartTarget): string {
-    return target.kind === 'place' ? target.key : `follow:${getWeatherFollowKey()}`;
+/**
+ * What the box points at right now; a follow target counts as a change of
+ * box, and so does a pick in the box (the same row again included) and
+ * another surface having had the map (build 124).
+ */
+function obsStartKey(target: ObsStartTarget, picks: number, epoch: number): string {
+    const box = target.kind === 'place' ? target.key : `follow:${getWeatherFollowKey()}`;
+    return `${box}${PICK_MARK}${picks}#surface${epoch}`;
+}
+
+const PICK_MARK = '#pick';
+
+/** The box itself, without the pick and surface counts: the same box centred again shares it. */
+const boxOf = (key: string): string => key.slice(0, key.lastIndexOf(PICK_MARK));
+
+/** Camera events carry originalEvent only when a person moved the map. */
+const isGesture = (event: unknown): boolean =>
+    !!event && typeof event === 'object' && 'originalEvent' in event && !!event.originalEvent;
+
+const GESTURE_EVENTS = ['movestart', 'zoomstart', 'dragstart'] as const;
+
+/** Picks in the location box (locationBoxPicks), re-read on each. */
+function useLocationBoxPicks(): number {
+    return useSyncExternalStore(subscribeLocationBoxPicks, getLocationBoxPicks, getLocationBoxPicks);
+}
+
+/**
+ * How many times another surface took the shared map from Obs: Plan's tracer
+ * or passage planner, the location picker, a shared pin. `free` is MapHub's
+ * ownshipStartup, so a plain tab switch (Obs's own surface, hidden) never
+ * counts. Each surface moves the camera (Plan fits its route), so Obs's next
+ * visit is a new box (build 124: Shane 2026-10-08 saw Obs open on Plan's
+ * whole-coast route view at z3.9).
+ */
+export function useSurfaceEpoch(free: boolean): number {
+    const was = useRef(free);
+    const epoch = useRef(0);
+    if (was.current && !free) epoch.current += 1;
+    was.current = free;
+    return epoch.current;
 }
 
 /**
@@ -145,18 +184,37 @@ interface StandIn {
  * find-boat) takes the camera; the message says what the chart shows, once
  * the receivers have answered or after OBS_NOTICE_GRACE_MS.
  *
- * Once per box: a later visit keeps wherever the skipper left the chart, and
- * only a change of box (a new place, or a new follow target) recentres, the
- * next time Obs shows. Leaving Obs is not the skipper taking the camera: a
- * centring that has not centred carries on at the next visit. Layer toggles
- * never move it (see useLayerFrameSnap). Obs does not keep following once it
- * has centred.
+ * Once per box, except after another surface had the map: a later visit
+ * keeps wherever the skipper left the chart, and only a change of box (a new
+ * place, a new follow target, a row picked again in the box, or another
+ * surface having had the map: `surfaceEpoch`, useSurfaceEpoch) recentres, the
+ * next time Obs shows. Leaving Obs for another tab is not the skipper taking
+ * the camera: a centring that has not centred carries on at the next visit.
+ * Layer toggles never move it (see useLayerFrameSnap). Obs does not keep
+ * following once it has centred.
+ *
+ * Centring the same box again (after Plan, or its row picked again) with
+ * nothing at all to centre on leaves the camera where it is and says nothing:
+ * the broad view and its message are a cold start's (or a new box's) answer,
+ * not a reason to throw the skipper's view away on every round trip (review
+ * 2026-10-08). A held fix still stands in, with its message.
+ *
+ * A camera the skipper asked for elsewhere has it (obsCameraClaims): find-boat,
+ * and a 'Show on map' framing made while Obs was hidden (the ENC library), so
+ * the next visit keeps it for the box as it is; a pick after it is a new box.
+ * While Obs shows a settled camera, a box changed beside it (a Glass pinned
+ * beside Obs) waits for the next visit, unless the skipper takes the camera
+ * first: then his view stays.
+ *
+ * Obs has the whole canvas: a padding left on the shared map goes when Obs
+ * shows and before each move here (cameraPadding, build 124).
  */
 export function useObsStartupCamera(
     mapRef: MutableRefObject<mapboxgl.Map | null>,
     mapReady: boolean,
     enabled: boolean,
     target: ObsStartTarget = OBS_START_FOLLOW,
+    surfaceEpoch = 0,
 ): void {
     /** The box the camera last settled for (centred, or the skipper took over). */
     const settledKey = useRef<string | null>(null);
@@ -174,6 +232,8 @@ export function useObsStartupCamera(
     enabledRef.current = enabled;
     const targetRef = useRef(target);
     targetRef.current = target;
+    const epochRef = useRef(surfaceEpoch);
+    epochRef.current = surfaceEpoch;
 
     const placeKey = target.kind === 'place' ? target.key : null;
     const placeLat = target.kind === 'place' ? (target.center?.lat ?? null) : null;
@@ -182,6 +242,26 @@ export function useObsStartupCamera(
     // over at once (as a new place does); after, it waits for the next visit.
     const followKey = useWeatherFollowKey();
     const followDep = target.kind === 'follow' ? followKey : null;
+    const picks = useLocationBoxPicks();
+
+    // A camera the skipper asked for while no centring of Obs's own is
+    // running (it hears its own: listen() below): find-boat on a settled Obs,
+    // or a 'Show on map' framing applied while Obs is hidden. It has the
+    // camera for the box as it is now; a centring Obs was left during stands
+    // down, and its stand-in's message with it (the chart shows the framing).
+    useEffect(
+        () =>
+            onObsCameraClaim((claimed) => {
+                if (claimed !== mapRef.current || activeKey.current !== null) return;
+                settledKey.current = obsStartKey(targetRef.current, getLocationBoxPicks(), epochRef.current);
+                if (resumeKey.current !== null) {
+                    resumeKey.current = null;
+                    standIn.current = null;
+                    clearObsCentreNotice();
+                }
+            }),
+        [mapRef],
+    );
 
     useEffect(() => {
         if (!enabled) {
@@ -199,17 +279,31 @@ export function useObsStartupCamera(
         }
         const map = mapRef.current;
         if (!map) return;
+        // Obs has the whole canvas, whether or not it moves the camera now.
+        clearCameraPadding(map);
         const freshVisit = !showing.current;
         showing.current = true;
         const current = targetRef.current;
-        const key = obsStartKey(current);
+        const key = obsStartKey(current, picks, surfaceEpoch);
         let resuming = false;
         if (activeKey.current === null) {
-            // Only a visit starts a centring, and only for a box the camera
-            // has not already settled for.
-            if (!freshVisit || key === settledKey.current) return;
+            if (key === settledKey.current) return;
+            // Only a visit starts a centring. A box changed while Obs shows a
+            // settled camera (a pick in a Glass pinned beside it) waits for
+            // the next visit, unless the skipper takes the camera meanwhile:
+            // then that view is his, and the next visit keeps it.
+            if (!freshVisit) {
+                const taken = (event: unknown) => {
+                    if (isGesture(event)) settledKey.current = key;
+                };
+                GESTURE_EVENTS.forEach((name) => map.on(name, taken));
+                return () => GESTURE_EVENTS.forEach((name) => map.off(name, taken));
+            }
             resuming = key === resumeKey.current;
         }
+        // The same box as the camera last settled for, centred again only
+        // because Plan had the map or its row was picked again.
+        const sameBoxAgain = settledKey.current !== null && boxOf(settledKey.current) === boxOf(key);
         resumeKey.current = null;
         // This visit's centring re-run (the map became ready), or one carried
         // on from the last visit; otherwise a new one.
@@ -232,28 +326,22 @@ export function useObsStartupCamera(
             stopWatching?.();
             stopHearingClaims?.();
             clearTimeout(graceTimer);
-            map.off('movestart', onGesture);
-            map.off('zoomstart', onGesture);
-            map.off('dragstart', onGesture);
+            GESTURE_EVENTS.forEach((name) => map.off(name, onGesture));
         };
         const settle = () => {
             settledKey.current = activeKey.current;
             activeKey.current = null;
             dispose();
         };
-        // Camera events carry originalEvent only when a person moved the map.
         const onGesture = (event: unknown) => {
-            if (!event || typeof event !== 'object' || !('originalEvent' in event) || !event.originalEvent) return;
-            settle();
+            if (isGesture(event)) settle();
         };
-        /** Listen for the skipper taking the camera: a gesture, or find-boat's flight. */
+        /** Listen for the skipper taking the camera: a gesture, find-boat's flight, or a 'Show on map' framing. */
         const listen = () => {
-            map.on('movestart', onGesture);
-            map.on('zoomstart', onGesture);
-            map.on('dragstart', onGesture);
+            GESTURE_EVENTS.forEach((name) => map.on(name, onGesture));
             stopHearingClaims = onObsCameraClaim((claimed) => {
                 if (claimed !== map) return;
-                // Find-boat flew elsewhere and speaks for the chart now.
+                // Find-boat flew elsewhere (or a framing took the chart) and speaks for it now.
                 handedOver = true;
                 settle();
             });
@@ -263,6 +351,7 @@ export function useObsStartupCamera(
         const jump = (point: LatLon, zoom: number) => {
             if (!ours()) return;
             settle();
+            clearCameraPadding(map);
             map.jumpTo({ center: [point.lon, point.lat], zoom });
         };
 
@@ -299,6 +388,15 @@ export function useObsStartupCamera(
         /** No live fix yet: hold the last known one, or the broad view, without settling. */
         const hold = (fix: ObsFix | null): boolean => {
             if (!ours()) return false;
+            if (!fix && sameBoxAgain) {
+                // Nothing to centre on: the camera stays where it is, and no
+                // message nags each round trip. Its first live fix still lands.
+                held.placed = true;
+                held.point = null;
+                held.said = true;
+                return true;
+            }
+            clearCameraPadding(map);
             if (fix) map.jumpTo({ center: [fix.lon, fix.lat], zoom: OBS_VESSEL_ZOOM });
             else map.jumpTo({ center: OBS_BROAD_CENTRE, zoom: broadZoom(map) });
             if (!held.placed || !samePoint(fix, held.point)) held.said = false;
@@ -362,5 +460,5 @@ export function useObsStartupCamera(
             });
         }
         return dispose;
-    }, [enabled, mapReady, mapRef, placeKey, placeLat, placeLon, followDep]);
+    }, [enabled, mapReady, mapRef, placeKey, placeLat, placeLon, followDep, picks, surfaceEpoch]);
 }

@@ -53,6 +53,7 @@ vi.mock('../components/Toast', () => ({ toast: { error: vi.fn(), success: vi.fn(
 import { LocationStarMenu } from '../components/LocationStarMenu';
 import { getWeatherFollowTarget, setWeatherFollowTarget } from '../services/weatherPosition';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { getLocationBoxPicks } from '../components/map/locationBoxPicks';
 
 const openMenu = () => fireEvent.click(screen.getByRole('button', { name: 'Saved locations' }));
 
@@ -169,6 +170,27 @@ describe('★ menu — the vessel as a special saved location', () => {
         finish();
         await Promise.resolve();
         expect(h.selectLocation).toHaveBeenCalledTimes(2);
+    });
+
+    // Build 124 (Shane 2026-10-08: "it should read the boat once I select
+    // vessel in the location box"): every pick tells Obs to centre again on
+    // its next visit, the same row picked again included.
+    it('every row picked, the same one again included, asks Obs to centre on its next visit', () => {
+        setWeatherFollowTarget('boat');
+        h.settings.savedLocations = ['Suva'];
+        h.settings.savedLocationCoords = { Suva: { lat: -18.14, lon: 178.44 } };
+        render(<LocationStarMenu />);
+        const before = getLocationBoxPicks();
+        openMenu();
+        fireEvent.click(screen.getByTestId('location-star-vessel')); // already ticked: picked again
+        expect(getLocationBoxPicks()).toBe(before + 1);
+        expect(getWeatherFollowTarget()).toBe('boat');
+        openMenu();
+        fireEvent.click(screen.getByRole('menuitem', { name: /Current Location/ }));
+        expect(getLocationBoxPicks()).toBe(before + 2);
+        openMenu();
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Suva' }));
+        expect(getLocationBoxPicks()).toBe(before + 3);
     });
 });
 

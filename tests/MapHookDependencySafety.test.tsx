@@ -98,7 +98,8 @@ describe('map hook dependency safety', () => {
                 [152.9, -27.6],
                 [153.2, -27.3],
             ],
-            { padding: 72, maxZoom: 10, duration: 1200, essential: true },
+            // The padding is for this fit only: Obs shares the map (build 124).
+            { padding: 72, maxZoom: 10, duration: 1200, essential: true, retainPadding: false },
         );
     });
 

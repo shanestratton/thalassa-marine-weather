@@ -43,6 +43,8 @@ import {
     type WeatherFix,
 } from '../../services/weatherPosition';
 import { SKIPPER_BOAT_FALLBACK } from '../vessel/skipperBoatFallback';
+import { clearCameraPadding } from './cameraPadding';
+import { claimObsCamera, onObsCameraClaim } from './obsCameraClaims';
 
 /** Whose position Obs is after: the phone, or a boat (null = the account's own, else her skipper's id). */
 export type ObsSubject = { kind: 'phone' } | { kind: 'boat'; crewOwnerId: string | null };
@@ -60,23 +62,21 @@ export interface ObsFix {
 const PHONE_READ_MAX_AGE_MS = 30_000;
 const FUTURE_FIX_TOLERANCE_MS = 5_000;
 
-const cameraClaims = new Set<(map: mapboxgl.Map) => void>();
-
 /**
  * Hear a flight the skipper asked for (find-boat), so the startup camera
- * treats it as the skipper taking over. Told directly rather than through the
- * flight's own camera events: Mapbox fires no movestart for a flight that
- * begins while the camera is already easing (a layer's zoom frame).
+ * treats it as the skipper taking over (obsCameraClaims, where 'Show on map'
+ * claims the camera too).
  */
-export function onObsCameraClaim(listener: (map: mapboxgl.Map) => void): () => void {
-    cameraClaims.add(listener);
-    return () => {
-        cameraClaims.delete(listener);
-    };
-}
+export { onObsCameraClaim };
 
-function claimObsCamera(map: mapboxgl.Map): void {
-    for (const listener of [...cameraClaims]) listener(map);
+/**
+ * Obs's flight to a fix (find-boat, Locate me, a held position coming live):
+ * on the whole canvas, never inside a padding another surface left on this
+ * shared map (build 124: Plan's left the boat 130 pt right of centre).
+ */
+export function obsFlyTo(map: mapboxgl.Map, to: { lat: number; lon: number }, zoom: number): void {
+    clearCameraPadding(map);
+    map.flyTo({ center: [to.lon, to.lat], zoom, duration: 1200 });
 }
 
 /** The broad view's centre: useMapInit's Aus + NZ box, [145, -28]. */
@@ -358,6 +358,14 @@ function releaseStandIn(): void {
     current?.release();
 }
 
+// A camera the skipper asked for since (a 'Show on map' framing, another
+// flight) means the stand-in is no longer what the chart shows: her live fix
+// must not fly over it (build 124 review). Find-boat claims before it holds a
+// new stand-in, and noticeWentLive releases before it claims.
+onObsCameraClaim((map) => {
+    if (standIn?.map === map) releaseStandIn();
+});
+
 function holdStandIn(noticeId: number, map: mapboxgl.Map, zoom: number): void {
     releaseStandIn();
     const onGesture = (event: unknown) => {
@@ -390,7 +398,7 @@ function noticeWentLive(noticeId: number, fix: ObsFix): void {
         releaseStandIn();
         claimObsCamera(held.map);
         try {
-            held.map.flyTo({ center: [fix.lon, fix.lat], zoom: held.zoom, duration: 1200 });
+            obsFlyTo(held.map, fix, held.zoom);
         } catch {
             /* the map went away */
         }
@@ -564,7 +572,7 @@ function showForTap(next: Parameters<typeof showObsCentreNotice>[0], names: ObsB
 function flyFor(map: mapboxgl.Map, to: ObsFix, zoom: number): boolean {
     claimObsCamera(map);
     try {
-        map.flyTo({ center: [to.lon, to.lat], zoom, duration: 1200 });
+        obsFlyTo(map, to, zoom);
         return true;
     } catch {
         return false; // the map went away meanwhile

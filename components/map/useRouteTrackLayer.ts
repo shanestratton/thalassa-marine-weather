@@ -195,7 +195,7 @@ export function useRouteTrackLayer({ mapRef, mapReady, variant, selected }: Args
                                 [w, s],
                                 [e, n],
                             ],
-                            { padding: 60, duration: 1200, maxZoom: 11 },
+                            { padding: 60, duration: 1200, maxZoom: 11, retainPadding: false },
                         );
                     }
                     fittedRef.current = { map, variant, id: item.id };

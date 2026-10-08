@@ -46,6 +46,7 @@ import {
     type SavedLocation,
 } from '../utils/savedLocations';
 import { triggerHaptic } from '../utils/system';
+import { noteLocationBoxPick } from './map/locationBoxPicks';
 import { useMenuNavigation } from '../hooks/useMenuNavigation';
 import { useCrewingBoat } from '../hooks/useCrewingBoat';
 import {
@@ -322,6 +323,8 @@ export const LocationStarMenu: React.FC = () => {
         } else {
             setWeatherFollowTarget('boat');
         }
+        // Obs centres on her at its next visit, her row picked again included (build 124).
+        noteLocationBoxPick();
         setFollowTargetState(target);
         closeAndRestore();
         // Register intent before any GPS await. The context owns resolution,
@@ -331,6 +334,8 @@ export const LocationStarMenu: React.FC = () => {
 
     const goTo = (loc: SavedLocation | 'current') => {
         triggerHaptic('light');
+        // Obs centres here at its next visit, the same row picked again included (build 124).
+        noteLocationBoxPick();
         closeAndRestore();
         if (loc === 'current') {
             // Back to the punter: 'Current Location' follows the phone again.

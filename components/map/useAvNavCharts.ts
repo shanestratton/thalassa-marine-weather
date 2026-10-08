@@ -223,7 +223,7 @@ export function useAvNavCharts(
                         [chart.bounds[0], chart.bounds[1]],
                         [chart.bounds[2], chart.bounds[3]],
                     ],
-                    { padding: 40, duration: 1500 },
+                    { padding: 40, duration: 1500, retainPadding: false },
                 );
                 return;
             }
