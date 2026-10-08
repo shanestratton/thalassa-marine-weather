@@ -17,7 +17,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { calculateDistance, destinationPoint } from '../utils/navigationCalculations';
 import type { AnchorWatchConfig, AnchorWatchSnapshot } from '../services/AnchorWatchService';
 
-const service = vi.hoisted(() => ({ relocateAnchor: vi.fn() }));
+const service = vi.hoisted(() => ({
+    relocateAnchor: vi.fn(),
+    relocateAnchorFromAlarm: vi.fn(),
+    checkMoveFromAlarm: vi.fn(),
+}));
 vi.mock('../services/AnchorWatchService', () => ({
     AnchorWatchService: service,
     ANCHOR_RELOCATE_FIX_MAX_AGE_MS: 30_000,
@@ -125,6 +129,8 @@ describe('MoveAnchorSheet', () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         vi.setSystemTime(NOW);
         service.relocateAnchor.mockReset().mockResolvedValue({ ok: true });
+        service.relocateAnchorFromAlarm.mockReset().mockResolvedValue({ ok: true });
+        service.checkMoveFromAlarm.mockReset().mockReturnValue({ ok: true, spreadM: 1, lateM: 33 });
         heading(null, 0);
         setUnits('m');
     });
@@ -557,6 +563,233 @@ describe('MoveAnchorSheet', () => {
             fireEvent.keyDown(document, { key: 'Escape' });
             expect(onClose).toHaveBeenCalledTimes(2);
             expect(service.relocateAnchor).not.toHaveBeenCalled();
+        });
+    });
+
+    // Build 125 (125-03): the same sheet, opened from the ALARM screen. A late
+    // set swings her out of a circle centred in the wrong place, and the alarm
+    // sounds although nothing has moved. The sheet moves the mark and stops
+    // the alarm, but only when her swing track backs it up, and it says so
+    // live, before the tap. The watch judges her track
+    // (AnchorWatchService.checkMoveFromAlarm; tests/anchorLateSet.test.ts and
+    // tests/AnchorMoveFromAlarm.test.ts); here it is a stand-in, and the sheet
+    // shows what it says. It never promises it can always tell.
+    describe('alarm mode: move the anchor from the alarm', () => {
+        const config: AnchorWatchConfig = {
+            rodeLength: 40,
+            waterDepth: 8,
+            scopeRatio: 5,
+            rodeType: 'chain',
+            safetyMargin: 10,
+        };
+        const LIE = Math.sqrt(40 ** 2 - 8 ** 2) * 0.85;
+        const MIN = 60_000;
+        // Off the Frioul islands, Marseille. The anchor is 33 m at 212°T from the boat.
+        const boat = { latitude: 43.28, longitude: 5.305 };
+        const toward = (from: LatLon, bearingDeg: number, metres: number): LatLon => {
+            const p = destinationPoint(from.latitude, from.longitude, bearingDeg, metres / 1852);
+            return { latitude: p.lat, longitude: p.lon };
+        };
+        const anchor = toward(boat, 212, LIE);
+        /** Where the watch was armed: the boat, before a 120° wind shift swung her round. */
+        const setAt = toward(anchor, 32 - 120, LIE);
+
+        /** Fixes every 4 s, ending a second ago, at where(fraction of the trail). */
+        function trail(minutes: number, where: (f: number) => LatLon) {
+            const steps = Math.round((minutes * MIN) / 4_000);
+            return Array.from({ length: steps + 1 }, (_, i) => ({
+                ...where(i / steps),
+                accuracy: 4,
+                heading: 0,
+                speed: 0,
+                timestamp: NOW - 1_000 - (steps - i) * 4_000,
+            }));
+        }
+        /** 14 minutes holding, then the wind backs 120° over 16. */
+        const lateSet = () =>
+            trail(30, (f) => toward(anchor, f < 14 / 30 ? 272 : 272 + 120 * ((f - 14 / 30) / (16 / 30)), LIE));
+
+        function alarmSnapshot(history = lateSet(), overrides: Partial<AnchorWatchSnapshot> = {}) {
+            const last = history[history.length - 1];
+            return snapshotAt(setAt, config, {
+                state: 'alarm',
+                alarmCause: 'drag',
+                alarmTriggeredAt: NOW - 60_000,
+                vesselPosition: { ...last, timestamp: NOW - 1_000 },
+                positionHistory: history,
+                watchStartedAt: history[0].timestamp,
+                ...overrides,
+            });
+        }
+        const stopButton = () => screen.getByRole('button', { name: 'Move and stop alarm' });
+
+        it('asks the skipper to be sure, and says before the tap that her swing fits', () => {
+            heading(212, 2_000);
+            render(<MoveAnchorSheet mode="alarm" snapshot={alarmSnapshot()} onClose={vi.fn()} />);
+            expect(screen.getByRole('dialog', { name: 'Move anchor' })).toBeInTheDocument();
+            expect(screen.getByTestId('move-anchor-caution')).toHaveTextContent(
+                /only move it if you.re sure the anchor hasn.t moved/i,
+            );
+            expect(distanceField()).toHaveValue('33');
+            expect(bearingField()).toHaveValue('212');
+            expect(liveLine()).toHaveTextContent('The boat would be 33 m from the anchor, inside your 43 m circle.');
+            expect(liveLine()).toHaveTextContent(/her track so far fits a swing round it/i);
+            // Never a promise that the app can always tell.
+            expect(document.body.textContent).not.toMatch(/not dragging|it was a late set|safe to move/i);
+            expect(stopButton()).toBeEnabled();
+        });
+
+        it('moves the mark and stops the alarm through the alarm path, not the watch-page one', async () => {
+            heading(212, 2_000);
+            const onMoved = vi.fn();
+            const snapshot = alarmSnapshot();
+            render(<MoveAnchorSheet mode="alarm" snapshot={snapshot} onClose={vi.fn()} onMoved={onMoved} />);
+            await act(async () => {
+                fireEvent.click(stopButton());
+            });
+            expect(service.relocateAnchor).not.toHaveBeenCalled();
+            expect(service.relocateAnchorFromAlarm).toHaveBeenCalledTimes(1);
+            const [lat, lon] = service.relocateAnchorFromAlarm.mock.calls[0];
+            const from = snapshot.vesselPosition!;
+            const expected = destinationPoint(from.latitude, from.longitude, 212, 33 / 1852);
+            expect(lat).toBeCloseTo(expected.lat, 9);
+            expect(lon).toBeCloseTo(expected.lon, 9);
+            expect(onMoved).toHaveBeenCalledTimes(1);
+        });
+
+        it('sits over the alarm screen: the critical layer, not the ordinary modal one', () => {
+            heading(212, 2_000);
+            const { unmount } = render(<MoveAnchorSheet mode="alarm" snapshot={alarmSnapshot()} onClose={vi.fn()} />);
+            const overlay = screen.getByRole('dialog', { name: 'Move anchor' }).parentElement!;
+            expect(overlay).toHaveAttribute('data-overlay-layer', 'critical');
+            expect(overlay).toHaveClass('items-center', 'justify-center');
+            expect(screen.getByRole('dialog', { name: 'Move anchor' })).toHaveClass('thalassa-keyboard-safe-sheet');
+            unmount();
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            expect(screen.getByRole('dialog', { name: 'Move anchor' }).parentElement).toHaveAttribute(
+                'data-overlay-layer',
+                'modal',
+            );
+        });
+
+        it('asks the watch about the point the fields describe, live, as they change', () => {
+            heading(212, 2_000);
+            const snapshot = alarmSnapshot();
+            render(<MoveAnchorSheet mode="alarm" snapshot={snapshot} onClose={vi.fn()} />);
+            const from = snapshot.vesselPosition!;
+            const asked = () => service.checkMoveFromAlarm.mock.calls[service.checkMoveFromAlarm.mock.calls.length - 1];
+            let expected = destinationPoint(from.latitude, from.longitude, 212, 33 / 1852);
+            expect(asked()[0]).toBeCloseTo(expected.lat, 9);
+            expect(asked()[1]).toBeCloseTo(expected.lon, 9);
+            fireEvent.change(distanceField(), { target: { value: '25' } });
+            expected = destinationPoint(from.latitude, from.longitude, 212, 25 / 1852);
+            expect(asked()[0]).toBeCloseTo(expected.lat, 9);
+            expect(asked()[1]).toBeCloseTo(expected.lon, 9);
+        });
+
+        it('too early to tell, or a track this phone did not see: says what is missing, and will not move', () => {
+            heading(212, 2_000);
+            const lead = 'This phone has only 4 min of her track before the alarm.';
+            service.checkMoveFromAlarm.mockReturnValue({
+                ok: false,
+                refusal: 'unseen',
+                lead,
+                error: `${lead} It needs 10 to tell a late set from a drag (the app restarted, or fixes stopped). If she is dragging, re-anchor.`,
+            });
+            render(<MoveAnchorSheet mode="alarm" snapshot={alarmSnapshot()} onClose={vi.fn()} />);
+            expect(liveLine()).toHaveTextContent(
+                'This phone has only 4 min of her track before the alarm. It needs 10 to tell a late set from a drag (the app restarted, or fixes stopped). If she is dragging, re-anchor.',
+            );
+            expect(stopButton()).toBeDisabled();
+            // No point would pass, so how the fields were filled steps aside to make room.
+            expect(screen.getByTestId('move-anchor-hint')).toHaveClass('hidden');
+            expect(screen.getByTestId('move-anchor-caution')).toBeVisible();
+        });
+
+        it('a track that looks like a drag: says so, and will not move', async () => {
+            heading(212, 2_000);
+            const lead = 'Her distance from that point has been changing, the way a drag does.';
+            service.checkMoveFromAlarm.mockReturnValue({
+                ok: false,
+                refusal: 'moving',
+                lead,
+                error: `${lead} If she is dragging, re-anchor.`,
+            });
+            render(<MoveAnchorSheet mode="alarm" snapshot={alarmSnapshot()} onClose={vi.fn()} />);
+            expect(liveLine()).toHaveTextContent(`${lead} If she is dragging, re-anchor.`);
+            // The second sentence is the part that steps aside for the keyboard.
+            expect(screen.getByText('If she is dragging, re-anchor.', { exact: false }).tagName).toBe('SPAN');
+            expect(stopButton()).toBeDisabled();
+            // Another point might pass: the hint on how the fields were filled stays.
+            expect(screen.getByTestId('move-anchor-hint')).not.toHaveClass('hidden');
+            await act(async () => {
+                fireEvent.click(stopButton());
+            });
+            expect(service.relocateAnchorFromAlarm).not.toHaveBeenCalled();
+        });
+
+        it('the watch-page sheet never asks: the trail check is the alarm’s alone', () => {
+            heading(212, 2_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            expect(service.checkMoveFromAlarm).not.toHaveBeenCalled();
+        });
+
+        it('a GPS-lost alarm cannot be judged', () => {
+            heading(212, 2_000);
+            render(
+                <MoveAnchorSheet
+                    mode="alarm"
+                    snapshot={alarmSnapshot(undefined, { alarmCause: 'gps-lost' })}
+                    onClose={vi.fn()}
+                />,
+            );
+            expect(liveLine()).toHaveTextContent(/GPS/);
+            expect(stopButton()).toBeDisabled();
+        });
+
+        it('a stale fix cannot vouch for it', () => {
+            heading(212, 2_000);
+            const history = lateSet();
+            render(
+                <MoveAnchorSheet
+                    mode="alarm"
+                    snapshot={alarmSnapshot(history, {
+                        vesselPosition: { ...history[history.length - 1], timestamp: NOW - 31_000 },
+                    })}
+                    onClose={vi.fn()}
+                />,
+            );
+            expect(liveLine()).toHaveTextContent(/waiting for a fresh position fix/i);
+            expect(stopButton()).toBeDisabled();
+        });
+
+        it('in feet, for a feet skipper, and the move is still made in metres', async () => {
+            setUnits('ft');
+            heading(212, 2_000);
+            render(<MoveAnchorSheet mode="alarm" snapshot={alarmSnapshot()} onClose={vi.fn()} />);
+            // 33.3 m = 109 ft, inside the 43.3 m = 142 ft circle.
+            expect(distanceField()).toHaveValue('109');
+            expect(liveLine()).toHaveTextContent('inside your 142 ft circle');
+            await act(async () => {
+                fireEvent.click(stopButton());
+            });
+            const [lat, lon] = service.relocateAnchorFromAlarm.mock.calls[0];
+            expect(metresBetween(boat, { lat, lon })).toBeCloseTo(109 * FT, 3);
+        });
+
+        it('shows the watch’s own refusal and stays open, the alarm still sounding behind it', async () => {
+            heading(212, 2_000);
+            service.relocateAnchorFromAlarm.mockResolvedValue({
+                ok: false,
+                error: 'The anchor was not moved and the alarm is still sounding. Moving the swing circle did not respond within 15s.',
+            });
+            const onMoved = vi.fn();
+            render(<MoveAnchorSheet mode="alarm" snapshot={alarmSnapshot()} onClose={vi.fn()} onMoved={onMoved} />);
+            await act(async () => {
+                fireEvent.click(stopButton());
+            });
+            expect(screen.getByRole('alert')).toHaveTextContent(/alarm is still sounding/i);
+            expect(onMoved).not.toHaveBeenCalled();
         });
     });
 });

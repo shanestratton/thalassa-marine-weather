@@ -67,12 +67,24 @@ window.addEventListener('test:keyboard', ((event: CustomEvent<number>) => {
     viewport.dispatchEvent(new Event('resize'));
 }) as EventListener);
 
-const [{ initGlobalKeyboardScroll }, { MoveAnchorSheet }, { NmeaStore }, service, settingsModule] = await Promise.all([
+const [
+    { initGlobalKeyboardScroll },
+    { MoveAnchorSheet },
+    { AnchorAlarmOverlay },
+    { NmeaStore },
+    service,
+    settingsModule,
+    { destinationPoint },
+    { judgeLateSet },
+] = await Promise.all([
     import('../../utils/keyboardScroll'),
     import('../../components/anchor-watch/MoveAnchorSheet'),
+    import('../../components/anchor-watch/AnchorAlarmOverlay'),
     import('../../services/NmeaStore'),
     import('../../services/AnchorWatchService'),
     import('../../stores/settingsStore'),
+    import('../../utils/navigationCalculations'),
+    import('../../services/anchorLateSet'),
 ]);
 initGlobalKeyboardScroll();
 
@@ -95,7 +107,7 @@ window.setInterval(() => {
 // The watch was armed at the boat, so the anchor sits under her: the late-set case.
 const boat = { latitude: 43.295, longitude: 5.36 };
 const config = { rodeLength: 40, waterDepth: 8, scopeRatio: 5, rodeType: 'chain' as const, safetyMargin: 10 };
-const snapshot: AnchorWatchSnapshot = {
+const watchSnapshot: AnchorWatchSnapshot = {
     state: 'watching',
     anchorPosition: { ...boat, timestamp: Date.now() - 600_000 },
     vesselPosition: { ...boat, accuracy: 4, heading: 212, speed: 0, timestamp: Date.now() },
@@ -115,6 +127,48 @@ const snapshot: AnchorWatchSnapshot = {
     setupError: null,
 };
 
+// ?alarm: the same boat with the drag alarm sounding (build 125, 125-03). The
+// watch was armed 33 m off the real anchor; a 120° wind shift over 16 minutes
+// swung her round it and out of that circle. Her trail fits the swing, so the
+// sheet, opened from the alarm screen, offers to move the mark and stop it.
+// &restarted: the app restarted five minutes ago, so this phone has only four
+// minutes of her track before the alarm: the longest refusal the sheet shows.
+const alarm = params.has('alarm');
+const restarted = params.has('restarted');
+const lie = Math.sqrt(40 ** 2 - 8 ** 2) * 0.85;
+const toward = (from: { latitude: number; longitude: number }, bearingDeg: number, metres: number) => {
+    const p = destinationPoint(from.latitude, from.longitude, bearingDeg, metres / 1852);
+    return { latitude: p.lat, longitude: p.lon };
+};
+const realAnchor = toward(boat, 212, lie);
+const setAt = toward(realAnchor, 272, lie);
+const trailStart = Date.now() - 30 * 60_000;
+const trail = Array.from({ length: 451 }, (_, i) => {
+    const minutes = (i * 4) / 60;
+    const swung = minutes < 14 ? 0 : (120 * (minutes - 14)) / 16;
+    return {
+        ...toward(realAnchor, 272 + swung, lie),
+        accuracy: 4,
+        heading: 212,
+        speed: 0,
+        timestamp: trailStart + i * 4_000,
+    };
+});
+const snapshot: AnchorWatchSnapshot = alarm
+    ? {
+          ...watchSnapshot,
+          state: 'alarm',
+          alarmCause: 'drag',
+          alarmTriggeredAt: Date.now() - 60_000,
+          anchorPosition: { ...setAt, timestamp: trailStart },
+          watchStartedAt: trailStart,
+          positionHistory: trail,
+          distanceFromAnchor: 57.7,
+          maxDistanceRecorded: 57.7,
+          bearingToAnchor: 152,
+      }
+    : watchSnapshot;
+
 // The watch is the service's to move; here it only records what it was asked.
 const fixture = { moves: [] as Array<[number, number]> };
 Object.assign(window, { __moveAnchorFixture: fixture });
@@ -122,6 +176,25 @@ service.AnchorWatchService.relocateAnchor = async (lat: number, lon: number) => 
     fixture.moves.push([lat, lon]);
     return { ok: true };
 };
+service.AnchorWatchService.relocateAnchorFromAlarm = async (lat: number, lon: number) => {
+    fixture.moves.push([lat, lon]);
+    return { ok: true };
+};
+// The live verdict is the real judgement on the fixture's track; the boat holds
+// where the track ends.
+service.AnchorWatchService.checkMoveFromAlarm = (lat: number, lon: number) =>
+    judgeLateSet({
+        now: Date.now(),
+        fix: { ...boat, accuracy: 4, timestamp: Date.now() },
+        target: { latitude: lat, longitude: lon },
+        setAt,
+        watchStartedAt: trailStart,
+        alarmAt: snapshot.alarmTriggeredAt,
+        rodeLength: config.rodeLength,
+        waterDepth: config.waterDepth,
+        swingRadiusM: snapshot.swingRadius,
+        trail: restarted ? trail.filter((p) => p.timestamp >= trailStart + 25 * 60_000) : trail,
+    });
 
 function Fixture() {
     const [open, setOpen] = useState(false);
@@ -159,8 +232,18 @@ function Fixture() {
                     <span className="text-sky-300">VESSEL</span>
                 </div>
             </nav>
+            {/* The real alarm screen, as GlobalAnchorAlarmGate draws it: the
+                sheet must open over it, and its Move anchor is what opens it. */}
+            {alarm && outcome !== 'moved' && (
+                <AnchorAlarmOverlay
+                    snapshot={watch}
+                    onAcknowledge={() => undefined}
+                    onMoveAnchor={() => setOpen(true)}
+                />
+            )}
             {open && (
                 <MoveAnchorSheet
+                    mode={alarm ? 'alarm' : 'watch'}
                     snapshot={watch}
                     onClose={() => setOpen(false)}
                     onMoved={() => {

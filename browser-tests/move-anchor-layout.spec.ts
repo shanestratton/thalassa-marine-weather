@@ -14,6 +14,14 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test';
  * last resort (the modal rule, 2026-08-31), and then every field, the live
  * check and both buttons must still be reachable, never clipped or under the
  * tab bar or the keyboard.
+ *
+ * Build 125 (125-03): the same sheet opened from the ALARM screen
+ * (?alarm). It opens over the real alarm overlay (both on the critical layer),
+ * carries one more line ("Only move it if you're sure the anchor hasn't
+ * moved") and a longer button, and must still fit 320 x 568 in wide fonts with
+ * the keyboard up, with nothing of the alarm screen covering its controls.
+ * So must its longest refusal (&restarted: the app restarted, so the phone has
+ * only minutes of her track before the alarm).
  */
 
 const sizes = [
@@ -231,3 +239,146 @@ test('feet skippers see feet, and Escape closes without moving anything', async 
     await expect(page.getByRole('dialog', { name: 'Move anchor' })).toBeHidden();
     await expect(page.getByTestId('outcome')).toHaveText('waiting');
 });
+
+const alarmSizes = sizes.filter((size) => size.width === 320 || size.name === '844x390 landscape');
+
+/** The alarm screen's own two buttons, whole and tappable, before the sheet opens. */
+function alarmButtonsIssues(page: Page) {
+    return page.evaluate(() => {
+        const issues: string[] = [];
+        const overlay = document.querySelector<HTMLElement>('[role="alertdialog"]');
+        if (!overlay) return ['no alarm screen'];
+        for (const name of ['Acknowledge Alarm', 'Move anchor']) {
+            const button = [...overlay.querySelectorAll<HTMLElement>('button')].find(
+                (element) => (element.getAttribute('aria-label') || element.textContent?.trim()) === name,
+            );
+            if (!button) {
+                issues.push(`${name}: missing`);
+                continue;
+            }
+            const rect = button.getBoundingClientRect();
+            if (rect.height < 43.5) issues.push(`${name}: ${rect.height}px tall`);
+            if (rect.top < 0 || rect.bottom > window.innerHeight + 0.5) issues.push(`${name} is off screen`);
+            const hit = document.elementFromPoint((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
+            if (!(hit === button || button.contains(hit))) issues.push(`${name} is covered by ${hit?.tagName}`);
+        }
+        return issues;
+    });
+}
+
+async function openFromAlarm(page: Page, size: { width: number; height: number }, query: string) {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.route('**/*', (route) => {
+        const url = new URL(route.request().url());
+        return ['127.0.0.1', 'localhost'].includes(url.hostname) && route.request().method() === 'GET'
+            ? route.continue()
+            : route.abort();
+    });
+    await page.addInitScript(() => {
+        document.addEventListener('DOMContentLoaded', () => {
+            const wide = document.createElement('style');
+            wide.textContent = ":root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; }";
+            document.head.append(wide);
+        });
+    });
+    await page.setViewportSize({ width: size.width, height: size.height });
+    await page.goto(`/e2e/fixtures/move-anchor.html?alarm${query ? `&${query}` : ''}`);
+    await expect(page.getByRole('alertdialog')).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    await expect.poll(() => alarmButtonsIssues(page), { timeout: 3_000 }).toEqual([]);
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Move anchor', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Move anchor' })).toBeVisible();
+    return errors;
+}
+
+for (const size of alarmSizes) {
+    test(`From the alarm: Move anchor fits ${size.name} over the alarm screen, keyboard up and down`, async ({
+        page,
+    }, info) => {
+        const errors = await openFromAlarm(page, size, size.query);
+        const label = `alarm-${size.width}x${size.height}${size.query ? '-large-text' : ''}`;
+        const distance = page.getByRole('textbox', { name: /distance from the boat to the anchor/i });
+        const stop = page.getByRole('button', { name: 'Move and stop alarm', exact: true });
+        await expect(distance).toHaveValue('33');
+        await expect(page.getByTestId('move-anchor-caution')).toContainText(/sure the anchor hasn.t moved/i);
+        await expect(liveCheck(page)).toContainText('inside your 43 m circle');
+        await expect(liveCheck(page)).toContainText(/fits a swing/i);
+        await expect(stop).toBeEnabled();
+        await screenshot(page, info, `move-anchor-${label}`);
+        await expectLayout(page, 0, size.mayScroll);
+
+        await distance.click();
+        await keyboard(page, size.keyboard);
+        await expect(distance).toBeFocused();
+        await screenshot(page, info, `move-anchor-keyboard-${label}`);
+        await expectLayout(page, size.keyboard, size.mayScroll);
+
+        await distance.fill('60');
+        await expect(liveCheck(page)).toContainText('outside your 43 m circle');
+        await expect(stop).toBeDisabled();
+        await expectLayout(page, size.keyboard, size.mayScroll);
+
+        // 13 m short of the real anchor: her distance from that point changed
+        // through the swing, as a drag's would. The verdict's first sentence
+        // stays on screen with the keyboard up.
+        await distance.fill('20');
+        await expect(liveCheck(page)).toContainText(/has been changing, the way a drag does/i);
+        await expect(stop).toBeDisabled();
+        await expectLayout(page, size.keyboard, size.mayScroll);
+        await keyboard(page, 0);
+        await expect(liveCheck(page)).toContainText(/re-anchor/i);
+        await expectLayout(page, 0, size.mayScroll);
+        await distance.click();
+        await keyboard(page, size.keyboard);
+
+        await distance.fill('33');
+        await expect(stop).toBeEnabled();
+        await stop.click();
+        await expect(page.getByRole('dialog', { name: 'Move anchor' })).toBeHidden();
+        await expect(page.getByTestId('outcome')).toHaveText('moved');
+        expect(
+            await page.evaluate(
+                () =>
+                    (window as unknown as { __moveAnchorFixture: { moves: unknown[] } }).__moveAnchorFixture.moves
+                        .length,
+            ),
+        ).toBe(1);
+        await keyboard(page, 0);
+        expect(errors).toEqual([]);
+    });
+}
+
+for (const size of alarmSizes.filter((s) => s.width === 320)) {
+    test(`From the alarm: the longest refusal fits ${size.name}, keyboard up and down`, async ({ page }, info) => {
+        const errors = await openFromAlarm(page, size, ['restarted', size.query].filter(Boolean).join('&'));
+        const label = `alarm-refused-${size.width}x${size.height}${size.query ? '-large-text' : ''}`;
+        const distance = page.getByRole('textbox', { name: /distance from the boat to the anchor/i });
+        const stop = page.getByRole('button', { name: 'Move and stop alarm', exact: true });
+        await expect(distance).toHaveValue('33');
+        await expect(liveCheck(page)).toContainText(/only 4 min of her track before the alarm/i);
+        await expect(liveCheck(page)).toContainText(/re-anchor/i);
+        await expect(stop).toBeDisabled();
+        await screenshot(page, info, `move-anchor-${label}`);
+        await expectLayout(page, 0, size.mayScroll);
+
+        await distance.click();
+        await keyboard(page, size.keyboard);
+        await expect(distance).toBeFocused();
+        await expect(liveCheck(page)).toContainText(/only 4 min/i);
+        await screenshot(page, info, `move-anchor-keyboard-${label}`);
+        await expectLayout(page, size.keyboard, size.mayScroll);
+        await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+        await expect(page.getByRole('dialog', { name: 'Move anchor' })).toBeHidden();
+        await expect(page.getByRole('alertdialog')).toBeVisible();
+        expect(
+            await page.evaluate(
+                () =>
+                    (window as unknown as { __moveAnchorFixture: { moves: unknown[] } }).__moveAnchorFixture.moves
+                        .length,
+            ),
+        ).toBe(0);
+        await keyboard(page, 0);
+        expect(errors).toEqual([]);
+    });
+}
