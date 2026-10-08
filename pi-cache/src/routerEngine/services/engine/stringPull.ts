@@ -81,6 +81,18 @@
  * OUTSIDE its marks (Port of Airlie, 2026-10-04), with the detour's own
  * length allowed over water only shallower (pathNoWorse `detourM`).
  *
+ * sameTideNoWorse (package 125-06, Port of Airlie → Nara Inlet, 2026-10-08)
+ * is the rule once more for a turn that buys no tide: where the run already
+ * crosses water charted under the keel's need, its chord may cross more of it
+ * — twice as far at most, all of it within 2 km of where the run's begins —
+ * when it is no shallower and as safe in every other way (a reef's edge and a
+ * survey's grade are held as pathNoWorse holds them: tide changes neither).
+ * The engine's same-tide stage (straightenSameTide), after the gates, pulls a
+ * second time with it (pullTaut `sameTide`), cuts the corner such a pull
+ * leaves where the leg on must clear land (slideSameTideTurns), and first
+ * threads a pair the route left the channel short of, where that straightens
+ * it further (threadGateCentres `sameTide`, sameTideThreadStands).
+ *
  * Bundle note (stage-B review, 2026-10-03): this module sits in the main
  * chunk (routeInshore is synchronous, so no dynamic import), against a JS
  * budget the round left ~3 KB over. The exposure indices and states are
@@ -238,6 +250,11 @@ export interface LineExposure {
      *  centring field reads it (aStar computeCentreFactor: 1 mid-channel or in
      *  open water, up to 1 + CENTRE_BIAS against a bank or a shallow edge). */
     centreMax: number;
+    /** Its length (m). */
+    lengthM: number;
+    /** Where along it (m from its start) its water charted under draft + UKC
+     *  begins and ends; null where it has none. */
+    shallowSpanM: readonly [number, number] | null;
 }
 
 export interface PullContext {
@@ -465,11 +482,21 @@ export function lineExposureReader(ctx: PullContext): (a: LonLat, b: LonLat) => 
         const n = Math.max(1, Math.ceil(lengthM / PULL_STEP_M));
         const pieceM = lengthM / n;
         const at = (t: number): [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-        const depthAt = (d: number | null, m: number): void => {
+        let shallowSpanM: [number, number] | null = null;
+        /** A piece from t0 to t1 along the line, charted d (null: no depth). */
+        const depthAt = (d: number | null, m: number, t0: number, t1: number): void => {
             if (d === null) metres[X_CHART_UNCHARTED] += m;
             else {
                 if (d < leastM) leastM = d;
-                if (d < floorM) metres[X_CHART_SHALLOW] += m;
+                if (d < floorM) {
+                    metres[X_CHART_SHALLOW] += m;
+                    if (shallowSpanM === null) shallowSpanM = [t0 * lengthM, t1 * lengthM];
+                    else
+                        shallowSpanM = [
+                            Math.min(shallowSpanM[0], t0 * lengthM),
+                            Math.max(shallowSpanM[1], t1 * lengthM),
+                        ];
+                }
             }
         };
 
@@ -495,12 +522,12 @@ export function lineExposureReader(ctx: PullContext): (a: LonLat, b: LonLat) => 
         if (chart.hasBands) {
             for (const q of chart.piecesOf(a, b)) {
                 const d = q.ntm !== null ? q.ntm : q.finest;
-                depthAt(d, q.m);
+                depthAt(d, q.m, q.t0, q.t1);
                 if (d !== null && d < floorM) shallowPieces.push(q);
                 if (q.conflict) metres[X_CHART_CONFLICT] += q.m;
             }
         } else {
-            for (let k = 0; k < n; k++) depthAt(gridDepthAt(...at((k + 0.5) / n)), pieceM);
+            for (let k = 0; k < n; k++) depthAt(gridDepthAt(...at((k + 0.5) / n)), pieceM, k / n, (k + 1) / n);
         }
 
         // ── Water no tide clears (decision 11): only ever charted-shallow ─
@@ -549,7 +576,7 @@ export function lineExposureReader(ctx: PullContext): (a: LonLat, b: LonLat) => 
         for (const [e, s] of STATE_OF) if (metres[e] > 0) state |= s;
         if (structures.length > 0 && polylineCrossesClearanceBar([a, b], structures)) state |= S_LOW_STRUCTURE;
 
-        return { state, metres, leastM, nearBands, surveyErrM, centreMax };
+        return { state, metres, leastM, nearBands, surveyErrM, centreMax, lengthM, shallowSpanM };
     };
 }
 
@@ -568,6 +595,125 @@ export function memoExposure(read: (a: LonLat, b: LonLat) => LineExposure): (a: 
 /** Band approach `o` is at least as near a band at least as shallow as `q`'s. */
 const nearAsShallow = (o: NearBand, q: NearBand): boolean =>
     o.clearanceM <= q.clearanceM + BAND_TOLERANCE_M && (o.band.drval1 ?? -Infinity) <= (q.band.drval1 ?? -Infinity);
+
+/** A same-tide chord (sameTideNoWorse) may keep the boat over water charted
+ *  under the keel's need at most this many times as far as its run does… */
+export const SAME_TIDE_MAX_RATIO = 2;
+/** …and all of that water within this of the end where the run's own begins:
+ *  crossed within minutes of it (~10 at 6 kn), on the same tide. With the
+ *  ratio it bounds the extra water to a kilometre. */
+export const SAME_TIDE_REACH_M = 2_000;
+/** The exposures that are that water itself — its caution cells and its
+ *  charted depth — which a same-tide chord may run longer over. A survey's
+ *  grade is not (review, 2026-10-09: tide does not make a poor, ungraded or
+ *  unchecked survey any better, and that is where "the charted depth is the
+ *  same" is least true): it may not grow. Where a survey's error eats the
+ *  keel's margin on water already charted under the need, that is the same
+ *  water, so it may grow — by no more than that water does (sameTideNoWorse). */
+const SAME_TIDE_X = bit(X_CAUTION) | bit(X_SHALLOW_BAND) | bit(X_CHART_SHALLOW);
+
+/**
+ * A chord that needs no more tide than the run it replaces (package 125-06;
+ * Shane, 2026-10-08, Port of Airlie → Nara Inlet: "no reason to go to port
+ * here??? why not go straight??? the depth is the same, 4m which is well
+ * within our limits"). Out of the marina channel (charted 1.8 m) the route
+ * turned 865 m north-west across a 2–5 m band charted 2.0 m to a 3.6 m pocket,
+ * where straight on crosses 1,143 m of the same band — the turn was A*'s flat
+ * 40× price on every metre of water under draft + UKC, kept by pathNoWorse
+ * (no more of that water, no colour spread). But a tide that carries the boat
+ * over the turn's 2.0 m carries it over the straight line's 2.0 m: the turn
+ * buys nothing, and costs 355 m and two course changes.
+ *
+ * So, where the run's own water is charted under the keel's need, its chord
+ * may run longer over such water (SAME_TIDE_X) — at most SAME_TIDE_MAX_RATIO
+ * times the run's metres of each — and carry the states that water sets
+ * (DEPTH_ONLY_S) wherever the run carries them, when:
+ *   • its shallowest charted depth is no shallower than the run's (the same
+ *     tide or less), and never water that dries (nor a 0.0 m bank);
+ *   • all its water under the keel's need lies within SAME_TIDE_REACH_M of
+ *     the end where the run's own begins — the same water, minutes apart,
+ *     never a bank an hour on that the tide at the start says nothing about;
+ *   • a survey's margin under the keel (survey-margin metres) grows no more
+ *     than that water does, and every other exposure is no longer than the
+ *     run's, and none it never had (no hazard, land, water no tide clears,
+ *     closed cell, wing, water nothing proves, poor, ungraded or unchecked
+ *     survey, or more off the preferred fairway);
+ *   • its survey error is no larger and it comes no nearer a bank (as
+ *     pathNoWorse), and it comes no nearer a shallow band than the run did,
+ *     save where the run came as near another band at least as shallow — and
+ *     only for a band deeper than the run's shallowest that never dries: a
+ *     drying reef, a 0.0 m bank or a band shallower than the run's least is
+ *     held band by band, as pathNoWorse holds it (review, 2026-10-09: the run
+ *     passing one drying reef at 10 m let a chord pass another, which the run
+ *     kept a kilometre off, at 15 m; tide does not move a reef's edge).
+ * The marks and the corridor are the caller's (pullTaut `sameTide`).
+ */
+export function sameTideNoWorse(
+    chord: LineExposure,
+    run: readonly LineExposure[],
+    stepM = PULL_STEP_M,
+    corner: readonly LineExposure[] = [],
+): boolean {
+    if (run.length === 0) return false;
+    let allState = ~0;
+    let anyState = 0;
+    let leastM = Infinity;
+    let surveyErrM = 0;
+    let centreMax = 1;
+    const sum = new Float64Array(X_COUNT);
+    const bandM = new Map<object, number>();
+    for (const r of run) {
+        allState &= r.state;
+        anyState |= r.state;
+        if (r.leastM < leastM) leastM = r.leastM;
+        if (r.surveyErrM > surveyErrM) surveyErrM = r.surveyErrM;
+        for (let e = 0; e < X_COUNT; e++) sum[e] += r.metres[e];
+    }
+    // How near a bank and each band the run came — or, for a slid turn, the
+    // corner's legs anywhere along them (chordNoWorse `corner`).
+    const near = [...run, ...corner];
+    for (const r of near) {
+        if (r.centreMax > centreMax) centreMax = r.centreMax;
+        for (const q of r.nearBands) bandM.set(q.band, Math.min(bandM.get(q.band) ?? Infinity, q.clearanceM));
+    }
+    // The run already needs a tide; the chord needs no more, over wet ground.
+    if (!(sum[X_CHART_SHALLOW] > 0) || !(chord.leastM > 0) || chord.leastM < leastM - 1e-6) return false;
+    // …and at the same time: by the end where the run's own water begins.
+    const span = chord.shallowSpanM;
+    if (span) {
+        const first = run[0].shallowSpanM;
+        const last = run[run.length - 1];
+        const atStart = span[1] <= SAME_TIDE_REACH_M && first !== null && first[0] <= SAME_TIDE_REACH_M;
+        const atEnd =
+            chord.lengthM - span[0] <= SAME_TIDE_REACH_M &&
+            last.shallowSpanM !== null &&
+            last.lengthM - last.shallowSpanM[1] <= SAME_TIDE_REACH_M;
+        if (!atStart && !atEnd) return false;
+    }
+    if ((chord.state & ~(allState | (anyState & DEPTH_ONLY_S))) !== 0) return false;
+    if (chord.surveyErrM > surveyErrM + 1e-6 || chord.centreMax > centreMax + 1e-6) return false;
+    for (const q of chord.nearBands) {
+        if (q.clearanceM >= (bandM.get(q.band) ?? Infinity) - BAND_TOLERANCE_M) continue;
+        const d1 = q.band.drval1 ?? -Infinity;
+        if (d1 <= 0 || d1 < leastM - 1e-6) return false;
+        if (!near.some((r) => r.nearBands.some((o) => nearAsShallow(o, q)))) return false;
+    }
+    // The metres the chord's water under the keel's need grew by.
+    const shallowGrowM = Math.max(0, chord.metres[X_CHART_SHALLOW] - sum[X_CHART_SHALLOW]);
+    for (let e = 0; e < X_COUNT; e++) {
+        const m = chord.metres[e];
+        if (m <= 0) continue;
+        if (sum[e] <= 0) return false;
+        const grow =
+            (SAME_TIDE_X & bit(e)) !== 0
+                ? sum[e] * (SAME_TIDE_MAX_RATIO - 1)
+                : e === X_SURVEY_MARGIN
+                  ? Math.min(shallowGrowM, sum[e] * (SAME_TIDE_MAX_RATIO - 1))
+                  : 0;
+        if (m > sum[e] + stepM + grow) return false;
+    }
+    return true;
+}
 
 /**
  * Is a new PATH (one chord, or a vertex moved onto a gate's centre) at least
@@ -589,12 +735,17 @@ const nearAsShallow = (o: NearBand, q: NearBand): boolean =>
  * leg); and it may come nearer a shallow band than the run did where the run
  * came as near one at least as shallow (so still never toward a drying reef
  * from a 2 m flat).
+ *
+ * `waiveOffPreferred` (a detour on the same tide only: threadGateCentres
+ * `sameTide`) leaves the metres off the preferred fairway to the caller, who
+ * holds the route that detour ends as to them (sameTideThreadStands).
  */
 export function pathNoWorse(
     path: readonly LineExposure[],
     run: readonly LineExposure[],
     stepM = PULL_STEP_M,
     detourM?: number,
+    waiveOffPreferred = false,
 ): boolean {
     if (run.length === 0 || path.length === 0) return false;
     let allState = ~0;
@@ -641,6 +792,7 @@ export function pathNoWorse(
         // lateral mark) left for one a shallow band alone explains is the same
         // caution, between the marks — its total and every other reason hold.
         if (detourM !== undefined && e === X_SHALLOW_BAND) continue;
+        if (waiveOffPreferred && e === X_OFF_PREFERRED) continue;
         // Water off the preferred fairway is held like any water only
         // shallower (review, 2026-10-04: skipped, a detour could leave a
         // charted fairway for any length; held, Shane's pin's grew 101 m on an
@@ -669,6 +821,14 @@ export interface PullOptions {
     /** Charted marks ([lon, lat]; chartMarkPoints): a chord passes every one
      *  on the side the run it replaces does — none may lie between them. */
     marks?: readonly LonLat[];
+    /** Also take a chord that needs no more tide than its run where it is as
+     *  safe in every other way (sameTideNoWorse; package 125-06). Such a chord
+     *  may leave the corridor only where it crosses no water nothing proves. */
+    sameTide?: boolean;
+    /** With `sameTide`, a second pass after a plain one: a run over no water
+     *  charted under the keel's need is left as it is (the plain pull took
+     *  every chord it could). */
+    tidalRunsOnly?: boolean;
 }
 
 export interface PullResult {
@@ -681,14 +841,81 @@ export interface PullResult {
     pulled: number;
 }
 
+/** Marks bucketed by place, for chordNoWorse. */
+type MarksIn = ((box: readonly number[]) => LonLat[]) | null;
+const marksIndex = (marks: readonly LonLat[] | undefined): MarksIn =>
+    marks && marks.length > 0 ? bboxBuckets(marks, (m) => [m[0], m[1], m[0], m[1]]) : null;
+
+/**
+ * May the chord a→b replace `run` (its vertices, a first and b last), whose
+ * segments read `replaced`? pullTaut's rule for one chord: no charted mark
+ * between them and none passed closer, within the corridor where the chord is
+ * not clean, and pathNoWorse — or, with `sameTide`, sameTideNoWorse (off the
+ * corridor only over water the chart proves).
+ *
+ * `corner` (a slid turn, slideSameTideTurns): the turn's two legs as they
+ * were. On the same tide the chord may come as near a bank or a band as the
+ * corner came anywhere along them — the leg the turn slides along is the same
+ * line either side of the new vertex (review, 2026-10-09: weighed against the
+ * slid-over part alone, a turn could not slide toward a headland its leg on
+ * already passed).
+ */
+function chordNoWorse(
+    a: LonLat,
+    b: LonLat,
+    run: readonly LonLat[],
+    replaced: readonly LineExposure[],
+    opts: PullOptions,
+    marksIn: MarksIn,
+    corner?: readonly LineExposure[],
+): boolean {
+    const chord = [a, b];
+    if (marksIn) {
+        const box = boxOf(run);
+        // A mark between the run and its chord: the chord would pass it
+        // on the other side (a lateral mark's wrong side, a gate missed).
+        if (marksIn(box).some((m) => pointInRing(m[0], m[1], run as [number, number][]))) return false;
+        // Every mark near either passed no closer than the run passed it
+        // (or than MARK_COMFORT_M, where the run was further): a chord up
+        // Newport's entrance passed port beacon 2 at 1 m, where the stair
+        // it replaced kept 24 m. A mark's keep-out is the grid's (navGrid's
+        // mark discs); this keeps a chord from shaving one the grid has no
+        // disc for.
+        const near = marksIn(grow(box, MARK_WATCH_M / mPerDegLon((box[1] + box[3]) / 2), MARK_WATCH_M / KY));
+        if (near.some((m) => passesCloser(m, chord, run))) return false;
+    }
+    const exposure = opts.exposureOf(a, b);
+    // A chord that is not clean stays within a grid artefact's reach of
+    // the cells it replaces: its exposures may total no more than theirs,
+    // but where nothing proves the water, the same amount elsewhere is
+    // not the same water (a 3.2 km diagonal across Newport's charted-shallow
+    // entrance, off its marks, totalled less than the stair up the marks).
+    let offCorridor = false;
+    if ((exposure.state & ~S_SURVEY_AMBER) !== 0) {
+        const kx = mPerDegLon((a[1] + b[1]) / 2);
+        const corridorM = opts.corridorM ?? 0;
+        for (let v = 1; v + 1 < run.length && !offCorridor; v++) offCorridor = segM(run[v], a, b, kx) > corridorM;
+    }
+    if (!offCorridor && pathNoWorse([exposure], replaced)) return true;
+    // The same tide (package 125-06): charted water is the water the
+    // chart says, wherever the chord crosses it — so off the corridor
+    // only where the chord crosses none that nothing proves.
+    if (!opts.sameTide) return false;
+    if (offCorridor)
+        for (let e = 0; e < X_COUNT; e++) if ((UNPROVEN_X & bit(e)) !== 0 && exposure.metres[e] > 0) return false;
+    return sameTideNoWorse(exposure, replaced, PULL_STEP_M, corner);
+}
+
 /**
  * Pull a polyline taut: from each kept vertex, the furthest vertex a chord
  * may reach without passing a pinned vertex, a change of kind or an
  * unpullable segment, and only where pathNoWorse says the chord is at least
- * as safe as the segments it replaces. Returns the new polyline and, per new
- * segment, the index of the first original segment it replaces (its
- * per-segment facts — kind, masks — carry over: a chord never spans two
- * kinds), each kept vertex's original index, and how many vertices went.
+ * as safe as the segments it replaces (or, with `sameTide`, sameTideNoWorse
+ * says it needs no more tide and is as safe otherwise). Returns the new
+ * polyline and, per new segment, the index of the first original segment it
+ * replaces (its per-segment facts — kind, masks — carry over: a chord never
+ * spans two kinds), each kept vertex's original index, and how many vertices
+ * went.
  */
 export function pullTaut(polyline: readonly [number, number][], opts: PullOptions): PullResult {
     const n = polyline.length;
@@ -699,40 +926,11 @@ export function pullTaut(polyline: readonly [number, number][], opts: PullOption
     const isPullable = (s: number): boolean => opts.pullable?.[s] !== false;
     const segExposure: LineExposure[] = [];
     const segAt = (s: number): LineExposure => (segExposure[s] ??= opts.exposureOf(polyline[s], polyline[s + 1]));
-    const corridorM = opts.corridorM ?? 0;
-    const marksIn =
-        opts.marks && opts.marks.length > 0 ? bboxBuckets(opts.marks, (m) => [m[0], m[1], m[0], m[1]]) : null;
+    const marksIn = marksIndex(opts.marks);
     const ok = (i: number, j: number): boolean => {
-        const run = polyline.slice(i, j + 1);
-        const chord = [polyline[i], polyline[j]];
-        if (marksIn) {
-            const box = boxOf(run);
-            // A mark between the run and its chord: the chord would pass it
-            // on the other side (a lateral mark's wrong side, a gate missed).
-            if (marksIn(box).some((m) => pointInRing(m[0], m[1], run as [number, number][]))) return false;
-            // Every mark near either passed no closer than the run passed it
-            // (or than MARK_COMFORT_M, where the run was further): a chord up
-            // Newport's entrance passed port beacon 2 at 1 m, where the stair
-            // it replaced kept 24 m. A mark's keep-out is the grid's (navGrid's
-            // mark discs); this keeps a chord from shaving one the grid has no
-            // disc for.
-            const near = marksIn(grow(box, MARK_WATCH_M / mPerDegLon((box[1] + box[3]) / 2), MARK_WATCH_M / KY));
-            if (near.some((m) => passesCloser(m, chord, run))) return false;
-        }
-        const exposure = opts.exposureOf(polyline[i], polyline[j]);
-        // A chord that is not clean stays within a grid artefact's reach of
-        // the cells it replaces: its exposures may total no more than theirs,
-        // but where nothing proves the water, the same amount elsewhere is
-        // not the same water (a 3.2 km diagonal across Newport's charted-shallow
-        // entrance, off its marks, totalled less than the stair up the marks).
-        if ((exposure.state & ~S_SURVEY_AMBER) !== 0) {
-            const kx = mPerDegLon((polyline[i][1] + polyline[j][1]) / 2);
-            for (let v = i + 1; v < j; v++)
-                if (segM(polyline[v], polyline[i], polyline[j], kx) > corridorM) return false;
-        }
         const replaced: LineExposure[] = [];
         for (let s = i; s < j; s++) replaced.push(segAt(s));
-        return pathNoWorse([exposure], replaced);
+        return chordNoWorse(polyline[i], polyline[j], polyline.slice(i, j + 1), replaced, opts, marksIn);
     };
     const out: [number, number][] = [[polyline[0][0], polyline[0][1]]];
     const fromSeg: number[] = [];
@@ -744,7 +942,11 @@ export function pullTaut(polyline: readonly [number, number][], opts: PullOption
             // The furthest vertex this run may reach.
             let limit = i + 1;
             while (limit < segCount && !isPinned(limit) && isPullable(limit)) limit++;
-            if (limit >= i + 2) {
+            // On a second pass only a run over water charted under the keel's
+            // need has a chord the plain pull before it did not take.
+            let tidal = !opts.tidalRunsOnly;
+            for (let s = i; s < limit && !tidal; s++) tidal = segAt(s).metres[X_CHART_SHALLOW] > 0;
+            if (limit >= i + 2 && tidal) {
                 // Gallop (2, 4, 8 … segments), then bisect to the furthest pass.
                 let lo = i + 1;
                 let hi = -1;
@@ -773,6 +975,310 @@ export function pullTaut(polyline: readonly [number, number][], opts: PullOption
         i = best;
     }
     return { polyline: out, fromSeg, kept, pulled: n - out.length };
+}
+
+/**
+ * Cut each changed segment where its water charted under the keel's need
+ * begins and ends (package 125-06), so a same-tide chord's red or amber stays
+ * on that water: a mask colours a whole segment, and pathNoWorse's "no colour
+ * spreads" is kept by the cut rather than by refusing the chord. The cut lies
+ * `marginM` (a grid cell) into the deeper water, so the deep part's own cells
+ * read deep; the shallow part keeps that margin, never less. Returns the new
+ * polyline and, per new segment, the segment it lies on.
+ */
+export function cutAtShallowWater(
+    polyline: readonly [number, number][],
+    exposureOf: (a: LonLat, b: LonLat) => LineExposure,
+    changed: readonly boolean[],
+    marginM: number,
+): { polyline: [number, number][]; fromSeg: number[]; cuts: number } {
+    const out: [number, number][] = polyline.length > 0 ? [[polyline[0][0], polyline[0][1]]] : [];
+    const fromSeg: number[] = [];
+    let cuts = 0;
+    for (let s = 0; s + 1 < polyline.length; s++) {
+        const [a, b] = [polyline[s], polyline[s + 1]];
+        const e = changed[s] ? exposureOf(a, b) : null;
+        const span = e?.shallowSpanM;
+        if (e && span) {
+            const ts = [span[0] - marginM, span[1] + marginM]
+                .filter((m) => m > marginM && m < e.lengthM - marginM)
+                .map((m) => m / e.lengthM);
+            for (const t of ts) {
+                out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+                fromSeg.push(s);
+                cuts++;
+            }
+        }
+        out.push([b[0], b[1]]);
+        fromSeg.push(s);
+    }
+    return { polyline: out, fromSeg, cuts };
+}
+
+/** A turn's corner is cut at most by halving this many times… */
+const SLIDE_STEPS = 7;
+
+/**
+ * Cut the corner a same-tide pull leaves (package 125-06). Port of Airlie →
+ * Nara Inlet: once the turn to the pocket was gone, the route ran from the
+ * channel's outer pair to where the pocket route had met 5 m water — 450 m
+ * west of the outer pair — and on 20 km to Nara Inlet. The chord to Nara
+ * crosses the headland, so the pull kept that vertex; but the leg on passes
+ * the headland's corner 3.6 km later, and the vertex was only where the
+ * pocket route had happened to leave the 2–5 m band.
+ *
+ * At each vertex `at` marks (a same-tide chord's end), not pinned, between
+ * two pullable segments of one kind, where either leg crosses water charted
+ * under the keel's need, the turn slides along one of its legs — the chord
+ * from the vertex before to a point along the leg on, or from a point along
+ * the leg before to the vertex after — as far as that chord may replace the
+ * corner by pullTaut's own rule (chordNoWorse: marks, corridor, pathNoWorse
+ * or sameTideNoWorse), found by halving. The longer cut wins, where it saves
+ * more than PULL_STEP_M. Same vertices, same segments: per-segment facts
+ * carry over unchanged; callers re-read what a moved segment crosses.
+ *
+ * A seam — the vertex where a pullable run meets a follower's (review,
+ * 2026-10-09: from another marina pin the 20 km leg on to Nara Inlet was a
+ * tier-2 span's, so its first vertex, 479 m west at the pocket, never moved)
+ * — slides too, but only along the follower's own leg, and only where that
+ * leg is clean (no state but an amber survey): the follower keeps its line and
+ * is joined further along it; nothing of it is redrawn.
+ */
+export function slideSameTideTurns(
+    polyline: readonly [number, number][],
+    opts: PullOptions & { at: readonly boolean[] },
+): { polyline: [number, number][]; slid: number } {
+    const out = polyline.map((p): [number, number] => [p[0], p[1]]);
+    const marksIn = marksIndex(opts.marks);
+    const isPinned = (v: number): boolean =>
+        opts.pinned?.[v] === true || (opts.runKey !== undefined && opts.runKey[v - 1] !== opts.runKey[v]);
+    const along = (p: LonLat, q: LonLat, f: number): [number, number] => [
+        p[0] + (q[0] - p[0]) * f,
+        p[1] + (q[1] - p[1]) * f,
+    ];
+    let slid = 0;
+    for (let v = 1; v + 1 < out.length; v++) {
+        if (!opts.at[v] || opts.pinned?.[v] === true) continue;
+        const pullBefore = opts.pullable?.[v - 1] !== false;
+        const pullOn = opts.pullable?.[v] !== false;
+        // A seam slides along its follower's leg only; a turn within one run
+        // of pullable segments, along either.
+        const seam = isPinned(v);
+        if (seam ? pullBefore === pullOn : !pullBefore || !pullOn) continue;
+        const [a, w, c] = [out[v - 1], out[v], out[v + 1]];
+        const before = opts.exposureOf(a, w);
+        const after = opts.exposureOf(w, c);
+        if (!(before.metres[X_CHART_SHALLOW] > 0 || after.metres[X_CHART_SHALLOW] > 0)) continue;
+        const clean = (e: LineExposure): boolean => (e.state & ~S_SURVEY_AMBER) === 0;
+        const mayOn = !seam || (!pullOn && clean(after));
+        const mayBack = !seam || (!pullBefore && clean(before));
+        if (!mayOn && !mayBack) continue;
+        // The furthest share of a leg the turn may slide along (0: none).
+        const furthest = (fits: (f: number) => boolean): number => {
+            let lo = 0;
+            let hi = 1;
+            for (let k = 0; k < SLIDE_STEPS; k++) {
+                const f = (lo + hi) / 2;
+                if (fits(f)) lo = f;
+                else hi = f;
+            }
+            return lo;
+        };
+        const corner = [before, after];
+        const fOn = !mayOn
+            ? 0
+            : furthest((f) => {
+                  const p = along(w, c, f);
+                  const replaced = [before, opts.exposureOf(w, p)];
+                  return chordNoWorse(a, p, [a, w, p], replaced, opts, marksIn, corner);
+              });
+        const fBack = !mayBack
+            ? 0
+            : furthest((f) => {
+                  const q = along(w, a, f);
+                  const replaced = [opts.exposureOf(q, w), after];
+                  return chordNoWorse(q, c, [q, w, c], replaced, opts, marksIn, corner);
+              });
+        const saving = (p: LonLat, q: LonLat, r: LonLat): number =>
+            localM(p, w) + localM(w, r) - localM(p, q) - localM(q, r);
+        const pOn = along(w, c, fOn);
+        const qBack = along(w, a, fBack);
+        const savedOn = fOn > 0 ? saving(a, pOn, c) : 0;
+        const savedBack = fBack > 0 ? saving(a, qBack, c) : 0;
+        if (Math.max(savedOn, savedBack) <= PULL_STEP_M) continue;
+        out[v] = savedOn >= savedBack ? pOn : qBack;
+        slid++;
+    }
+    return { polyline: out, slid };
+}
+
+/**
+ * Does a same-tide straightening that began by threading a pair the route
+ * passed outside its marks beat the one without (package 125-06, review
+ * 2026-10-09)? Port of Airlie → Nara Inlet from a pin 50 m along the same
+ * marina: the route left the channel through its side 147 m short of the
+ * outer pair, its green on the route's wrong side, and turned 724 m west to the
+ * pocket. Every chord out of that turn passed the green nearer than the turn
+ * did, or crossed the headland, so no same-tide chord was drawn; and the pair
+ * threaded alone was refused, its leg on to the turn running 82 m more off
+ * the fairway's ribbon. Threaded on the same tide (threadGateCentres
+ * `sameTide`: those metres waived), the pull and the slide straighten the
+ * route from the pair's centre. `threaded` is that route, `plain` the one the
+ * same-tide pull makes without the thread. The thread stands only where its
+ * route is the shorter, no shallower, and no longer exposed to anything but
+ * the water under the keel's need the same-tide rules let grow (a sample's
+ * worth a leg it does not share with `plain`) — off the preferred fairway, the
+ * one thing the threading waived, included.
+ */
+export function sameTideThreadStands(
+    threaded: readonly LonLat[],
+    plain: readonly LonLat[],
+    exposureOf: (a: LonLat, b: LonLat) => LineExposure,
+    stepM = PULL_STEP_M,
+): boolean {
+    const legKey = (p: LonLat, q: LonLat): string => `${p[0]},${p[1]}|${q[0]},${q[1]}`;
+    const plainLegs = new Set(plain.slice(1).map((q, k) => legKey(plain[k], q)));
+    const measure = (line: readonly LonLat[]) => {
+        let lengthM = 0;
+        let leastM = Infinity;
+        let ownLegs = 0;
+        const sum = new Float64Array(X_COUNT);
+        for (let k = 0; k + 1 < line.length; k++) {
+            const e = exposureOf(line[k], line[k + 1]);
+            lengthM += localM(line[k], line[k + 1]);
+            if (e.leastM < leastM) leastM = e.leastM;
+            for (let x = 0; x < X_COUNT; x++) sum[x] += e.metres[x];
+            if (!plainLegs.has(legKey(line[k], line[k + 1]))) ownLegs++;
+        }
+        return { lengthM, leastM, sum, ownLegs };
+    };
+    const t = measure(threaded);
+    const p = measure(plain);
+    if (!(t.lengthM < p.lengthM - stepM) || t.leastM < p.leastM - 1e-6) return false;
+    for (let x = 0; x < X_COUNT; x++) {
+        if ((SAME_TIDE_X & bit(x)) !== 0 || x === X_SURVEY_MARGIN) continue;
+        if (t.sum[x] > p.sum[x] + stepM * t.ownLegs) return false;
+    }
+    return true;
+}
+
+/** The engine's view of a route for straightenSameTide. */
+export interface SameTideStage {
+    /** Per vertex of the route as it stands: never removed (its ends, gate
+     *  anchors, vertices on a charted lead). */
+    pinnedOf: (polyline: readonly [number, number][]) => boolean[];
+    /** Per segment of the route given: pullable, and its kind (PullOptions). */
+    pullable: readonly boolean[];
+    runKey: readonly string[];
+    exposureOf: (a: LonLat, b: LonLat) => LineExposure;
+    marks?: readonly LonLat[];
+    corridorM?: number;
+    gates: readonly MarkGate[];
+    /** Per vertex of the route given: a gate's centre a thread before put
+     *  there — an anchor. */
+    centres?: readonly boolean[];
+}
+
+export interface SameTideResult {
+    polyline: [number, number][];
+    /** Per new segment, the segment of the route given it lies on. */
+    fromSeg: number[];
+    /** Vertices the same-tide pull took out, turns slid, pairs threaded. */
+    pulled: number;
+    slid: number;
+    threaded: number;
+}
+
+/**
+ * The same-tide stage (package 125-06), after the plain pull and the gates: a
+ * turn that buys no tide is no turn (Shane, 2026-10-08, Port of Airlie → Nara
+ * Inlet: "no reason to go to port here??? why not go straight??? the depth is
+ * the same"). A* prices every metre of water charted under the keel's need at
+ * the flat caution cost, so out of the marina channel it turned 865 m
+ * north-west over a band charted 2.0 m to reach a 3.6 m pocket, where straight
+ * on crosses 1,143 m of the same band — on the same tide.
+ *
+ * The route is pulled once more, a run over such water taking its chord where
+ * it is no shallower and as safe otherwise (sameTideNoWorse), with every
+ * gate centre an anchor; where the leg on must clear
+ * land, a turn left at a chord's end slides to the corner it must clear
+ * (slideSameTideTurns). A route that left a channel short of a pair, that
+ * pair's mark on its wrong side, is first threaded through the pair on the
+ * same tide (threadGateCentres `sameTide`) and straightened from its centre;
+ * that stands where it beats the route straightened without it
+ * (sameTideThreadStands). Last, each new line is cut where its water under the
+ * keel's need begins and ends, so its red or amber stays on that water
+ * (cutAtShallowWater).
+ */
+export function straightenSameTide(polyline: readonly [number, number][], stage: SameTideStage): SameTideResult {
+    const key = (p: LonLat): string => `${p[0]},${p[1]}`;
+    type State = { pl: [number, number][]; from: number[]; centres: Set<string>; pulled: number; slid: number };
+    let s: State = {
+        pl: polyline.map((p): [number, number] => [p[0], p[1]]),
+        from: polyline.slice(1).map((_, k) => k),
+        centres: new Set(polyline.filter((_, i) => stage.centres?.[i] === true).map(key)),
+        pulled: 0,
+        slid: 0,
+    };
+    const shape = (): PullOptions => {
+        const pins = stage.pinnedOf(s.pl);
+        return {
+            pinned: s.pl.map((p, i) => pins[i] === true || s.centres.has(key(p))),
+            pullable: s.from.map((i) => stage.pullable[i]),
+            runKey: s.from.map((i) => stage.runKey[i]),
+            exposureOf: stage.exposureOf,
+            marks: stage.marks,
+            corridorM: stage.corridorM,
+            sameTide: true,
+        };
+    };
+    /** The same-tide pull, then the slide at the ends of its chords. */
+    const straighten = (): void => {
+        const pulled = pullTaut(s.pl, { ...shape(), tidalRunsOnly: true });
+        if (pulled.pulled === 0) return;
+        const ends = pulled.kept.map(() => false);
+        pulled.kept.forEach((v, k) => {
+            if (k > 0 && v - pulled.kept[k - 1] > 1) ends[k - 1] = ends[k] = true;
+        });
+        s = { ...s, pl: pulled.polyline, from: pulled.fromSeg.map((i) => s.from[i]), pulled: s.pulled + pulled.pulled };
+        const slide = slideSameTideTurns(s.pl, { ...shape(), at: ends });
+        if (slide.slid > 0) s = { ...s, pl: slide.polyline, slid: s.slid + slide.slid };
+    };
+    const before = s;
+    let threaded = 0;
+    if (stage.gates.length > 0 && s.pl.length >= 2) {
+        const th = threadGateCentres(s.pl, { ...shape(), gates: stage.gates });
+        if (th.threaded > 0) {
+            const centres = new Set(s.centres);
+            th.polyline.forEach((p, i) => {
+                if (th.onCentre[i]) centres.add(key(p));
+            });
+            s = { ...s, pl: th.polyline, from: th.fromSeg.map((i) => s.from[i]), centres };
+            threaded = th.threaded;
+        }
+    }
+    if (threaded > 0) {
+        straighten();
+        const withThread = s;
+        s = before;
+        straighten();
+        if (sameTideThreadStands(withThread.pl, s.pl, stage.exposureOf)) s = withThread;
+        else threaded = 0;
+    } else straighten();
+    // Each new line cut where its water under the keel's need ends.
+    const legKey = (p: LonLat, q: LonLat): string => `${key(p)}|${key(q)}`;
+    const given = new Set(polyline.slice(1).map((q, k) => legKey(polyline[k], q)));
+    const changed = s.pl.slice(1).map((q, k) => !given.has(legKey(s.pl[k], q)));
+    let out = s.pl;
+    let fromSeg = s.from;
+    if (changed.some(Boolean)) {
+        const cut = cutAtShallowWater(s.pl, stage.exposureOf, changed, stage.corridorM ?? 0);
+        if (cut.cuts > 0) {
+            out = cut.polyline;
+            fromSeg = cut.fromSeg.map((i) => s.from[i]);
+        }
+    }
+    return { polyline: out, fromSeg, pulled: s.pulled, slid: s.slid, threaded };
 }
 
 /** A turn is said to be for depth when it keeps at least this much water
@@ -1126,6 +1632,11 @@ function oneChannel(g: MarkGate, h: MarkGate): boolean {
  * new polyline, per new segment the original segment it lies on, per new
  * vertex whether it is the move's (a gate centre or its square-off: an anchor
  * for any later pull), and how many gates it threaded.
+ *
+ * With `sameTide` (package 125-06), a detour through a pair passed outside its
+ * marks may run further off the preferred fairway: the caller straightens the
+ * route from the pair's centre and keeps it only where that route runs no
+ * further off the fairway than the one without it (sameTideThreadStands).
  */
 export function threadGateCentres(
     polyline: readonly [number, number][],
@@ -1254,7 +1765,7 @@ export function threadGateCentres(
                     // length over water only shallower.
                     const extraM = Math.max(0, pathLengthM(cand.path) - pathLengthM(old));
                     if (extraM > Math.max(DETOUR_MIN_M, 2 * g.widthM)) continue;
-                    if (!pathNoWorse(newExp, exposuresOf(old), PULL_STEP_M, extraM)) continue;
+                    if (!pathNoWorse(newExp, exposuresOf(old), PULL_STEP_M, extraM, opts.sameTide === true)) continue;
                 } else {
                     if (!pathNoWorse(newExp, exposuresOf(old))) continue;
                     // Where the water is not clean, within a grid artefact's reach.
