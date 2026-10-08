@@ -10,7 +10,7 @@
 import { createLogger } from '../utils/createLogger';
 import type { NmeaSample } from '../types';
 import { Capacitor } from '@capacitor/core';
-import { processAisSentence } from './AisDecoder';
+import { isOwnShipAisSentence, processAisSentence } from './AisDecoder';
 import { AisStore } from './AisStore';
 import { AisHubService } from './AisHubService';
 import { offer as offerToFleetShare, reportLink as reportFleetShareLink } from './AisShareService';
@@ -1340,7 +1340,9 @@ class NmeaListenerServiceClass {
         // ── AIS sentences: valid-checksum !AIVDM or !AIVDO only ──
         if (validated.kind === 'ais') {
             const result = processAisSentence(sentence);
-            if (result) AisStore.update(result);
+            // !AIVDO is our own transponder: the store learns our MMSI from it,
+            // so our own echo is never graded as a target (125-01).
+            if (result) AisStore.ingest(result, isOwnShipAisSentence(sentence));
             // Never forward a malformed raw sentence to an external service.
             AisHubService.forward(sentence);
             // Fleet share (opt-in): O(1) offer into the crowd-feed buffer —

@@ -4,6 +4,11 @@ import { resolve } from 'path';
 
 export default defineConfig({
     plugins: [react()],
+    // Build-time constants vite.config.ts defines. The debug AIS injector is
+    // compiled out of tests as it is of every release build (125-01).
+    define: {
+        __THALASSA_DEBUG_AIS_INJECTOR__: 'false',
+    },
     test: {
         globals: true,
         environment: 'jsdom',

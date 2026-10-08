@@ -15,6 +15,7 @@ import {
     type AuthIdentityScope,
 } from './authIdentityScope';
 import { calculateDistance, calculateBearing } from '../utils/navigationCalculations';
+import { aisCogDeg, aisSogKn } from '../utils/collisionRule';
 
 const STORAGE_KEY = 'thalassa_guard_zone';
 const STORAGE_VERSION = 2;
@@ -25,16 +26,54 @@ export interface GuardAlert {
     name: string;
     distanceNm: number;
     bearing: number;
-    sog: number;
-    cog: number;
+    /** Null when the target did not report it (AIS 'not available'): never an invented 0. */
+    sog: number | null;
+    cog: number | null;
     shipType: string;
     timestamp: number;
+    /** Present when this is the collision alarm (CPA/TCPA), not a guard-ring entry. */
+    collision?: CollisionAlertDetail;
+}
+
+/** The collision alarm's card (build 125, 125-01): one card per vessel, on the guard's own alert path. */
+export interface CollisionAlertDetail {
+    cpaNm: number;
+    tcpaMin: number;
+    closeQuarters: boolean;
+    /** Seconds since the report the CPA was computed from. */
+    reportAgeSec: number | null;
+    /** 'local' = the boat's own receiver; 'cloud' = network AIS. */
+    source: string;
+    /**
+     * The encounter is over and the skipper has not dismissed the card yet:
+     * shown clear, or (with `lost`) lost and never shown clear.
+     */
+    cleared?: boolean;
+    /** The watch lost her before she was shown clear: the CPA is unknown, never 'passed'. */
+    lost?: CollisionLostDetail;
+}
+
+/** Why the collision watch can no longer compute her CPA. */
+export type CollisionLostReason = 'no-fix' | 'own-motion-unknown' | 'target-motion-unknown' | 'report-too-old' | 'gone';
+
+export interface CollisionLostDetail {
+    reason: CollisionLostReason;
+    /** When the watch lost her. */
+    sinceMs: number;
+    /** When the CPA on the card was computed. */
+    lastCpaAt: number;
 }
 
 export interface GuardZoneState {
     enabled: boolean;
     radiusNm: number;
     alerts: GuardAlert[];
+    /**
+     * Armed through the collision sound check (build 125, 125-01). A shield
+     * armed before 125 carries `enabled` across the update without it: its
+     * ring keeps working, and the collision alarm waits for the check.
+     */
+    collisionChecked?: boolean;
 }
 
 type Listener = (state: GuardZoneState) => void;
@@ -45,6 +84,8 @@ interface PersistedGuardZone {
     ownerUserId: string | null;
     enabled: boolean;
     radiusNm: number;
+    /** Absent in anything saved before build 125: read as not checked. */
+    collisionChecked?: boolean;
 }
 
 function defaultState(): GuardZoneState {
@@ -96,6 +137,7 @@ function loadState(scope: AuthIdentityScope): GuardZoneState {
             enabled: parsed.enabled,
             radiusNm: clampRadius(parsed.radiusNm),
             alerts: [], // Alerts are intentionally process-local.
+            ...(parsed.enabled && parsed.collisionChecked === true ? { collisionChecked: true } : {}),
         };
     } catch {
         return defaultState();
@@ -121,6 +163,7 @@ function persist(scope: AuthIdentityScope): void {
         ownerUserId: scope.userId,
         enabled: state.enabled,
         radiusNm: state.radiusNm,
+        ...(state.collisionChecked ? { collisionChecked: true } : {}),
     };
     try {
         localStorage.setItem(authScopedStorageKey(STORAGE_KEY, scope), JSON.stringify(persisted));
@@ -161,9 +204,24 @@ export const AisGuardZone = {
         state = { ...state, enabled };
         if (!enabled) {
             state.alerts = [];
+            // Arming again runs the collision sound check again.
+            delete state.collisionChecked;
             activeAlertMmsisByOwnerKey.get(expectedScope.key)?.clear();
         }
         statesByOwnerKey.set(expectedScope.key, state);
+        persist(expectedScope);
+        notify();
+    },
+
+    /**
+     * Arm the shield after the collision sound check passed: the ring and the
+     * collision alarm both (build 125, 125-01). The only way the collision
+     * alarm is armed.
+     */
+    armAfterSoundCheck(expectedScope: AuthIdentityScope = getAuthIdentityScope()): void {
+        if (!isAuthIdentityScopeCurrent(expectedScope)) return;
+        const state = ensureState(expectedScope);
+        statesByOwnerKey.set(expectedScope.key, { ...state, enabled: true, collisionChecked: true });
         persist(expectedScope);
         notify();
     },
@@ -250,15 +308,13 @@ export const AisGuardZone = {
                 // Only alert once per vessel entry (not every cycle)
                 if (!activeAlertMmsis.has(mmsi)) {
                     activeAlertMmsis.add(mmsi);
-                    const sog = Number(p.sog ?? 0);
-                    const cog = Number(p.cog ?? 0);
                     const alert: GuardAlert = {
                         mmsi,
                         name: p.name ? String(p.name) : `MMSI ${mmsi}`,
                         distanceNm: Math.round(dist * 100) / 100,
                         bearing: Math.round(calculateBearing(ownLat, ownLon, lat, lon)),
-                        sog: Number.isFinite(sog) ? sog : 0,
-                        cog: Number.isFinite(cog) ? cog : 0,
+                        sog: aisSogKn(p.sog),
+                        cog: aisCogDeg(p.cog),
                         shipType: p.shipType ? String(p.shipType) : '0',
                         timestamp: Date.now(),
                     };

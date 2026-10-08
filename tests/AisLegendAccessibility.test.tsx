@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AisLegend } from '../components/map/AisLegend';
 import { AIS_DANGER_COLOR, AIS_LEGEND_ITEMS, typeBucketColor } from '../components/map/aisPresentationPalette';
@@ -42,13 +42,19 @@ describe('AisLegend accessibility', () => {
         expect(screen.getByText(/Boat: moving with known direction/)).toBeInTheDocument();
     });
 
-    it('embeds one set of guard controls and the radius picker in normal document flow', () => {
+    it('embeds one set of guard controls and the radius picker in normal document flow', async () => {
         render(<AisLegend visible embedded />);
         const key = screen.getByRole('group', { name: 'AIS vessel colours and guard controls' });
         expect(key).toHaveStyle({ position: 'static', flexWrap: 'wrap', maxWidth: '100%' });
         expect(screen.getAllByRole('button', { name: 'Enable AIS guard zone' })).toHaveLength(1);
+        // Build 125 (125-01): the shield arms the collision watch too, so it
+        // opens the real sound check first (tests/CollisionAlarmUi.test.tsx
+        // arms through it); it no longer arms on the tap itself.
         fireEvent.click(screen.getByRole('button', { name: 'Enable AIS guard zone' }));
-        expect(mocks.setEnabled).toHaveBeenCalledWith(true);
+        const check = await screen.findByRole('dialog', { name: 'Sound check' });
+        expect(mocks.setEnabled).not.toHaveBeenCalled();
+        fireEvent.click(within(check).getByRole('button', { name: 'Cancel this action' }));
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Sound check' })).toBeNull());
         fireEvent.click(screen.getByRole('button', { name: 'Choose AIS guard zone radius' }));
         expect(screen.getByRole('group', { name: 'AIS guard zone radius' })).toHaveStyle({
             position: 'static',
@@ -59,13 +65,15 @@ describe('AisLegend accessibility', () => {
         expect(screen.queryByRole('group', { name: 'AIS guard zone radius' })).not.toBeInTheDocument();
     });
 
-    it('exposes independent guard and radius controls in a mobile-safe scroller', () => {
+    it('exposes independent guard and radius controls in a mobile-safe scroller', async () => {
         const { container } = render(<AisLegend visible />);
 
         const toggle = screen.getByRole('button', { name: 'Enable AIS guard zone' });
         expect(toggle).toHaveAttribute('aria-pressed', 'false');
         fireEvent.click(toggle);
-        expect(mocks.setEnabled).toHaveBeenCalledWith(true);
+        expect(await screen.findByRole('dialog', { name: 'Sound check' })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel this action' }));
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Sound check' })).toBeNull());
 
         const radiusChooser = screen.getByRole('button', { name: 'Choose AIS guard zone radius' });
         expect(radiusChooser).toHaveAttribute('aria-expanded', 'false');

@@ -2,6 +2,12 @@
  * SoundCheckModal — Pre-anchor confirmation for alarm readiness.
  * Displays a truthful platform-specific readiness check and plays a real
  * sample through the exact alarm service used by Anchor Watch.
+ *
+ * Build 125 (125-01): also the collision watch's pre-arm check
+ * (purpose="collision"), with its own words. The anchor's check is unchanged.
+ * One difference is deliberate: the collision watch may start without
+ * lock-screen alerts, since an open-screen watch at the helm still sounds,
+ * and the dialog says plainly what is then lost.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
@@ -17,12 +23,16 @@ import { AnchorSafetyNotificationService } from '../../services/AnchorSafetyNoti
 interface SoundCheckModalProps {
     onConfirm: () => void;
     onCancel: () => void;
+    /** What is being armed. Defaults to the anchor. */
+    purpose?: 'anchor' | 'collision';
 }
 
 type AlarmTestState = 'idle' | 'starting' | 'playing' | 'stopping' | 'heard-prompt' | 'start-failed' | 'stop-failed';
 type NotificationReadiness = 'checking' | 'granted' | 'prompt' | 'denied' | 'unavailable';
 
-export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onConfirm, onCancel }) => {
+export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onConfirm, onCancel, purpose }) => {
+    const collision = purpose === 'collision';
+    const watchName = collision ? 'the collision watch' : 'Anchor Watch';
     const portalTarget = usePanePortalTarget();
     const cancelButtonRef = useRef<HTMLButtonElement>(null);
     const testTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -120,9 +130,9 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
         if (!alarmAudibilityConfirmed) return;
         // Native Anchor Watch promises a locked-screen fallback. Never let a
         // skipper confirm while that permission is denied or still unknown.
-        if (isNative && notificationReadiness !== 'granted') return;
+        if (isNative && !collision && notificationReadiness !== 'granted') return;
         closeAfterTestStops(onConfirm);
-    }, [alarmAudibilityConfirmed, closeAfterTestStops, isNative, notificationReadiness, onConfirm]);
+    }, [alarmAudibilityConfirmed, closeAfterTestStops, collision, isNative, notificationReadiness, onConfirm]);
 
     const dialogRef = useFocusTrap<HTMLDivElement>(true, {
         initialFocusRef: cancelButtonRef,
@@ -139,7 +149,9 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                         setNotificationReadiness(display === 'denied' ? 'denied' : 'prompt');
                         return;
                     }
-                    await AnchorSafetyNotificationService.requireReadiness();
+                    await (collision
+                        ? AnchorSafetyNotificationService.requireSafetyReadiness('collision')
+                        : AnchorSafetyNotificationService.requireReadiness());
                     if (mountedRef.current) {
                         setNotificationReadinessError(null);
                         setNotificationReadiness('granted');
@@ -173,7 +185,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                 );
             }
         };
-    }, [isNative]);
+    }, [collision, isNative]);
 
     const requestNotificationPermission = useCallback(async () => {
         if (!isNative) return;
@@ -186,7 +198,9 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                 setNotificationReadiness('denied');
                 return;
             }
-            await AnchorSafetyNotificationService.requireReadiness();
+            await (collision
+                ? AnchorSafetyNotificationService.requireSafetyReadiness('collision')
+                : AnchorSafetyNotificationService.requireReadiness());
             if (mountedRef.current) setNotificationReadiness('granted');
         } catch (error) {
             if (mountedRef.current) {
@@ -196,7 +210,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                 setNotificationReadiness('unavailable');
             }
         }
-    }, [isNative]);
+    }, [collision, isNative]);
 
     const handleAlarmTest = useCallback(async () => {
         if (testLeaseRef.current || testLeasePromiseRef.current) {
@@ -212,6 +226,8 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
         const attempt = ++testAttemptRef.current;
         setAlarmAudibilityConfirmed(false);
         setTestState('starting');
+        // The collision watch's check uses this same test lease: the same alarm
+        // service and stop path as a real alarm (and the anchor's pinned contract).
         const leasePromise = AlarmAudioService.acquire('anchor-sound-check');
         testLeasePromiseRef.current = leasePromise;
         try {
@@ -235,7 +251,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
         }
     }, [showStopFailure, stopTestAlarm, testState]);
 
-    const notificationBlocked = isNative && notificationReadiness !== 'granted';
+    const notificationBlocked = isNative && !collision && notificationReadiness !== 'granted';
     const audioCleanupBlocked =
         testState === 'starting' || testState === 'playing' || testState === 'stopping' || testState === 'stop-failed';
     const confirmRequirementIds = [
@@ -250,6 +266,10 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
             className="anchor-sound-check-backdrop fixed inset-0 z-9999 bg-black/80 flex items-center justify-center p-6"
             onClick={handleCancel}
             role="presentation"
+            // The collision watch's check (opened from the chart) sits centred in
+            // the band above the tab bar, per the modal rule; the anchor's own
+            // geometry is unchanged.
+            style={collision ? { paddingBottom: 'calc(1.5rem + var(--thalassa-tabbar-height, 0px))' } : undefined}
         >
             <div
                 ref={dialogRef}
@@ -257,6 +277,9 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                 aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
                 aria-labelledby="sound-check-title"
                 className="anchor-sound-check-dialog flex w-full max-w-sm max-h-[calc(100dvh-3rem)] flex-col bg-slate-900/95 border border-white/8 rounded-2xl shadow-2xl overflow-hidden"
+                style={
+                    collision ? { maxHeight: 'calc(100dvh - 3rem - var(--thalassa-tabbar-height, 0px))' } : undefined
+                }
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="anchor-sound-check-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -269,7 +292,9 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                             Sound check
                         </h2>
                         <p className="text-sm text-slate-400 mt-1 leading-relaxed">
-                            Before you anchor up, make sure your alarm will wake you.
+                            {collision
+                                ? 'Before the collision watch starts, make sure its alarm will reach you.'
+                                : 'Before you anchor up, make sure your alarm will wake you.'}
                         </p>
                     </div>
 
@@ -341,7 +366,7 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                             {testState === 'stop-failed' && (
                                 <p role="alert" className="mt-2 text-center text-xs font-bold text-red-300">
                                     The alarm may still be sounding because this device did not confirm it stopped. Keep
-                                    this window open and retry; Anchor Watch cannot start until stopping succeeds.
+                                    this window open and retry; {watchName} cannot start until stopping succeeds.
                                 </p>
                             )}
                         </div>
@@ -366,9 +391,9 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                                 {isNative ? (
                                     <>
                                         <p className="text-xs text-sky-400/70 leading-snug">
-                                            Background GPS can continue on this device. Locked-screen warning depends on
-                                            local-notification permission; keep Thalassa running and verify the
-                                            foreground speaker test as well.
+                                            {collision
+                                                ? 'With the screen locked, the collision watch runs only while a voyage track or anchor watch keeps Thalassa going, and reaches you through Time Sensitive notifications, which Focus lets through only if you allow it. Without them it sounds only while Thalassa is open.'
+                                                : 'Background GPS can continue on this device. Locked-screen warning depends on local-notification permission; keep Thalassa running and verify the foreground speaker test as well.'}
                                         </p>
                                         <p
                                             className={`mt-1.5 text-xs font-bold ${
@@ -447,16 +472,22 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                             }}
                         >
                             <span className="inline-flex items-center justify-center gap-1.5">
-                                <AnchorIcon className="h-4 w-4 shrink-0" />
-                                Drop anchor
+                                {collision ? (
+                                    'Start collision watch'
+                                ) : (
+                                    <>
+                                        <AnchorIcon className="h-4 w-4 shrink-0" />
+                                        Drop anchor
+                                    </>
+                                )}
                             </span>
                         </button>
                     </div>
                     {(!alarmAudibilityConfirmed || audioCleanupBlocked) && (
                         <p id="anchor-audio-requirement" className="pt-2 text-center text-xs font-bold text-red-300">
                             {audioCleanupBlocked
-                                ? 'The test alarm must be confirmed stopped before Anchor Watch can start.'
-                                : 'Play the real alarm and confirm you heard it before Anchor Watch can start.'}
+                                ? `The test alarm must be confirmed stopped before ${watchName} can start.`
+                                : `Play the real alarm and confirm you heard it before ${watchName} can start.`}
                         </p>
                     )}
                     {notificationBlocked && (

@@ -26,6 +26,8 @@ import { SATELLITE_MODE_ENFORCED } from '../../services/networkPolicy';
 import { OFFSHORE_MODELS } from '../../services/weather/forecastModels';
 import { offshoreModelHelper } from '../dashboard/ModelPickerSheet';
 import { runWithConfirmedDraft } from '../../stores/draftConfirmStore';
+import { sanitiseCollisionPrefs, type CollisionPair, type CollisionPrefs } from '../../utils/collisionRule';
+import { DebugAisInjectorSection } from './debugAisInjectorGate';
 
 /** The Settings menu row's icon tile (SettingsModal's MENU_ICON_TILE): the soft
  *  surface with the one sky accent on the glyph, in both display modes. */
@@ -40,6 +42,17 @@ const FOLLOWS_YOU = 'Current Location';
 /** One field's select, the same recipe for every unit. */
 const SELECT_CLASS =
     'thalassa-select w-full min-h-11 appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-9 py-2 text-white text-sm';
+
+/** Collision alarm choices; a saved value outside them is kept as an extra option. */
+const CPA_OPTIONS_NM = [0.1, 0.2, 0.3, 0.5, 1, 2];
+const TCPA_OPTIONS_MIN = [3, 6, 10, 15, 20, 30];
+
+const COLLISION_FIELDS: { pair: keyof CollisionPrefs; field: keyof CollisionPair; label: string }[] = [
+    { pair: 'offshore', field: 'cpaNm', label: 'Offshore CPA' },
+    { pair: 'offshore', field: 'tcpaMin', label: 'Offshore TCPA' },
+    { pair: 'inshore', field: 'cpaNm', label: 'Inshore CPA' },
+    { pair: 'inshore', field: 'tcpaMin', label: 'Inshore TCPA' },
+];
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -470,6 +483,73 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 </Row>
             </Section>
 
+            {/* Collision alarm (build 125, 125-01; Shane's recommended defaults,
+                shipped unless he says otherwise): the CPA/TCPA pair the alarm and
+                the chart's CPA chip share (utils/collisionRule.ts). The watch is
+                armed with the shield in the chart's AIS key, after a sound check.
+                The locked-phone line says what iOS delivers and no more: Time
+                Sensitive passes Focus only where the skipper allows it, and a
+                suspended app watches nothing. NM everywhere: CPA is a nautical
+                quantity whatever the distance unit. */}
+            <Section title="Collision alarm">
+                <div className="p-4 space-y-3">
+                    <p className="text-xs text-gray-400">
+                        While you make 0.5 kn or more, it sounds when another vessel's course will bring her inside
+                        these limits. Offshore applies from 3 kn, inshore again below 2.5 kn. Close quarters (0.1 NM
+                        within 3 min) always sounds then, and a mute never silences it. Stopped, it stays quiet and says
+                        so. Arm it with the shield in the chart's AIS key.
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                        {COLLISION_FIELDS.map(({ pair, field, label }) => {
+                            const prefs = sanitiseCollisionPrefs(settings.collisionAlarm);
+                            const value = prefs[pair][field];
+                            const base = field === 'cpaNm' ? CPA_OPTIONS_NM : TCPA_OPTIONS_MIN;
+                            const options = [...new Set([...base, value])].sort((a, b) => a - b);
+                            const id = `settings-collision-${pair}-${field}`;
+                            return (
+                                <div key={id}>
+                                    <label htmlFor={id} className={FIELD_LABEL_CLASS}>
+                                        {label}
+                                    </label>
+                                    <select
+                                        id={id}
+                                        value={String(value)}
+                                        onChange={(e) =>
+                                            onSave({
+                                                collisionAlarm: {
+                                                    ...prefs,
+                                                    [pair]: { ...prefs[pair], [field]: Number(e.target.value) },
+                                                },
+                                            })
+                                        }
+                                        className={SELECT_CLASS}
+                                    >
+                                        {options.map((option) => (
+                                            <option key={option} value={String(option)}>
+                                                {field === 'cpaNm' ? `${option} NM` : `${option} min`}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <p className="text-xs text-gray-400">
+                        With the phone locked it keeps watching only while Thalassa keeps running (a voyage track keeps
+                        it running under way) and reaches the lock screen only if Time Sensitive notifications are
+                        allowed for Thalassa. Focus lets them through only if you allow it.
+                    </p>
+                </div>
+            </Section>
+
+            {/* Smoke builds only (THALASSA_DEBUG_AIS_INJECTOR=1): null, and folded
+                out, in every release build. */}
+            {DebugAisInjectorSection && (
+                <React.Suspense fallback={null}>
+                    <DebugAisInjectorSection />
+                </React.Suspense>
+            )}
+
             {/* Satellite mode, moved here from Account & Cloud, which keeps a
                 line that points here (UX scorecard run 8; Shane 2026-09-09:
                 switches live in Preferences). Same setting, same effect. The
@@ -649,6 +729,8 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 in Xcode, the phone is running old code. */}
             <p className="pb-2 pt-1 text-center text-xs tracking-wide text-white/50">
                 {formatVersionLine(import.meta.env.VITE_APP_VERSION, __BUILD_STAMP__)}
+                {/* Never in a release: says at a glance that this is the smoke build. */}
+                {__THALASSA_DEBUG_AIS_INJECTOR__ && ' · AIS injector smoke build: never upload'}
             </p>
         </div>
     );

@@ -38,9 +38,17 @@ vi.mock('../services/AisStore', () => ({
     AisStore: {
         toGeoJSON: () => ({ type: 'FeatureCollection', features: hoisted.localFeatures }),
         subscribe: () => () => {},
+        // Build 125: our own MMSI as our !AIVDO reports it (none here), and when AIS was last heard.
+        getOwnMmsi: () => null,
+        getLastHeardAt: () => 0,
     },
 }));
-vi.mock('../services/ownshipPosition', () => ({ resolveOwnshipPosition: () => hoisted.ownship }));
+vi.mock('../services/ownshipPosition', () => ({
+    resolveOwnshipPosition: () => hoisted.ownship,
+    // Build 125: the collision rule's own-motion input. Unknown here, so the
+    // collision alarm (tests/CollisionWatch.test.ts) stays out of these ring tests.
+    resolveOwnMotion: () => ({ sogKn: null, cogDeg: null, source: null, pair: 'inshore' }),
+}));
 vi.mock('../services/NmeaStore', () => ({ NmeaStore: { getState: () => ({}) } }));
 vi.mock('../stores/LocationStore', () => ({ LocationStore: { getState: () => ({}) } }));
 vi.mock('../stores/settingsStore', () => ({

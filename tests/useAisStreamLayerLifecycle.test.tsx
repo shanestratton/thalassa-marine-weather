@@ -41,11 +41,19 @@ vi.mock('../services/AisStreamService', () => ({
     AisStreamService: { fetchNearby: mocks.fetchNearby },
 }));
 vi.mock('../services/AisStore', () => ({
-    AisStore: { toGeoJSON: () => ({ type: 'FeatureCollection', features: [] }) },
+    AisStore: {
+        toGeoJSON: () => ({ type: 'FeatureCollection', features: [] }),
+        // Build 125: the popup's CPA skips our own transponder (as !AIVDO reports it).
+        getOwnMmsi: () => null,
+    },
 }));
 vi.mock('../services/supabase', () => ({ supabase: {} }));
 vi.mock('../services/networkPolicy', () => ({ satelliteModeBlocks: () => mocks.satelliteMode }));
-vi.mock('../services/ownshipPosition', () => ({ resolveOwnshipPosition: () => mocks.ownship }));
+vi.mock('../services/ownshipPosition', () => ({
+    resolveOwnshipPosition: () => mocks.ownship,
+    // Build 125: the popup's CPA reads our own motion the way the collision alarm does.
+    resolveOwnMotion: () => ({ sogKn: null, cogDeg: null, source: null, pair: 'inshore' }),
+}));
 vi.mock('../components/map/useAisLayer', () => ({ onLocalAisChange: () => () => undefined }));
 vi.mock('../stores/LocationStore', () => ({ LocationStore: { getState: () => ({ lat: 0, lon: 0 }) } }));
 vi.mock('../services/NmeaStore', () => ({
