@@ -29,6 +29,30 @@ describe('personal ENC cell store', () => {
             expect(sharedRead.slice(0, 300)).toContain("name not like 'u/%'");
         });
 
+        it('shares only public-domain NOAA cells from the bucket root (2026-10-09)', () => {
+            // An audit found the root held 351 extracts from the owner's
+            // licensed o-charts set, readable by every signed-in account. The
+            // shared read now matches NOAA cell files only; the manifest and
+            // every other root object are the owner's alone (his copies live
+            // under u/<uid>/).
+            const noaaOnly = read('supabase/migrations/20261009070000_enc_cells_shared_read_noaa_only.sql');
+            expect(noaaOnly).toContain('drop policy if exists "enc cells shared read" on storage.objects;');
+            const policy = noaaOnly.slice(noaaOnly.indexOf('create policy "enc cells shared read noaa"'));
+            expect(policy).toContain("name not like 'u/%'");
+            expect(policy).toContain("name ~ '^US[0-9][A-Z0-9]{5}\\.json$'");
+            const pattern = /^US[0-9][A-Z0-9]{5}\.json$/;
+            expect(pattern.test('US5WA22M.json')).toBe(true);
+            for (const name of [
+                'manifest.json',
+                'oc-03-12ABC4.json',
+                'AU5QLD01.json',
+                'US5WA22M.json.bak',
+                'u/US5WA22M.json',
+            ]) {
+                expect(pattern.test(name), name).toBe(false);
+            }
+        });
+
         it('scopes every personal-prefix policy to the owner', () => {
             // Read, insert, update and delete must ALL be owner-scoped. A
             // missing insert check would let one account write into another's
