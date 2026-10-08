@@ -289,6 +289,8 @@ export interface CloudWindRow {
     twaDeg?: number;
     /** The Pi's own TWS sample time (extra.wind_tws_at_ms). */
     windSampleAt?: number;
+    /** The Pi's own TWD sample time (extra.wind_twd_at_ms); absent from an older Pi. */
+    twdSampleAt?: number;
     headingTrueDeg?: number;
     headingTrueAt?: number;
 }
@@ -314,20 +316,24 @@ function cloudSampleFresh(at: number | undefined, now: number): boolean {
  * an instrument that is off. Within the gate it is live (stale: false), as
  * the Instrument Panel's Remote reading is.
  *
- * Only the TWS sample is dated. The row's TWD has no sample time of its own,
- * so it rides on the TWS date and is NOT age-gated by itself: on Serene Summer
- * TWD comes from the gateway's MDA, which needs heading, while TWS comes from
- * VWT, so a heading dropout can leave a frozen TWD beside a fresh TWS. The
- * store lane reads it the same way. The fix wants the Pi to send the TWD
- * sample time (extra.wind_twd_at_ms) and a Pi redeploy; until then only the
- * TWS, and the heading used with the TWA, are age-gated here.
+ * The TWD has its own clock: on Serene Summer TWD comes from the gateway's
+ * MDA, which needs heading, while TWS comes from VWT, so a heading dropout can
+ * leave a frozen TWD beside a fresh TWS. Since Pi update 1 (build 125) the Pi
+ * sends the TWD leaf's own time (extra.wind_twd_at_ms) with every TWD, however
+ * old, and a TWD outside CLOUD_WIND_MAX_AGE_MS of it is not hers now: the
+ * direction then comes from a fresh heading plus the TWA, or there is none. An
+ * older Pi dates no TWD, and its TWD still rides on the TWS date. The store
+ * lane (NmeaStore.ingestRemote) holds a dated TWD to its lane's gate the same
+ * way, so aboard on the Pi LAN a frozen TWD is retired too.
  */
 export function pickCloudTrueWind(row: CloudWindRow | null | undefined, now: number = Date.now()): BoatWind | null {
     if (!row || !cloudSampleFresh(row.windSampleAt, now)) return null;
     const kt = row.twsKts;
     if (!isNum(kt) || kt < 0 || kt > 150) return null;
     let fromDeg: number | null = null;
-    if (isNum(row.twdDeg) && row.twdDeg >= 0 && row.twdDeg < 360) {
+    // An older Pi dates no TWD: it rides on the TWS date, as it always did.
+    const twdCurrent = row.twdSampleAt === undefined || cloudSampleFresh(row.twdSampleAt, now);
+    if (isNum(row.twdDeg) && row.twdDeg >= 0 && row.twdDeg < 360 && twdCurrent) {
         fromDeg = row.twdDeg;
     } else if (
         isNum(row.headingTrueDeg) &&
