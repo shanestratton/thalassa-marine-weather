@@ -42,7 +42,10 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             <SkipperDeviceControl claim={claim} authenticatedUserId="skipper-user" updateSettings={updateSettings} />,
         );
 
-        const takeover = screen.getByRole('button', { name: 'Make this phone primary' });
+        // Same words as the Log notice's button (Shane 2026-10-09: "tapping
+        // 'Publish from this device' on the Vessel page will fix it - - i cannot
+        // find that message??").
+        const takeover = screen.getByRole('button', { name: 'Publish from this device' });
         fireEvent.click(takeover);
         expect(screen.getByRole('dialog', { name: 'Take over skipper publishing?' })).toBeInTheDocument();
 
@@ -74,7 +77,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             />,
         );
 
-        fireEvent.click(screen.getByRole('button', { name: 'Make this phone primary' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Publish from this device' }));
         expect(screen.getByRole('dialog', { name: 'Take over skipper publishing?' })).toBeInTheDocument();
 
         act(() => setAuthIdentityScope('different-user'));
@@ -94,7 +97,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             />,
         );
 
-        fireEvent.click(screen.getByRole('button', { name: 'Make this phone primary' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Publish from this device' }));
         rerender(
             <SkipperDeviceControl
                 claim={recentOtherClaim({ deviceId: 'new-holder', claimedAt: new Date(Date.now() + 1).toISOString() })}
@@ -106,6 +109,50 @@ describe('SkipperDeviceControl takeover confirmation', () => {
 
         expect(updateSettings).not.toHaveBeenCalled();
         expect(screen.queryByRole('dialog', { name: 'Take over skipper publishing?' })).not.toBeInTheDocument();
+    });
+
+    it('asks before taking over a forgotten claim too — the takeover stays deliberate', () => {
+        // Build 125: the confirm used to appear only for a claim made in the
+        // last 30 minutes, so an old one went at a tap. Both surfaces now ask
+        // the same question, naming the holder and when it was last seen.
+        const updateSettings = vi.fn();
+        const claim = recentOtherClaim({
+            deviceName: 'iPhone/iPad · 7e1a',
+            claimedAt: new Date(Date.now() - 32 * 24 * 3_600_000).toISOString(),
+        });
+        render(
+            <SkipperDeviceControl claim={claim} authenticatedUserId="skipper-user" updateSettings={updateSettings} />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Publish from this device' }));
+        expect(screen.getByRole('dialog', { name: 'Take over skipper publishing?' })).toHaveTextContent(
+            'iPhone/iPad · 7e1a holds your public page — claimed 32 days ago.',
+        );
+        expect(updateSettings).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: 'Take over' }));
+        expect(updateSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it('says when the holder last published, in the status line and its full sentence', () => {
+        const claim = recentOtherClaim({
+            claimedAt: new Date(Date.now() - 40 * 24 * 3_600_000).toISOString(),
+            lastSeenAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+        });
+        render(<SkipperDeviceControl claim={claim} authenticatedUserId="skipper-user" updateSettings={vi.fn()} />);
+        const status = screen.getByTestId('skipper-device-status');
+        expect(status).toHaveTextContent("Primary: Skipper's iPad · published 2 hours ago");
+        expect(status).toHaveAttribute('title', "Skipper's iPad holds your public page — last published 2 hours ago.");
+    });
+
+    it('claims an unclaimed boat at a tap — nobody to displace, nothing to confirm', () => {
+        const updateSettings = vi.fn();
+        render(
+            <SkipperDeviceControl claim={null} authenticatedUserId="skipper-user" updateSettings={updateSettings} />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Make this phone primary' }));
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(updateSettings).toHaveBeenCalledWith({
+            skipperDevice: expect.objectContaining({ deviceId: getDeviceId() }),
+        });
     });
 
     it('keeps the card footprint fixed when this device claims or releases publishing', () => {

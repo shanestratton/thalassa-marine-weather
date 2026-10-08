@@ -33,7 +33,13 @@ import { ToastPortal, toast } from './components/Toast';
 import { GlobalAnchorAlarmGate } from './components/anchor-watch/GlobalAnchorAlarmGate';
 import { GlobalShoreWatchGate } from './components/anchor-watch/GlobalShoreWatchGate';
 import { PiPairingBanner } from './components/PiPairingBanner';
-import { hasBeenDisplaced, holdsClaim, readRememberedHeld, rememberHeld } from './services/skipperDevice';
+import {
+    hasBeenDisplaced,
+    holdsClaim,
+    noteDisplacedNotice,
+    readRememberedHeld,
+    rememberHeld,
+} from './services/skipperDevice';
 import { PushToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
 import { BuilderDeepLink } from './components/BuilderDeepLink';
@@ -219,9 +225,13 @@ const App: React.FC = () => {
     useEffect(() => {
         const nowHeld = holdsClaim(skipperClaim);
         if (hasBeenDisplaced(skipperClaim, readRememberedHeld()) && !nowHeld) {
-            toast.info(
-                `This device is no longer the skipper: ${skipperClaim?.deviceName ?? 'another device'} took over. ` +
-                    `It has stopped publishing to your public page.`,
+            // Noted, so a handover of a forgotten claim in the same tick
+            // (LiveTrickle) can withdraw it rather than contradict it.
+            noteDisplacedNotice(
+                toast.info(
+                    `This device is no longer the skipper: ${skipperClaim?.deviceName ?? 'another device'} took over. ` +
+                        `It has stopped publishing to your public page.`,
+                ),
             );
         }
         rememberHeld(nowHeld);

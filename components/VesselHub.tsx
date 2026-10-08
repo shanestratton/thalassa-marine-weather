@@ -31,7 +31,8 @@ import {
     shoreWatchTileKey,
 } from './anchor-watch/anchorWatchStatusRow';
 import { useSettings } from '../context/SettingsContext';
-import { buildClaim, claimAgeLabel, getDeviceId, holdsClaim, type SkipperClaim } from '../services/skipperDevice';
+import { claimSeenPhrase, claimSeenShort, getDeviceId, holdsClaim, type SkipperClaim } from '../services/skipperDevice';
+import { SKIPPER_TAKEOVER_LABEL, useSkipperTakeover } from './vessel/SkipperTakeover';
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
 import { piCache } from '../services/PiCacheService';
 import { useCloudTelemetry } from '../hooks/useCloudTelemetry';
@@ -72,7 +73,6 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
-import { ConfirmDialog } from './ui/ConfirmDialog';
 import { BackButton } from './ui/BackButton';
 import { PUBLIC_BETA_ACCESS, TIER_INFO } from '../services/SubscriptionService';
 import type { SubscriptionTier } from '../types/settings';
@@ -1624,10 +1624,13 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
         return () => clearInterval(id);
     }, []);
 
+    // What we actually know about another holder (build 125): "last
+    // published 2 hours ago", or "claimed 32 days ago" — it read "last
+    // claimed", which never told a live holder from a dead one.
     const statusDescription = claim
         ? claimHeld
             ? 'This device publishes the boat’s position to your public voyage page.'
-            : `${claim.deviceName} is publishing — last claimed ${claimAgeLabel(claim)}.`
+            : `${claim.deviceName} holds your public page — ${claimSeenPhrase(claim)}.`
         : 'No phone is primary yet — any signed-in phone can post the boat’s position to your public voyage page.';
 
     // The claim rides in user_settings, which is pulled from the cloud ONCE per
@@ -1655,20 +1658,21 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     // "make this phone primary" (UX scorecard run 9, W-vessel-card-copy): a
     // skipper could not tell what "primary" did. Signed in, the claim keeps
     // Shane's word.
+    // Another device holding the claim gets the Log notice's own words (Shane
+    // 2026-10-09: "tapping 'Publish from this device' on the Vessel page will
+    // fix it - - i cannot find that message??").
+    const heldElsewhere = !!claim && !claimHeld;
     const actionLabel = claimHeld
         ? 'Release — stop being primary'
         : needsSignIn
           ? 'Sign in to share position from this phone'
-          : 'Make this phone primary';
-    const [takeoverRequest, setTakeoverRequest] = useState<{
-        scope: AuthIdentityScope;
-        claim: SkipperClaim;
-    } | null>(null);
+          : heldElsewhere
+            ? SKIPPER_TAKEOVER_LABEL
+            : 'Make this phone primary';
     const actionInFlight = useRef(false);
 
     useEffect(() => {
         actionInFlight.current = false;
-        setTakeoverRequest(null);
         // Mid Apple sign-in the account changes before its last steps run: the
         // sheet closes itself once they finish, or shows the failed step.
         if (!appleSignInHoldsSheet()) setSignInOpen(false);
@@ -1678,7 +1682,6 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
         () =>
             subscribeAuthIdentityScope(() => {
                 actionInFlight.current = false;
-                setTakeoverRequest(null);
             }),
         [],
     );
@@ -1697,9 +1700,13 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
         },
         [updateSettings],
     );
+    // The deliberate takeover, shared with the Log notice: it always asks now,
+    // naming the holder and when it was last seen (it used to ask only about a
+    // claim made in the last 30 minutes).
+    const takeover = useSkipperTakeover({ claim, authenticatedUserId, apply: applyClaim });
 
     const handleAction = useCallback(() => {
-        if (actionInFlight.current || takeoverRequest) return;
+        if (actionInFlight.current) return;
         if (needsSignIn) {
             triggerHaptic('light');
             setSignInOpen(true);
@@ -1714,27 +1721,14 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
             return;
         }
 
-        const recent = claim && Date.now() - new Date(claim.claimedAt).getTime() < 30 * 60_000;
-        if (recent) {
-            const scope = getAuthIdentityScope();
-            if (scope.userId !== authenticatedUserId) return;
-            setTakeoverRequest({ scope, claim });
+        if (claim) {
+            takeover.ask();
             return;
         }
-        applyClaim(buildClaim());
-    }, [applyClaim, authenticatedUserId, claim, claimHeld, needsSignIn, takeoverRequest]);
-
-    const confirmTakeover = useCallback(() => {
-        const request = takeoverRequest;
-        if (!request || actionInFlight.current) return;
-        const sameClaim = claim?.deviceId === request.claim.deviceId && claim.claimedAt === request.claim.claimedAt;
-        if (!sameClaim || !isAuthIdentityScopeCurrent(request.scope) || request.scope.userId !== authenticatedUserId) {
-            setTakeoverRequest(null);
-            return;
-        }
-        applyClaim(buildClaim());
-        setTakeoverRequest(null);
-    }, [applyClaim, authenticatedUserId, claim, takeoverRequest]);
+        // Under the settled device id (a reinstall's Keychain id), not one
+        // minted while the Keychain was still answering.
+        takeover.claimUnclaimed();
+    }, [applyClaim, claim, claimHeld, needsSignIn, takeover]);
 
     return (
         <>
@@ -1785,8 +1779,10 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                             Your vessel
                         </h2>
                     )}
+                    {/* Where the POSITION comes from (build 125): the public
+                        page's publisher is the line below, a different thing. */}
                     {piPrimary && (
-                        <span className="shrink-0 text-[12px] font-bold text-emerald-300">Primary: the Pi</span>
+                        <span className="shrink-0 text-[12px] font-bold text-emerald-300">Position: the Pi</span>
                     )}
                 </div>
                 {/* The order the app believes GPS in: the boat's own receiver
@@ -1794,11 +1790,30 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                     device — or just this device when there is no boat GPS —
                     followed by who is primary, in words. The full sentence is
                     for screen readers; the short one is what fits.
-                    With the Pi primary this row says nothing (Shane 2026-09-08:
-                    "get rid of this device unless there is no pi") — the pill
-                    below says it all. The row keeps its height so the card
-                    never moves. */}
+                    With the Pi primary the GPS order goes (Shane 2026-09-08:
+                    "get rid of this device unless there is no pi") and the row
+                    names who PUBLISHES the public page instead (build 125,
+                    Shane at the marina 2026-10-09): the Pi gives the position
+                    but does not publish the live track, so a phone still does
+                    — or nobody, when a forgotten install holds the claim. The
+                    row keeps its height so the card never moves. */}
                 <div className="skipper-device-gps mb-2 flex h-4 items-center gap-2">
+                    {piPrimary && (
+                        <span
+                            aria-hidden="true"
+                            data-testid="skipper-device-publisher"
+                            title={statusDescription}
+                            className={`min-w-0 flex-1 truncate text-[12px] font-bold leading-none ${
+                                claim ? (claimHeld ? 'text-emerald-300' : 'text-amber-300') : 'text-slate-300'
+                            }`}
+                        >
+                            {claim
+                                ? claimHeld
+                                    ? 'Public page: this phone'
+                                    : `Public page: ${claim.deviceName} · ${claimSeenShort(claim)}`
+                                : 'Public page: any signed-in phone'}
+                        </span>
+                    )}
                     {piPrimary && <p className="sr-only">{statusDescription}</p>}
                     {!piPrimary && (
                         <span
@@ -1847,7 +1862,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                             {claim
                                 ? claimHeld
                                     ? 'Primary: this phone'
-                                    : `Primary: ${claim.deviceName} · ${claimAgeLabel(claim)}`
+                                    : `Primary: ${claim.deviceName} · ${claimSeenShort(claim)}`
                                 : // Plain words, not "No primary device yet" (UX
                                   // scorecard run 7). The whole sentence is in the
                                   // title and the sr-only line; beside the Boat GPS
@@ -1869,7 +1884,10 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                     )}
                     {!piPrimary && <p className="sr-only">{statusDescription}</p>}
                 </div>
-                {piPrimary ? (
+                {/* The Pi's line gives way to the takeover when another
+                    device holds the public page: with the Pi primary there was
+                    no button at all, so a forgotten claim could not be taken. */}
+                {piPrimary && !heldElsewhere ? (
                     <p
                         data-testid="skipper-device-pi-primary"
                         className="skipper-device-action flex h-11 w-full items-center justify-center overflow-hidden rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-2 text-center text-[13px] font-bold leading-tight text-emerald-300"
@@ -1910,22 +1928,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                     </button>
                 )}
             </div>
-            <ConfirmDialog
-                isOpen={takeoverRequest !== null}
-                title="Take over skipper publishing?"
-                message={
-                    takeoverRequest
-                        ? `${takeoverRequest.claim.deviceName} was active ${claimAgeLabel(
-                              takeoverRequest.claim,
-                          )}. Taking over stops that device publishing and starts this one.`
-                        : ''
-                }
-                confirmLabel="Take over"
-                onConfirm={confirmTakeover}
-                onCancel={() => {
-                    if (!actionInFlight.current) setTakeoverRequest(null);
-                }}
-            />
+            {takeover.dialog}
             {/* Portalled; closes itself once sign-in succeeds, after which the
                 button offers the claim. Kept mounted while open, so an Apple
                 sign-in that is signed in but not finished stays on screen. */}

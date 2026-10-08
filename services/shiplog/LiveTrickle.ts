@@ -52,7 +52,15 @@ interface TrickleSession {
     intervalHandle: ReturnType<typeof setInterval> | null;
     /** One warn per session when the skipper-device claim vetoes publishing. */
     claimWarned?: boolean;
+    /** Last automatic-handover attempt (ms); at most one per TRICKLE_INTERVAL_MS. */
+    handoverAttemptMs?: number;
+    /** Last claim heartbeat attempt (ms); at most one per CLAIM_HEARTBEAT_MS. */
+    heartbeatAttemptMs?: number;
 }
+
+type SettingsModule = typeof import('../../stores/settingsStore');
+type SkipperModule = typeof import('../skipperDevice');
+type SkipperClaim = import('../skipperDevice').SkipperClaim;
 
 /** Why a live tail was deliberately made permanently ineligible to publish. */
 export type LiveTrackRetirementReason = 'archived' | 'deleted' | 'discarded';
@@ -211,6 +219,104 @@ async function settleLiveTrickleTick(
 }
 
 /**
+ * The account's newest live point (ms): a sign of life a claim may not carry,
+ * because a holder on an older build publishes without a heartbeat. live_track
+ * has no device id, so this says only that the page is still moving, not who
+ * moved it — which is all the handover needs. null: no rows; undefined: could
+ * not ask (offline, refused), and then the caller must not guess.
+ */
+async function newestLivePointMs(session: TrickleSession): Promise<number | null | undefined> {
+    try {
+        if (!supabase || !sessionIsCurrent(session)) return undefined;
+        const { data, error } = await supabase
+            .from(LIVE_TRACK_TABLE)
+            .select('timestamp,created_at')
+            .eq('user_id', session.ownerUserId)
+            .order('timestamp', { ascending: false })
+            .limit(1);
+        if (error || !sessionIsCurrent(session)) return undefined;
+        const row = (data as Array<{ timestamp?: string; created_at?: string }> | null)?.[0];
+        if (!row) return null;
+        const ms = Math.max(
+            Date.parse(row.timestamp ?? '') || -Infinity,
+            Date.parse(row.created_at ?? '') || -Infinity,
+        );
+        return Number.isFinite(ms) ? ms : null;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * Take over a FORGOTTEN claim (build 125, 125-12). Shane at the marina,
+ * 2026-10-09: recording, live share on, and "iPhone/iPad · 1353 holds the
+ * skipper claim (active 32 days ago)" — an install that no longer existed, so
+ * nothing would ever release it and the public page stayed empty.
+ *
+ * Only here, so only while this device is recording with live share ON, and
+ * only when the holder has shown no sign of life for CLAIM_STALE_AFTER_MS: not
+ * its heartbeat, not its claim, not the account's live track. Inside that
+ * window a second device is a real conflict and the takeover stays a
+ * deliberate confirm (the Log notice, the Vessel card). The write is guarded
+ * (writeSkipperClaimIfUnchanged) so a holder that heartbeats in the meantime
+ * keeps the page. At most one attempt per trickle interval: never a write loop.
+ */
+async function takeOverForgottenClaim(
+    session: TrickleSession,
+    claim: SkipperClaim | null,
+    settings: SettingsModule,
+    skipper: SkipperModule,
+): Promise<boolean> {
+    const now = Date.now();
+    if (!claim?.deviceId || !skipper.isClaimStale(claim, now)) return false;
+    if (now - (session.handoverAttemptMs ?? 0) < TRICKLE_INTERVAL_MS) return false;
+    session.handoverAttemptMs = now;
+    const newestLive = await newestLivePointMs(session);
+    if (newestLive === undefined || !sessionIsCurrent(session)) return false;
+    if (!skipper.isClaimStale(claim, now, newestLive)) return false;
+    const result = await settings.writeSkipperClaimIfUnchanged(claim, skipper.buildClaim());
+    if (result !== 'written' || !sessionIsCurrent(session)) return false;
+    const message = skipper.autoHandoverMessage(claim, now, newestLive);
+    log.warn(`skipper claim taken over: ${message}`);
+    // Said once, plainly; the takeover is this device's from now on. A device
+    // displaced earlier and back tracking may still show App's "no longer the
+    // skipper" toast from this same tick: withdraw it, or the two contradict.
+    try {
+        const { toast } = await import('../../components/Toast');
+        const displaced = skipper.takeDisplacedNotice();
+        if (typeof displaced === 'number') toast.dismiss(displaced);
+        toast.info(message, 8_000);
+    } catch {
+        /* no UI to tell — the Vessel card and the log say who publishes */
+    }
+    return true;
+}
+
+/**
+ * The holder's heartbeat: after a successful upload, refresh the claim's
+ * lastSeenAt so the other device can tell a live holder from a forgotten one.
+ * Piggy-backed on the upload (never its own loop), at most once per
+ * CLAIM_HEARTBEAT_MS per session, and guarded like the handover.
+ */
+async function heartbeatSkipperClaim(
+    session: TrickleSession,
+    settings: SettingsModule,
+    skipper: SkipperModule,
+): Promise<void> {
+    try {
+        const claim = settings.useSettingsStore.getState().settings.skipperDevice ?? null;
+        const now = Date.now();
+        if (!claim || !skipper.heartbeatDue(claim, now)) return;
+        if (now - (session.heartbeatAttemptMs ?? 0) < skipper.CLAIM_HEARTBEAT_MS) return;
+        session.heartbeatAttemptMs = now;
+        if (!sessionIsCurrent(session)) return;
+        await settings.writeSkipperClaimIfUnchanged(claim, skipper.withHeartbeat(claim, now));
+    } catch (error) {
+        log.warn('skipper claim heartbeat failed:', error);
+    }
+}
+
+/**
  * Return true only when this tick found a real eligible point or encountered
  * a delivery failure. An empty start pulse must not consume the two-minute
  * send window: the Voyage Start marker is intentionally not trackworthy, and
@@ -224,10 +330,16 @@ async function doTick(session: TrickleSession): Promise<boolean> {
         const user = await getCurrentUser();
         if (!sessionIsCurrent(session) || !user || user.id !== session.ownerUserId) return false;
 
-        const [{ useSettingsStore: store, refreshSkipperClaim }, { mayPublish }] = await Promise.all([
+        const [settingsModule, skipper] = await Promise.all([
             import('../../stores/settingsStore'),
             import('../skipperDevice'),
         ]);
+        const { useSettingsStore: store, refreshSkipperClaim } = settingsModule;
+        const { mayPublish, deviceIdReady } = skipper;
+        if (!sessionIsCurrent(session)) return false;
+        // This install's id once the iOS Keychain has answered, so a reinstall
+        // compares as the same device (build 125).
+        await deviceIdReady();
         if (!sessionIsCurrent(session)) return false;
         // Re-check publishing authority against the CLOUD before every push
         // (throttled to 60 s inside). Without this the gate below read only the
@@ -238,20 +350,22 @@ async function doTick(session: TrickleSession): Promise<boolean> {
         await refreshSkipperClaim();
         if (!sessionIsCurrent(session)) return false;
         const claim = store.getState().settings.skipperDevice ?? null;
-        if (!mayPublish(claim)) {
+        if (!mayPublish(claim) && !(await takeOverForgottenClaim(session, claim, settingsModule, skipper))) {
             // The single-publisher veto is correct behaviour — but it was
             // SILENT, and a skipper with live-share ON stared at an empty
             // public page with no clue why (field mystery 2026-08-03: a
             // stale claim from a previous install muted the trickle while
             // every other part of the chain was healthy). One warn per
-            // session names the holder so the console answers instantly;
-            // the takeover card on the Vessel page is the fix.
+            // session names the holder so the console answers instantly. A
+            // forgotten holder was just taken over above; a live one waits for
+            // the deliberate takeover on the Log notice or the Vessel card.
             if (!session.claimWarned) {
                 session.claimWarned = true;
                 log.warn(
                     `live share is ON but this device does not hold the skipper claim — publishing suppressed. ` +
-                        `Claim holder: ${claim?.deviceName ?? 'unknown'} (since ${claim?.claimedAt ?? '?'}). ` +
-                        `Take over from the Vessel page to publish from this device.`,
+                        `Claim holder: ${claim?.deviceName ?? 'unknown'} (claimed ${claim?.claimedAt ?? '?'}, ` +
+                        `last seen ${claim?.lastSeenAt ?? 'never'}). ` +
+                        `"Publish from this device" on the Log or Vessel page takes it over.`,
                 );
             }
             return false;
@@ -309,6 +423,8 @@ async function doTick(session: TrickleSession): Promise<boolean> {
         await writeMark(session, chunk[chunk.length - 1].timestamp as string);
         if (!sessionIsCurrent(session)) return false;
         log.info(`trickled ${rows.length} live point(s)`);
+        await heartbeatSkipperClaim(session, settingsModule, skipper);
+        if (!sessionIsCurrent(session)) return false;
 
         if (!session.pruned) {
             session.pruned = true;
