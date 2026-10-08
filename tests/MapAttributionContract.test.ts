@@ -224,8 +224,22 @@ describe('map provider attribution contract', () => {
         expect(helper).toMatch(/classList\.toggle\(\s*'is-open'\s*\)/);
         expect(helper).toMatch(/addEventListener\(\s*'click'/);
 
-        for (const path of ['components/LiveMiniMap.tsx', 'components/TrackMapViewer.tsx']) {
-            expect(read(path)).toContain('installCompactAttribution(map)');
-        }
+        expect(read('components/TrackMapViewer.tsx')).toContain('installCompactAttribution(map)');
+    });
+
+    it('credits every source on the Mapbox Log maps behind a compact ⓘ (125-13a)', () => {
+        // The little Log map is Mapbox GL on Relief + Sat: Mapbox's own compact
+        // control, never a hand-rolled hide, and each source it adds carries
+        // its licence credit — Mapbox/Maxar imagery, GEBCO/GA relief with Not
+        // for navigation (reliefBase), OpenSeaMap seamarks.
+        const logMap = read('components/map/logMap.ts');
+        expect(logMap).toContain('new mapboxgl.AttributionControl({ compact: true })');
+        expect(logMap).toContain('attributionControl: false');
+        expect(logMap).toContain('addReliefBase(map)');
+        expect(logMap).toMatch(/SATELLITE_CREDIT =[\s\S]*?Mapbox[\s\S]*?Maxar/);
+        expect(logMap).toMatch(/SEAMARK_CREDIT =[\s\S]*?OpenSeaMap/);
+        expect(logMap).toMatch(/attribution: SATELLITE_CREDIT/);
+        expect(logMap).toMatch(/attribution: SEAMARK_CREDIT/);
+        expect(read('components/LiveMiniMapGL.tsx')).toContain('createLogMap(');
     });
 });

@@ -70,6 +70,17 @@ describe('mergeSettings — sync-seed / async-load parity', () => {
         expect(merged.vessel?.name).toBe('Tayana');
     });
 
+    // 125-13a (Shane 2026-10-09: "remove the old satellite map"): a saved
+    // Obs base of the removed Satellite becomes Relief + Sat; the type keeps
+    // 'satellite' readable for old saved settings, and nothing else changes.
+    it('migrates a saved Obs base of the removed Satellite to Relief + Sat', () => {
+        expect(mergeSettings({ obsChartBase: 'satellite' }).obsChartBase).toBe('reliefSat');
+        expect(mergeSettings({ obsChartBase: 'hybrid' }).obsChartBase).toBe('hybrid');
+        expect(mergeSettings({ obsChartBase: 'relief' }).obsChartBase).toBe('relief');
+        expect(mergeSettings({ firstName: 'Ana' }).obsChartBase).toBeUndefined();
+        expect('obsChartBase' in mergeSettings({ firstName: 'Ana' })).toBe(false);
+    });
+
     it('waveHeight back-compat: falls back to legacy length unit then m', () => {
         expect(mergeSettings({ units: { length: 'ft' } }).units.waveHeight).toBe('ft');
         expect(mergeSettings({ units: {} }).units.waveHeight).toBe('m');

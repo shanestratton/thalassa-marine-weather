@@ -47,7 +47,7 @@ export const LiveVoyageCard: React.FC<{
 }) => {
     const { activeEntries, first, dist, durationHrs, durationMins, liveAvgSpeed, departedAt } = liveStats;
     // The quick sighting sheet is up: both live maps unmount under it, for the
-    // same iOS reason as below (Leaflet paints above fixed overlays).
+    // same reasons as below.
     const [sightingOpen, setSightingOpen] = useState(false);
     return (
         <div className="flex-1 min-h-0 flex flex-col rounded-2xl bg-linear-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4 mx-4 mt-2 mb-2">
@@ -126,9 +126,11 @@ export const LiveVoyageCard: React.FC<{
                                                 fix lands there's nothing to draw, so say what's
                                                 happening instead of showing a silent empty map.
                                                 UNMOUNTED while any fullscreen map is open — iOS
-                                                WebKit composites Leaflet's transformed layers above
+                                                WebKit composited the old Leaflet map's layers above
                                                 fixed overlays regardless of z-index, so a live map
-                                                redrawing underneath bled through as a second track. */}
+                                                redrawing underneath bled through as a second track;
+                                                and each Mapbox map is a WebGL context of its own
+                                                (125-13a), so only one Log map lives at a time. */}
             <div className="mt-3 flex-1 min-h-[100px] relative">
                 {!liveMapExpanded && !showTrackMap && !sightingOpen && (
                     <LiveMiniMap
