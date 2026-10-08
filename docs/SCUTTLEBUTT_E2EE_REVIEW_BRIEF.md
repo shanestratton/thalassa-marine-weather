@@ -51,6 +51,17 @@ production or server changes accompanied the update.
 
 ## Current integration candidate
 
+On 9 October the owner renewed autonomous development through a justified
+conditional merge, and the existing four-hour heartbeat no longer expires on
+13 October. This changes the work horizon, not readiness: independent security
+assessment, dependency/licence obligations, current physical acceptance and
+production cutover evidence remain gates. An eventual master merge is authorized
+conditionally after those verified gates, fetching/reconciling newer master,
+coordinated deployment and a heads-up to Shane. Its website deployment consequence
+must be included in that decision. Production database activation, primary sync,
+reviewer contact, payment and source sharing retain separate unapproved authority.
+Current research is not ready for master or production activation.
+
 The active development branch is `codex/scuttlebutt-e2ee-integration-2026-10-06`,
 rebased onto master `7e0b27a4` without rewriting the published foundation branch.
 The new ordinary text-only native port shares the existing Research Auth host,
@@ -241,6 +252,24 @@ Runtime shape is not provenance or native permission. Review the full-app Auth,
 storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gates
 before treating this routing seam as startup integration. No ordinary activation,
 shared dependency write, primary sync, master or production change is included.
+
+The [9 October actual Window preparation](../experiments/scuttlebutt-e2ee/review/full-app-window-2026-10-09.json)
+adds opt-in fixed observations and a nonce-bound one-shot whole-root remount
+through the same existing Research factory/native wrapper. Successful creation
+counts, render invocations and Research-seam calls are limited diagnostics,
+not native authority, revocation or a malicious same-origin sandbox. The 136
+targeted fake-host/pure-contract/Research-component cases pass with named
+lint/format. The shared-Mac mount window expired; fresh mount, types, instrumented
+build and cached Chrome execution remain queued-unrun. No actual Window or new
+compiled artifact evidence has been added by this preparation.
+
+The browser plan uses a fresh owned profile, pinned observed Chrome 151 and exact
+loopback/CSP gates. Only Node/Chrome executables and selected Puppeteer files are
+hashed, not the entire transitive toolchain. Fence storage counters omit the
+pre-existing Auth-scope boot read before installation. Synthetic pagehide and
+diagnostic inactive state do not prove OS/BFCache handling or native revocation.
+The next native startup/protected-exchange plans remain unimplemented and must
+retain separate SDK/provider, physical, hosted and independent-assessment gates.
 
 The [9 October full App build evidence](../experiments/scuttlebutt-e2ee/review/full-app-build-2026-10-09.json)
 adds successful isolated compilation on `37aa3dec` plus the exact unavailable

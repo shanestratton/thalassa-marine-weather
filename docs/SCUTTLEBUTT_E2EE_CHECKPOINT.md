@@ -37,15 +37,17 @@ Dependency/licence review, completed physical-device acceptance and an
 independent security review still gate release. An off-by-default switch is not
 a substitute for those checks or a way around a bundled dependency's licence.
 
-## Unattended development while the owner is away
+## Autonomous development and conditional merge
 
 On 6 October, Shane authorized continued E2EE implementation without routine
-questions while away for a week. The heartbeat
-`advance-scuttlebutt-e2ee-while-shane-is-away` resumes this chat every four hours
-through 13 October 2026, Australia/Brisbane. Its prompt now names the integration
-branch above and the same isolated worktree. It must not switch back to or rewrite
-the published foundation branch. Use named-file commits and verified coherent pushes. Unchanged
-state does not justify repeating the same tests or status messages.
+questions while away for a week, initially through 13 October. On 9 October he
+renewed the instruction to work autonomously all the way to a justified merge.
+The existing heartbeat `advance-scuttlebutt-e2ee-while-shane-is-away` continues
+every four hours, Australia/Brisbane, without the 13 October expiry. It names
+the integration branch above and the same isolated worktree; it must not switch
+back to or rewrite the published foundation branch. Use named-file commits and
+verified coherent pushes. Unchanged state does not justify repeating the same
+tests or status messages.
 
 The order is controlled real-provider crash recovery, an explicit isolated-test
 private-message integration, fail-closed cutover, device/prekey lifecycle and
@@ -56,13 +58,20 @@ The integration branch has been rebased onto current master for this slice,
 preserving Claude's newer app fixes. Fetch and reconcile later master changes
 before an eventual merge; this branch update does not merge or push master.
 
-This permission does not authorize master merges/pushes, primary build/sync,
-production deployments, yacht or Shore Watch changes, human Research resets,
-paid resources, reviewer outreach or external source sharing. Internal checks
-cannot replace the independent assessment or justify a release-readiness claim.
-Technical work and the external review remain separate milestones. Work stops
-when Shane returns/asks to stop, the schedule expires, or only steps requiring
-new authority remain. The one-heavy-job shared-Mac rules above still apply.
+The renewed direction does not waive any readiness gate. Independent security
+assessment, dependency/licence obligations, current physical acceptance and
+production cutover evidence still precede a merge/release claim. The owner has
+authorized an eventual conditional master merge after verified gates, fetching
+and reconciling newer master, coordinating deployment and giving Shane a
+heads-up. A master push deploys the website, so that deployment consequence is
+part of the conditional merge decision; no current merge or push is justified.
+Separate production database activation, primary build/sync, yacht or Shore
+Watch changes, human Research resets, paid resources, reviewer outreach and
+external source sharing remain unapproved without their separate authority. Internal
+checks cannot replace the independent assessment. Work stops when Shane asks
+to stop or the remaining steps require new authority; returning or reaching
+13 October alone no longer ends the renewed instruction. The one-heavy-job
+shared-Mac rules above still apply.
 
 Local scheduled work requires the computer powered on and the desktop app
 running; it cannot continue from this checkout while the host is unavailable.
@@ -88,8 +97,10 @@ fixture principals in one disposable simulator. A dedicated Research entry now
 installs private legacy denial before loading the real Thalassa message page;
 an optional App/registry native-selection seam is now prepared. A separate
 full-App Research composition now has closed startup/authority leaves and an
-actual unsupported jsdom App/remount check. Its separate web bundle now compiles,
-but it has not run in an actual Window/native host. The ordinary
+actual unsupported jsdom App/remount check. Its preceding separate web bundle
+compiled; the latest Window instrumentation/driver is prepared but fresh
+mount/types/build/Chrome checks remain queued. It has not run in an actual
+Window/native host. The ordinary
 app/router still has no experimental startup admission. Production
 cutover is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
@@ -124,6 +135,49 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 9 October full Root Window proof preparation
+
+The new opt-in evidence module and owned Chrome driver are prepared for the
+actual full Root unsupported-browser path. Exact run/nonce parameters install
+an immutable fixed-fact getter and one-shot whole-root remount control; ordinary
+windows expose neither. The existing Research factory keeps one stable native
+wrapper/Auth dependency identity across remounts. Counters record successful
+runtime/SDK construction returns and Research-seam method invocations only;
+they never expose credentials, errors, native handles or transport functions.
+
+**136 targeted cases in four suites passed**: 18 fake-host/native-mock evidence
+cases, 58 pure receipt/request/evidence/CSP contracts, 39 graph cases and 21
+existing Research component fixtures. Named lint and formatting passed with no
+lint diagnostics. These overlap prior results and establish no actual Window,
+SDK login, native bridge or encryption execution. The fresh jsdom mount's
+bounded shared-Mac slot window expired behind healthy competing work. Mount,
+strict types, isolated instrumented build and Chrome proof are **queued-unrun**;
+later dependent jobs were not given another wait window. No current instrumented
+bundle or real Window success is claimed.
+
+The prepared driver requires a newly passed, hashed instrumented build, pinned
+cached Chrome 151, a fresh 0700 owned profile, exact loopback document/assets and
+strict response CSP. Its positive frame control permits one or two measured
+events from two enforcing policies, with no unexpected violations. Future
+synthetic pagehide/remount evidence is not OS/BFCache or native revocation.
+Diagnostic render counts are invocations, not React commits. Pre-existing Auth
+scope boot can read localStorage before fence installation; fence storage
+counts omit that read. The fresh owned profile is expected anonymous. Fixed
+diagnostics and page/CDP gates are not a malicious same-origin sandbox or whole
+browser-process networking/provenance audit.
+
+The [Window preparation manifest](../experiments/scuttlebutt-e2ee/review/full-app-window-2026-10-09.json)
+retains source/check/queued hashes and continuation inputs. Resume with a fresh
+artifact directory and unchanged source pins, then complete mount/types/build
+and owned Chrome proof without repeating passed suites. The next native plan is
+separate `full-app-native-startup` in a fresh WKWebView simulator: configurable
+synthetic fetch/CapacitorWebFetch and a simulator-only CapacitorHttp denial
+backstop registered before loading the entry/Root. That is planning only, followed
+by a separate protected-exchange proof. Native/physical/hosted acceptance,
+device/prekey/recovery/retention, licence/provenance and independent security
+assessment remain distinct gates. No master, primary, hosted/human or external
+reviewer change accompanies this preparation.
 
 ### 9 October isolated full App bundle
 
