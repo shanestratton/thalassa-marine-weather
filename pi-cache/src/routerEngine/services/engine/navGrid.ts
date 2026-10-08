@@ -86,7 +86,7 @@ function tideBarriersKey(barriers: readonly TideBarrier[]): string {
     return barriers
         .map(
             (b) =>
-                `${geometryBbox(b.geometry)
+                `${b.open ? 'open' : ''}${geometryBbox(b.geometry)
                     .map((v) => v.toFixed(6))
                     .join(',')}@${b.deepestM}r${b.rank ?? 'u'}`,
         )
@@ -2660,9 +2660,24 @@ export function buildNavGrid(
             rank !== null && depareRank[idx] !== RANK_UNCLAIMED && compareSurveyRanks(rank, depareRank[idx]) < 0;
         const tideAtCell = (idx: number) =>
             tideLookup.at(minLat + (Math.floor(idx / width) + 0.5) * dLat, minLon + ((idx % width) + 0.5) * dLon);
+        // The bands proved the only way through (TideBarrier.open; 125-05
+        // review fix-up, 2026-10-09): open wherever their claim is read —
+        // inside each, and in every cell its rings pass through. Everything
+        // else no tide clears stays closed, so the route through them takes
+        // the deep way round everywhere else.
+        let opened: Uint8Array | null = null;
+        for (const b of tideBarriers) {
+            if (!b.open) continue;
+            const open = (idx: number): void => {
+                if (!outSurveyed(b.rank, idx)) (opened ??= new Uint8Array(width * height))[idx] = 1;
+            };
+            rasterizePolygonCells(grid, b.geometry, (x, y) => open(y * width + x));
+            ringCells(b.geometry, open);
+        }
         let noTideClears: Uint8Array | null = null;
         let blockedCount = 0;
         let keptOpen = 0;
+        let openedCount = 0;
         if (provedCount > 0) {
             // A band a tide clears (or whose depth it does not bound) that
             // touches a proved cell keeps it open.
@@ -2680,6 +2695,7 @@ export function buildNavGrid(
             for (let idx = 0; idx < cells.length; idx++) {
                 if (proved[idx] !== 1) continue;
                 if (touchedClearable[idx] === 1) keptOpen++;
+                else if (opened?.[idx] === 1) openedCount++;
                 else (noTideClears ??= new Uint8Array(width * height))[idx] = 1;
             }
         }
@@ -2687,8 +2703,9 @@ export function buildNavGrid(
         // proved — inside them and every cell their rings pass through.
         let barrierCount = 0;
         for (const b of tideBarriers) {
+            if (b.open) continue;
             const close = (idx: number): void => {
-                if (Number.isNaN(cells[idx]) || noTideClears?.[idx] === 1) return;
+                if (Number.isNaN(cells[idx]) || noTideClears?.[idx] === 1 || opened?.[idx] === 1) return;
                 if (ntmRise !== undefined && !Number.isNaN(ntmRise[idx])) return;
                 if (outSurveyed(b.rank, idx)) return;
                 const tide = tideAtCell(idx);
@@ -2709,7 +2726,7 @@ export function buildNavGrid(
         }
         markPass('passNoTide', tPassTide, provedCount);
         engineLog.warn(
-            `[noTide] ${blockedCount} cell(s) blocked — no tide known here clears them for ${needM.toFixed(1)} m (${provedCount} proved, ${keptOpen} kept open by water a tide clears${tideBarriers.length > 0 ? `, ${barrierCount} closed by ${tideBarriers.length} crossed band(s)` : ''}; ${tideLookup.size} place(s) with a tide ceiling)`,
+            `[noTide] ${blockedCount} cell(s) blocked — no tide known here clears them for ${needM.toFixed(1)} m (${provedCount} proved, ${keptOpen} kept open by water a tide clears${openedCount > 0 ? `, ${openedCount} left open as the only way through` : ''}${tideBarriers.length > 0 ? `, ${barrierCount} closed by ${tideBarriers.filter((b) => !b.open).length} crossed band(s)` : ''}; ${tideLookup.size} place(s) with a tide ceiling)`,
         );
     }
 

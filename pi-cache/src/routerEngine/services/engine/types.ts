@@ -289,6 +289,15 @@ export interface TideBarrier {
     deepestM: number;
     /** Survey fineness (`_scaleRank`), or null when unranked. */
     rank: number | null;
+    /**
+     * INTERNAL (package 125-05 review fix-up, 2026-10-09): the band is
+     * OPENED, not closed — proved the only way through, its cells stay open
+     * wherever it is proved (inside it and every cell its rings pass
+     * through), while the rest of the water no tide clears stays closed. The
+     * route through it is the deep way round everywhere else
+     * (inshoreRouterEngine routeThroughOnlyUnavoidable).
+     */
+    open?: boolean;
 }
 
 /**
@@ -367,6 +376,16 @@ export interface RouteDebug {
      *  the 50 m geometry drew where a local fine way avoids it (a creek
      *  narrower than a cell), replaced by that way; their metres. */
     noTideSplicedM?: number[];
+    /** Package 125-05 (Shane, 2026-10-08: "better we just have red at the
+     *  "dry" zones"): the refusal for water no tide clears this route stands
+     *  in place of — its words, kept for the log. The route crosses that water,
+     *  red, and names it (RouteResult.dryRuns). Absent on any other route. */
+    noTideRefusal?: string;
+    /** Package 125-05: a pin's charted tail crosses dry water (a drying band,
+     *  or water no tide clears) and today's endpoints would have stopped the
+     *  route short of the pin, so the tail stands, red: why the tail was
+     *  dry. Absent otherwise. */
+    chartedEndDry?: string;
     /** Metres cut off an end whose pin is off the water (pinOffWater, round 3
      *  2026-09-30): the route stops at the edge of the drying bank or land
      *  instead of running on across it to the pin. */
@@ -792,6 +811,43 @@ export interface DepthBend {
     sooner?: boolean;
 }
 
+/**
+ * A stretch of a finished route over DRY water (package 125-05; Shane,
+ * 2026-10-08: "better we just have red at the "dry" zones, rather than just
+ * shit caning the whole route"): ground the finest chart charts DRYING
+ * (DRVAL1 < 0) that no tide known there lifts to draft + UKC — where no tide
+ * is known, any drying ground: red 'no tide data' — or water decision 11
+ * proves no tide clears (its deepest charted value plus the highest tide,
+ * RouteRequest.tideCeilings, short of the need). Never land. The router routes through it only where there is no deeper way round
+ * (owner decision 11 still closes it while one exists); the planner draws it
+ * red and names each stretch (services/routing/dryRunWords). Needs-tide water
+ * a tide clears is not dry: it is amber (owner decision 10).
+ */
+export interface DryRun {
+    /** Where along the route, as segment + fraction at each end. */
+    startSeg: number;
+    startT: number;
+    endSeg: number;
+    endT: number;
+    /** From its first dry sample to its last. */
+    lengthM: number;
+    /** Its middle by length, [lon, lat]. */
+    mid: [number, number];
+    /** Where it is, in words: its charted sea area's name, else its position
+     *  (engine/tideCeiling noTideRunPlace). */
+    place: string;
+    /** The shallowest DRVAL1 along it (null when a band there charts none). */
+    shallowestM: number | null;
+    /** The deepest DRVAL2 along it. */
+    deepestM: number;
+    /** The draft, and draft + UKC: what the boat needs over it. */
+    draftM: number;
+    needM: number;
+    /** The highest tide known there (the curve's own top) and the days behind
+     *  it — null where no tide is known: no tide data. */
+    tide: { topM: number; days: number } | null;
+}
+
 export interface RouteResult {
     polyline: [number, number][]; // [lon, lat], lon-first per GeoJSON convention
     /**
@@ -928,6 +984,9 @@ export interface RouteResult {
     pinTail?: { origin?: PinTail; destination?: PinTail };
     /** The route's biggest turn off the straight line for deeper water (DepthBend). */
     depthBend?: DepthBend;
+    /** The stretches over dry water (DryRun, package 125-05), in route order;
+     *  absent when there are none. */
+    dryRuns?: DryRun[];
     /**
      * The route's survey-quality stretches (owner decision 9, 2026-09-30;
      * SurveyRunInfo): amber for CATZOC D/U, a grade whose error eats the keel
@@ -964,17 +1023,32 @@ export interface RouteFailure {
         | 'hard-land-crossing'
         /** INTERNAL (decision 7, round 2): an attempt that ran a route to a pin
          * in charted-shallow water reached it through other water. The engine
-         * re-runs it with today's endpoints; routeInshore never returns it. */
+         * re-runs it with today's endpoints — or, where that water is only dry
+         * and today's endpoints stop short of the pin, keeps it red (package
+         * 125-05); routeInshore never returns it. */
         | 'charted-end-rejected'
         /** A fixed bridge with insufficient clearance for this vessel's air
          *  draft severs the only channel — the honest verdict is "no
          *  mast-safe route", never a cross-country workaround. */
         | 'air-draft-blocked'
-        /** Owner decision 11 (2026-10-01): the only way through crosses water
-         *  no tide the app knows clears for this boat. The error names the
-         *  spot, its charted depth, the highest tide and what the boat needs. */
+        /** INTERNAL since package 125-05 (Shane, 2026-10-08: "better we just
+         *  have red at the "dry" zones, rather than just shit caning the whole
+         *  route"). Owner decision 11 (2026-10-01): the only way through
+         *  crosses water no tide the app knows clears for this boat — the
+         *  engine's retry still looks for the deep way round on it, but
+         *  routeInshore returns the route through that water (`through`, or
+         *  the route through only what has no way round, built from today's),
+         *  red and named (RouteResult.dryRuns), never this. */
         | 'no-tide-clears';
     debug?: RouteDebug;
+    /** INTERNAL (package 125-05): the finished route a 'no-tide-clears' or a
+     *  dry 'charted-end-rejected' attempt stands in for. Never returned. */
+    through?: RouteResult;
+    /** INTERNAL (125-05 review fix-up, 2026-10-09): `through` is today's
+     *  route — built with no tide ceilings, across every drying shortcut — so
+     *  routeInshore builds the route through only what has no way round
+     *  instead (routeThroughOnlyUnavoidable). Never returned. */
+    throughToday?: boolean;
 }
 
 // ── Geometry helpers ────────────────────────────────────────────────
