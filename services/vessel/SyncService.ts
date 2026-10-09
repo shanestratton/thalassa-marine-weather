@@ -89,6 +89,9 @@ export type SyncStatus = 'idle' | 'syncing' | 'error' | 'offline';
 // ── Supabase table config ──────────────────────────────────────
 
 const SYNCABLE_TABLES = [
+    // Before the items that point at them (126-11a), so a pull brings a box
+    // in ahead of the items it holds.
+    'stores_boxes',
     'inventory_items',
     'maintenance_tasks',
     'maintenance_history',
@@ -107,14 +110,15 @@ const SYNCABLE_TABLES = [
 /**
  * Tables the server may not have yet: an app build can reach a device before
  * the migration that creates the table is pushed (vessel_engine_hours,
- * 20261002190000). Until the server has one (PostgREST answers PGRST205),
+ * 20261002190000; stores_boxes, 20261010153000). Until the server has one (PostgREST answers PGRST205),
  * its pull and sweep are skipped quietly: no error, no held watermark for the other tables, no prune, no
  * collapse guard. A device reads such a table in full the first time it finds
  * it, records that in SyncMeta.optionalTablesReadAt, and only then writes to
- * it (LocalEngineHoursService), so the outbox never holds a change the server
- * cannot take.
+ * it (LocalEngineHoursService, StoresBoxService), so the outbox never holds a change the server
+ * cannot take. The same migration adds inventory_items.box_id, so finding
+ * stores_boxes also proves an item may carry it.
  */
-const OPTIONAL_TABLES: ReadonlySet<string> = new Set(['vessel_engine_hours']);
+const OPTIONAL_TABLES: ReadonlySet<string> = new Set(['vessel_engine_hours', 'stores_boxes']);
 const EPOCH = '1970-01-01T00:00:00Z';
 const PULL_PAGE_SIZE = 500;
 const PULL_REPLAY_OVERLAP_MS = 5 * 60 * 1000;

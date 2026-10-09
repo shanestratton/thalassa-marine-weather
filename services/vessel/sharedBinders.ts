@@ -59,6 +59,8 @@ export const BINDER_REGISTERS: readonly BinderRegister[] = [
 /** Every synced binder table and the register whose share governs it. */
 export const TABLE_REGISTER: Readonly<Record<string, BinderRegister>> = Object.freeze({
     inventory_items: 'stores',
+    // The boxes in Ship's Stores travel with it (126-11a).
+    stores_boxes: 'stores',
     equipment_register: 'equipment',
     maintenance_tasks: 'maintenance',
     maintenance_history: 'maintenance',

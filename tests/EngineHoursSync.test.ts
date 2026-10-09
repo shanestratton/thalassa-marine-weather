@@ -193,6 +193,11 @@ beforeEach(async () => {
     h.state.serverRows.clear();
     h.state.serverIds.clear();
     h.state.missing.clear();
+    // A server from before 126-11a: no stores_boxes either (StoresBoxesSync.test.ts covers it).
+    h.state.missing.set('stores_boxes', {
+        code: 'PGRST205',
+        message: "Could not find the table 'public.stores_boxes' in the schema cache",
+    });
     h.state.pullSince = [];
     h.state.writeGranted = () => true;
     h.idListings.length = 0;

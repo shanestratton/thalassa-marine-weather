@@ -476,6 +476,25 @@ describe('ShoppingListService', () => {
             expect(getShoppingList()).toMatchObject({ total: 2, remaining: 2 });
         });
 
+        it('atLeast (Stores restock, 126-11a) tops the unbought line up to the quantity, never stacks on it', async () => {
+            // A raw-water impeller at minimum 2: 3 → 2 wants 1 on the list.
+            const first = await addManualItem({ name: 'Raw-water impeller', qty: 1, unit: 'whole', atLeast: true });
+            expect(first).toMatchObject({ required_qty: 1, purchased: false });
+            // Back up to 3 and down to 2 again: the line already holds 1, so nothing.
+            expect(
+                await addManualItem({ name: 'Raw-water impeller', qty: 1, unit: 'whole', atLeast: true }),
+            ).toBeNull();
+            // The last one taken wants 3 in all: the line goes to 3, not 4.
+            const topped = await addManualItem({ name: 'raw-water impeller', qty: 3, unit: 'whole', atLeast: true });
+            expect(topped).toMatchObject({ id: first!.id, required_qty: 3 });
+            expect(store.get('shopping_list')?.get(first!.id)).toMatchObject({ required_qty: 3 });
+            // A plain add still adds on.
+            expect(await addManualItem({ name: 'Raw-water impeller', qty: 1, unit: 'whole' })).toMatchObject({
+                required_qty: 4,
+            });
+            expect(getShoppingList()).toMatchObject({ total: 1 });
+        });
+
         it('rejects invalid manual quantities and purchase costs at the service boundary', async () => {
             await expect(addManualItem({ name: 'Rice', qty: -1, unit: 'kg' })).rejects.toThrow(/quantity/i);
 

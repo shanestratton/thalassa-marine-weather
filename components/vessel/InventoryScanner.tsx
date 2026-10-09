@@ -10,7 +10,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('InventoryScanner');
-import type { InventoryItem, InventoryCategory } from '../../types';
+import type { InventoryItem, InventoryCategory, StoresBox } from '../../types';
 import { LocalInventoryService as InventoryService } from '../../services/vessel/LocalInventoryService';
 import { triggerHaptic } from '../../utils/system';
 import { Capacitor } from '@capacitor/core';
@@ -26,6 +26,8 @@ interface InventoryScannerProps {
     onClose: () => void;
     onItemSaved: () => void; // Refresh parent list
     startInManualMode?: boolean; // Skip camera and go straight to add form
+    /** "New item here" on a box page (126-11a): born in this box, at its place. */
+    box?: StoresBox;
 }
 
 import { StoresCategoryGrid } from './inventory/StoresCategoryGrid';
@@ -35,6 +37,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
     onClose,
     onItemSaved,
     startInManualMode = false,
+    box,
 }) => {
     // ── Scanner state ──
     const [scanning, setScanning] = useState(!startInManualMode);
@@ -65,8 +68,8 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
         quantity: 1,
         min_quantity: 0,
         unit: 'whole',
-        location_zone: '',
-        location_specific: '',
+        location_zone: box?.location_zone ?? '',
+        location_specific: box?.name ?? '',
         description: '',
         expiry_date: '',
     });
@@ -371,6 +374,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
         try {
             await InventoryService.create({
                 ...newItem,
+                ...(box && { box_id: box.id }),
                 barcode: newItem.barcode || null,
                 location_zone: newItem.location_zone || null,
                 location_specific: newItem.location_specific || null,
@@ -410,7 +414,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
     // ── Manual mode: Add Item form via ModalSheet (keyboard-aware) ──
     if (startInManualMode && sheetMode === 'new') {
         return (
-            <ModalSheet isOpen={true} onClose={onClose} title="Add item" zIndex="z-2000">
+            <ModalSheet isOpen={true} onClose={onClose} title={box ? `Add to ${box.name}` : 'Add item'} zIndex="z-2000">
                 <div className="space-y-2">
                     {/* Category — first */}
                     <div>
@@ -445,7 +449,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 aria-label="Scan barcode"
                                 type="button"
                                 onClick={openInlineScanner}
-                                className="flex-1 flex items-center justify-center gap-1.5 bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 text-xs font-bold hover:bg-sky-600/30 transition-colors active:scale-95"
+                                className="flex-1 min-h-11 flex items-center justify-center gap-1.5 bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 text-xs font-bold hover:bg-sky-600/30 transition-colors active:scale-95"
                             >
                                 <svg
                                     className="w-4 h-4"

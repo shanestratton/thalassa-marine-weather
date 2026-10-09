@@ -860,11 +860,7 @@ export function markPurchased(
     }).then(() => outcome);
 }
 
-/**
- * Manually add an item to the shopping list (non-recipe items like soap, parts, etc.)
- * If an unpurchased item with the same name already exists, updates its quantity.
- */
-export async function addManualItem(opts: {
+interface ManualItemOptions {
     name: string;
     qty: number;
     unit: string;
@@ -874,7 +870,20 @@ export async function addManualItem(opts: {
     voyageId?: string | null;
     /** Authoritative captain/vessel owner for a shared voyage. */
     ownerUserId?: string | null;
-}): Promise<ShoppingItem> {
+}
+
+/**
+ * Manually add an item to the shopping list (non-recipe items like soap, parts, etc.)
+ * If an unpurchased item with the same name already exists, updates its quantity.
+ *
+ * `atLeast` (Stores restock, 126-11a): the unbought line ends up holding at
+ * least `qty`, so only the shortfall is added, and a minimum crossed again
+ * never stacks more on the list. Resolves null when the line already holds
+ * that many (nothing written).
+ */
+export async function addManualItem(opts: ManualItemOptions & { atLeast: true }): Promise<ShoppingItem | null>;
+export async function addManualItem(opts: ManualItemOptions): Promise<ShoppingItem>;
+export async function addManualItem(opts: ManualItemOptions & { atLeast?: boolean }): Promise<ShoppingItem | null> {
     const name = opts.name.trim();
     if (!name) throw new RangeError('A shopping item name is required.');
     if (!Number.isFinite(opts.qty) || opts.qty <= 0) {
@@ -908,8 +917,10 @@ export async function addManualItem(opts: {
     );
 
     if (existing.length > 0) {
+        if (opts.atLeast && existing[0].required_qty >= opts.qty) return null;
         // Update quantity on existing item
-        const updated = { ...existing[0], required_qty: existing[0].required_qty + opts.qty, updated_at: now };
+        const required_qty = opts.atLeast ? opts.qty : existing[0].required_qty + opts.qty;
+        const updated = { ...existing[0], required_qty, updated_at: now };
         await updateLocal<ShoppingItem>(TABLE, existing[0].id, {
             required_qty: updated.required_qty,
             updated_at: now,
