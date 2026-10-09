@@ -358,6 +358,22 @@ function closeInFor(map: mapboxgl.Map, grid: WindGrid | undefined, wasCloseIn: b
     }
 }
 
+/**
+ * The chart is not laid out: another page hides it (display:none) or split
+ * view folds it to 0x0, while MapHub and this overlay stay mounted. A 0x0
+ * container answers nothing about the view, so nothing is decided from it
+ * (Shane 2026-10-09: her z14 wind gone after other pages, the model in its
+ * place). A map that cannot be asked counts as measured, as before.
+ */
+function chartUnmeasured(map: mapboxgl.Map): boolean {
+    try {
+        const container = map.getContainer();
+        return !(container.clientWidth > 0 && container.clientHeight > 0);
+    } catch {
+        return false;
+    }
+}
+
 function prefersReducedMotion(): boolean {
     try {
         return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
@@ -451,6 +467,29 @@ function modelWindAtCentre(map: mapboxgl.Map, grid: WindGrid | null | undefined,
     }
 }
 
+/** Where she and the camera were when "is she on screen" was last measured. */
+interface SeenAt {
+    lat: number;
+    lon: number;
+    centre: { lat: number; lng: number };
+    zoom: number;
+}
+
+/** About 20 m: GPS jitter at a berth, a few pixels at z14. Any real move waits for a measurement. */
+const SEEN_AT_SLACK_DEG = 0.0002;
+
+/** She is where she was, under the same camera (a resize keeps centre and zoom); another boat followed is elsewhere. */
+function sameSeenAt(a: SeenAt, b: SeenAt): boolean {
+    const near = (x: number, y: number) => Math.abs(x - y) <= SEEN_AT_SLACK_DEG;
+    return (
+        near(a.lat, b.lat) &&
+        near(a.lon, b.lon) &&
+        near(a.centre.lat, b.centre.lat) &&
+        near(a.centre.lng, b.centre.lng) &&
+        Math.abs(a.zoom - b.zoom) < 1e-6
+    );
+}
+
 function onScreen(map: mapboxgl.Map, lat: number, lon: number): boolean {
     try {
         const container = map.getContainer();
@@ -500,6 +539,14 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     windNowIdxRef.current = windNowIdx;
     boatInstrumentsRef.current = boatInstruments;
 
+    // The zoom gate's own memory (boatWindZoomFor's hysteresis), kept apart
+    // from the source shown: a scrub away and back, a feed gap, her leaving
+    // the screen or a mode flip the camera did not cause (a model switch)
+    // must not cost her the slack while the camera sits still. Judged only
+    // for a settled camera, here and in refreshCloseIn; mid-flight it holds
+    // its last answer. Forgotten only when the camera goes unwatched.
+    const boatZoomRef = useRef(false);
+
     // The OBS wind read is directional at every supported zoom. Wait for the
     // camera to settle before mounting/unmounting the second map so a z3
     // transition cannot fight Mapbox's zoom animation. The same settle decides
@@ -508,21 +555,42 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         if (!mapboxMap || !visible || !particlesEnabled) {
             setParticleZoomSupported(false);
             setCloseIn(false);
+            // Nothing watches the camera now (wind off, MOB): a slack it
+            // earned before cannot speak for wherever it settles meanwhile.
+            boatZoomRef.current = false;
             return;
         }
 
         const updateParticleZoomSupport = () => {
             setParticleZoomSupported(mapboxMap.getZoom() >= MIN_PARTICLE_ZOOM);
-            setCloseIn((was) => closeInFor(mapboxMap, windGridPropRef.current, was));
+            // A hidden chart holds the mode it had: off would hand her z14
+            // field to the model, and nothing on the way back would undo it.
+            setCloseIn((was) =>
+                chartUnmeasured(mapboxMap) ? was : closeInFor(mapboxMap, windGridPropRef.current, was),
+            );
+        };
+        // The zoom has settled, even with a pan's inertia still running (a
+        // flick out): the gate's memory follows it in or out of close-in.
+        const zoomSettled = () => {
+            try {
+                boatZoomRef.current = boatWindZoomFor(boatZoomRef.current, mapboxMap.getZoom());
+            } catch {
+                boatZoomRef.current = false;
+            }
+            updateParticleZoomSupport();
         };
 
         updateParticleZoomSupport();
         // Wait for the camera to settle before starting/stopping the second
         // map. That keeps an animation-layer transition out of Mapbox's zoom
         // animation.
-        mapboxMap.on('zoomend', updateParticleZoomSupport);
+        mapboxMap.on('zoomend', zoomSettled);
+        // The chart shown again (or resized): its resize fires a moveend,
+        // never a zoomend, so the mode is decided here from the real size.
+        mapboxMap.on('resize', updateParticleZoomSupport);
         return () => {
-            mapboxMap.off('zoomend', updateParticleZoomSupport);
+            mapboxMap.off('zoomend', zoomSettled);
+            mapboxMap.off('resize', updateParticleZoomSupport);
         };
         // windGrid: close-in needs a grid, so a cleared or arriving grid
         // re-decides. The threshold itself is the camera's alone, so a grid
@@ -573,11 +641,13 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     // hand-over means a model switch, and the old model's wind must not linger.
     const sampledGridRef = useRef<WindGrid | undefined>(undefined);
     const closeInSourceRef = useRef<CloseInWindSource | null>(null);
-    // The zoom gate's own memory (boatWindZoomFor's hysteresis), kept apart
-    // from the source shown: a scrub away and back, a feed gap or her leaving
-    // the screen must not cost her the slack while the camera sits still.
-    // Judged only for a settled camera; mid-flight it holds its last answer.
-    const boatZoomRef = useRef(false);
+    // "Is she on screen?" as last measured, with where she and the camera were.
+    // A hidden chart measures 0x0, which is no answer, so its 2 s re-checks
+    // keep this one: her wind does not go to the model for a screen nobody is
+    // looking at, and still goes the moment it ages or is lost. Only for the
+    // same spot under the same camera: another boat followed, or her moving or
+    // the camera moving while hidden, is not on screen until measured.
+    const boatInViewRef = useRef<(SeenAt & { inView: boolean }) | null>(null);
 
     // ── Her wind on her icon (W1-WC) ──────────────────────────────
     // Wherever the field is not showing her wind (below 14 in close-in, in the
@@ -625,9 +695,19 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         }
         if (!moving) boatZoomRef.current = boatWindZoomFor(boatZoomRef.current, zoom);
         const scrubAtNow = isWindScrubAtNow(windHourRef.current, windNowIdxRef.current);
+        const seenAt: SeenAt | null = position
+            ? { lat: position.lat, lon: position.lon, centre: { lat: centre.lat, lng: centre.lng }, zoom }
+            : null;
+        let boatInView = false;
+        if (!chartUnmeasured(mapboxMap)) {
+            boatInView = !!position && onScreen(mapboxMap, position.lat, position.lon);
+            boatInViewRef.current = seenAt ? { ...seenAt, inView: boatInView } : null;
+        } else if (seenAt && boatInViewRef.current && sameSeenAt(boatInViewRef.current, seenAt)) {
+            boatInView = boatInViewRef.current.inView;
+        }
         const wind = resolveCloseInWind({
             boat,
-            boatInView: !!position && onScreen(mapboxMap, position.lat, position.lon),
+            boatInView,
             // Her wind paints the field only in at the boat view's zoom (14);
             // further out the model takes over (Shane 2026-10-07).
             boatZoom: boatZoomRef.current,
@@ -698,7 +778,10 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             clearInterval(recheck);
             const heldHers = closeInSourceRef.current === 'boat';
             closeInSourceRef.current = null;
-            boatZoomRef.current = false;
+            // boatZoomRef stays: a zoom-out has already judged it at its
+            // zoomend, and any other way out (a model switch) left the camera
+            // where it was, slack and all.
+            boatInViewRef.current = null;
             setCloseInWindReadout(null);
             const forget = () => {
                 if (closeInLayerRef.current === owned) closeInLayerRef.current = null;
