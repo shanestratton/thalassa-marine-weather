@@ -227,12 +227,26 @@ export interface StoresItem {
     location_zone: string | null;
     location_specific: string | null;
     expiry_date: string | null;
+    /** The StoresBox it is in (126-11a). A soft link: an unknown id is "not in a box". */
+    box_id?: string | null;
     created_at: string;
     updated_at: string;
 }
 
 /** @deprecated Use StoresItem */
 export type InventoryItem = StoresItem;
+
+/** A named box in a locker (126-11a, stores_boxes). Its id is what an NFC tag carries. */
+export interface StoresBox {
+    id: string;
+    /** The Stores owner (the skipper's id for crew on a shared Stores). */
+    user_id: string;
+    name: string;
+    location_zone: string | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+}
 
 export type MaintenanceCategory = 'Engine' | 'Safety' | 'Hull' | 'Rigging' | 'Routine' | 'Repair';
 export type MaintenanceTriggerType = 'engine_hours' | 'daily' | 'quarterly' | 'monthly' | 'bi_annual' | 'annual';

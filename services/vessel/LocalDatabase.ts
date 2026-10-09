@@ -143,6 +143,8 @@ const TABLE_FILES: Record<string, string> = {
     crew_profiles: 'vessel_crew_profiles.json',
     // One engine-hours reading per skipper (LocalEngineHoursService).
     vessel_engine_hours: 'vessel_engine_hours.json',
+    // Named boxes in Ship's Stores (StoresBoxService, 126-11a).
+    stores_boxes: 'vessel_stores_boxes.json',
 };
 
 const LEGACY_SYNC_QUEUE_FILE = 'vessel_sync_queue.json';

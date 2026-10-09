@@ -8,7 +8,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('InventoryList');
-import type { InventoryItem, InventoryCategory } from '../../types';
+import type { InventoryItem, InventoryCategory, StoresBox } from '../../types';
 import { INVENTORY_CATEGORIES as CATEGORIES } from '../../types';
 import { storesCategoryIcon } from './inventory/categoryIcons';
 import { StoresCategoryGrid } from './inventory/StoresCategoryGrid';
@@ -46,6 +46,10 @@ import {
 } from '../../services/authIdentityScope';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { initLocalDatabase } from '../../services/vessel/LocalDatabase';
+import { StoresBoxService, serverHasBoxes } from '../../services/vessel/StoresBoxService';
+import { addRestock, restockFor } from '../../services/vessel/storesRestock';
+import { StoresBoxes, type BoxView } from './inventory/BoxesSheet';
+import { registerBoxOpener } from './inventory/openBox';
 
 interface InventoryListProps {
     onBack: () => void;
@@ -54,6 +58,8 @@ interface InventoryListProps {
 interface ScopedInventoryData {
     identity: AuthIdentityScope;
     items: InventoryItem[];
+    /** Its boxes (126-11a): none until the server has stores_boxes. */
+    boxes: StoresBox[];
     /** False until this account's first load lands: the header says 'Loading…'. */
     loaded: boolean;
 }
@@ -64,6 +70,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [inventoryData, setInventoryData] = useState<ScopedInventoryData>(() => ({
         identity: getAuthIdentityScope(),
         items: [],
+        boxes: [],
         loaded: false,
     }));
     const inventoryDataIsCurrent = isAuthIdentityScopeCurrent(inventoryData.identity);
@@ -137,7 +144,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             setLoadError(false);
             const data = await InventoryService.getAll();
             if (!isCurrentRequest()) return;
-            setInventoryData({ identity, items: data, loaded: true });
+            setInventoryData({ identity, items: data, boxes: StoresBoxService.list(), loaded: true });
         } catch (e) {
             log.warn(' load failed:', e);
             if (isCurrentRequest()) {
@@ -170,6 +177,18 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     });
     const sharedBinder = binder.mode === 'shared';
     const viewOnly = binder.mode === 'shared' && !binder.canWrite;
+
+    // Boxes (126-11a): written only once this phone has read stores_boxes from
+    // the server, and opened by id through openBox() (126-11b's tag link).
+    const boxesLive = inventoryDataIsCurrent && serverHasBoxes(inventoryData.identity);
+    const boxes = boxesLive ? inventoryData.boxes : [];
+    const [boxView, setBoxView] = useState<BoxView>(null);
+    /** "New item here": the Add form opens in this box. */
+    const [scanBox, setScanBox] = useState<string | null>(null);
+    useEffect(() => registerBoxOpener((id) => setBoxView({ id })), []);
+    // Its own channel: before the push the table is not published, and a
+    // binding the server refuses must not take the items' channel with it.
+    useRealtimeSync('stores_boxes', reloadInBackground, boxesLive);
 
     const { ref: listRef, flash } = useSuccessFlash();
 
@@ -271,6 +290,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [editDescription, setEditDescription] = useState('');
     const [editExpiry, setEditExpiry] = useState('');
     const [editBarcode, setEditBarcode] = useState('');
+    const [editBoxId, setEditBoxId] = useState('');
     // One Save at a time: a count edit is a delta, so a second tap while the
     // first is still writing would take the count twice.
     const savingEditRef = useRef(false);
@@ -279,7 +299,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     useEffect(
         () =>
             subscribeAuthIdentityScope((next) => {
-                setInventoryData({ identity: next, items: [], loaded: false });
+                setInventoryData({ identity: next, items: [], boxes: [], loaded: false });
+                setBoxView(null);
+                setScanBox(null);
+                setEditBoxId('');
                 setLoading(true);
                 setSearchQuery('');
                 setShowScanner(false);
@@ -315,6 +338,28 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         setEditDescription(item.description || '');
         setEditExpiry(item.expiry_date || '');
         setEditBarcode(item.barcode || '');
+        setEditBoxId(boxOf(item));
+    };
+
+    /** The item's box, if this phone knows it ('' otherwise: "not in a box"). */
+    const boxOf = (item: InventoryItem) => (boxes.some((box) => box.id === item.box_id) ? item.box_id! : '');
+    /**
+     * Zone or Specific typed by hand takes the item out of its box (the Box
+     * field below says "Not in a box"): an item in a box is at the box's
+     * place, and the box's next rename would write over the typed text.
+     */
+    const place = (set: (value: string) => void) => (value: string) => {
+        set(value);
+        setEditBoxId('');
+    };
+    /** A box picked in the Edit sheet: its zone and name become the item's place, for older builds. */
+    const pickBox = (id: string) => {
+        setEditBoxId(id);
+        const box = boxes.find((candidate) => candidate.id === id);
+        if (box) {
+            setEditZone(box.location_zone ?? '');
+            setEditSpecific(box.name);
+        }
     };
 
     const handleSaveEdit = async () => {
@@ -337,6 +382,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             description: editDescription || null,
             expiry_date: editExpiry || null,
         });
+        if (editBoxId !== boxOf(item)) updates.box_id = editBoxId || null;
         const changed = Object.keys(updates).length > 0;
         if (!delta && !changed) {
             setEditItem(null);
@@ -387,16 +433,30 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     };
 
     // ── Quick quantity adjustment ──
-    const handleQuantityAdjust = async (
-        id: string,
-        delta: number,
-        identity: AuthIdentityScope = getAuthIdentityScope(),
-    ) => {
+    // One at a time, so each − reads the count the last one left: a quick
+    // double tap on the last spare puts it on the shopping list once.
+    const adjustQueueRef = useRef<Promise<void>>(Promise.resolve());
+    const handleQuantityAdjust = (id: string, delta: number, identity: AuthIdentityScope = getAuthIdentityScope()) => {
         if (!isAuthIdentityScopeCurrent(identity)) return;
         triggerHaptic('light');
+        adjustQueueRef.current = adjustQueueRef.current.then(() => adjustQuantityNow(id, delta, identity));
+    };
+    const adjustQuantityNow = async (id: string, delta: number, identity: AuthIdentityScope) => {
+        if (!isAuthIdentityScopeCurrent(identity)) return;
         try {
+            // Low stock goes on the shopping list (126-11a): own Stores only.
+            const before = delta < 0 ? InventoryService.getItem(id) : null;
             const updated = await InventoryService.adjustQuantity(id, delta);
             if (!isAuthIdentityScopeCurrent(identity)) return;
+            const restock = before && updated ? restockFor(before, updated) : null;
+            if (updated && restock) {
+                void addRestock(updated, restock)
+                    .then((line) => line && isAuthIdentityScopeCurrent(identity) && toast.success(line))
+                    .catch((e) => {
+                        log.warn(' restock failed:', e);
+                        toast.error("Couldn't add it to the shopping list");
+                    });
+            }
             if (updated) {
                 setInventoryData((previous) =>
                     previous.identity.key === identity.key && previous.identity.generation === identity.generation
@@ -418,12 +478,15 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         return (
             <InventoryScanner
                 onClose={() => {
-                    if (isAuthIdentityScopeCurrent(scannerIdentity)) setShowScanner(false);
+                    if (!isAuthIdentityScopeCurrent(scannerIdentity)) return;
+                    setShowScanner(false);
+                    setScanBox(null);
                 }}
                 onItemSaved={() => {
                     void loadItems(scannerIdentity);
                 }}
                 startInManualMode
+                box={boxes.find((box) => box.id === scanBox)}
             />
         );
     }
@@ -538,17 +601,28 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 />
 
                 {/* ── Search ── only once there is something to search: a live
-                    field over an empty list offered nothing (UX scorecard run 7). */}
-                {(items.length > 0 || searchQuery) && (
-                    <div className="shrink-0 px-4 pb-3">
-                        <input
-                            type="text"
-                            aria-label="Search stores"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Search by name or location…"
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
-                        />
+                    field over an empty list offered nothing (UX scorecard run 7).
+                    Boxes as soon as the page has loaded, so boxes can be set up
+                    before anything is in Stores (126-11a). */}
+                {inventoryDataIsCurrent && inventoryData.loaded && (
+                    <div className="shrink-0 px-4 pb-3 flex justify-end gap-2">
+                        {(items.length > 0 || searchQuery) && (
+                            <input
+                                type="text"
+                                aria-label="Search stores"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="Search by name or location…"
+                                className="min-w-0 flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
+                            />
+                        )}
+                        {/* Boxes in a locker (126-11a): see what is in each. */}
+                        <button
+                            onClick={() => setBoxView({ id: null })}
+                            className="shrink-0 min-h-[44px] px-3 rounded-xl bg-white/5 border border-white/10 text-sm font-bold text-gray-300"
+                        >
+                            Boxes
+                        </button>
                     </div>
                 )}
 
@@ -791,14 +865,40 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
                         {/* Location */}
                         <div className="grid grid-cols-2 gap-2">
-                            <FormField label="Zone" value={editZone} onChange={setEditZone} placeholder="Engine room" />
+                            <FormField
+                                label="Zone"
+                                value={editZone}
+                                onChange={place(setEditZone)}
+                                placeholder="Engine room"
+                            />
                             <FormField
                                 label="Specific"
                                 value={editSpecific}
-                                onChange={setEditSpecific}
+                                onChange={place(setEditSpecific)}
                                 placeholder="Port locker"
                             />
                         </div>
+
+                        {/* Box (126-11a): putting it in one writes the box's zone and name above. */}
+                        {boxes.length > 0 && (
+                            <label className="block">
+                                <span className="ui-field-label text-label font-bold text-gray-300 uppercase tracking-widest">
+                                    Box
+                                </span>
+                                <select
+                                    value={editBoxId}
+                                    onChange={(e) => pickBox(e.target.value)}
+                                    className="w-full min-h-[44px] mt-0.5 bg-white/5 border border-white/10 rounded-xl px-3 text-sm text-white"
+                                >
+                                    <option value="">Not in a box</option>
+                                    {boxes.map((box) => (
+                                        <option key={box.id} value={box.id}>
+                                            {box.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        )}
 
                         {/* Notes */}
                         <FormField
@@ -828,6 +928,25 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             )}
 
             <UndoToast key={undoToastKey} {...undoToastProps} />
+
+            {/* Boxes (126-11a): one sheet at a time; a new box view starts fresh. */}
+            <StoresBoxes
+                key={boxView ? (boxView.id ?? '') : '-'}
+                view={inventoryDataIsCurrent ? boxView : null}
+                setView={setBoxView}
+                items={items}
+                boxes={boxes}
+                live={boxesLive}
+                editable={!viewOnly}
+                canDelete={!sharedBinder}
+                onAdjust={viewOnly ? undefined : (id, delta) => handleQuantityAdjust(id, delta, inventoryData.identity)}
+                onNewItem={(box) => {
+                    undoDelete.commitNow();
+                    setScanBox(box.id);
+                    setShowScanner(true);
+                }}
+                reload={() => loadItems(getAuthIdentityScope(), true)}
+            />
 
             {/* ═══ EXPORT CATEGORY PICKER ═══ */}
             {showExportPicker && (

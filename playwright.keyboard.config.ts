@@ -129,6 +129,10 @@ export default defineConfig({
         // pane in wide fonts, dark, daylight and night, above the tab bar
         // (e2e/fixtures/documents.tsx).
         'documents-layout.spec.ts',
+        // Boxes in Ship's Stores (126-11a): the Boxes list and the box page fit 320 × 568
+        // to the iPad split in wide fonts, centred above the tab bar, scrolling inside
+        // themselves; the New box name stays above the keyboard (e2e/fixtures/stores-boxes.tsx).
+        'stores-boxes-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
