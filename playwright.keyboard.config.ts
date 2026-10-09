@@ -84,6 +84,10 @@ export default defineConfig({
         // 320 × 568 in wide fonts, clear of the tab bar (e2e/fixtures/collision-alarm.tsx),
         // and Preferences → Collision alarm fits under the real header.
         'collision-alarm-layout.spec.ts',
+        // The under-way alarms (build 126, 126-02a): shoal and off-route cards under a
+        // collision card fit 320 × 568 in wide fonts, clear of the tab bar
+        // (e2e/fixtures/underway-alarm.tsx), and Preferences → Under-way alarms fits.
+        'underway-alarm-layout.spec.ts',
         // Distress beacons (build 125, 125-02): their cards and Go to it fit 320 × 568
         // in wide fonts, clear of the tab bar, and the IEC 62288 circle-and-cross is
         // drawn and placed by the real engines (e2e/fixtures/distress-beacon.tsx).

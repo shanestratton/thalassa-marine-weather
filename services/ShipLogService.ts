@@ -31,7 +31,7 @@ import { calculateDistance } from '../utils/navigationCalculations';
 
 // --- Extracted modules ---
 import { savePassagePlanToLogbook as _savePassagePlanToLogbook } from './shiplog/PassagePlanSave';
-import { getPlottingProfile, type PlottingProfile } from './shiplog/helpers';
+import { getPlottingProfile, type LoggingZone, type PlottingProfile } from './shiplog/helpers';
 import { GpsTrackBuffer } from './shiplog/GpsTrackBuffer';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import { departureCaptureState } from './shiplog/voyageLifecycle';
@@ -2692,6 +2692,19 @@ class ShipLogServiceClass {
      */
     getTrackingStatus(): TrackingState {
         return { ...this.trackingState };
+    }
+
+    /**
+     * The shore zone, only where it rests on evidence (the under-way off-route
+     * limit, 126-02a): null unless a voyage track records and the resolver's
+     * last answer had real ocean + coastline agreement. The logging profile's
+     * own 'nearshore' is also its offline / unresolved fallback, so it proves
+     * nothing about the coast.
+     */
+    getEvidencedShoreZone(): LoggingZone | null {
+        if (!this.trackingState.isTracking || this.trackingState.isPaused) return null;
+        const last = this.shoreZoneResolver.getLastResolution();
+        return last?.confirmed ? last.zone : null;
     }
 
     /** UI observers must not treat a pending start's optimistic state as a verified recording. */

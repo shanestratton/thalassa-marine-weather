@@ -18,6 +18,11 @@
  */
 import type { NmeaDepthReference } from '../../types/navigation';
 import { shoalRate, type DepthTrackPoint } from '../../services/sailing/sereneSailing';
+import { keelOffsetFor } from '../../utils/keelDepth';
+
+// The one depth rule (utils/keelDepth.ts), shared with the under-way shoal
+// alarm (build 126, 126-02a) so the two can never disagree. Same name here.
+export { keelOffsetFor };
 
 /** The trend's memory: 15 minutes of trace (shoalRate reads the last 6). */
 export const DEPTH_TRACK_WINDOW_S = 900;
@@ -29,19 +34,6 @@ export interface DepthTrack {
 }
 
 export const newDepthTrack = (): DepthTrack => ({ reference: null, points: [] });
-
-/**
- * The offset shoalRate adds to a depth to reach the keel.
- *   • below the keel: 0 — the sounder already says what is under her;
- *   • anything else (below the waterline, below the transducer, or a feed
- *     that does not say): minus the draft. For a transducer below the
- *     waterline that takes off a little more than it needs to, which errs
- *     the safe way and needs no figure a skipper would have to measure.
- */
-export function keelOffsetFor(reference: NmeaDepthReference | null | undefined, draftM: number): number {
-    if (reference === 'below-keel') return 0;
-    return -Math.max(0, draftM);
-}
 
 /** Add a live reading, restarting the trace if its reference differs, and
  * forget anything older than the window. Mutates `track`. */

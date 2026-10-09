@@ -38,6 +38,14 @@
  * seeing her) shows here as a card marked FROM THE PI, from the Pi's LAN word
  * (services/piNightWatchStatus.ts), silent: its button goes to the Pi, which
  * settles it for every phone aboard, and the card stands aside at once.
+ *
+ * Build 126 (126-02a): the under-way alarms ride the stack too, under the
+ * collision cards and above guard-ring entries: shoal water, then off route
+ * (services/underway/underwayAlarmStore.ts, small and static; the cards
+ * themselves load lazily, only once there is one to draw). A sounding one
+ * lifts the stack above the night tint like a collision card. If their chunk
+ * will not load (a web tab left open across a deploy), a plain card with the
+ * same button stands in, and the rest of the stack stays drawn.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import type { GuardAlert } from '../../services/AisGuardZone';
@@ -61,6 +69,11 @@ import {
 } from '../../services/aisGuardAlertStore';
 import { NIGHT_SCRIM_Z_INDEX } from '../ui/OverlayPortal';
 import { PiNightWatchStatus, type PiWatchAlarm } from '../../services/piNightWatchStatus';
+import { UnderwayAlarmStore, type UnderwayAlarmCard } from '../../services/underway/underwayAlarmStore';
+
+const UnderwayAlarmCards = React.lazy(() =>
+    import('./UnderwayAlarmCards').then((m) => ({ default: m.UnderwayAlarmCards })),
+);
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
@@ -90,6 +103,63 @@ const ACTION: React.CSSProperties = {
     color: 'var(--day-ui-danger, #fecaca)',
     cursor: 'pointer',
 };
+
+/**
+ * The under-way cards' stand-in (126-02a), for when their lazy chunk will not
+ * load: each alarm keeps its title, its number and its one 44 pt button, and
+ * the strip keeps its words, so a sounding alarm is never left without a way
+ * to answer it and never takes the collision and distress cards down with it.
+ */
+class UnderwayCardsBoundary extends React.Component<
+    { cards: UnderwayAlarmCard[]; notices: string[]; children: React.ReactNode },
+    { failed: boolean }
+> {
+    state = { failed: false };
+
+    static getDerivedStateFromError(): { failed: boolean } {
+        return { failed: true };
+    }
+
+    render() {
+        if (!this.state.failed) return this.props.children;
+        return (
+            <>
+                {this.props.cards.map((card) => {
+                    const shoal = card.kind === 'shoal';
+                    return (
+                        <div key={card.kind} role="alert" data-underway={card.kind} style={CARD}>
+                            <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.5 }}>{card.title}</div>
+                            <div style={{ fontSize: 15, fontWeight: 800, marginTop: 2 }}>{card.value}</div>
+                            {(shoal || card.sounding) && (
+                                <button
+                                    type="button"
+                                    style={{ ...ACTION, width: '100%', fontSize: 13, fontWeight: 800 }}
+                                    aria-label={
+                                        shoal
+                                            ? 'Acknowledge the shoal alarm'
+                                            : 'Mute the off-route alarm for 30 minutes'
+                                    }
+                                    onClick={() =>
+                                        shoal
+                                            ? UnderwayAlarmStore.acknowledge('shoal')
+                                            : UnderwayAlarmStore.mute('off-route')
+                                    }
+                                >
+                                    {shoal ? 'Acknowledge' : 'Mute 30 min'}
+                                </button>
+                            )}
+                        </div>
+                    );
+                })}
+                {this.props.notices.map((text) => (
+                    <div key={text} role="status" style={{ ...CARD, fontSize: 13, fontWeight: 700 }}>
+                        {text}
+                    </div>
+                ))}
+            </>
+        );
+    }
+}
 
 function noticeText(n: CollisionWatchNotice): string | null {
     switch (n.state) {
@@ -384,6 +454,22 @@ export const AisGuardAlert: React.FC = () => {
 
     const dismiss = useCallback((mmsi: number) => AisGuardAlertStore.dismiss(mmsi), []);
 
+    // The under-way alarms (126-02a): off route and shoal water, and what their watch cannot see.
+    const [underway, setUnderway] = useState<{ cards: UnderwayAlarmCard[]; notices: string[] }>(() => ({
+        cards: UnderwayAlarmStore.getCards(),
+        notices: UnderwayAlarmStore.getNotices(),
+    }));
+    useEffect(() => {
+        const sync = () => {
+            const cards = UnderwayAlarmStore.getCards();
+            const notices = UnderwayAlarmStore.getNotices();
+            setUnderway((prev) => (prev.cards === cards && prev.notices === notices ? prev : { cards, notices }));
+        };
+        sync();
+        return UnderwayAlarmStore.subscribe(sync);
+    }, []);
+    const showingUnderway = underway.cards.length > 0 || underway.notices.length > 0;
+
     // On the Go to it page the followed beacon's card stands aside: it would
     // cover the bearing, and the page carries the same facts and its Silence.
     const view = useUIStore((s) => s.currentView);
@@ -391,9 +477,12 @@ export const AisGuardAlert: React.FC = () => {
     const shownDistress = view === 'mob' && goTo !== null ? distress.filter((b) => b.mmsi !== goTo) : distress;
 
     const status = notice ? noticeText(notice) : null;
-    if (alerts.length === 0 && !status && shownDistress.length === 0 && piAlarms.length === 0) return null;
+    if (alerts.length === 0 && !status && shownDistress.length === 0 && piAlarms.length === 0 && !showingUnderway) {
+        return null;
+    }
     const alarming =
         piAlarms.length > 0 ||
+        underway.cards.some((c) => c.sounding) ||
         alerts.some((a) => a.collision && !a.collision.cleared) ||
         shownDistress.some((b) => AisGuardAlertStore.distressSounding(b));
     const piDistress = piAlarms.filter((a) => a.kind === 'distress');
@@ -460,10 +549,22 @@ export const AisGuardAlert: React.FC = () => {
             {piCollision.map((alarm) => (
                 <CollisionCard key={`p-${alarm.key}`} alert={piCollisionCard(alarm)} fromPi={alarm} />
             ))}
-            {alerts.map((alert) =>
-                alert.collision ? (
+            {alerts
+                .filter((alert) => alert.collision)
+                .map((alert) => (
                     <CollisionCard key={`c-${alert.mmsi}`} alert={alert as CollisionAlertCard} />
-                ) : (
+                ))}
+            {/* Shoal water, then off route (126-02a): under the collision cards, above the guard ring. */}
+            {showingUnderway && (
+                <UnderwayCardsBoundary cards={underway.cards} notices={underway.notices}>
+                    <React.Suspense fallback={null}>
+                        <UnderwayAlarmCards cards={underway.cards} notices={underway.notices} />
+                    </React.Suspense>
+                </UnderwayCardsBoundary>
+            )}
+            {alerts
+                .filter((alert) => !alert.collision)
+                .map((alert) => (
                     <div key={`${alert.mmsi}-${alert.timestamp}`} role="alert" style={CARD}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: 18 }}>🛡️</span>
@@ -523,8 +624,7 @@ export const AisGuardAlert: React.FC = () => {
                             </button>
                         </div>
                     </div>
-                ),
-            )}
+                ))}
         </div>
     );
 };
