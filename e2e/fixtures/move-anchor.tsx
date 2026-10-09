@@ -108,6 +108,20 @@ window.setInterval(() => {
 // The watch was armed at the boat, so the anchor sits under her: the late-set case.
 const boat = { latitude: 43.295, longitude: 5.36 };
 const config = { rodeLength: 40, waterDepth: 8, scopeRatio: 5, rodeType: 'chain' as const, safetyMargin: 10 };
+// &antenna (126-07c): the boat's own GPS marked the anchor, its antenna 12 m
+// aft of the bow (Settings → Vessel), with a heading: the circle allows the
+// 12 m once, and the sheet's distance is her lie plus those 12 m, and says so.
+const antenna = params.has('antenna');
+if (antenna) {
+    const current = settingsModule.useSettingsStore.getState().settings;
+    settingsModule.useSettingsStore.setState({
+        settings: {
+            ...current,
+            vessel: { ...current.vessel!, name: 'Kotare', type: 'sail', length: 14 / 0.3048, gpsToBow: 39.37 },
+        },
+    });
+}
+const antennaConfig = { ...config, antennaAllowanceM: 12 };
 const watchSnapshot: AnchorWatchSnapshot = {
     state: 'watching',
     anchorPosition: { ...boat, timestamp: Date.now() - 600_000 },
@@ -126,6 +140,13 @@ const watchSnapshot: AnchorWatchSnapshot = {
     gpsQualityLabel: 'Standard GPS',
     guardianStatus: 'idle',
     setupError: null,
+    ...(antenna
+        ? {
+              gpsSource: 'nmea' as const,
+              config: antennaConfig,
+              swingRadius: service.calculateSwingRadius(antennaConfig),
+          }
+        : {}),
 };
 
 // ?mode=pi: the same boat, her watch kept by the Pi and moved from Shore Watch

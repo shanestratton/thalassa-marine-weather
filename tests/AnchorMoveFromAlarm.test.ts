@@ -659,6 +659,44 @@ describe('AnchorWatchService.relocateAnchorFromAlarm', () => {
             expect(snap()).toMatchObject({ state: 'alarm', anchorPosition: PHANG_NGA });
         });
 
+        it('restart, move, restart, move: each move is judged from where the watch was first set (126-07c)', async () => {
+            // Armed at the boat off Bequia (O); the anchor (A1) is her lie
+            // upwind. The app restarts; she yaws round A1 and a wind shift
+            // swings her out of O's circle: a late set, and the move to A1 is
+            // within her rode's reach of O, so it is accepted. The app
+            // restarts again. A second "late set" 45 m further on (A2) is
+            // within reach of A1, the mark, but 78 m from O, where the watch
+            // was set: twice round this loop walks the mark a rode reach at a
+            // time unless the watch's first centre survives the restart.
+            await arm(BEQUIA);
+            await sail(5 * MIN, () => BEQUIA);
+            await restartAfter(2);
+            const a1 = toward(BEQUIA, 60, LIE);
+            await sail(14 * MIN, (f) => toward(a1, 240 + 6 * Math.sin(f * 12), LIE));
+            await sail(16 * MIN, (f) => toward(a1, 240 + 120 * f, LIE));
+            expect(snap()).toMatchObject({ state: 'alarm', alarmCause: 'drag' });
+            expect(await AnchorWatchService.relocateAnchorFromAlarm(...latLon(a1))).toEqual({ ok: true });
+
+            await restartAfter(2);
+            expect(snap()).toMatchObject({ state: 'watching', anchorPosition: a1 });
+            const a2 = toward(a1, 60, 45);
+            expect(metres(a1, a2)).toBeLessThan(Math.sqrt(40 ** 2 - 8 ** 2) + 15);
+            expect(metres(BEQUIA, a2)).toBeGreaterThan(Math.sqrt(40 ** 2 - 8 ** 2) + 15);
+            await sail(14 * MIN, (f) => toward(a2, 240 + 6 * Math.sin(f * 12), LIE));
+            await sail(16 * MIN, (f) => toward(a2, 240 + 120 * f, LIE));
+            expect(snap()).toMatchObject({ state: 'alarm', alarmCause: 'drag' });
+
+            const result = await AnchorWatchService.relocateAnchorFromAlarm(...latLon(a2));
+
+            expect(result).toEqual({
+                ok: false,
+                error: expect.stringMatching(/beyond your rode’s reach from where the watch was set/),
+            });
+            expect(snap()).toMatchObject({ state: 'alarm', anchorPosition: a1 });
+            // The first centre rides in the saved record, through the move and both restarts.
+            expect(lastPersisted()).toMatchObject({ anchorPosition: a1, centreAtSet: BEQUIA });
+        });
+
         it('an alarm that was already sounding when the app restarted', async () => {
             const { anchor } = await lateSetAlarm(BEQUIA);
             const boat = snap().vesselPosition!;

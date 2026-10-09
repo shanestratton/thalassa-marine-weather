@@ -52,4 +52,44 @@ describe('Anchor Watch secure persistence release contract', () => {
         expect(interlock).toContain('hasAnchorWatchRecovery(scope)');
         expect(interlock).not.toContain('localStorage.getItem(ANCHOR_RECOVERY_KEY)');
     });
+
+    // 126-07c: the watch's FIRST centre rides in the recovery record, so a move
+    // from the alarm after a restart is still judged from where the watch was
+    // set (behaviour: tests/AnchorAntennaOffset.test.ts and
+    // tests/AnchorMoveFromAlarm.test.ts). Optional, validated, and never a
+    // reason to block a watch: a record from 125, or a corrupt centre, falls
+    // back to the anchor position as before.
+    it('saves the first centre as an optional, validated field that never blocks the watch', () => {
+        const anchor = read('services/AnchorWatchService.ts');
+        const record = anchor.slice(
+            anchor.indexOf('interface PersistedWatchState {'),
+            anchor.indexOf('type PersistedWatchValidation'),
+        );
+        expect(record).toMatch(/\n\s+centreAtSet\?: \{ latitude: number; longitude: number \};/);
+        expect(record).toMatch(/\n\s+markedAtGps\?: boolean;/);
+
+        const writer = anchor.slice(
+            anchor.indexOf('private async persistWatchStateRequired'),
+            anchor.indexOf('private async clearPersistedWatchStateRequired'),
+        );
+        expect(writer).toContain('centreAtSet:');
+        expect(writer).toContain('markedAtGps:');
+
+        const validator = anchor.slice(
+            anchor.indexOf('private validatePersistedWatch'),
+            anchor.indexOf('private markInvalidPersistedWatchBlocked'),
+        );
+        // Read through a lat/lon check that answers undefined, never invalid().
+        expect(validator).toMatch(/centreAtSet: savedCentre\(value\.centreAtSet\)/);
+        expect(validator).not.toMatch(/invalid\([^)]*centre/i);
+        // Both restore paths: the one that resumes, and the one that keeps a
+        // watch it cannot resume (paused, saved again for the retry).
+        const firstCentre = /resetMoveState\(\s*persisted\.centreAtSet \?\?/;
+        const blocked = anchor.slice(
+            anchor.indexOf('private async markRestoreBlocked('),
+            anchor.indexOf('private async cleanupAfterIdentityFenceFailure'),
+        );
+        expect(blocked).toMatch(firstCentre);
+        expect(anchor.match(new RegExp(firstCentre.source, 'g'))).toHaveLength(2);
+    });
 });

@@ -485,6 +485,100 @@ describe('AnchorWatchPage', () => {
         });
     });
 
+    describe('the GPS antenna aft of the bow (126-07c)', () => {
+        let previous: ReturnType<typeof useSettingsStore.getState>['settings'];
+        /** A 14 m boat whose GPS antenna is 12 m aft of the bow (profile figures are feet). */
+        function setBoat(gpsToBowM: number | undefined, length: 'm' | 'ft' = 'm') {
+            const settings = useSettingsStore.getState().settings;
+            useSettingsStore.setState({
+                settings: {
+                    ...settings,
+                    units: { ...settings.units, length },
+                    vessel: {
+                        ...(settings.vessel ?? {}),
+                        name: 'Kotare',
+                        type: 'sail',
+                        length: 14 / 0.3048,
+                        gpsToBow: gpsToBowM === undefined ? undefined : gpsToBowM / 0.3048,
+                    } as NonNullable<typeof settings.vessel>,
+                },
+            });
+        }
+        beforeEach(() => {
+            previous = useSettingsStore.getState().settings;
+            // The setup view: no watch to restore (an earlier test left one).
+            vi.mocked(AnchorWatchService.restoreWatchState).mockResolvedValue(false);
+        });
+        afterEach(() => {
+            useSettingsStore.setState({ settings: previous });
+        });
+
+        async function arm() {
+            render(<AnchorWatchPage {...defaultProps} />);
+            fireEvent.keyDown(screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' }), {
+                key: 'Enter',
+            });
+            fireEvent.click(await screen.findByRole('button', { name: 'Play test alarm' }));
+            fireEvent.click(await screen.findByRole('button', { name: 'Stop test alarm' }));
+            fireEvent.click(await screen.findByRole('button', { name: 'Confirm alarm was audible' }));
+            fireEvent.click(await screen.findByRole('button', { name: 'Confirm selection' }));
+            await waitFor(() => expect(AnchorWatchService.setAnchor).toHaveBeenCalledTimes(1));
+            return vi.mocked(AnchorWatchService.setAnchor).mock.calls[0][0] as Record<string, unknown>;
+        }
+
+        it('arms with the profile’s GPS-antenna-to-bow distance, in metres', async () => {
+            setBoat(12);
+            const options = await arm();
+            expect(options.gpsToBowM as number).toBeCloseTo(12, 6);
+            expect(options).toMatchObject({ rodeLength: 30, waterDepth: 5, rodeType: 'chain', safetyMargin: 10 });
+        });
+
+        it('arms exactly as before with no distance entered', async () => {
+            setBoat(undefined);
+            const options = await arm();
+            expect(options).not.toHaveProperty('gpsToBowM');
+        });
+
+        function showWatch(snapshot: AnchorWatchSnapshot) {
+            vi.mocked(AnchorWatchService.restoreWatchState).mockResolvedValue(true);
+            vi.mocked(AnchorWatchService.getSnapshot).mockReturnValue(snapshot as never);
+            vi.mocked(AnchorWatchService.subscribe).mockImplementation((listener) => {
+                listener(snapshot);
+                return vi.fn();
+            });
+            render(<AnchorWatchPage {...defaultProps} />);
+        }
+        const markedAtGps = (): AnchorWatchSnapshot => ({
+            ...makePausedSnapshot(),
+            state: 'watching',
+            setupError: null,
+            gpsSource: 'nmea',
+            markedAtGps: true,
+            config: { ...makePausedSnapshot().config, antennaAllowanceM: 24 },
+        });
+
+        it('marked at the GPS with no heading: says where, and that the circle allows for it', async () => {
+            setBoat(12);
+            showWatch(markedAtGps());
+            expect(
+                await screen.findByText('Marked at the GPS, 12 m aft of the bow: the circle allows for it.'),
+            ).toBeInTheDocument();
+        });
+
+        it('in the skipper’s feet', async () => {
+            setBoat(12, 'ft');
+            showWatch(markedAtGps());
+            expect(await screen.findByText(/^Marked at the GPS, 39 ft aft of the bow:/)).toBeInTheDocument();
+        });
+
+        it('says nothing once the mark is at the bow, or for a watch with no allowance', async () => {
+            setBoat(12);
+            showWatch({ ...markedAtGps(), markedAtGps: false });
+            expect(await screen.findByRole('button', { name: 'Move anchor' })).toBeInTheDocument();
+            expect(screen.queryByText(/Marked at the GPS/)).not.toBeInTheDocument();
+        });
+    });
+
     it('renders disconnected vessel values explicitly as last-known, never Holding', async () => {
         const { stateListener } = await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData());
         expect(screen.getByText('Holding')).toBeInTheDocument();

@@ -42,6 +42,13 @@ export interface VesselProfile {
      * ketch or yawl, 40 for a sloop, 50 for a multihull.
      */
     closeHauledTwa?: number;
+    /**
+     * The boat's own GPS antenna, measured back from the bow, in FEET like
+     * `length` (Settings → Vessel → Dimensions, "GPS antenna to bow"). The
+     * anchor watch allows for it when her own GPS marks the anchor (126-07c).
+     * No default: absent or 0 is no allowance. Within 0 and her length.
+     */
+    gpsToBow?: number;
     maxWaveHeight: number;
     maxWindSpeed?: number;
     cruisingSpeed: number;
