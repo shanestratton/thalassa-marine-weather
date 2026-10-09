@@ -329,16 +329,20 @@ export function useTraceDraft() {
      *  flow's open/next steps). The departure goes too: one set while the
      *  outbound trip was on screen would grade this leg's tide gates and be
      *  stamped on its Passage Planning row. A return leg falls back to now
-     *  until the skipper sets its own. */
+     *  until the skipper sets its own.
+     *
+     *  `keepDeparture` is for a leg ADDED to a trip (126-16a): it is checked
+     *  at the departure the tracer already holds, the Plan page's, as a
+     *  hand-plotted next leg is. */
     const openReversedLeg = useCallback(
-        (next: ReversedLegDraft): boolean => {
+        (next: ReversedLegDraft, options: { keepDeparture?: boolean } = {}): boolean => {
             if (!isAuthIdentityScopeCurrent(identityScope)) return false;
             const autoName = next.autoName ?? '';
             lastAutoNameRef.current = autoName;
             updateDraft((current) => ({
                 ...current,
                 capturedCoords: next.points.map((point) => ({ lat: point.lat, lon: point.lon })),
-                departureMs: null,
+                departureMs: options.keepDeparture ? current.departureMs : null,
                 traceName: next.name,
                 autoName,
                 legAnchor: next.legAnchor,

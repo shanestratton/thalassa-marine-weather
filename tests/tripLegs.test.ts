@@ -5,8 +5,13 @@
  * across plain overwrites, and the auto-heal that keeps a successor's locked
  * start welded to its predecessor's arrival.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
+
+// Deleting a route cascades into its Log + Passage Planning graph by the ids
+// the ROW carries (126-16a: a copied leg must never carry its source's ids).
+const graph = vi.hoisted(() => ({ deleteSavedRoutePassageGraph: vi.fn(async () => undefined) }));
+vi.mock('../services/savedRouteGraph', () => graph);
 import {
     ordinalLegLabel,
     stripLegBadge,
@@ -45,6 +50,7 @@ import {
     reversedLegForSlot,
     slotCandidates,
 } from '../services/tripReverse';
+import { legCopyForSlot, slotSeedForLeg } from '../services/tripLegAdd';
 
 describe('trip-chain name helpers', () => {
     it('ordinalLegLabel speaks English ordinals, teens included', () => {
@@ -779,15 +785,20 @@ describe('two saved routes with one name', () => {
         expect(r1.name).toBe('Bay run');
         const seed = nextLegSeed(r1)!;
         const slot = reversedLegForSlot(out1, seed.anchor)!;
-        expect(
-            decideTraceSave({
-                name: slot.name,
-                points: slot.points,
-                anchor: seed,
-                savedTraces: loadSavedTraces(),
-                overwriteArm: null,
-            }).kind,
-        ).toBe('refuse');
+        // 126-16a: a locked leg is matched by its SLOT, never by a name another
+        // trip holds. "Bay run (2nd Leg)" of the outbound trip is not a
+        // candidate: saving it here is a new row, so "Overwrite?" can never
+        // reach the other trip. (It used to be refused by name, which also
+        // refused a copied leg that keeps its source's name.)
+        const decision = decideTraceSave({
+            name: slot.name,
+            points: slot.points,
+            anchor: seed,
+            savedTraces: loadSavedTraces(),
+            overwriteArm: out2.id,
+        });
+        expect(decision.kind).toBe('save');
+        expect(decision.kind === 'save' ? decision.existing : 'not saved').toBeUndefined();
         tapSave('Home', slot.points, seed);
         // The retro badge now gives the return trip's leg 1 the outbound leg 1's name.
         const twins = loadSavedTraces().filter((t) => t.name === 'Bay run (1st Leg)');
@@ -841,5 +852,256 @@ describe('two saved routes with one name', () => {
             overwriteArm: a2.id,
         });
         expect(armed).toMatchObject({ kind: 'save', existing: { id: a2.id } });
+    });
+});
+
+// ── 126-16a: add leg 2, 3, 4… from any saved route or any leg of a past trip.
+//    Every added leg is a COPY opened in the tracer, locked to the previous
+//    leg's arrival, and written by the tracer's own Save. Fictional places on
+//    Banks Peninsula (New Zealand). ──
+
+const NM_PER_DEG_LAT = (3440.065 * Math.PI) / 180;
+const north = (p: TracePoint, nm: number): TracePoint => ({ lat: p.lat + nm / NM_PER_DEG_LAT, lon: p.lon });
+const LYTTELTON = { lat: -43.607, lon: 172.722 };
+const PORT_LEVY = { lat: -43.641, lon: 172.83 };
+const AKAROA = { lat: -43.806, lon: 172.968 };
+const PIGEON_BAY = { lat: -43.68, lon: 172.9 };
+const DIAMOND_HARBOUR = { lat: -43.627, lon: 172.738 };
+const PURAU = { lat: -43.64, lon: 172.75 };
+const LE_BONS_BAY = { lat: -43.74, lon: 173.11 };
+
+/** The tracer's 'add-leg' door: the next slot after `after`, a copy of
+ *  `source` dropped into it in one edit, the Plan page's departure kept. */
+function openAddedLeg(after: SavedTrace, source: SavedTrace, direction: 'forward' | 'reverse' = 'forward') {
+    const seed = nextLegSeed(after)!;
+    const copy = legCopyForSlot(source, seed.anchor, direction);
+    if ('refused' in copy) throw new Error(`refused at ${copy.gapNm} NM`);
+    const departure = Date.now() + 6 * 3_600_000;
+    const { result } = renderHook(() => useTraceDraft());
+    act(() => result.current.setDepartureMs(departure));
+    act(() => {
+        result.current.openReversedLeg(
+            {
+                points: copy.points,
+                name: copy.name,
+                autoName: '',
+                legAnchor: seed,
+                reversedFrom: null,
+                returnPlan: null,
+            },
+            { keepDeparture: true },
+        );
+    });
+    expect(result.current.departureMs).toBe(departure);
+    expect(result.current.legAnchor).toEqual(seed);
+    return { seed, copy, draft: result };
+}
+
+/** Trip P, three legs, each carrying its own Log and Passage Planning ids. */
+function plotTripP() {
+    const p1 = tapSave('Lyttelton - Port Levy', line(LYTTELTON, PORT_LEVY));
+    const p2 = tapSave('Port Levy - Akaroa', line(PORT_LEVY, AKAROA), nextLegSeed(p1));
+    const p3 = tapSave('Akaroa - Pigeon Bay', line(AKAROA, PIGEON_BAY), nextLegSeed(p2));
+    // The Log mirror links each leg after its Save (MapHub's reconcile).
+    const linked = [p1, p2, p3].map((leg, i) =>
+        saveTrace(loadSavedTraces().find((t) => t.id === leg.id)!.name, leg.points, {
+            overwriteId: leg.id,
+            plannedRouteId: `planned_p${i + 1}`,
+            passageVoyageId: `00000000-0000-4000-8000-00000000000${i + 1}`,
+        }),
+    );
+    expect(linked.every((r) => r.persisted)).toBe(true);
+    return [p1.id, p2.id, p3.id].map((id) => loadSavedTraces().find((t) => t.id === id)!);
+}
+
+describe('adding a leg from a saved route or another trip', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        sessionStorage.clear();
+        graph.deleteSavedRoutePassageGraph.mockClear();
+    });
+
+    it('forward: a saved route 0.1 NM from leg 2’s end becomes leg 3, and the route is unchanged', () => {
+        const leg1 = tapSave('Diamond Harbour - Port Levy', line(DIAMOND_HARBOUR, PORT_LEVY));
+        const leg2 = tapSave('Port Levy - Akaroa', line(PORT_LEVY, AKAROA), nextLegSeed(leg1));
+        const x = tapSave('Akaroa - Le Bons Bay', line(north(AKAROA, 0.1), LE_BONS_BAY));
+        saveTrace(x.name, x.points, { overwriteId: x.id, plannedRouteId: 'planned_x', passageVoyageId: 'voyage-x' });
+        const before = storedRows([x.id]);
+
+        const { draft } = openAddedLeg(loadSavedTraces().find((t) => t.id === leg2.id)!, x);
+        expect(draft.current.capturedCoords[0]).toEqual(AKAROA);
+        const saved = tapSave(draft.current.traceName, draft.current.capturedCoords, draft.current.legAnchor);
+
+        expect(saved.id).not.toBe(x.id);
+        expect(saved).toMatchObject({ tripId: leg1.id, legOrdinal: 3, name: 'Akaroa - Le Bons Bay (3rd Leg)' });
+        expect(saved.plannedRouteId).toBeUndefined();
+        expect(saved.passageVoyageId).toBeUndefined();
+        expect(saved.verification).toBeUndefined();
+        expect(storedRows([x.id])).toBe(before);
+        expect(legsAt(leg1.id, 3).map((t) => t.id)).toEqual([saved.id]);
+        expect(groupTracesByTrip(loadSavedTraces()).find((g) => g.key === leg1.id)?.legs).toHaveLength(3);
+    });
+
+    it("Shane's shape: another trip's 'Akaroa - Pigeon Bay (3rd Leg)' copied as leg 3, same name, is a new row", () => {
+        const [p1, p2, p3] = plotTripP();
+        const pRows = storedRows([p1.id, p2.id, p3.id]);
+        const y1 = tapSave('Diamond Harbour - Purau', line(DIAMOND_HARBOUR, PURAU));
+        const y2 = tapSave('Purau - Akaroa', line(PURAU, north(AKAROA, 0.1)), nextLegSeed(y1));
+
+        const { seed, draft } = openAddedLeg(y2, p3);
+        expect(draft.current.traceName).toBe('Akaroa - Pigeon Bay');
+        const decision = decideTraceSave({
+            name: draft.current.traceName,
+            points: draft.current.capturedCoords,
+            anchor: seed,
+            savedTraces: loadSavedTraces(),
+            overwriteArm: null,
+        });
+        expect(decision).toMatchObject({ kind: 'save', finalName: p3.name });
+        expect(decision.kind === 'save' && decision.existing).toBeFalsy();
+        const { trace: copy } = commitTraceSave(decision as Save, draft.current.capturedCoords);
+        expect(copy).toMatchObject({ tripId: y1.id, legOrdinal: 3, name: 'Akaroa - Pigeon Bay (3rd Leg)' });
+        expect(copy.id).not.toBe(p3.id);
+        expect(storedRows([p1.id, p2.id, p3.id])).toBe(pRows);
+
+        // Saving again in the slot asks to overwrite the COPY, never P's leg 3.
+        const again = decideTraceSave({
+            name: copy.name,
+            points: draft.current.capturedCoords,
+            anchor: seed,
+            savedTraces: loadSavedTraces(),
+            overwriteArm: null,
+        });
+        expect(again).toMatchObject({ kind: 'confirm-overwrite', existing: { id: copy.id } });
+        const armed = decideTraceSave({
+            name: copy.name,
+            points: draft.current.capturedCoords,
+            anchor: seed,
+            savedTraces: loadSavedTraces(),
+            overwriteArm: copy.id,
+        });
+        expect(armed).toMatchObject({ kind: 'save', existing: { id: copy.id } });
+    });
+
+    it('a one-route trip Z plus leg 2 of P: Z earns its "(1st Leg)" badge, as for a hand-plotted leg', () => {
+        const [, p2] = plotTripP();
+        const z = tapSave('Le Bons Bay - Port Levy', line(LE_BONS_BAY, PORT_LEVY));
+        const { draft } = openAddedLeg(z, p2);
+        const leg2 = tapSave(draft.current.traceName, draft.current.capturedCoords, draft.current.legAnchor);
+        expect(leg2).toMatchObject({ tripId: z.id, legOrdinal: 2, name: 'Port Levy - Akaroa (2nd Leg)' });
+        expect(loadSavedTraces().find((t) => t.id === z.id)).toMatchObject({
+            name: 'Le Bons Bay - Port Levy (1st Leg)',
+            tripId: z.id,
+            legOrdinal: 1,
+        });
+    });
+
+    it("deleting the copy never reaches the source's Log or Passage Planning rows", async () => {
+        const [p1, p2, p3] = plotTripP();
+        const z = tapSave('Le Bons Bay - Akaroa', line(LE_BONS_BAY, AKAROA));
+        const { draft } = openAddedLeg(z, p3);
+        const copy = tapSave(draft.current.traceName, draft.current.capturedCoords, draft.current.legAnchor);
+        expect(deleteTrace(copy.id)).toBe(true);
+        await vi.waitFor(() => expect(graph.deleteSavedRoutePassageGraph).toHaveBeenCalled());
+
+        const sourceIds = new Set(
+            [p1, p2, p3].flatMap((t) => [t.id, t.plannedRouteId, t.passageVoyageId]).filter(Boolean),
+        );
+        for (const call of graph.deleteSavedRoutePassageGraph.mock.calls as unknown as [
+            string,
+            { plannedRouteId?: string; passageVoyageId?: string },
+        ][]) {
+            expect(sourceIds.has(call[0])).toBe(false);
+            expect(sourceIds.has(call[1].plannedRouteId ?? '')).toBe(false);
+            expect(sourceIds.has(call[1].passageVoyageId ?? '')).toBe(false);
+        }
+        const p3After = loadSavedTraces().find((t) => t.id === p3.id);
+        expect(p3After).toMatchObject({ plannedRouteId: 'planned_p3', passageVoyageId: p3.passageVoyageId });
+    });
+
+    it('a slot saved twice (two phones) is refused with a way out', () => {
+        const leg1 = tapSave('Diamond Harbour - Port Levy', line(DIAMOND_HARBOUR, PORT_LEVY));
+        const leg2 = tapSave('Port Levy - Akaroa', line(PORT_LEVY, AKAROA), nextLegSeed(leg1));
+        const seed = nextLegSeed(leg2)!;
+        for (let i = 0; i < 2; i++) {
+            saveTrace('Akaroa - Pigeon Bay (3rd Leg)', line(AKAROA, PIGEON_BAY), { tripId: leg1.id, legOrdinal: 3 });
+        }
+        expect(legsAt(leg1.id, 3)).toHaveLength(2);
+        expect(
+            decideTraceSave({
+                name: 'Akaroa - Pigeon Bay',
+                points: line(AKAROA, PIGEON_BAY),
+                anchor: seed,
+                savedTraces: loadSavedTraces(),
+                overwriteArm: null,
+            }),
+        ).toMatchObject({
+            kind: 'refuse',
+            reason: 'Leg 3 of this trip is saved twice — delete one in Saved routes, then save',
+        });
+    });
+
+    it('an opened leg 2 keeps its slot: ⇄ still makes a standalone copy', () => {
+        const outbound = plotOutbound();
+        const before = storedRows(outbound.map((t) => t.id));
+        const seed = slotSeedForLeg(loadSavedTraces(), outbound[1])!;
+        expect(seed).toMatchObject({ tripId: outbound[0].id, ordinal: 2, anchor: BAY_POINT });
+        const { result: draft } = renderHook(() => useTraceDraft());
+        act(() => {
+            draft.current.setLegAnchor(seed);
+            draft.current.setCapturedCoords(outbound[1].points);
+            draft.current.setTraceName(outbound[1].name);
+        });
+        const tap = reverseTapDecision({
+            traces: loadSavedTraces(),
+            anchor: draft.current.legAnchor,
+            points: draft.current.capturedCoords,
+        });
+        expect(tap).toMatchObject({ kind: 'copy', detach: true });
+        act(() => draft.current.reverseDirection(tap.kind === 'copy' ? tap.source?.label : null, { detach: true }));
+        expect(draft.current.legAnchor).toBeNull();
+        const copy = tapSave(draft.current.traceName, draft.current.capturedCoords, draft.current.legAnchor);
+        expect(copy.tripId).toBeUndefined();
+        expect(copy.name).toBe('Sandy Cove - Bay Point');
+        expect(storedRows(outbound.map((t) => t.id))).toBe(before);
+    });
+
+    it('an opened leg 2 with a middle pin moved saves over itself, chain kept, leg 3 still welded', () => {
+        const outbound = plotOutbound();
+        const seed = slotSeedForLeg(loadSavedTraces(), outbound[1])!;
+        const edited = outbound[1].points.map((p, i) => (i === 1 ? { lat: p.lat + 0.002, lon: p.lon } : p));
+        const ask = decideTraceSave({
+            name: outbound[1].name,
+            points: edited,
+            anchor: seed,
+            savedTraces: loadSavedTraces(),
+            overwriteArm: null,
+        });
+        expect(ask).toMatchObject({ kind: 'confirm-overwrite', existing: { id: outbound[1].id } });
+        const go = decideTraceSave({
+            name: outbound[1].name,
+            points: edited,
+            anchor: seed,
+            savedTraces: loadSavedTraces(),
+            overwriteArm: outbound[1].id,
+        });
+        expect(go).toMatchObject({ kind: 'save', existing: { id: outbound[1].id } });
+        const { trace } = commitTraceSave(go as Save, edited);
+        expect(trace).toMatchObject({ id: outbound[1].id, tripId: outbound[0].id, legOrdinal: 2 });
+        expect(trace.name).toBe('Bay Point - Sandy Cove (2nd Leg)');
+        expect(loadSavedTraces().find((t) => t.id === outbound[2].id)?.points[0]).toEqual(SANDY_COVE);
+        // A rename inside the slot is refused honestly instead of making a silent copy.
+        expect(
+            decideTraceSave({
+                name: 'Bay Point - Somewhere Else',
+                points: edited,
+                anchor: seed,
+                savedTraces: loadSavedTraces(),
+                overwriteArm: null,
+            }),
+        ).toMatchObject({
+            kind: 'refuse',
+            reason: 'Leg 2 of this trip is already saved as "Bay Point - Sandy Cove (2nd Leg)" — keep that name to update it',
+        });
     });
 });

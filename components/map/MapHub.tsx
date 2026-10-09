@@ -198,6 +198,7 @@ import {
     tracerWindowsAfterRelease,
 } from '../../services/traceBackgroundCheck';
 import { useTracerAutoBank, type TideLabelFor } from './useTracerAutoBank';
+import { rearmAutoNameForOpenedRoute, useTracerAutoName } from './useTracerAutoName';
 import { useEncChartInventory } from './useEncChartInventory';
 import { DETAIL_SCRUB_MAX, applyChartDetailLevel, browseDetailLevel } from './encDetailScrubber';
 import { ChartDepthControls, LiveTideAckModal } from './ChartDepthControls';
@@ -265,7 +266,15 @@ import { TracerSavedRoutePicker } from './tracer/TracerSavedRoutePicker';
 import { TracerPinEditor } from './tracer/TracerPinEditor';
 import { TracerReturnStrip } from './tracer/TracerReturnStrip';
 import { commitTraceSave, decideTraceSave } from '../../services/traceSave';
-import { activeReversalNote, followedSavedRouteIds, legInSlot, reverseTapDecision } from '../../services/tripReverse';
+import {
+    activeReversalNote,
+    followedSavedRouteIds,
+    legInSlot,
+    previousLegFor,
+    reverseTapDecision,
+} from '../../services/tripReverse';
+import { legCopyForSlot, nextLegOffer, slotGapNm, slotSeedForLeg } from '../../services/tripLegAdd';
+import { LazyTripSheet, type TripSheetStart } from '../passage/LazyTripSheet';
 import { CoachMark } from '../ui/CoachMark';
 import { PerfGuardian, consumePerfDowntierToast } from '../../services/PerfGuardian';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
@@ -539,53 +548,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     const gradedDraftRef = useRef<{ d: number; assumed: boolean; air?: number | null } | null>(null);
     const [savedTraces, setSavedTraces] = useState<SavedTrace[]>([]);
     // AUTO-NAME (Shane 2026-07-16): "Newport - Scarborough" from the first +
-    // last pins, live as the route grows; coords when no place is nearby.
-    // Auto-naming is ACTIVE while the name box is empty or still holding the
-    // last auto value — the moment the skipper types their own name (or opens
-    // a saved route, whose name differs), it stops touching the box.
-    // Restored alongside the name, because THIS ref is what distinguishes "we
-    // named it" from "the skipper named it". Lost, every restored name looks
-    // hand-typed and auto-naming silently stops updating it.
-    useEffect(() => {
-        if (!coordCaptureMode || capturedCoords.length === 0) return;
-        const isAuto = traceName === '' || traceName === lastAutoNameRef.current;
-        if (!isAuto) return;
-        // A chained leg has no destination until one is traced. With just the
-        // locked start, first === last and this would name it "Newport - Newport";
-        // leaving the "Newport - " prefill alone is the honest state.
-        if (legAnchor && capturedCoords.length < 2) return;
-        const first = capturedCoords[0];
-        const last = capturedCoords[capturedCoords.length - 1];
-        let current = true;
-        // Debounced: a burst of pin drops costs one geocode pass (and the
-        // helper caches on a ~1 km grid anyway).
-        const t = window.setTimeout(() => {
-            void import('../../services/routeAutoName').then(async ({ autoRouteName, placeLabelFor }) => {
-                // CHAINED LEG: the FROM half is the previous leg's recorded arrival
-                // name and is authoritative. Re-geocoding the anchor can return a
-                // different label for the same spot — "Scarborough" for the pin the
-                // previous leg called "Newport" — which would contradict both the
-                // locked-start badge and the leg it chains from. Only the
-                // destination is looked up.
-                const name = legAnchor
-                    ? `${legAnchor.fromName} - ${await placeLabelFor(last)}`
-                    : await autoRouteName(first, last);
-                // A slow outbound geocode must not overwrite the return-trip
-                // name after Reverse, a route load, or an endpoint edit.
-                if (!current) return;
-                setTraceName((cur) => {
-                    // The skipper typed while we were geocoding — theirs wins.
-                    if (cur !== '' && cur !== lastAutoNameRef.current) return cur;
-                    lastAutoNameRef.current = name;
-                    return name;
-                });
-            });
-        }, 800);
-        return () => {
-            current = false;
-            window.clearTimeout(t);
-        };
-    }, [capturedCoords, coordCaptureMode, traceName, legAnchor, lastAutoNameRef, setTraceName]);
+    // last pins, live as the route grows (useTracerAutoName). A trip's leg
+    // opened in its slot keeps its name (126-16a): rearmAutoNameForOpenedRoute.
+    useTracerAutoName({ coordCaptureMode, capturedCoords, traceName, legAnchor, lastAutoNameRef, setTraceName });
     // Typed GPS-fix entry (build a route by keying coords, not just tapping —
     // Shane 2026-07-16). Accepts decimal, hemisphere, DMM and DMS via
     // parseCoordinateString; each Add appends a pin to the trace.
@@ -658,6 +623,29 @@ export const MapHub: React.FC<MapHubProps> = ({
     /** ⇄ fills only an EMPTY locked-start slot; a saved leg N (Save keeps its
      *  lock) flips into a copy like any other line. */
     const fillsLockedSlot = useMemo(() => !!legAnchor && !legInSlot(savedTraces, legAnchor), [legAnchor, savedTraces]);
+    // ── Adding legs from the chart (126-16a) ──
+    // The Trip sheet over the chart, at its trip or add pane, with the scope
+    // its rows are read under. A pick there re-opens the tracer through the
+    // same 'add-leg' window event the Plan page uses.
+    const [tripSheet, setTripSheet] = useState<{ start: TripSheetStart; scope: AuthIdentityScope } | null>(null);
+    const closeTripSheet = useCallback(() => setTripSheet(null), []);
+    const noopOpenChart = useCallback(() => {}, []);
+    useEffect(() => subscribeAuthIdentityScope(() => setTripSheet(null)), []);
+    /** "Plot the 4th leg →": the saved last leg of a trip is on screen. */
+    const nextLeg = useMemo(
+        () => nextLegOffer({ savedTraces, legAnchor, points: capturedCoords, returnTrip: !!returnPlan }),
+        [savedTraces, legAnchor, capturedCoords, returnPlan],
+    );
+    /** An empty locked leg: fill it with a copy from the add pane. */
+    const fillSlotFromSheet = useCallback(() => {
+        const anchor = legAnchorRef.current;
+        const previous = anchor ? previousLegFor(loadSavedTraces(), anchor) : null;
+        if (!previous) {
+            flashTraceFeedback("The leg before this one isn't on this phone — plot this leg by hand");
+            return;
+        }
+        setTripSheet({ start: { pane: 'add', afterId: previous.id }, scope: getAuthIdentityScope() });
+    }, [flashTraceFeedback, legAnchorRef]);
     const reversalNoteText = useMemo(
         () => activeReversalNote(capturedCoords, reversedFrom),
         [capturedCoords, reversedFrom],
@@ -785,20 +773,30 @@ export const MapHub: React.FC<MapHubProps> = ({
             } else if (action?.kind === 'load-logbook-route') {
                 void loadLogbookRouteAsTrace(action.voyageId, requestScope);
             } else if (action?.kind === 'load-saved') {
-                const t = loadSavedTraces().find((x) => x.id === action.id);
+                const traces = loadSavedTraces();
+                const t = traces.find((x) => x.id === action.id);
                 if (t && t.points.length >= 2) {
-                    setLegAnchor(null); // an opened route is edited standalone
+                    // A trip's leg opens IN ITS PLACE (126-16a): Save updates
+                    // exactly this leg, its first pin stays on the chain, and
+                    // a rename is refused out loud instead of quietly making
+                    // a standalone copy. Leg 1 and a lone route open free.
+                    const slot = slotSeedForLeg(traces, t);
+                    setLegAnchor(slot);
                     rebaseHistoryRef.current = true; // opened a saved route → Undo floor
                     setCapturedCoords(t.points);
                     setTraceName(t.name);
-                    // Re-arm auto-naming for a name that WE generated. Without
-                    // this the restored name looks hand-typed, isAuto stays
-                    // false, and dragging the destination never retitles the
-                    // route (Shane 2026-07-28: Moreton Bay → Lady Musgrave).
-                    void import('../../services/routeAutoName').then(({ looksAutoNamed }) => {
-                        if (looksAutoNamed(t.name)) lastAutoNameRef.current = t.name;
-                    });
-                    setSavedTraces(loadSavedTraces());
+                    // Re-arm auto-naming for a name that WE generated, so
+                    // dragging the destination retitles it (Shane 2026-07-28:
+                    // Moreton Bay → Lady Musgrave). A leg in its slot keeps
+                    // its name: Save finds it under that name.
+                    rearmAutoNameForOpenedRoute(lastAutoNameRef, t.name, slot);
+                    setSavedTraces(traces);
+                    const gap = slot ? slotGapNm(traces, slot) : null;
+                    if (slot && gap !== null && gap >= 0.05) {
+                        flashTraceFeedback(
+                            `This leg starts ${gap.toFixed(1)} NM from where leg ${slot.ordinal - 1} ends`,
+                        );
+                    }
                     // Fit the WHOLE route (Shane 2026-07-17) — same helper as
                     // the card's open path.
                     const fly = () => mapRef.current && fitTraceBounds(mapRef.current, t.points);
@@ -925,6 +923,69 @@ export const MapHub: React.FC<MapHubProps> = ({
                     }
                     flashTraceFeedback(
                         `${ordinalLegLabel(seed.ordinal)} departs ${seed.fromName} — first pin locked 🔒`,
+                    );
+                }
+            } else if (action?.kind === 'add-leg') {
+                // Add the next leg as a COPY of a saved line (126-16a): pin 0
+                // locked on the previous arrival, the route check runs, and the
+                // ordinary Save writes it. The source is only read; the draft
+                // holds its pins and a name, never its ids or its check.
+                const traces = loadSavedTraces();
+                const after = traces.find((x) => x.id === action.afterId);
+                const seed = after ? nextLegSeed(after) : null;
+                const occupant = seed ? legInSlot(traces, seed) : null;
+                const source = traces.find((x) => x.id === action.sourceId);
+                const copy = seed && source ? legCopyForSlot(source, seed.anchor, action.direction) : null;
+                if (!seed) {
+                    flashTraceFeedback("That trip isn't on this phone any more");
+                } else if (occupant) {
+                    // Another phone (or another tap) saved this leg first.
+                    flashTraceFeedback(
+                        `Leg ${seed.ordinal} of this trip is already saved as "${stripLegBadge(occupant.name)}"`,
+                    );
+                } else if (!source || !copy) {
+                    flashTraceFeedback("That route isn't on this phone any more");
+                } else if ('refused' in copy) {
+                    flashTraceFeedback(
+                        copy.why === 'far'
+                            ? `${stripLegBadge(source.name)} starts ${copy.gapNm.toFixed(1)} NM from ${seed.fromName} — pick one that starts there`
+                            : `${stripLegBadge(source.name)} has no line left once it starts at ${seed.fromName}`,
+                    );
+                } else {
+                    rebaseHistoryRef.current = true; // a different route → Undo floor
+                    // One edit: the copy, its lock, the Plan page's departure kept.
+                    openReversedLeg(
+                        {
+                            points: copy.points,
+                            name: copy.name,
+                            autoName: '',
+                            legAnchor: seed,
+                            reversedFrom:
+                                action.direction === 'reverse'
+                                    ? { label: copy.sourceLabel, end: { ...copy.points[copy.points.length - 1] } }
+                                    : null,
+                            returnPlan: null,
+                        },
+                        { keepDeparture: true },
+                    );
+                    clearTraceSelection(); // pin indexes belonged to the old line
+                    setOverwriteArm(null);
+                    setSlotChoices(null);
+                    setSavedTraces(traces);
+                    const fly = () => mapRef.current && fitTraceBounds(mapRef.current, copy.points);
+                    if (mapRef.current) {
+                        if (isAuthIdentityScopeCurrent(requestScope)) fly();
+                    } else {
+                        const timer = window.setTimeout(() => {
+                            tracerHandoffTimersRef.current.delete(timer);
+                            if (isAuthIdentityScopeCurrent(requestScope)) fly();
+                        }, 1_200);
+                        tracerHandoffTimersRef.current.add(timer);
+                    }
+                    flashTraceFeedback(
+                        `${ordinalLegLabel(seed.ordinal)} from ${seed.fromName}: a copy of ${copy.sourceLabel}, checking it now. The original is unchanged${
+                            copy.join.kind === 'run' ? ` · ${copy.join.nm.toFixed(1)} NM joining run` : ''
+                        }`,
                     );
                 }
             } else if (action?.kind === 'return-trip') {
@@ -1089,27 +1150,33 @@ export const MapHub: React.FC<MapHubProps> = ({
     // when you are in the web page, to bring up the previous tracks"). On the
     // standalone /plan page there's no PLAN front door, so this is the ONLY
     // path to a saved route. Same load semantics as the PLAN-page 'load-saved'
-    // deep link: rebase the Undo floor, adopt the name, drop the leg-chain
-    // lock, and FIT THE WHOLE ROUTE on screen (Shane 2026-07-17: "show the
-    // entire route, overriding the zoom-10 restriction") — fitBounds picks
-    // whatever zoom shows every pin, in OR out past 10, capped at 15 so a
-    // tiny route doesn't slam to max zoom.
+    // deep link: rebase the Undo floor, adopt the name, keep a trip's leg in
+    // its place (126-16a; leg 1 and a lone route open free), and FIT THE
+    // WHOLE ROUTE on screen (Shane 2026-07-17: "show the entire route,
+    // overriding the zoom-10 restriction") — fitBounds picks whatever zoom
+    // shows every pin, in OR out past 10, capped at 15 so a tiny route doesn't
+    // slam to max zoom.
     const openSavedTrace = useCallback(
         (t: SavedTrace) => {
             if (!t || t.points.length < 2) return;
             triggerHaptic('light');
-            setLegAnchor(null);
+            const traces = loadSavedTraces();
+            const slot = slotSeedForLeg(traces, t);
+            const gap = slot ? slotGapNm(traces, slot) : null;
+            setLegAnchor(slot);
             rebaseHistoryRef.current = true;
             setCapturedCoords(t.points);
             setTraceName(t.name);
             // Same re-arm as the load-saved deep link — see there.
-            void import('../../services/routeAutoName').then(({ looksAutoNamed }) => {
-                if (looksAutoNamed(t.name)) lastAutoNameRef.current = t.name;
-            });
+            rearmAutoNameForOpenedRoute(lastAutoNameRef, t.name, slot);
             setShowSavedTraces(false);
             setSelectedPin(null);
             if (mapRef.current) fitTraceBounds(mapRef.current, t.points);
-            flashTraceFeedback(`Opened "${t.name}"`);
+            flashTraceFeedback(
+                slot && gap !== null && gap >= 0.05
+                    ? `Opened "${t.name}" — this leg starts ${gap.toFixed(1)} NM from where leg ${slot.ordinal - 1} ends`
+                    : `Opened "${t.name}"`,
+            );
         },
         [flashTraceFeedback, lastAutoNameRef, rebaseHistoryRef, setCapturedCoords, setLegAnchor, setTraceName],
     );
@@ -1244,6 +1311,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         tideLabelForRef: departureLabelForRef,
         savedTraces,
         setSavedTraces,
+        legAnchor,
     });
     // The background re-check and the tracer share one chart-build queue, so
     // it waits while Route Tracer is ON SCREEN or still grading (build 124).
@@ -1361,9 +1429,11 @@ export const MapHub: React.FC<MapHubProps> = ({
             // logbook write Sail does, minus the follow. It powers cast-off
             // choices, planned-vs-sailed comparison, and legacy recovery in
             // Plan's Saved Routes library; it is no longer a factual Log
-            // voyage card. Background under a JS deadline; the
-            // label+day duplicate guard makes same-day re-saves quiet
-            // no-ops instead of twins.
+            // voyage card. Background under a JS deadline; the duplicate
+            // guard (this saved route's own mirror, 126-16a) makes re-saves
+            // quiet no-ops instead of twins, lets a copied leg with its
+            // source's label land on the same day, and hands back the ids of
+            // an own mirror that never got linked, so reconcileMirror links it.
             void (async () => {
                 try {
                     const [{ savePassagePlanToLogbookWithLinks }, { withDeadline }] = await Promise.all([
@@ -1411,6 +1481,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                     const { DUPLICATE_PASSAGE_PLAN_ERROR } = await import('../../services/shiplog/PassagePlanSave');
                     if (!(err instanceof Error && err.message === DUPLICATE_PASSAGE_PLAN_ERROR)) {
                         log.warn(`trace save → logbook skipped: ${err instanceof Error ? err.message : String(err)}`);
+                    } else {
+                        // Said, not swallowed (126-16a): this saved route already
+                        // has its mirror. A reason only — no ids, no names.
+                        log.warn('trace save → logbook: duplicate for this saved route');
                     }
                 }
             })();
@@ -4345,6 +4419,21 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             nextReturnLeg={returnFlow.nextReturnLeg}
                                             onNextReturnLeg={openNextReturnLeg}
                                             onStopReturnTrip={returnFlow.stop}
+                                            nextLeg={nextLeg}
+                                            onNextLeg={() =>
+                                                nextLeg &&
+                                                setTripSheet({
+                                                    start: { pane: 'add', afterId: nextLeg.afterId },
+                                                    scope: getAuthIdentityScope(),
+                                                })
+                                            }
+                                            onBackToTrip={() =>
+                                                nextLeg &&
+                                                setTripSheet({
+                                                    start: { pane: 'trip', tripKey: nextLeg.tripKey },
+                                                    scope: getAuthIdentityScope(),
+                                                })
+                                            }
                                         />
                                         {/* Guided builder ⚡ Auto-to-destination — PARKED with
                                 the course frame (COURSE_FRAME_VISIBLE). */}
@@ -4439,6 +4528,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             showSavedTraces={showSavedTraces}
                                             setShowSavedTraces={setShowSavedTraces}
                                             openSavedTrace={openSavedTrace}
+                                            onFillSlot={fillsLockedSlot ? fillSlotFromSheet : undefined}
                                         />
                                         <TracerWaypointList
                                             capturedCoords={capturedCoords}
@@ -4897,6 +4987,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                             }}
                         />
                     </Suspense>
+                )}
+                {/* The Trip sheet over the chart (126-16a): "Plot the next
+                    leg →", "Back to the trip" and "Fill this leg". */}
+                {tripSheet && !pickerMode && (
+                    <LazyTripSheet
+                        scope={tripSheet.scope}
+                        start={tripSheet.start}
+                        onClose={closeTripSheet}
+                        onOpenChart={noopOpenChart}
+                    />
                 )}
 
                 {/* Lightning legend pill — rendered OUTSIDE the AisLegend

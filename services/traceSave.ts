@@ -62,13 +62,30 @@ export function decideTraceSave(input: {
     // itself. "Overwrite?" against the first match could then replace a leg
     // of the OTHER trip with this line (2026-10-07 review). A chained leg
     // knows its own slot; any other draft cannot tell which row it means.
+    //
+    // A locked draft (126-16a) is matched by its SLOT alone: only a row that
+    // is this leg of this trip can be overwritten. A row of the same name
+    // elsewhere is not a candidate, so a leg copied from another trip keeps
+    // its source's name ("Mackay - Whitsundays (3rd Leg)" as leg 3 of a new
+    // trip) and saves as its own row; the occupant check below still refuses
+    // a second row in a slot that is taken.
     const inThisSlot = anchor ? named.filter((trace) => legInSlot([trace], anchor) !== null) : [];
-    const existing = named.length > 1 && inThisSlot.length === 1 ? inThisSlot[0] : named[0];
-    if (named.length > 1 && inThisSlot.length !== 1) {
+    if (anchor && inThisSlot.length > 1) {
+        // Two phones saved this leg at once. Updating either would leave the
+        // trip with two of it; delete one first (Plan → Saved routes).
         return {
             kind: 'refuse',
             finalName,
-            existing,
+            existing: inThisSlot[0],
+            reason: `Leg ${anchor.ordinal} of this trip is saved twice — delete one in Saved routes, then save`,
+        };
+    }
+    const existing = anchor ? inThisSlot[0] : named[0];
+    if (!anchor && named.length > 1) {
+        return {
+            kind: 'refuse',
+            finalName,
+            existing: named[0],
             reason: `${named.length} saved routes are called "${finalName}" — give this one its own name`,
         };
     }

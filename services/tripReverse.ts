@@ -106,8 +106,9 @@ export function isReversalOf(points: readonly TracePoint[], existing: readonly T
     return towardReverse < towardForward;
 }
 
-/** Exact reverse, pin for pin — a leg's "reverse twin". */
-function isExactReverse(points: readonly TracePoint[], other: readonly TracePoint[]): boolean {
+/** Exact reverse, pin for pin — a leg's "reverse twin". Shared with the
+ *  add-a-leg picker (services/tripLegAdd.ts), which excludes it too. */
+export function isExactReverse(points: readonly TracePoint[], other: readonly TracePoint[]): boolean {
     if (points.length !== other.length || points.length < 2) return false;
     return points.every((point, index) => samePin(point, other[other.length - 1 - index]));
 }

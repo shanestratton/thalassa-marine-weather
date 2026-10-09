@@ -329,9 +329,7 @@ describe('RoutePlanner', () => {
                 expect(screen.queryByText('Comfort', { exact: true })).not.toBeInTheDocument();
                 expect(screen.queryByLabelText('Max acceptable wind speed')).not.toBeInTheDocument();
 
-                const tripPicker = screen.getByRole('combobox', {
-                    name: 'Trip · Legs: pick a trip or route to continue',
-                });
+                const tripPicker = screen.getByRole('button', { name: 'Trip · Legs' });
                 // The hidden card's wrapper must disappear too: an empty
                 // sibling still earns space-y margin. The plot settings card
                 // (Departure, then the vessel) leads the form, with the ways in
@@ -343,13 +341,17 @@ describe('RoutePlanner', () => {
                 expect(firstFormCard?.nextElementSibling?.nextElementSibling).toBe(doors);
                 expect(doors.firstElementChild).toContainElement(tripPicker);
                 expect(doors.lastElementChild).toBe(screen.getByRole('button', { name: 'Plan Your Day' }));
-                fireEvent.change(tripPicker, { target: { value: 'comfort-hidden-trip' } });
-                fireEvent.click(screen.getByRole('button', { name: /Newport - Musgrave/ }));
+                // 126-16a: the tile opens the Trip sheet; a leg card opens that leg.
+                fireEvent.click(tripPicker);
+                const trips = await screen.findByRole('dialog', { name: 'Your trips' });
+                fireEvent.click(within(trips).getByRole('button', { name: /^Newport - Musgrave/ }));
+                fireEvent.click(screen.getByRole('button', { name: /^Leg 1: Newport - Musgrave/ }));
                 expect(plannerMocks.requestTracerOpen).toHaveBeenLastCalledWith(
                     { kind: 'load-saved', id: 'comfort-hidden-trip' },
                     expect.objectContaining({ key: 'anonymous' }),
                 );
-                fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+                // A pick closes the sheet as it hands over to the chart.
+                expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
                 const date = localDateStr(new Date(Date.now() + 3 * 86_400_000));
                 fireEvent.change(screen.getByLabelText('Departure date'), { target: { value: date } });
@@ -436,7 +438,7 @@ describe('RoutePlanner', () => {
         expect(plannerMocks.setPage).not.toHaveBeenCalled();
     });
 
-    it('keeps next-leg selection as its original identity-fenced direct chart handoff', () => {
+    it('keeps next-leg selection as its original identity-fenced direct chart handoff', async () => {
         plannerMocks.savedTraces = [
             {
                 id: 'leg-one',
@@ -449,10 +451,12 @@ describe('RoutePlanner', () => {
             },
         ];
         render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
-        fireEvent.change(screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' }), {
-            target: { value: 'leg-one' },
-        });
-        fireEvent.click(screen.getByRole('button', { name: /Plot the 2nd leg from Musgrave/i }));
+        // 126-16a: Trip · Legs → the trip → "+ Add the 2nd leg" → plot it by hand.
+        fireEvent.click(screen.getByRole('button', { name: 'Trip · Legs' }));
+        const trips = await screen.findByRole('dialog', { name: 'Your trips' });
+        fireEvent.click(within(trips).getByRole('button', { name: /^Newport - Musgrave/ }));
+        fireEvent.click(screen.getByRole('button', { name: '+ Add the 2nd leg from Musgrave' }));
+        fireEvent.click(screen.getByRole('button', { name: '✎ Plot it by hand' }));
         expect(plannerMocks.requestTracerOpen).toHaveBeenCalledExactlyOnceWith(
             { kind: 'new-leg', fromId: 'leg-one' },
             expect.objectContaining({ key: 'anonymous' }),

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Voyage } from '../services/VoyageService';
 
@@ -37,7 +37,10 @@ const tripOverview = {
     latestArrivalIso: null,
 };
 
-vi.mock('../services/routeTracer', () => ({
+// The real module, with the library fixed: the Trip sheet (126-16a) reads more
+// of it than the old modal did.
+vi.mock('../services/routeTracer', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../services/routeTracer')>()),
     loadSavedTraces: vi.fn(() => tripGroup.legs),
     groupTracesByTrip: vi.fn(() => [tripGroup]),
     nextLegSeed: vi.fn(() => ({ ordinal: 2, fromName: 'Moreton' })),
@@ -145,19 +148,25 @@ afterEach(() => {
 });
 
 describe('passage and vessel dialog accessibility', () => {
-    it('contains the trip-leg picker and restores focus to its select after Escape', () => {
+    it('contains the Trip sheet, steps back a pane on Escape, and restores focus to its tile', async () => {
         render(<TripLegPicker onOpenChart={vi.fn()} />);
-        const picker = screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' });
-        picker.focus();
-        fireEvent.change(picker, { target: { value: 'trip-1' } });
+        const tile = screen.getByRole('button', { name: 'Trip · Legs' });
+        tile.focus();
+        fireEvent.click(tile);
 
-        const close = screen.getByRole('button', { name: 'Close' });
-        expect(screen.getByRole('dialog', { name: '🧩 Brisbane → Cairns' })).toContainElement(close);
+        const trips = await screen.findByRole('dialog', { name: 'Your trips' });
+        const close = within(trips).getByRole('button', { name: 'Close' });
         expect(close).toHaveFocus();
+        fireEvent.click(within(trips).getByRole('button', { name: /^Brisbane → Cairns/ }));
+        const trip = screen.getByRole('dialog', { name: 'Brisbane → Cairns' });
+        // Focus follows the pane, so the keyboard stays inside the sheet.
+        expect(trip).toContainElement(document.activeElement as HTMLElement);
 
-        fireEvent.keyDown(close, { key: 'Escape' });
+        fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+        expect(screen.getByRole('dialog', { name: 'Your trips' })).toBeInTheDocument();
+        fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-        expect(picker).toHaveFocus();
+        expect(tile).toHaveFocus();
     });
 
     it('contains the trip overview and restores its opener', () => {
