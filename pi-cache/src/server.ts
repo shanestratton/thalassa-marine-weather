@@ -55,6 +55,7 @@ import { SharedSignalkReader, readLanTelemetry } from './lanTelemetry.js';
 import { AisNightWatch } from './aisWatch.js';
 import { fileAisWatchStore } from './aisWatchStore.js';
 import { createAisWatchRoutes } from './routes/aisWatch.js';
+import { PiAlarmRelay, canonicalPiAlarmRelayEndpoint } from './piAlarmRelay.js';
 import { requestPath } from './requestPath.js';
 import { createOnboardSupplement } from './onboardSensors.js';
 import { DiaryVideoRelay } from './diaryVideoRelay.js';
@@ -213,6 +214,9 @@ const telemetryPublisher = new TelemetryPublisher({
     // The night watch's three keys, first in the row's extra (126-04a): a
     // phone ashore reads "Watching: the Pi" from them.
     aisWatchExtra: () => aisWatch.cloudExtra(),
+    // Whether the Pi can wake the skipper's phone (126-04b): LAST, so the
+    // relay's 40-key cap drops it before any instrument.
+    trailingExtra: () => aisWatch.cloudPushExtra(),
 });
 if (process.env.THALASSA_TELEMETRY_PUBLISH !== '0') telemetryPublisher.start();
 
@@ -241,10 +245,26 @@ if (anchorCredential && SUPABASE_ANON_KEY && APP_API_ENABLED) {
    polls. 'At anchor' is this Pi's own anchor watch. A watch that was armed
    when the Pi stopped is armed again at boot, until a phone stands it down. */
 const signalkDocuments = new SharedSignalkReader({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN });
+/* The night watch wakes the skipper's locked phone (126-04b): each alarm, and
+   the open ones every 15 s, go to pi-alarm-relay with the pairing credential
+   (lent) and the anon key, to the endpoint from the trust anchor. It obeys the
+   skipper's internet policy, and says whether it can wake a phone at all. */
+const piAlarmRelay = new PiAlarmRelay({
+    fetchImpl: fetch,
+    endpoint: canonicalPiAlarmRelayEndpoint(SUPABASE_ORIGIN),
+    anonKey: () => SUPABASE_ANON_KEY,
+    credentials: () => diaryRelayOutbox.lendAlarmCredentials(),
+    internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
+    ownerId: () => diaryRelayOutbox.getConfiguration().ownerId,
+    utcOffsetMin: () => -new Date().getTimezoneOffset(),
+});
 const aisWatch = new AisNightWatch({
     documents: () => signalkDocuments.read(),
     atAnchor: () => anchorWatch.isRunning(),
     store: fileAisWatchStore(CACHE_DIR),
+    onAlarm: (alarm) => void piAlarmRelay.raise(alarm),
+    onPass: (description) => piAlarmRelay.afterPass(description, (kind, mmsi) => aisWatch.ack(kind, mmsi)),
+    pushStatus: () => piAlarmRelay.status(),
 });
 aisWatch.restore();
 /** The app's own alphabet is unambiguous; the relay accepts any alphanumeric. */
@@ -713,8 +733,9 @@ app.get('/api/telemetry', requireAppApi, async (req, res) => {
 });
 
 // The night watch, driven by the phones aboard: armed and stood down with the
-// collision shield, acknowledged from any phone's alarm card (126-04a).
-app.use('/api/ais-watch', requireAppApi, createAisWatchRoutes(aisWatch));
+// collision shield, acknowledged from any phone's alarm card (126-04a), and
+// "Send a test from the Pi" through the push path (126-04b).
+app.use('/api/ais-watch', requireAppApi, createAisWatchRoutes(aisWatch, { test: () => piAlarmRelay.test() }));
 
 app.post('/api/anchor/watch', requireAppApi, (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;

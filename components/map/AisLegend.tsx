@@ -14,6 +14,11 @@
  * comes from this account's own cloud row, read on its own while the key
  * shows and the boat LAN does not answer (CloudTelemetryService
  * followPiWatch: it feeds nothing else). No Pi paired: no line.
+ *
+ * Build 126 (126-04b): the line says whether the Pi can wake THIS phone,
+ * claimed only once proved (utils/collisionWatchRow.ts), and aboard offers
+ * "Send a test from the Pi": one push through the whole path, to try with
+ * the phone locked.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { AisGuardZone, type GuardZoneState } from '../../services/AisGuardZone';
@@ -72,6 +77,24 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
         const timer = setTimeout(() => setConfirmStandDown(false), 5_000);
         return () => clearTimeout(timer);
     }, [confirmStandDown]);
+    // "Send a test from the Pi" (126-04b): its answer stays on the button a few seconds.
+    const [testState, setTestState] = useState<'idle' | 'sending' | 'sent' | 'internet-off' | 'failed'>('idle');
+    useEffect(() => {
+        if (testState === 'idle' || testState === 'sending') return;
+        const timer = setTimeout(() => setTestState('idle'), 8_000);
+        return () => clearTimeout(timer);
+    }, [testState]);
+    const testTone: CollisionWatchRow['tone'] =
+        testState === 'sent' ? 'ok' : testState === 'idle' || testState === 'sending' ? 'quiet' : 'warn';
+    const sendTest = useCallback(() => {
+        triggerHaptic('light');
+        setTestState('sending');
+        void PiNightWatchStatus.sendTest()
+            .catch(() => null)
+            .then((result) =>
+                setTestState(result?.queued ? 'sent' : result?.push === 'internet-off' ? 'internet-off' : 'failed'),
+            );
+    }, []);
     const standDownPi = useCallback(() => {
         triggerHaptic('medium');
         if (!confirmStandDown) {
@@ -241,6 +264,41 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
                         </span>
                         {watchRow.note && (
                             <span style={{ fontSize: 11, color: 'var(--day-ui-muted, #94a3b8)' }}>{watchRow.note}</span>
+                        )}
+                        {watchRow.test && (
+                            <button
+                                type="button"
+                                data-testid="collision-watch-send-test"
+                                className="hit-target-44"
+                                onClick={sendTest}
+                                disabled={testState === 'sending'}
+                                style={{
+                                    alignSelf: 'flex-start',
+                                    marginTop: 2,
+                                    minHeight: 44,
+                                    minWidth: 44,
+                                    padding: '3px 10px',
+                                    borderRadius: 10,
+                                    border: `1px solid ${ROW_TONE[testTone].border}`,
+                                    background: 'transparent',
+                                    color: ROW_TONE[testTone].colour,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    whiteSpace: 'normal',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                {
+                                    {
+                                        idle: 'Send a test from the Pi',
+                                        sending: 'Sending a test…',
+                                        sent: 'Test sent: lock this phone and wait',
+                                        'internet-off': "Not sent: the Pi's internet use is off",
+                                        failed: "The Pi couldn't send it. Try again in a minute.",
+                                    }[testState]
+                                }
+                            </button>
                         )}
                         {watchRow.action === 'stand-down-all' && (
                             <button

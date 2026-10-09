@@ -19,7 +19,11 @@ describe('background push contract', () => {
     // Comments stripped: both Functions explain in prose WHY the key is gone,
     // and prose must never trip a source contract.
     const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    const sendPush = stripComments(readFileSync('supabase/functions/send-push/index.ts', 'utf8'));
+    // The aps dictionary is built in send-push/config.ts since 126-04b; both files are the Function.
+    const sendPush = stripComments(
+        readFileSync('supabase/functions/send-push/index.ts', 'utf8') +
+            readFileSync('supabase/functions/send-push/config.ts', 'utf8'),
+    );
     const anchorAlarm = stripComments(readFileSync('supabase/functions/send-anchor-alarm/index.ts', 'utf8'));
 
     it('does not declare a remote-notification background mode it never services', () => {

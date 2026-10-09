@@ -45,6 +45,13 @@ export interface TelemetryPublisherDeps {
      * the rest without a word (supabase/functions/telemetry-relay/parse.ts).
      */
     aisWatchExtra?: () => Record<string, number | string> | null;
+    /**
+     * Keys written LAST in `extra` (126-04b: the night watch's word on whether
+     * the Pi can wake the skipper's phone). The relay keeps the first 40 keys,
+     * so when the bus fills them, these are the ones it drops: a capability
+     * word may be lost (the phone then claims nothing), an instrument may not.
+     */
+    trailingExtra?: () => Record<string, number | string> | null;
 }
 
 export type PublishOutcome =
@@ -74,8 +81,10 @@ export function buildTelemetryBody(
     snapshot: TelemetrySnapshot,
     deviceLabel: string,
     leadingExtra?: Record<string, number | string> | null,
+    trailingExtra?: Record<string, number | string> | null,
 ): Record<string, unknown> {
-    const extra = leadingExtra ? { ...leadingExtra, ...snapshot.extra } : snapshot.extra;
+    const trailing = trailingExtra && Object.keys(trailingExtra).length > 0 ? trailingExtra : null;
+    const extra = leadingExtra || trailing ? { ...leadingExtra, ...snapshot.extra, ...trailing } : snapshot.extra;
     return {
         source: 'pi',
         device_label: deviceLabel.slice(0, 60),
@@ -201,7 +210,14 @@ export class TelemetryPublisher {
                     'X-Thalassa-Pi-Relay-Id': credential.relayId,
                     'X-Thalassa-Pi-Relay-Token': credential.token,
                 },
-                body: JSON.stringify(buildTelemetryBody(snapshot, this.deps.deviceLabel, this.deps.aisWatchExtra?.())),
+                body: JSON.stringify(
+                    buildTelemetryBody(
+                        snapshot,
+                        this.deps.deviceLabel,
+                        this.deps.aisWatchExtra?.(),
+                        this.deps.trailingExtra?.(),
+                    ),
+                ),
                 signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
             });
         } catch {

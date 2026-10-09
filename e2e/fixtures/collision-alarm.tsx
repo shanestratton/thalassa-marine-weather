@@ -16,6 +16,11 @@
  * &key=standdown: this phone's shield off while the Pi watches (the row's
  * 'Stand the Pi down' for everyone).
  *
+ * Build 126 (126-04b): &key=wake: the shield off, the Pi watching with its
+ * push path proved for this account and this phone holding a push token:
+ * 'The Pi can wake this phone', with 'Send a test from the Pi' beside the
+ * stand-down (its test answers with the longest words, a refusal).
+ *
  * Fictional vessels only (MID 123 MMSIs): this repository is public.
  */
 import React from 'react';
@@ -67,6 +72,7 @@ const [
     { AisLegend },
     { AisGuardZone },
     { PiNightWatchStatus },
+    { setAuthIdentityScope },
 ] = await Promise.all([
     import('../../components/map/AisGuardAlert'),
     import('../../components/anchor-watch/SoundCheckModal'),
@@ -74,13 +80,14 @@ const [
     import('../../components/map/AisLegend'),
     import('../../services/AisGuardZone'),
     import('../../services/piNightWatchStatus'),
+    import('../../services/authIdentityScope'),
 ]);
 
 const now = Date.now();
 const view = params.get('view');
 
 /** The Pi's own ais_watch, as its /api/telemetry hands it over (pi-cache/src/aisWatch.ts). */
-function piSays(alarms: unknown[], atAnchor = false) {
+function piSays(alarms: unknown[], atAnchor = false, push: unknown = null) {
     PiNightWatchStatus.setPaired(true);
     PiNightWatchStatus.ingestLan(
         {
@@ -94,6 +101,7 @@ function piSays(alarms: unknown[], atAnchor = false) {
             own: 'stopped',
             devices: 1,
             alarms,
+            ...(push ? { push } : {}),
         },
         { nowMs: now, answeredVia: 'lan-host' },
     );
@@ -101,11 +109,21 @@ function piSays(alarms: unknown[], atAnchor = false) {
 
 if (view === 'key') {
     const key = params.get('key');
-    if (key !== 'standdown') AisGuardZone.armAfterSoundCheck();
-    piSays([], key !== 'anchor');
+    if (key !== 'standdown' && key !== 'wake') AisGuardZone.armAfterSoundCheck();
+    if (key === 'wake') {
+        // As services/piNightWatch.ts does while it runs, for the skipper's own phone.
+        setAuthIdentityScope('skipper-fictional');
+        PiNightWatchStatus.setPushTokenHere(true);
+        PiNightWatchStatus.setTestHandler(async () => ({ push: 'unavailable', queued: false }));
+    }
+    piSays(
+        [],
+        key !== 'anchor',
+        key === 'wake' ? { state: 'ready', checkedAt: now - 60_000, ownerId: 'skipper-fictional' } : null,
+    );
     // As services/piNightWatch.ts does while it runs.
     if (key === 'anchor') PiNightWatchStatus.setPhoneAnchorWatch('at-anchor');
-    if (key === 'standdown') {
+    if (key === 'standdown' || key === 'wake') {
         PiNightWatchStatus.setStandDownHandler(() => {
             document.body.dataset.piStoodDown = 'yes';
         });

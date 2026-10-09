@@ -5,8 +5,9 @@
  * The Pi's word arrives over the boat LAN (pi-cache /api/telemetry
  * `ais_watch`) or, ashore, in the cloud row's `ais_watch*` extras. A report
  * whose last pass is over 30 s old is a Pi that is not answering, never one
- * that is watching. Until 126-04b the Pi cannot wake a locked phone, and the
- * row says so whenever the Pi is watching.
+ * that is watching. Whether the Pi can wake this phone (126-04b) is said
+ * whenever the Pi is watching: with no word on its push path, it cannot
+ * (tests/PiNightWatchPush.test.ts has the rest).
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -50,7 +51,7 @@ describe('who is watching', () => {
             tone: 'ok',
             note: PI_WATCH_LOCKED_PHONE_NOTE,
         });
-        // Until 126-04b, said whenever the Pi is watching.
+        // No word on the Pi's push path: never claimed (126-04b).
         expect(PI_WATCH_LOCKED_PHONE_NOTE).toMatch(/locked phone/);
     });
 

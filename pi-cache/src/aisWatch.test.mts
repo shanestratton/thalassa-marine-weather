@@ -1139,7 +1139,12 @@ test('POST /api/ais-watch/ack takes (kind, mmsi), and nothing else', async () =>
 
 test('server.ts: the watch is on the app gate, in the admin status, restored at boot and closed at shutdown', () => {
     const source = fs.readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
-    assert.ok(source.includes("app.use('/api/ais-watch', requireAppApi, createAisWatchRoutes(aisWatch))"));
+    // 126-04b: the test push rides the same router, on the same gate.
+    assert.ok(
+        source.includes(
+            "app.use('/api/ais-watch', requireAppApi, createAisWatchRoutes(aisWatch, { test: () => piAlarmRelay.test() }))",
+        ),
+    );
     assert.ok(source.includes('aisWatch: aisWatch.describe()'));
     assert.ok(source.includes('aisWatch.restore()'));
     assert.ok(source.includes('aisWatch.close()'));

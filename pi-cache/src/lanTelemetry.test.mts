@@ -92,6 +92,19 @@ test('AIS fields land in the phone’s units: degrees, knots, ITU codes, 511 for
     assert.equal(bare.name, '');
 });
 
+test('a zero-padded URN that names no real MMSI is no target, as a document field with that number is not', () => {
+    // A misconfigured transponder off Kiel: Signal K files it under the URN it sent.
+    const vessels = {
+        'urn:mrn:imo:mmsi:000012345': target(3_000),
+        'urn:mrn:signalk:uuid:def': { ...target(3_000), mmsi: '000012345' },
+        'urn:mrn:imo:mmsi:211000001': target(2_000),
+    };
+    assert.deepEqual(
+        readAisTargets(vessels, null, now).map((t) => t.mmsi),
+        [211000001],
+    );
+});
+
 test('a busy port is capped, and rubbish input is an empty list, not a throw', () => {
     const crowd: Record<string, unknown> = {};
     for (let i = 0; i < AIS_TARGET_CAP + 50; i += 1) crowd[`urn:mrn:imo:mmsi:${503100000 + i}`] = target(i * 10);

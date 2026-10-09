@@ -673,6 +673,19 @@ export class DiaryRelayOutbox {
         return this.lendAnchorCredentials();
     }
 
+    /**
+     * Lend the pairing credential to the night watch's alarm relay
+     * (piAlarmRelay.ts, 126-04b), and to nothing else. It presents this to
+     * the pi-alarm-relay Edge Function, which verifies it and queues a push
+     * for the skipper who paired this Pi, and only for him. The strongest
+     * thing it can do is wake the skipper's own phone with an alarm worded
+     * from bounded numbers, under the relay's own rate limits. No url: the
+     * endpoint comes from the process-startup trust anchor.
+     */
+    lendAlarmCredentials(): { relayId: string; token: string } | null {
+        return this.lendAnchorCredentials();
+    }
+
     configure(input: DiaryRelayConfigInput): DiaryRelayPublicConfiguration {
         if (input.allowInternet !== undefined && typeof input.allowInternet !== 'boolean') {
             throw new DiaryRelayValidationError('allowInternet must be a boolean');
