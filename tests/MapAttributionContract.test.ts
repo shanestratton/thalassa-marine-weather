@@ -224,7 +224,9 @@ describe('map provider attribution contract', () => {
         expect(helper).toMatch(/classList\.toggle\(\s*'is-open'\s*\)/);
         expect(helper).toMatch(/addEventListener\(\s*'click'/);
 
-        expect(read('components/TrackMapViewer.tsx')).toContain('installCompactAttribution(map)');
+        // The Log page's own maps left Leaflet for Mapbox (125-13a/b); the
+        // Sightings map is the Leaflet map left on the Log page's tiles.
+        expect(read('components/sightings/SightingsMap.tsx')).toContain('installCompactAttribution(m)');
     });
 
     it('credits every source on the Mapbox Log maps behind a compact ⓘ (125-13a)', () => {
@@ -241,5 +243,9 @@ describe('map provider attribution contract', () => {
         expect(logMap).toMatch(/attribution: SATELLITE_CREDIT/);
         expect(logMap).toMatch(/attribution: SEAMARK_CREDIT/);
         expect(read('components/LiveMiniMapGL.tsx')).toContain('createLogMap(');
+        // 125-13b: the big track map is drawn by the same helper, so it carries
+        // the same control and the same credited sources.
+        expect(read('components/TrackMapViewerGL.tsx')).toContain('createLogMap(');
+        expect(read('components/TrackMapViewerGL.tsx')).not.toMatch(/attributionControl|AttributionControl/);
     });
 });

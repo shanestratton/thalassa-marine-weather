@@ -111,4 +111,16 @@ describe('nearestTrackEntry', () => {
         const es = [entry({ entryType: 'manual' })];
         expect(nearestTrackEntry(es, -27.5, 153.0)).toBeNull();
     });
+
+    it('measures the short way across the antimeridian (a passage past Fiji)', () => {
+        // The track map draws such a passage as one continuous line, so a tap
+        // can land at 180.05 (or -180.05) beside a fix stored at -179.95.
+        const es = [
+            entry({ id: 'west', latitude: -16.8, longitude: 179.6 }),
+            entry({ id: 'east', latitude: -16.86, longitude: -179.95 }),
+        ];
+        expect(nearestTrackEntry(es, -16.86, 180.05)?.id).toBe('east');
+        expect(nearestTrackEntry(es, -16.86, 179.99)?.id).toBe('east');
+        expect(nearestTrackEntry(es, -16.8, -180.4)?.id).toBe('west');
+    });
 });

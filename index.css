@@ -3608,19 +3608,6 @@ body,
     }
 }
 
-/* Deepen CARTO Voyager's pale day-base water to a richer nautical blue.
-   The .tmv-deepwater class is set on the base tile layer (TrackMapViewer +
-   LiveMiniMap). Leaflet puts that class on the .leaflet-layer CONTAINER —
-   but on iOS WebKit a `filter` on a container whose tiles are 3D-composited
-   (translate3d) does NOT apply to them (the filter-vs-transform bug). So we
-   filter the tile IMAGES directly; per-pixel colour ops, so no seams.
-   Saturation does most of the work (bites the blue water, leaves the
-   near-neutral land alone); brightness/contrast darken a touch. Tune here,
-   both maps follow. */
-.tmv-deepwater img {
-    filter: saturate(2.2) brightness(0.84) contrast(1.08);
-}
-
 /* Leaflet's upstream `plus-lighter` / `-webkit-optimize-contrast` tile
    workarounds can turn a fractional iOS WebKit tile join into a bright,
    ruler-straight horizontal seam across satellite imagery. Keep ordinary
@@ -3775,6 +3762,62 @@ body,
 .thalassa-log-gl-map.is-free .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true']) {
     z-index: 1002;
     max-height: calc(100% - env(safe-area-inset-bottom) - env(safe-area-inset-top));
+}
+
+/* ── The big Log track map (125-13b, TrackMapViewer) ───────────────
+   The same Mapbox Log map, fullscreen under the viewer's own controls. Its
+   wordmark and ⓘ sit just above the dock (the speed line over the scrubber,
+   whose measured height TrackMapViewer writes into --track-dock-h), so the
+   band below the dock stays the legend's and nothing lies on the credits.
+   Opened, they stay inside the map above that line, scrolling if they must.
+   Positional containers only: the credit and the wordmark themselves are
+   Mapbox's, untouched. */
+.track-map-gl {
+    --track-credits-bottom: calc(4rem + env(safe-area-inset-bottom) + 14px + var(--track-dock-h, 0px));
+}
+.track-map-gl.is-free .mapboxgl-ctrl-bottom-right {
+    bottom: var(--track-credits-bottom);
+}
+.track-map-gl.is-free .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true']) {
+    max-height: calc(100% - var(--track-credits-bottom) - env(safe-area-inset-top));
+}
+/* Its bubbles (the conditions at a fix, a turn) in the Log maps' dark glass,
+   as the Leaflet viewer's were. The box's own dark ink is for the credits;
+   the bubble sets its own. Mapbox draws the tip from border colours, so
+   each anchor's side is set. */
+.track-map-gl .mapboxgl-popup-content {
+    background: rgba(15, 23, 42, 0.92);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    color: #e2e8f0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    padding: 10px 30px 10px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+}
+.track-map-gl .mapboxgl-popup-close-button {
+    color: rgba(148, 163, 184, 0.8);
+    font-size: 18px;
+    width: 28px;
+    height: 28px;
+}
+.track-map-gl
+    :is(.mapboxgl-popup-anchor-top, .mapboxgl-popup-anchor-top-left, .mapboxgl-popup-anchor-top-right)
+    .mapboxgl-popup-tip {
+    border-bottom-color: rgba(15, 23, 42, 0.92);
+}
+.track-map-gl
+    :is(.mapboxgl-popup-anchor-bottom, .mapboxgl-popup-anchor-bottom-left, .mapboxgl-popup-anchor-bottom-right)
+    .mapboxgl-popup-tip {
+    border-top-color: rgba(15, 23, 42, 0.92);
+}
+.track-map-gl .mapboxgl-popup-anchor-left .mapboxgl-popup-tip {
+    border-right-color: rgba(15, 23, 42, 0.92);
+}
+.track-map-gl .mapboxgl-popup-anchor-right .mapboxgl-popup-tip {
+    border-left-color: rgba(15, 23, 42, 0.92);
 }
 
 /* ── MOB button on the chart's helm menu ───────────────────────────

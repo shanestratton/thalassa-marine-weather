@@ -9,7 +9,7 @@ import React from 'react';
 import { render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeMapboxMap, installFakeIntersectionObserver } from './helpers/fakeMapboxGl';
-import { FOLLOWED_ROUTE_CORE, FOLLOWED_ROUTE_GLOW } from '../components/map/followedRouteLayer';
+import { FOLLOWED_ROUTE_CORE, FOLLOWED_ROUTE_GLOW } from '../components/map/logMapColours';
 import type { ShipLogEntry } from '../types';
 
 vi.mock('../services/PiCacheService', () => ({

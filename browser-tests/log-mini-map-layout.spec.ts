@@ -1,7 +1,28 @@
-import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { expect, test, type Page } from '@playwright/test';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { compositeTile, fixtureStyle, imageryTile, reliefTile, seamarkTile } from '../e2e/helpers/syntheticChartTiles';
+import {
+    boxes,
+    creditsReadable,
+    isBoat,
+    isImagery,
+    isPlainLand,
+    isRelief,
+    isRouteViolet,
+    layerMismatches,
+    MIB,
+    noSideways,
+    OLD_SATELLITE,
+    openFixture,
+    overlaps,
+    probe,
+    settled,
+    shot,
+    SHOTS,
+    SIZES,
+    uncovered,
+    type Network,
+} from '../e2e/helpers/logMapBrowser';
 import { expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
 
 /**
@@ -27,273 +48,19 @@ import { expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  *    on it;
  *  - Chromium: the JS heap the little map costs, and what it gives back.
  *
- * Set LOG_MAP_SHOTS_DIR to also save the screenshots there.
+ * Set LOG_MAP_SHOTS_DIR to also save the screenshots there. The offline
+ * network, the probe and the layout checks are shared with the big track
+ * map's spec (e2e/helpers/logMapBrowser.ts).
  */
 
-const SHOTS = process.env.LOG_MAP_SHOTS_DIR?.trim() || '';
-if (SHOTS) mkdirSync(SHOTS, { recursive: true });
-const SIZES = [
-    { width: 320, height: 568 },
-    { width: 390, height: 844 },
-];
-const MIB = 1024 * 1024;
-const OLD_SATELLITE = /satellite-streets|arcgisonline|World_Imagery/;
-
-type Network = 'online' | 'pi' | 'nostyle';
-type Fixture = {
-    ready: boolean;
-    maps: Array<{
-        getContainer(): HTMLElement;
-        getLayoutProperty(id: string, p: string): unknown;
-        getLayer(id: string): unknown;
-        loaded(): boolean;
-        getZoom(): number;
-        once(type: 'idle', listener: () => void): unknown;
-        triggerRepaint(): void;
-    }>;
-    taps: { count: number };
-    expected: Array<[string, boolean]>;
-    boat: [number, number];
-    mount(): void;
-    unmount(): void;
-    forget(): void;
-    probe(lon: number, lat: number): Promise<number[] | null>;
-};
-declare global {
-    interface Window {
-        __logMapFixture: Fixture;
-    }
-}
-
-interface Seen {
-    all: string[];
-    viaPi: string[];
-    direct: string[];
-    unexpected: string[];
-}
-
-const made = new Map<string, Buffer | null>();
-const once = (key: string, make: () => Buffer | null) => {
-    if (!made.has(key)) made.set(key, make());
-    return made.get(key)!;
-};
-
-/** A tile host's answer, from the made-up coastlines; null for "no such tile" (a 404). */
-function upstreamTile(url: URL): Buffer | null | undefined {
-    const xyz = (m: RegExpMatchArray, at: number) => [Number(m[at]), Number(m[at + 1]), Number(m[at + 2])] as const;
-    if (url.hostname === 'tiles.thalassatiles.com') {
-        const m = url.pathname.match(/^\/v1\/relief-(global|au)\/(idx|dem)\/(\d+)\/(\d+)\/(\d+)\.(png|webp)$/);
-        if (!m) return undefined;
-        const [z, x, y] = xyz(m, 3);
-        return once(`${m[2]}/${z}/${x}/${y}`, () => reliefTile(m[2] as 'idx' | 'dem', z, x, y));
-    }
-    if (url.hostname === 'tiles.openseamap.org') {
-        const m = url.pathname.match(/^\/seamark\/(\d+)\/(\d+)\/(\d+)\.png$/);
-        if (!m) return undefined;
-        const [z, x, y] = xyz(m, 1);
-        return once(`seamark/${z}/${x}/${y}`, () => seamarkTile(z, x, y));
-    }
-    if (url.hostname === 'api.mapbox.com') {
-        // Mapbox rewrites its own raster URLs: @2x again for a 512 source, and .webp.
-        const m = url.pathname.match(/^\/v4\/mapbox\.satellite\/(\d+)\/(\d+)\/(\d+)(?:@2x)*\.(?:jpg\d*|png|webp)$/);
-        if (!m) return undefined;
-        const [z, x, y] = xyz(m, 1);
-        return once(`imagery/${z}/${x}/${y}`, () => imageryTile(z, x, y));
-    }
-    return undefined;
-}
-
-async function serveOffline(page: Page, origin: string, network: Network): Promise<Seen> {
-    const seen: Seen = { all: [], viaPi: [], direct: [], unexpected: [] };
-    await page.route('**/*', async (route) => {
-        const url = new URL(route.request().url());
-        seen.all.push(url.href);
-        if (url.origin === origin) {
-            const m = url.pathname.match(/^\/__log-map-fixture\/composite\/(\d+)\/(\d+)\/(\d+)\.mvt$/);
-            if (!m) return route.continue();
-            const [z, x, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
-            return route.fulfill({
-                status: 200,
-                contentType: 'application/x-protobuf',
-                body: once(`mvt/${z}/${x}/${y}`, () => compositeTile(z, x, y))!,
-            });
-        }
-        // The boat's Pi (a fictional host): it fetches upstream for us.
-        if (url.hostname === 'pi.fixture.test' && url.pathname === '/api/passthrough-tile') {
-            const upstream = new URL(url.searchParams.get('url') ?? '');
-            seen.viaPi.push(upstream.href);
-            const body = upstreamTile(upstream);
-            return body
-                ? route.fulfill({ status: 200, contentType: 'image/png', body })
-                : route.fulfill({ status: 404 });
-        }
-        if (url.hostname === 'api.mapbox.com' && url.pathname === '/styles/v1/mapbox/dark-v11') {
-            // As if cached: the style the app opened with ashore. 'nostyle' never had it.
-            if (network === 'nostyle') return route.abort('internetdisconnected');
-            return route.fulfill({
-                status: 200,
-                contentType: 'application/json',
-                body: JSON.stringify(fixtureStyle(origin)),
-            });
-        }
-        const body = upstreamTile(url);
-        if (body !== undefined) {
-            seen.direct.push(url.href);
-            if (network !== 'online') return route.abort('internetdisconnected');
-            return body
-                ? route.fulfill({ status: 200, contentType: 'image/png', body })
-                : route.fulfill({ status: 404 });
-        }
-        // Mapbox's telemetry and session pings, and anything else: no internet.
-        if (!/^https:\/\/(events\.mapbox\.com|api\.mapbox\.com\/map-sessions)\//.test(url.href))
-            seen.unexpected.push(url.href.replace(/access_token=[^&]+/, 'access_token=…'));
-        return route.abort('internetdisconnected');
-    });
-    await page.routeWebSocket(/^wss?:\/\/(?!127\.0\.0\.1)/, (socket) => socket.close());
-    return seen;
-}
-
-async function open(
+/** The live, fullscreen, planned or heap screen of e2e/fixtures/log-mini-map.tsx, offline. */
+const open = (
     page: Page,
     baseURL: string,
     screen: string,
     size: { width: number; height: number },
     network: Network = 'online',
-) {
-    const errors: string[] = [];
-    page.on('pageerror', (error) => errors.push(error.message));
-    await page.setViewportSize(size);
-    const seen = await serveOffline(page, new URL(baseURL).origin, network);
-    await page.goto(`/e2e/fixtures/log-mini-map.html?screen=${screen}&fonts=wide${network === 'pi' ? '&pi=1' : ''}`);
-    await page.waitForFunction(() => window.__logMapFixture?.ready === true);
-    await page.evaluate(() => document.fonts.ready);
-    return { errors, seen };
-}
-
-/** The newest map has its style (or the fallback) and every tile it asked for. */
-async function settled(page: Page, style: 'relief-sat' | 'fallback') {
-    await page.waitForFunction(
-        (want) => {
-            const map = window.__logMapFixture.maps.at(-1);
-            return !!map && map.getContainer().dataset.logMapStyle === want && map.loaded();
-        },
-        style,
-        { timeout: 45_000 },
-    );
-    // loaded() is true as the last tile arrives, but a raster tile then fades
-    // in over 300 ms (the land imagery keeps Mapbox's default fade), and a
-    // pixel read mid-fade sees the imagery half-drawn. Mapbox fires 'idle'
-    // only once every fade and transition is done; the repaint makes sure
-    // one comes even if the map went idle before we asked.
-    await page.evaluate(
-        () =>
-            new Promise<void>((resolve) => {
-                const map = window.__logMapFixture.maps.at(-1)!;
-                map.once('idle', () => resolve());
-                map.triggerRepaint();
-            }),
-    );
-}
-
-async function shot(page: Page, info: TestInfo, name: string) {
-    const file = `${name}-${info.project.name}.png`;
-    await page.screenshot({ path: info.outputPath(file), animations: 'disabled' });
-    if (SHOTS) await page.screenshot({ path: join(SHOTS, file), animations: 'disabled' });
-}
-
-const probe = (page: Page, lon: number, lat: number) =>
-    page.evaluate(([x, y]) => window.__logMapFixture.probe(x, y), [lon, lat] as const);
-
-/** The water fill alone (#1f5a85): the relief tint must have drawn over it. */
-const PLAIN_WATER = [31, 90, 133];
-const isRelief = ([r, g, b]: number[]) =>
-    b > r + 40 && b >= g && Math.max(...[r, g, b].map((c, i) => Math.abs(c - PLAIN_WATER[i]))) > 12;
-const isImagery = ([r, g, b]: number[]) => g > b + 8 && r > 40;
-const isPlainLand = ([r, g, b]: number[]) => b >= g && Math.abs(r - 51) < 20 && Math.abs(b - 69) < 20;
-const isBoat = ([r, g, b]: number[]) => r < 110 && g > 180 && b > 200;
-const isRouteViolet = ([r, g, b]: number[]) => b > 200 && r > 140 && g < b;
-
-async function layerMismatches(page: Page) {
-    return page.evaluate(() => {
-        const f = window.__logMapFixture;
-        const map = f.maps.at(-1)!;
-        return f.expected
-            .filter(([id, on]) => {
-                if (!map.getLayer(id)) return true;
-                const shown = (map.getLayoutProperty(id, 'visibility') ?? 'visible') === 'visible';
-                return shown !== on;
-            })
-            .map(([id]) => id);
-    });
-}
-
-/** Rectangles that must not lie on one another, by name. */
-async function boxes(page: Page, named: Record<string, Locator>) {
-    const out: Record<string, { x: number; y: number; width: number; height: number }> = {};
-    for (const [name, locator] of Object.entries(named)) {
-        if ((await locator.count()) === 0 || !(await locator.first().isVisible())) continue;
-        out[name] = (await locator.first().boundingBox())!;
-    }
-    return out;
-}
-
-function overlaps(a: { x: number; y: number; width: number; height: number }, b: typeof a) {
-    return (
-        a.x < b.x + b.width - 0.5 &&
-        b.x < a.x + a.width - 0.5 &&
-        a.y < b.y + b.height - 0.5 &&
-        b.y < a.y + a.height - 0.5
-    );
-}
-
-/**
- * The opened credits, read whole: inside the map's box, nothing on any part
- * of what shows, and scrolling when they run longer than the map.
- */
-async function creditsReadable(
-    page: Page,
-    corner: Locator,
-    mapBox: { x: number; y: number; width: number; height: number },
-) {
-    const box = (await corner.boundingBox())!;
-    expect(box.x).toBeGreaterThanOrEqual(mapBox.x - 0.5);
-    expect(box.y).toBeGreaterThanOrEqual(mapBox.y - 0.5);
-    expect(box.x + box.width).toBeLessThanOrEqual(mapBox.x + mapBox.width + 0.5);
-    expect(box.y + box.height).toBeLessThanOrEqual(mapBox.y + mapBox.height + 0.5);
-    const report = await corner.evaluate((element) => {
-        const panel = element.querySelector('.mapboxgl-compact-show')!.getBoundingClientRect();
-        const r = element.getBoundingClientRect();
-        const top = Math.max(panel.top, r.top) + 4;
-        const bottom = Math.min(panel.bottom, r.bottom) - 4;
-        const covered: string[] = [];
-        for (const y of [top, (top + bottom) / 2, bottom])
-            for (const x of [panel.left + 6, (panel.left + panel.right) / 2, panel.right - 6]) {
-                const hit = document.elementFromPoint(x, y);
-                if (!hit || !element.contains(hit))
-                    covered.push(`${Math.round(x)},${Math.round(y)}: ${hit?.className}`);
-            }
-        return {
-            covered,
-            scrolls: element.scrollHeight > element.clientHeight + 1,
-            overflowY: getComputedStyle(element).overflowY,
-        };
-    });
-    expect(report.covered, 'something lies on the opened credits').toEqual([]);
-    if (report.scrolls) expect(report.overflowY).toBe('auto');
-}
-
-/** Hit-testable at its centre: nothing lies on it. */
-async function uncovered(page: Page, locator: Locator) {
-    return locator.first().evaluate((element) => {
-        const r = element.getBoundingClientRect();
-        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return !!hit && (hit === element || element.contains(hit));
-    });
-}
-
-async function noSideways(page: Page) {
-    return page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-}
+) => openFixture(page, baseURL, `/e2e/fixtures/log-mini-map.html?screen=${screen}&fonts=wide`, size, network);
 
 for (const size of SIZES) {
     test(`the live card draws Relief + Sat, credits clear, ${size.width}x${size.height}, wide fonts`, async ({
@@ -430,7 +197,11 @@ for (const size of SIZES) {
         baseURL,
     }, info) => {
         const { errors, seen } = await open(page, baseURL!, 'planned', size);
-        await page.locator('.live-mini-map').scrollIntoViewIfNeeded();
+        // The card's placeholder box can be swapped for the map's own box (the
+        // lazy chunk landing) mid-scroll: scroll whichever box is there now.
+        await expect(async () => {
+            await page.locator('.live-mini-map').scrollIntoViewIfNeeded({ timeout: 2_000 });
+        }).toPass({ timeout: 15_000 });
         await settled(page, 'relief-sat');
         expect(await layerMismatches(page)).toEqual([]);
         const sea = (await probe(page, 148.88, -20.2))!;

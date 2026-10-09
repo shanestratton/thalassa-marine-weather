@@ -222,6 +222,13 @@ describe('createLogMap: compact credits, memory and gestures', () => {
         expect(free.touchZoomRotate!.disableRotation).toHaveBeenCalled();
     });
 
+    it('a free map can opt in to double-tap zoom and the keyboard (the big track map, 125-13b); a card never can', () => {
+        const track = newMap({ gestures: 'free', doubleClickZoom: true, keyboard: true });
+        expect(track.options).toMatchObject({ interactive: true, doubleClickZoom: true, keyboard: true });
+        const card = newMap({ doubleClickZoom: true, keyboard: true });
+        expect(card.options).toMatchObject({ interactive: false, doubleClickZoom: false, keyboard: false });
+    });
+
     it('opens on the bounds it is given, or a centre, with the token as its own (never the global)', () => {
         const fitted = newMap({
             view: {

@@ -1,7 +1,7 @@
 /**
  * logMap — the Log page's maps on Relief + Sat, in Mapbox GL (125-13a: the
- * little live map, components/LiveMiniMapGL.tsx; 125-13b reuses this for the
- * big track map). Shane 2026-10-09: "on the log page, can we replace the
+ * little live map, components/LiveMiniMapGL.tsx; 125-13b: the big track map,
+ * components/TrackMapViewerGL.tsx). Shane 2026-10-09: "on the log page, can we replace the
  * little and the big map with our relief + sat ?? remove the old satellite
  * map".
  *
@@ -156,10 +156,22 @@ export function installLogMapBase(map: mapboxgl.Map, token: string, { seamarks =
     }
 }
 
+/**
+ * Room kept clear around a frame, in px: the same on every side, or per side
+ * where a map's own controls float over it (the big track map, 125-13b).
+ */
+export type LogMapPadding = number | { top: number; bottom: number; left: number; right: number };
+
+/** Does a box of this size leave something to frame inside `padding`? */
+export function logMapPaddingFits(width: number, height: number, padding: LogMapPadding): boolean {
+    const p = typeof padding === 'number' ? { top: padding, bottom: padding, left: padding, right: padding } : padding;
+    return width > p.left + p.right + 8 && height > p.top + p.bottom + 8;
+}
+
 export interface LogMapView {
     /** Framed on these, if given; otherwise centred. */
     bounds?: LogMapBounds;
-    padding?: number;
+    padding?: LogMapPadding;
     maxZoom?: number;
     center?: LonLat;
     zoom?: number;
@@ -173,6 +185,14 @@ export interface LogMapOptions {
     view: LogMapView;
     /** 'card': a picture to tap; 'free': pans and pinches (fullscreen), north-up. */
     gestures: 'card' | 'free';
+    /**
+     * A free map's extras, off unless asked (a card never has them): a double
+     * tap zooms in, and the arrow and +/- keys pan and zoom it once focused.
+     * The big track map takes both, as its Leaflet map had them (125-13b); the
+     * little map's fullscreen view shrinks on a tap, so it takes neither.
+     */
+    doubleClickZoom?: boolean;
+    keyboard?: boolean;
     /** Where the wordmark and the ⓘ sit. A card's bottom corners carry its buttons. */
     credits?: 'top' | 'bottom';
     seamarks?: boolean;
@@ -188,6 +208,8 @@ export interface LogMapOptions {
 export function createLogMap(options: LogMapOptions): mapboxgl.Map | null {
     const { container, token, view, gestures, seamarks = true, onStyle } = options;
     const free = gestures === 'free';
+    const doubleClickZoom = free && options.doubleClickZoom === true;
+    const keyboard = free && options.keyboard === true;
     const credits = options.credits ?? (free ? 'bottom' : 'top');
     // retainPadding: false, as every padded camera call in the app says
     // (tests/cameraPaddingGuard.test.ts): Mapbox GL 3 would otherwise keep
@@ -215,9 +237,9 @@ export function createLogMap(options: LogMapOptions): mapboxgl.Map | null {
             dragRotate: false,
             touchPitch: false,
             pitchWithRotate: false,
-            doubleClickZoom: false,
+            doubleClickZoom,
             boxZoom: false,
-            keyboard: false,
+            keyboard,
             maxPitch: 0,
             maxTileCacheSize: LOG_MAP_TILE_CACHE[gestures],
             fadeDuration: 0,
@@ -280,15 +302,22 @@ export function unwrapLongitudes(coords: readonly LonLat[]): LonLat[] {
     const out: LonLat[] = [];
     let previous: number | undefined;
     for (const [lon, lat] of coords) {
-        let next = lon;
-        if (previous !== undefined) {
-            while (next - previous > 180) next -= 360;
-            while (next - previous < -180) next += 360;
-        }
+        const next = previous === undefined ? lon : nearLongitude(lon, previous);
         out.push([next, lat]);
         previous = next;
     }
     return out;
+}
+
+/**
+ * `lon` moved by whole turns to within 180° of `reference`: where a fix, a
+ * tap or the playback boat sits beside a line drawn past ±180.
+ */
+export function nearLongitude(lon: number, reference: number): number {
+    let next = lon;
+    while (next - reference > 180) next -= 360;
+    while (next - reference < -180) next += 360;
+    return next;
 }
 
 export function logMapBounds(coords: readonly LonLat[]): LogMapBounds | null {
@@ -323,10 +352,10 @@ export function setLogMapData(map: mapboxgl.Map, id: string, data: GeoJSON.Featu
 export function fitLogMap(
     map: mapboxgl.Map,
     coords: readonly LonLat[],
-    { padding = 16, maxZoom = 14, pointZoom = 13 } = {},
+    { padding = 16 as LogMapPadding, maxZoom = 14, pointZoom = 13 } = {},
 ): boolean {
     const box = map.getContainer();
-    if (box.clientWidth <= padding * 2 + 8 || box.clientHeight <= padding * 2 + 8) return false;
+    if (!logMapPaddingFits(box.clientWidth, box.clientHeight, padding)) return false;
     const bounds = logMapBounds(unwrapLongitudes(coords));
     if (!bounds) return false;
     const [[west, south], [east, north]] = bounds;

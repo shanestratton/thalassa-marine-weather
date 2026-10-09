@@ -1,6 +1,8 @@
 /**
- * Base tiles for the Leaflet maps on the Log page (LiveMiniMap and
- * TrackMapViewer).
+ * Base tiles for the Leaflet maps on the Log page. Since 125-13a/b the little
+ * and the big Log maps are Mapbox GL on Relief + Sat (map/logMap.ts); the one
+ * importer left is the Sightings map (components/sightings/SightingsMap.tsx),
+ * and this file goes when it moves too.
  *
  * Why this exists
  * ───────────────
