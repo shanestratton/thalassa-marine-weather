@@ -47,22 +47,67 @@ export function offsetFromAnchorM(anchor: LatLon, point: LatLon): { dx: number; 
     };
 }
 
+/**
+ * What the radar reads, and nothing more (126-03a). A whole AnchorWatchSnapshot
+ * is one (the boat's own watch passes its snapshot); Shore Watch builds one
+ * from the broadcast it hears and her trail, with no invented fields: a
+ * half-minute mean has no heading, and a Pi's anchor no time.
+ */
+export type SwingCanvasModel = Pick<AnchorWatchSnapshot, 'state' | 'swingRadius' | 'gpsAccuracy'> & {
+    anchorPosition: LatLon | null;
+    vesselPosition: LatLon | null;
+    /** Her trail, oldest first. */
+    positionHistory: readonly LatLon[];
+};
+
+/**
+ * The compass rose on a `width` x `height` canvas: the swing circle's radius
+ * on screen, how far past it the ticks start (major, minor, other) and end,
+ * and where N, E, S and W sit.
+ *
+ * As drawn on the boat's own radar: the circle at 35% of the short side, the
+ * ticks to 22 px past it, the letters 32 px past it. That needs a short side
+ * of about 267 px; on less, the letters fall off the canvas. With `fit`
+ * (Shore Watch's radar, 128-256 px), a smaller canvas gets a tighter rose and
+ * a circle pulled in just enough to keep each letter's centre 8 px inside.
+ */
+export function radarRose(width: number, height: number, fit = false) {
+    const short = Math.min(width, height);
+    const radius = short * 0.35;
+    if (!fit || short / 2 - radius >= 40) {
+        return { displayRadius: radius, tickFrom: { major: 12, minor: 16, other: 18 }, tickTo: 22, labelAt: 32 };
+    }
+    return {
+        displayRadius: Math.max(0, Math.min(radius, short / 2 - 26)),
+        tickFrom: { major: 2, minor: 5, other: 7 },
+        tickTo: 10,
+        labelAt: 18,
+    };
+}
+
 interface SwingCircleCanvasProps {
-    snapshot: AnchorWatchSnapshot | null;
+    model?: SwingCanvasModel | null;
+    /** The same as `model`, under the name the boat's own callers use. */
+    snapshot?: SwingCanvasModel | null;
     aisTargets?: AisTargetDot[];
     className?: string;
     ariaLabel?: string;
     /** A proposed new anchor: drawn at the centre with the swing circle around it. */
     previewAnchor?: LatLon | null;
+    /** Keep N, E, S and W on a small canvas (radarRose's `fit`). */
+    fitRose?: boolean;
 }
 
 export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({
-    snapshot,
+    model,
+    snapshot: snapshotAlias,
     aisTargets,
     className,
     ariaLabel,
     previewAnchor,
+    fitRose = false,
 }) => {
+    const snapshot = model ?? snapshotAlias ?? null;
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const previewLat = previewAnchor?.latitude;
     const previewLon = previewAnchor?.longitude;
@@ -113,7 +158,8 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({
             ctx.clearRect(0, 0, W, H);
 
             // Scale: fit swing radius + margin into canvas (always use min dimension for perfect circle)
-            const displayRadius = Math.min(W, H) * 0.35;
+            const rose = radarRose(W, H, fitRose);
+            const displayRadius = rose.displayRadius;
             const scale = snapshot.swingRadius > 0 ? displayRadius / snapshot.swingRadius : 1;
 
             // ── Ocean depth background gradient ──
@@ -130,8 +176,10 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({
                 const angle = (((i * 360) / numTicks - 90) * Math.PI) / 180;
                 const isMajor = i % 9 === 0;
                 const isMinor = i % 3 === 0;
-                const innerR = displayRadius + (isMajor ? 12 : isMinor ? 16 : 18);
-                const outerR = displayRadius + 22;
+                const innerR =
+                    displayRadius +
+                    (isMajor ? rose.tickFrom.major : isMinor ? rose.tickFrom.minor : rose.tickFrom.other);
+                const outerR = displayRadius + rose.tickTo;
                 ctx.beginPath();
                 ctx.moveTo(cx + Math.cos(angle) * innerR, cy + Math.sin(angle) * innerR);
                 ctx.lineTo(cx + Math.cos(angle) * outerR, cy + Math.sin(angle) * outerR);
@@ -147,7 +195,7 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({
             }
 
             // ── Compass cardinal labels ──
-            const labelOffset = displayRadius + 32;
+            const labelOffset = displayRadius + rose.labelAt;
             ctx.font = 'bold 13px system-ui';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -405,7 +453,7 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({
             observer.disconnect();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [snapshot, previewLat, previewLon]);
+    }, [snapshot, previewLat, previewLon, fitRose]);
 
     return (
         <canvas

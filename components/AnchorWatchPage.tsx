@@ -40,6 +40,8 @@ import { toast } from './Toast';
 import { createLogger } from '../utils/createLogger';
 import { AnchorIcon, AlertTriangleIcon, CheckIcon, DeviceIcon, LockIcon, PhoneIcon, PowerBoatIcon } from './Icons';
 import { useAuthStore } from '../stores/authStore';
+import { useSettingsStore } from '../stores/settingsStore';
+import { ShoreSwingTrail } from '../services/shoreSwingTrail';
 import { SignInScreen } from './SignInScreen';
 
 import { getWeatherRecommendation, formatDistance, bearingToCardinal, formatElapsed } from './anchor-watch/anchorUtils';
@@ -159,6 +161,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     );
     const [shoreAlarm, setShoreAlarm] = useState(ShoreWatchAlarmService.getSnapshot);
     const [pushReadiness, setPushReadiness] = useState(() => AnchorWatchSyncService.getPushReadiness());
+    /** Shore Watch reads in the viewer's own units, never the boat's (126-03a). */
+    const units = useSettingsStore((state) => state.settings.units);
 
     // Setup form state
     const [rodeLength, setRodeLength] = useState(30);
@@ -1566,6 +1570,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 showMute={!!shoreAlarm.cause}
                                 muted={shoreAlarm.muted}
                                 onMute={() => void handleMuteShoreAlarm()}
+                                lengthUnit={units?.length === 'ft' ? 'ft' : 'm'}
+                                speedUnit={units?.speed ?? 'kts'}
+                                distanceUnit={units?.distance}
+                                trail={ShoreSwingTrail.points(syncState?.sessionCode ?? null)}
                             />
                         ) : (
                             <div className="text-center">

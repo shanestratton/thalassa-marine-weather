@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ShoreWatchAlarmService } from '../../services/ShoreWatchAlarmService';
 import { AnchorWatchService } from '../../services/AnchorWatchService';
+import { ShoreSwingTrail } from '../../services/shoreSwingTrail';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { formatAnchorLength } from './anchorUtils';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { AlertTriangleIcon, RadioTowerIcon } from '../Icons';
@@ -11,6 +14,10 @@ function ShoreAlarmDialog() {
     const ref = useFocusTrap<HTMLDivElement>(true, { initialFocusRef: silenceRef });
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    // The viewer's own units (126-03a): feet for a feet skipper, wherever the boat is.
+    const units = useSettingsStore((state) => state.settings.units);
+    const length = (metres: number) =>
+        formatAnchorLength(metres, units?.length === 'ft' ? 'ft' : 'm', { long: units?.distance });
     const title =
         watch.cause === 'drag'
             ? 'Vessel drag alarm'
@@ -49,8 +56,8 @@ function ShoreAlarmDialog() {
             </p>
             {watch.position && (
                 <p className="mt-4 text-slate-300">
-                    Last reported: {Math.round(watch.position.distance)} m from anchor ·{' '}
-                    {Math.round(watch.position.swingRadius)} m radius
+                    Last reported: {length(watch.position.distance)} from anchor · {length(watch.position.swingRadius)}{' '}
+                    radius
                 </p>
             )}
             {(error || watch.audioError) && (
@@ -95,6 +102,7 @@ export function GlobalShoreWatchGate({ showStatus, onOpen }: { showStatus: boole
     const [localAlarm, setLocalAlarm] = useState(() => AnchorWatchService.getSnapshot().state === 'alarm');
     useEffect(() => {
         ShoreWatchAlarmService.start();
+        ShoreSwingTrail.start();
         const unsubscribe = AnchorWatchService.subscribe((snap) => setLocalAlarm(snap.state === 'alarm'));
         return () => {
             unsubscribe();

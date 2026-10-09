@@ -19,6 +19,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ShoreWatchReadings } from '../components/anchor-watch/ShoreWatchReadings';
 import type { PositionBroadcast } from '../services/AnchorWatchSyncService';
+import { ANCHOR_LIVE_KEYS } from '../services/anchorLiveConditions';
 
 const broadcaster = readFileSync('pi-cache/src/anchorBroadcaster.ts', 'utf8');
 const sync = readFileSync('services/AnchorWatchSyncService.ts', 'utf8');
@@ -68,6 +69,9 @@ describe('the Pi and the shore device speak the same language', () => {
                     showMute: false,
                     muted: false,
                     onMute: () => undefined,
+                    lengthUnit: 'm',
+                    speedUnit: 'kts',
+                    trail: [],
                 }),
             );
             const container = document.createElement('div');
@@ -83,6 +87,70 @@ describe('the Pi and the shore device speak the same language', () => {
             expect(metrics['Swing Radius']).toBe('35 m');
         },
     );
+
+    // 126-03a renders the boat's live depth and wind; 126-05 makes the Pi send
+    // them. Whichever lands second must not rename a field the other reads.
+    describe('the live depth and wind block (126-05 shape)', () => {
+        const liveType = sync.match(/live\?: \{([\s\S]*?)\};/)?.[1] ?? '';
+
+        it('`live` is optional in the type, so an older Pi or a phone-kept watch sends none', () => {
+            expect(sync).toMatch(/live\?: \{/);
+        });
+
+        it('the type and the reader name the same keys, each optional', () => {
+            const typed = [...liveType.matchAll(/(\w+)\?:/g)].map((m) => m[1]).sort();
+            expect(typed).toEqual([...ANCHOR_LIVE_KEYS].sort());
+        });
+
+        it('every live key the readings read is written by the Pi, or the Pi writes no live block yet', () => {
+            // A `live` key in the payload (`live: …` or the `{ live }` shorthand),
+            // not the word in a comment.
+            const piWritesLive = /\blive\s*:|[{,]\s*live\s*[,}]/.test(broadcaster);
+            for (const key of ANCHOR_LIVE_KEYS) {
+                if (piWritesLive) expect(broadcaster, `Pi live block is missing ${key}`).toContain(key);
+            }
+            // The readings read the block only through the reader, so a key the
+            // reader does not know is never read.
+            const readings = readFileSync('components/anchor-watch/ShoreWatchReadings.tsx', 'utf8');
+            expect(readings).toMatch(/readAnchorLiveConditions\(data\.live/);
+            expect(readings).not.toMatch(/data\.live\.\w+/);
+        });
+
+        it.each([
+            ['missing', undefined],
+            ['empty', {}],
+        ])('the readings render a payload with live %s, and show no live rows', (_label, live) => {
+            const timestamp = Date.UTC(2026, 9, 10, 2, 0);
+            const data: PositionBroadcast = {
+                type: 'position',
+                vessel: { latitude: -43.61, longitude: 172.72, accuracy: 3, heading: 20, speed: 0, timestamp },
+                anchor: { latitude: -43.61, longitude: 172.72, timestamp },
+                distance: 10,
+                swingRadius: 35,
+                isAlarm: false,
+                timestamp,
+                ...(live === undefined ? {} : { live }),
+            };
+            const markup = renderToStaticMarkup(
+                createElement(ShoreWatchReadings, {
+                    data,
+                    fresh: true,
+                    isAlarm: false,
+                    statusLabel: 'Holding',
+                    showMute: false,
+                    muted: false,
+                    onMute: () => undefined,
+                    lengthUnit: 'ft',
+                    speedUnit: 'kmh',
+                    trail: [],
+                    now: timestamp,
+                }),
+            );
+            expect(markup).not.toContain('Wind');
+            expect(markup).not.toContain('Depth below');
+            expect(markup).not.toContain('NaN');
+        });
+    });
 
     it("the skipper's rode and depth reach the Pi, since only the phone knows them", () => {
         expect(handoff).toMatch(/rodeLength\?: number;/);

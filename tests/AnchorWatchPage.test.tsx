@@ -136,6 +136,8 @@ import { ShoreWatchAlarmService, type ShoreAlarmSnapshot } from '../services/Sho
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
 import { AnchorWatchSyncService, type PositionBroadcast, type SyncState } from '../services/AnchorWatchSyncService';
 import { AnchorPiWatchKeeper } from '../services/anchorPiWatchKeeper';
+import { ShoreSwingTrail } from '../services/shoreSwingTrail';
+import { useSettingsStore } from '../stores/settingsStore';
 
 const CONNECTED_SHORE_STATE: SyncState = {
     connected: true,
@@ -712,5 +714,37 @@ describe('AnchorWatchPage', () => {
         await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData());
         expect(screen.getByText('Checking background notifications…')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Retry notifications' })).toBeDisabled();
+    });
+
+    // Review 126-03a: the readings and the fixture are tested with the units
+    // and trail they are handed; this pins the page handing over the viewer's
+    // own Settings and the trail this phone heard for this session.
+    it("Shore Watch reads in the viewer's own units and draws the trail this phone heard (126-03a)", async () => {
+        const previous = useSettingsStore.getState().settings;
+        useSettingsStore.setState({
+            settings: { ...previous, units: { ...previous.units, length: 'ft', speed: 'kmh', distance: 'nm' } },
+        });
+        const data = makeShoreData();
+        const half = Math.floor(data.vessel.timestamp / 30_000) * 30_000;
+        const trail = [
+            { latitude: -27.0002, longitude: 153.0002, accuracy: 3, timestamp: half - 30_000 },
+            { latitude: -27.0001, longitude: 153.0001, accuracy: 3, timestamp: half },
+        ];
+        const points = vi.spyOn(ShoreSwingTrail, 'points').mockReturnValue(trail);
+        try {
+            await renderShoreWatch(CONNECTED_SHORE_STATE, data);
+            expect(points).toHaveBeenCalledWith(CONNECTED_SHORE_STATE.sessionCode);
+            // Swing radius 35 m, rode 30 m, depth 5 m, 12 m out: in feet.
+            expect(screen.getByText('115 ft')).toBeInTheDocument();
+            expect(screen.getByText('98 ft')).toBeInTheDocument();
+            expect(screen.getByText('16.4 ft')).toBeInTheDocument();
+            const radar = screen.getByRole('img', { name: /Shore Watch radar/ });
+            expect(radar).toHaveAccessibleName(/39 ft from the anchor; swing radius 115 ft/);
+            const since = new Date(half - 30_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            expect(screen.getByText(`Trail since ${since}`)).toBeInTheDocument();
+        } finally {
+            points.mockRestore();
+            useSettingsStore.setState({ settings: previous });
+        }
     });
 });

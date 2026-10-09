@@ -5,23 +5,79 @@ import { ShoreWatchReadings } from '../../components/anchor-watch/ShoreWatchRead
 import { ShoreWeighAnchorBar } from '../../components/anchor-watch/ShoreWeighAnchorBar';
 import { PageHeader } from '../../components/ui/PageHeader';
 import type { PositionBroadcast } from '../../services/AnchorWatchSyncService';
+import type { SpeedUnit } from '../../types/units';
 import '../../index.css';
 
 const params = new URLSearchParams(location.search);
 const scenario = params.get('scenario') || 'healthy';
 const fresh = scenario !== 'stale';
 const alarm = scenario === 'alarm';
+/** Across the antimeridian, off Taveuni (fictional): her trail must draw beside the anchor. */
+const anti = params.has('anti');
 const timestamp = new Date('2026-09-24T04:06:00Z').getTime();
+/** The page renders a moment after the broadcast; the live readings are fresh at it. */
+const now = timestamp + 10_000;
 document.documentElement.style.fontSize = params.has('largeText') ? '24px' : '16px';
+const lengthUnit = params.get('units') === 'ft' ? 'ft' : 'm';
+const speedUnit = (params.get('speed') as SpeedUnit | null) ?? 'kts';
+
+type LatLon = { latitude: number; longitude: number };
+
+/** A point `metres` from `from` on a compass bearing, its longitude wrapped into ±180°. */
+function offset(from: LatLon, metres: number, bearingDeg: number): LatLon {
+    const rad = (bearingDeg * Math.PI) / 180;
+    const lon = from.longitude + (metres * Math.sin(rad)) / (111320 * Math.cos((from.latitude * Math.PI) / 180));
+    return {
+        latitude: from.latitude + (metres * Math.cos(rad)) / 110540,
+        longitude: ((((lon + 180) % 360) + 360) % 360) - 180,
+    };
+}
+
+/**
+ * Her trail as the shore phone heard it: a swing round the anchor, `metres`
+ * out, every 10°, one half-minute apart and unbroken, the last in the
+ * broadcast's own half-minute.
+ */
+function swing(anchor: LatLon, metres: number, from: number, to: number): (LatLon & { timestamp: number })[] {
+    const bearings: number[] = [];
+    for (let bearing = from; bearing <= to; bearing += 10) bearings.push(bearing);
+    return bearings.map((bearing, i) => ({
+        ...offset(anchor, metres, bearing),
+        timestamp: timestamp - (bearings.length - 1 - i) * 30_000,
+    }));
+}
+
+// Fictional anchorages: off Horta, the Azores, and off Taveuni, Fiji, astride 180°.
+const HORTA = { latitude: 38.53, longitude: -28.62 };
+const TAVEUNI = { latitude: -16.8, longitude: 179.9998 };
+const anchor = anti ? TAVEUNI : HORTA;
+// Off Taveuni she lies 53 m east, at -179.9997, in a 60 m circle; the trail
+// runs 42 m out from WNW through north to east (browser-tests reads it there).
+const vessel = anti ? { latitude: -16.8, longitude: -179.9997 } : offset(HORTA, alarm ? 63 : 11, 120);
+const trail = anti ? swing(TAVEUNI, 42, 300, 440) : swing(HORTA, 12, 40, 130);
 
 const data: PositionBroadcast = {
     type: 'position',
-    vessel: { latitude: -27.19, longitude: 153.11, accuracy: 3, heading: 0, speed: 0, timestamp },
-    anchor: { latitude: -27.19, longitude: 153.11, timestamp },
-    distance: alarm ? 63 : 11,
-    swingRadius: 50,
+    vessel: { ...vessel, accuracy: 3, heading: 0, speed: 0, timestamp },
+    anchor: { ...anchor, timestamp },
+    distance: anti ? 53 : alarm ? 63 : 11,
+    swingRadius: anti ? 60 : 50,
     isAlarm: alarm,
     config: { rodeLength: 45, waterDepth: 4.3 },
+    // The Pi's live depth and wind (126-05), each with its own time.
+    ...(params.has('live')
+        ? {
+              live: {
+                  depthM: 3.2,
+                  depthReference: 'below-keel',
+                  depthAt: timestamp - 4_000,
+                  twsKn: 18,
+                  twsAt: timestamp - 2_000,
+                  twdDeg: 135,
+                  twdAt: timestamp - 20_000,
+              },
+          }
+        : {}),
     timestamp,
 };
 
@@ -122,6 +178,10 @@ function Fixture() {
                                 showMute={!fresh || alarm}
                                 muted={muted}
                                 onMute={() => setMuted(true)}
+                                lengthUnit={lengthUnit}
+                                speedUnit={speedUnit}
+                                trail={trail}
+                                now={now}
                             />
                             {params.has('ownPi') && <ShoreWeighAnchorBar onWeighAnchor={() => setWeighed(true)} />}
                         </div>

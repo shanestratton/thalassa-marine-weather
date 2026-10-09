@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     retryAudio: vi.fn(),
     leaveSession: vi.fn(),
     stopBoatWatch: vi.fn(),
+    trailStart: vi.fn(),
 }));
 
 vi.mock('../services/ShoreWatchAlarmService', () => ({
@@ -57,7 +58,33 @@ vi.mock('../services/AnchorWatchSyncService', () => ({
     },
 }));
 
+// Her trail ashore (126-03a) is kept from app start, beside the shore alarm.
+vi.mock('../services/shoreSwingTrail', () => ({
+    ShoreSwingTrail: { start: mocks.trailStart },
+}));
+
 import { GlobalShoreWatchGate } from '../components/anchor-watch/GlobalShoreWatchGate';
+import type { PositionBroadcast } from '../services/AnchorWatchSyncService';
+import { useSettingsStore } from '../stores/settingsStore';
+
+function setLengthUnit(length: 'm' | 'ft') {
+    const settings = useSettingsStore.getState().settings;
+    useSettingsStore.setState({ settings: { ...settings, units: { ...settings.units, length, distance: 'nm' } } });
+}
+
+function reported(distance: number, swingRadius: number): PositionBroadcast {
+    const timestamp = Date.now();
+    return {
+        type: 'position',
+        // Off Horta, the Azores: fictional.
+        vessel: { latitude: 38.5306, longitude: -28.6203, accuracy: 3, heading: 0, speed: 0, timestamp },
+        anchor: { latitude: 38.53, longitude: -28.62, timestamp },
+        distance,
+        swingRadius,
+        isAlarm: true,
+        timestamp,
+    };
+}
 
 function snapshot(overrides: Partial<ShoreAlarmSnapshot> = {}): ShoreAlarmSnapshot {
     return {
@@ -100,6 +127,8 @@ describe('GlobalShoreWatchGate', () => {
         const view = render(<GlobalShoreWatchGate showStatus onOpen={vi.fn()} />);
         expect(view.container).toBeEmptyDOMElement();
         expect(mocks.start).toHaveBeenCalledOnce();
+        // Her trail is kept for the app's lifetime too, from the same place.
+        expect(mocks.trailStart).toHaveBeenCalledOnce();
         expect(mocks.stop).not.toHaveBeenCalled();
         expect(mocks.leaveSession).not.toHaveBeenCalled();
     });
@@ -136,6 +165,20 @@ describe('GlobalShoreWatchGate', () => {
         expect(document.body).toContainElement(dialog);
         expect(screen.getByRole('button', { name: 'Silence this phone' })).toBeEnabled();
         expect(screen.getByText(/does not stop or silence the boat’s watchkeeper/)).toBeInTheDocument();
+    });
+
+    it.each([
+        ['ft', 'Last reported: 207 ft from anchor · 164 ft radius'],
+        ['m', 'Last reported: 63 m from anchor · 50 m radius'],
+    ] as const)("says where she was last reported in the viewer's units (%s)", (unit, words) => {
+        setLengthUnit(unit);
+        try {
+            mocks.watch = snapshot({ cause: 'drag', position: reported(63, 50) });
+            render(<GlobalShoreWatchGate showStatus onOpen={vi.fn()} />);
+            expect(screen.getByText(words)).toBeInTheDocument();
+        } finally {
+            setLengthUnit('m');
+        }
     });
 
     it('gives a local boat alarm priority, then reveals the still-active shore alarm', () => {
