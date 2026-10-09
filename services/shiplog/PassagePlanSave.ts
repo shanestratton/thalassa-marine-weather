@@ -25,9 +25,12 @@ const log = createLogger('PassagePlanSave');
 /**
  * Sentinel thrown when the caller tries to save a passage plan whose
  * (departure → destination) pair already exists in the logbook for the
- * same calendar day. Callsites should `catch` and show a "this route
- * already exists for that day, change the date" toast — distinct from
- * the generic "Save failed" path.
+ * same calendar day, or, for a Route Tracer mirror (a `savedRouteId`), when
+ * that saved route already has its mirror and it could not be adopted (its
+ * ids are the caller's own, or its planning row would not refresh). An
+ * adoptable own mirror returns its ids instead. Callsites should `catch` and show
+ * a "this route already exists for that day, change the date" toast —
+ * distinct from the generic "Save failed" path.
  */
 export const DUPLICATE_PASSAGE_PLAN_ERROR = 'DUPLICATE_PASSAGE_PLAN';
 
@@ -286,6 +289,42 @@ async function queuePassageBatch(
 }
 
 /**
+ * Refresh the Passage Planning row of a saved route's existing mirror in place:
+ * the new Cast Off proof and timing, the same ids. 'aborted' when the account
+ * changed under it; 'failed' when the exact row could not be updated.
+ */
+async function refreshTraceMirror(
+    plan: import('../../types').VoyagePlan,
+    savedRouteId: string,
+    traceVerificationNote: string,
+    ids: { passageVoyageId: string; plannedRouteId: string },
+    operationScope: AuthIdentityScope,
+): Promise<PassagePlanSaveResult | 'aborted' | 'failed'> {
+    const departureMs = Date.parse(plan.departureDate || '');
+    const durationHours = parseDurationToHours(plan.durationApprox);
+    const departureTime = Number.isFinite(departureMs) ? new Date(departureMs).toISOString() : null;
+    const eta =
+        departureTime && durationHours !== null
+            ? new Date(departureMs + durationHours * 3_600_000).toISOString()
+            : null;
+    const { refreshSavedRouteVoyageVerification } = await import('../VoyageService');
+    if (!isAuthIdentityScopeCurrent(operationScope)) return 'aborted';
+    const refreshed = await refreshSavedRouteVoyageVerification(
+        ids.passageVoyageId,
+        savedRouteId,
+        traceVerificationNote,
+        { departure_time: departureTime, eta },
+    );
+    if (!isAuthIdentityScopeCurrent(operationScope)) return 'aborted';
+    if (refreshed.voyage) {
+        invalidateRoutesAndTracks(operationScope);
+        return { plannedRouteId: ids.plannedRouteId, passageVoyageId: ids.passageVoyageId };
+    }
+    log.warn(`savePassagePlan: exact verification refresh failed: ${refreshed.error ?? 'unknown error'}`);
+    return 'failed';
+}
+
+/**
  * Save a passage plan's route to the logbook as a "planned_route" voyage.
  * These entries remain raw compatibility data for cast-off following,
  * planned-vs-sailed comparison, and recovery in Plan's Saved Routes library.
@@ -324,30 +363,15 @@ export async function savePassagePlanToLogbookWithLinks(
         // saved_routes geometry is what Plan renders; this compatibility
         // mirror keeps its existing ids while its Cast Off proof is replaced.
         if (traceVerificationNote && savedRouteId && existingPassageVoyageId && existingPlannedRouteId) {
-            const departureMs = Date.parse(plan.departureDate || '');
-            const durationHours = parseDurationToHours(plan.durationApprox);
-            const departureTime = Number.isFinite(departureMs) ? new Date(departureMs).toISOString() : null;
-            const eta =
-                departureTime && durationHours !== null
-                    ? new Date(departureMs + durationHours * 3_600_000).toISOString()
-                    : null;
-            const { refreshSavedRouteVoyageVerification } = await import('../VoyageService');
-            if (!isAuthIdentityScopeCurrent(operationScope)) return null;
-            const refreshed = await refreshSavedRouteVoyageVerification(
-                existingPassageVoyageId,
+            const refreshed = await refreshTraceMirror(
+                plan,
                 savedRouteId,
                 traceVerificationNote,
-                { departure_time: departureTime, eta },
+                { passageVoyageId: existingPassageVoyageId, plannedRouteId: existingPlannedRouteId },
+                operationScope,
             );
-            if (!isAuthIdentityScopeCurrent(operationScope)) return null;
-            if (refreshed.voyage) {
-                invalidateRoutesAndTracks(operationScope);
-                return {
-                    plannedRouteId: existingPlannedRouteId,
-                    passageVoyageId: existingPassageVoyageId,
-                };
-            }
-            log.warn(`savePassagePlan: exact verification refresh failed: ${refreshed.error ?? 'unknown error'}`);
+            if (refreshed === 'aborted') return null;
+            if (refreshed !== 'failed') return refreshed;
         }
         // Diagnostic: log exactly what origin/destination are at save
         // time. If the saved logbook entry comes out as "Queensland →
@@ -373,14 +397,37 @@ export async function savePassagePlanToLogbookWithLinks(
         const proposedLabel = normaliseName(formatPlannedRouteLabel(proposedDeparture, proposedArrival));
         const proposedDay = dayKey(plan.departureDate || new Date());
 
+        // This saved route's own mirror, already in the Log but never linked
+        // to its trace (the app was killed between the write and the link).
+        let ownMirror: { plannedRouteId: string; passageVoyageId: string | null } | null = null;
         try {
             const { routes } = await fetchRoutesAndTracks();
             if (!isAuthIdentityScopeCurrent(operationScope)) return null;
-            const isDuplicate = routes.some((r) => {
-                if (normaliseName(r.label) !== proposedLabel) return false;
-                return dayKey(r.timestamp) === proposedDay;
-            });
-            if (isDuplicate) {
+            // A Route Tracer mirror is a duplicate only of ITS OWN saved
+            // route's mirror (126-16a). A copied trip leg keeps its source's
+            // places, so label + day refused its Log row whenever it was
+            // checked for the same day, and the leg showed as "Not in the log
+            // yet". Plans with no saved route (the AI planner) keep label + day.
+            const mirrors = savedRouteId ? routes.filter((r) => r.savedRouteId === savedRouteId) : [];
+            const isDuplicate = savedRouteId
+                ? mirrors.length > 0
+                : routes.some((r) => {
+                      if (normaliseName(r.label) !== proposedLabel) return false;
+                      return dayKey(r.timestamp) === proposedDay;
+                  });
+            // ...and an own mirror is ADOPTED, not refused: its ids go back
+            // to the trace so it can link (and later refresh) instead of being
+            // refused on every Save. Newest first, a linked plan preferred.
+            const adoptable = [...mirrors].sort(
+                (a, b) => Number(!!b.linkedPlanId) - Number(!!a.linkedPlanId) || b.timestamp - a.timestamp,
+            )[0];
+            const alreadyTried =
+                !!adoptable &&
+                adoptable.id === existingPlannedRouteId &&
+                (adoptable.linkedPlanId ?? '') === existingPassageVoyageId;
+            if (adoptable && !alreadyTried && (traceVerificationNote || !adoptable.linkedPlanId)) {
+                ownMirror = { plannedRouteId: adoptable.id, passageVoyageId: adoptable.linkedPlanId ?? null };
+            } else if (isDuplicate) {
                 log.warn(
                     `savePassagePlan: refusing duplicate "${proposedLabel}" on ${proposedDay} — already in logbook`,
                 );
@@ -393,6 +440,26 @@ export async function savePassagePlanToLogbookWithLinks(
             // helpful guard, not a hard requirement).
             if (e instanceof Error && e.message === DUPLICATE_PASSAGE_PLAN_ERROR) throw e;
             log.warn('savePassagePlan: duplicate check failed (non-fatal)', e);
+        }
+        if (ownMirror) {
+            // No Passage Planning row behind it: nothing to refresh, link it.
+            if (!ownMirror.passageVoyageId) {
+                log.warn('savePassagePlan: adopting this saved route’s unlinked mirror (no planning row)');
+                return ownMirror;
+            }
+            const adopted = traceVerificationNote
+                ? await refreshTraceMirror(
+                      plan,
+                      savedRouteId,
+                      traceVerificationNote,
+                      { passageVoyageId: ownMirror.passageVoyageId, plannedRouteId: ownMirror.plannedRouteId },
+                      operationScope,
+                  )
+                : 'failed';
+            if (adopted === 'aborted') return null;
+            if (adopted === 'failed') throw new Error(DUPLICATE_PASSAGE_PLAN_ERROR);
+            log.warn('savePassagePlan: adopted this saved route’s unlinked mirror');
+            return adopted;
         }
 
         // Build waypoint chain: origin → waypoints → destination

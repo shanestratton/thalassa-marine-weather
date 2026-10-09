@@ -615,9 +615,8 @@ test.describe('split-pane front doors', () => {
         test(`Route Planner front door fits its pane at ${size.name}`, async ({ page, baseURL }) => {
             await open(page, baseURL, { ...size, view: 'voyage', split: true, trip: true });
             await expect(page.locator('.route-planner-cta > div')).toBeVisible({ timeout: 25_000 });
-            await expect(
-                page.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' }),
-            ).toBeVisible();
+            // The Trip · Legs tile (a button since 126-16a; it opens the Trip sheet).
+            await expect(page.getByRole('button', { name: 'Trip · Legs', exact: true })).toBeVisible();
             await settle(page);
             const pane = (await page.locator('[data-split-pane="page"]').boundingBox())!;
             const paneBottom = pane.y + pane.height - 1; // inside the frame's border

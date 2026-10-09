@@ -36,6 +36,9 @@ async function open(
     height: number,
     state: State,
     split = width >= 1024,
+    /** A route library of the test's own (the Trip sheet), and a keyboard the
+     *  test can raise ('test:keyboard', as keyboard-layout.spec.ts does). */
+    extra: { traces?: unknown[]; keyboard?: boolean } = {},
 ) {
     await page.setViewportSize({ width, height });
     const origin = new URL(baseURL!).origin;
@@ -44,9 +47,37 @@ async function open(
     );
     await page.routeWebSocket('**/*', (socket) => socket.close());
     await page.addInitScript(
-        ({ split, state }) => {
+        ({ split, state, traces, keyboard }) => {
             localStorage.setItem('thalassa_split_view', split ? '1' : '0');
-            if (state !== 'empty') {
+            if (keyboard) {
+                // No browser shows a mobile keyboard under automation. Model
+                // the visual viewport the app's keyboard guard reads, and paint
+                // the keyboard so hit-tests see it (e2e/fixtures/move-anchor.tsx).
+                const viewport = new EventTarget();
+                Object.assign(viewport, { height: window.innerHeight, offsetTop: 0, scale: 1 });
+                Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+                const cover = document.createElement('div');
+                Object.assign(cover.style, {
+                    position: 'fixed',
+                    bottom: '0',
+                    left: '0',
+                    right: '0',
+                    height: '0',
+                    display: 'none',
+                    background: '#334155',
+                    zIndex: '2147483647',
+                });
+                document.addEventListener('DOMContentLoaded', () => document.body.append(cover));
+                window.addEventListener('test:keyboard', ((event: CustomEvent<number>) => {
+                    Object.assign(viewport, { height: window.innerHeight - event.detail });
+                    cover.style.height = `${event.detail}px`;
+                    cover.style.display = event.detail ? 'block' : 'none';
+                    viewport.dispatchEvent(new Event('resize'));
+                }) as EventListener);
+            }
+            if (traces) {
+                localStorage.setItem('thalassa_traced_routes_v1::anonymous', JSON.stringify(traces));
+            } else if (state !== 'empty') {
                 const at = new Date().toISOString();
                 const leg = (id: string, name: string, from: number, to: number, ordinal?: number) => ({
                     id,
@@ -66,6 +97,8 @@ async function open(
                         leg('fixture-route', 'Marina - Island Anchorage', 3, 4),
                     ]),
                 );
+            }
+            if (state !== 'empty') {
                 const tomorrow = new Date();
                 tomorrow.setDate(tomorrow.getDate() + 1);
                 tomorrow.setHours(6, 30, 0, 0);
@@ -77,7 +110,7 @@ async function open(
                 document.head.append(wide);
             });
         },
-        { split, state },
+        { split, state, traces: extra.traces ?? null, keyboard: !!extra.keyboard },
     );
     await page.goto('/?view=voyage');
     await expect(page.getByRole('button', { name: 'Start plotting', exact: true })).toBeVisible({ timeout: 25_000 });
@@ -354,20 +387,14 @@ test.describe('Plan front door keeps every item', () => {
             await expect(day).toHaveAccessibleDescription('Go or stay, when, and where to.');
             await expect(day).toHaveAttribute('aria-haspopup', 'dialog');
             await expect(day).toHaveAttribute('aria-expanded', 'false');
-            const trip = doors.getByRole('combobox', {
-                name: 'Trip · Legs: pick a trip or route to continue',
-                exact: true,
-            });
+            // A button since 126-16a: it opens the Trip sheet (no wheel, no dead first option).
+            const trip = doors.getByRole('button', { name: 'Trip · Legs', exact: true });
             if (state === 'empty') {
                 // Nothing saved: no empty furniture.
                 await expect(trip).toHaveCount(0);
             } else {
                 await expect(trip).toHaveAccessibleDescription('2 saved · pick one to continue');
-                await expect(trip.locator('option')).toHaveText([
-                    'New Trip or Route',
-                    'Harbour - Sandy Cove (2 legs)',
-                    'Marina - Island Anchorage',
-                ]);
+                await expect(trip).toHaveAttribute('aria-haspopup', 'dialog');
                 await expect(doors.getByText('Trip · Legs', { exact: true })).toBeVisible();
             }
             // Plan Your Day opens at once: no Auto route (trial) switch, no draft check (build 124).
@@ -391,15 +418,22 @@ test.describe('Plan front door keeps every item', () => {
             await expect(menu).toHaveCount(0);
 
             if (state !== 'empty') {
-                // A trip opens its legs, with the next leg to plot and the way
-                // home (2026-10-07): the return trip and a ⇄ per leg.
-                await trip.selectOption({ label: 'Harbour - Sandy Cove (2 legs)' });
-                const legs = page.getByRole('dialog', { name: /Harbour - Sandy Cove/ });
-                await expect(
-                    legs.getByText('2 legs — tap one to open it on the chart, ⇄ to plan the way back from it'),
-                ).toBeVisible();
-                await expect(legs.getByRole('button', { name: /Plot the 3rd leg from/ })).toBeVisible();
-                await expect(legs.getByRole('button', { name: /^Plan the return trip/ })).toBeVisible();
+                // The tile opens the Trip sheet: your trips, newest first, then a
+                // trip's legs with the next leg to add and the way home
+                // (2026-10-07): the return trip and a ⇄ per leg.
+                await trip.click();
+                const trips = page.getByRole('dialog', { name: 'Your trips' });
+                await expect(trips.getByRole('list', { name: 'Trips' }).getByRole('button')).toHaveText([
+                    /^Harbour - Sandy Cove.*2 legs/,
+                    /^Marina - Island Anchorage.*1 leg\b/,
+                ]);
+                await trips.getByRole('button', { name: /^Harbour - Sandy Cove/ }).click();
+                const legs = page.getByRole('dialog', { name: 'Harbour - Sandy Cove' });
+                await expect(legs.getByText(/^2 legs · [\d.]+ NM$/)).toBeVisible();
+                await expect(legs.getByRole('button', { name: /^Leg 1: Harbour - Bay Point/ })).toBeVisible();
+                await expect(legs.getByRole('button', { name: /^Leg 2: Bay Point - Sandy Cove/ })).toBeVisible();
+                await expect(legs.getByRole('button', { name: '+ Add the 3rd leg from Sandy Cove' })).toBeVisible();
+                await expect(legs.getByRole('button', { name: /^⇄ Plan the return trip/ })).toBeVisible();
                 await expect(
                     legs.getByRole('button', { name: 'Return from Sandy Cove: legs 2 to 1 reversed', exact: true }),
                 ).toBeVisible();
@@ -407,7 +441,7 @@ test.describe('Plan front door keeps every item', () => {
                     legs.getByRole('button', { name: 'Return from Bay Point: leg 1 reversed', exact: true }),
                 ).toBeVisible();
                 await legs.getByRole('button', { name: 'Close', exact: true }).click();
-                await expect(legs).toHaveCount(0);
+                await expect(page.getByRole('dialog')).toHaveCount(0);
             }
         });
     }
@@ -422,15 +456,17 @@ test.describe('Trip · Legs keeps the way home within reach', () => {
     ]) {
         test(`the legs, their ⇄ and the return trip fit at ${size.name}`, async ({ page, baseURL }) => {
             await open(page, baseURL, size.width, size.height, 'planning');
+            await page.getByRole('button', { name: 'Trip · Legs', exact: true }).click();
             await page
-                .getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue', exact: true })
-                .selectOption({ label: 'Harbour - Sandy Cove (2 legs)' });
+                .getByRole('dialog', { name: 'Your trips' })
+                .getByRole('button', { name: /^Harbour - Sandy Cove/ })
+                .click();
             const dialog = page.getByRole('dialog', { name: /Harbour - Sandy Cove/ });
             await expect(dialog).toBeVisible();
             // The cyclone-season card (W1-12) loads below the legs: measure with it in place.
             const season = dialog.getByRole('list', { name: 'Tropical cyclones near this route by month' });
             await expect(season).toBeAttached({ timeout: 15_000 });
-            await dialog.getByRole('button', { name: /^Plan the return trip/ }).scrollIntoViewIfNeeded();
+            await dialog.getByRole('button', { name: /^⇄ Plan the return trip/ }).scrollIntoViewIfNeeded();
             const m = await dialog.evaluate((box) => {
                 const frame = box.getBoundingClientRect();
                 const targets = [...box.querySelectorAll<HTMLElement>('button')].map((button) => {
@@ -470,7 +506,7 @@ test.describe('Trip · Legs keeps the way home within reach', () => {
                 expect(chip.width, `${chip.name} is 44 pt wide`).toBeGreaterThanOrEqual(44 - 0.5);
                 expect(chip.hit, `${chip.name} is not covered`).toBe(true);
             }
-            const returnRow = m.targets.find((t) => t.name?.startsWith('⇄Plan the return trip'));
+            const returnRow = m.targets.find((t) => t.name?.startsWith('⇄ Plan the return trip'));
             expect(returnRow?.hit, 'the return-trip row is not covered').toBe(true);
 
             // Scrolled to, the season strip sits inside the dialog with every month's count in its cell.
@@ -489,6 +525,300 @@ test.describe('Trip · Legs keeps the way home within reach', () => {
             expect(strip.cells, 'twelve months').toBe(12);
             expect(strip.inside, 'the season strip stays inside the dialog').toBe(true);
             expect(strip.clipped, 'no month cell is clipped').toBe(false);
+        });
+    }
+});
+
+// ── The Trip sheet (126-16a): your trips, a trip's legs, the next leg to add.
+//    One centred card in Plan Your Day's band, clear of the tab bar; the header
+//    and footer stay put and only the middle scrolls. A fictional worldwide
+//    library: a four-leg Bay of Islands trip, Newport → Gladstone → Mackay →
+//    Airlie Beach, the Solent, the Caribbean, the Atlantic, the Arctic, the
+//    Ogasawara islands and Fiji across the antimeridian. ──
+
+type Pt = { lat: number; lon: number };
+const SHEET_NM = 1 / 60.04; // degrees of latitude per NM
+
+function sheetLibrary(): unknown[] {
+    const at = (day: number) => new Date(Date.UTC(2026, 8, day, 8)).toISOString();
+    const line = (a: Pt, b: Pt): Pt[] => [a, { lat: (a.lat + b.lat) / 2 + 0.004, lon: (a.lon + b.lon) / 2 }, b];
+    const badge = ['', '', ' (2nd Leg)', ' (3rd Leg)', ' (4th Leg)'];
+    const route = (id: string, name: string, points: Pt[], day: number, extra: Record<string, unknown> = {}) => ({
+        id,
+        name,
+        createdAt: at(day),
+        points,
+        ...extra,
+    });
+    const trip = (id: string, legs: Array<[string, Pt[]]>, day: number, extra: Record<number, object> = {}) =>
+        legs.map(([name, points], i) =>
+            route(i ? `${id}-${i + 1}` : id, `${name}${i ? badge[i + 1] : ' (1st Leg)'}`, points, day + i, {
+                tripId: id,
+                legOrdinal: i + 1,
+                ...(extra[i + 1] ?? {}),
+            }),
+        );
+    const OPUA = { lat: -35.31, lon: 174.12 };
+    const RUSSELL = { lat: -35.26, lon: 174.12 };
+    const ROBERTON = { lat: -35.22, lon: 174.16 };
+    const URUPUKAPUKA = { lat: -35.22, lon: 174.23 };
+    const WHANGAROA = { lat: -35.04, lon: 173.75 };
+    const MANGONUI = { lat: -34.99, lon: 173.53 };
+    const DOUBTLESS = { lat: -34.93, lon: 173.47 };
+    const NEWPORT = { lat: -27.21, lon: 153.09 };
+    const GLADSTONE = { lat: -23.84, lon: 151.26 };
+    const MACKAY = { lat: -21.1, lon: 149.23 };
+    const AIRLIE = { lat: -20.27, lon: 148.72 };
+    return [
+        ...trip(
+            'boi',
+            [
+                ['Opua - Russell', line(OPUA, RUSSELL)],
+                ['Russell - Roberton Island', line(RUSSELL, ROBERTON)],
+                // Starts 0.9 NM off the chain: an amber joint.
+                [
+                    'Roberton Island - Urupukapuka',
+                    line({ lat: ROBERTON.lat + 0.9 * SHEET_NM, lon: ROBERTON.lon }, URUPUKAPUKA),
+                ],
+                ['Urupukapuka - Whangaroa', line(URUPUKAPUKA, WHANGAROA)],
+            ],
+            24,
+            { 1: { plannedRouteId: 'planned_boi_1' } },
+        ),
+        ...trip(
+            'npt',
+            [
+                ['Newport - Gladstone', line(NEWPORT, GLADSTONE)],
+                ['Gladstone - Mackay', line(GLADSTONE, MACKAY)],
+                ['Mackay - Airlie Beach', line(MACKAY, AIRLIE)],
+            ],
+            15,
+        ),
+        // The next leg from Whangaroa: one starts there, one ends 0.6 NM off.
+        route('whangaroa', 'Whangaroa - Mangonui', line(WHANGAROA, MANGONUI), 12),
+        ...trip(
+            'dbl',
+            [
+                ['Doubtless Bay - Mangonui', line(DOUBTLESS, MANGONUI)],
+                ['Mangonui - Whangaroa', line(MANGONUI, { lat: WHANGAROA.lat + 0.6 * SHEET_NM, lon: WHANGAROA.lon })],
+            ],
+            10,
+        ),
+        route('lymington', 'Lymington - Yarmouth', line({ lat: 50.755, lon: -1.53 }, { lat: 50.707, lon: -1.5 }), 9),
+        route('cowes', 'Cowes - Hamble', line({ lat: 50.765, lon: -1.297 }, { lat: 50.857, lon: -1.31 }), 8),
+        route(
+            'antigua',
+            'English Harbour - Jolly Harbour',
+            line({ lat: 17.0, lon: -61.76 }, { lat: 17.07, lon: -61.89 }),
+            7,
+        ),
+        route('stlucia', 'Rodney Bay - Marigot Bay', line({ lat: 14.08, lon: -60.95 }, { lat: 13.97, lon: -61.03 }), 6),
+        route('cadiz', 'Cádiz → Funchal', line({ lat: 36.53, lon: -6.3 }, { lat: 32.64, lon: -16.91 }), 5),
+        route('arctic', 'Tromsø - Skjervøy', line({ lat: 69.65, lon: 18.96 }, { lat: 70.03, lon: 20.97 }), 4),
+        route('bonin', '父島 - 母島', line({ lat: 27.09, lon: 142.19 }, { lat: 26.64, lon: 142.16 }), 3),
+        route('atlantic', "St. John's (NL) - Horta", line({ lat: 47.56, lon: -52.71 }, { lat: 38.53, lon: -28.63 }), 2),
+        route(
+            'fiji',
+            'Savusavu - Taveuni',
+            [
+                { lat: -16.8, lon: 179.95 },
+                { lat: -16.8, lon: -179.99 },
+                { lat: -16.75, lon: -179.9 },
+            ],
+            1,
+        ),
+    ];
+}
+
+/** Every house rule for the open sheet, measured in the page; what broke. */
+function sheetIssues(page: Page, limit: number) {
+    return page.evaluate((floorY) => {
+        const issues: string[] = [];
+        const card = document.querySelector<HTMLElement>('[role="dialog"][data-trip-sheet]');
+        if (!card) return ['no sheet'];
+        const overlay = card.parentElement!;
+        const o = overlay.getBoundingClientRect();
+        const style = getComputedStyle(overlay);
+        const bandTop = o.top + parseFloat(style.paddingTop);
+        const bandBottom = o.bottom - parseFloat(style.paddingBottom);
+        const box = card.getBoundingClientRect();
+        const header = card.querySelector('header')!;
+        const footer = card.querySelector('footer');
+        const scroller = card.querySelector<HTMLElement>(':scope > .overflow-y-auto')!;
+        if (Math.abs(box.left - o.left - (o.right - box.right)) > 1.5) issues.push('not centred across');
+        if (Math.abs((box.top + box.bottom) / 2 - (bandTop + bandBottom) / 2) > 1.5)
+            issues.push('not centred in its band');
+        if (box.top < bandTop - 0.5) issues.push(`top ${box.top} above the band ${bandTop}`);
+        if (box.bottom > floorY - 8 + 0.5) issues.push(`bottom ${box.bottom} within 8 px of the tab bar (${floorY})`);
+        // Only the middle scrolls.
+        if (card.scrollHeight > card.clientHeight + 1) issues.push('the card scrolls');
+        if (header.scrollHeight > header.clientHeight + 1) issues.push('the header scrolls');
+        if (footer && footer.scrollHeight > footer.clientHeight + 1) issues.push('the footer scrolls');
+        if (getComputedStyle(scroller).overflowY !== 'auto') issues.push('the middle cannot scroll');
+        // Nothing sideways.
+        if (card.scrollWidth > card.clientWidth + 1) issues.push('the card scrolls sideways');
+        if (scroller.scrollWidth > scroller.clientWidth + 1) issues.push('the list scrolls sideways');
+        if (document.documentElement.scrollWidth > window.innerWidth + 1) issues.push('the page scrolls sideways');
+        const list = scroller.getBoundingClientRect();
+        for (const button of card.querySelectorAll<HTMLElement>('button')) {
+            const r = button.getBoundingClientRect();
+            const name = button.getAttribute('aria-label') ?? button.textContent?.trim().slice(0, 32);
+            // A row scrolled out of the middle is measured once it is scrolled in.
+            if (scroller.contains(button) && (r.top < list.top - 0.5 || r.bottom > list.bottom + 0.5)) continue;
+            if (r.height < 43.5) issues.push(`${name}: ${r.height}px tall`);
+            if (r.left < box.left - 0.5 || r.right > box.right + 0.5) issues.push(`${name} escapes the card`);
+            if (button.scrollWidth > button.clientWidth + 1) issues.push(`${name}: its words overflow`);
+            if (
+                [...button.querySelectorAll<HTMLElement>('span')].some(
+                    (span) =>
+                        !span.classList.contains('truncate') &&
+                        !span.classList.contains('sr-only') &&
+                        span.scrollWidth > span.clientWidth + 1,
+                )
+            ) {
+                issues.push(`${name}: a line is clipped`);
+            }
+            const inset = Math.min(4, r.height / 3);
+            for (const [x, y] of [
+                [(r.left + r.right) / 2, (r.top + r.bottom) / 2],
+                [(r.left + r.right) / 2, r.top + inset],
+                [(r.left + r.right) / 2, r.bottom - inset],
+            ]) {
+                const hit = document.elementFromPoint(x, y);
+                if (!(hit === button || button.contains(hit))) issues.push(`${name} is covered by ${hit?.tagName}`);
+            }
+        }
+        return issues;
+    }, limit);
+}
+
+const SHEET_SIZES = [
+    { name: '320x568', width: 320, height: 568 },
+    { name: 'SE +insets', width: 375, height: 662 },
+    // The 47 pt status bar and 34 pt home bar off the viewport, as drawn
+    // (day-planner-layout.spec.ts's AS_DRAWN convention).
+    { name: '390x844 +insets', width: 390, height: 779 },
+    { name: '430x932 +insets', width: 430, height: 856 },
+    { name: '1024x768 split', width: 1024, height: 768 },
+];
+
+test.describe('Trip sheet fits one screen', () => {
+    for (const size of SHEET_SIZES) {
+        test(`your trips, a four-leg trip and the next leg at ${size.name}`, async ({ page, baseURL }, info) => {
+            await open(page, baseURL, size.width, size.height, 'planning', size.width >= 1024, {
+                traces: sheetLibrary(),
+            });
+            const limit = await floor(page);
+            // trip-sheet-430-trip.png, trip-sheet-430-add.png, trip-sheet-320-trip.png… to LOOK at.
+            const shot = (name: string) =>
+                page.screenshot({ path: info.outputPath(`${name}.png`), animations: 'disabled' });
+
+            // (a) Your trips: thirteen, newest first.
+            await page.getByRole('button', { name: 'Trip · Legs', exact: true }).click();
+            const sheet = page.locator('[role="dialog"][data-trip-sheet]');
+            await expect(sheet.getByRole('heading', { name: 'Your trips' })).toBeVisible();
+            await expect(sheet.getByRole('list', { name: 'Trips' }).getByRole('button')).toHaveCount(13);
+            await expect(sheet.getByRole('list', { name: 'Trips' }).getByRole('button').first()).toHaveText(
+                /^Opua - Whangaroa.*4 legs/,
+            );
+            await settle(page);
+            expect(await sheetIssues(page, limit)).toEqual([]);
+            await shot(`trip-sheet-${size.width}-trips`);
+
+            // (b) The four-leg trip.
+            await sheet.getByRole('button', { name: /^Opua - Whangaroa/ }).click();
+            await expect(sheet.getByRole('heading', { name: 'Opua - Whangaroa' })).toBeVisible();
+            await expect(sheet.getByText("starts 0.9 NM from leg 2's end")).toBeVisible();
+            await expect(sheet.getByText('⛓ joined')).toHaveCount(2);
+            const cta = sheet.getByRole('button', { name: '+ Add the 5th leg from Whangaroa' });
+            await expect(cta).toBeVisible();
+            await settle(page);
+            expect(await sheetIssues(page, limit)).toEqual([]);
+            const fit = await sheet.evaluate((card) => {
+                const scroller = card.querySelector<HTMLElement>(':scope > .overflow-y-auto')!;
+                const list = scroller.getBoundingClientRect();
+                const cards = [...card.querySelectorAll<HTMLElement>('[aria-label^="Leg "]')];
+                const footer = card.querySelector('footer')!.getBoundingClientRect();
+                const label = card.querySelector('footer button span')!;
+                const line = parseFloat(getComputedStyle(label).lineHeight) || 18;
+                return {
+                    scrollTop: scroller.scrollTop,
+                    cardsInView: cards.filter((c) => c.getBoundingClientRect().bottom <= list.bottom + 0.5).length,
+                    footerInView:
+                        footer.top >= list.bottom - 0.5 && footer.bottom <= card.getBoundingClientRect().bottom + 0.5,
+                    ctaOneLine:
+                        label.scrollWidth <= label.clientWidth + 1 &&
+                        label.getBoundingClientRect().height <= line * 1.5,
+                };
+            });
+            expect(fit.scrollTop).toBe(0);
+            expect(fit.footerInView, 'the footer is in view').toBe(true);
+            // Four cards and the footer with no scroll, even on the smallest phone.
+            expect(fit.cardsInView, 'leg cards in view before any scroll').toBe(4);
+            if (size.width >= 430) expect(fit.ctaOneLine, 'the footer CTA is on one line').toBe(true);
+            await shot(`trip-sheet-${size.width}-trip`);
+
+            // (c) The 5th leg from Whangaroa: all three sections.
+            await cta.click();
+            await expect(sheet.getByRole('heading', { name: '5th leg from Whangaroa' })).toBeVisible();
+            await expect(
+                sheet
+                    .getByRole('list', { name: 'Starts at Whangaroa' })
+                    .getByRole('button', { name: /^Whangaroa - Mangonui/ }),
+            ).toBeVisible();
+            await expect(
+                sheet
+                    .getByRole('list', { name: 'Ends at Whangaroa — sail it the other way' })
+                    .getByRole('button', { name: /^Mangonui - Whangaroa.*0\.6 NM joining run/ }),
+            ).toBeVisible();
+            await settle(page);
+            expect(await sheetIssues(page, limit)).toEqual([]);
+            await shot(`trip-sheet-${size.width}-add`);
+            await sheet.getByRole('button', { name: /^Show \d+ more$/ }).click();
+            const further = sheet.getByRole('list', { name: 'Further away' });
+            await expect(further.getByRole('button').first()).toBeDisabled();
+            await further.getByRole('button').last().scrollIntoViewIfNeeded();
+            expect(await sheetIssues(page, limit)).toEqual([]);
+        });
+    }
+
+    for (const size of [SHEET_SIZES[0], SHEET_SIZES[2]]) {
+        test(`the search fields stay above the keyboard at ${size.name}`, async ({ page, baseURL }) => {
+            await open(page, baseURL, size.width, size.height, 'planning', false, {
+                traces: sheetLibrary(),
+                keyboard: true,
+            });
+            const keyboard = Math.round(size.height * 0.42);
+            const aboveKeyboard = async (name: string) => {
+                const field = page.getByRole('searchbox', { name });
+                await field.focus();
+                await page.evaluate(
+                    (h) => window.dispatchEvent(new CustomEvent('test:keyboard', { detail: h })),
+                    keyboard,
+                );
+                await expect(page.locator('html')).toHaveAttribute('data-keyboard-open', 'true');
+                await expect
+                    .poll(() =>
+                        field.evaluate((element, h) => {
+                            const r = element.getBoundingClientRect();
+                            const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                            return (
+                                r.top >= 0 &&
+                                r.bottom <= window.innerHeight - h &&
+                                (hit === element || element.contains(hit))
+                            );
+                        }, keyboard),
+                    )
+                    .toBe(true);
+                await page.evaluate(() => window.dispatchEvent(new CustomEvent('test:keyboard', { detail: 0 })));
+                await expect(page.locator('html')).toHaveAttribute('data-keyboard-open', 'false');
+            };
+            await page.getByRole('button', { name: 'Trip · Legs', exact: true }).click();
+            await aboveKeyboard('Search your trips');
+            const sheet = page.locator('[role="dialog"][data-trip-sheet]');
+            await sheet.getByRole('button', { name: /^Opua - Whangaroa/ }).click();
+            await sheet.getByRole('button', { name: '+ Add the 5th leg from Whangaroa' }).click();
+            await aboveKeyboard('Search routes and legs');
         });
     }
 });

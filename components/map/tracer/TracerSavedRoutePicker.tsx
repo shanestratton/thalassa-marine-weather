@@ -37,6 +37,11 @@
  *
  * Keys are trip.key and leg.id — two different objects on purpose. Do not
  * unify them to index keys.
+ *
+ * FILLING A LOCKED LEG (126-16a). In an empty "next leg" slot the toggle reads
+ * "📂 Fill this leg from a saved route" and `onFillSlot` opens the Trip sheet's
+ * add pane for the leg it departs from. The plain list would open the route
+ * standalone and drop the lock; the add pane puts a COPY into this leg instead.
  */
 
 import React from 'react';
@@ -52,6 +57,8 @@ export interface TracerSavedRoutePickerProps {
     /** Full dispatch: the toggle flips it functionally, `(v) => !v`. */
     setShowSavedTraces: Dispatch<SetStateAction<boolean>>;
     openSavedTrace: (t: SavedTrace) => void;
+    /** Set while the draft is an EMPTY locked leg: fill it with a copy instead. */
+    onFillSlot?: () => void;
 }
 
 export const TracerSavedRoutePicker: React.FC<TracerSavedRoutePickerProps> = ({
@@ -60,6 +67,7 @@ export const TracerSavedRoutePicker: React.FC<TracerSavedRoutePickerProps> = ({
     showSavedTraces,
     setShowSavedTraces,
     openSavedTrace,
+    onFillSlot,
 }) => {
     return (
         <>
@@ -70,18 +78,32 @@ export const TracerSavedRoutePicker: React.FC<TracerSavedRoutePickerProps> = ({
                 gives no meaningful info"); the empty-state help
                 still carries the colour key. */}
             <div className="flex shrink-0 border-b border-white/10 px-3 py-1.5">
-                <button
-                    onClick={() => {
-                        triggerHaptic('light');
-                        setSavedTraces(loadSavedTraces());
-                        setShowSavedTraces((v) => !v);
-                    }}
-                    className={`min-h-[44px] flex-1 rounded-lg px-2.5 py-1 text-left text-[10px] font-black uppercase tracking-wide active:scale-95 ${showSavedTraces ? 'bg-white/10 text-gray-100' : 'bg-white/5 text-gray-400'}`}
-                >
-                    {showSavedTraces ? '▾ Saved routes' : '📂 Open a saved route'}
-                </button>
+                {onFillSlot ? (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            triggerHaptic('light');
+                            setShowSavedTraces(false);
+                            onFillSlot();
+                        }}
+                        className="min-h-[44px] flex-1 rounded-lg bg-amber-500/10 px-2.5 py-1 text-left text-[10px] font-black uppercase tracking-wide text-amber-200 active:scale-95"
+                    >
+                        📂 Fill this leg from a saved route
+                    </button>
+                ) : (
+                    <button
+                        onClick={() => {
+                            triggerHaptic('light');
+                            setSavedTraces(loadSavedTraces());
+                            setShowSavedTraces((v) => !v);
+                        }}
+                        className={`min-h-[44px] flex-1 rounded-lg px-2.5 py-1 text-left text-[10px] font-black uppercase tracking-wide active:scale-95 ${showSavedTraces ? 'bg-white/10 text-gray-100' : 'bg-white/5 text-gray-400'}`}
+                    >
+                        {showSavedTraces ? '▾ Saved routes' : '📂 Open a saved route'}
+                    </button>
+                )}
             </div>
-            {showSavedTraces && (
+            {showSavedTraces && !onFillSlot && (
                 <div className="max-h-40 shrink-0 space-y-1 overflow-y-auto border-b border-white/10 px-3 py-2">
                     {savedTraces.length === 0 ? (
                         <div className="text-[10px] text-gray-500">No saved routes yet — plot one and Save it.</div>

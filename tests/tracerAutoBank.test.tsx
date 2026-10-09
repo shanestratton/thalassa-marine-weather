@@ -97,6 +97,7 @@ function Harness(props: {
     tideLabel?: string;
     labelForRef?: { current: TideLabelFor | null };
     onVerdicts?: (v: ReadonlyArray<TraceLegVerdict | null>) => void;
+    legAnchor?: { tripId: string; ordinal: number } | null;
 }) {
     const { coords, vessel, capture, tideLabel = '', onVerdicts } = props;
     const [legVerdicts, setLegVerdicts] = useState<Array<TraceLegVerdict | null>>([]);
@@ -133,6 +134,7 @@ function Harness(props: {
         tideLabelForRef: props.labelForRef ?? ownLabelForRef,
         savedTraces,
         setSavedTraces,
+        legAnchor: props.legAnchor ?? null,
     });
     useTracerGrading({
         capturedCoords: coords,
@@ -273,5 +275,70 @@ describe('useTracerAutoBank — never banks verdicts graded for other pins or an
             />,
         );
         await waitFor(() => expect(stored(id)?.verification?.tideWindowLabel).toBe('Leave 09:15–13:30'));
+    });
+});
+
+/**
+ * 126-16a review: a trip leg copied from another trip that joins at 0 NM has
+ * exactly its source's pins. Shane builds trip Y from last year's P; Y's leg 2
+ * ends exactly where P's leg 2 does, so "Plot the 3rd leg →" with P's leg 3
+ * snaps and copies it pin for pin. The copy is on screen, unsaved, locked to
+ * Y's slot 3. Matched by geometry alone, the auto-bank found P's leg 3 and
+ * wrote the copy's check onto it (and refreshed its Passage Planning note)
+ * before Save, against "The original is unchanged".
+ *
+ * Fictional Caribbean trips: English Harbour → Deshaies → Portsmouth → Roseau.
+ */
+describe('useTracerAutoBank — a slot-locked draft banks onto its own slot only', () => {
+    const englishHarbour = { lat: 17.005, lon: -61.765 };
+    const deshaies = { lat: 16.307, lon: -61.797 };
+    const portsmouth = { lat: 15.578, lon: -61.465 };
+    const pLeg3: TracePoint[] = [portsmouth, { lat: 15.45, lon: -61.48 }, { lat: 15.29, lon: -61.39 }];
+
+    beforeEach(() => {
+        localStorage.clear();
+        h.gradeByLat.clear();
+        h.needsTide = false;
+        h.events.length = 0;
+        h.banks.length = 0;
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('autobank-owner');
+    });
+    afterEach(() => {
+        setAuthIdentityScope(null);
+    });
+
+    function seedTrips(): { p3: string; raw: () => string | undefined } {
+        const p1 = saveTrace('English Harbour - Deshaies (1st Leg)', [englishHarbour, deshaies], {
+            legOrdinal: 1,
+        }).trace.id;
+        saveTrace('Deshaies - Portsmouth (2nd Leg)', [deshaies, portsmouth], { tripId: p1, legOrdinal: 2 });
+        const p3 = saveTrace('Portsmouth - Roseau (3rd Leg)', pLeg3, { tripId: p1, legOrdinal: 3 }).trace.id;
+        // Trip Y: its leg 2 is a copy of P's leg 2, so it ends exactly at P3[0].
+        const y1 = saveTrace('Falmouth - Deshaies (1st Leg)', [{ lat: 17.01, lon: -61.78 }, deshaies], {
+            legOrdinal: 1,
+        }).trace.id;
+        saveTrace('Deshaies - Portsmouth (2nd Leg)', [deshaies, portsmouth], { tripId: y1, legOrdinal: 2 });
+        const raw = () => JSON.stringify(stored(p3));
+        return { p3, raw };
+    }
+
+    it('a 0 NM copy of another trip’s leg, unsaved in an empty slot, leaves the source byte-identical', async () => {
+        const { raw } = seedTrips();
+        const before = raw();
+        const y1 = loadSavedTraces().find((t) => t.name === 'Falmouth - Deshaies (1st Leg)')!.id;
+        render(<Harness coords={pLeg3} vessel={keel(1.8)} capture legAnchor={{ tripId: y1, ordinal: 3 }} />);
+        await waitFor(() => expect(h.events).toContain('grade:clear'));
+        await settle();
+        expect(h.events).not.toContain('bank');
+        expect(raw()).toBe(before);
+    });
+
+    it('the same line opened in its own slot (P leg 3) still banks onto P leg 3', async () => {
+        const { p3 } = seedTrips();
+        const p1 = stored(p3)!.tripId!;
+        render(<Harness coords={pLeg3} vessel={keel(1.8)} capture legAnchor={{ tripId: p1, ordinal: 3 }} />);
+        await waitFor(() => expect(stored(p3)?.verification?.draftM).toBeCloseTo(1.8, 2));
+        expect(h.banks.map((bank) => bank.id)).toEqual([p3]);
     });
 });

@@ -17,7 +17,12 @@
  *  - the verdicts in hand were graded for exactly these pins at this keel and
  *    mast (tracerGradingMatches);
  *  - a tide-gated line's window label was computed for these verdicts and this
- *    departure.
+ *    departure;
+ *  - a draft locked to a trip's slot (126-16a) is matched to THAT leg only. A
+ *    copy of another trip's leg that joins at 0 NM has exactly its source's
+ *    pins, and a geometry match alone banked the copy's check (even a leg
+ *    acknowledged for the new trip) onto the source before Save, against "the
+ *    original is unchanged". An empty slot banks nothing; Save writes it.
  *
  * Every write logs with log.warn and why (log.info is a no-op in production).
  */
@@ -25,11 +30,13 @@ import { useEffect, useRef } from 'react';
 import {
     bankTraceVerification,
     loadSavedTraces,
+    type NextLegSeed,
     type SavedTrace,
     type TraceLegVerdict,
     type TracePoint,
 } from '../../services/routeTracer';
 import { traceAutoBankSignature, traceGeometryKey, type TraceReleaseGate } from '../../services/traceVerification';
+import { legInSlot } from '../../services/tripReverse';
 import { vesselDraftIsAssumed, vesselDraftMetres } from '../../services/units';
 import { tracerGradingMatches, type TracerGradingDeps } from './useTracerGrading';
 import { createLogger } from '../../utils/createLogger';
@@ -56,6 +63,8 @@ export interface TracerAutoBankDeps {
     tideLabelForRef: { current: TideLabelFor | null };
     savedTraces: readonly SavedTrace[];
     setSavedTraces: (traces: SavedTrace[]) => void;
+    /** The trip slot the draft is locked to, if any: only that leg can bank. */
+    legAnchor?: Pick<NextLegSeed, 'tripId' | 'ordinal'> | null;
 }
 
 export function useTracerAutoBank(deps: TracerAutoBankDeps): void {
@@ -70,6 +79,7 @@ export function useTracerAutoBank(deps: TracerAutoBankDeps): void {
         tideLabelForRef,
         savedTraces,
         setSavedTraces,
+        legAnchor = null,
     } = deps;
     const ackPersistRef = useRef<string | null>(null);
     useEffect(() => {
@@ -77,7 +87,11 @@ export function useTracerAutoBank(deps: TracerAutoBankDeps): void {
         const key = traceGeometryKey(capturedCoords);
         if (!key) return;
         // An edit in progress, or never saved, matches nothing — left alone.
-        const stored = savedTraces.find((t) => traceGeometryKey(t.points) === key);
+        // A slot-locked draft is that leg or nothing: never a geometry twin
+        // in another trip or slot.
+        const slotRow = legAnchor ? legInSlot(savedTraces, legAnchor) : null;
+        const candidates = legAnchor ? (slotRow ? [slotRow] : []) : savedTraces;
+        const stored = candidates.find((t) => traceGeometryKey(t.points) === key);
         if (!stored) return;
         const label = tideLabelForRef.current;
         if (
@@ -115,5 +129,6 @@ export function useTracerAutoBank(deps: TracerAutoBankDeps): void {
         tideLabelForRef,
         savedTraces,
         setSavedTraces,
+        legAnchor,
     ]);
 }

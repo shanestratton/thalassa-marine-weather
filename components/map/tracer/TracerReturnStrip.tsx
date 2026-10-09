@@ -9,6 +9,10 @@
  *    arriving at that pin. One tap drops it in reversed.
  *  - The return-trip cursor: which leg home this is, "Next return leg →" once
  *    it is saved, and Stop at any time.
+ *  - The next leg (126-16a): once the last leg of a trip is saved, "Plot the
+ *    4th leg →" opens the Trip sheet at the add pane, and "Back to the trip"
+ *    at the trip. It stays until the draft is no longer that saved leg, unlike
+ *    the save flash, so leg after leg is three taps with no trip back to Plan.
  *
  * Presentational. Every decision is made in services/tripReverse.ts and
  * components/map/useReturnTripFlow.ts; MapHub only wires them here. Children
@@ -16,7 +20,7 @@
  * explains.
  */
 import React from 'react';
-import { displayRouteLabel, type SavedTrace } from '../../../services/routeTracer';
+import { displayRouteLabel, ordinalLegLabel, type SavedTrace } from '../../../services/routeTracer';
 import type { ReturnTripProgress } from '../useReturnTripFlow';
 
 export interface TracerReturnStripProps {
@@ -30,6 +34,10 @@ export interface TracerReturnStripProps {
     nextReturnLeg: { j: number; k: number } | null;
     onNextReturnLeg: () => void;
     onStopReturnTrip: () => void;
+    /** The saved last leg of a trip is on screen: the leg after it. */
+    nextLeg?: { ordinal: number; fromName: string } | null;
+    onNextLeg?: () => void;
+    onBackToTrip?: () => void;
 }
 
 export const TracerReturnStrip: React.FC<TracerReturnStripProps> = ({
@@ -42,6 +50,9 @@ export const TracerReturnStrip: React.FC<TracerReturnStripProps> = ({
     nextReturnLeg,
     onNextReturnLeg,
     onStopReturnTrip,
+    nextLeg = null,
+    onNextLeg,
+    onBackToTrip,
 }) => (
     <>
         {note && (
@@ -99,6 +110,25 @@ export const TracerReturnStrip: React.FC<TracerReturnStripProps> = ({
                     className="min-h-[44px] shrink-0 rounded-lg bg-white/5 px-2.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
                 >
                     Stop
+                </button>
+            </div>
+        )}
+        {nextLeg && (
+            <div className="flex shrink-0 items-center gap-1.5 border-b border-white/10 px-3 py-1.5">
+                <button
+                    type="button"
+                    onClick={onNextLeg}
+                    title={`Plot the ${ordinalLegLabel(nextLeg.ordinal).toLowerCase()} from ${nextLeg.fromName}`}
+                    className="min-h-[44px] min-w-0 flex-1 truncate rounded-lg bg-amber-500/20 px-2 py-1.5 text-left text-[11px] font-black text-amber-200 active:scale-95"
+                >
+                    {`Plot the ${ordinalLegLabel(nextLeg.ordinal).toLowerCase()} →`}
+                </button>
+                <button
+                    type="button"
+                    onClick={onBackToTrip}
+                    className="min-h-[44px] shrink-0 rounded-lg bg-white/5 px-2.5 text-[11px] font-black text-gray-300 active:scale-95"
+                >
+                    Back to the trip
                 </button>
             </div>
         )}

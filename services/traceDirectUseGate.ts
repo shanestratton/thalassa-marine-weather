@@ -5,7 +5,13 @@
  * tap. The geometry rule is unchanged — steer exactly what was checked. */
 
 import type { RouteOrTrack } from './shiplog/RoutesAndTracks';
-import { buildTripPassageRollups, legBadgeOrdinal, loadSavedTraces, stripLegBadge } from './routeTracer';
+import {
+    buildTripPassageRollups,
+    legBadgeOrdinal,
+    loadSavedTraces,
+    stripLegBadge,
+    type SavedTrace,
+} from './routeTracer';
 import {
     normaliseTraceVerification,
     traceFollowStatus,
@@ -200,5 +206,14 @@ export function savedTraceFollowStatus(savedRouteId: string, nowMs: number = Dat
     const routeId = savedRouteId.trim();
     const saved = routeId ? loadSavedTraces().find((trace) => trace.id === routeId) : undefined;
     if (!saved) return { tone: 'unchecked', code: 'none', reason: 'Not checked on this device yet' };
-    return traceFollowStatus(saved.verification, saved.points, followContext(nowMs), getTraceCheckOutcome(routeId));
+    return savedTraceFollowStatusOf(saved, nowMs);
+}
+
+/** The same verdict for a trace already in hand: the Trip sheet's check
+ *  chips (126-16a) read a whole library without re-reading it per leg. */
+export function savedTraceFollowStatusOf(
+    saved: Pick<SavedTrace, 'id' | 'points' | 'verification'>,
+    nowMs: number = Date.now(),
+): TraceFollowStatus {
+    return traceFollowStatus(saved.verification, saved.points, followContext(nowMs), getTraceCheckOutcome(saved.id));
 }

@@ -1,7 +1,14 @@
+/**
+ * The Plan page's Trip · Legs tile and the Trip sheet it opens are fenced by
+ * the account that owned the rows (126-16a: a button and a lazy sheet, no
+ * longer a select and a modal). Every request carries the generation its rows
+ * were built under, and an account change closes the sheet and replaces the
+ * private snapshot at the synchronous fence. Fictional routes.
+ */
 import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
+import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 
 const mocks = vi.hoisted(() => ({
     requestTracerOpen: vi.fn(),
@@ -16,88 +23,92 @@ vi.mock('../utils/system', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../utils/system')>()),
     triggerHaptic: mocks.triggerHaptic,
 }));
-
-vi.mock('../services/routeTracer', () => {
-    const traceFor = (owner: string) => ({
-        id: `${owner}-route`,
-        name: `${owner.toUpperCase()} private route`,
-        createdAt: '2026-07-23T00:00:00.000Z',
-        points: [
-            { lat: -27.4, lon: 153.0 },
-            { lat: -27.2, lon: 153.2 },
-        ],
-    });
-    // A fictional two-leg trip per account, for the return-trip controls.
-    const tripFor = (owner: string) => [
-        {
-            id: `${owner}-trip`,
-            name: 'Harbour - Bay Point (1st Leg)',
-            createdAt: '2026-07-23T00:00:00.000Z',
-            points: [
-                { lat: -30.0, lon: 160.0 },
-                { lat: -29.9, lon: 160.1 },
-            ],
-            tripId: `${owner}-trip`,
-            legOrdinal: 1,
-            destName: 'Bay Point',
-        },
-        {
-            id: `${owner}-trip-leg-2`,
-            name: 'Bay Point - Sandy Cove (2nd Leg)',
-            createdAt: '2026-07-23T00:00:00.000Z',
-            points: [
-                { lat: -29.9, lon: 160.1 },
-                { lat: -29.8, lon: 160.2 },
-            ],
-            tripId: `${owner}-trip`,
-            legOrdinal: 2,
-        },
-    ];
-    type Row = { id: string; name: string; tripId?: string; points: Array<{ lat: number; lon: number }> };
-    return {
-        loadSavedTraces: vi.fn((scope: { userId: string | null }) =>
-            scope.userId ? [traceFor(scope.userId), ...tripFor(scope.userId)] : [],
-        ),
-        groupTracesByTrip: vi.fn((traces: Row[]) => {
-            const keys = [...new Set(traces.map((trace) => trace.tripId ?? trace.id))];
-            return keys.map((key) => {
-                const legs = traces.filter((trace) => (trace.tripId ?? trace.id) === key);
-                return { key, label: legs.length > 1 ? 'Harbour - Sandy Cove (2 legs)' : legs[0].name, legs };
-            });
-        }),
-        nextLegSeed: vi.fn(() => null),
-        ordinalLegLabel: vi.fn(() => '2nd Leg'),
-    };
-});
+vi.mock('../components/passage/SeasonRiskCard', () => ({ default: () => null }));
 
 import { TripLegPicker } from '../components/passage/TripLegPicker';
+
+/** One private route and a fictional two-leg trip per account. */
+function seed(owner: string): void {
+    const scope = setAuthIdentityScope(owner);
+    localStorage.setItem(
+        authScopedStorageKey('thalassa_traced_routes_v1', scope),
+        JSON.stringify([
+            {
+                id: `${owner}-route`,
+                name: `${owner.toUpperCase()} private route`,
+                createdAt: '2026-07-22T00:00:00.000Z',
+                points: [
+                    { lat: -27.4, lon: 153.0 },
+                    { lat: -27.2, lon: 153.2 },
+                ],
+            },
+            {
+                id: `${owner}-trip`,
+                name: 'Harbour - Bay Point (1st Leg)',
+                createdAt: '2026-07-23T00:00:00.000Z',
+                points: [
+                    { lat: -30.0, lon: 160.0 },
+                    { lat: -29.9, lon: 160.1 },
+                ],
+                tripId: `${owner}-trip`,
+                legOrdinal: 1,
+                destName: 'Bay Point',
+            },
+            {
+                id: `${owner}-trip-leg-2`,
+                name: 'Bay Point - Sandy Cove (2nd Leg)',
+                createdAt: '2026-07-23T00:00:00.000Z',
+                points: [
+                    { lat: -29.9, lon: 160.1 },
+                    { lat: -29.8, lon: 160.2 },
+                ],
+                tripId: `${owner}-trip`,
+                legOrdinal: 2,
+            },
+        ]),
+    );
+}
+
+async function openTrip(name: RegExp) {
+    fireEvent.click(screen.getByRole('button', { name: 'Trip · Legs' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Your trips' });
+    fireEvent.click(within(sheet).getByRole('button', { name }));
+    return screen.getByRole('dialog');
+}
 
 describe('TripLegPicker identity fence', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        localStorage.clear();
         setAuthIdentityScope(null);
-        setAuthIdentityScope('account-a');
+        seed('account-b');
+        seed('account-a');
     });
 
-    it('passes the exact generation that owned the loaded route', () => {
+    it('is a button named like its title, describing what is saved', () => {
+        render(<TripLegPicker onOpenChart={vi.fn()} />);
+        const tile = screen.getByRole('button', { name: 'Trip · Legs' });
+        expect(tile).toHaveAccessibleDescription('2 saved · pick one to continue');
+        expect(tile).toHaveAttribute('aria-haspopup', 'dialog');
+        expect(tile).toHaveAttribute('aria-expanded', 'false');
+        expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    });
+
+    it('passes the exact generation that owned the loaded route', async () => {
         const accountA = getAuthIdentityScope();
         const onOpenChart = vi.fn();
         render(<TripLegPicker onOpenChart={onOpenChart} />);
-
-        fireEvent.change(screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' }), {
-            target: { value: 'account-a-route' },
-        });
-        fireEvent.click(screen.getByRole('button', { name: /ACCOUNT-A private route/ }));
+        const trip = await openTrip(/^ACCOUNT-A private route/);
+        fireEvent.click(within(trip).getByRole('button', { name: /^Leg 1: ACCOUNT-A private route/ }));
 
         expect(mocks.requestTracerOpen).toHaveBeenCalledWith({ kind: 'load-saved', id: 'account-a-route' }, accountA);
         expect(onOpenChart).toHaveBeenCalledOnce();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('closes A UI and replaces its private route snapshot synchronously for B', () => {
+    it('closes A UI and replaces its private route snapshot synchronously for B', async () => {
         render(<TripLegPicker onOpenChart={vi.fn()} />);
-        fireEvent.change(screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' }), {
-            target: { value: 'account-a-route' },
-        });
+        await openTrip(/^ACCOUNT-A private route/);
         expect(screen.getByRole('dialog', { name: /ACCOUNT-A private route/ })).toBeInTheDocument();
 
         let accountB!: ReturnType<typeof getAuthIdentityScope>;
@@ -107,44 +118,34 @@ describe('TripLegPicker identity fence', () => {
 
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         expect(screen.queryByText(/ACCOUNT-A private route/)).not.toBeInTheDocument();
-        const picker = screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' });
-        expect(picker).toHaveTextContent('ACCOUNT-B private route');
-
-        fireEvent.change(picker, { target: { value: 'account-b-route' } });
-        fireEvent.click(screen.getByRole('button', { name: /ACCOUNT-B private route/ }));
+        const trip = await openTrip(/^ACCOUNT-B private route/);
+        fireEvent.click(within(trip).getByRole('button', { name: /^Leg 1: ACCOUNT-B private route/ }));
         expect(mocks.requestTracerOpen).toHaveBeenLastCalledWith(
             { kind: 'load-saved', id: 'account-b-route' },
             accountB,
         );
     });
 
-    it('the return-trip row and the per-leg chips pass the generation that owned the trip', () => {
+    it('the return-trip row and the per-leg chips pass the generation that owned the trip', async () => {
         const accountA = getAuthIdentityScope();
         const onOpenChart = vi.fn();
         render(<TripLegPicker onOpenChart={onOpenChart} />);
-        fireEvent.change(screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' }), {
-            target: { value: 'account-a-trip' },
-        });
-        const dialog = screen.getByRole('dialog', { name: /Harbour - Sandy Cove/ });
-        fireEvent.click(within(dialog).getByRole('button', { name: /^Plan the return trip/ }));
+        let dialog = await openTrip(/^Harbour - Sandy Cove/);
+        fireEvent.click(within(dialog).getByRole('button', { name: /^⇄ Plan the return trip/ }));
         expect(mocks.requestTracerOpen).toHaveBeenLastCalledWith(
             { kind: 'return-trip', tripId: 'account-a-trip' },
             accountA,
         );
 
-        fireEvent.change(screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' }), {
-            target: { value: 'account-a-trip' },
-        });
+        dialog = await openTrip(/^Harbour - Sandy Cove/);
         // Leg 2 arrives at Sandy Cove (parsed from its name); leg 1 carries Bay Point.
-        fireEvent.click(screen.getByRole('button', { name: 'Return from Sandy Cove: legs 2 to 1 reversed' }));
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Return from Sandy Cove: legs 2 to 1 reversed' }));
         expect(mocks.requestTracerOpen).toHaveBeenLastCalledWith(
             { kind: 'return-trip', tripId: 'account-a-trip', fromOrdinal: 2 },
             accountA,
         );
-        fireEvent.change(screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' }), {
-            target: { value: 'account-a-trip' },
-        });
-        fireEvent.click(screen.getByRole('button', { name: 'Return from Bay Point: leg 1 reversed' }));
+        dialog = await openTrip(/^Harbour - Sandy Cove/);
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Return from Bay Point: leg 1 reversed' }));
         expect(mocks.requestTracerOpen).toHaveBeenLastCalledWith(
             { kind: 'return-trip', tripId: 'account-a-trip', fromOrdinal: 1 },
             accountA,
@@ -152,13 +153,10 @@ describe('TripLegPicker identity fence', () => {
         expect(onOpenChart).toHaveBeenCalledTimes(3);
     });
 
-    it('a one-leg route gets a chip but no return-trip row', () => {
+    it('a one-leg route gets a chip but no return-trip row', async () => {
         render(<TripLegPicker onOpenChart={vi.fn()} />);
-        fireEvent.change(screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' }), {
-            target: { value: 'account-a-route' },
-        });
-        const dialog = screen.getByRole('dialog', { name: /ACCOUNT-A private route/ });
-        expect(within(dialog).queryByRole('button', { name: /^Plan the return trip/ })).not.toBeInTheDocument();
+        const dialog = await openTrip(/^ACCOUNT-A private route/);
+        expect(within(dialog).queryByRole('button', { name: /Plan the return trip/ })).not.toBeInTheDocument();
         fireEvent.click(within(dialog).getByRole('button', { name: 'Return from the end of leg 1: leg 1 reversed' }));
         expect(mocks.requestTracerOpen).toHaveBeenLastCalledWith(
             { kind: 'return-trip', tripId: 'account-a-route', fromOrdinal: 1 },
@@ -166,16 +164,28 @@ describe('TripLegPicker identity fence', () => {
         );
     });
 
-    it('closes the return-trip controls with the rest of A when B signs in', () => {
+    it('closes the return-trip controls with the rest of A when B signs in', async () => {
         render(<TripLegPicker onOpenChart={vi.fn()} />);
-        fireEvent.change(screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' }), {
-            target: { value: 'account-a-trip' },
-        });
-        expect(screen.getByRole('button', { name: /^Plan the return trip/ })).toBeInTheDocument();
+        await openTrip(/^Harbour - Sandy Cove/);
+        expect(screen.getByRole('button', { name: /^⇄ Plan the return trip/ })).toBeInTheDocument();
         act(() => {
             setAuthIdentityScope('account-b');
         });
-        expect(screen.queryByRole('button', { name: /^Plan the return trip/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Plan the return trip/ })).not.toBeInTheDocument();
         expect(mocks.requestTracerOpen).not.toHaveBeenCalled();
+    });
+
+    it('a sheet that fails to load says so and leaves the Plan page standing', async () => {
+        const { readFileSync } = await import('node:fs');
+        const tile = readFileSync('components/passage/TripLegPicker.tsx', 'utf8');
+        expect(tile).toContain("import { LazyTripSheet } from './LazyTripSheet'");
+        expect(tile).not.toMatch(/^import .*['"]\.\/TripSheet['"]/m);
+        const lazy = readFileSync('components/passage/LazyTripSheet.tsx', 'utf8');
+        expect(lazy).toMatch(/React\.lazy\(\(\) => import\('\.\/TripSheet'\)\)/);
+        expect(lazy).not.toMatch(/^import (?!type).*['"]\.\/TripSheet['"]/m);
+        // Never lazyRetry's whole-app reload: a toast, and the page stays.
+        expect(lazy).not.toMatch(/^import .*lazyRetry/m);
+        expect(lazy).toMatch(/<ErrorBoundary[\s\S]*?fallback=\{RENDER_NOTHING\}[\s\S]*?onError=/);
+        expect(lazy).toContain('toast.error(');
     });
 });

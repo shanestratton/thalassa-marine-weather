@@ -79,6 +79,11 @@ export type TracerOpenAction =
     /** Plot the NEXT leg of a trip: pin 1 pre-dropped + LOCKED at the
      *  previous leg's exact final coordinates (Shane 2026-07-17). */
     | { kind: 'new-leg'; fromId: string }
+    /** Add the next leg after saved leg `afterId` as a COPY of saved line
+     *  `sourceId`, sailed as it is or the other way (126-16a): locked to the
+     *  previous arrival, checked and written by the tracer's own Save. Ids
+     *  only; the source is only read. */
+    | { kind: 'add-leg'; afterId: string; sourceId: string; direction: 'forward' | 'reverse' }
     /** Plan the trip home (Shane 2026-10-07): a NEW trip whose leg 1 is
      *  outbound leg `fromOrdinal` (default the last) reversed, built one
      *  checked leg at a time. The outbound trip is only read. */
