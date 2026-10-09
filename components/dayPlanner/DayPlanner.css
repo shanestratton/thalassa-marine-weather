@@ -74,11 +74,11 @@
 .today-col-b { display: flex; flex-direction: column; gap: var(--today-gap); min-width: 0; margin-top: var(--today-gap); }
 /* The light and tide belong to the headline: closer to it than the blocks are to each other.
    Below them, a notice and the stops follow a stop row's gap apart (build 126). */
-.today-main .today-col-b { gap: var(--today-gap-row); margin-top: clamp(3px, 3px + 0.04 * var(--today-room), 10px); }
+.today-main .today-col-b { gap: var(--today-gap-row); margin-top: clamp(3px, 3px + 0.045 * var(--today-room), 11px); }
 .today-ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .today-main .today-head { align-items: flex-end; padding-top: clamp(4px, 4px + 0.046 * var(--today-room), 12px); }
 .today-main .today-title { padding-left: 0; }
-.today-main .today-title h2 { margin-left: 10px; margin-bottom: clamp(0px, 0.0114 * var(--today-room), 2px); color: #a5f3fc; font-size: clamp(0.6875rem, 0.6875rem + 0.006 * var(--today-room), 0.75rem); letter-spacing: 0.08em; line-height: 1.27; text-transform: uppercase; }
+.today-main .today-title h2 { margin-left: 10px; margin-bottom: clamp(0px, 0.0114 * var(--today-room), 2px); color: #a5f3fc; font-size: clamp(0.6875rem, 0.6875rem + 0.0102 * var(--today-room), 13.5px); letter-spacing: 0.08em; line-height: 1.27; text-transform: uppercase; }
 .today-place {
     display: flex;
     align-items: center;
@@ -206,63 +206,212 @@
 .today-option-note { margin: 2px 10px 0; color: #94a3b8; font-size: 0.75rem; }
 .today-type { display: flex; gap: 6px; margin-top: 8px; }
 .today-type input { flex: 1; min-width: 0; min-height: 44px; padding: 0 10px; border: 1px solid #ffffff26; border-radius: 12px; background: #020617; font-size: 1rem; }
-/* Screen 1 uses the screen (build 126, 126-17): steeper to bigger most values
-   than the shared ones above, from the same floors, so each reaches its most
-   at about Shane's 754 px (R ≈ 175) and an SE (R ≤ 0) keeps build 124's.
-   Order kept: headline > stop name > details ≥ credit (18 > 17 > 14.5 ≥ 12.75
-   on his phone). Sized so the tallest day, a thunder afternoon's three-line
-   headline over the default-boat notice, still fits his room in wide fonts
-   (747 of 754 px): the light, a notice and the stops sit a stop row's gap
-   apart, the headline's own block gap above them. The headline is balanced
-   when it wraps. The tile wind stops at 15 px: its widest ("✕ NW 28–35";
-   compass8 writes two letters at most) already fills 91-94 of his tile's
-   97 px in SF, and 16 would wrap it; so the grey label over it stops at
-   13 px, and the wind still stands 2 px above it, as in builds 124 and 125.
-   The stop's times also stop at what the row's width holds on one line in
-   wide fonts (4.81cqw - 4.52px, from the 94 px a row keeps beside them and
-   20.6 px of Verdana per px of type), which only a narrow phone with a tall
-   room ever reaches. Above the 320 pt and landscape blocks below, which still
-   win. */
+/* Screen 1 uses the screen (build 126, 126-17), and fills it (126-17b; Shane,
+   after 126-17's before/after: "ok, make plan your day even bigger!!").
+   Steeper to bigger most values than the shared ones above, from the same
+   floors, so each reaches its most at about Shane's 754 px (R ≈ 178) and an SE
+   (R ≤ 0) keeps build 124's. On his phone the card is ~95% of the room: a
+   21 px headline, 19 px stop names, an 18 px place, 17 px day chips and
+   links, 52 pt targets, ~72 px stop rows, the blocks 17 px apart, the card
+   4 px further into each side margin. Order kept: headline > stop name >
+   times ≥ light > credit; the headline balanced when it wraps.
+
+   Width, not the room, holds the words that share a line with nothing to give
+   way. --today-fit-tile is what a tile's text column holds of its widest
+   reading, "≈ NW 18–22" (compass8 writes two letters at most; 7.08 px per px
+   of type in the wide face the fit specs draw, 6.37 in SF; "No forecast" is
+   6.45), and --today-fit-times what a stop row's text column holds of an
+   overnight stay's "Leave 07:00 · there 10:28 · about 22 NM" (20.8; SF 18.4),
+   each worked out from the card's own width and padding at this room, with
+   about 1% to spare. On his 430 pt they are ~15.1 and ~15.2 px (126-17's 15
+   and 14.5 already wrapped the widest wind in the wide face), so the tile's
+   words and the times grow less than the rest; the tile gives them its right
+   padding (10 → 2 px on his phone) and the card 4 px of each side margin. The label sits 1.8 px under
+   the wind, the light follows the times, the name keeps 1.3 × the times and
+   the shelter word 3 px under that, the credit at most the times. A tall narrow
+   window (Slide Over, 375 × 1100, 320 × 1000) gets the room's sizes only as
+   far as its width holds, and never less than 126-17 gave it where the width
+   is not what holds them (the light, the stop's name and its shelter word).
+
+   A day with a line more under the light (a notice: default-boat, which every
+   skipper without a boat set sees, an old fix, a cyclone, offline; or
+   Tromsø's dated map line) takes 126-17's rhythm on his phone's room: rows
+   ~64 px, the blocks 16 px apart, the rows 12. His room holds an ordinary day
+   with ~34 px to spare and a notice is a 44 pt button and its gap, so this is
+   what keeps all three stops in view on those days, unscrolled, in SF and in
+   the wide face. A day with still more to say (a thunder afternoon's
+   three-line headline over a notice, wide fonts) scrolls its stops alone,
+   under a fade (the tall-room block below): never the sizes down, never the
+   page. Above the 320 pt and landscape blocks below, which still win. */
 .today-main {
-    --today-gap: clamp(3px, 3px + 0.074 * var(--today-room), 16px);
-    --today-gap-row: clamp(3px, 3px + 0.052 * var(--today-room), 12px);
-    --today-pad-end: clamp(8px, 8px + 0.04 * var(--today-room), 15px);
+    --today-gap: clamp(3px, 3px + 0.0787 * var(--today-room), 17px);
+    --today-gap-row: clamp(3px, 3px + 0.0562 * var(--today-room), 13px);
+    --today-pad-end: clamp(8px, 8px + 0.0393 * var(--today-room), 15px);
+    /* A stop row's top and bottom padding; the gap over the footer. */
+    --today-stop-pad: clamp(3px, 3px + 0.0534 * var(--today-room), 12.5px);
+    --today-foot-gap: clamp(0px, 0.0955 * var(--today-room), 17px);
     /* The place button, ⓘ and ✕ (one height, so they keep one centre line), the day chips, the footer links. */
-    --today-target: clamp(44px, 44px + 0.023 * var(--today-room), 48px);
+    --today-target: clamp(44px, 44px + 0.045 * var(--today-room), 52px);
+    /* The fade at the foot of the stops when they scroll where no scroll timeline runs (iOS 17-18): the
+       footer's whole gap, moved into the list as its foot room, so the last stop scrolls whole above it. */
+    --today-fade: var(--today-foot-gap);
+    /* Where a scroll timeline runs: from one stop's words to the next's (a row's padding twice, the
+       gap, a line and a half), so some words always fade under it wherever the list's foot falls. */
+    --today-more-fade: calc(2 * var(--today-stop-pad) + var(--today-gap-row) + 1.5em);
+    /* How far the card reaches into the overlay's side margins (0.75rem). */
+    --today-widen: clamp(0px, 0.0225 * var(--today-room), 4px);
+    /* A tile's right padding: its words are left-aligned, so the widest reading takes it (6 px on an SE, 2 on his phone). */
+    --today-cell-pad-r: clamp(2px, 6px - 0.0225 * var(--today-room), 6px);
+    /* What the width guards count: the card's side padding, the chevron (0.6em of its 1.125rem at most) and its gap. */
+    --today-card-x: var(--today-pad);
+    --today-chevron-room: calc(0.6 * 1.125rem + clamp(6px, 6px + 0.011 * var(--today-room), 8px));
+    /* The card's own content width: the room's (100cqw, the card 560 px at most) less its side padding. */
+    --today-inner: calc(min(100cqw, 560px) + 2 * var(--today-widen) - 2 * var(--today-card-x));
+    /* A tile's text column (a third of the card's, less two tile gaps, its 3 px rule and its padding) over 7.15 px per px. */
+    --today-fit-tile: calc(
+        ((var(--today-inner) - 2 * var(--today-gap-chip)) / 3 - 3px
+            - clamp(6px, 6px + 0.022 * var(--today-room), 10px) - var(--today-cell-pad-r)) / 7.15
+    );
+    /* A stop row's text column (the card's, less the row's padding, the level glyph's 1.1em and its gap, the chevron and its gap) over 21. */
+    --today-fit-times: calc(
+        (var(--today-inner) - 2 * clamp(6px, 6px + 0.022 * var(--today-room), 10px)
+            - 1.1 * clamp(0.8125rem, 0.8125rem + 0.0182 * var(--today-room), 17px)
+            - clamp(6px, 6px + 0.011 * var(--today-room), 8px) - var(--today-chevron-room)) / 21
+    );
+    width: calc(min(100%, 560px) + 2 * var(--today-widen));
+    margin-inline: calc(-1 * var(--today-widen));
 }
-.today-main .today-place { min-height: var(--today-target); font-size: clamp(0.875rem, 0.875rem + 0.0065 * var(--today-room), 16px); }
+/* A line more under the light: 126-17's rhythm where his room needs it. The rows dip to 8.5 px of
+   padding at his 754 px and grow on past it (a Pro Max, a tall window), so no room gets rows under
+   126-17's; below ~680 px of room these equal the ordinary day's. */
+.today-main:has(.today-col-b > .today-facts ~ :is(.today-facts, .today-notice)) {
+    --today-gap: clamp(3px, 3px + 0.0787 * var(--today-room), 16px);
+    --today-gap-row: clamp(3px, 3px + 0.0562 * var(--today-room), 12px);
+    --today-stop-pad: clamp(3px, max(min(3px + 0.0534 * var(--today-room), 8.5px), 0.0534 * var(--today-room) - 1px), 12.5px);
+    --today-foot-gap: clamp(0px, 0.0955 * var(--today-room), 16px);
+}
+.today-main .today-place { min-height: var(--today-target); font-size: clamp(0.875rem, 0.875rem + 0.0176 * var(--today-room), 18px); }
 /* ⓘ and ✕ grow as squares (their focus rings stay square), their glyphs with the place button's words. */
-.today-main .today-head > .today-icon { width: var(--today-target); height: var(--today-target); font-size: clamp(1.125rem, 1.125rem + 0.011 * var(--today-room), 20px); }
-.today-main .today-chip { min-height: var(--today-target); font-size: clamp(0.8125rem, 0.8125rem + 0.007 * var(--today-room), 15px); }
+.today-main .today-head > .today-icon { width: var(--today-target); height: var(--today-target); font-size: clamp(1.125rem, 1.125rem + 0.0162 * var(--today-room), 22px); }
+.today-main .today-chip { min-height: var(--today-target); font-size: clamp(0.8125rem, 0.8125rem + 0.0179 * var(--today-room), 17px); }
+/* The tile's words keep their 10 px from its coloured rule; its right edge gives them the width. */
 .today-main .today-cell {
-    padding-top: clamp(2px, 2px + 0.029 * var(--today-room), 7px);
-    padding-bottom: clamp(2px, 2px + 0.029 * var(--today-room), 7px);
+    padding-top: clamp(2px, 2px + 0.0281 * var(--today-room), 7px);
+    padding-right: var(--today-cell-pad-r);
+    padding-bottom: clamp(2px, 2px + 0.0281 * var(--today-room), 7px);
 }
-.today-main .today-cell-label { font-size: clamp(0.6875rem, 0.6875rem + 0.0075 * var(--today-room), 13px); }
-.today-main .today-cell-wind { font-size: clamp(0.8125rem, 0.8125rem + 0.007 * var(--today-room), 15px); }
-.today-main .today-cell-word { font-size: clamp(0.6875rem, 0.6875rem + 0.0161 * var(--today-room), 14.5px); }
-.today-main .today-headline { font-size: clamp(0.875rem, 0.875rem + 0.018 * var(--today-room), 18px); }
-/* Balanced when it wraps, only where the sheet grows (the room past 576 px): an SE, phone landscape and large text keep build 124's line breaks. */
+.today-main .today-cell-label { font-size: clamp(0.6875rem, min(0.6875rem + 0.013 * var(--today-room), var(--today-fit-tile) - 1.8px), 14px); }
+.today-main .today-cell-wind { font-size: clamp(0.8125rem, min(0.8125rem + 0.0123 * var(--today-room), var(--today-fit-tile)), 16px); }
+.today-main .today-cell-word { font-size: clamp(0.6875rem, min(0.6875rem + 0.027 * var(--today-room), var(--today-fit-tile)), 16.5px); }
+.today-main .today-headline { font-size: clamp(0.875rem, 0.875rem + 0.0345 * var(--today-room), 21px); }
+.today-main :is(.today-notice, .today-stop-l2) {
+    font-size: clamp(0.6875rem, min(0.6875rem + 0.0242 * var(--today-room), var(--today-fit-times)), 16px);
+}
+/* The light follows the times, but never under 126-17's (a tall narrow window's times are width-bound; the light wraps freely). */
+.today-main .today-facts {
+    font-size: clamp(
+        0.6875rem,
+        min(0.6875rem + 0.0242 * var(--today-room), max(var(--today-fit-times), min(0.6875rem + 0.0133 * var(--today-room), 14px))),
+        16px
+    );
+}
+.today-main .today-stop { padding-top: var(--today-stop-pad); padding-bottom: var(--today-stop-pad); }
+/* The level glyph keeps 126-17's size: its column is width the times can use. */
+.today-main .today-stop-glyph { font-size: clamp(0.8125rem, 0.8125rem + 0.0182 * var(--today-room), 17px); }
+/* The name at most 1.3 × the times, and the shelter word 3 px under that, but neither under 126-17's sizes. */
+.today-main .today-stop-l1 {
+    font-size: clamp(
+        0.8125rem,
+        min(0.8125rem + 0.0292 * var(--today-room), max(1.3 * var(--today-fit-times), min(0.8125rem + 0.0182 * var(--today-room), 17px))),
+        19px
+    );
+}
+.today-main .today-stop-shelter {
+    font-size: clamp(
+        0.75rem,
+        min(0.75rem + 0.0183 * var(--today-room), max(1.3 * var(--today-fit-times) - 3px, min(0.75rem + 0.01 * var(--today-room), 14.5px))),
+        16px
+    );
+}
+.today-main .today-tag { font-size: clamp(0.625rem, 0.625rem + 0.0134 * var(--today-room), 13px); }
+.today-main .today-foot { margin-top: var(--today-foot-gap); }
+.today-main .today-link { min-height: var(--today-target); font-size: clamp(0.8125rem, 0.8125rem + 0.0179 * var(--today-room), 17px); }
+.today-main .today-credit { font-size: clamp(0.6875rem, min(0.6875rem + 0.0074 * var(--today-room), var(--today-fit-times)), 13px); }
+/* Only where the sheet grows (the room past 576 px): an SE, phone landscape and large text keep build 124's. */
 @container today-room (height > max(576px, 33.5rem)) {
     .today-main .today-headline { text-wrap: balance; }
+    /* A day too long for the room: the stops scroll alone, in their own area,
+       under a fade at its foot. 4 px above the first row keep its focus ring
+       whole. The header, the day chips, the tiles, the headline, the light and
+       the footer stay put. The footer's whole gap moves into the list as its
+       foot room, so the gap reads the same when nothing scrolls and the last
+       stop scrolls whole into view above the fade. Where no scroll timeline
+       runs (iOS 17-18) the fade is a mask over that foot room. */
+    .today-main .today-col-a { flex-shrink: 0; }
+    .today-main .today-col-b { min-height: 0; }
+    .today-main .today-col-b > .today-stops {
+        min-height: 0;
+        margin-top: -4px;
+        padding: 4px 0 var(--today-fade);
+        overflow: hidden auto;
+        overscroll-behavior: contain;
+        scroll-padding-bottom: var(--today-fade);
+        -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--today-fade)), transparent);
+        mask-image: linear-gradient(to bottom, #000 calc(100% - var(--today-fade)), transparent);
+    }
+    .today-main:has(.today-col-b > .today-stops) .today-foot { margin-top: calc(var(--today-foot-gap) - var(--today-fade)); }
+    /* Where a scroll timeline runs (Safari 26, Chromium 115 on) the fade is the
+       card's own colour laid over the list's foot (WebKit does not repaint a
+       mask a scroll timeline moves, so a mask there would cut a row with no
+       fade at all), tall enough to reach from one stop's words to the next's
+       and so always fade some words wherever the foot falls. It is there only
+       while a stop is still below: it fades out over the last half of its
+       height of scroll before the foot room, so a list that hides no more than
+       its foot room (the footer's gap, nothing but space) shows no fade, one
+       that hides a few px of a stop barely dims it, and at the end it is gone,
+       the last stop whole above the foot room. */
+    @supports (animation-timeline: scroll()) {
+        .today-main .today-col-b > .today-stops {
+            scroll-padding-bottom: var(--today-more-fade);
+            -webkit-mask-image: none;
+            mask-image: none;
+            scroll-timeline: --today-stops block;
+        }
+        .today-main .today-col-b > .today-stops::after {
+            content: '';
+            position: sticky;
+            /* A sticky box keeps clear of its scroller's padding: down over the foot room, to the list's own foot. */
+            bottom: calc(-1 * var(--today-fade));
+            flex: none;
+            height: var(--today-more-fade);
+            margin-top: calc(-1 * (var(--today-more-fade) + var(--today-gap-row)));
+            background: linear-gradient(#0d142500, #0d1425);
+            opacity: 0;
+            pointer-events: none;
+            animation: today-more linear both;
+            animation-timeline: --today-stops;
+            animation-range: calc(100% - var(--today-fade) - 0.5 * var(--today-more-fade)) calc(100% - var(--today-fade));
+        }
+    }
 }
-.today-main :is(.today-facts, .today-notice) { font-size: clamp(0.6875rem, 0.6875rem + 0.0133 * var(--today-room), 14px); }
-.today-main .today-stop {
-    padding-top: clamp(3px, 3px + 0.04 * var(--today-room), 10px);
-    padding-bottom: clamp(3px, 3px + 0.04 * var(--today-room), 10px);
+/* Resolved where it is set, so the spec can read the fade's height. */
+@property --today-more-fade {
+    syntax: '<length>';
+    inherits: true;
+    initial-value: 0px;
 }
-.today-main :is(.today-stop-l1, .today-stop-glyph) { font-size: clamp(0.8125rem, 0.8125rem + 0.0182 * var(--today-room), 17px); }
-.today-main .today-stop-shelter { font-size: clamp(0.75rem, 0.75rem + 0.01 * var(--today-room), 14.5px); }
-.today-main .today-stop-l2 { font-size: clamp(0.6875rem, min(0.6875rem + 0.0161 * var(--today-room), 4.81cqw - 4.52px), 14.5px); }
-.today-main .today-tag { font-size: clamp(0.625rem, 0.625rem + 0.0079 * var(--today-room), 12px); }
-.today-main .today-foot { margin-top: clamp(0px, 0.091 * var(--today-room), 16px); }
-.today-main .today-link { min-height: var(--today-target); font-size: clamp(0.8125rem, 0.8125rem + 0.007 * var(--today-room), 15px); }
-.today-main .today-credit { font-size: clamp(0.6875rem, 0.6875rem + 0.006 * var(--today-room), 0.75rem); }
+/* Shown while a stop is below the list's foot, gone at its end (0 when nothing scrolls: the timeline is inactive). */
+@keyframes today-more {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
 /* A 320 pt phone in wide fonts: the stop's times keep their one line. */
 @media (max-width: 359px) {
     .today-overlay { padding-right: 6px; padding-left: 6px; }
     .today-card { padding: 0 6px 6px; }
     .today-chevron { display: none; }
+    /* Its 6 px side margin stays; the width guards count its 6 px padding and no chevron. */
+    .today-main { --today-widen: 0px; --today-card-x: 6px; --today-chevron-room: 0px; }
 }
 /* Phone landscape (Plus and Pro Max phones are 428-430 px tall): two columns, the day on the left, the stops on the right. */
 @media (orientation: landscape) and (max-height: 440px) {
@@ -285,3 +434,4 @@
 .display-light .today-chip[aria-pressed='true'] { border-color: #0e7490; background: #cffafe; }
 .display-light :is(.today-notice, .today-rows li[data-parks]) { color: #92400e; }
 .display-light .today-primary { background: #0e7490; color: #fff; }
+.display-light .today-main .today-col-b > .today-stops::after { background: linear-gradient(#fff0, #fff); }

@@ -10,9 +10,13 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  * Wide fonts throughout (Verdana on a Mac, DejaVu Sans on the Linux runner),
  * so a Mac run wraps text no narrower than CI does. Screen 1 is a centred
  * card clear of the tab bar; at ordinary text nothing scrolls, at large text
- * only the body between the header and the footer may. Two stops under 640 px
+ * only the body between the header and the footer may. On a tall room (past
+ * an SE's 576 px) a day with more to say than the room holds scrolls only its
+ * stops, in their own area under a fade (126-17b). Two stops under 640 px
  * tall, three above; two columns in phone landscape. Every control is a 44 pt
- * target and nothing overflows sideways.
+ * target and nothing overflows sideways. Tall narrow windows (375 x 1100,
+ * 320 x 1000) are measured too: the type the room allows, held to what one
+ * line of their width holds.
  *
  * Every mode the fixture has is measured at every size: an ordinary day at
  * Airlie Beach, a day the models split, a day over her limits, offline, no
@@ -48,12 +52,15 @@ type Size = {
     mayScroll: boolean;
     landscape?: boolean;
 };
-const AS_DRAWN: Record<'se' | 'se2' | 'mid' | 'shane', Size> = {
+const AS_DRAWN: Record<'se' | 'se2' | 'mid' | 'shane' | 'slim' | 'slimmer', Size> = {
     se: { name: '320x568 as drawn', width: 320, height: 561, query: '&root=app', stops: 2, mayScroll: false },
     se2: { name: '375x667 as drawn', width: 375, height: 662, query: '&root=app', stops: 3, mayScroll: false },
     // A 390 x 844 phone: 47 pt above (31.4 over its 15.6 px 1rem) and 34 below; the sheet gets 685 px.
     mid: { name: '390x844 as drawn', width: 390, height: 779, query: '&root=app', stops: 3, mayScroll: false },
     shane: { name: '430x932 as drawn', width: 430, height: 856, query: '&root=app', stops: 3, mayScroll: false },
+    // Tall, narrow windows (iPad Slide Over, a resizable window): a big phone's room at an SE's width (126-17b).
+    slim: { name: '375x1100 as drawn', width: 375, height: 1100, query: '&root=app', stops: 3, mayScroll: false },
+    slimmer: { name: '320x1000 as drawn', width: 320, height: 1000, query: '&root=app', stops: 3, mayScroll: false },
 };
 
 const sizes: Size[] = [
@@ -72,6 +79,9 @@ const sizes: Size[] = [
     AS_DRAWN.shane,
     // The phone most people have, as the app draws it: part way to his (build 126, 126-17).
     AS_DRAWN.mid,
+    // Tall and narrow: the type the room allows, held to what one line of the width holds (126-17b).
+    AS_DRAWN.slim,
+    AS_DRAWN.slimmer,
 ];
 const modes = [
     'normal',
@@ -321,7 +331,10 @@ for (const size of sizes) {
     }
 }
 
-for (const size of sizes.filter((s) => !s.mayScroll)) {
+// The nested screens at every phone size; the tall narrow windows are screen 1's width guards'
+// (126-17b), and a nested list that fills their room sits its 1rem (13-15 px there) over the tab bar.
+const nestedSizes = sizes.filter((s) => !s.mayScroll && s !== AS_DRAWN.slim && s !== AS_DRAWN.slimmer);
+for (const size of nestedSizes) {
     test(`the nested screens are centred and clear of the tab bar at ${size.name}`, async ({ page }) => {
         const errors = await open(page, size, `&mode=default-boat${size.query}`);
         const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
@@ -512,6 +525,105 @@ const BUILD_125_MID = {
     } as Record<string, number>,
 };
 
+/**
+ * Build 126's first pass (126-17), measured on 545a94df in both engines in wide
+ * fonts, rounded UP to the hundredth (gaps to the tenth) so that 126-17's own
+ * sizes fail "greater than": 126-17b must pass every one at 390 x 844 and
+ * 430 x 932 as drawn.
+ */
+const BUILD_126_17 = {
+    mid: {
+        gaps: {
+            'header → day': 11.1,
+            'day → tiles': 11.1,
+            'tiles → headline': 11.1,
+            'headline → light': 7.4,
+            'light → stops': 8.7,
+            'stop → stop': 8.7,
+            'stops → footer': 10,
+        } as Record<string, number>,
+        // 15.619, 14.666, 12.486, 12.18, 11.381, 12.486, 13.441, 11.546, 18.753 as drawn.
+        type: {
+            headline: 15.62,
+            stopName: 14.67,
+            details: 12.49,
+            light: 12.19,
+            credit: 11.39,
+            tileWord: 12.49,
+            tileWind: 13.45,
+            tileLabel: 11.55,
+            icon: 18.76,
+        } as Record<string, number>,
+        more: { place: 14.37, chip: 13.45, link: 13.45 } as Record<string, number>,
+        targets: 46.52,
+        row: 52.94,
+    },
+    shane: {
+        gaps: {
+            'header → day': 16,
+            'day → tiles': 16,
+            'tiles → headline': 16,
+            'headline → light': 10,
+            'light → stops': 12,
+            'stop → stop': 12,
+            'stops → footer': 16,
+        } as Record<string, number>,
+        type: {
+            headline: 18,
+            stopName: 17,
+            details: 14.5,
+            light: 14,
+            credit: 12.75,
+            tileWord: 14.5,
+            tileWind: 15,
+            tileLabel: 13,
+            icon: 20,
+        } as Record<string, number>,
+        more: { place: 16, chip: 15, link: 15 } as Record<string, number>,
+        targets: 48,
+        row: 63.83,
+    },
+    // The tall narrow windows, rounded DOWN (they are floors here): the sizes that are not held
+    // by width. Light and stop name sat at their 126-17 most (14/17 px) where the times are
+    // width-bound at 12.44 and 10.29 px.
+    slim: {
+        gaps: {
+            'header → day': 16,
+            'day → tiles': 16,
+            'tiles → headline': 16,
+            'headline → light': 10,
+            'light → stops': 12,
+            'stop → stop': 12,
+            'stops → footer': 16,
+        } as Record<string, number>,
+        type: { headline: 18, stopName: 17, details: 12.44, light: 14, credit: 11.25, icon: 20 } as Record<
+            string,
+            number
+        >,
+        more: { place: 15.95, chip: 15, link: 15 } as Record<string, number>,
+        targets: 48,
+        row: 60,
+    },
+    slimmer: {
+        gaps: {
+            'header → day': 16,
+            'day → tiles': 16,
+            'tiles → headline': 16,
+            'headline → light': 10,
+            'light → stops': 12,
+            'stop → stop': 12,
+            'stops → footer': 16,
+        } as Record<string, number>,
+        type: { headline: 17.6, stopName: 16.85, details: 10.29, light: 13.53, credit: 9.75, icon: 18.43 } as Record<
+            string,
+            number
+        >,
+        more: { place: 13.62, chip: 12.98, link: 12.98 } as Record<string, number>,
+        targets: 48,
+        row: 57,
+    },
+};
+
 /** The gaps between screen 1's blocks and the sizes that set them, measured in the page. */
 function breathing(page: Page) {
     return page.evaluate(() => {
@@ -527,7 +639,9 @@ function breathing(page: Page) {
             'header → day': between(box('.today-head'), box('.today-controls')),
             'day → tiles': between(box('.today-controls'), box('.today-verdict')),
             'tiles → headline': between(box('.today-verdict'), box('.today-headline')),
-            'light → stops': between(box('.today-facts'), box('.today-stops')),
+            // To the first stop row, not the list's box: on a tall room the list is its own
+            // scroller, a few px of room above its first row for the row's focus ring (126-17b).
+            'light → stops': between(box('.today-facts'), rows[0]),
             'stop → stop': between(rows[0], rows[1]),
         };
         if (portrait) {
@@ -568,6 +682,13 @@ function breathing(page: Page) {
                 tileLabel: px(card.querySelector('.today-cell-label'), 'font-size'),
                 icon: px(card.querySelector('.today-head > .today-icon'), 'font-size'),
             },
+            // The rest of what she reads on screen 1 (126-17b): the place, the day chips, the footer links.
+            more: {
+                place: px(card.querySelector('.today-place'), 'font-size'),
+                chip: px(card.querySelector('.today-chip'), 'font-size'),
+                link: px(card.querySelector('.today-link'), 'font-size'),
+            },
+            rowHeights: rows.map((r) => Math.round(r.height * 10) / 10),
             // Every target she presses on screen 1 bar the stop rows (48 px tall since build 124), as drawn:
             // the place button, ⓘ and ✕, the day chips and Stay, and the footer's two links.
             targets: Object.fromEntries(
@@ -622,8 +743,274 @@ function breathing(page: Page) {
             card: {
                 above: Math.round(card.getBoundingClientRect().top - card.parentElement!.getBoundingClientRect().top),
                 height: Math.round(card.getBoundingClientRect().height),
+                // The room the overlay gives it: between the status bar and the tab bar's 1rem.
+                room: Math.round(
+                    card.parentElement!.clientHeight -
+                        px(card.parentElement, 'padding-top') -
+                        px(card.parentElement, 'padding-bottom'),
+                ),
+            },
+            // Nothing scrolls on an ordinary day: not the page, not the body, not the stops.
+            scrolls: {
+                page: document.documentElement.scrollHeight > innerHeight + 0.5,
+                stops: (() => {
+                    const list = card.querySelector<HTMLElement>('.today-col-b .today-stops')!;
+                    return list.scrollHeight - list.clientHeight > 1;
+                })(),
             },
         };
+    });
+}
+
+/**
+ * Screen 1 in a mode too tall for its room at the bigger type (126-17b): only
+ * the stops scroll, inside their own area, under a fade. Measures the list,
+ * then scrolls it to its end and measures again: the last stop must sit whole
+ * above the fade, and nothing outside the list may have moved. Returns what
+ * broke, whether the list scrolls, and which fade it has: where a scroll
+ * timeline runs (both engines here, iOS 26) the card's colour laid over the
+ * list's foot (its ::after) while a stop is still below; elsewhere (iOS 17-18,
+ * or this spec with the timeline rule taken out) a mask over the list's own
+ * foot room.
+ */
+function stopsScrollIssues(page: Page) {
+    return page.evaluate(async () => {
+        const issues: string[] = [];
+        const card = document.querySelector<HTMLElement>('.today-main')!;
+        const list = card.querySelector<HTMLElement>('.today-col-b .today-stops')!;
+        const body = card.querySelector<HTMLElement>('.today-body')!;
+        const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        // The fade runs on the list's scroll timeline: let it start before reading it (a list that
+        // does not scroll leaves its timeline inactive and the animation pending, so not for ever).
+        await Promise.race([
+            Promise.all(list.getAnimations({ subtree: true }).map((animation) => animation.ready)),
+            new Promise((resolve) => setTimeout(resolve, 250)),
+        ]);
+        await frame();
+        const fixed = [
+            '.today-head',
+            '.today-controls',
+            '.today-verdict',
+            '.today-headline',
+            '.today-facts',
+            '.today-foot',
+        ];
+        const where = () =>
+            fixed.map((selector) => {
+                const r = card.querySelector(selector)!.getBoundingClientRect();
+                return [selector, Math.round(r.top * 10) / 10, Math.round(r.bottom * 10) / 10] as const;
+            });
+        if (document.documentElement.scrollHeight > innerHeight + 0.5) issues.push('the page scrolls');
+        if (document.documentElement.scrollWidth > innerWidth) issues.push('the page scrolls sideways');
+        if (body.scrollHeight - body.clientHeight > 1)
+            issues.push(`the body scrolls by ${body.scrollHeight - body.clientHeight}px`);
+        const box = card.getBoundingClientRect();
+        for (const [selector, top, bottom] of where())
+            if (top < box.top - 0.5 || bottom > box.bottom + 0.5) issues.push(`${selector} is cut`);
+        const scrolls = list.scrollHeight - list.clientHeight > 1;
+        const style = getComputedStyle(list);
+        const overlay = getComputedStyle(list, '::after');
+        const timeline = !['none', 'normal'].includes(overlay.content) && /gradient/.test(overlay.backgroundImage);
+        const mask = style.getPropertyValue('mask-image') || style.getPropertyValue('-webkit-mask-image');
+        // The fade over the list's foot now: how tall, and how strong (the overlay's opacity; a mask is whole).
+        const fadeNow = () =>
+            timeline
+                ? { height: parseFloat(overlay.height), strength: parseFloat(overlay.opacity) }
+                : { height: parseFloat(style.paddingBottom), strength: /gradient/.test(mask) ? 1 : 0 };
+        const items = [...list.querySelectorAll<HTMLElement>(':scope > li')].filter(
+            (li) => getComputedStyle(li).display !== 'none',
+        );
+        const words = (li: HTMLElement) => li.querySelector('.today-stop-text')!.getBoundingClientRect();
+        if (scrolls) {
+            if (!timeline && !/gradient/.test(mask)) issues.push(`the stops scroll with no fade (${mask})`);
+            const first = items[0].getBoundingClientRect();
+            if (list.clientHeight < first.height * 1.25) issues.push(`only ${list.clientHeight}px of stops show`);
+            // A cue that there is more, wherever the list's foot falls: the first stop not wholly
+            // in view shows some of its words, and they fade under the foot. A list that hides
+            // only its foot room or a stop's padding hides no words and needs none.
+            const view = list.getBoundingClientRect();
+            const fade = fadeNow();
+            const next = items.find((li) => words(li).bottom > view.bottom + 2);
+            if (next) {
+                const peek = view.bottom - words(next).top;
+                const under =
+                    Math.min(words(next).bottom, view.bottom) - Math.max(words(next).top, view.bottom - fade.height);
+                if (peek < 4) issues.push(`the next stop is hidden with none of its words in view (${peek}px)`);
+                if (fade.height < 10 || fade.strength < 0.25 || under < 4)
+                    issues.push(
+                        `the next stop's words (${under}px) do not fade under the list's ${fade.height}px foot at ${fade.strength}`,
+                    );
+            }
+        }
+        const before = JSON.stringify(where());
+        list.scrollTop = list.scrollHeight;
+        await frame();
+        if (JSON.stringify(where()) !== before)
+            issues.push(`scrolling the stops moved the sheet: ${before} → ${JSON.stringify(where())}`);
+        // The last stop, whole, inside the list and above whatever fade is left at the end
+        // (none where a scroll timeline runs; the static fade lies over the foot room).
+        const view = list.getBoundingClientRect();
+        const end = fadeNow();
+        if (timeline && end.strength > 0.01) issues.push(`the fade is still there at the end (${end.strength})`);
+        const fade = end.strength > 0.01 ? end.height : 0;
+        const last = items[items.length - 1].getBoundingClientRect();
+        if (last.top < view.top - 0.5 || last.bottom > view.bottom - fade + 0.5)
+            issues.push(
+                `the last stop (${last.top}–${last.bottom}) is not whole in ${view.top}–${view.bottom} above a ${fade}px fade`,
+            );
+        list.scrollTop = 0;
+        await frame();
+        // Every target she presses, the stop rows too, stays 44 pt.
+        for (const control of card.querySelectorAll<HTMLElement>('button, select')) {
+            const r = control.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) continue;
+            if (r.width < 44 - 0.5 || r.height < 44 - 0.5)
+                issues.push(
+                    `${control.getAttribute('aria-label') ?? control.textContent?.trim()} is ${r.width}×${r.height}`,
+                );
+        }
+        return { issues, scrolls, timeline };
+    });
+}
+
+/** How much light the words in a screenshot give off: the sum over its pixels of their luminance above the card's. */
+function ink(page: Page, png: Buffer) {
+    return page.evaluate(async (base64) => {
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+        const image = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext('2d')!;
+        context.drawImage(image, 0, 0);
+        const data = context.getImageData(0, 0, image.width, image.height).data;
+        let sum = 0;
+        for (let i = 0; i < data.length; i += 4)
+            sum += Math.max(0, 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2] - 30);
+        return sum;
+    }, png.toString('base64'));
+}
+
+/**
+ * The stops' fade as PAINTED, not as computed (126-17b's review: WebKit, the
+ * iPhone's engine, computed a mask that a scroll timeline moved and never
+ * painted it, so a stop was cut off at full brightness). Screenshots the list's
+ * foot, as tall as the fade, with the fade and without it, at rest and scrolled
+ * to the end: at rest it must dim the words there, at the end it must be gone.
+ */
+async function paintedFade(page: Page) {
+    const list = page.locator('.today-main .today-col-b > .today-stops');
+    const settle = () =>
+        page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const foot = async () => {
+        const clip = await list.evaluate((el) => {
+            const view = el.getBoundingClientRect();
+            const overlay = getComputedStyle(el, '::after');
+            const height = ['none', 'normal'].includes(overlay.content)
+                ? parseFloat(getComputedStyle(el).paddingBottom)
+                : parseFloat(overlay.height);
+            return { x: view.x, y: view.bottom - height, width: view.width, height };
+        });
+        const faded = await page.screenshot({ clip });
+        const plain = await page.addStyleTag({
+            content:
+                '.today-main .today-col-b > .today-stops { -webkit-mask-image: none !important; mask-image: none !important; }' +
+                ' .today-main .today-col-b > .today-stops::after { visibility: hidden !important; }',
+        });
+        await settle();
+        const unfaded = await page.screenshot({ clip });
+        await plain.evaluate((node) => (node as HTMLStyleElement).remove());
+        await settle();
+        return { faded: await ink(page, faded), plain: await ink(page, unfaded) };
+    };
+    await list.evaluate((el) => (el.scrollTop = 0));
+    await settle();
+    const rest = await foot();
+    await list.evaluate((el) => (el.scrollTop = el.scrollHeight));
+    await settle();
+    const end = await foot();
+    await list.evaluate((el) => (el.scrollTop = 0));
+    await settle();
+    return { rest, end };
+}
+
+/** iOS 17-18 on the fixture: the scroll-timeline rules taken out, so the static fade is what draws. */
+function withoutScrollTimelines(page: Page) {
+    return page.evaluate(() => {
+        let removed = 0;
+        const walk = (rules: CSSStyleSheet | CSSGroupingRule) => {
+            for (let i = rules.cssRules.length - 1; i >= 0; i--) {
+                const rule = rules.cssRules[i];
+                if (rule instanceof CSSSupportsRule && rule.conditionText.includes('animation-timeline')) {
+                    rules.deleteRule(i);
+                    removed++;
+                } else if (rule instanceof CSSGroupingRule) walk(rule);
+            }
+        };
+        for (const sheet of document.styleSheets) {
+            try {
+                walk(sheet);
+            } catch {
+                // A sheet from another origin: not ours.
+            }
+        }
+        return removed;
+    });
+}
+
+/**
+ * The widest words the engine can put in a tile and a stop row (126-17b), put
+ * there and measured, then put back: "≈ NW 18–22" (compass8 writes two letters
+ * at most, two-digit knots; the widest of the ✓ ≈ ✕ readings in the wide face,
+ * 7.08 px per px of type), "No forecast", "Afternoon", and an overnight stay's
+ * times ("… · about 22 NM", wider than "… · home 15:57"). Each keeps one line
+ * and is whole; the stop's name is whole and its shelter word gives way first.
+ * Returns what broke.
+ */
+function widestIssues(page: Page) {
+    return page.evaluate(() => {
+        const issues: string[] = [];
+        const card = document.querySelector<HTMLElement>('.today-main')!;
+        const widest: [string, string][] = [
+            ['.today-cell-label', 'Afternoon'],
+            ['.today-cell-wind', '≈ NW 18–22'],
+            ['.today-cell-wind', '✕ NW 88–88'],
+            ['.today-cell-word', 'No forecast'],
+            ['.today-stop-l2', 'Leave 07:00 · there 10:28 · about 22 NM'],
+        ];
+        const oneLine = (el: HTMLElement) =>
+            el.getClientRects().length === 1 &&
+            el.getBoundingClientRect().height <= parseFloat(getComputedStyle(el).lineHeight) * 1.5;
+        const whole = (el: HTMLElement) => {
+            const text = document.createRange();
+            text.selectNodeContents(el);
+            const r = text.getBoundingClientRect();
+            const box = el.getBoundingClientRect();
+            return r.left >= box.left - 0.5 && r.right <= box.right + 0.5;
+        };
+        for (const [selector, words] of widest)
+            for (const el of card.querySelectorAll<HTMLElement>(selector)) {
+                if (!el.getClientRects().length) continue;
+                const keep = [...el.childNodes];
+                el.textContent = words;
+                // The tile's words inside its padding; a stop's times inside the row's text column.
+                const room = el.parentElement!.getBoundingClientRect();
+                const text = document.createRange();
+                text.selectNodeContents(el);
+                const r = text.getBoundingClientRect();
+                if (!oneLine(el)) issues.push(`"${words}" wraps in ${selector}`);
+                else if (!whole(el) || r.right > room.right + 0.5) issues.push(`"${words}" is cut in ${selector}`);
+                el.replaceChildren(...keep);
+            }
+        for (const name of card.querySelectorAll<HTMLElement>('.today-stop-name')) {
+            if (!name.getClientRects().length) continue;
+            const text = document.createRange();
+            text.selectNodeContents(name);
+            if (text.getBoundingClientRect().width > name.getBoundingClientRect().width + 0.02)
+                issues.push(`the stop name "${name.textContent}" is cut`);
+            if (!oneLine(name.parentElement!)) issues.push(`"${name.parentElement!.textContent}" wraps`);
+        }
+        return issues;
     });
 }
 
@@ -680,47 +1067,77 @@ for (const size of roomSizes) {
             // under the menus' row titles (17-19 px on a Pro Max, 125-14).
             for (const [key, value] of Object.entries(m.type))
                 expect(value, key).toBeGreaterThanOrEqual(type124[key as keyof typeof BUILD_124.type]);
+            // The order kept: headline > stop name > times ≥ light > credit (126-17b: the light
+            // no longer passes the times, as it did at 390 x 844 on the fixture's root in 126-17).
             expect(m.type.headline).toBeGreaterThan(m.type.stopName);
             expect(m.type.stopName).toBeGreaterThan(m.type.details);
-            expect(m.type.details).toBeGreaterThanOrEqual(m.type.credit);
+            expect(m.type.details).toBeGreaterThanOrEqual(m.type.light);
+            expect(m.type.light).toBeGreaterThan(m.type.credit);
             // The tile's wind, its one number, stands clear above the grey label over it, as in builds 124 and 125.
             expect(m.type.tileWind - m.type.tileLabel).toBeGreaterThanOrEqual(1.75);
-            // The headline stays under the menus' row titles (17-19 px on a Pro Max, 125-14).
-            // Changed on purpose in build 126 (126-17): it was "≤ the root and < 17 px".
-            expect(m.type.headline).toBeLessThanOrEqual(18);
-            // The targets grow with the room, to 48 pt at the most.
+            // Changed on purpose in build 126 (126-17): it was "≤ the root and < 17 px"; 126-17b
+            // ("ok, make plan your day even bigger!!"): at most 21 px, was 18.
+            expect(m.type.headline).toBeLessThanOrEqual(21);
+            // The targets grow with the room, to 52 pt at the most (126-17b; 48 in 126-17).
             for (const [key, height] of Object.entries(m.targets)) {
                 expect(height, key).toBeGreaterThan(BUILD_124.targets);
-                expect(height, key).toBeLessThanOrEqual(48);
+                expect(height, key).toBeLessThanOrEqual(52);
             }
+            // On an ordinary day nothing scrolls: not the page, not the body, not the stops.
+            expect(m.scrolls).toEqual({ page: false, stops: false });
             if (size.name === AS_DRAWN.mid.name) {
-                // The phone most people have moves part way: past build 125 in every gap and every size.
-                for (const [key, gap] of Object.entries(m.gaps))
+                // The phone most people have moves part way: past build 125 in every gap and every
+                // size, and past 126-17 in every gap, size, target and stop row.
+                const was = BUILD_126_17.mid;
+                for (const [key, gap] of Object.entries(m.gaps)) {
                     expect(gap, `${key} past build 125`).toBeGreaterThan(BUILD_125_MID.gaps[key]);
+                    expect(gap, `${key} past 126-17`).toBeGreaterThan(was.gaps[key]);
+                }
                 for (const [key, value] of Object.entries(m.type)) {
                     expect(value, `${key} past build 124`).toBeGreaterThan(type124[key as keyof typeof type124]);
                     expect(value, `${key} past build 125`).toBeGreaterThan(BUILD_125_MID.type[key]);
+                    expect(value, `${key} past 126-17`).toBeGreaterThan(was.type[key]);
                 }
+                for (const [key, value] of Object.entries(m.more))
+                    expect(value, `${key} past 126-17`).toBeGreaterThan(was.more[key]);
+                for (const [key, height] of Object.entries(m.targets))
+                    expect(height, `${key} past 126-17`).toBeGreaterThan(was.targets);
+                for (const height of m.rowHeights) expect(height, 'stop row past 126-17').toBeGreaterThan(was.row);
             }
             if (size.name === AS_DRAWN.shane.name) {
-                // His phone uses its screen: the card fills most of his room and stays centred in it
-                // (above counts the overlay's own 1rem), the words he acts on read bigger, every
-                // target is 48 pt, and the blocks he reads down the sheet by stand 15 px and more apart.
-                expect(m.card.height).toBeGreaterThanOrEqual(630);
-                expect(m.card.above).toBeGreaterThanOrEqual(32);
-                expect(m.card.above).toBeLessThanOrEqual(70);
-                expect(m.type.headline).toBeGreaterThanOrEqual(17.5);
-                expect(m.type.stopName).toBeGreaterThanOrEqual(16.5);
-                expect(m.type.details).toBeGreaterThanOrEqual(14);
-                expect(m.type.tileWord).toBeGreaterThanOrEqual(14);
-                expect(m.type.tileWind).toBeGreaterThanOrEqual(14.9);
-                expect(m.type.icon).toBeGreaterThanOrEqual(19.75);
-                expect(m.type.light).toBeGreaterThanOrEqual(13.5);
-                expect(m.type.credit).toBeGreaterThanOrEqual(12);
-                for (const [key, height] of Object.entries(m.targets)) expect(height, key).toBeGreaterThanOrEqual(47.5);
-                for (const key of ['day → tiles', 'tiles → headline', 'stops → footer'])
-                    expect(m.gaps[key], key).toBeGreaterThanOrEqual(15);
-                expect(m.gaps['stop → stop']).toBeGreaterThanOrEqual(11.5);
+                // His phone filled (126-17b, "ok, make plan your day even bigger!!"): the card is at
+                // least 700 px of his 754 px room, centred in it (above counts the overlay's own
+                // 1rem), every word bigger than 126-17's, every target 52 pt, the stop rows 70 px
+                // and more, the blocks he reads down the sheet by 16.5 px and more apart.
+                const was = BUILD_126_17.shane;
+                expect(m.card.room).toBeGreaterThanOrEqual(750);
+                expect(m.card.height).toBeGreaterThanOrEqual(700);
+                expect(m.card.above).toBeGreaterThanOrEqual(17);
+                expect(m.card.above).toBeLessThanOrEqual(17 + (m.card.room - 700) / 2 + 1);
+                for (const [key, value] of Object.entries(m.type))
+                    expect(value, `${key} past 126-17`).toBeGreaterThan(was.type[key]);
+                for (const [key, value] of Object.entries(m.more))
+                    expect(value, `${key} past 126-17`).toBeGreaterThan(was.more[key]);
+                for (const [key, gap] of Object.entries(m.gaps))
+                    expect(gap, `${key} past 126-17`).toBeGreaterThan(was.gaps[key]);
+                expect(m.type.headline).toBeGreaterThanOrEqual(20);
+                expect(m.type.stopName).toBeGreaterThanOrEqual(18.5);
+                // The times and the tile's words are as big as one line holds, in the widest face
+                // (widestIssues): ~15.2 and ~15.1 px across his 430 pt, not the plan's 16.5 and 18.
+                expect(m.type.details).toBeGreaterThanOrEqual(15.1);
+                expect(m.type.light).toBeGreaterThanOrEqual(15.1);
+                expect(m.type.tileWord).toBeGreaterThanOrEqual(15.05);
+                expect(m.type.tileWind).toBeGreaterThanOrEqual(15.05);
+                expect(m.type.credit).toBeGreaterThanOrEqual(12.9);
+                expect(m.type.icon).toBeGreaterThanOrEqual(21.5);
+                expect(m.more.place).toBeGreaterThanOrEqual(17.5);
+                expect(m.more.chip).toBeGreaterThanOrEqual(16.5);
+                expect(m.more.link).toBeGreaterThanOrEqual(16.5);
+                for (const [key, height] of Object.entries(m.targets)) expect(height, key).toBeGreaterThanOrEqual(51.5);
+                for (const height of m.rowHeights) expect(height, 'stop row').toBeGreaterThanOrEqual(70);
+                for (const key of ['header → day', 'day → tiles', 'tiles → headline', 'stops → footer'])
+                    expect(m.gaps[key], key).toBeGreaterThanOrEqual(16.5);
+                expect(m.gaps['stop → stop']).toBeGreaterThanOrEqual(12.5);
             }
         }
         // ⓘ and ✕ sit on the place button's centre line, evenly spaced, and ✕ is
@@ -739,3 +1156,215 @@ for (const size of roomSizes) {
         expect(errors).toEqual([]);
     });
 }
+
+/**
+ * Bigger still (build 126, 126-17b). Shane 2026-10-09, after the 126-17
+ * before/after at his phone size: "ok, make plan your day even bigger!!".
+ * Screen 1 now fills a big phone's room (at least 700 of his 754 px) with
+ * 21 px headlines, 19 px stop names and 52 pt targets. A day with one line
+ * more under the light (a notice: default-boat, which every skipper without a
+ * boat set sees, offline; Tromsø's dated map line) takes 126-17's rhythm on his
+ * room and keeps all three stops in view, unscrolled, here as on the phone most
+ * people have. A day with still more to say than his room holds at that type
+ * (a thunder afternoon's three-line headline over the default-boat notice, in
+ * wide fonts) no longer forces every size down: only the stops scroll, inside
+ * their own area, with a fade at its foot that is painted, not only computed
+ * (WebKit, the iPhone's engine, never painted 126-17b's first fade); the
+ * header, the day chips, the tiles, the headline, the light and the footer stay
+ * put, and the last stop scrolls whole into view. Never the page, never the
+ * body, never a stop hidden with no cue. An SE, phone landscape and large text
+ * keep the body as the only scroller, as before.
+ */
+for (const size of [AS_DRAWN.shane, AS_DRAWN.mid])
+    for (const mode of ['thunder', 'default-boat', 'offline', 'tromso'] as const)
+        test(`only the stops scroll, and only on a day too long for the room, at ${size.name}: ${mode}`, async ({
+            page,
+        }) => {
+            const errors = await open(page, size, `&mode=${mode}${size.query}`);
+            const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+            const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
+            await expect(stops.first().locator('.today-stop-l2')).toHaveText(
+                mode === 'offline' ? /weather not checked$/ : /^Leave /,
+            );
+            await expect.poll(() => visibleStops(page)).toBe(3);
+            const { issues, scrolls, timeline } = await stopsScrollIssues(page);
+            expect(issues).toEqual([]);
+            // Both engines here run scroll timelines (as iOS 26 does): the fade is the card's colour laid over the foot.
+            expect(timeline).toBe(true);
+            // Only the tallest day, on his phone in wide fonts, takes the scroll path; a notice or a
+            // dated map line keeps all three stops in view, unscrolled (126-17b's review: those
+            // scrolled at 430 in the first pass, in SF too, the third stop under the fade).
+            expect(scrolls).toBe(mode === 'thunder' && size === AS_DRAWN.shane);
+            if (scrolls) {
+                const painted = await paintedFade(page);
+                expect(painted.rest.plain, 'words at the foot').toBeGreaterThan(0);
+                expect(painted.rest.faded, 'the fade dims them').toBeLessThan(painted.rest.plain * 0.8);
+                expect(Math.abs(painted.end.faded - painted.end.plain), 'no fade at the end').toBeLessThanOrEqual(
+                    painted.end.plain * 0.02 + 1,
+                );
+            }
+            // A notice day's rows, at 126-17's rhythm on his room, are still taller than 126-17's.
+            if (mode !== 'thunder' && size === AS_DRAWN.shane)
+                for (const height of (await breathing(page)).rowHeights)
+                    expect(height, 'stop row past 126-17').toBeGreaterThan(BUILD_126_17.shane.row);
+            expect(await layoutIssues(page, false)).toEqual([]);
+            expect(errors).toEqual([]);
+        });
+
+// The fade is a scroll timeline, not motion: with Reduce Motion on (index.css shortens every
+// animation to 0.01ms) it still shows, painted, while a stop is below and is gone at the end.
+test('only the stops scroll on a day too long for the room, with Reduce Motion on', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const errors = await open(page, AS_DRAWN.shane, `&mode=thunder${AS_DRAWN.shane.query}`);
+    const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+    await expect(
+        dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
+    ).toHaveText(/^Leave /);
+    await expect.poll(() => visibleStops(page)).toBe(3);
+    const { issues, scrolls } = await stopsScrollIssues(page);
+    expect(issues).toEqual([]);
+    expect(scrolls).toBe(true);
+    const painted = await paintedFade(page);
+    expect(painted.rest.faded).toBeLessThan(painted.rest.plain * 0.8);
+    expect(Math.abs(painted.end.faded - painted.end.plain)).toBeLessThanOrEqual(painted.end.plain * 0.02 + 1);
+    expect(errors).toEqual([]);
+});
+
+// A list that hides only a few px past its foot room hides none of the last stop's words, and
+// its fade barely shows (126-17b's review: the first pass laid a 40 px fade over most of the
+// last stop, its times included, whenever any of the list was below, even 3-8 px of it).
+test('a list that hides only a few px barely dims its last stop', async ({ page }) => {
+    const errors = await open(page, AS_DRAWN.shane, `&mode=normal${AS_DRAWN.shane.query}`);
+    const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+    await expect(
+        dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
+    ).toHaveText(/^Leave /);
+    await expect.poll(() => visibleStops(page)).toBe(3);
+    // The stops pushed down by the card's spare room, the list's foot room and 4 px.
+    const push = await page.evaluate(() => {
+        const card = document.querySelector<HTMLElement>('.today-main')!;
+        const overlay = getComputedStyle(card.parentElement!);
+        const room =
+            card.parentElement!.clientHeight - parseFloat(overlay.paddingTop) - parseFloat(overlay.paddingBottom);
+        const list = card.querySelector<HTMLElement>('.today-col-b > .today-stops')!;
+        return room - card.getBoundingClientRect().height + parseFloat(getComputedStyle(list).paddingBottom) + 4;
+    });
+    await page.addStyleTag({ content: `.today-main .today-headline { padding-bottom: ${push}px; }` });
+    const m = await page.evaluate(async () => {
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const list = document.querySelector<HTMLElement>('.today-main .today-col-b > .today-stops')!;
+        const items = [...list.querySelectorAll<HTMLElement>(':scope > li')];
+        const words = items[items.length - 1].querySelector('.today-stop-text')!.getBoundingClientRect();
+        return {
+            hidden: list.scrollHeight - list.clientHeight - parseFloat(getComputedStyle(list).paddingBottom),
+            fade: parseFloat(getComputedStyle(list, '::after').opacity),
+            wordsInView: words.bottom <= list.getBoundingClientRect().bottom + 0.5,
+        };
+    });
+    expect(m.hidden).toBeGreaterThan(3);
+    expect(m.hidden).toBeLessThan(5);
+    expect(m.wordsInView).toBe(true);
+    expect(m.fade).toBeLessThanOrEqual(0.2);
+    expect((await stopsScrollIssues(page)).issues).toEqual([]);
+    expect(errors).toEqual([]);
+});
+
+// The iPhones the app still runs on without scroll timelines (iOS 17-18; the deployment target
+// is 17.0): the fade is a mask over the list's own foot room, the footer's gap moved into the
+// list. The next stop still shows some words under it at rest, and the last scrolls whole into
+// view above it (126-17b's review: this path was never run, and it hid the third stop).
+test('only the stops scroll where no scroll timeline runs (iOS 17-18), with a fade', async ({ page }) => {
+    const errors = await open(page, AS_DRAWN.shane, `&mode=thunder${AS_DRAWN.shane.query}`);
+    const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+    await expect(
+        dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
+    ).toHaveText(/^Leave /);
+    await expect.poll(() => visibleStops(page)).toBe(3);
+    expect(await withoutScrollTimelines(page)).toBeGreaterThan(0);
+    const { issues, scrolls, timeline } = await stopsScrollIssues(page);
+    expect(issues).toEqual([]);
+    expect({ scrolls, timeline }).toEqual({ scrolls: true, timeline: false });
+    const painted = await paintedFade(page);
+    expect(painted.rest.faded).toBeLessThan(painted.rest.plain * 0.8);
+    expect(Math.abs(painted.end.faded - painted.end.plain)).toBeLessThanOrEqual(painted.end.plain * 0.02 + 1);
+    expect(errors).toEqual([]);
+});
+
+for (const size of [AS_DRAWN.shane, AS_DRAWN.mid, AS_DRAWN.slim, sizes[3], sizes[0], AS_DRAWN.se2, sizes[4], sizes[8]])
+    test(`the stops are their own scroller only on a tall room, at ${size.name}`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=normal${size.query}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        await expect(dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first()).toBeVisible();
+        const list = await page.evaluate(() => {
+            const el = document.querySelector<HTMLElement>('.today-main .today-col-b .today-stops')!;
+            const style = getComputedStyle(el);
+            const mask = style.getPropertyValue('mask-image') || style.getPropertyValue('-webkit-mask-image');
+            const after = getComputedStyle(el, '::after');
+            const overlay = el.closest<HTMLElement>('.today-overlay')!;
+            const pad = getComputedStyle(overlay);
+            const room = overlay.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom);
+            const root = parseFloat(getComputedStyle(document.documentElement).fontSize);
+            return {
+                overflowY: style.overflowY,
+                // A mask over the foot (no scroll timeline), or the card's colour laid over it (one runs).
+                fades:
+                    /gradient/.test(mask) ||
+                    (!['none', 'normal'].includes(after.content) && /gradient/.test(after.backgroundImage)),
+                tall: room > Math.max(576, 33.5 * root),
+            };
+        });
+        // Past 576 px of room (an SE's most; 33.5rem at large text) the list scrolls inside itself
+        // under a fade; an SE, phone landscape and large text keep build 124's: the body scrolls.
+        expect(list.tall).toBe(
+            size === AS_DRAWN.shane || size === AS_DRAWN.mid || size === AS_DRAWN.slim || size === sizes[3],
+        );
+        expect(list).toEqual(
+            list.tall
+                ? { overflowY: 'auto', fades: true, tall: true }
+                : { overflowY: 'visible', fades: false, tall: false },
+        );
+        expect(errors).toEqual([]);
+    });
+
+// A tall narrow window (iPad Slide Over, a resizable window) never reads smaller than 126-17
+// drew it where its width is not what holds the type (126-17b's review: the light and the
+// stop's name had dropped to the times there). The tile's words are the exception, held to
+// what one line of the tile holds: 126-17's 13-15 px wrapped the widest wind and "No forecast"
+// in these windows ("the widest words keep their one line", below).
+for (const [size, was] of [
+    [AS_DRAWN.slim, BUILD_126_17.slim],
+    [AS_DRAWN.slimmer, BUILD_126_17.slimmer],
+] as const)
+    test(`a tall narrow window keeps 126-17's sizes where its width allows, at ${size.name}`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=normal${size.query}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        await expect(
+            dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
+        ).toHaveText(/^Leave /);
+        const m = await breathing(page);
+        for (const [key, value] of Object.entries(was.type))
+            expect(m.type[key as keyof typeof m.type], key).toBeGreaterThanOrEqual(value);
+        for (const [key, value] of Object.entries(was.more))
+            expect(m.more[key as keyof typeof m.more], key).toBeGreaterThanOrEqual(value);
+        for (const [key, gap] of Object.entries(was.gaps)) expect(m.gaps[key], key).toBeGreaterThanOrEqual(gap);
+        for (const [key, height] of Object.entries(m.targets)) expect(height, key).toBeGreaterThanOrEqual(was.targets);
+        for (const height of m.rowHeights) expect(height, 'stop row').toBeGreaterThanOrEqual(was.row);
+        expect(errors).toEqual([]);
+    });
+
+// Where the sheet grows (the room past 576 px). An SE and phone landscape keep build 124's
+// sizes to the pixel; at their 13 px floor "≈ NW 18–22" takes two lines in the wide face, as
+// it always has there (their tiles are 81-97 px; it needs 7.08 px per px of type).
+const growing = [sizes[2], sizes[3], sizes[7], AS_DRAWN.shane, AS_DRAWN.mid, AS_DRAWN.slim, AS_DRAWN.slimmer];
+for (const size of growing)
+    test(`the widest words keep their one line at ${size.name}`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=normal${size.query}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        await expect(
+            dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
+        ).toHaveText(/^Leave /);
+        await expect.poll(() => visibleStops(page)).toBe(size.stops);
+        expect(await widestIssues(page)).toEqual([]);
+        expect(await layoutIssues(page, false)).toEqual([]);
+        expect(errors).toEqual([]);
+    });
