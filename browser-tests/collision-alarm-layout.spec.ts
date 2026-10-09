@@ -21,7 +21,7 @@ const SIZES = [
     { width: 375, height: 667 },
 ];
 
-async function openFixture(page: Page, size: { width: number; height: number }, view = '', notice = '') {
+async function openFixture(page: Page, size: { width: number; height: number }, view = '', notice = '', extra = '') {
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.route('**/*', (route) => {
@@ -33,7 +33,7 @@ async function openFixture(page: Page, size: { width: number; height: number }, 
     await page.routeWebSocket('**/*', (socket) => socket.close());
     await page.setViewportSize(size);
     await page.goto(
-        `/e2e/fixtures/collision-alarm.html?fonts=wide${view ? `&view=${view}` : ''}${notice ? `&notice=${notice}` : ''}`,
+        `/e2e/fixtures/collision-alarm.html?fonts=wide${view ? `&view=${view}` : ''}${notice ? `&notice=${notice}` : ''}${extra}`,
     );
     await page.evaluate(() => document.fonts.ready);
     return errors;
@@ -174,6 +174,145 @@ for (const size of SIZES) {
             const path = info.outputPath(`collision-sound-check-${info.project.name}-320x568.png`);
             await page.screenshot({ path, animations: 'disabled' });
             await info.attach('collision-sound-check-320x568', { path, contentType: 'image/png' });
+        }
+    });
+}
+
+// ── Build 126 (126-04a): who is watching, and the Pi's own alarms ──────────
+for (const size of SIZES) {
+    test(`the AIS key says who is watching, under the shield, at ${size.width}x${size.height} with wide fonts`, async ({
+        page,
+    }, info) => {
+        const errors = await openFixture(page, size, 'key');
+        const row = page.getByTestId('collision-watch-row');
+        await expect(row).toContainText('Watching: this phone and the Pi');
+        await expect(row).toContainText("The Pi can't wake a locked phone yet.");
+        const geometry = await page.evaluate(() => {
+            const panel = document.querySelector<HTMLElement>('[data-testid="ais-key-panel"]')!;
+            const key = panel.querySelector<HTMLElement>('[role="group"]')!;
+            const row = document.querySelector<HTMLElement>('[data-testid="collision-watch-row"]')!;
+            const shield = document
+                .querySelector<HTMLElement>('button[aria-label="Disable AIS guard zone"]')!
+                .getBoundingClientRect();
+            const r = row.getBoundingClientRect();
+            const box = key.getBoundingClientRect();
+            return {
+                rowTop: r.top,
+                rowLeft: r.left,
+                rowRight: r.right,
+                shieldBottom: shield.bottom,
+                keyLeft: box.left,
+                keyRight: box.right,
+                rowSideways: row.scrollWidth > row.clientWidth + 1,
+                keySideways: key.scrollWidth > key.clientWidth + 1,
+                pageSideways: document.documentElement.scrollWidth > window.innerWidth + 1,
+            };
+        });
+        expect(geometry.rowTop, 'under the shield').toBeGreaterThanOrEqual(geometry.shieldBottom - 0.5);
+        expect(geometry.rowLeft).toBeGreaterThanOrEqual(geometry.keyLeft - 0.5);
+        expect(geometry.rowRight).toBeLessThanOrEqual(geometry.keyRight + 0.5);
+        expect(geometry.rowSideways).toBe(false);
+        expect(geometry.keySideways).toBe(false);
+        expect(geometry.pageSideways).toBe(false);
+        expect(errors).toEqual([]);
+        if (size.width === 320) {
+            const path = info.outputPath(`collision-watch-row-${info.project.name}-320x568.png`);
+            await page.screenshot({ path, animations: 'disabled' });
+            await info.attach('collision-watch-row-320x568', { path, contentType: 'image/png' });
+        }
+    });
+
+    test(`the watch row's longest words fit the AIS key at ${size.width}x${size.height} with wide fonts`, async ({
+        page,
+    }, info) => {
+        // At anchor on this phone, the Pi keeping none: amber, asking for the hand-over.
+        let errors = await openFixture(page, size, 'key', '', '&key=anchor');
+        let row = page.getByTestId('collision-watch-row');
+        await expect(row).toContainText("Watching: this phone and the Pi (it can't see the anchor watch)");
+        await expect(row).toContainText('Hand the anchor watch to the Pi so it grades her at anchor.');
+        const fits = () =>
+            page.evaluate(() => {
+                const panel = document.querySelector<HTMLElement>('[data-testid="ais-key-panel"]')!;
+                const key = panel.querySelector<HTMLElement>('[role="group"]')!;
+                const row = document.querySelector<HTMLElement>('[data-testid="collision-watch-row"]')!;
+                const r = row.getBoundingClientRect();
+                const box = key.getBoundingClientRect();
+                return {
+                    inside: r.left >= box.left - 0.5 && r.right <= box.right + 0.5,
+                    rowSideways: row.scrollWidth > row.clientWidth + 1,
+                    keySideways: key.scrollWidth > key.clientWidth + 1,
+                    pageSideways: document.documentElement.scrollWidth > window.innerWidth + 1,
+                };
+            });
+        expect(await fits()).toEqual({ inside: true, rowSideways: false, keySideways: false, pageSideways: false });
+        expect(errors).toEqual([]);
+
+        // This phone's shield off, the Pi watching: 'Stand the Pi down', a whole 44 pt target, two taps.
+        errors = await openFixture(page, size, 'key', '', '&key=standdown');
+        row = page.getByTestId('collision-watch-row');
+        await expect(row).toContainText('Watching: the Pi');
+        const button = page.getByTestId('collision-watch-stand-down');
+        await expect(button).toHaveText('Stand the Pi down');
+        await button.click();
+        await expect(button).toHaveText('Tap again: stand down for everyone');
+        expect(await page.evaluate(() => document.body.dataset.piStoodDown ?? 'no')).toBe('no');
+        expect(await fits()).toEqual({ inside: true, rowSideways: false, keySideways: false, pageSideways: false });
+        expect(await controlIssues(page, '[data-testid="collision-watch-row"]')).toEqual([]);
+        if (size.width === 320) {
+            const path = info.outputPath(`collision-watch-stand-down-${info.project.name}-320x568.png`);
+            await page.screenshot({ path, animations: 'disabled' });
+            await info.attach('collision-watch-stand-down-320x568', { path, contentType: 'image/png' });
+        }
+        await button.click();
+        expect(await page.evaluate(() => document.body.dataset.piStoodDown ?? 'no')).toBe('yes');
+        expect(errors).toEqual([]);
+    });
+
+    test(`a card from the Pi fits the stack at ${size.width}x${size.height} with wide fonts`, async ({
+        page,
+    }, info) => {
+        const errors = await openFixture(page, size, '', 'blind', '&pi=1');
+        const cards = page.getByRole('alert');
+        await expect(cards).toHaveCount(5);
+        await page.evaluate(() =>
+            Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+        );
+        const fromPi = cards.filter({ hasText: 'FROM THE PI' });
+        await expect(fromPi).toHaveCount(1);
+        await expect(fromPi).toContainText('CLOSE QUARTERS');
+        await expect(fromPi).toContainText('FICTIONAL FAST FERRY WITH A LONG NAME');
+        await expect(fromPi).toContainText('CPA 0.03 NM in 2 min');
+        await expect(
+            page.getByRole('button', {
+                name: 'Acknowledge close quarters with FICTIONAL FAST FERRY WITH A LONG NAME (from the Pi)',
+            }),
+        ).toBeVisible();
+        const geometry = await page.evaluate(() => {
+            const stack = document.querySelector<HTMLElement>('[data-testid="ais-guard-stack"]')!;
+            const box = stack.getBoundingClientRect();
+            const nav = document.querySelector('nav[aria-label="Main"]')!.getBoundingClientRect();
+            return {
+                left: box.left,
+                right: window.innerWidth - box.right,
+                bottom: box.bottom,
+                navTop: nav.top,
+                sideways: [...stack.querySelectorAll<HTMLElement>('[role="alert"], [role="status"]')]
+                    .filter((card) => card.scrollWidth > card.clientWidth + 1)
+                    .map((card) => card.textContent?.slice(0, 30)),
+                pageSideways: document.documentElement.scrollWidth > window.innerWidth + 1,
+            };
+        });
+        expect(Math.abs(geometry.left - geometry.right), 'centred across').toBeLessThanOrEqual(1);
+        expect(geometry.bottom, 'clear of the tab bar').toBeLessThanOrEqual(geometry.navTop + 0.5);
+        expect(geometry.sideways).toEqual([]);
+        expect(geometry.pageSideways).toBe(false);
+        expect(await controlIssues(page, '[data-testid="ais-guard-stack"]')).toEqual([]);
+        expect(errors).toEqual([]);
+        if (size.width === 320) {
+            await fromPi.scrollIntoViewIfNeeded();
+            const path = info.outputPath(`collision-card-from-pi-${info.project.name}-320x568.png`);
+            await page.screenshot({ path, animations: 'disabled' });
+            await info.attach('collision-card-from-pi-320x568', { path, contentType: 'image/png' });
         }
     });
 }

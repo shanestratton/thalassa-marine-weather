@@ -18,6 +18,7 @@ import { fetchSignalkDocument, type BroadcastDeps } from './anchorBroadcaster.js
 import { readTelemetrySnapshot, valueAt, num, knots, degrees, timestampAt } from './trackSignalk.js';
 import { buildTelemetryBody } from './telemetryPublisher.js';
 import type { TelemetrySnapshot } from './trackSignalk.js';
+import type { AisWatchDescription } from './aisWatch.js';
 
 /** A target whose position is older than this is history, not traffic. */
 export const AIS_TARGET_MAX_AGE_MS = 10 * 60_000;
@@ -81,6 +82,13 @@ export interface LanTelemetryPayload {
     ais: AisTargetWire[];
     served_at: string;
     reason?: string;
+    /**
+     * The Pi's night watch (126-04a, aisWatch.ts describe()): whether it is
+     * watching, and its open alarms with their acknowledgements, so a phone
+     * aboard shows them and honours an acknowledgement made on another.
+     * Absent from a Pi before Pi update 2.
+     */
+    ais_watch?: AisWatchDescription;
 }
 
 /**
@@ -243,19 +251,86 @@ export function readAisTargets(
     return out.slice(0, AIS_TARGET_CAP);
 }
 
-export interface LanTelemetryDeps extends BroadcastDeps {
-    deviceLabel: string;
-    supplement?: (snapshot: TelemetrySnapshot | null) => Promise<TelemetrySnapshot | null>;
+/** One Signal K answer: the boat, every target it has decoded, and which of them is us. */
+export interface SignalkDocuments {
+    /** `vessels/self`, or null when Signal K has none (ashore with a quiet bus) or did not answer. */
+    selfDoc: unknown | null;
+    /** `vessels`: every AIS target, the boat herself among them. */
+    vesselsDoc: unknown | null;
+    /** `self`: the URN the boat lives under. */
+    selfAnswer: unknown | null;
+    /** When this answer was asked for, on the Pi's clock. */
+    readAt: number;
 }
 
-/** One answer for `GET /api/telemetry`: the bus and the traffic, as of now. */
-export async function readLanTelemetry(deps: LanTelemetryDeps): Promise<LanTelemetryPayload> {
-    const now = deps.now ?? Date.now;
+/**
+ * How long one Signal K answer serves every reader (126-04a). A phone polls
+ * /api/telemetry every 2 s and the night watch passes every 5 s; both want
+ * the same three documents, and the boat's Pi has run Signal K at 120% CPU
+ * before (2026-09-10). Shared, the watch adds no Signal K load while a phone
+ * polls, and the phone's answer is never more than 1.5 s old.
+ */
+export const SIGNALK_SHARED_CACHE_MS = 1_500;
+
+/** The three documents, read once. Never throws: anything unusable is null (fetchSignalkDocument). */
+export async function readSignalkDocuments(deps: BroadcastDeps): Promise<SignalkDocuments> {
+    const readAt = (deps.now ?? Date.now)();
     const [selfDoc, vesselsDoc, selfAnswer] = await Promise.all([
         fetchSignalkDocument(deps, 'vessels/self'),
         fetchSignalkDocument(deps, 'vessels'),
         fetchSignalkDocument(deps, 'self'),
     ]);
+    return { selfDoc, vesselsDoc, selfAnswer, readAt };
+}
+
+/**
+ * One Signal K read for /api/telemetry and the night watch alike: an answer
+ * younger than SIGNALK_SHARED_CACHE_MS is handed out again, and readers that
+ * arrive while a read is in flight share it.
+ */
+export class SharedSignalkReader {
+    private cached: SignalkDocuments | null = null;
+    private inFlight: Promise<SignalkDocuments> | null = null;
+
+    constructor(
+        private readonly deps: BroadcastDeps,
+        private readonly ttlMs: number = SIGNALK_SHARED_CACHE_MS,
+    ) {}
+
+    read(): Promise<SignalkDocuments> {
+        const now = (this.deps.now ?? Date.now)();
+        const cached = this.cached;
+        // A clock stepped backwards (GPS time arriving) never serves an answer from the future.
+        if (cached && now >= cached.readAt && now - cached.readAt < this.ttlMs) return Promise.resolve(cached);
+        if (this.inFlight) return this.inFlight;
+        const reading = readSignalkDocuments(this.deps)
+            .then((documents) => {
+                this.cached = documents;
+                return documents;
+            })
+            .finally(() => {
+                if (this.inFlight === reading) this.inFlight = null;
+            });
+        this.inFlight = reading;
+        return reading;
+    }
+}
+
+export interface LanTelemetryDeps extends BroadcastDeps {
+    deviceLabel: string;
+    supplement?: (snapshot: TelemetrySnapshot | null) => Promise<TelemetrySnapshot | null>;
+    /** The shared Signal K read (SharedSignalkReader); without it, a read of its own. */
+    documents?: () => Promise<SignalkDocuments>;
+    /** The night watch's word on itself, for the phones aboard (126-04a). */
+    aisWatch?: () => AisWatchDescription;
+}
+
+/** One answer for `GET /api/telemetry`: the bus and the traffic, as of now. */
+export async function readLanTelemetry(deps: LanTelemetryDeps): Promise<LanTelemetryPayload> {
+    const now = deps.now ?? Date.now;
+    const { selfDoc, vesselsDoc, selfAnswer } = deps.documents
+        ? await deps.documents()
+        : await readSignalkDocuments(deps);
     const bus = selfDoc === null ? null : readTelemetrySnapshot(selfDoc, now);
     const snapshot = deps.supplement ? await deps.supplement(bus) : bus;
     const telemetry = snapshot ? buildTelemetryBody(snapshot, deps.deviceLabel) : null;
@@ -268,5 +343,6 @@ export async function readLanTelemetry(deps: LanTelemetryDeps): Promise<LanTelem
         ...(telemetry === null
             ? { reason: selfDoc === null ? 'Signal K has no vessel document' : 'nothing on the bus' }
             : {}),
+        ...(deps.aisWatch ? { ais_watch: deps.aisWatch() } : {}),
     };
 }

@@ -51,7 +51,10 @@ import {
 } from './diaryRelayOutbox.js';
 import { AnchorWatchRunner, currentFix, fixIsCurrent } from './anchorBroadcaster.js';
 import { fileAnchorWatchStore } from './anchorWatchStore.js';
-import { readLanTelemetry } from './lanTelemetry.js';
+import { SharedSignalkReader, readLanTelemetry } from './lanTelemetry.js';
+import { AisNightWatch } from './aisWatch.js';
+import { fileAisWatchStore } from './aisWatchStore.js';
+import { createAisWatchRoutes } from './routes/aisWatch.js';
 import { requestPath } from './requestPath.js';
 import { createOnboardSupplement } from './onboardSensors.js';
 import { DiaryVideoRelay } from './diaryVideoRelay.js';
@@ -207,6 +210,9 @@ const telemetryPublisher = new TelemetryPublisher({
     internetAllowed: () => diaryRelayOutbox.getConfiguration().allowInternet,
     deviceLabel: os.hostname(),
     supplement: onboardSupplement,
+    // The night watch's three keys, first in the row's extra (126-04a): a
+    // phone ashore reads "Watching: the Pi" from them.
+    aisWatchExtra: () => aisWatch.cloudExtra(),
 });
 if (process.env.THALASSA_TELEMETRY_PUBLISH !== '0') telemetryPublisher.start();
 
@@ -227,6 +233,20 @@ if (anchorCredential && SUPABASE_ANON_KEY && APP_API_ENABLED) {
         anonKey: SUPABASE_ANON_KEY,
     });
 }
+/* ── The night watch (build 126, 126-04a) ──────────────────────────────────
+   The Pi grades every AIS target all night with the phone's own collision
+   rule, armed and stood down with the phone's collision shield (aisWatch.ts).
+   One Signal K read, at most 1.5 s old, serves it and every phone's
+   /api/telemetry poll, so the watch adds no load to Signal K while a phone
+   polls. 'At anchor' is this Pi's own anchor watch. A watch that was armed
+   when the Pi stopped is armed again at boot, until a phone stands it down. */
+const signalkDocuments = new SharedSignalkReader({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN });
+const aisWatch = new AisNightWatch({
+    documents: () => signalkDocuments.read(),
+    atAnchor: () => anchorWatch.isRunning(),
+    store: fileAisWatchStore(CACHE_DIR),
+});
+aisWatch.restore();
 /** The app's own alphabet is unambiguous; the relay accepts any alphanumeric. */
 const ANCHOR_SESSION_CODE_RE = /^[A-Za-z0-9]{12}$/;
 const app = express();
@@ -328,6 +348,7 @@ app.get('/api/admin/status', requireAppApi, (_req, res) => {
         diaryRelay,
         // describe() never includes the credential, so this is safe here.
         anchorWatch: anchorWatch.describe(),
+        aisWatch: aisWatch.describe(),
     });
 });
 
@@ -673,6 +694,8 @@ app.get('/api/telemetry', requireAppApi, async (req, res) => {
                 signalkOrigin: SIGNALK_ORIGIN,
                 deviceLabel: os.hostname(),
                 supplement: onboardSupplement,
+                documents: () => signalkDocuments.read(),
+                aisWatch: () => aisWatch.describe(),
             })),
             path: requestRoute,
         });
@@ -684,9 +707,14 @@ app.get('/api/telemetry', requireAppApi, async (req, res) => {
             served_at: new Date().toISOString(),
             reason: 'Signal K did not answer',
             path: requestRoute,
+            ais_watch: aisWatch.describe(),
         });
     }
 });
+
+// The night watch, driven by the phones aboard: armed and stood down with the
+// collision shield, acknowledged from any phone's alarm card (126-04a).
+app.use('/api/ais-watch', requireAppApi, createAisWatchRoutes(aisWatch));
 
 app.post('/api/anchor/watch', requireAppApi, (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -928,6 +956,7 @@ function shutdown() {
     });
     windHistory.stop();
     anchorWatch.close();
+    aisWatch.close();
     stopScheduler();
     void stopEncWatcher();
     plaintextSignpost.close();

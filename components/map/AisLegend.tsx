@@ -4,9 +4,21 @@
  * Renders a compact, horizontally scrollable strip along the bottom
  * of the map. Only visible when AIS layers are active.
  * Includes a shield icon toggle for the AIS Guard Zone.
+ *
+ * Build 126 (126-04a): with a Pi paired, the shield arms and stands down the
+ * Pi's night watch too (services/piNightWatch.ts), and a line under it says
+ * who is watching (utils/collisionWatchRow.ts): this phone, the Pi, both, or
+ * that the Pi is still watching after a stand-down it could not hear; that
+ * the Pi cannot see this phone's anchor watch; and, with this phone's shield
+ * off, a two-tap 'Stand the Pi down' for every device. Ashore the Pi's word
+ * comes from this account's own cloud row, read on its own while the key
+ * shows and the boat LAN does not answer (CloudTelemetryService
+ * followPiWatch: it feeds nothing else). No Pi paired: no line.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { AisGuardZone, type GuardZoneState } from '../../services/AisGuardZone';
+import { PiNightWatchStatus } from '../../services/piNightWatchStatus';
+import { presentCollisionWatchRow, type CollisionWatchRow } from '../../utils/collisionWatchRow';
 import { triggerHaptic } from '../../utils/system';
 import { lazyRetry } from '../../utils/lazyRetry';
 import { AIS_LEGEND_ITEMS } from './aisPresentationPalette';
@@ -18,6 +30,12 @@ const SoundCheckModal = lazyRetry(
 );
 
 const RADIUS_OPTIONS = [0.5, 1, 2, 5, 10];
+
+const ROW_TONE: Record<CollisionWatchRow['tone'], { colour: string; border: string }> = {
+    ok: { colour: 'var(--day-ui-success, #86efac)', border: 'rgba(34, 197, 94, 0.35)' },
+    warn: { colour: 'var(--day-ui-warning, #fcd34d)', border: 'rgba(245, 158, 11, 0.5)' },
+    quiet: { colour: 'var(--day-ui-muted, #94a3b8)', border: 'var(--day-ui-border, rgba(255, 255, 255, 0.08))' },
+};
 
 interface AisLegendProps {
     visible: boolean;
@@ -31,6 +49,60 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
     const [soundCheck, setSoundCheck] = useState(false);
 
     useEffect(() => AisGuardZone.subscribe(setGuardState), []);
+
+    // Who is watching (126-04a): the Pi's word, re-read as it arrives and as it ages.
+    const [watchNow, setWatchNow] = useState(() => Date.now());
+    useEffect(() => PiNightWatchStatus.subscribe(() => setWatchNow(Date.now())), []);
+    const piView = PiNightWatchStatus.view(watchNow);
+    const watchRow = presentCollisionWatchRow(
+        {
+            armed: guardState.enabled && guardState.collisionChecked === true,
+            // Whether this phone puts the boat at anchor while the Pi keeps no anchor watch (piNightWatch reads it).
+            anchorWatch: PiNightWatchStatus.phoneAnchorWatch(),
+        },
+        piView,
+        watchNow,
+    );
+    const paired = piView.paired;
+    const reachable = piView.reachable;
+    // 'Stand the Pi down' for every device: a deliberate second tap within 5 s.
+    const [confirmStandDown, setConfirmStandDown] = useState(false);
+    useEffect(() => {
+        if (!confirmStandDown) return;
+        const timer = setTimeout(() => setConfirmStandDown(false), 5_000);
+        return () => clearTimeout(timer);
+    }, [confirmStandDown]);
+    const standDownPi = useCallback(() => {
+        triggerHaptic('medium');
+        if (!confirmStandDown) {
+            setConfirmStandDown(true);
+            return;
+        }
+        setConfirmStandDown(false);
+        PiNightWatchStatus.standDownForEveryone();
+    }, [confirmStandDown]);
+    useEffect(() => {
+        if (!visible || !paired) return;
+        const timer = setInterval(() => setWatchNow(Date.now()), 5_000);
+        return () => clearInterval(timer);
+    }, [visible, paired]);
+    // Ashore: this account's own cloud row says whether the Pi is watching.
+    // Read on its own while the key shows: it never starts the instrument
+    // lane, so this phone's own position stays its own.
+    useEffect(() => {
+        if (!visible || !paired || reachable) return;
+        let stop: (() => void) | null = null;
+        let cancelled = false;
+        void import('../../services/CloudTelemetryService')
+            .then(({ CloudTelemetryService }) => {
+                if (!cancelled) stop = CloudTelemetryService.followPiWatch();
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+            stop?.();
+        };
+    }, [visible, paired, reachable]);
 
     // The shield arms the collision watch too (build 125, 125-01), so arming
     // runs the real sound check first: the alarm it arms must be heard.
@@ -145,10 +217,75 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
                     ▾
                 </button>
 
-                {/* Divider */}
-                <div
-                    style={{ width: 1, height: 14, background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.08))' }}
-                />
+                {/* Who is watching (126-04a): its own line, under the shield. */}
+                {watchRow && (
+                    <div
+                        data-testid="collision-watch-row"
+                        aria-live="polite"
+                        style={{
+                            flexBasis: embedded ? '100%' : undefined,
+                            minWidth: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 2,
+                            padding: '4px 8px',
+                            borderRadius: 10,
+                            border: `1px solid ${ROW_TONE[watchRow.tone].border}`,
+                            whiteSpace: 'normal',
+                            overflowWrap: 'anywhere',
+                            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+                        }}
+                    >
+                        <span style={{ fontSize: 12, fontWeight: 700, color: ROW_TONE[watchRow.tone].colour }}>
+                            {watchRow.text}
+                        </span>
+                        {watchRow.note && (
+                            <span style={{ fontSize: 11, color: 'var(--day-ui-muted, #94a3b8)' }}>{watchRow.note}</span>
+                        )}
+                        {watchRow.action === 'stand-down-all' && (
+                            <button
+                                type="button"
+                                data-testid="collision-watch-stand-down"
+                                className="hit-target-44"
+                                onClick={standDownPi}
+                                aria-label={
+                                    confirmStandDown
+                                        ? 'Tap again to stand the Pi down for every device'
+                                        : 'Stand the Pi down'
+                                }
+                                style={{
+                                    alignSelf: 'flex-start',
+                                    marginTop: 2,
+                                    minHeight: 44,
+                                    minWidth: 44,
+                                    padding: '3px 10px',
+                                    borderRadius: 10,
+                                    border: `1px solid ${ROW_TONE[confirmStandDown ? 'warn' : 'quiet'].border}`,
+                                    background: 'transparent',
+                                    color: ROW_TONE[confirmStandDown ? 'warn' : 'quiet'].colour,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    whiteSpace: 'normal',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                {confirmStandDown ? 'Tap again: stand down for everyone' : 'Stand the Pi down'}
+                            </button>
+                        )}
+                    </div>
+                )}
+
+                {/* Divider (the watch line already parts the controls from the colours in the key) */}
+                {!(embedded && watchRow) && (
+                    <div
+                        style={{
+                            width: 1,
+                            height: 14,
+                            background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.08))',
+                        }}
+                    />
+                )}
 
                 {/* Type colours, plus the navigation-danger override. */}
                 {AIS_LEGEND_ITEMS.map(({ color, label }) => (

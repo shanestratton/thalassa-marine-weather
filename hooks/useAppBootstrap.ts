@@ -231,6 +231,49 @@ export function useAppBootstrap() {
             });
     }, []);
 
+    // ── The Pi keeps the night watch (build 126, 126-04a) ──────────
+    // With a Pi paired, the collision shield arms and stands down the Pi's
+    // own watch too, and acknowledgements travel to it (services/piNightWatch,
+    // lazy). Started when a pairing exists, now or once a paired Pi first
+    // answers the LAN lane.
+    useEffect(() => {
+        if (!PI_INTEGRATION_ENABLED) return;
+        let disposed = false;
+        let starting = false;
+        let stop: (() => void) | null = null;
+        let unsubscribe: (() => void) | null = null;
+        const tryStart = () => {
+            if (disposed || stop || starting) return;
+            starting = true;
+            import('../services/PiPairingService')
+                .then(({ getPairing }) => (getPairing() ? import('../services/piNightWatch') : null))
+                .then((watch) => {
+                    if (!watch || disposed || stop) return;
+                    stop = watch.startPiNightWatch();
+                    unsubscribe?.();
+                    unsubscribe = null;
+                })
+                .catch((err) => console.error('[Boot] Pi night watch failed to start:', err?.message || err))
+                .finally(() => {
+                    starting = false;
+                });
+        };
+        tryStart();
+        import('../services/piNightWatchStatus')
+            .then(({ PiNightWatchStatus }) => {
+                if (disposed || stop) return;
+                unsubscribe = PiNightWatchStatus.subscribe(() => {
+                    if (PiNightWatchStatus.reachable()) tryStart();
+                });
+            })
+            .catch(() => undefined);
+        return () => {
+            disposed = true;
+            stop?.();
+            unsubscribe?.();
+        };
+    }, []);
+
     // ── NMEA gateway: reconnect on launch ──────────────────────────
     // autoStart() has existed on NmeaListenerService since the beginning and
     // NOTHING ever called it — AvNav's namesake above was wired up, this one
