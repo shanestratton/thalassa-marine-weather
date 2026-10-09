@@ -253,6 +253,25 @@ storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gate
 before treating this routing seam as startup integration. No ordinary activation,
 shared dependency write, primary sync, master or production change is included.
 
+The [10 October cached native resume](../experiments/scuttlebutt-e2ee/review/full-app-native-resume-2026-10-10.json)
+is prepared with 14 new pure plan cases, narrow types and named lint/format passing.
+The invocation remains queued-unrun after one bounded shared-slot opportunity;
+no cached preflight, copy/signing, simulator or new compilation/execution ran.
+The exact second unsigned artifact is the only admitted plan: 304 files, 20 Swift
+sources, three bindings, 19/22 framework files and 256 web assets. Planned checks
+retain source/resource/config/CSP hashes, unsigned bytes and measured entitlement
+sections. Its original fixture binding is not rewritten; a separate attempt ID
+will identify new ownership. Runtime JS/Swift, builder and admission/transport
+rules are unchanged. Original compile and current uncompiled tool evidence stay
+separate, with no general-cache/provenance or native acceptance claim.
+
+The limited checked crash location contained no matching app report; that does
+not establish no crash. A point-in-time VM page count is not available-memory or
+OOM/boot-cause evidence. Nothing was killed, reset or restarted. Next execute only
+the cached runner on a free shared slot, with new owned-simulator isolation and
+strict diagnostics; no old 46/nine/browser suite or unchanged compile is needed.
+Master `196bcb0e` remains unreconciled and native/release gates remain open.
+
 The [9 October native full-root startup implementation](../experiments/scuttlebutt-e2ee/review/full-app-native-startup-2026-10-09.json)
 compiled twice as an unsigned simulator target, but **native startup acceptance
 remains unproved**. Its resource-v3/report-v2 fixture keeps the same Research Auth

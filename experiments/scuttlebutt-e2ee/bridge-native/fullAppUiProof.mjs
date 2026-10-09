@@ -1,5 +1,6 @@
 /** Owned WK full-root fixture. Synthetic Auth only, no human/production/hosted actors.
  * Node24 fullAppUiProof.mjs CACHE FRAMEWORK_RECEIPT EXCHANGE_RECEIPT WEB_RECEIPT WEB_RECEIPT_SHA256
+ * Node24 fullAppUiProof.mjs --resume-unsigned BUILD_RECEIPT BUILD_SHA256 WEB_RECEIPT WEB_SHA256 [REMAINING_WAIT_MS]
  */
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -24,15 +25,19 @@ import {
     createFullAppNativeResource,
     inspectFullAppNativeReceipt,
     inspectFullAppNativeEnvelope,
+    inspectFullAppNativeResource,
     FULL_APP_NATIVE_PHASES,
     FULL_APP_NATIVE_SCENARIO,
 } from './fullAppUiContract.mjs';
+import { inspectFullAppCachedBuild } from './fullAppUiResumeContract.mjs';
+import { inspectSimulatorEntitlementSections } from './machOEntitlementEvidence.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url)),
     checkout = resolve(here, '../../..');
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'thalassa-full-root-native-')));
 chmodSync(scratch, 0o700);
-const runID = randomUUID(),
+const attemptID = randomUUID();
+let runID = randomUUID(),
     nonce = randomBytes(32).toString('hex');
 const receiptPath = join(scratch, 'run-receipt.json'),
     bundle = 'app.thalassa.research.scuttlebutt-auth';
@@ -40,6 +45,7 @@ const hash = (path) => createHash('sha256').update(readFileSync(path)).digest('h
 const receipt = {
     version: 1,
     runID,
+    attemptID,
     scenario: FULL_APP_NATIVE_SCENARIO,
     status: 'preparing',
     phase: 'inputs',
@@ -61,6 +67,7 @@ save();
 console.info('Nonsecret full-root native receipt: ' + receiptPath);
 let simulator, ownedName, web, cache, frameworkReceipt, prior, webReceipt, expectedWebHash;
 let expectedStatusFile, expectedPhaseFile;
+let cachedBuildPath, cachedBuildHash, cachedPlan;
 let waited = 0;
 let waitBudget = 120000;
 function regular(path, limit = 16 * 1024 * 1024) {
@@ -76,6 +83,15 @@ function stable() {
         assert(hash(webReceipt) === expectedWebHash);
         for (const row of [...web.sourceInputs, ...web.proofSources, ...web.artifacts])
             assert(hash(row.path) === row.sha256);
+    }
+    if (cachedPlan) {
+        assert(hash(cachedBuildPath) === cachedBuildHash);
+        for (const [path, expected] of Object.entries(cachedPlan.sourceHashes)) assert(hash(path) === expected);
+        assert.deepEqual(treeHashes(cachedPlan.artifactRoot), cachedPlan.artifactHashes);
+        assert.deepEqual(treeHashes(cachedPlan.bindingRoot), cachedPlan.bindings);
+        assert(hash(cachedPlan.providerPath) === cachedPlan.providerHash);
+        for (const framework of cachedPlan.frameworkPlans)
+            assert.deepEqual(treeHashes(framework.root), framework.hashes);
     }
 }
 function treeHashes(root) {
@@ -178,18 +194,87 @@ function own() {
     assert(rows.length === 1 && rows[0].name === ownedName);
     return rows[0];
 }
+function verifyCachedNative(build, plan) {
+    for (const [path, expected] of Object.entries(plan.sourceHashes)) assert(hash(regular(path)) === expected);
+    assert.deepEqual(treeHashes(plan.artifactRoot), plan.artifactHashes);
+    assert.deepEqual(treeHashes(plan.bindingRoot), plan.bindings);
+    assert(hash(regular(plan.providerPath, 512 * 1024 * 1024)) === plan.providerHash);
+    const pin = JSON.parse(readFileSync(join(here, '../vodozemac-native-pin.json'), 'utf8'));
+    assert(pin.provider === 'vodozemac' && pin.protocol === 'olm-v1' && pin.shippingApproved === false);
+    assert(plan.providerManifestHash === pin.manifestSha256 && plan.providerLockHash === pin.lockfileSha256);
+    assert(
+        hash(join(here, '../vodozemac-native/Cargo.toml')) === pin.manifestSha256 &&
+            hash(join(here, '../vodozemac-native/Cargo.lock')) === pin.lockfileSha256,
+    );
+    for (const framework of plan.frameworkPlans) assert.deepEqual(treeHashes(framework.root), framework.hashes);
+    assert.deepEqual(treeHashes(join(plan.artifactRoot, 'public')), plan.nativePublicHashes);
+    const webHashes = Object.fromEntries(web.artifacts.map((row) => [relative(web.dist, row.path), row.sha256]));
+    assert.deepEqual(webHashes, plan.originalWebHashes);
+    const originalHtml = readFileSync(join(web.dist, 'index.html'), 'utf8');
+    const permitted = 'connect-src https://kmtupdvwdgbhtssqqova.supabase.co';
+    assert(originalHtml.split(permitted).length === 2 && !originalHtml.includes("connect-src 'none'"));
+    assert(
+        readFileSync(join(plan.artifactRoot, 'public/index.html'), 'utf8') ===
+            originalHtml.replace(permitted, "connect-src 'none'; frame-src 'none'"),
+    );
+    assert(hash(regular(plan.resourcePath, 128 * 1024)) === plan.resourceHash);
+    const resource = inspectFullAppNativeResource(
+        JSON.parse(readFileSync(plan.resourcePath, 'utf8')),
+        readFileSync(join(here, '../full-app-pilot/nativeUiFixture.js'), 'utf8'),
+    );
+    const researchPath = regular(join(plan.artifactRoot, 'research-config.json'), 16384);
+    assert(hash(researchPath) === plan.researchConfigHash);
+    const research = JSON.parse(readFileSync(researchPath, 'utf8'));
+    assert(
+        Object.keys(research).sort().join(',') === 'conversationId,projectOrigin,publicApiKey' &&
+            research.projectOrigin === 'https://kmtupdvwdgbhtssqqova.supabase.co' &&
+            research.conversationId === 'thalassa-e2ee-pilot-auth-v1' &&
+            research.publicApiKey === 'sb_publishable_research_local_ui_fixture',
+    );
+    const config = JSON.parse(readFileSync(regular(join(plan.artifactRoot, 'capacitor.config.json'), 16384), 'utf8'));
+    assert(
+        Object.keys(config).sort().join(',') === 'appId,appName,ios,loggingBehavior,plugins,webDir' &&
+            config.appId === bundle &&
+            config.appName === 'Scuttlebutt Auth Research' &&
+            config.webDir === 'public' &&
+            config.loggingBehavior === 'none' &&
+            Object.keys(config.plugins).join(',') === 'CapacitorHttp' &&
+            Object.keys(config.plugins.CapacitorHttp).join(',') === 'enabled' &&
+            config.plugins.CapacitorHttp.enabled === false &&
+            Object.keys(config.ios).sort().join(',') === 'loggingBehavior,webContentsDebuggingEnabled' &&
+            config.ios.loggingBehavior === 'none' &&
+            config.ios.webContentsDebuggingEnabled === false,
+    );
+    assert(hash(join(here, 'machOEntitlementEvidence.mjs')) === plan.entitlementInspectorHash);
+    const measured = inspectSimulatorEntitlementSections(
+        readFileSync(plan.executablePath),
+        plan.expectedEntitlementSections,
+    );
+    assert.deepEqual(measured, build.simulatorLinkEntitlements.measuredSections);
+    const signature = spawnSync('/usr/bin/codesign', ['-dv', '--verbose=4', plan.executablePath], {
+        encoding: 'utf8',
+        timeout: 30000,
+    });
+    assert(!signature.error && signature.status !== 0 && /code object is not signed at all/.test(signature.stderr));
+    receipt.cachedOriginalUnsignedChecked = true;
+    receipt.cachedEntitlementSectionsRemeasured = measured;
+    return resource;
+}
 try {
     assert(checkout === '/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather');
     assert(process.platform === 'darwin' && process.arch === 'arm64' && /^v24\./.test(process.version));
     const extra = process.argv.slice(2);
     assert(extra.length === 5 || extra.length === 6);
-    [cache, frameworkReceipt, prior, webReceipt, expectedWebHash] = extra;
+    const resume = extra[0] === '--resume-unsigned';
+    if (resume) [cachedBuildPath, cachedBuildHash, webReceipt, expectedWebHash] = extra.slice(1, 5);
+    else [cache, frameworkReceipt, prior, webReceipt, expectedWebHash] = extra;
     if (extra.length === 6) {
         assert(/^(?:0|[1-9][0-9]{0,5})$/.exec(extra[5])?.[0] === extra[5] && Number(extra[5]) <= 120000);
         waitBudget = Number(extra[5]);
     }
     receipt.initialRemainingSlotBudgetMs = waitBudget;
-    for (const path of [cache, frameworkReceipt, prior, webReceipt]) assert(isAbsolute(path));
+    for (const path of resume ? [cachedBuildPath, webReceipt] : [cache, frameworkReceipt, prior, webReceipt])
+        assert(isAbsolute(path));
     assert(/^[0-9a-f]{64}$/.test(expectedWebHash) && expectedWebHash.length === 64);
     regular(webReceipt);
     assert(hash(webReceipt) === expectedWebHash);
@@ -199,6 +284,7 @@ try {
     const paths = [
         'bridge-native/fullAppUiProof.mjs',
         'bridge-native/fullAppUiContract.mjs',
+        'bridge-native/fullAppUiResumeContract.mjs',
         'bridge-native/build.mjs',
         'bridge-native/generate_project.rb',
         'bridge-native/machOEntitlementEvidence.mjs',
@@ -213,64 +299,100 @@ try {
         paths.map((name) => ['experiments/scuttlebutt-e2ee/' + name, hash(join(here, '..', name))]),
     );
     stable();
-    regular(frameworkReceipt);
-    regular(prior);
-    const frameworks = JSON.parse(readFileSync(frameworkReceipt, 'utf8'));
-    assert(frameworks.status === 'passed');
-    receipt.frameworkReceipt = { path: frameworkReceipt, sha256: hash(frameworkReceipt) };
-    receipt.nativeExchangeReceipt = { path: prior, sha256: hash(prior) };
-    const resource = createFullAppNativeResource(
-        readFileSync(join(here, '../full-app-pilot/nativeUiFixture.js'), 'utf8'),
-        runID,
-        nonce,
-    );
-    const fixture = join(scratch, 'fixture-resource.json');
-    writeFileSync(fixture, JSON.stringify(resource), { mode: 0o600, flag: 'wx' });
-    receipt.fixtureResource = { path: fixture, sha256: hash(fixture) };
-    await slot();
-    stable();
-    receipt.phase = 'native-build';
-    save();
-    // The child holds its own heavy-job reservation; do not deadlock against this parent.
-    process.title = 'thalassa native-root awaiting owned compile';
-    const output = quiet(
-        process.execPath,
-        [
-            join(here, 'build.mjs'),
-            cache,
-            frameworks.products,
-            web.dist,
-            '--platform',
-            'iphonesimulator',
-            '--local-ui-fixture-file',
-            fixture,
-            '--prior-native-exchange-receipt',
-            prior,
-            '--local-ui-frameworks-receipt',
-            frameworkReceipt,
-            '--full-app-web-receipt',
-            webReceipt,
-            '--slot-wait-ms',
-            String(Math.max(0, waitBudget - waited)),
-        ],
-        450000,
-    );
-    const buildPath = output.match(/Nonsecret research messaging build receipt: (\/[^\n]+)/)?.[1];
-    assert(buildPath);
-    const build = JSON.parse(readFileSync(buildPath, 'utf8'));
-    assert(
-        build.status === 'passed' &&
-            build.platform === 'iphonesimulator' &&
-            build.fullAppUiFixture === true &&
-            build.localUiFixture === true &&
-            build.protectedUiFixture === false &&
-            build.unsignedApplication === true &&
-            build.applicationSignatureCheckedAbsent === true &&
-            build.primaryCapSyncExecuted === false &&
-            build.fullAppWebReceiptSha256 === expectedWebHash &&
-            build.localUiFixtureResourceSha256 === hash(fixture),
-    );
-    receipt.buildReceipt = { path: buildPath, sha256: hash(buildPath) };
+    let build;
+    if (resume) {
+        assert(/^[0-9a-f]{64}$/.test(cachedBuildHash) && cachedBuildHash.length === 64);
+        regular(cachedBuildPath);
+        assert(hash(cachedBuildPath) === cachedBuildHash);
+        build = JSON.parse(readFileSync(cachedBuildPath, 'utf8'));
+        cachedPlan = inspectFullAppCachedBuild(build, checkout, expectedWebHash);
+        const resource = verifyCachedNative(build, cachedPlan);
+        runID = resource.runID;
+        nonce = resource.nonce;
+        receipt.runID = runID;
+        receipt.fixtureResource = { path: cachedPlan.resourcePath, sha256: cachedPlan.resourceHash };
+        receipt.buildReceipt = { path: cachedBuildPath, sha256: cachedBuildHash };
+        receipt.originalCompileProof = {
+            builderSha256: cachedPlan.originalBuilderHash,
+            contractSha256: cachedPlan.originalContractHash,
+            sourceHashes: cachedPlan.sourceHashes,
+            providerSha256: cachedPlan.providerHash,
+            frameworkReceiptSha256: cachedPlan.frameworkReceiptHash,
+            priorExchangeReceiptSha256: cachedPlan.priorExchangeReceiptHash,
+        };
+        receipt.currentUncompiledResumeToolHashes = Object.fromEntries(
+            ['fullAppUiProof.mjs', 'fullAppUiResumeContract.mjs', 'fullAppUiContract.mjs'].map((name) => [
+                name,
+                hash(join(here, name)),
+            ]),
+        );
+        receipt.nativeRecompiled = false;
+        receipt.cachedUnsignedResume = true;
+        receipt.originalFixtureBindingRetained = true;
+        receipt.phase = 'cached-native-preflight';
+        save();
+    } else {
+        regular(frameworkReceipt);
+        regular(prior);
+        const frameworks = JSON.parse(readFileSync(frameworkReceipt, 'utf8'));
+        assert(frameworks.status === 'passed');
+        receipt.frameworkReceipt = { path: frameworkReceipt, sha256: hash(frameworkReceipt) };
+        receipt.nativeExchangeReceipt = { path: prior, sha256: hash(prior) };
+        const resource = createFullAppNativeResource(
+            readFileSync(join(here, '../full-app-pilot/nativeUiFixture.js'), 'utf8'),
+            runID,
+            nonce,
+        );
+        const fixture = join(scratch, 'fixture-resource.json');
+        writeFileSync(fixture, JSON.stringify(resource), { mode: 0o600, flag: 'wx' });
+        receipt.fixtureResource = { path: fixture, sha256: hash(fixture) };
+        await slot();
+        stable();
+        receipt.phase = 'native-build';
+        save();
+        // The child holds its own heavy-job reservation; do not deadlock against this parent.
+        process.title = 'thalassa native-root awaiting owned compile';
+        const output = quiet(
+            process.execPath,
+            [
+                join(here, 'build.mjs'),
+                cache,
+                frameworks.products,
+                web.dist,
+                '--platform',
+                'iphonesimulator',
+                '--local-ui-fixture-file',
+                fixture,
+                '--prior-native-exchange-receipt',
+                prior,
+                '--local-ui-frameworks-receipt',
+                frameworkReceipt,
+                '--full-app-web-receipt',
+                webReceipt,
+                '--slot-wait-ms',
+                String(Math.max(0, waitBudget - waited)),
+            ],
+            450000,
+        );
+        const buildPath = output.match(/Nonsecret research messaging build receipt: (\/[^\n]+)/)?.[1];
+        assert(buildPath);
+        build = JSON.parse(readFileSync(buildPath, 'utf8'));
+        assert(
+            build.status === 'passed' &&
+                build.platform === 'iphonesimulator' &&
+                build.fullAppUiFixture === true &&
+                build.localUiFixture === true &&
+                build.protectedUiFixture === false &&
+                build.unsignedApplication === true &&
+                build.applicationSignatureCheckedAbsent === true &&
+                build.primaryCapSyncExecuted === false &&
+                build.fullAppWebReceiptSha256 === expectedWebHash &&
+                build.localUiFixtureResourceSha256 === hash(fixture),
+        );
+        receipt.buildReceipt = { path: buildPath, sha256: hash(buildPath) };
+        receipt.nativeRecompiled = true;
+        receipt.cachedUnsignedResume = false;
+    }
     await slot();
     stable();
     receipt.phase = 'ad-hoc-sign-owned-copy';
@@ -300,7 +422,7 @@ try {
         (t) => t.identifier === 'com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation',
     );
     assert(type);
-    ownedName = 'Thalassa full-root ' + runID;
+    ownedName = resume ? 'Thalassa full-root replay ' + attemptID : 'Thalassa full-root ' + runID;
     simulator = quiet('/usr/bin/xcrun', ['simctl', 'create', ownedName, type.identifier, runtime.identifier]);
     assert(/^[0-9A-F-]{36}$/.test(simulator) && simulator.length === 36);
     receipt.ownedSimulator = { id: simulator, name: ownedName };
@@ -329,6 +451,14 @@ try {
     receipt.lastOperationTimedOut = false;
     save();
     while (Date.now() < deadline) {
+        if (Number.isInteger(receipt.ownedLaunchPID)) {
+            try {
+                process.kill(receipt.ownedLaunchPID, 0);
+                receipt.ownedLaunchPIDAlive = true;
+            } catch (error) {
+                receipt.ownedLaunchPIDAlive = error?.code === 'EPERM' ? null : false;
+            }
+        }
         receipt.expectedNativeFilePresent = existsSync(statusFile);
         receipt.expectedPhaseFilePresent = existsSync(expectedPhaseFile);
         if (existsSync(statusFile)) {
