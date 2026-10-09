@@ -253,6 +253,34 @@ storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gate
 before treating this routing seam as startup integration. No ordinary activation,
 shared dependency write, primary sync, master or production change is included.
 
+The [9 October native full-root startup implementation](../experiments/scuttlebutt-e2ee/review/full-app-native-startup-2026-10-09.json)
+compiled twice as an unsigned simulator target, but **native startup acceptance
+remains unproved**. Its resource-v3/report-v2 fixture keeps the same Research Auth
+host/controller, configurable synthetic fetch aliases and entry-owned I/O fence.
+A pre-document backstop closes the six cached HTTP methods on both inspected
+dispatch names and listener insertion; it is not an OS-wide/native sandbox.
+Reports copy only bounded fixed facts, bind the main frame/WK/controller/run/nonce
+and are designed to measure native verified state before observing credential
+fencing. That is not durable logout, revocation or a completed lifecycle proof.
+
+The 46 initial synthetic cases/types passed before mechanical repairs. Final
+diagnostics ran only nine new cases with those 46 skipped, followed by narrow
+types and named lint/format. No all-55 final-byte or old-suite result is claimed.
+Both builds verified cached provider/framework hashes, unsigned output and
+simulator entitlement sections; only owned copies were ad-hoc signed. Original
+web inputs/outputs were not recompiled, and CSP tightened only in the private
+HTML copy. Cache matching is not independent provenance.
+
+The first app-stage attempt retained no native phase/v2 receipt and has an unknown
+cause. The diagnostic attempt timed out at owned-simulator boot status before
+install/launch, with null exit status and timeout true. Both exact simulators were
+removed; shared waiting totalled 60,013/120,000 ms without a reset. Strict diagnostic
+copying does not accept arbitrary failed/running container JSON. Next diagnose
+the boot/app harness using preserved artifacts rather than repeat unchanged
+runtime builds or reset human data. Native startup/protected exchange and all
+physical, provenance/licence, cutover and independent-assessment gates remain open.
+Master `196bcb0e` is observed but unreconciled; no combined candidate is proved.
+
 The [9 October accepted Window evidence](../experiments/scuttlebutt-e2ee/review/full-app-window-accepted-2026-10-09.json)
 passes the complete unsupported-browser fixture in fresh owned Chrome 151:
 actual entry/Root startup, unavailable Chat selection, synthetic closure,
@@ -286,8 +314,8 @@ page/CDP gates are not a malicious same-origin sandbox or whole browser-process
 network measurement. Only Node/Chrome executables and selected Puppeteer files
 are hashed, not complete toolchain provenance. The earlier
 [136-case preparation](../experiments/scuttlebutt-e2ee/review/full-app-window-2026-10-09.json)
-is historical. Private native HTTP/JS drafts are hashed but uncompiled, unexecuted
-and unadopted. Native startup/protected exchange remains unimplemented and must
+is historical. The later native implementation above adopts the reviewed drafts
+and compiles, but native startup/protected exchange remain unproved and must
 retain separate SDK/provider, physical, hosted and independent-assessment gates.
 Master `058ba16e` was observed as an external shared-ref advancement without writes
 or reconciliation; the `8c28d08e` proof does not cover a combined candidate.
