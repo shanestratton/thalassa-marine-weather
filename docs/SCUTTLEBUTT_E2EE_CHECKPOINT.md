@@ -150,6 +150,23 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 10 October prepared control invocation remains queued
+
+The [fresh queued invocation evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-control-invocation-2026-10-10.json)
+records clean `a4769c88` with all 87 frozen source hashes unchanged. No tests,
+types or native/web builds were repeated. One fresh heartbeat opportunity
+expired at **120,007/120,000 ms**, a 7 ms timer overshoot. The child driver was
+never invoked: no new cached preflight, copy/signing, simulator, control or
+Research operation occurred, and no simulator cleanup was required.
+
+One subsequent current read-only process snapshot identified an actual `tsc`
+entrypoint and one unknown record. Unknown remains competition; this snapshot
+does not classify the historical wait, establish independent job counts or
+explain any boot/launch failure. No raw commands, paths, PIDs or application
+inventory were exported, and the guard was not changed. Next invoke only the
+prepared cached-control mode on a free shared slot; no second opportunity ran
+in this heartbeat. Native startup and every readiness gate remain unproved.
+
 ### 10 October fixed Settings launch control prepared
 
 The [control launch preparation evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-control-launch-2026-10-10.json)

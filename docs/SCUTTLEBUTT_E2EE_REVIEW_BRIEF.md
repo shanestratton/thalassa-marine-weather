@@ -253,7 +253,16 @@ storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gate
 before treating this routing seam as startup integration. No ordinary activation,
 shared dependency write, primary sync, master or production change is included.
 
-The [10 October control launch preparation](../experiments/scuttlebutt-e2ee/review/full-app-native-control-launch-2026-10-10.json)
+The [10 October fresh queued control invocation](../experiments/scuttlebutt-e2ee/review/full-app-native-control-invocation-2026-10-10.json)
+retains clean `a4769c88` and 87 stable source hashes, without repeating checks or
+compilation. Its new heartbeat window expired at 120,007/120,000 ms before the
+child driver: no preflight, signing, simulator, control or Research execution
+occurred. No cleanup was needed. One later current diagnostic saw an actual
+`tsc` entrypoint and one unknown record, preserved as competition. This is not
+historical classification or a boot/launch cause. No guard/runtime change or
+second opportunity occurred; native acceptance and every release gate stay open.
+
+The historical [10 October control launch preparation](../experiments/scuttlebutt-e2ee/review/full-app-native-control-launch-2026-10-10.json)
 passes all 53 final-byte cases in the focused modified resume file, narrow types
 and named lint/format. A cached-only explicit iOS 27 probe selects only
 `com.apple.Preferences`, verifies its exact System entry from private bounded
