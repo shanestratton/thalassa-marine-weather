@@ -83,6 +83,12 @@ const shipLogHandoffMock = vi.hoisted(() => ({
     stopTracking: vi.fn(),
     getTrackingStatus: vi.fn(() => ({ isTracking: false, currentVoyageId: null as string | null })),
 }));
+/** The passage another device records (hooks/useRemotePassage); none unless a test says so. */
+const remotePassageMock = vi.hoisted(() => ({ value: null as null | Record<string, unknown>, refresh: vi.fn() }));
+/** 125-15: routes a test puts in this phone's library beside route-x, and a
+ *  stand-in for the held report a row's Review fetches (null = the real one). */
+const extraSavedTracesMock = vi.hoisted(() => ({ value: [] as Array<Record<string, unknown>> }));
+const heldReportMock = vi.hoisted(() => ({ get: null as null | ((id: string) => Promise<unknown>) }));
 
 // ── Mock services & context ──
 vi.mock('../utils/createLogger', () => ({
@@ -143,6 +149,7 @@ vi.mock('../services/routeTracer', async (importOriginal) => ({
             ],
             plannedRouteId: 'planned-x',
         },
+        ...extraSavedTracesMock.value,
     ],
 }));
 
@@ -158,6 +165,10 @@ vi.mock('../services/traceBackgroundCheck', async (importOriginal) => {
             enqueueTraceChecksSpy(...args);
             return real.enqueueTraceChecks(...args);
         },
+        getCurrentTraceCheckReport: (id: string) =>
+            heldReportMock.get
+                ? (heldReportMock.get(id) as ReturnType<typeof real.getCurrentTraceCheckReport>)
+                : real.getCurrentTraceCheckReport(id),
     };
 });
 
@@ -209,6 +220,12 @@ vi.mock('../services/ownshipPosition', () => ({
 
 vi.mock('../services/shiplog/trackSourceInputs', () => ({
     resolveTrackSourcePlan: sourcePlanMock.resolve,
+}));
+
+// Signed out in these tests, the real hook answers null; the mock lets one
+// test put another device's passage on the page.
+vi.mock('../hooks/useRemotePassage', () => ({
+    useRemotePassage: () => ({ remote: remotePassageMock.value, refresh: remotePassageMock.refresh }),
 }));
 
 vi.mock('../utils/lazyRetry', () => ({
@@ -314,19 +331,34 @@ vi.mock('../pages/log/LogSubComponents', () => ({
         summary,
         onPick,
         onCheckNow,
+        onReview,
+        onFixInTracer,
     }: {
         summary: { voyageId: string };
         onPick: (accept?: boolean) => void;
         onCheckNow?: () => void;
+        onReview?: () => void;
+        onFixInTracer?: () => void;
     }) => (
         <>
             <button onClick={() => onPick()}>Follow route {summary.voyageId}</button>
             <button onClick={() => onPick(true)}>Follow anyway {summary.voyageId}</button>
             {onCheckNow && <button onClick={onCheckNow}>Check now {summary.voyageId}</button>}
+            {onReview && <button onClick={onReview}>Review {summary.voyageId}</button>}
+            {onFixInTracer && <button onClick={onFixInTracer}>Fix in tracer {summary.voyageId}</button>}
         </>
     ),
 }));
 vi.mock('../pages/log/VoyageDialogs', () => ({ VoyageChoiceDialog: () => null, StopVoyageDialog: () => null }));
+// The route report a row's Review opens: its name is what these tests see.
+vi.mock('../components/map/TraceReportModal', () => ({
+    TraceReportModal: ({ routeName, onClose }: { routeName: string; onClose: () => void }) => (
+        <div role="dialog" aria-label="Route report">
+            {routeName}
+            <button onClick={onClose}>Close report</button>
+        </div>
+    ),
+}));
 vi.mock('../pages/log/ExportSheet', () => ({ ExportSheet: () => null }));
 // A stand-in with the real dialog's name and its one decision, so the page's
 // gating (shown or not, and what happens after) is what these tests see.
@@ -580,6 +612,8 @@ vi.mock('../hooks/useLogPageState', () => ({
 
 import { LogPage, resetFollowPromptGuardsForTest } from '../pages/LogPage';
 import { useLogPageState } from '../hooks/useLogPageState';
+import { useUIStore } from '../stores/uiStore';
+import { recordTraceCheckOutcome } from '../services/traceCheckOutcomes';
 import {
     castOffHandoffIdle,
     clearCastOffHandoff,
@@ -1558,10 +1592,16 @@ describe('LogPage', () => {
         expect(dialog).toHaveAccessibleDescription('Pick one to show on your public page — or just record the track.');
         expect(dismiss).toHaveFocus();
 
+        // The X (125-15) is the first stop after the title, before every
+        // route row; focus still opens on the sheet's default answer.
+        const close = within(dialog).getByRole('button', { name: 'Close' });
+        const title = within(dialog).getByText('Following a route?');
         const routeChoice = screen.getByRole('button', { name: 'Follow route planned-voyage' });
+        expect(title.compareDocumentPosition(close) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(close.compareDocumentPosition(routeChoice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         fireEvent.keyDown(dismiss, { key: 'Tab' });
-        expect(routeChoice).toHaveFocus();
-        fireEvent.keyDown(routeChoice, { key: 'Tab', shiftKey: true });
+        expect(close).toHaveFocus();
+        fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
         expect(dismiss).toHaveFocus();
         fireEvent.keyDown(dismiss, { key: 'Escape' });
 
@@ -2099,6 +2139,501 @@ describe('LogPage', () => {
 
         expect(await screen.findByText('You’re offline. Try again when connected.')).toBeInTheDocument();
         expect(enqueueTraceChecksSpy).not.toHaveBeenCalledWith(['trace-solent'], 'manual');
+    });
+
+    // ── 125-15: an X on "Following a route?" (Shane 2026-10-09: "that modal
+    // form needs an X in the top right hand corner. so we can elegantly leave
+    // it if we prefer. it should take us back to the log page") ──
+    describe('the sheet’s X takes you back to the Log page', () => {
+        /** A fictional Solent plan: the sheet has something to offer. */
+        const solentPlan = {
+            voyageId: 'planned-voyage',
+            isPlannedRoute: true,
+            totalDistanceNM: 9,
+            entryCount: 4,
+            firstLat: 50.766,
+            firstLon: -1.297,
+            lastLat: 50.754,
+            lastLon: -1.533,
+        };
+        const sheet = () => screen.queryByRole('dialog', { name: 'Following a route?' });
+        const closeButton = () => within(sheet()!).getByRole('button', { name: 'Close' });
+        /** Let the slide's warm-up and any start it fired run to the end. */
+        const settle = () =>
+            act(async () => {
+                await new Promise((resolve) => setTimeout(resolve, 50));
+            });
+        /** A fix from her own receiver: no phone notice stands between an
+         *  answer and the start, so a start that fired would reach
+         *  handleStartTracking and the "nothing starts" checks can see it. */
+        const boatFix = () =>
+            acquireFreshOwnshipPositionMock.mockResolvedValue({
+                lat: 50.766,
+                lon: -1.297,
+                sog: 0,
+                cog: 0,
+                timestamp: Date.now(),
+                source: 'nmea',
+            });
+
+        /** A fictional Solent route only the account holds: a row's Check
+         *  now and Fix in tracer fetch it first, and the skipper may leave. */
+        const accountOnlyRoute = {
+            summaries: [{ ...solentPlan, voyageId: 'planned-trace' }],
+            entries: [
+                {
+                    id: 'planned-trace-entry',
+                    voyageId: 'planned-trace',
+                    savedRouteId: 'trace-solent',
+                    source: 'planned_route',
+                    latitude: 50.766,
+                    longitude: -1.297,
+                    timestamp: new Date().toISOString(),
+                },
+            ],
+        };
+        const solentPoints = [
+            { lat: 50.766, lon: -1.297 },
+            { lat: 50.754, lon: -1.533 },
+        ];
+
+        afterEach(() => {
+            remotePassageMock.value = null;
+            extraSavedTracesMock.value = [];
+            heldReportMock.get = null;
+            // The X after cast-off remembers "no route" for active-voyage, and
+            // the Cast Off suite that follows does not clear storage itself.
+            localStorage.clear();
+        });
+
+        it('BEFORE cast-off: nothing starts, nothing is answered, and the slide is back at rest', async () => {
+            boatFix();
+            const startTracking = vi.fn();
+            logPageStateOverrides.hook.handleStartTracking = startTracking;
+            Object.assign(logPageStateOverrides.state, { summaries: [solentPlan] });
+            const { rerender } = render(<LogPage />);
+
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+            expect(sheet()).toBeInTheDocument();
+            fireEvent.click(closeButton());
+            await settle();
+
+            expect(sheet()).not.toBeInTheDocument();
+            expect(startTracking).not.toHaveBeenCalled();
+            // The Start control: at rest, not "Checking GPS…".
+            expect(screen.getByTestId('slide-to-action')).toHaveTextContent('Slide to Start Tracking');
+            expect(screen.getByTestId('slide-to-action')).toBeEnabled();
+            // The Log page as it was: no card, no route cleared, nothing published.
+            expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+            expect(clearFollowedRouteMock).not.toHaveBeenCalled();
+            expect(publishFollowedRouteMock).not.toHaveBeenCalled();
+
+            // Nothing was recorded as an answer: a voyage another door starts
+            // later still gets its honest question. ("Just recording" would
+            // have parked 'none', and this voyage would never be asked.)
+            const onStarted = vi.mocked(useLogPageState).mock.calls.at(-1)![0]!;
+            await act(async () => onStarted('voyage-from-elsewhere'));
+            Object.assign(logPageStateOverrides.state, {
+                isTracking: true,
+                currentVoyageId: 'voyage-from-elsewhere',
+            });
+            rerender(<LogPage />);
+            expect(await screen.findByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
+            expect(clearFollowedRouteMock).not.toHaveBeenCalled();
+        });
+
+        it('BEFORE cast-off: slide again and the sheet works as ever — Just recording or a route both start', async () => {
+            boatFix();
+            const startTracking = vi.fn();
+            logPageStateOverrides.hook.handleStartTracking = startTracking;
+            Object.assign(logPageStateOverrides.state, { summaries: [solentPlan] });
+            render(<LogPage />);
+
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+            fireEvent.click(closeButton());
+            await settle();
+
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+            fireEvent.click(within(sheet()!).getByRole('button', { name: 'Just recording' }));
+            await waitFor(() => expect(startTracking).toHaveBeenCalledTimes(1));
+            await waitFor(() => expect(screen.getByTestId('slide-to-action')).toBeEnabled());
+
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+            fireEvent.click(within(sheet()!).getByRole('button', { name: 'Follow route planned-voyage' }));
+            await waitFor(() => expect(startTracking).toHaveBeenCalledTimes(2));
+            expect(sheet()).not.toBeInTheDocument();
+        });
+
+        it('BEFORE cast-off: a stray tap on the backdrop neither starts a track nor cancels one', async () => {
+            boatFix();
+            const startTracking = vi.fn();
+            logPageStateOverrides.hook.handleStartTracking = startTracking;
+            Object.assign(logPageStateOverrides.state, { summaries: [solentPlan] });
+            render(<LogPage />);
+
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+            fireEvent.click(document.querySelector('[data-follow-sheet-overlay]')!);
+            await settle();
+
+            expect(sheet()).toBeInTheDocument();
+            expect(startTracking).not.toHaveBeenCalled();
+        });
+
+        it('BEFORE cast-off: Escape is the X', async () => {
+            boatFix();
+            const startTracking = vi.fn();
+            logPageStateOverrides.hook.handleStartTracking = startTracking;
+            Object.assign(logPageStateOverrides.state, { summaries: [solentPlan] });
+            render(<LogPage />);
+
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+            const focused = within(sheet()!).getByRole('button', { name: 'Just recording' });
+            expect(focused).toHaveFocus();
+            fireEvent.keyDown(focused, { key: 'Escape' });
+            await settle();
+
+            expect(sheet()).not.toBeInTheDocument();
+            expect(startTracking).not.toHaveBeenCalled();
+            expect(screen.getByTestId('slide-to-action')).toHaveTextContent('Slide to Start Tracking');
+        });
+
+        it('BEFORE cast-off: a route still being fetched when the X is tapped neither navigates nor leaves a card', async () => {
+            // A route only the account holds: Check now and Fix in tracer
+            // both fetch it first, and the skipper may leave meanwhile.
+            Object.assign(logPageStateOverrides.state, {
+                summaries: [{ ...solentPlan, voyageId: 'planned-trace' }],
+                entries: [
+                    {
+                        id: 'planned-trace-entry',
+                        voyageId: 'planned-trace',
+                        savedRouteId: 'trace-solent',
+                        source: 'planned_route',
+                        latitude: 50.766,
+                        longitude: -1.297,
+                        timestamp: new Date().toISOString(),
+                    },
+                ],
+            });
+            const fetches: Array<(result: unknown) => void> = [];
+            fetchSavedRoutePointsMock.mockImplementation(() => new Promise((resolve) => fetches.push(resolve)));
+            const pageBefore = useUIStore.getState().currentView;
+            render(<LogPage />);
+
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+            fireEvent.click(within(sheet()!).getByRole('button', { name: 'Check now planned-trace' }));
+            await waitFor(() => expect(fetches).toHaveLength(1));
+            fireEvent.click(within(sheet()!).getByRole('button', { name: 'Fix in tracer planned-trace' }));
+            await waitFor(() => expect(fetches).toHaveLength(2));
+            fireEvent.click(closeButton());
+            expect(sheet()).not.toBeInTheDocument();
+
+            await act(async () => {
+                fetches[0]({ ok: false, reason: 'You’re offline. Try again when connected.' });
+                fetches[1]({
+                    ok: true,
+                    id: 'trace-solent',
+                    name: 'Cowes → Lymington',
+                    points: [
+                        { lat: 50.766, lon: -1.297 },
+                        { lat: 50.754, lon: -1.533 },
+                    ],
+                });
+            });
+            await settle();
+
+            expect(useUIStore.getState().currentView).toBe(pageBefore);
+            expect(screen.queryByText('You’re offline. Try again when connected.')).not.toBeInTheDocument();
+            expect(sheet()).not.toBeInTheDocument();
+        });
+
+        it('BEFORE cast-off: a refusal shown in the sheet goes with it, and is no card on the Log page', async () => {
+            Object.assign(logPageStateOverrides.state, accountOnlyRoute);
+            fetchSavedRoutePointsMock.mockResolvedValue({
+                ok: false,
+                reason: 'You’re offline. Try again when connected.',
+            });
+            render(<LogPage />);
+
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+            fireEvent.click(within(sheet()!).getByRole('button', { name: 'Check now planned-trace' }));
+            expect(await within(sheet()!).findByText('You’re offline. Try again when connected.')).toBeInTheDocument();
+            fireEvent.click(closeButton());
+            await settle();
+
+            expect(sheet()).not.toBeInTheDocument();
+            expect(screen.queryByText('You’re offline. Try again when connected.')).not.toBeInTheDocument();
+        });
+
+        it('BEFORE cast-off: an answer left waiting by a start that failed goes with the X', async () => {
+            // "Just recording", then the start fails: the answer waits for a
+            // voyage that never came.
+            acquireFreshOwnshipPositionMock.mockResolvedValue(null);
+            const startTracking = vi.fn();
+            logPageStateOverrides.hook.handleStartTracking = startTracking;
+            Object.assign(logPageStateOverrides.state, { summaries: [solentPlan] });
+            const { rerender } = render(<LogPage />);
+
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+            fireEvent.click(within(sheet()!).getByRole('button', { name: 'Just recording' }));
+            expect(await screen.findByText('No fresh GPS fix')).toBeInTheDocument();
+            expect(startTracking).not.toHaveBeenCalled();
+
+            // Slide again, then leave by the X: that old answer must not
+            // answer for the next voyage.
+            await waitFor(() => expect(screen.getByTestId('slide-to-action')).toBeEnabled());
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+            fireEvent.click(closeButton());
+            await settle();
+
+            const onStarted = vi.mocked(useLogPageState).mock.calls.at(-1)![0]!;
+            await act(async () => onStarted('voyage-from-elsewhere'));
+            Object.assign(logPageStateOverrides.state, {
+                isTracking: true,
+                currentVoyageId: 'voyage-from-elsewhere',
+            });
+            rerender(<LogPage />);
+            expect(await screen.findByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
+            expect(clearFollowedRouteMock).not.toHaveBeenCalled();
+        });
+
+        it('AFTER cast-off: the X closes the sheet, the track keeps recording, and it is the old “no route” dismissal', async () => {
+            Object.assign(followRouteMock.state, {
+                isFollowing: true,
+                voyageId: 'old-planned-route',
+                routeCoords: [
+                    { lat: 43.58, lon: 7.12 },
+                    { lat: 43.52, lon: 7.05 },
+                ],
+            });
+            Object.assign(logPageStateOverrides.state, {
+                isTracking: true,
+                currentVoyageId: 'active-voyage',
+                summaries: [solentPlan],
+            });
+            const stopTracking = vi.fn();
+            logPageStateOverrides.hook.handleStopTracking = stopTracking;
+            const first = render(<LogPage />);
+
+            fireEvent.click(closeButton());
+            await settle();
+
+            expect(sheet()).not.toBeInTheDocument();
+            expect(stopTracking).not.toHaveBeenCalled();
+            expect(screen.queryByTestId('slide-to-action')).not.toBeInTheDocument();
+            // The old dismissal: no line for this cast-off, locally or in public…
+            expect(followRouteMock.state.stopFollowing).toHaveBeenCalledTimes(1);
+            expect(clearFollowedRouteMock).toHaveBeenCalledTimes(1);
+            // …remembered durably, so the question is never asked again.
+            first.unmount();
+            resetFollowPromptGuardsForTest();
+            render(<LogPage />);
+            await settle();
+            expect(sheet()).not.toBeInTheDocument();
+        });
+
+        it('AFTER cast-off: a route still being fetched when the X is tapped neither navigates nor leaves a card', async () => {
+            Object.assign(logPageStateOverrides.state, {
+                ...accountOnlyRoute,
+                isTracking: true,
+                currentVoyageId: 'active-voyage',
+            });
+            const fetches: Array<(result: unknown) => void> = [];
+            fetchSavedRoutePointsMock.mockImplementation(() => new Promise((resolve) => fetches.push(resolve)));
+            const pageBefore = useUIStore.getState().currentView;
+            const stopTracking = vi.fn();
+            logPageStateOverrides.hook.handleStopTracking = stopTracking;
+            render(<LogPage />);
+
+            fireEvent.click(await screen.findByRole('button', { name: 'Check now planned-trace' }));
+            await waitFor(() => expect(fetches).toHaveLength(1));
+            fireEvent.click(within(sheet()!).getByRole('button', { name: 'Fix in tracer planned-trace' }));
+            await waitFor(() => expect(fetches).toHaveLength(2));
+            fireEvent.click(closeButton());
+            expect(sheet()).not.toBeInTheDocument();
+
+            await act(async () => {
+                fetches[0]({ ok: false, reason: 'You’re offline. Try again when connected.' });
+                fetches[1]({ ok: true, id: 'trace-solent', name: 'Cowes → Lymington', points: solentPoints });
+            });
+            await settle();
+
+            expect(useUIStore.getState().currentView).toBe(pageBefore);
+            expect(screen.queryByText('You’re offline. Try again when connected.')).not.toBeInTheDocument();
+            expect(sheet()).not.toBeInTheDocument();
+            expect(stopTracking).not.toHaveBeenCalled();
+        });
+
+        it('AFTER cast-off: the X never undoes a route already confirmed for this voyage', async () => {
+            Object.assign(followRouteMock.state, {
+                isFollowing: true,
+                voyageId: 'old-planned-route',
+                routeCoords: [
+                    { lat: 43.58, lon: 7.12 },
+                    { lat: 43.52, lon: 7.05 },
+                ],
+            });
+            Object.assign(logPageStateOverrides.state, {
+                isTracking: true,
+                currentVoyageId: 'active-voyage',
+                summaries: [solentPlan],
+            });
+            render(<LogPage />);
+            const close = closeButton();
+
+            // Another door answers the question for this voyage in the same
+            // instant the X is tapped: the X still sees an open sheet.
+            act(() => {
+                window.dispatchEvent(
+                    new CustomEvent('thalassa:voyage-plan-link-changed', { detail: { voyageId: 'active-voyage' } }),
+                );
+                expect(close.isConnected).toBe(true);
+                close.click();
+            });
+            await settle();
+
+            expect(sheet()).not.toBeInTheDocument();
+            expect(followRouteMock.state.stopFollowing).not.toHaveBeenCalled();
+            expect(clearFollowedRouteMock).not.toHaveBeenCalled();
+        });
+
+        it('AFTER cast-off: the X is held while a route is loading', async () => {
+            vi.useFakeTimers();
+            fetchVoyageAsTrackMock.mockReturnValue(new Promise(() => {}));
+            Object.assign(logPageStateOverrides.state, {
+                isTracking: true,
+                currentVoyageId: 'active-voyage',
+                summaries: [solentPlan],
+            });
+            render(<LogPage />);
+
+            fireEvent.click(screen.getByRole('button', { name: 'Follow route planned-voyage' }));
+            expect(screen.getByRole('button', { name: 'Loading route…' })).toBeDisabled();
+            expect(closeButton()).toBeDisabled();
+            fireEvent.click(closeButton());
+            fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+            expect(sheet()).toBeInTheDocument();
+            expect(clearFollowedRouteMock).not.toHaveBeenCalled();
+
+            // The load deadline lets go, and so does the X.
+            await act(async () => {
+                vi.advanceTimersByTime(10_000);
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+            expect(closeButton()).toBeEnabled();
+        });
+
+        it('the sheet re-shown for another device’s passage closes with no side effects', async () => {
+            Object.assign(followRouteMock.state, {
+                isFollowing: true,
+                voyageId: 'old-planned-route',
+                routeCoords: [
+                    { lat: 43.58, lon: 7.12 },
+                    { lat: 43.52, lon: 7.05 },
+                ],
+            });
+            remotePassageMock.value = {
+                voyageId: 'remote-voyage',
+                voyageName: 'Cowes → Cherbourg',
+                departurePort: 'Cowes',
+                destinationPort: 'Cherbourg',
+                departureTime: null,
+                savedRouteId: null,
+                recordingDeviceName: 'Crew iPad',
+                recordingDeviceId: 'device-crew',
+                link: null,
+                linkHeldElsewhere: false,
+                fetchedAt: '2026-10-09T08:00:00.000Z',
+            };
+            Object.assign(logPageStateOverrides.state, { summaries: [solentPlan] });
+            const startTracking = vi.fn();
+            logPageStateOverrides.hook.handleStartTracking = startTracking;
+            render(<LogPage />);
+
+            fireEvent.click(screen.getByRole('button', { name: 'Follow a route' }));
+            expect(sheet()).toBeInTheDocument();
+            fireEvent.click(closeButton());
+            await settle();
+
+            expect(sheet()).not.toBeInTheDocument();
+            expect(followRouteMock.state.stopFollowing).not.toHaveBeenCalled();
+            expect(clearFollowedRouteMock).not.toHaveBeenCalled();
+            expect(publishFollowedRouteMock).not.toHaveBeenCalled();
+            expect(startTracking).not.toHaveBeenCalled();
+            // Not an answer either: the card's door opens it again.
+            fireEvent.click(screen.getByRole('button', { name: 'Follow a route' }));
+            expect(sheet()).toBeInTheDocument();
+        });
+
+        it('a Review still re-checking when the X is tapped pops no report up on the Log page', async () => {
+            // A red finding the skipper can acknowledge in place, on a fictional
+            // Solent route held on this phone.
+            extraSavedTracesMock.value = [
+                {
+                    id: 'trace-solent',
+                    name: 'Cowes → Lymington',
+                    createdAt: '2026-10-01T00:00:00Z',
+                    points: solentPoints,
+                },
+            ];
+            recordTraceCheckOutcome('trace-solent', {
+                geometryKey: 'solent-geometry',
+                draftM: 1.9,
+                draftAssumed: false,
+                encFingerprint: 'enc-fixture',
+                at: new Date().toISOString(),
+                kind: 'finding',
+                reason: 'Shallower than your draft on leg 1→2.',
+                ackable: true,
+            });
+            const reports: Array<(held: unknown) => void> = [];
+            heldReportMock.get = () => new Promise((resolve) => reports.push(resolve));
+            const held = {
+                report: {
+                    verdicts: [
+                        {
+                            grade: 'danger',
+                            issues: [],
+                            minDepthM: 1.2,
+                            minAt: null,
+                            needsTide: true,
+                            nudge: null,
+                            nudgeTo: null,
+                        },
+                    ],
+                    tideWindowLabel: null,
+                    status: 'finding',
+                    ackableDangerLegs: [0],
+                },
+                points: solentPoints,
+                memoKey: 'trace-solent|solent-geometry|1.9|false|enc-fixture',
+            };
+            Object.assign(logPageStateOverrides.state, {
+                ...accountOnlyRoute,
+                isTracking: true,
+                currentVoyageId: 'active-voyage',
+            });
+            render(<LogPage />);
+            const report = () => screen.queryByRole('dialog', { name: 'Route report' });
+
+            // With the sheet still open, Review opens its report as ever.
+            fireEvent.click(await screen.findByRole('button', { name: 'Review planned-trace' }));
+            await waitFor(() => expect(reports).toHaveLength(1));
+            await act(async () => reports[0](held));
+            await waitFor(() => expect(report()).toHaveTextContent('Cowes → Lymington'));
+            fireEvent.click(screen.getByRole('button', { name: 'Close report' }));
+            expect(report()).not.toBeInTheDocument();
+
+            // Review again, then the X before the report lands.
+            fireEvent.click(within(sheet()!).getByRole('button', { name: 'Review planned-trace' }));
+            await waitFor(() => expect(reports).toHaveLength(2));
+            fireEvent.click(closeButton());
+            await act(async () => reports[1](held));
+            await settle();
+
+            expect(sheet()).not.toBeInTheDocument();
+            expect(report()).not.toBeInTheDocument();
+        });
     });
 });
 

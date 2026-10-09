@@ -173,3 +173,82 @@ test('a check in progress and a refusal notice still fit 320 × 568', async ({ p
     await screenshot(page, info, 'follow-sheet-checking-notice-320x568');
     expect(errors).toEqual([]);
 });
+
+// ── 125-15: the X (Shane 2026-10-09: "that modal form needs an X in the top
+// right hand corner. so we can elegantly leave it if we prefer") ──
+type Box = { left: number; top: number; right: number; bottom: number; width: number; height: number };
+const overlaps = (a: Box, b: Box) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+
+for (const size of [sizes[0], sizes[2]]) {
+    test(`the X sits top right at ${size.name}: 44 pt, clear of the title, and it closes`, async ({ page }, info) => {
+        const errors = await open(page, size);
+        const close = page.getByRole('dialog').getByRole('button', { name: 'Close' });
+        await expect(close).toBeVisible();
+        const geometry = await page.evaluate(() => {
+            const box = (r: DOMRect) => ({
+                left: r.left,
+                top: r.top,
+                right: r.right,
+                bottom: r.bottom,
+                width: r.width,
+                height: r.height,
+            });
+            const dialog = document.querySelector('[role="dialog"]')!;
+            const button = dialog.querySelector<HTMLElement>('button[aria-label="Close"]')!;
+            const x = button.getBoundingClientRect();
+            // The words' own boxes, line by line: a Range hugs the glyphs.
+            const words = ['follow-route-prompt-title', 'follow-route-prompt-description'].flatMap((id) => {
+                const range = document.createRange();
+                range.selectNodeContents(document.getElementById(id)!);
+                return [...range.getClientRects()].map(box);
+            });
+            const hit = document.elementFromPoint((x.left + x.right) / 2, (x.top + x.bottom) / 2);
+            const focusable = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled])')];
+            return {
+                card: box(dialog.getBoundingClientRect()),
+                x: box(x),
+                words,
+                hit: hit === button || button.contains(hit),
+                firstStop: focusable[0] === button,
+            };
+        });
+        expect(geometry.x.width).toBeGreaterThanOrEqual(43.5);
+        expect(geometry.x.height).toBeGreaterThanOrEqual(43.5);
+        // Top right, inside the card, the house inset (ModalSheet: 8 px).
+        expect(geometry.card.right - geometry.x.right).toBeGreaterThanOrEqual(0);
+        expect(geometry.card.right - geometry.x.right).toBeLessThanOrEqual(12);
+        expect(geometry.x.top - geometry.card.top).toBeGreaterThanOrEqual(0);
+        expect(geometry.x.top - geometry.card.top).toBeLessThanOrEqual(12);
+        expect(geometry.words.length).toBeGreaterThan(0);
+        for (const word of geometry.words) expect(overlaps(word, geometry.x), JSON.stringify(word)).toBe(false);
+        expect(geometry.hit).toBe(true);
+        expect(geometry.firstStop).toBe(true);
+        // Everything else still holds: centred, clear of the status and tab
+        // bars, every button 44 pt and hit-testable, nothing escaping.
+        await expect.poll(() => layoutIssues(page, size.safe, size.listMayScroll), { timeout: 3_000 }).toEqual([]);
+        await screenshot(page, info, `x-${size.width}`);
+
+        await close.click();
+        await expect(page.getByTestId('outcome')).toHaveText('closed');
+        await expect(page.locator('[role="dialog"]')).toHaveCount(0);
+        expect(errors).toEqual([]);
+    });
+}
+
+test('a stray backdrop tap does nothing before cast-off, and is still "Just recording" after it', async ({ page }) => {
+    const size = sizes[0];
+    // Before cast-off: the tap lands in the overlay's side gutter, outside the card.
+    let errors = await open(page, size, '&prestart');
+    await page.mouse.click(4, size.height / 2);
+    await expect(page.locator('[role="dialog"]')).toBeVisible();
+    await expect(page.getByTestId('outcome')).toHaveText('waiting');
+    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+    await expect(page.getByTestId('outcome')).toHaveText('closed');
+    expect(errors).toEqual([]);
+
+    // After cast-off: unchanged.
+    errors = await open(page, size);
+    await page.mouse.click(4, size.height / 2);
+    await expect(page.getByTestId('outcome')).toHaveText('just recording');
+    expect(errors).toEqual([]);
+});

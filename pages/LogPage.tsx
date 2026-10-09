@@ -499,6 +499,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     );
 
     const followSelectionGenerationRef = React.useRef(0);
+    /** Bumped each time the X (or Escape) takes the skipper out of the sheet,
+     *  before cast-off or after (125-15): a row's route fetch or Review still
+     *  in flight then knows they went back to the Log page, and neither
+     *  navigates, nor leaves a card, nor pops a report up there. */
+    const followSheetLeavesRef = React.useRef(0);
+    /** followSheetLeavesRef as it stood when the pending Review was asked for. */
+    const reviewLeavesRef = React.useRef(0);
     /** One-shot guard for the pre-open "is this voyage already linked?"
      *  server check — instance-scoped ON PURPOSE (unlike the module Sets):
      *  an unmount mid-question re-asks, so a remount must re-check too. */
@@ -515,10 +522,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         if (followPromptLoadingId !== null) return;
         if (!isAuthIdentityScopeCurrent(identityScope)) return;
         // PRE-START mode: the skipper slid Start Tracking and is being asked
-        // BEFORE the voyage exists. Any dismissal is "Just recording" — the
-        // slide already committed them to starting; the sheet only asks which
-        // line to show. Tracking starts now; the cast-off effect records the
-        // no-route answer once the voyage id is real.
+        // BEFORE the voyage exists. Only "Just recording" lands here now — the
+        // X and Escape cancel instead and a backdrop tap does nothing
+        // (closeFollowPrompt, 125-15). Tracking starts now; the cast-off
+        // effect records the no-route answer once the voyage id is real.
         if (preStartSheetOpen) {
             preStartAnswerRef.current = 'none';
             setPreStartSheetOpen(false);
@@ -558,9 +565,49 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         if (!confirmed) void clearFollowedRoute();
         setFollowPromptVoyageId(null);
     }, [followPromptLoadingId, followPromptVoyageId, identityScope, preStartSheetOpen]);
+    /**
+     * The sheet's X, and Escape (125-15; Shane 2026-10-09: "so we can
+     * elegantly leave it if we prefer. it should take us back to the log
+     * page").
+     *
+     * AFTER cast-off it IS the dismissal above, every guard included: no
+     * route for this cast-off, remembered; a confirmed route stays; the
+     * remote card's sheet just closes; held while a route loads.
+     *
+     * BEFORE cast-off it CANCELS, and lets go of all the slide set: the sheet
+     * closes; the parked answer stays null, so nothing is recorded and the
+     * cast-off effect has nothing to apply; the warm-up plan is dropped (its
+     * promise settles unread). The slide sprang back on release and never
+     * showed "Checking GPS…" — verifyGpsAndStart only runs on an answer — so
+     * no start is pending and no voyage exists to undo. Escape is the same
+     * deliberate "get me out" on an iPad keyboard.
+     *
+     * Either way, a row's fetch or Review still in flight learns the skipper
+     * left (followSheetLeavesRef), so it cannot take them on to Route Tracer
+     * or leave a card or a report on the Log page. "Just recording" is
+     * untouched.
+     */
+    const closeFollowPrompt = React.useCallback(() => {
+        if (!preStartSheetOpen) {
+            // Counted only when the dismissal below goes through.
+            if (followPromptLoadingId === null && isAuthIdentityScopeCurrent(identityScope)) {
+                followSheetLeavesRef.current += 1;
+            }
+            dismissFollowPrompt();
+            return;
+        }
+        if (!isAuthIdentityScopeCurrent(identityScope)) return;
+        preStartAnswerRef.current = null;
+        // Declared below with the Start's other refs; read only on a tap.
+        warmPlanRef.current = null;
+        followSheetLeavesRef.current += 1;
+        // A refusal shown in the sheet must not outlive it as a Log-page card.
+        setFollowNotice(null);
+        setPreStartSheetOpen(false);
+    }, [dismissFollowPrompt, followPromptLoadingId, identityScope, preStartSheetOpen]);
     const followPromptDialogRef = useFocusTrap<HTMLDivElement>(followPromptVoyageId !== null || preStartSheetOpen, {
         initialFocusRef: followPromptDismissRef,
-        onEscape: dismissFollowPrompt,
+        onEscape: closeFollowPrompt,
     });
     const plannedSummaries = React.useMemo(
         () => (state.summaries ?? []).filter((s) => s.isPlannedRoute && s.voyageId),
@@ -767,6 +814,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             // could pair a sync's new pins with verdicts graded on the old.
             if (report.verdicts.length !== points.length - 1) return;
             void import('../services/routeTracer').then(({ loadSavedTraces }) => {
+                // The X took the skipper back to the Log page after this
+                // Review was asked for: no report pops up there (125-15). The
+                // row offers Review again when the sheet is next opened.
+                if (followSheetLeavesRef.current !== reviewLeavesRef.current) return;
                 const trace = loadSavedTraces().find((t) => t.id === savedRouteId);
                 if (!trace) return;
                 setAckedLegs(new Set());
@@ -781,12 +832,21 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         },
     });
 
+    /** Review, asked for now (a row, or a stale acknowledgement): the report
+     *  it brings shows unless the X leaves the sheet before it lands. */
+    const runTraceReview = traceChecks.review;
+    const reviewTraceCheck = React.useCallback(
+        (savedRouteId: string) => {
+            reviewLeavesRef.current = followSheetLeavesRef.current;
+            runTraceReview(savedRouteId);
+        },
+        [runTraceReview],
+    );
     /**
      * A leg was acknowledged on the report. Re-run the release GATE (pure and
      * cheap) — never the check itself, which already ran. The moment the gate
      * allows, bank the envelope (the one safe bank) and the row goes green.
      */
-    const reviewTraceCheck = traceChecks.review;
     const acknowledgeLeg = React.useCallback(
         (legIndex: number) => {
             if (!ackReport) return;
@@ -865,6 +925,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         async (savedRouteId: string) => {
             const actionScope = identityScope;
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            const leaves = followSheetLeavesRef.current;
             setFollowNotice(null);
             setRecheckingRouteId(savedRouteId);
             const problem = await ensureTraceOnDevice(savedRouteId, actionScope).catch(
@@ -874,7 +935,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             if (!isAuthIdentityScopeCurrent(actionScope) || problem === '') return;
             if (problem) {
                 log.warn(`check now: route not on this device (${problem})`);
-                setFollowNotice(problem);
+                // The X left the sheet meanwhile: no card on the Log page.
+                if (followSheetLeavesRef.current === leaves) setFollowNotice(problem);
                 return;
             }
             enqueueTraceChecks([savedRouteId], 'manual');
@@ -894,10 +956,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             // say why if that fails — navigating to a tracer that will open
             // empty is how this dead-ended before.
             if (savedRouteId) {
+                const leaves = followSheetLeavesRef.current;
                 setRecheckingRouteId(savedRouteId);
                 const problem = await ensureTraceOnDevice(savedRouteId, actionScope);
                 setRecheckingRouteId(null);
                 if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                // The X took the skipper back to the Log page meanwhile: stay.
+                if (followSheetLeavesRef.current !== leaves) return;
                 if (problem !== null) {
                     if (problem) setFollowNotice(problem);
                     return;
@@ -2694,10 +2759,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 voyage id lands). Post-start: the legacy cast-off ask for
                 voyages started from other pages. "Just recording" skips both
                 local follow mode and publication — and in pre-start mode it
-                still starts the track (the slide already committed that). */}
+                still starts the track (the slide already committed that).
+                The X leaves for the Log page: pre-start it cancels the start
+                (125-15). */}
             {(followPromptVoyageId !== null || preStartSheetOpen) && (
                 <FollowRoutePromptSheet
                     dismissFollowPrompt={dismissFollowPrompt}
+                    closeFollowPrompt={closeFollowPrompt}
                     followPromptDialogRef={followPromptDialogRef}
                     followPromptDismissRef={followPromptDismissRef}
                     followNotice={followNotice}
@@ -2708,7 +2776,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     onCheckNow={checkRouteNow}
                     onStopCheck={(savedRouteId) => cancelTraceChecks('stop', [savedRouteId])}
                     canReview={(savedRouteId) => getTraceCheckOutcome(savedRouteId)?.ackable === true}
-                    onReview={traceChecks.review}
+                    onReview={reviewTraceCheck}
                     acceptFindingFor={(voyageId) => acceptedFindingsRef.current.add(voyageId)}
                     fetchingRouteId={recheckingRouteId}
                     followPromptLoadingId={followPromptLoadingId}
