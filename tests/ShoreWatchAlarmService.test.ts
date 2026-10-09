@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
     publish: vi.fn(),
     boat: vi.fn(),
     acknowledge: vi.fn(),
+    endsSoonStanding: vi.fn(),
 }));
 vi.mock('../services/AlarmAudioService', () => ({
     AlarmAudioService: {
@@ -44,6 +45,7 @@ vi.mock('../services/AnchorWatchSyncService', () => ({
         getLatestPosition: () => mocks.latest,
         broadcastPosition: mocks.publish,
         acknowledgeAlarmReminders: mocks.acknowledge,
+        readEndsSoonStanding: mocks.endsSoonStanding,
     },
 }));
 import { ShoreWatchAlarmServiceClass } from '../services/ShoreWatchAlarmService';
@@ -90,6 +92,7 @@ beforeEach(() => {
     mocks.release.mockResolvedValue(undefined);
     mocks.boat.mockReturnValue({ state: 'idle' });
     mocks.acknowledge.mockResolvedValue(['00000000-0000-0000-0000-000000000001']);
+    mocks.endsSoonStanding.mockResolvedValue(true);
 });
 afterEach(() => {
     vi.clearAllTimers();
@@ -521,5 +524,150 @@ describe('app-lifetime Shore Watch alarms', () => {
         await vi.advanceTimersByTimeAsync(5_000);
         expect(mocks.publish).toHaveBeenCalledTimes(2);
         expect(service.getSnapshot().sessionCode).toBeNull();
+    });
+
+    // 126-03b (D1): the boat phone going quiet is the existing contact_lost
+    // kind, from a new watchkeeper. No new kind: every shipped app reads an
+    // unknown kind as a DRAG, and a quiet phone is not a dragging anchor.
+    it("reads a quiet boat phone (contact_lost from watchkeeper 'phone') as contact lost, not drag", async () => {
+        const service = new ShoreWatchAlarmServiceClass();
+        service.start();
+        service.receivePush({
+            notification_type: 'anchor_alarm',
+            session_code: 'ABCDEFGHJKLM',
+            alarm_kind: 'contact_lost',
+            watchkeeper: 'phone',
+            observed_at: new Date().toISOString(),
+        });
+        await settle();
+        expect(service.getSnapshot().cause).toBe('contact-lost');
+    });
+    it('still reads an unknown kind as drag: why the phone-quiet alarm reuses contact_lost', async () => {
+        const service = new ShoreWatchAlarmServiceClass();
+        service.start();
+        service.receivePush({
+            notification_type: 'anchor_alarm',
+            session_code: 'ABCDEFGHJKLM',
+            alarm_kind: 'phone_quiet',
+            observed_at: new Date().toISOString(),
+        });
+        await settle();
+        expect(service.getSnapshot().cause).toBe('drag');
+    });
+    it('clears an "ends soon" warning once this phone has renewed the watch, and nothing else', async () => {
+        const service = new ShoreWatchAlarmServiceClass();
+        service.start();
+        service.receivePush({
+            notification_type: 'anchor_alarm',
+            session_code: 'ABCDEFGHJKLM',
+            alarm_kind: 'session_expiring',
+        });
+        await settle();
+        expect(service.getSnapshot().cause).toBe('session-expiring');
+        service.clearSessionExpiring();
+        expect(service.getSnapshot().cause).toBeNull();
+        broadcast(position());
+        expect(service.getSnapshot().cause).toBeNull();
+        // A drag is never cleared by a renewal.
+        service.receivePush({
+            notification_type: 'anchor_alarm',
+            session_code: 'ABCDEFGHJKLM',
+            alarm_kind: 'drag',
+            observed_at: new Date(Date.now() + 1_000).toISOString(),
+        });
+        service.clearSessionExpiring();
+        expect(service.getSnapshot().cause).toBe('drag');
+    });
+});
+
+// Review 2026-10-10: "ends soon" now comes 12 hours ahead and is answered by
+// ANY re-authorise of the skipper's phone, which crew phones are never told
+// about. It must not latch for the rest of a week-long watch, hold off the
+// phone's own contact-lost alarm, or sound again every time contact returns.
+describe('"ends soon" on a crew phone', () => {
+    const endsSoon = (service: ShoreWatchAlarmServiceClass) =>
+        service.receivePush({
+            notification_type: 'anchor_alarm',
+            session_code: 'ABCDEFGHJKLM',
+            alarm_kind: 'session_expiring',
+        });
+    /** The Pi keeps reporting every 10 s for this long. */
+    const reportFor = async (ms: number) => {
+        for (let at = 0; at < ms; at += 10_000) {
+            await vi.advanceTimersByTimeAsync(10_000);
+            broadcast(position());
+        }
+        await settle();
+    };
+
+    it('clears on a later position once the server no longer has the warning (the skipper renewed)', async () => {
+        const service = new ShoreWatchAlarmServiceClass();
+        service.start();
+        broadcast(position());
+        endsSoon(service);
+        expect(service.getSnapshot().cause).toBe('session-expiring');
+        mocks.endsSoonStanding.mockResolvedValue(false);
+        await reportFor(5 * 60_000);
+        expect(service.getSnapshot().cause).toBeNull();
+        // Asked once in those five minutes, not on every packet.
+        expect(mocks.endsSoonStanding).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the warning while the server still has it, asking again only every 5 minutes', async () => {
+        const service = new ShoreWatchAlarmServiceClass();
+        service.start();
+        broadcast(position());
+        endsSoon(service);
+        await reportFor(10 * 60_000);
+        expect(service.getSnapshot().cause).toBe('session-expiring');
+        expect(mocks.endsSoonStanding).toHaveBeenCalledTimes(2);
+    });
+
+    it('lapses on its own 12 hours after it came, when the server cannot be asked', async () => {
+        mocks.endsSoonStanding.mockResolvedValue(null);
+        const service = new ShoreWatchAlarmServiceClass();
+        service.start();
+        broadcast(position());
+        endsSoon(service);
+        vi.setSystemTime(Date.now() + 12 * 60 * 60_000 + 1_000);
+        broadcast(position());
+        await vi.advanceTimersByTimeAsync(1_000);
+        await settle();
+        expect(service.getSnapshot().cause).toBeNull();
+    });
+
+    it('never holds off the contact-lost alarm: a minute without the boat still sounds', async () => {
+        const service = new ShoreWatchAlarmServiceClass();
+        service.start();
+        broadcast(position());
+        endsSoon(service);
+        await vi.advanceTimersByTimeAsync(61_000);
+        expect(service.getSnapshot().cause).toBe('contact-lost');
+    });
+
+    it('does not sound "ends soon" again when contact comes back after a lost-contact page', async () => {
+        const service = new ShoreWatchAlarmServiceClass();
+        service.start();
+        broadcast(position());
+        endsSoon(service);
+        await settle();
+        await service.mute();
+        await settle();
+        expect(mocks.acquire).toHaveBeenCalledTimes(1);
+        service.receivePush({
+            notification_type: 'anchor_alarm',
+            session_code: 'ABCDEFGHJKLM',
+            alarm_kind: 'contact_lost',
+            observed_at: new Date().toISOString(),
+        });
+        await settle();
+        expect(service.getSnapshot()).toMatchObject({ cause: 'contact-lost', muted: false });
+        expect(mocks.acquire).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(1_000);
+        broadcast(position());
+        await settle();
+        // Still shown (the pill), but quietly: the crew already heard it.
+        expect(service.getSnapshot()).toMatchObject({ cause: 'session-expiring', muted: true });
+        expect(mocks.acquire).toHaveBeenCalledTimes(2);
     });
 });

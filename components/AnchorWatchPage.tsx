@@ -330,6 +330,30 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         };
     }, []);
 
+    // The boat phone's last check-in with the server (126-03b), read each
+    // minute ashore. Only a fresh one (< 3 min), on a phone whose notifications
+    // are verified, earns the promise that a quiet phone will be reported; a
+    // Pi-kept watch, an ended one, or a read error (before the DB push) shows
+    // nothing.
+    const [phoneBeat, setPhoneBeat] = useState<{ ageMs: number; readAt: number } | null>(null);
+    const shoreSessionCode = viewMode === 'shore' ? (syncState?.sessionCode ?? null) : null;
+    useEffect(() => {
+        setPhoneBeat(null);
+        if (!shoreSessionCode) return undefined;
+        let live = true;
+        const read = () =>
+            void Promise.resolve()
+                .then(() => AnchorWatchSyncService.readVesselHeartbeatAge())
+                .then((ageMs) => live && setPhoneBeat(ageMs === null ? null : { ageMs, readAt: Date.now() }))
+                .catch(() => live && setPhoneBeat(null));
+        read();
+        const timer = setInterval(read, 60_000);
+        return () => {
+            live = false;
+            clearInterval(timer);
+        };
+    }, [shoreSessionCode]);
+
     // Shore-data freshness is safety-visible, so age it each second. The local
     // vessel view only needs its elapsed clock refreshed once per minute.
     useEffect(() => {
@@ -1574,6 +1598,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 speedUnit={units?.speed ?? 'kts'}
                                 distanceUnit={units?.distance}
                                 trail={ShoreSwingTrail.points(syncState?.sessionCode ?? null)}
+                                phoneWatched={
+                                    // Only a phone that can take the page locked is promised it.
+                                    pushReadiness.status === 'ready' &&
+                                    !!phoneBeat &&
+                                    phoneBeat.ageMs + Date.now() - phoneBeat.readAt < 180_000
+                                }
                             />
                         ) : (
                             <div className="text-center">

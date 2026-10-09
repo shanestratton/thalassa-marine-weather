@@ -106,6 +106,10 @@ type PushReadinessListener = (state: ShorePushReadiness) => void;
 
 // ------- PERSISTENCE -------
 const SYNC_SESSION_KEY = 'thalassa_anchor_sync_session';
+/**
+ * Only when the server cannot be asked (offline). A session now lives while
+ * its keeper checks in (126-03b), so its real end is the server's expires_at.
+ */
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_SESSION_CODE_ATTEMPTS = 5;
 const PUSH_READINESS_TIMEOUT_MS = 20_000;
@@ -180,6 +184,8 @@ class AnchorWatchSyncServiceClass {
     private silenceRejoins = 0;
     private silenceProbedPiAt = 0;
     private silenceAlertedAt = 0;
+    /** The server's last word on a persisted session's end (126-03b). */
+    private serverExpiry: { sessionCode: string; expiresAt: number } | null = null;
 
     constructor() {
         // authStore advances this fence synchronously before exposing another
@@ -187,6 +193,7 @@ class AnchorWatchSyncServiceClass {
         // B can never inherit account A's channel, timers, or session code.
         subscribeAuthIdentityScope(() => {
             this.operationEpoch++;
+            this.serverExpiry = null;
             this.resetRuntimeSession(true);
         });
 
@@ -466,10 +473,18 @@ class AnchorWatchSyncServiceClass {
             const persisted = this.readPersistedSession(scope, true);
             if (!persisted) return false;
 
-            // Don't AUTO-rejoin a very old session, but KEEP the code so the
-            // user can still one-tap reconnect manually from the UI.
-            const ageMs = Date.now() - (persisted.savedAt || 0);
-            if (ageMs > SESSION_TTL_MS) {
+            // Ask the server how long the session lives: a watch runs while
+            // its keeper checks in, so a 30-hour-old code can still be live.
+            // Don't AUTO-rejoin one that has ended, but KEEP the code so the
+            // user can still one-tap reconnect manually from the UI. Offline,
+            // fall back to the old 24-hour rule.
+            const expiresAt = await this.readServerSessionExpiry(persisted.sessionCode);
+            if (!this.isOperationCurrent(scope, operationEpoch)) return false;
+            const live =
+                expiresAt === undefined
+                    ? Date.now() - (persisted.savedAt || 0) <= SESSION_TTL_MS
+                    : expiresAt !== null && expiresAt > Date.now();
+            if (!live) {
                 return false;
             }
 
@@ -608,20 +623,28 @@ class AnchorWatchSyncServiceClass {
         // Remove only the captured account's token. The explicit user_id
         // predicate makes the request harmless if Supabase's auth token
         // changes in the narrow window after the identity check.
-        if (role !== 'shore' || !supabase) return;
+        if (role !== 'shore' || !supabase || !isAuthIdentityScopeCurrent(scope)) return;
         const token = PushNotificationService.getToken();
-        if (!token || !isAuthIdentityScopeCurrent(scope)) return;
         try {
             const { data: authData } = await supabase.auth.getUser();
             if (!isAuthIdentityScopeCurrent(scope) || authData.user?.id !== scope.userId) return;
-            await supabase
-                .from('anchor_alarm_tokens')
-                .delete()
-                .eq('session_code', sessionCode)
-                .eq('device_token', token)
-                .eq('user_id', scope.userId);
+            if (token) {
+                await supabase
+                    .from('anchor_alarm_tokens')
+                    .delete()
+                    .eq('session_code', sessionCode)
+                    .eq('device_token', token)
+                    .eq('user_id', scope.userId);
+            }
+            // Then the membership (126-03b): a watch can now run for days, so
+            // the code alone no longer bounds who hears it. The server keeps it
+            // while another of this account's devices is still registered, and
+            // never touches the owner's. Before the DB push: not found, ignored.
+            if (isAuthIdentityScopeCurrent(scope))
+                await supabase.rpc('leave_anchor_watch_session', { p_session_code: sessionCode });
         } catch {
-            // Best effort — the session expires server-side after 24 hours.
+            // Best effort — the session ends server-side within a day of its
+            // keeper's last check-in.
         }
     }
 
@@ -648,14 +671,21 @@ class AnchorWatchSyncServiceClass {
             if (!this.isSessionCurrent(scope, sessionCode, 'vessel') || authData.user?.id !== scope.userId) {
                 return;
             }
-            const { error } = await supabase.from('anchor_alarm_events').insert({
+            const event = {
                 session_code: sessionCode,
                 user_id: scope.userId,
                 distance_m: data.distance,
                 swing_radius_m: data.swingRadius,
                 vessel_lat: data.vesselLat ?? null,
                 vessel_lon: data.vesselLon ?? null,
-            });
+            };
+            // The phone's own drag: judged on time, never against a Pi binding
+            // (126-03b). Before the DB push the column is absent: send it
+            // again without, so no drag alarm is lost.
+            let { error } = await supabase.from('anchor_alarm_events').insert({ ...event, watchkeeper: 'phone' });
+            if (error && (error.code === '42703' || error.code === 'PGRST204')) {
+                ({ error } = await supabase.from('anchor_alarm_events').insert(event));
+            }
 
             if (error) {
                 log.warn('sendAlarmPush: insert failed', error);
@@ -741,8 +771,53 @@ class AnchorWatchSyncServiceClass {
     hasPersistedSession(): boolean {
         const persisted = this.readPersistedSession(getAuthIdentityScope());
         if (!persisted) return false;
+        // The server's answer from the last restore, when there was one.
+        if (this.serverExpiry?.sessionCode === persisted.sessionCode) return this.serverExpiry.expiresAt > Date.now();
         const ageMs = Date.now() - (persisted.savedAt || 0);
         return ageMs < SESSION_TTL_MS;
+    }
+
+    /**
+     * How long ago the boat's phone checked in with the server (126-03b), for
+     * the shore view's promise that a quiet phone will be reported. Null when
+     * no phone is keeping this watch (a Pi does, or it ended). Throws when it
+     * cannot be read, before the DB push included: the promise is then not
+     * made.
+     */
+    async readVesselHeartbeatAge(): Promise<number | null> {
+        const scope = this.sessionScope;
+        const sessionCode = this.sessionCode;
+        if (!supabase || !scope || !sessionCode || !this.isSessionCurrent(scope, sessionCode, 'shore')) return null;
+        const { data, error } = await supabase
+            .from('anchor_watch_sessions')
+            .select('vessel_heartbeat_at,vessel_state')
+            .eq('session_code', sessionCode)
+            .maybeSingle();
+        if (error) throw new Error('The boat phone check-in could not be read.');
+        if (!this.isSessionCurrent(scope, sessionCode, 'shore')) return null;
+        const beat = data?.vessel_state === 'watching' ? Date.parse(data.vessel_heartbeat_at ?? '') : NaN;
+        return Number.isFinite(beat) ? Math.max(0, Date.now() - beat) : null;
+    }
+
+    /**
+     * Whether this watch's "ends soon" warning still stands on the server
+     * (126-03b): the server resolves it once the skipper's phone renews the
+     * Pi's week, which crew phones are otherwise never told. Null when it
+     * cannot be read.
+     */
+    async readEndsSoonStanding(): Promise<boolean | null> {
+        const scope = this.sessionScope;
+        const sessionCode = this.sessionCode;
+        if (!supabase || !scope || !sessionCode || !this.isSessionCurrent(scope, sessionCode, 'shore')) return null;
+        const { data, error } = await supabase
+            .from('anchor_alarm_events')
+            .select('id')
+            .eq('session_code', sessionCode)
+            .eq('alarm_kind', 'session_expiring')
+            .is('resolved_at', null)
+            .limit(1);
+        if (error || !this.isSessionCurrent(scope, sessionCode, 'shore')) return null;
+        return (data?.length ?? 0) > 0;
     }
 
     /**
@@ -753,6 +828,29 @@ class AnchorWatchSyncServiceClass {
     }
 
     // ---- PRIVATE ----
+
+    /**
+     * The session's end as the server has it: a time, null when the member
+     * read shows no row (it ended, or this account is no longer a member), or
+     * undefined when the server could not be asked.
+     */
+    private async readServerSessionExpiry(sessionCode: string): Promise<number | null | undefined> {
+        if (!supabase) return undefined;
+        try {
+            const { data, error } = await supabase
+                .from('anchor_watch_sessions')
+                .select('expires_at')
+                .eq('session_code', sessionCode)
+                .maybeSingle();
+            if (error) return undefined;
+            const expiresAt = data ? Date.parse(data.expires_at) : null;
+            if (expiresAt !== null && !Number.isFinite(expiresAt)) return undefined;
+            this.serverExpiry = { sessionCode, expiresAt: expiresAt ?? 0 };
+            return expiresAt;
+        } catch {
+            return undefined;
+        }
+    }
 
     /**
      * Read only the current account's session namespace. The historic global
@@ -1247,7 +1345,7 @@ class AnchorWatchSyncServiceClass {
                 return;
             }
             const renewed = await AnchorPiWatchKeeper.renewNow();
-            log.warn(`anchor sync silent ${silentSeconds}s — Pi watch re-probe ${renewed ? 'renewed' : 'FAILED'}`);
+            log.warn(`anchor sync silent ${silentSeconds}s — Pi watch re-probe ${renewed || 'FAILED'}`);
         } catch (e) {
             log.warn('anchor sync Pi re-probe threw', e);
         }

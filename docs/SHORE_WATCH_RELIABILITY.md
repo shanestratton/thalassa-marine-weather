@@ -212,9 +212,12 @@ discard or recreate a live watch to perform a software rollback.
 - A valid authenticated heartbeat renews an existing Pi relay lease for up to
   six hours, capped by the owner's existing 24-hour watch session. It cannot
   create a watch, revive an expired lease, or extend the hard session expiry.
+  _(Superseded once 20261010130000 is pushed: see "A phone-kept watch, and a
+  watch that runs for a week" below.)_
 - `expires_at` is the lease expiry; `session_expires_at` is the hard session expiry.
   At 15 minutes before hard expiry, the watchdog queues a warning. The skipper
-  must create a new watch before the existing session expires.
+  must create a new watch before the existing session expires. _(Superseded by
+  the same migration: the warning moves to 12 hours before the 7-day lease cap.)_
 - `stop` uses the Pi credential, relay ID and exact session code. It revokes only
   that binding and resolves its pending events. A delayed old stop cannot delete
   the new watch's binding.
@@ -224,6 +227,8 @@ discard or recreate a live watch to perform a software rollback.
   heartbeat: typically 60–120 seconds before notification delivery time.
 - The watchdog covers Pi-backed watches. A phone/tablet aboard still needs its
   own supported background monitoring; a Live Activity alone does not provide it.
+  _(Once 20261010130000 is pushed, a phone-kept watch has its own server
+  watchdog too: see below.)_
 - Push payloads include `notification_type: anchor_alarm`, `session_code`,
   `alarm_kind`, and `observed_at` (ISO time). Kinds are `drag`, `gps_lost`,
   `contact_lost`, and `session_expiring`. Loss of observation is never labelled
@@ -246,3 +251,102 @@ internet, interrupt its GPS, restore each, and stop/restart a watch. Verify only
 the correct session/device receives alarms, GPS/contact recovery clears the
 warning, and a stopped watch cannot restart itself. Test expiry and APNs failures
 with shortened test-only fixtures, never by changing production limits blindly.
+
+## A phone-kept watch, and a watch that runs for a week (build 126, 126-03b)
+
+Written 2026-10-10 in `supabase/migrations/20261010130000_anchor_watch_keeper_heartbeat.sql`
+and `send-anchor-alarm`. **Not live until Shane's yeses:** the DB push, then the
+`send-anchor-alarm` deploy straight after. `anchor-relay` and the Pi need no change.
+Rehearsed on live inside a rolled-back transaction (the file applied twice,
+every behaviour check passed, nothing persisted).
+
+### The rules
+
+- **The boat's phone checks in.** While it keeps a shared watch (vessel role,
+  watching or alarming), it calls `record_anchor_watch_heartbeat` about once a
+  minute, from every fix, BgGeo's heartbeat and a 60 s timer. A blocked (paused)
+  watch sends nothing. Weighing anchor or handing the watch to the Pi sends
+  `ended` at once; a failed `ended` is retried on the next activity.
+- **Quiet means 5 minutes.** `check_anchor_phone_watch_health` pages every Shore
+  Watch phone once per outage, as `contact_lost` with `watchkeeper = 'phone'`
+  ("The phone keeping the anchor watch has stopped checking in…"). The next
+  check-in resolves it, and a later outage pages again. No repeat reminders for
+  a phone outage yet (127). It never pages about an ended watch, a watch handed
+  to the Pi (the owner is then a shore member), an expired session, or an owner
+  whose account is being deleted.
+- **No new alarm kind.** Every shipped app reads an unknown `alarm_kind` as a
+  drag, so the phone-quiet alarm is the existing `contact_lost` kind plus the
+  new `watchkeeper` column. Clients may mark their own rows `phone`, never `pi`.
+- **The phone's own drag push** carries `watchkeeper = 'phone'` and is judged on
+  time alone (120 s), never against a Pi binding. A silent binding left by a
+  refused hand-off used to resolve it unsent.
+- **A watch lives while its keeper checks in.** A phone check-in or a Pi
+  heartbeat rolls the session's `expires_at` to now + 23 hours, never backwards,
+  never reviving an expired session. 23, not 24: an installed Pi refuses a
+  session ending more than 24 h after its own clock. A dead watch ends 23 h
+  after it last heard from its keeper.
+- **The Pi's lease cap is 7 days** after the skipper's phone last authorised it
+  (was 48 hours). The phone re-authorises hourly and whenever Thalassa comes to
+  the front, so a Pi watch runs while that phone opens Thalassa at least once a
+  week. "Shore Watch ends soon" goes out once, 12 hours before the cap; the
+  phone that handed the Pi the watch can renew it with one tap, and crew are
+  told to ask the skipper. Any re-authorise clears it: the Pi's next heartbeat
+  resolves the warning's event, and a crew phone that is hearing the boat asks
+  the server every 5 minutes, so its "ends soon" goes away once renewed. It
+  also lapses on its own after 12 hours, never holds off the phone's own
+  contact-lost alarm, and is not sounded a second time when contact returns.
+  Renew counts as done when the cloud authorisation went through (that is the
+  renewal), even if the phone could not reach the Pi to re-send it the watch.
+- **The shore view says the phone is being watched** ("Her phone checks in
+  every minute. If it goes quiet you'll be told, even with this phone locked.")
+  only while the server has a check-in under 3 minutes old AND this device's
+  notifications are verified (a device that cannot take the page locked is
+  never promised it).
+- **The code and the membership are bounded, not the watch.** The 24-hour
+  session cap used to be all that bounded the session code (anyone signed in
+  who holds it may join) and membership (live position, the channel, alarm
+  events). Now a code admits newcomers only in a watch's first 24 hours, as
+  long as before; the owner and existing members may always rejoin. Leave on
+  a crew device deletes that device's token and then gives up the account's
+  membership, unless another of its devices is still registered for the watch.
+  The owner's own membership is never removed.
+- **A refused check-in is retried.** Only "the server has no heartbeat yet"
+  (before the push) stops the phone asking for that watch. A refusal (42501)
+  is retried each minute: a lapsed sign-in sends the call as anon and is
+  refused too, and a passing auth fault must not switch the watchdog off.
+
+### The two minute jobs
+
+| Job                                      | Command                                                                                       | Watches                                                                                         |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `shore-watch-health` (job 26, unchanged) | `SELECT public.check_pi_anchor_watch_health(); SELECT public.queue_anchor_alarm_reminders();` | Pi-kept watches: contact lost after 60 s, ends soon 12 h before the 7-day cap, repeat reminders |
+| `anchor-phone-watch-health` (new)        | `SELECT public.check_anchor_phone_watch_health()`                                             | Phone-kept watches: quiet after 5 minutes                                                       |
+
+They are separate on purpose: one failing statement in a job skips the job's
+other statements. Each watch in both functions now runs in its own exception
+block; a failure is stamped on the session (`last_error_at`,
+`last_error_sqlstate`, the code only) and every other watch still pages.
+
+### The OFF switch
+
+The phone watchdog only (the Pi job is untouched):
+
+    SELECT cron.unschedule('anchor-phone-watch-health');
+
+To pause it, keeping the job:
+
+    SELECT cron.alter_job(job_id := (SELECT jobid FROM cron.job WHERE jobname = 'anchor-phone-watch-health'), active := false);
+
+### Device checks (Shane's lane, at the marina)
+
+One overnight phone-kept watch with a locked shore device (no false page), then
+one deliberate airplane-mode test on the boat's phone: a page within 5 to 6
+minutes.
+
+**The shore device must be signed in to a different account from the boat's
+phone.** Membership is per account: a shore device on the skipper's own
+account turns the skipper's membership into 'shore', after which the boat
+phone's check-ins are refused (logged "refused … a shore device on the same
+account?") and the watchdog skips the watch, so the airplane-mode test would
+page nobody. The boat phone's own drag inserts were already refused in that
+setup. A crew account on the iPad is the real case anyway.

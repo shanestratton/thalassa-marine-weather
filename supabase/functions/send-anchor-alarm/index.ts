@@ -19,7 +19,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { encode as base64url } from 'https://deno.land/std@0.177.0/encoding/base64url.ts';
 import { internalServerErrorResponse } from '../_shared/public-errors.ts';
-import { anchorAlarmMessage } from '../_shared/anchor-alarm.ts';
+import { anchorAlarmMessage, phoneWatchAlarmCurrent, piWatchEndsSoon } from '../_shared/anchor-alarm.ts';
 
 // ---------- APNs JWT SIGNING ----------
 
@@ -265,12 +265,19 @@ serve(async (req: Request) => {
                 .is('notified_at', null);
         };
 
+        // The boat's PHONE keeps this watch (126-03b): judged on its own
+        // check-ins, never against a Pi binding. Only such rows exist after
+        // the DB push, so a function deployed first never asks for columns
+        // that are not there yet.
+        const phoneKept = record.watchkeeper === 'phone';
+        const sessionColumns: string = phoneKept ? 'expires_at,vessel_heartbeat_at,vessel_state' : 'expires_at';
+        type SessionRow = { expires_at: string; vessel_heartbeat_at?: string | null; vessel_state?: string | null };
         // A stopped/expired session never keeps retrying a stale alarm.
         const { data: session, error: sessionError } = await supabase
             .from('anchor_watch_sessions')
-            .select('expires_at')
+            .select(sessionColumns)
             .eq('session_code', session_code)
-            .maybeSingle();
+            .maybeSingle<SessionRow>();
         if (sessionError) {
             await releaseClaim('Session lookup failed');
             return new Response(JSON.stringify({ error: 'Session lookup failed' }), { status: 503 });
@@ -311,55 +318,77 @@ serve(async (req: Request) => {
 
         // Send push to all registered shore devices
         const { title, body, kind } = anchorAlarmMessage(record);
-        // APNs acceptance cannot be recalled when the boat recovers. Recheck
-        // current server-observed Pi state before every attempt and allow only
-        // a short APNs delivery window, never an hour of queued old alarms.
-        let bindingQuery = supabase
-            .from('pi_anchor_sessions')
-            .select('relay_id,last_heartbeat_at,gps_available,is_dragging,expires_at')
-            .eq('session_code', session_code)
-            .eq('owner_id', record.user_id);
-        // A session can have more than one relay. Limit only after selecting
-        // the event's exact watchkeeper, never resolve it based on another Pi.
-        if (record.pi_relay_id) bindingQuery = bindingQuery.eq('relay_id', record.pi_relay_id);
-        const { data: bindings, error: bindingError } = await bindingQuery.limit(1);
-        if (bindingError) {
-            await releaseClaim('Watch-state lookup failed');
-            return new Response(JSON.stringify({ error: 'Watch-state lookup failed' }), { status: 503 });
-        }
-        const binding = bindings?.find(
-            (candidate: { relay_id: string }) => !record.pi_relay_id || candidate.relay_id === record.pi_relay_id,
-        );
-        let relayEnabled = !record.pi_relay_id;
-        if (record.pi_relay_id) {
-            const { data: relay, error: relayError } = await supabase
-                .from('pi_diary_relays')
-                .select('enabled')
-                .eq('relay_id', record.pi_relay_id)
-                .eq('owner_id', record.user_id)
-                .maybeSingle();
-            if (relayError) {
-                await releaseClaim('Relay status lookup failed');
-                return new Response(JSON.stringify({ error: 'Relay status lookup failed' }), { status: 503 });
-            }
-            relayEnabled = relay?.enabled === true;
-        }
-        const heartbeat = binding?.last_heartbeat_at ? Date.parse(binding.last_heartbeat_at) : 0;
-        const fresh = binding && Date.parse(binding.expires_at) > Date.now() && Date.now() - heartbeat <= 35_000;
         let observedAt = record.created_at;
-        let stillRelevant = !record.pi_relay_id && Date.now() - Date.parse(record.created_at) <= 120_000;
-        if (binding && relayEnabled && Date.parse(binding.expires_at) > Date.now()) {
-            stillRelevant = kind === 'drag'
-                ? !!fresh && binding.gps_available && binding.is_dragging
-                : kind === 'gps_lost'
-                ? !!fresh && !binding.gps_available
-                : kind === 'contact_lost'
-                ? Date.now() - heartbeat > 60_000
-                : Date.parse(session.expires_at) - Date.now() <= 15 * 60_000;
-            observedAt = kind === 'drag' || kind === 'gps_lost' ? binding.last_heartbeat_at : new Date().toISOString();
-        }
-        if (!stillRelevant) {
-            const knownEndedOrRecovered = !record.pi_relay_id ||
+        let stillRelevant: boolean;
+        let knownEndedOrRecovered: boolean;
+        if (phoneKept) {
+            // A beat since (or a weighed anchor) ends a quiet-phone page; the
+            // phone's own drag push is good for 120 s. No Pi binding is read:
+            // a silent one left by a refused hand-off once swallowed it.
+            const heartbeatAt = session.vessel_heartbeat_at ? Date.parse(session.vessel_heartbeat_at) : null;
+            stillRelevant = phoneWatchAlarmCurrent({
+                kind,
+                createdAt: Date.parse(record.created_at),
+                heartbeatAt: Number.isFinite(heartbeatAt) ? heartbeatAt : null,
+                vesselState: session.vessel_state ?? null,
+                now: Date.now(),
+            });
+            knownEndedOrRecovered = true;
+            if (kind === 'contact_lost') observedAt = new Date().toISOString();
+        } else {
+            // APNs acceptance cannot be recalled when the boat recovers. Recheck
+            // current server-observed Pi state before every attempt and allow only
+            // a short APNs delivery window, never an hour of queued old alarms.
+            let bindingQuery = supabase
+                .from('pi_anchor_sessions')
+                .select('relay_id,last_heartbeat_at,gps_available,is_dragging,expires_at,authorised_at')
+                .eq('session_code', session_code)
+                .eq('owner_id', record.user_id);
+            // A session can have more than one relay. Limit only after selecting
+            // the event's exact watchkeeper, never resolve it based on another Pi.
+            if (record.pi_relay_id) bindingQuery = bindingQuery.eq('relay_id', record.pi_relay_id);
+            const { data: bindings, error: bindingError } = await bindingQuery.limit(1);
+            if (bindingError) {
+                await releaseClaim('Watch-state lookup failed');
+                return new Response(JSON.stringify({ error: 'Watch-state lookup failed' }), { status: 503 });
+            }
+            const binding = bindings?.find(
+                (candidate: { relay_id: string }) => !record.pi_relay_id || candidate.relay_id === record.pi_relay_id,
+            );
+            let relayEnabled = !record.pi_relay_id;
+            if (record.pi_relay_id) {
+                const { data: relay, error: relayError } = await supabase
+                    .from('pi_diary_relays')
+                    .select('enabled')
+                    .eq('relay_id', record.pi_relay_id)
+                    .eq('owner_id', record.user_id)
+                    .maybeSingle();
+                if (relayError) {
+                    await releaseClaim('Relay status lookup failed');
+                    return new Response(JSON.stringify({ error: 'Relay status lookup failed' }), { status: 503 });
+                }
+                relayEnabled = relay?.enabled === true;
+            }
+            const heartbeat = binding?.last_heartbeat_at ? Date.parse(binding.last_heartbeat_at) : 0;
+            const fresh = binding && Date.parse(binding.expires_at) > Date.now() && Date.now() - heartbeat <= 35_000;
+            stillRelevant = !record.pi_relay_id && Date.now() - Date.parse(record.created_at) <= 120_000;
+            if (binding && relayEnabled && Date.parse(binding.expires_at) > Date.now()) {
+                stillRelevant = kind === 'drag'
+                    ? !!fresh && binding.gps_available && binding.is_dragging
+                    : kind === 'gps_lost'
+                    ? !!fresh && !binding.gps_available
+                    : kind === 'contact_lost'
+                    ? Date.now() - heartbeat > 60_000
+                    // The 7-day lease from the skipper's last authorisation ends within 12 h
+                    // (126-03b), or, before the DB push rolls sessions, the session itself
+                    // ends within 15 min: a deploy ahead of the push still warns.
+                    : piWatchEndsSoon(Date.parse(binding.authorised_at), Date.now()) ||
+                        Date.parse(session.expires_at) - Date.now() <= 15 * 60_000;
+                observedAt = kind === 'drag' || kind === 'gps_lost'
+                    ? binding.last_heartbeat_at
+                    : new Date().toISOString();
+            }
+            knownEndedOrRecovered = !record.pi_relay_id ||
                 !binding ||
                 !relayEnabled ||
                 Date.parse(binding.expires_at) <= Date.now() ||
@@ -367,6 +396,8 @@ serve(async (req: Request) => {
                 (kind === 'gps_lost' && !!fresh && binding.gps_available) ||
                 (kind === 'contact_lost' && Date.now() - heartbeat <= 60_000) ||
                 kind === 'session_expiring';
+        }
+        if (!stillRelevant) {
             if (!knownEndedOrRecovered) {
                 // A delayed heartbeat (or loss of GPS during a drag) is not
                 // evidence that the boat recovered. Do not destroy incident
@@ -407,6 +438,8 @@ serve(async (req: Request) => {
                 const data: Record<string, unknown> = {
                     alarm_type: kind === 'drag' ? 'anchor_drag' : kind,
                     alarm_kind: kind,
+                    // Which keeper went quiet; shipped apps ignore it and read contact_lost.
+                    ...(phoneKept ? { watchkeeper: 'phone' } : {}),
                     session_code,
                     ...(reminder ? {} : { distance_m, swing_radius_m, vessel_lat, vessel_lon }),
                     observed_at: observedAt,

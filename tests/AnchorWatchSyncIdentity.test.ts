@@ -31,6 +31,12 @@ const syncMocks = vi.hoisted(() => {
         rpc: vi.fn(),
         removeChannel: vi.fn().mockResolvedValue('ok'),
         insertAlarm: vi.fn().mockResolvedValue({ error: null }),
+        /** A member's read of its session's open alarm events (126-03b: is "ends soon" still standing?). */
+        eventsRead: vi.fn(),
+        eventFilters: [] as Array<[string, unknown]>,
+        /** The member's read of its own session row (126-03b): expires_at, and the boat phone's beat. */
+        sessionRead: vi.fn(),
+        sessionColumns: [] as string[],
         upsertToken: vi.fn().mockResolvedValue({ error: null }),
         deleteRows,
         deleteFilters,
@@ -103,7 +109,20 @@ vi.mock('../services/supabase', () => ({
         removeChannel: syncMocks.removeChannel,
         from: vi.fn((table: string) => {
             if (table === 'anchor_alarm_events') {
-                return { insert: syncMocks.insertAlarm };
+                const filter = (column: string, value: unknown) => {
+                    syncMocks.eventFilters.push([column, value]);
+                    return events;
+                };
+                const events = { eq: vi.fn(filter), is: vi.fn(filter), limit: vi.fn(() => syncMocks.eventsRead()) };
+                return { insert: syncMocks.insertAlarm, select: vi.fn(() => events) };
+            }
+            if (table === 'anchor_watch_sessions') {
+                return {
+                    select: vi.fn((columns: string) => {
+                        syncMocks.sessionColumns.push(columns);
+                        return { eq: vi.fn(() => ({ maybeSingle: syncMocks.sessionRead })) };
+                    }),
+                };
             }
             if (table === 'anchor_alarm_tokens') {
                 return {
@@ -160,6 +179,13 @@ describe('AnchorWatchSyncService identity isolation', () => {
         syncMocks.rpc.mockReset().mockResolvedValue({ data: true, error: null });
         syncMocks.removeChannel.mockResolvedValue('ok');
         syncMocks.insertAlarm.mockResolvedValue({ error: null });
+        syncMocks.sessionColumns.length = 0;
+        syncMocks.eventFilters.length = 0;
+        syncMocks.eventsRead.mockReset().mockResolvedValue({ data: [], error: null });
+        syncMocks.sessionRead.mockReset().mockImplementation(async () => ({
+            data: { expires_at: new Date(Date.now() + 10 * 60 * 60 * 1000).toISOString() },
+            error: null,
+        }));
         syncMocks.upsertToken.mockResolvedValue({ error: null });
         syncMocks.requestPushToken.mockResolvedValue(null);
         syncMocks.getPushToken.mockReturnValue(null);
@@ -691,5 +717,193 @@ describe('AnchorWatchSyncService identity isolation', () => {
         expect(AnchorWatchSyncService.getLatestBroadcast()).toEqual(status);
         signInAs('account-b');
         expect(AnchorWatchSyncService.getLatestBroadcast()).toBeNull();
+    });
+
+    // ── 126-03b: the server says how long a session lives, not a fixed 24 h ──
+    describe('a watch that outlives a day (126-03b)', () => {
+        const HOUR = 60 * 60 * 1000;
+        // Fictional sessions; owners 'skipper-1' and 'crew-1'.
+        const SESSION = 'K7Q2M9X4P8R3';
+
+        function saveSession(userId: string, role: 'vessel' | 'shore', ageMs: number) {
+            const scope = signInAs(userId);
+            localStorage.setItem(
+                authScopedStorageKey(SESSION_KEY, scope),
+                JSON.stringify({ sessionCode: SESSION, role, userId, savedAt: Date.now() - ageMs }),
+            );
+            return scope;
+        }
+
+        it('rejoins a session saved 30 hours ago while the server row is still live', async () => {
+            saveSession('crew-1', 'shore', 30 * HOUR);
+            syncMocks.sessionRead.mockResolvedValue({
+                data: { expires_at: new Date(Date.now() + 20 * HOUR).toISOString() },
+                error: null,
+            });
+            expect(await AnchorWatchSyncService.restoreSession()).toBe(true);
+            expect(AnchorWatchSyncService.getState()).toMatchObject({
+                connected: true,
+                role: 'shore',
+                sessionCode: SESSION,
+            });
+            expect(syncMocks.sessionColumns).toContain('expires_at');
+        });
+
+        it.each([
+            ['has expired', { data: { expires_at: new Date(Date.now() - 60_000).toISOString() }, error: null }],
+            // The member read shows only unexpired sessions: an ended watch reads as no row.
+            ['is gone', { data: null, error: null }],
+        ])('does not auto-rejoin when the server row %s, but keeps the code for a manual rejoin', async (_l, row) => {
+            saveSession('skipper-1', 'vessel', 2 * HOUR);
+            syncMocks.sessionRead.mockResolvedValue(row);
+            expect(await AnchorWatchSyncService.restoreSession()).toBe(false);
+            expect(syncMocks.channels).toHaveLength(0);
+            expect(AnchorWatchSyncService.getLastSessionCode()).toBe(SESSION);
+            expect(AnchorWatchSyncService.hasPersistedSession()).toBe(false);
+        });
+
+        it.each([
+            ['throws', () => Promise.reject(new TypeError('Load failed'))],
+            ['answers with an error', () => Promise.resolve({ data: null, error: { code: '08006', message: 'x' } })],
+        ])('falls back to the 24 h rule when the server read %s (offline)', async (_l, read) => {
+            syncMocks.sessionRead.mockImplementation(read);
+            saveSession('crew-1', 'shore', 30 * HOUR);
+            expect(await AnchorWatchSyncService.restoreSession()).toBe(false);
+            expect(AnchorWatchSyncService.hasPersistedSession()).toBe(false);
+            expect(syncMocks.channels).toHaveLength(0);
+
+            saveSession('crew-1', 'shore', 2 * HOUR);
+            expect(await AnchorWatchSyncService.restoreSession()).toBe(true);
+            expect(AnchorWatchSyncService.getState()).toMatchObject({ connected: true, sessionCode: SESSION });
+        });
+
+        it("marks the boat phone's own drag push as the phone's, so the server never judges it by a Pi", async () => {
+            signInAs('skipper-1');
+            await AnchorWatchSyncService.createSession();
+            await AnchorWatchSyncService.sendAlarmPush({
+                distance: 63,
+                swingRadius: 50,
+                vesselLat: 36.53,
+                vesselLon: -6.3,
+            });
+            expect(syncMocks.insertAlarm).toHaveBeenCalledOnce();
+            expect(syncMocks.insertAlarm.mock.calls[0][0]).toMatchObject({
+                user_id: 'skipper-1',
+                distance_m: 63,
+                swing_radius_m: 50,
+                watchkeeper: 'phone',
+            });
+        });
+
+        it.each([
+            ['42703', 'column "watchkeeper" of relation "anchor_alarm_events" does not exist'],
+            ['PGRST204', "Could not find the 'watchkeeper' column of 'anchor_alarm_events' in the schema cache"],
+        ])(
+            'retries once without the column before the DB push (%s), so no drag alarm is lost',
+            async (code, message) => {
+                signInAs('skipper-1');
+                await AnchorWatchSyncService.createSession();
+                syncMocks.insertAlarm.mockResolvedValueOnce({ error: { code, message } });
+                await AnchorWatchSyncService.sendAlarmPush({ distance: 63, swingRadius: 50 });
+                expect(syncMocks.insertAlarm).toHaveBeenCalledTimes(2);
+                expect(syncMocks.insertAlarm.mock.calls[1][0]).not.toHaveProperty('watchkeeper');
+                expect(syncMocks.insertAlarm.mock.calls[1][0]).toMatchObject({ distance_m: 63, swing_radius_m: 50 });
+            },
+        );
+
+        it('does not retry a drag push that failed for any other reason', async () => {
+            signInAs('skipper-1');
+            await AnchorWatchSyncService.createSession();
+            syncMocks.insertAlarm.mockResolvedValueOnce({ error: { code: '42501', message: 'denied' } });
+            await AnchorWatchSyncService.sendAlarmPush({ distance: 63, swingRadius: 50 });
+            expect(syncMocks.insertAlarm).toHaveBeenCalledOnce();
+        });
+
+        // Review 2026-10-10: a session no longer dies at 24 h, so the code and
+        // the membership it buys must be bounded on their own. Leave gives the
+        // membership up (the code admits newcomers only in a watch's first day).
+        it('a crew member who taps Leave gives up their membership, after their own device token', async () => {
+            signInAs('crew-1');
+            syncMocks.requestPushToken.mockResolvedValue('push-token-crew');
+            syncMocks.getPushToken.mockReturnValue('push-token-crew');
+            expect(await AnchorWatchSyncService.joinSession(SESSION)).toBe(true);
+            await flushPromises();
+            syncMocks.rpc.mockClear();
+            await AnchorWatchSyncService.leaveSession();
+            expect(syncMocks.deleteRows).toHaveBeenCalledOnce();
+            expect(syncMocks.rpc).toHaveBeenCalledWith('leave_anchor_watch_session', { p_session_code: SESSION });
+            // The token first: the server keeps the membership while another of this account's devices is registered.
+            expect(syncMocks.deleteRows.mock.invocationCallOrder[0]).toBeLessThan(
+                syncMocks.rpc.mock.invocationCallOrder.at(-1) ?? 0,
+            );
+        });
+
+        it('a crew device with no push token still gives up the membership on Leave', async () => {
+            signInAs('crew-1');
+            syncMocks.getPushToken.mockReturnValue(null);
+            expect(await AnchorWatchSyncService.joinSession(SESSION)).toBe(true);
+            syncMocks.rpc.mockClear();
+            await AnchorWatchSyncService.leaveSession();
+            expect(syncMocks.deleteRows).not.toHaveBeenCalled();
+            expect(syncMocks.rpc).toHaveBeenCalledWith('leave_anchor_watch_session', { p_session_code: SESSION });
+        });
+
+        it('the boat phone leaving its own watch, or a leave finishing under another account, gives up nothing', async () => {
+            signInAs('skipper-1');
+            await AnchorWatchSyncService.createSession();
+            syncMocks.rpc.mockClear();
+            await AnchorWatchSyncService.leaveSession();
+            expect(syncMocks.rpc).not.toHaveBeenCalled();
+
+            signInAs('crew-1');
+            expect(await AnchorWatchSyncService.joinSession(SESSION)).toBe(true);
+            syncMocks.rpc.mockClear();
+            let resolveUser!: (value: { data: { user: { id: string } } }) => void;
+            syncMocks.getUser.mockReturnValueOnce(new Promise((resolve) => (resolveUser = resolve)));
+            const leaving = AnchorWatchSyncService.leaveSession();
+            signInAs('skipper-1');
+            resolveUser({ data: { user: { id: 'crew-1' } } });
+            await leaving;
+            expect(syncMocks.rpc).not.toHaveBeenCalled();
+        });
+
+        it('reads whether this watch\'s "ends soon" still stands on the server', async () => {
+            signInAs('crew-1');
+            expect(await AnchorWatchSyncService.joinSession(SESSION)).toBe(true);
+            syncMocks.eventsRead.mockResolvedValueOnce({ data: [{ id: 'event-1' }], error: null });
+            expect(await AnchorWatchSyncService.readEndsSoonStanding()).toBe(true);
+            expect(syncMocks.eventFilters).toEqual(
+                expect.arrayContaining([
+                    ['session_code', SESSION],
+                    ['alarm_kind', 'session_expiring'],
+                    ['resolved_at', null],
+                ]),
+            );
+            syncMocks.eventsRead.mockResolvedValueOnce({ data: [], error: null });
+            expect(await AnchorWatchSyncService.readEndsSoonStanding()).toBe(false);
+            syncMocks.eventsRead.mockResolvedValueOnce({ data: null, error: { code: '08006', message: 'x' } });
+            expect(await AnchorWatchSyncService.readEndsSoonStanding()).toBeNull();
+        });
+
+        it("reads how long ago the boat's phone checked in, for the shore line", async () => {
+            signInAs('crew-1');
+            expect(await AnchorWatchSyncService.joinSession(SESSION)).toBe(true);
+            syncMocks.sessionRead.mockResolvedValueOnce({
+                data: { vessel_heartbeat_at: new Date(Date.now() - 60_000).toISOString(), vessel_state: 'watching' },
+                error: null,
+            });
+            expect(await AnchorWatchSyncService.readVesselHeartbeatAge()).toBe(60_000);
+            expect(syncMocks.sessionColumns.at(-1)).toBe('vessel_heartbeat_at,vessel_state');
+
+            syncMocks.sessionRead.mockResolvedValueOnce({
+                data: { vessel_heartbeat_at: null, vessel_state: 'ended' },
+                error: null,
+            });
+            expect(await AnchorWatchSyncService.readVesselHeartbeatAge()).toBeNull();
+
+            // Before the DB push the columns do not exist: the read errors and the shore line stays hidden.
+            syncMocks.sessionRead.mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'x' } });
+            await expect(AnchorWatchSyncService.readVesselHeartbeatAge()).rejects.toThrow();
+        });
     });
 });

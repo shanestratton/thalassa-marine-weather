@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ShoreAlarmSnapshot } from '../services/ShoreWatchAlarmService';
@@ -17,6 +18,11 @@ const mocks = vi.hoisted(() => ({
     leaveSession: vi.fn(),
     stopBoatWatch: vi.fn(),
     trailStart: vi.fn(),
+    heartbeatStart: vi.fn(),
+    keeping: vi.fn(),
+    renewNow: vi.fn(),
+    toastInfo: vi.fn(),
+    clearSessionExpiring: vi.fn(),
 }));
 
 vi.mock('../services/ShoreWatchAlarmService', () => ({
@@ -31,6 +37,7 @@ vi.mock('../services/ShoreWatchAlarmService', () => ({
         stop: mocks.stop,
         mute: mocks.mute,
         retryAudio: mocks.retryAudio,
+        clearSessionExpiring: mocks.clearSessionExpiring,
     },
 }));
 
@@ -58,7 +65,18 @@ vi.mock('../services/AnchorWatchSyncService', () => ({
     },
 }));
 
+// The boat phone's check-ins (126-03b) start beside the shore alarm, app-wide.
+vi.mock('../services/anchorPhoneHeartbeat', () => ({
+    AnchorPhoneHeartbeat: { start: mocks.heartbeatStart },
+}));
+
+// Read, and renewed on a tap, only when this phone handed its own Pi the watch.
+vi.mock('../services/anchorPiWatchKeeper', () => ({
+    AnchorPiWatchKeeper: { keepingSessionCode: mocks.keeping, renewNow: mocks.renewNow },
+}));
+
 // Her trail ashore (126-03a) is kept from app start, beside the shore alarm.
+vi.mock('../components/Toast', () => ({ toast: { info: mocks.toastInfo, error: vi.fn(), success: vi.fn() } }));
 vi.mock('../services/shoreSwingTrail', () => ({
     ShoreSwingTrail: { start: mocks.trailStart },
 }));
@@ -118,6 +136,8 @@ beforeEach(() => {
     mocks.localListeners.clear();
     mocks.pushListeners.clear();
     mocks.mute.mockResolvedValue(undefined);
+    mocks.keeping.mockReturnValue(null);
+    mocks.renewNow.mockResolvedValue('assigned');
 });
 
 afterEach(cleanup);
@@ -129,6 +149,8 @@ describe('GlobalShoreWatchGate', () => {
         expect(mocks.start).toHaveBeenCalledOnce();
         // Her trail is kept for the app's lifetime too, from the same place.
         expect(mocks.trailStart).toHaveBeenCalledOnce();
+        // And the boat phone's check-ins (126-03b), so a phone-kept watch is watched by the server.
+        expect(mocks.heartbeatStart).toHaveBeenCalledOnce();
         expect(mocks.stop).not.toHaveBeenCalled();
         expect(mocks.leaveSession).not.toHaveBeenCalled();
     });
@@ -155,7 +177,7 @@ describe('GlobalShoreWatchGate', () => {
         ['drag', 'Vessel drag alarm'],
         ['contact-lost', 'Vessel contact lost'],
         ['gps-lost', 'Vessel GPS lost'],
-        ['session-expiring', 'Shore Watch expiring'],
+        ['session-expiring', 'Shore Watch ends soon'],
     ] as const)('portals an unmuted %s alarm even on the compass page', (cause, title) => {
         mocks.watch = snapshot({ cause });
         render(<GlobalShoreWatchGate showStatus={false} onOpen={vi.fn()} />);
@@ -263,5 +285,81 @@ describe('GlobalShoreWatchGate', () => {
         expect(mocks.stopBoatWatch).not.toHaveBeenCalled();
         render(<GlobalShoreWatchGate showStatus onOpen={vi.fn()} />);
         expect(screen.getByRole('alertdialog', { name: 'Vessel drag alarm' })).toBeInTheDocument();
+    });
+});
+
+// 126-03b (D5): a Pi watch now runs for up to 7 days from the skipper's phone's
+// last authorisation. "Ends soon" comes 12 hours before that, and only the
+// phone that handed the Pi the watch can renew it.
+describe('GlobalShoreWatchGate: Shore Watch ends soon', () => {
+    it('renews from this phone when this phone handed its own Pi the watch', async () => {
+        mocks.watch = snapshot({ cause: 'session-expiring' });
+        mocks.keeping.mockReturnValue('ABCDEFGHJKLM');
+        render(<GlobalShoreWatchGate showStatus onOpen={vi.fn()} />);
+        const dialog = screen.getByRole('alertdialog', { name: 'Shore Watch ends soon' });
+        expect(dialog).toHaveTextContent(
+            'The Pi keeping the anchor watch stops within 12 hours unless this phone renews it.',
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Renew watch' }));
+        await waitFor(() => expect(mocks.clearSessionExpiring).toHaveBeenCalledOnce());
+        expect(mocks.renewNow).toHaveBeenCalledOnce();
+        expect(mocks.mute).not.toHaveBeenCalled();
+    });
+
+    // Review 2026-10-10: the cloud authorisation IS the renewal (it restarts
+    // the week). A skipper ashore with no route to the boat network renews it
+    // even though the Pi cannot be re-sent the watch from there.
+    it('clears the warning when the week was renewed though the Pi itself could not be reached', async () => {
+        mocks.watch = snapshot({ cause: 'session-expiring' });
+        mocks.keeping.mockReturnValue('ABCDEFGHJKLM');
+        mocks.renewNow.mockResolvedValueOnce('authorised');
+        render(<GlobalShoreWatchGate showStatus onOpen={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Renew watch' }));
+        await waitFor(() => expect(mocks.clearSessionExpiring).toHaveBeenCalledOnce());
+        expect(mocks.toastInfo).toHaveBeenCalledWith(expect.stringMatching(/renewed for another week/i));
+        expect(mocks.toastInfo).toHaveBeenCalledWith(expect.stringMatching(/could not reach the Pi/i));
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('keeps the warning and says so when nothing was renewed', async () => {
+        mocks.watch = snapshot({ cause: 'session-expiring' });
+        mocks.keeping.mockReturnValue('ABCDEFGHJKLM');
+        mocks.renewNow.mockResolvedValueOnce(false);
+        render(<GlobalShoreWatchGate showStatus onOpen={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Renew watch' }));
+        expect(await screen.findByRole('alert')).toHaveTextContent('could not renew');
+        expect(mocks.clearSessionExpiring).not.toHaveBeenCalled();
+        expect(screen.getByRole('alertdialog', { name: 'Shore Watch ends soon' })).toBeInTheDocument();
+    });
+
+    it.each([
+        ['no Pi watch on this phone', null],
+        ["this phone's Pi keeping another session", 'H4N8T2W6Z3B5'],
+    ])('tells the crew to ask the skipper, with no Renew, for %s', (_label, keeping) => {
+        mocks.watch = snapshot({ cause: 'session-expiring' });
+        mocks.keeping.mockReturnValue(keeping);
+        render(<GlobalShoreWatchGate showStatus onOpen={vi.fn()} />);
+        expect(screen.getByRole('alertdialog', { name: 'Shore Watch ends soon' })).toHaveTextContent(
+            'The Pi keeping the anchor watch stops within 12 hours unless the skipper opens Thalassa on the phone that handed it the watch.',
+        );
+        expect(screen.queryByRole('button', { name: 'Renew watch' })).not.toBeInTheDocument();
+        expect(mocks.renewNow).not.toHaveBeenCalled();
+    });
+
+    it('a muted warning says Renew only on the phone that can', () => {
+        mocks.watch = snapshot({ cause: 'session-expiring', muted: true });
+        const view = render(<GlobalShoreWatchGate showStatus onOpen={vi.fn()} />);
+        expect(screen.getByRole('button', { name: 'Open active Shore Watch' })).toHaveTextContent('Ends soon');
+        view.unmount();
+        mocks.keeping.mockReturnValue('ABCDEFGHJKLM');
+        render(<GlobalShoreWatchGate showStatus onOpen={vi.fn()} />);
+        expect(screen.getByRole('button', { name: 'Open active Shore Watch' })).toHaveTextContent('Renew watch');
+    });
+
+    it('never begins or ends a Pi watch from the alarm gate', () => {
+        const gate = readFileSync('components/anchor-watch/GlobalShoreWatchGate.tsx', 'utf8');
+        expect(gate).not.toMatch(/AnchorPiWatchKeeper\.(end|begin)\b/);
+        expect(gate).toMatch(/AnchorPiWatchKeeper\.keepingSessionCode\(\)/);
+        expect(gate).toMatch(/AnchorPiWatchKeeper\.renewNow\(\)/);
     });
 });

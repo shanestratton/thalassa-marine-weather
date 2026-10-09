@@ -20,10 +20,11 @@
  *      it does not know where the skipper dropped the hook.
  *
  *   3. RENEW. The authorisation is deliberately short-lived — the schema caps
- *      it at 48 hours and the function issues six. A standing permission to
- *      broadcast where someone's boat is lying is not a thing to hand out, so
- *      the app refreshes it while the watch runs and it lapses when the watch
- *      stops, without anyone having to remember to revoke it.
+ *      it at 7 days since the skipper's phone last authorised it, and the
+ *      function issues six hours. A standing permission to broadcast where
+ *      someone's boat is lying is not a thing to hand out, so the app
+ *      refreshes it while the watch runs and it lapses when the watch stops,
+ *      without anyone having to remember to revoke it.
  *
  * ORDER MATTERS. Authorise BEFORE assigning: a Pi that starts broadcasting
  * into an unauthorised channel just collects 403s, and the first thing the
@@ -115,7 +116,14 @@ export async function clearWatchOnPi(piBaseUrl: string): Promise<void> {
  * should carry on doing it itself — which is the existing behaviour, and is
  * why nothing here throws.
  */
-export async function handOffToPi(assignment: PiWatchAssignment, relayId: string, piBaseUrl: string): Promise<boolean> {
+export async function handOffToPi(
+    assignment: PiWatchAssignment,
+    relayId: string,
+    piBaseUrl: string,
+    /** Told once the cloud took the authorisation: that alone renews the Pi's week (126-03b). */
+    onAuthorised?: () => void,
+): Promise<boolean> {
     if (!(await authoriseRelay(relayId, assignment.sessionCode))) return false;
+    onAuthorised?.();
     return assignWatchToPi(assignment, piBaseUrl);
 }

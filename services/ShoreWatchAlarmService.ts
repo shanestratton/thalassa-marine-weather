@@ -9,6 +9,14 @@ import {
 
 export const SHORE_CONTACT_ALARM_MS = 60_000;
 export const SHORE_POSITION_STALE_MS = 35_000;
+/**
+ * "Ends soon" comes 12 hours before a Pi's watch would stop (126-03b) and any
+ * re-authorise of the skipper's phone answers it, which crew phones are never
+ * told. So it lapses on its own after 12 hours, and while the boat reports the
+ * server is asked every 5 minutes whether the warning still stands.
+ */
+const ENDS_SOON_MS = 12 * 60 * 60_000;
+const ENDS_SOON_RECHECK_MS = 5 * 60_000;
 export type ShoreAlarmCause = 'drag' | 'contact-lost' | 'gps-lost' | 'session-expiring';
 export interface ShoreAlarmSnapshot {
     sessionCode: string | null;
@@ -42,7 +50,10 @@ export class ShoreWatchAlarmServiceClass {
     private started = false;
     private joinedAt = 0;
     private lastEventAt = 0;
-    private sessionExpiring = false;
+    /** When "ends soon" arrived (0: none standing), when the server was last asked, and whether it has sounded. */
+    private endsSoonAt = 0;
+    private endsSoonAskedAt = 0;
+    private endsSoonSounded = false;
     private lease: string | null = null;
     private audioPending = false;
     /** Settles after native start either installs its lease or reports failure. */
@@ -90,7 +101,8 @@ export class ShoreWatchAlarmServiceClass {
             this.releaseDetached();
             this.joinedAt = Date.now();
             this.lastEventAt = 0;
-            this.sessionExpiring = false;
+            this.endsSoonAt = 0;
+            this.endsSoonSounded = false;
             this.gpsUnavailable = false;
             this.muteContext = null;
             this.reminderCheck = null;
@@ -129,7 +141,11 @@ export class ShoreWatchAlarmServiceClass {
             this.lastEventAt = data.timestamp;
             this.gpsUnavailable = false;
             this.emit({ position: data, lastContactAt: Math.min(now, data.timestamp, fixAt), stale: false });
-            this.setCause(data.isAlarm ? 'drag' : this.sessionExpiring ? 'session-expiring' : null);
+            const endsSoon = this.endsSoonStanding(now);
+            const cause = data.isAlarm ? 'drag' : endsSoon ? 'session-expiring' : null;
+            // Back from a lost contact to a warning the crew already heard: shown, not sounded again.
+            this.setCause(cause, false, cause === 'session-expiring' && this.endsSoonSounded);
+            if (endsSoon && now - this.endsSoonAskedAt >= ENDS_SOON_RECHECK_MS) this.askEndsSoon(now);
         } else if (data.type === 'status' && data.gpsAvailable === false) {
             this.lastEventAt = data.timestamp;
             this.gpsUnavailable = true;
@@ -151,7 +167,7 @@ export class ShoreWatchAlarmServiceClass {
         const observedAt = typeof data.observed_at === 'string' ? Date.parse(data.observed_at) : NaN;
         if (Number.isFinite(observedAt) && (Date.now() - observedAt > 120_000 || observedAt > Date.now() + 30_000))
             return;
-        if (kind === 'session_expiring') this.sessionExpiring = true;
+        if (kind === 'session_expiring') this.endsSoonAt = this.endsSoonAskedAt = Date.now();
         else if (Number.isFinite(observedAt) && observedAt < this.lastEventAt) return;
         // A lost link or expiring lease must never downgrade confirmed drag.
         if (this.snapshot.cause === 'drag' && kind !== 'drag') return;
@@ -175,6 +191,25 @@ export class ShoreWatchAlarmServiceClass {
                     : 'drag',
             newIncidentAfterMute,
         );
+    }
+
+    private endsSoonStanding(now: number): boolean {
+        if (this.endsSoonAt && now - this.endsSoonAt >= ENDS_SOON_MS) this.endsSoonAt = 0;
+        return this.endsSoonAt > 0;
+    }
+
+    /** The skipper may have renewed from anywhere: the server resolves the warning when they do. */
+    private askEndsSoon(now: number): void {
+        this.endsSoonAskedAt = now;
+        const { sessionCode } = this.snapshot;
+        const asked = this.endsSoonAt;
+        void Promise.resolve()
+            .then(() => AnchorWatchSyncService.readEndsSoonStanding())
+            .then((standing) => {
+                if (standing === false && asked === this.endsSoonAt && sessionCode === this.snapshot.sessionCode)
+                    this.clearSessionExpiring();
+            })
+            .catch(() => undefined);
     }
 
     private validTime(value: unknown): value is number {
@@ -220,18 +255,23 @@ export class ShoreWatchAlarmServiceClass {
             this.snapshot.lastContactAt === null ||
             age > SHORE_POSITION_STALE_MS;
         if (stale !== this.snapshot.stale) this.emit({ stale });
+        const { cause } = this.snapshot;
+        if (cause === 'session-expiring' && !this.endsSoonStanding(now)) this.setCause(null);
         // Do not replace a confirmed dragging alarm with the less specific
-        // contact warning when the link subsequently disappears.
-        if (age >= SHORE_CONTACT_ALARM_MS && !this.snapshot.cause) this.setCause('contact-lost');
+        // contact warning when the link subsequently disappears. "Ends soon"
+        // never holds it off: a boat nobody can hear is the more urgent news.
+        else if (age >= SHORE_CONTACT_ALARM_MS && (!cause || cause === 'session-expiring'))
+            this.setCause('contact-lost');
     }
 
-    private setCause(cause: ShoreAlarmCause | null, forceRearm = false): void {
+    private setCause(cause: ShoreAlarmCause | null, forceRearm = false, quiet = false): void {
         if (this.snapshot.cause === cause && !forceRearm) return;
         this.releaseDetached();
         this.muteContext = null;
         this.reminderCheck = null;
-        this.emit({ cause, muted: false, audioError: null, reminderError: null, reminderPending: false });
-        if (cause) this.sound();
+        this.emit({ cause, muted: quiet, audioError: null, reminderError: null, reminderPending: false });
+        if (cause === 'session-expiring' && !quiet) this.endsSoonSounded = true;
+        if (cause && !quiet) this.sound();
     }
 
     private sound(): void {
@@ -259,6 +299,13 @@ export class ShoreWatchAlarmServiceClass {
     }
 
     retryAudio = (): void => this.sound();
+
+    /** "Ends soon" is answered: this phone renewed its own Pi's watch, or the server no longer has it. Never clears a drag. */
+    clearSessionExpiring = (): void => {
+        this.endsSoonAt = 0;
+        this.endsSoonSounded = false;
+        if (this.snapshot.cause === 'session-expiring') this.setCause(null);
+    };
 
     mute = async (): Promise<void> => {
         if (this.snapshot.muted) return this.retryReminderAcknowledgement();

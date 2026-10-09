@@ -27,6 +27,11 @@ interface ShoreWatchReadingsProps {
     radarAction?: ReactNode;
     /** For the live readings' ages; the page re-renders each second. */
     now?: number;
+    /**
+     * The boat's phone checked in with the server under 3 minutes ago, so a
+     * quiet phone will be reported (126-03b). Only ever true when it is.
+     */
+    phoneWatched?: boolean;
 }
 
 /** A time in the viewer's own clock, as the Last Update reading has it. */
@@ -54,6 +59,7 @@ export function ShoreWatchReadings({
     trail,
     radarAction,
     now = Date.now(),
+    phoneWatched = false,
 }: ShoreWatchReadingsProps) {
     // The Pi confirms successive breaches before raising its alarm. During
     // that interval, an outside-radius fix is not evidence of "Holding".
@@ -163,21 +169,32 @@ export function ShoreWatchReadings({
                 className={`flex w-full min-w-0 shrink-0 flex-col items-center gap-2 [@media(max-height:500px)]:flex-1`}
             >
                 {/* The trail's note rides beside the status, a short line no taller
-                    than the pill, so it costs the radar no height. */}
+                    than the pill, so it costs the radar no height. While her phone
+                    keeps the watch (126-03b), the promise takes that place and the
+                    trail's note tucks under the pill: on the short phone the radar
+                    is already at its floor. */}
                 <div className="flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1">
-                    <div
-                        role="status"
-                        aria-live="polite"
-                        aria-atomic="true"
-                        className={`inline-flex max-w-full items-center gap-2 rounded-full border px-4 py-1.5 text-center text-sm font-black uppercase tracking-wider ${tone}`}
-                        style={{ borderColor: `rgba(${accent},0.25)`, background: `rgba(${accent},0.08)` }}
-                    >
-                        <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-current" />
-                        {outsideRadius ? 'Outside radius · checking' : statusLabel}
+                    <div className={phoneWatched ? 'flex shrink-0 flex-col items-center gap-0.5' : 'contents'}>
+                        <div
+                            role="status"
+                            aria-live="polite"
+                            aria-atomic="true"
+                            className={`inline-flex max-w-full items-center gap-2 rounded-full border px-4 py-1.5 text-center text-sm font-black uppercase tracking-wider ${tone}`}
+                            style={{ borderColor: `rgba(${accent},0.25)`, background: `rgba(${accent},0.08)` }}
+                        >
+                            <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-current" />
+                            {outsideRadius ? 'Outside radius · checking' : statusLabel}
+                        </div>
+                        {trailSince && (
+                            <p className="text-[0.6875rem] font-medium leading-tight text-slate-400">
+                                {`Trail since ${trailSince}`}
+                            </p>
+                        )}
                     </div>
-                    {trailSince && (
-                        <p className="text-[0.6875rem] font-medium leading-tight text-slate-400">
-                            {`Trail since ${trailSince}`}
+                    {phoneWatched && (
+                        <p className="min-w-0 flex-1 basis-40 text-[0.6875rem] font-medium leading-tight text-emerald-300">
+                            Her phone checks in every minute. If it goes quiet you’ll be told, even with this phone
+                            locked.
                         </p>
                     )}
                 </div>

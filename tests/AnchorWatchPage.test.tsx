@@ -91,6 +91,9 @@ vi.mock('../services/AnchorWatchSyncService', () => ({
         onBroadcast: vi.fn().mockReturnValue(vi.fn()),
         restoreSession: vi.fn().mockResolvedValue(false),
         leaveSession: vi.fn().mockResolvedValue(undefined),
+        // 126-03b: the boat phone's last check-in, for the shore line. Before the
+        // DB push the column is absent and the read errors: no line.
+        readVesselHeartbeatAge: vi.fn().mockRejectedValue(new Error('column does not exist')),
     },
 }));
 
@@ -257,6 +260,7 @@ describe('AnchorWatchPage', () => {
             listener(AnchorWatchSyncService.getPushReadiness());
             return vi.fn();
         });
+        vi.mocked(AnchorWatchSyncService.readVesselHeartbeatAge).mockRejectedValue(new Error('column does not exist'));
         vi.mocked(ShoreWatchAlarmService.getSnapshot).mockReturnValue(shoreAlarmSnapshot());
         vi.mocked(ShoreWatchAlarmService.subscribe).mockImplementation((listener) => {
             listener(ShoreWatchAlarmService.getSnapshot());
@@ -746,5 +750,73 @@ describe('AnchorWatchPage', () => {
             points.mockRestore();
             useSettingsStore.setState({ settings: previous });
         }
+    });
+
+    // 126-03b (D8): the shore view promises the crew a page only when it is
+    // true: the boat's phone checked in with the server under 3 minutes ago.
+    describe('the boat phone check-in line', () => {
+        const LINE =
+            /Her phone checks in every minute\. If it goes quiet you’ll be told, even with this phone locked\./;
+
+        const pushReady = (status: 'ready' | 'inactive' | 'checking' | 'unavailable') =>
+            vi.mocked(AnchorWatchSyncService.getPushReadiness).mockReturnValue({
+                status,
+                reason: status === 'unavailable' ? 'Notifications are off for Thalassa.' : null,
+                checkedAt: status === 'ready' || status === 'unavailable' ? 1 : null,
+            });
+
+        it('shows for a beat 60 s old on a phone that can take the page locked', async () => {
+            pushReady('ready');
+            vi.mocked(AnchorWatchSyncService.readVesselHeartbeatAge).mockResolvedValue(60_000);
+            await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData());
+            expect(await screen.findByText(LINE)).toBeInTheDocument();
+        });
+
+        // Review 2026-10-10: the page goes only to registered devices. A phone
+        // showing "keep this app open" must not also promise a locked page.
+        it.each(['inactive', 'checking', 'unavailable'] as const)(
+            'stays hidden with a 60 s beat while this phone’s notifications are %s',
+            async (status) => {
+                pushReady(status);
+                vi.mocked(AnchorWatchSyncService.readVesselHeartbeatAge).mockResolvedValue(60_000);
+                await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData());
+                await waitFor(() => expect(AnchorWatchSyncService.readVesselHeartbeatAge).toHaveBeenCalled());
+                await act(async () => {
+                    await Promise.resolve();
+                });
+                expect(screen.queryByText(LINE)).not.toBeInTheDocument();
+            },
+        );
+
+        it.each([
+            ['4 min old', () => Promise.resolve(240_000)],
+            ['null (no phone keeping a watch, or it ended)', () => Promise.resolve(null)],
+            ['a read error (before the DB push)', () => Promise.reject(new Error('column does not exist'))],
+        ])('stays hidden for a beat %s', async (_label, read) => {
+            pushReady('ready');
+            vi.mocked(AnchorWatchSyncService.readVesselHeartbeatAge).mockImplementation(read);
+            await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData());
+            await waitFor(() => expect(AnchorWatchSyncService.readVesselHeartbeatAge).toHaveBeenCalled());
+            await act(async () => {
+                await Promise.resolve();
+            });
+            expect(screen.queryByText(LINE)).not.toBeInTheDocument();
+        });
+
+        it('goes away once the beat it read has aged past 3 minutes', async () => {
+            const now = Date.now();
+            const dateNow = vi.spyOn(Date, 'now').mockReturnValue(now);
+            try {
+                pushReady('ready');
+                vi.mocked(AnchorWatchSyncService.readVesselHeartbeatAge).mockResolvedValue(150_000);
+                const { stateListener } = await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData());
+                expect(await screen.findByText(LINE)).toBeInTheDocument();
+                dateNow.mockReturnValue(now + 31_000);
+                act(() => stateListener({ ...CONNECTED_SHORE_STATE }));
+                expect(screen.queryByText(LINE)).not.toBeInTheDocument();
+            } finally {
+                dateNow.mockRestore();
+            }
+        });
     });
 });
