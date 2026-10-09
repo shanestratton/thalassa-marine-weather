@@ -34,6 +34,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { inspectSimulatorEntitlementSections } from './machOEntitlementEvidence.mjs';
+import { inspectFullAppNativeResource } from './fullAppUiContract.mjs';
+import { inspectWindowBuildReceipt } from '../full-app-pilot/windowProofContract.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXPERIMENT = resolve(HERE, '..'),
@@ -171,8 +173,23 @@ function publicConfig(file) {
     return { key, source: 'guarded-cli-public-anon', healthyProjectChecked: true };
 }
 
-async function reserveBuildSlot() {
+async function reserveBuildSlot(maxWaitMs = Infinity) {
     process.title = 'scuttlebutt auth research waiting';
+    let waited = 0;
+    receipt.sharedSlotWaitMs = waited;
+    async function waitForOpportunity() {
+        if (waited >= maxWaitMs) {
+            receipt.status = 'queued-unrun';
+            receipt.queuedStage = 'shared-build-slot';
+            saveReceipt();
+            throw new Error('Shared build opportunity expired');
+        }
+        const before = Date.now();
+        await delay(Math.min(5000, maxWaitMs - waited));
+        waited += Date.now() - before;
+        receipt.sharedSlotWaitMs = waited;
+        saveReceipt();
+    }
     let announced = false;
     for (;;) {
         try {
@@ -184,6 +201,7 @@ async function reserveBuildSlot() {
             });
         } catch (error) {
             if (error?.code !== 'EEXIST') throw error;
+            let reclaimed = false;
             const stat = lstatSync(slot);
             assert(
                 stat.isDirectory() &&
@@ -202,12 +220,14 @@ async function reserveBuildSlot() {
                     if (failure?.code === 'ESRCH' && readdirSync(slot).length === 1) {
                         unlinkSync(ownerPath);
                         rmdirSync(slot);
+                        reclaimed = true;
                     } else if (failure?.code !== 'EPERM') throw failure;
                 }
             }
+            if (reclaimed) continue;
             if (!announced) console.info('Waiting for the shared build slot.');
             announced = true;
-            await delay(5000);
+            await waitForOpportunity();
             continue;
         }
         const check = spawnSync('/usr/bin/pgrep', ['-fl', 'vite build|tsc|vitest'], {
@@ -231,7 +251,7 @@ async function reserveBuildSlot() {
         releaseBuildSlot();
         if (!announced) console.info('Waiting for the shared build slot.');
         announced = true;
-        await delay(5000);
+        await waitForOpportunity();
     }
 }
 function releaseBuildSlot() {
@@ -253,7 +273,9 @@ try {
         priorBuildFile,
         localUiFile,
         priorExchangeFile,
-        frameworkReceiptFile;
+        frameworkReceiptFile,
+        fullAppWebReceiptFile;
+    let fullAppSlotWaitMs = 120000;
     const seen = new Set();
     for (let index = 0; index < options.length; index += 2) {
         const flag = options[index],
@@ -278,6 +300,12 @@ try {
         } else if (flag === '--local-ui-frameworks-receipt') {
             assert(isAbsolute(value));
             frameworkReceiptFile = value;
+        } else if (flag === '--full-app-web-receipt') {
+            assert(isAbsolute(value));
+            fullAppWebReceiptFile = value;
+        } else if (flag === '--slot-wait-ms') {
+            assert(/^(?:0|[1-9][0-9]{0,5})$/.exec(value)?.[0] === value && Number(value) <= 120000);
+            fullAppSlotWaitMs = Number(value);
         } else assert(false, 'Unsupported isolated build argument');
     }
     assert(
@@ -288,27 +316,54 @@ try {
     );
     let localUi;
     let protectedUi = false;
+    let fullAppUi = false;
+    let fullAppWeb;
     if (localUiFile) {
         regular(localUiFile, 128 * 1024);
         localUi = JSON.parse(readFileSync(localUiFile, 'utf8'));
-        assert(
-            ((Object.keys(localUi).sort().join(',') === 'runID,script,version' && localUi.version === 1) ||
-                (Object.keys(localUi).sort().join(',') === 'runID,scenario,script,version' &&
-                    localUi.version === 2 &&
-                    localUi.scenario === 'protected-exchange')) &&
-                typeof localUi.runID === 'string' &&
-                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(localUi.runID),
-        );
-        protectedUi = localUi.version === 2;
-        const script = readFileSync(
-            join(EXPERIMENT, protectedUi ? 'app-pilot/protectedUiFixture.js' : 'app-pilot/localUiFixture.js'),
-            'utf8',
-        );
-        assert(
-            script.split('__RESEARCH_LOCAL_UI_RUN_ID__').length === 2 &&
-                localUi.script === script.replace('__RESEARCH_LOCAL_UI_RUN_ID__', localUi.runID),
-        );
+        fullAppUi = localUi.version === 3;
+        if (fullAppUi) {
+            localUi = inspectFullAppNativeResource(
+                localUi,
+                readFileSync(join(EXPERIMENT, 'full-app-pilot/nativeUiFixture.js'), 'utf8'),
+            );
+            assert(fullAppWebReceiptFile && platform === 'iphonesimulator');
+            regular(fullAppWebReceiptFile, 16 * 1024 * 1024);
+            fullAppWeb = inspectWindowBuildReceipt(JSON.parse(readFileSync(fullAppWebReceiptFile, 'utf8')), CHECKOUT);
+            assert(directory(distArg) === directory(fullAppWeb.dist));
+            for (const row of [...fullAppWeb.sourceInputs, ...fullAppWeb.proofSources, ...fullAppWeb.artifacts]) {
+                regular(row.path);
+                assert(hash(row.path) === row.sha256);
+            }
+            assert(
+                tree(fullAppWeb.dist).join('\n') ===
+                    fullAppWeb.artifacts
+                        .map((row) => row.path)
+                        .sort()
+                        .join('\n'),
+            );
+        } else {
+            assert(
+                ((Object.keys(localUi).sort().join(',') === 'runID,script,version' && localUi.version === 1) ||
+                    (Object.keys(localUi).sort().join(',') === 'runID,scenario,script,version' &&
+                        localUi.version === 2 &&
+                        localUi.scenario === 'protected-exchange')) &&
+                    typeof localUi.runID === 'string' &&
+                    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(localUi.runID),
+            );
+            protectedUi = localUi.version === 2;
+            const script = readFileSync(
+                join(EXPERIMENT, protectedUi ? 'app-pilot/protectedUiFixture.js' : 'app-pilot/localUiFixture.js'),
+                'utf8',
+            );
+            assert(
+                script.split('__RESEARCH_LOCAL_UI_RUN_ID__').length === 2 &&
+                    localUi.script === script.replace('__RESEARCH_LOCAL_UI_RUN_ID__', localUi.runID),
+            );
+        }
     }
+    assert(fullAppUi ? !!fullAppWebReceiptFile : !fullAppWebReceiptFile, 'Full App web evidence is scenario-bound');
+    assert(fullAppUi || !seen.has('--slot-wait-ms'), 'Shared remaining budget belongs only to the full App fixture');
     const cache = directory(cacheArg),
         products = directory(productsArg),
         dist = directory(distArg);
@@ -474,6 +529,7 @@ try {
         ].map((name) => join(EXPERIMENT, name)),
     ];
     if (localUiFile) sourcePaths.push(join(HERE, 'ResearchLocalUiFixture.swift'));
+    if (fullAppUi) sourcePaths.push(join(HERE, 'ResearchFullAppHttpFence.swift'));
     if (protectedUi)
         sourcePaths.push(join(HERE, 'ResearchProtectedUiRelay.swift'), join(HERE, 'ResearchProtectedUiFixture.swift'));
     sourcePaths.forEach((path) => regular(path, 1024 * 1024));
@@ -525,6 +581,11 @@ try {
         outputRoot: scratch,
         localUiFixture: !!localUiFile,
         protectedUiFixture: protectedUi,
+        fullAppUiFixture: fullAppUi,
+        requestedSharedSlotWaitMs: fullAppUi ? fullAppSlotWaitMs : null,
+        fullAppWebReceiptSha256: fullAppUi ? hash(fullAppWebReceiptFile) : null,
+        fullAppFixtureContractSha256: hash(join(HERE, 'fullAppUiContract.mjs')),
+        localUiFixtureResourceSha256: localUiFile ? hash(localUiFile) : null,
         localUiFrameworksReceiptSha256: localUiFile ? hash(frameworkReceiptFile) : null,
     };
     saveReceipt();
@@ -560,6 +621,7 @@ try {
                 webDir: 'public',
                 loggingBehavior: 'none',
                 ios: { loggingBehavior: 'none', webContentsDebuggingEnabled: false },
+                ...(fullAppUi ? { plugins: { CapacitorHttp: { enabled: false } } } : {}),
             },
             null,
             2,
@@ -576,6 +638,17 @@ try {
     // fail closed; do not put pilot keys/configuration in its static web assets.
     assert(!existsSync(join(dist, 'research-config.json')) && !existsSync(join(dist, 'capacitor.config.json')));
     receipt.publicDistInputHashes = snapshotTree(dist, join(projectRoot, 'public'));
+    if (fullAppUi) {
+        const html = join(projectRoot, 'public/index.html');
+        const original = readFileSync(html, 'utf8');
+        const permitted = 'connect-src ' + ORIGIN;
+        assert(original.split(permitted).length === 2 && !original.includes("connect-src 'none'"));
+        writeFileSync(html, original.replace(permitted, "connect-src 'none'; frame-src 'none'"), { mode: 0o600 });
+        receipt.fullAppCspTightened = true;
+        receipt.fullAppFixtureHtmlSha256 = hash(html);
+        // The original passed web output is preserved, not silently recompiled.
+        for (const row of fullAppWeb.artifacts) assert(hash(row.path) === row.sha256);
+    }
     mkdirSync(join(projectRoot, 'Sources'), { mode: 0o700 });
     for (const source of sourcePaths) {
         const name = relative(dirname(source), source),
@@ -668,7 +741,7 @@ try {
     receipt.bundledConfigSha256 = hash(join(projectRoot, 'research-config.json'));
     saveReceipt();
     stage = 'shared build slot';
-    await reserveBuildSlot();
+    await reserveBuildSlot(fullAppUi ? fullAppSlotWaitMs : Infinity);
     stage = 'unsigned isolated compile';
     receipt.status = 'building';
     saveReceipt();
@@ -716,7 +789,8 @@ try {
             ...(localUiFile
                 ? [
                       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=E2EE_LOCAL_UI_FIXTURE' +
-                          (protectedUi ? ' E2EE_PROTECTED_UI_FIXTURE' : ''),
+                          (protectedUi ? ' E2EE_PROTECTED_UI_FIXTURE' : '') +
+                          (fullAppUi ? ' E2EE_FULL_APP_UI_FIXTURE' : ''),
                   ]
                 : []),
             'build',
@@ -770,8 +844,10 @@ try {
     );
 } catch {
     if (receipt) {
-        receipt.status = 'failed';
-        receipt.failedStage = stage;
+        if (receipt.status !== 'queued-unrun') {
+            receipt.status = 'failed';
+            receipt.failedStage = stage;
+        }
         saveReceipt();
     }
     console.error(

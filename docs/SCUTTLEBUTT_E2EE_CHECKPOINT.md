@@ -56,6 +56,8 @@ implementation choices should be recorded. If a step needs human devices or
 expired account access, continue unrelated unblocked work and retain the gate.
 The 6 October integration rebase onto `7e0b27a4` preserved Claude's then-newer app
 fixes. Shared master `058ba16e` was observed on 9 October but is unreconciled.
+The later native startup slice observes `196bcb0e`, also externally advanced and
+unreconciled; neither combined master state has been tested by this slice.
 Fetch and reconcile later master changes before any eventual merge, preserving
 published integration history without rewriting or force-pushing it. The
 unsupported Window proof on `8c28d08e` does not test a candidate combined with
@@ -103,8 +105,9 @@ full-App Research composition now has closed startup/authority leaves and an
 actual unsupported jsdom App/remount check. Its instrumented web bundle compiled
 and passed the complete unsupported-browser scenario in a fresh owned Chrome
 Window: startup, Chat selection, synthetic closure, whole-root remount, blocked
-audio CSP control and final synthetic terminal closure. No full-App
-native host or supported SDK login ran. The ordinary
+audio CSP control and final synthetic terminal closure. A separate simulator-only
+native full-App startup fixture now compiles, but native startup and supported
+SDK login acceptance remain unproved. The ordinary
 app/router still has no experimental startup admission. Production
 cutover is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
@@ -139,6 +142,62 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 9 October native full Root startup compilation
+
+The [native startup manifest](../experiments/scuttlebutt-e2ee/review/full-app-native-startup-2026-10-09.json)
+records two passed unsigned simulator builds, **not a passed native startup**.
+The eight-file implementation on `f634007a` adds a separate resource-v3/report-v2
+scenario. It uses the existing Research Auth host/plugin/controller, supplies one
+configurable synthetic transport on both fetch aliases before entry, and leaves
+other API sealing to the entry fence. A simulator-only native HTTP backstop
+reserves both `CapacitorHttp` and the inspected `CAPHttpPlugin` class-name route
+before document loading, refusing all six cached methods and listener insertion.
+This is not a general native or OS network sandbox; the old cold/protected
+scenarios remain separate conditional branches.
+
+Reports bind the main frame, same WKWebView/controller, exact local scheme/host
+and private run/nonce, with only copied fixed Window facts and DOM booleans.
+The code is designed to inspect verified/unregistered/unpaired/unknown native
+state before terminal closure, then observe the original credential snapshot
+becoming stale through the controller's existing queued fence. It creates no
+extra Auth loop, enrollment or key reset and never claims durable logout or
+revocation from that credential fence. These native lifecycle assertions have
+**not passed execution**. The diagnostic copier rejects unknown fields,
+accessors and raw identity/error/DOM payloads before exporting an incomplete
+receipt; final acceptance retains its stricter validator.
+
+The initial **46 synthetic contract cases and narrow types passed**. Constructor
+qualification/formatting repairs then passed named lint/format. After diagnostic
+hardening, **only nine new cases passed, with the earlier 46 skipped**, followed
+by final narrow types and named lint/format. These are separate source snapshots,
+not an all-55 result on final bytes or native execution evidence. Lint/format
+failures remain retained. No old browser or broad native suite was repeated.
+
+Both native builds copied the hash-matched cached provider/bindings and Capacitor
+8.5.2/Cordova frameworks into private projects, compiled unsigned, verified
+simulator entitlement sections and preserved the originals. Only owned app copies
+were ad-hoc signed for new disposable simulators. The 1,990-input/256-output web
+bundle and proof-only rebound receipt were preserved without recompilation;
+only privately copied HTML received the tighter CSP. Cached hashes are not an
+independent binary-provenance chain.
+
+The first attempt failed at `actual-full-root-native` without a recorded native
+phase or v2 receipt; its cause remains unknown because that driver lacked the
+later operation diagnostics. The second compiled again for a fresh resource,
+but its owned simulator's boot-status operation timed out before app installation
+or launch: exit status was null and the timeout flag true. That infrastructure
+failure does not establish an application regression. Both exact owned simulators
+were removed. Cumulative shared-slot waiting was **60,013 of 120,000 ms**, carried
+through both attempts without resetting the opportunity; no further rerun occurred.
+
+Next diagnose the boot/app harness using preserved artifacts and fresh explicit
+ownership, without repeatedly rebuilding unchanged runtime code or resetting a
+human installation. Native full-root startup, protected exchange, lifecycle,
+physical, licence/provenance and independent-assessment gates remain open.
+Shared master `196bcb0e` is externally advanced and unreconciled; this candidate
+does not test a combined master state. Foundation `3c30f47c` is unchanged. No
+master, primary, hosted/human or external reviewer change occurred.
 
 ### 9 October unsupported full Root Window acceptance
 
@@ -191,13 +250,10 @@ selected Puppeteer files, not complete transitive binary provenance. No SDK logi
 full-App native execution, encrypted exchange, physical acceptance or independent
 assessment is claimed.
 
-The next milestone is separate native full-root startup, not another unchanged
-browser sweep. Private HTTP-backstop and JS fixture drafts are hashed but remain
-uncompiled, unexecuted and unadopted. The `full-app-native-startup` plan uses
-a fresh WKWebView simulator: configurable
-synthetic fetch/CapacitorWebFetch and a simulator-only CapacitorHttp denial
-backstop registered before loading the entry/Root. That is planning only, followed
-by a separate protected-exchange proof. Native/physical/hosted acceptance,
+The later native full-root implementation above adopts the reviewed drafts and
+compiles; its startup acceptance remains unproved. A separate protected-exchange
+proof follows only after that gate. No unchanged browser sweep is needed.
+Native/physical/hosted acceptance,
 device/prekey/recovery/retention, licence/provenance and independent security
 assessment remain distinct gates. Shared master was observed externally advanced
 to `058ba16e`; it was neither written nor reconciled here, and the `8c28d08e`
