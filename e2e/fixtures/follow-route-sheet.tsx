@@ -142,7 +142,8 @@ function Fixture() {
         params.has('notice') ? 'Pins 14→15: crosses charted land' : null,
     );
     const [loadingId, setLoadingId] = useState<string | null>(null);
-    const [preStart, setPreStart] = useState(false);
+    // ?prestart: the sheet as the slide opens it, before the voyage exists.
+    const [preStart, setPreStart] = useState(params.has('prestart'));
     const [outcome, setOutcome] = useState('waiting');
     const dialogRef = useRef<HTMLDivElement>(null);
     const dismissRef = useRef<HTMLButtonElement>(null);
@@ -178,6 +179,10 @@ function Fixture() {
                     dismissFollowPrompt={() => {
                         setOpen(false);
                         setOutcome('just recording');
+                    }}
+                    closeFollowPrompt={() => {
+                        setOpen(false);
+                        setOutcome('closed');
                     }}
                     followPromptDialogRef={dialogRef}
                     followPromptDismissRef={dismissRef}
