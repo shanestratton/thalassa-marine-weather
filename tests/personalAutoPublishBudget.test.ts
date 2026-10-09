@@ -9,29 +9,34 @@
  * the end of a Pi sync would re-upload the whole personal library over
  * Starlink or 4G, under way, with no confirmation. Past a small budget it now
  * waits for the manual publish, which shows the size first.
+ *
+ * Since build 126 (126-20) the personal chart shelf is closed outright —
+ * o-charts: no unencrypted chart data in the cloud — so not even the small
+ * budget goes up. The budget pins stay for the code that remains until 127.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-    cells: [] as unknown[],
-    upload: vi.fn(async () => ({ error: null })),
-    manifest: null as unknown,
-}));
+const mocks = vi.hoisted(() => {
+    const state = {
+        cells: [] as unknown[],
+        upload: vi.fn(async () => ({ error: null })),
+        manifest: null as unknown,
+        from: vi.fn(),
+    };
+    state.from.mockImplementation(() => ({
+        download: async () =>
+            state.manifest
+                ? { data: new Blob([JSON.stringify(state.manifest)]), error: null }
+                : { data: null, error: { message: 'not found' } },
+        upload: state.upload,
+    }));
+    return state;
+});
 
 vi.mock('../services/supabase', () => ({
     isSupabaseConfigured: () => true,
     getCurrentUserId: async () => 'user-1',
-    supabase: {
-        storage: {
-            from: () => ({
-                download: async () =>
-                    mocks.manifest
-                        ? { data: new Blob([JSON.stringify(mocks.manifest)]), error: null }
-                        : { data: null, error: { message: 'not found' } },
-                upload: mocks.upload,
-            }),
-        },
-    },
+    supabase: { storage: { from: mocks.from } },
 }));
 vi.mock('../services/enc/EncCellMetadata', () => ({
     listRegisteredCells: () => mocks.cells,
@@ -62,6 +67,7 @@ beforeEach(() => {
     localStorage.clear();
     resetPersonalCellSync();
     mocks.upload.mockClear();
+    mocks.from.mockClear();
     setAutoPublishEnabled(true);
 });
 
@@ -82,12 +88,14 @@ describe('auto-publish budget', () => {
         expect(mocks.upload).not.toHaveBeenCalled();
     });
 
-    it('a few newly imported cells still auto-publish', async () => {
+    it('not even a few newly imported cells go up now: the shelf is closed (126-20)', async () => {
+        // Inside the old budget, with the opt-in flag on: before 126 this was
+        // two cells + the manifest. Now nothing touches Storage at all.
         mocks.cells = [cell(1, 900_000), cell(2, 1_100_000)];
         mocks.manifest = null;
         await publishNewCellsIfEnabled();
-        // Two cells + the manifest.
-        expect(mocks.upload).toHaveBeenCalledTimes(3);
+        expect(mocks.upload).not.toHaveBeenCalled();
+        expect(mocks.from).not.toHaveBeenCalled();
     });
 
     it('the budget is small enough for a mobile link', () => {

@@ -365,6 +365,18 @@ export function useAppBootstrap() {
             .catch((err) => console.error('[Boot] seabed capture failed to start:', err?.message || err));
     }, []);
 
+    // ── Licensed charts never go to the cloud (build 126, 126-20) ───
+    // Retire the per-device chart Auto-publish flag at every launch. Nothing
+    // reads it while the personal shelf is switched off, and no later build
+    // may ever take an old "on" as a yes to upload charts.
+    useEffect(() => {
+        try {
+            localStorage.removeItem('thalassa_enc_auto_publish');
+        } catch {
+            /* no storage, no flag */
+        }
+    }, []);
+
     // ── Sightings logged offline go out after a relaunch ─────────────
     // The outbox lives in IndexedDB inside the lazy Sightings code; a WebView
     // killed at sea would otherwise hold them until Sightings next opens.

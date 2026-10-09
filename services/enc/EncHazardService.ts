@@ -1908,8 +1908,12 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
     try {
         const { downloadCloudCell } = await import('./cloudCellSync');
         const { downloadPersonalCell } = await import('./personalCellSync');
-        // Curated first, then the skipper's OWN published cells. This walk
-        // does NOT go through loadCellGeoJSON, so it does not inherit that
+        // Curated first, then the skipper's OWN published cells. Since 126-20
+        // the curated shelf answers NOAA cells only and the personal one is
+        // closed (both refuse before any request), so a licensed cell is
+        // never fetched from the cloud here.
+        //
+        // This walk does NOT go through loadCellGeoJSON, so it does not inherit that
         // function's remote-fallback ladder — a personal-only cell (Noumea,
         // Port Vila: licensed to one account, never in the curated bucket)
         // would register as pending, fail its cloud download, and sit in the

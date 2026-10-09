@@ -70,6 +70,38 @@ describe('the write fence covers them too', () => {
     });
 });
 
+describe('closing the personal shelf (20261010115000) keeps deletion reaching it', () => {
+    // 126-20 drops the owner read, insert and update policies on u/<uid>/ so
+    // no build can add charts there or read them back. The objects already
+    // there are removed by Shane through the Storage API, and an account's
+    // deletion must still find and remove anything left: the inventory keeps
+    // 'enc-cells', and the owner delete policy stays.
+    const closed = readFileSync(`${DIR}/20261010115000_enc_cells_personal_shelf_closed.sql`, 'utf8');
+
+    it('drops no deletion function and no owner delete', () => {
+        expect(closed).not.toMatch(/account_deletion_storage_inventory|block_tombstoned_storage_write/);
+        expect(closed).not.toMatch(/drop\s+policy[^;]*"enc cells owner delete"/i);
+        expect(closed).toMatch(/policyname NOT IN \('enc cells owner delete', 'enc cells shared read noaa'\)/);
+    });
+
+    it('the latest inventory still names the bucket at segment two, behind u', () => {
+        const names = readdirSync(DIR)
+            .filter((n) => n.endsWith('.sql'))
+            .sort();
+        const latest = [...names]
+            .reverse()
+            .find((n) =>
+                /CREATE (OR REPLACE )?FUNCTION public\.account_deletion_storage_inventory/.test(
+                    readFileSync(`${DIR}/${n}`, 'utf8'),
+                ),
+            );
+        expect(latest, 'no migration defines the inventory').toBeDefined();
+        const inv = fnBody(readFileSync(`${DIR}/${latest}`, 'utf8'), 'account_deletion_storage_inventory');
+        expect(inv).toContain("'enc-cells'");
+        expect(inv).toMatch(/split_part\(object\.name, '\/', 2\) = p_user_id::TEXT/);
+    });
+});
+
 describe('why this one needed fixing rather than noting', () => {
     it('the verifier re-runs the inventory, so a blind spot reads as clean', () => {
         const verify = durability.slice(durability.indexOf('verify_account_deletion_storage_empty'));

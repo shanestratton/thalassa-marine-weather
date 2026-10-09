@@ -15,6 +15,14 @@
  * signed-out browser simply gets no charts, and the tracer says so honestly.
  * Blobs download ON DEMAND (loadCellGeoJSON miss → fetch), so opening the
  * builder doesn't pull 55 MB up front.
+ *
+ * NOAA ONLY since build 126 (126-20). The root shelf held licensed o-charts
+ * extracts, and o-charts says decrypted chart data must never be stored in the
+ * cloud. The server has served only NOAA cell files at the root since
+ * 20261009070000; this module keeps the same line as a belt: a manifest entry
+ * that is not a NOAA id is dropped before it can register, and
+ * downloadCloudCell refuses one before any request. NOAA ENCs are public
+ * domain.
  */
 import { supabase, isSupabaseConfigured } from '../supabase';
 import {
@@ -80,6 +88,14 @@ let manifestSyncPromise: Promise<ActiveManifest | null> | null = null;
 const inflightCells = new Map<string, InflightCellDownload>();
 let activeManifest: ActiveManifest | null = null;
 
+/** A NOAA ENC cell name, exactly as the server's root read policy matches its
+ *  file (20261009070000: `^US[0-9][A-Z0-9]{5}\.json$`). */
+const NOAA_CELL_ID = /^US[0-9][A-Z0-9]{5}$/;
+
+export function isNoaaEncCellId(cellId: string): boolean {
+    return NOAA_CELL_ID.test(canonicalEncCellId(cellId));
+}
+
 const CLOUD_MANIFEST_MAX_BYTES = 512 * 1024;
 const CLOUD_MANIFEST_MAX_CELLS = 512;
 const CLOUD_MANIFEST_FRESH_MS = 5 * 60 * 1000;
@@ -126,6 +142,18 @@ function parseCloudManifest(value: unknown): CloudManifest | null {
     }
     cells.sort((a, b) => a.cellId.localeCompare(b.cellId));
     return { version: candidate.version, cells };
+}
+
+/** Licensed charts never come from the cloud (126-20): only NOAA cells are
+ *  kept, whatever else the manifest lists. Applied after the continuity
+ *  signature, which still covers the manifest as published, so a device that
+ *  stored it before 126 agrees about an unchanged version. */
+function noaaCellsOnly(manifest: CloudManifest): CloudManifest {
+    const cells = manifest.cells.filter((cell) => isNoaaEncCellId(cell.cellId));
+    if (cells.length < manifest.cells.length) {
+        log.warn(`manifest: ${manifest.cells.length - cells.length} non-NOAA cells ignored`);
+    }
+    return { version: manifest.version, cells };
 }
 
 function manifestSignature(manifest: CloudManifest): string {
@@ -289,10 +317,11 @@ async function ensureActiveManifest(forceRefresh: boolean): Promise<ActiveManife
     }
     if (manifestSyncPromise) return manifestSyncPromise;
     const sync = (async (): Promise<ActiveManifest | null> => {
-        const manifest = await fetchManifest();
-        if (!manifest) return null;
-        const signature = manifestSignature(manifest);
-        if (!manifestContinuityIsValid(manifest, signature)) return null;
+        const published = await fetchManifest();
+        if (!published) return null;
+        const signature = manifestSignature(published);
+        if (!manifestContinuityIsValid(published, signature)) return null;
+        const manifest = noaaCellsOnly(published);
         // Publish the snapshot before reconciliation. Any older blob request
         // completing concurrently now sees a changed signature and discards
         // its bytes before the import lock is entered.
@@ -345,9 +374,9 @@ export async function registerCloudCells(): Promise<number> {
  * cell. Returns true when the blob is saved locally.
  */
 export async function downloadCloudCell(rawCellId: string, expectedManifestVersion?: number): Promise<boolean> {
-    if (!isSupabaseConfigured() || !supabase) return false;
+    // NOAA only, before any request: licensed charts never come from the cloud.
+    if (!isNoaaEncCellId(rawCellId) || !isSupabaseConfigured() || !supabase) return false;
     const cellId = canonicalEncCellId(rawCellId);
-    if (!ENC_CELL_ID_PATTERN.test(cellId)) return false;
     const snapshot = await ensureActiveManifest(false);
     if (!snapshot || (expectedManifestVersion !== undefined && expectedManifestVersion !== snapshot.manifest.version)) {
         return false;
@@ -500,6 +529,7 @@ export async function downloadCloudCellsForBBox(bbox: [number, number, number, n
     }
     // Then the skipper's own cells, which the curated filter above can never
     // match (they carry personalManifestVersion, not cloudManifestVersion).
+    // Closed since 126-20: this answers "nothing, unavailable" without a request.
     const { downloadPersonalCellsForBBox } = await import('./personalCellSync');
     const personal = await downloadPersonalCellsForBBox(bbox);
     downloaded += personal.downloaded;

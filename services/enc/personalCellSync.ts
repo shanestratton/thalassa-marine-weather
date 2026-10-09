@@ -1,4 +1,17 @@
 /**
+ * Personal ENC cell store — CLOSED since build 126 (package 126-20).
+ *
+ * It copied the skipper's decrypted charts to enc-cells/u/<uid>/ so they
+ * followed the account to a second device. o-charts (Roberto, 2026-10-10):
+ * "Storing unencrypted data on any medium, and especially in the cloud, is
+ * strictly prohibited by the terms of the licenses signed with the chart
+ * providers." So no licensed chart cell goes to, or comes from, the cloud:
+ * PERSONAL_CHART_CLOUD_ENABLED is false, and every function here that would
+ * touch the bucket returns its "off" value before anything else runs. The
+ * server agrees (20261010115000 drops the owner read, insert and update
+ * policies). Callers stay wired until build 127 deletes this module; do not
+ * turn it back on. What follows is the module as it was.
+ *
  * Personal ENC cell store — the skipper's OWN charts, following their account
  * to whatever device they sign in on.
  *
@@ -50,6 +63,9 @@ import { createLogger } from '../../utils/createLogger';
 import { withTimeout } from '../../utils/deadline';
 
 const log = createLogger('personalCellSync');
+
+/** Off for good: licensed charts never go to, or come from, the cloud (see the header). */
+export const PERSONAL_CHART_CLOUD_ENABLED = false;
 
 const BUCKET = 'enc-cells';
 
@@ -258,6 +274,7 @@ async function ensureActiveManifest(forceRefresh: boolean): Promise<ActivePerson
  * registered.
  */
 export async function syncPersonalCells(): Promise<number> {
+    if (!PERSONAL_CHART_CLOUD_ENABLED) return 0;
     const active = await ensureActiveManifest(true);
     if (!active) return 0;
     const { manifest } = active;
@@ -297,6 +314,7 @@ export async function syncPersonalCells(): Promise<number> {
  * store. Deduped per cell. Returns true when the blob is saved locally.
  */
 export async function downloadPersonalCell(rawCellId: string): Promise<boolean> {
+    if (!PERSONAL_CHART_CLOUD_ENABLED) return false;
     if (!isSupabaseConfigured() || !supabase) return false;
     const cellId = canonicalEncCellId(rawCellId);
     if (!ENC_CELL_ID_PATTERN.test(cellId)) return false;
@@ -417,6 +435,7 @@ function needsPublish(cell: EncCell, published: Map<string, PersonalManifestCell
  * shows before spending several hundred megabytes of someone's data plan.
  */
 export async function getPublishPlan(): Promise<PublishPlan> {
+    if (!PERSONAL_CHART_CLOUD_ENABLED) return { candidates: [], bytes: 0, alreadyPublished: 0, available: false };
     const userId = await getCurrentUserId();
     if (!userId || !isSupabaseConfigured() || !supabase) {
         return { candidates: [], bytes: 0, alreadyPublished: 0, available: false };
@@ -469,6 +488,7 @@ export async function publishPersonalCells(
         signal?: AbortSignal;
     } = {},
 ): Promise<PublishResult> {
+    if (!PERSONAL_CHART_CLOUD_ENABLED) return { uploaded: 0, failed: [], cancelled: false, available: false };
     const { onProgress, signal } = options;
     const userId = await getCurrentUserId();
     if (!userId || !isSupabaseConfigured() || !supabase) {
@@ -582,6 +602,7 @@ export async function downloadPersonalCellsForBBox(bbox: [number, number, number
     needed: number;
     available: boolean;
 }> {
+    if (!PERSONAL_CHART_CLOUD_ENABLED) return { downloaded: 0, needed: 0, available: false };
     if (!isSupabaseConfigured() || !supabase) return { downloaded: 0, needed: 0, available: false };
     await syncPersonalCells();
     if (!activeManifest) return { downloaded: 0, needed: 0, available: false };
@@ -600,6 +621,8 @@ export async function downloadPersonalCellsForBBox(bbox: [number, number, number
 
 // ── Staying in sync after the first publish ───────────────────────────────
 
+/** Retired with the shelf: hooks/useAppBootstrap.ts clears it at every launch,
+ *  so an old "on" can never read as a yes to upload. */
 const AUTO_PUBLISH_KEY = 'thalassa_enc_auto_publish';
 
 export function isAutoPublishEnabled(): boolean {
@@ -640,6 +663,7 @@ export const AUTO_PUBLISH_MAX_CELLS = 20;
  * publish and its confirmation.
  */
 export async function publishNewCellsIfEnabled(): Promise<void> {
+    if (!PERSONAL_CHART_CLOUD_ENABLED) return;
     if (!isAutoPublishEnabled()) return;
     try {
         const plan = await getPublishPlan();

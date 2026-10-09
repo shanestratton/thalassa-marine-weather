@@ -747,10 +747,11 @@ export async function syncEncFromPi(
         cellsDone: persisted.length,
     });
 
-    // Keep the skipper's own cloud current, so charts pulled off the Pi on the
-    // boat are in the browser by the time they're planning ashore. Opt-in only
-    // (see publishNewCellsIfEnabled) and deliberately not awaited: the sync is
-    // finished and reported, and a slow upstream must not hold it open.
+    // Kept the skipper's own cloud current after a Pi sync. Since 126-20 the
+    // personal shelf is closed (licensed charts never go to the cloud), so
+    // publishNewCellsIfEnabled returns before reading the old opt-in flag or
+    // touching Storage; build 127 removes this hook with the module. Not
+    // awaited: the sync is finished and reported.
     if (persisted.length > 0) {
         void import('./enc/personalCellSync')
             .then(({ publishNewCellsIfEnabled }) => publishNewCellsIfEnabled())

@@ -199,13 +199,13 @@ export function useAutoRouteLeg(deps: AutoRouteLegDeps): () => void {
                                 );
                                 if (!fill.bucketAvailable) {
                                     setAutoRouteDiag(
-                                        "⚡ This leg needs charts your session doesn't have, and the chart cloud isn't reachable. Check your connection and that you're signed in (the charts are licensed).",
+                                        "⚡ This leg needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: sync them aboard, then try again.",
                                     );
                                     return;
                                 }
                                 if (fill.downloaded === 0 && fill.needed > 0) {
                                     setAutoRouteDiag(
-                                        "⚡ The missing charts wouldn't download — you're probably not signed in (the chart bucket is licensed-access). Sign in and try again.",
+                                        "⚡ The missing charts wouldn't download. You're probably not signed in: sign in and try again.",
                                     );
                                     return;
                                 }
