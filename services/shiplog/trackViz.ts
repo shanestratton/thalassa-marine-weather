@@ -102,7 +102,10 @@ export function nearestTrackEntry(entries: ShipLogEntry[], lat: number, lon: num
     for (const e of entries) {
         if (!isTrackworthyEntry(e)) continue;
         const dLat = (e.latitude as number) - lat;
-        const dLon = ((e.longitude as number) - lon) * cosLat;
+        // The short way round: a track map draws a passage past Fiji as one
+        // line, so a tap at 180.05 lies beside a fix stored at -179.95.
+        const dLonDeg = (((((e.longitude as number) - lon) % 360) + 540) % 360) - 180;
+        const dLon = dLonDeg * cosLat;
         const d = dLat * dLat + dLon * dLon;
         if (d < bestD) {
             bestD = d;

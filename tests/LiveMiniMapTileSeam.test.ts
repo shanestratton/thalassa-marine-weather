@@ -6,27 +6,28 @@ import { LEAFLET_TILE_SEAM_OVERSCAN_PX, installLeafletTileSeamGuard } from '../c
 
 const liveMiniMapSource = readFileSync(resolve(process.cwd(), 'components/LiveMiniMap.tsx'), 'utf8');
 const trackMapViewerSource = readFileSync(resolve(process.cwd(), 'components/TrackMapViewer.tsx'), 'utf8');
+const sightingsMapSource = readFileSync(resolve(process.cwd(), 'components/sightings/SightingsMap.tsx'), 'utf8');
 const globalStyles = readFileSync(resolve(process.cwd(), 'index.css'), 'utf8');
 
 describe('Log map tile compositing', () => {
-    it('keeps the Leaflet seam guard on the big track map; the little map left Leaflet for Mapbox', () => {
-        // 125-13a: the little map is Mapbox GL on Relief + Sat. Its seamless
-        // sea is drawn under the opaque water fill, so it has no tile seams to
-        // guard and no Leaflet left to guard them with.
-        expect(liveMiniMapSource).not.toMatch(
-            /from 'leaflet'|leaflet\/dist|thalassa-log-leaflet-map|installLeafletTileSeamGuard/,
-        );
+    it('keeps the Leaflet seam guard on the Sightings map; both Log maps left Leaflet for Mapbox', () => {
+        // 125-13a and 125-13b: the little and the big Log maps are Mapbox GL on
+        // Relief + Sat. Their seamless sea is drawn under the opaque water
+        // fill, so they have no tile seams to guard and no Leaflet left to
+        // guard them with.
+        for (const source of [liveMiniMapSource, trackMapViewerSource])
+            expect(source).not.toMatch(
+                /from 'leaflet'|leaflet\/dist|thalassa-log-leaflet-map|installLeafletTileSeamGuard/,
+            );
         expect(liveMiniMapSource).toContain("import('./LiveMiniMapGL')");
-        expect(trackMapViewerSource).toContain('thalassa-log-leaflet-map absolute inset-0');
+        expect(trackMapViewerSource).toContain("import('./TrackMapViewerGL')");
+        // The Sightings map is still Leaflet on the Log page's own tiles, and
+        // keeps the guard on its one opaque base layer.
+        expect(sightingsMapSource).toContain('thalassa-log-leaflet-map absolute inset-0');
         expect(globalStyles).toMatch(
             /\.thalassa-log-leaflet-map\.leaflet-container img\.leaflet-tile\s*\{\s*image-rendering: auto;\s*mix-blend-mode: normal;/,
         );
-        // Was 2: a vestigial "day/night base swap" effect rebuilt an identical
-        // base layer on every open (LOG_TILES is one module constant, so there
-        // was never a second style to swap to). One construction site now, and
-        // it still installs the guard.
-        expect(trackMapViewerSource.match(/installLeafletTileSeamGuard\(base\);/g)).toHaveLength(1);
-        expect(trackMapViewerSource).not.toContain('installLeafletTileSeamGuard(seamark');
+        expect(sightingsMapSource.match(/installLeafletTileSeamGuard\(base\);/g)).toHaveLength(1);
     });
 
     it('overscans each opaque base tile by one pixel before it can expose the container background', () => {
