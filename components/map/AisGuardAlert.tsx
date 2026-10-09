@@ -45,7 +45,8 @@
  * themselves load lazily, only once there is one to draw). A sounding one
  * lifts the stack above the night tint like a collision card. If their chunk
  * will not load (a web tab left open across a deploy), a plain card with the
- * same button stands in, and the rest of the stack stays drawn.
+ * same button stands in, and the rest of the stack stays drawn. (126-02b) The
+ * watch check rides last, after off route, with its one "I'm on watch".
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import type { GuardAlert } from '../../services/AisGuardZone';
@@ -126,26 +127,32 @@ class UnderwayCardsBoundary extends React.Component<
             <>
                 {this.props.cards.map((card) => {
                     const shoal = card.kind === 'shoal';
+                    // 126-02b: the watch check's only answer, sounding or a minute ahead.
+                    const watch = card.kind === 'watch-check';
                     return (
                         <div key={card.kind} role="alert" data-underway={card.kind} style={CARD}>
                             <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.5 }}>{card.title}</div>
                             <div style={{ fontSize: 15, fontWeight: 800, marginTop: 2 }}>{card.value}</div>
-                            {(shoal || card.sounding) && (
+                            {(shoal || watch || card.sounding) && (
                                 <button
                                     type="button"
                                     style={{ ...ACTION, width: '100%', fontSize: 13, fontWeight: 800 }}
                                     aria-label={
-                                        shoal
-                                            ? 'Acknowledge the shoal alarm'
-                                            : 'Mute the off-route alarm for 30 minutes'
+                                        watch
+                                            ? "I'm on watch"
+                                            : shoal
+                                              ? 'Acknowledge the shoal alarm'
+                                              : 'Mute the off-route alarm for 30 minutes'
                                     }
                                     onClick={() =>
-                                        shoal
-                                            ? UnderwayAlarmStore.acknowledge('shoal')
-                                            : UnderwayAlarmStore.mute('off-route')
+                                        watch
+                                            ? UnderwayAlarmStore.onWatch()
+                                            : shoal
+                                              ? UnderwayAlarmStore.acknowledge('shoal')
+                                              : UnderwayAlarmStore.mute('off-route')
                                     }
                                 >
-                                    {shoal ? 'Acknowledge' : 'Mute 30 min'}
+                                    {watch ? "I'm on watch" : shoal ? 'Acknowledge' : 'Mute 30 min'}
                                 </button>
                             )}
                         </div>

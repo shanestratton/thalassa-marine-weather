@@ -68,6 +68,24 @@ const OFF_ROUTE: UnderwayAlarmCard = {
     mutedUntil: null,
 };
 
+const WATCH_SOUNDING: UnderwayAlarmCard = {
+    kind: 'watch-check',
+    title: 'WATCH CHECK',
+    value: "Tap I'm on watch",
+    detail: "Nobody has tapped I'm on watch for 15 min",
+    sounding: true,
+    mutedUntil: null,
+};
+
+const WATCH_WARNING: UnderwayAlarmCard = {
+    kind: 'watch-check',
+    title: 'WATCH CHECK',
+    value: 'Watch check in 1 min',
+    detail: 'Every 15 min while the track records',
+    sounding: false,
+    mutedUntil: null,
+};
+
 beforeEach(() => {
     AisGuardAlertStore.clear();
     UnderwayAlarmStore.clear();
@@ -144,6 +162,43 @@ describe('the under-way cards in the alarm stack', () => {
         expect(screen.queryByRole('alert')).toBeNull();
     });
 
+    // 126-02b: the watch check rides last, after off route.
+    it('the watch check sits last, after off route, and only I’m on watch answers it', async () => {
+        const actions: string[] = [];
+        UnderwayAlarmStore.subscribeActions((a) => actions.push(a.kind));
+        act(() => {
+            UnderwayAlarmStore.setWatchCheck(WATCH_SOUNDING, []);
+            UnderwayAlarmStore.set([OFF_ROUTE, SHOAL], []);
+        });
+        render(<AisGuardAlert />);
+        const watch = (await screen.findByText("Tap I'm on watch")).closest('[role="alert"]') as HTMLElement;
+        const offRoute = screen.getByText('OFF ROUTE');
+        expect(offRoute.compareDocumentPosition(watch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(watch).toHaveTextContent('WATCH CHECK');
+        expect(watch).toHaveTextContent("Nobody has tapped I'm on watch for 15 min.");
+        expect(UnderwayAlarmStore.getCards().map((c) => c.kind)).toEqual(['shoal', 'off-route', 'watch-check']);
+        const button = within(watch).getByRole('button', { name: "I'm on watch" });
+        expect(button.style.minHeight).toBe('44px');
+        expect(button.style.minWidth).toBe('44px');
+        expect(within(watch).getAllByRole('button')).toHaveLength(1);
+        fireEvent.click(button);
+        expect(actions).toEqual(['watch-check']);
+        // The under-way watch's own cards are its to set: the watch check's stays beside them.
+        act(() => UnderwayAlarmStore.set([], []));
+        expect(UnderwayAlarmStore.getCards().map((c) => c.kind)).toEqual(['watch-check']);
+    });
+
+    it('a minute ahead, the watch check is a calm heads-up with the same button, not an alarm', async () => {
+        act(() => UnderwayAlarmStore.setWatchCheck(WATCH_WARNING, []));
+        render(<AisGuardAlert />);
+        const card = (await screen.findByText('Watch check in 1 min')).closest('[role="status"]') as HTMLElement;
+        expect(card).toHaveTextContent('Every 15 min while the track records.');
+        expect(within(card).getByRole('button', { name: "I'm on watch" }).style.minHeight).toBe('44px');
+        expect(screen.queryByRole('alert')).toBeNull();
+        // Not sounding: the stack stays under the night tint.
+        expect(Number(screen.getByTestId('ais-guard-stack').style.zIndex)).not.toBe(NIGHT_SCRIM_Z_INDEX + 1);
+    });
+
     it('nothing at all: the stack is not drawn', () => {
         const { container } = render(<AisGuardAlert />);
         expect(container).toBeEmptyDOMElement();
@@ -204,6 +259,7 @@ describe('Settings → Preferences → Under-way alarms', () => {
             underwayAlarms: {
                 offRoute: { enabled: false, inshoreNm: 0.25, offshoreNm: 1 },
                 shoal: { enabled: true },
+                watchCheck: { enabled: false, intervalMin: 15 },
             },
         });
         fireEvent.click(screen.getByRole('switch', { name: 'Shoal alarm' }));
@@ -211,6 +267,7 @@ describe('Settings → Preferences → Under-way alarms', () => {
             underwayAlarms: {
                 offRoute: { enabled: true, inshoreNm: 0.25, offshoreNm: 1 },
                 shoal: { enabled: false },
+                watchCheck: { enabled: false, intervalMin: 15 },
             },
         });
         fireEvent.change(screen.getByLabelText('Off route offshore'), { target: { value: '2' } });
@@ -218,6 +275,48 @@ describe('Settings → Preferences → Under-way alarms', () => {
             underwayAlarms: {
                 offRoute: { enabled: true, inshoreNm: 0.25, offshoreNm: 2 },
                 shoal: { enabled: true },
+                watchCheck: { enabled: false, intervalMin: 15 },
+            },
+        });
+    });
+
+    // 126-02b: the watch check, OFF by default (it asks for a tap every interval).
+    it('has the watch check, OFF by default, every 15 min, with the honest line', async () => {
+        await renderPreferences({ draft: 2.4 * 3.28084 });
+        const watch = screen.getByRole('switch', { name: 'Watch check' });
+        expect(watch).toHaveAttribute('aria-checked', 'false');
+        const every = screen.getByLabelText('Watch check every') as HTMLSelectElement;
+        expect(every.value).toBe('15');
+        expect([...every.options].map((o) => o.textContent)).toEqual(['10 min', '15 min', '20 min', '30 min']);
+        const section = every.closest('.space-y-4') as HTMLElement;
+        expect(section).toHaveTextContent(
+            "While a voyage track records, Thalassa asks whoever is on watch to tap I'm on watch. If nobody does, it sounds, on the lock screen too.",
+        );
+        expect(section).toHaveTextContent(/starts once you are under way and runs until the track ends/);
+        expect(section).toHaveTextContent(/waits while the track is paused or an anchor watch is on/);
+        // Stage-3 review: a berth holds it only once somebody there has answered.
+        expect(section).toHaveTextContent(
+            /when she has stopped \(at a berth, say\) once somebody there has tapped I'm on watch/,
+        );
+        expect(section).toHaveTextContent(/booked with iOS ahead/);
+    });
+
+    it('saves the watch check and its interval, keeping the other alarms as they are', async () => {
+        const onSave = await renderPreferences({ draft: 2.4 * 3.28084 });
+        fireEvent.click(screen.getByRole('switch', { name: 'Watch check' }));
+        expect(onSave).toHaveBeenLastCalledWith({
+            underwayAlarms: {
+                offRoute: { enabled: true, inshoreNm: 0.25, offshoreNm: 1 },
+                shoal: { enabled: true },
+                watchCheck: { enabled: true, intervalMin: 15 },
+            },
+        });
+        fireEvent.change(screen.getByLabelText('Watch check every'), { target: { value: '30' } });
+        expect(onSave).toHaveBeenLastCalledWith({
+            underwayAlarms: {
+                offRoute: { enabled: true, inshoreNm: 0.25, offshoreNm: 1 },
+                shoal: { enabled: true },
+                watchCheck: { enabled: false, intervalMin: 30 },
             },
         });
     });

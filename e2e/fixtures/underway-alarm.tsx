@@ -9,6 +9,10 @@
  *
  * ?muted=1: the off-route card muted ('Muted until'). ?notices=1: the strip's
  * two longest words under the cards (not yet on the route, a stale sounder).
+ * ?watch=warning|sounding|missed (126-02b): the watch check, last in the stack,
+ * from the real rule (services/underway/watchCheckRule.ts) on Kestrel's
+ * 20-minute watch: a minute before the check, sounding at it, or missed while
+ * Thalassa was not running, with the strip's longest watch-check words.
  *
  * Fictional vessels only (MID 123 MMSIs): this repository is public.
  */
@@ -54,11 +58,12 @@ if (params.get('fonts') === 'wide') {
     document.head.append(wide);
 }
 
-const [{ AisGuardAlert }, { AisGuardAlertStore }, { UnderwayAlarmStore }, rule] = await Promise.all([
+const [{ AisGuardAlert }, { AisGuardAlertStore }, { UnderwayAlarmStore }, rule, watchRule] = await Promise.all([
     import('../../components/map/AisGuardAlert'),
     import('../../services/aisGuardAlertStore'),
     import('../../services/underway/underwayAlarmStore'),
     import('../../services/underway/underwayRule'),
+    import('../../services/underway/watchCheckRule'),
 ]);
 
 const now = Date.now();
@@ -119,6 +124,19 @@ UnderwayAlarmStore.set(
     ],
     params.get('notices') === '1' ? [rule.UNDERWAY_NOTICES.arming, rule.UNDERWAY_NOTICES.shoalStale] : [],
 );
+
+// Kestrel's watch check, every 20 min (the longest words it says at that interval).
+const watch = params.get('watch');
+if (watch === 'warning' || watch === 'sounding' || watch === 'missed') {
+    const dueAt = watch === 'warning' ? now + 50_000 : now - (watch === 'missed' ? 10 * 60_000 : 2_000);
+    const state = {
+        phase: watch === 'warning' ? ('waiting' as const) : ('sounding' as const),
+        intervalMin: 20,
+        dueAt,
+        missedAt: watch === 'missed' ? dueAt : null,
+    };
+    UnderwayAlarmStore.setWatchCheck(watchRule.watchCheckCard(state, now), [watchRule.WATCH_CHECK_NOTICES.notBooked]);
+}
 
 function Fixture() {
     return (

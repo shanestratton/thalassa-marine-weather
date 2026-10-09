@@ -8,14 +8,18 @@
  * the cards' buttons act here, and the watch hears them at once.
  *
  * Order is fixed: shoal water first, then off route (the danger under the
- * keel is now; the line can wait a minute). Both sit under the collision
- * cards; 126-02b adds the watch-check last.
+ * keel is now; the line can wait a minute), then (126-02b) the watch check.
+ * All sit under the collision cards. The under-way watch and the watch check
+ * (./watchCheck.ts) each publish their own part; neither can clear the other's.
  */
 
+/** The under-way watch's two alarms. */
 export type UnderwayAlarmKind = 'shoal' | 'off-route';
+/** A card in the stack: the under-way watch's two, and the watch check (126-02b). */
+export type UnderwayCardKind = UnderwayAlarmKind | 'watch-check';
 
 export interface UnderwayAlarmCard {
-    kind: UnderwayAlarmKind;
+    kind: UnderwayCardKind;
     title: string;
     /** The number, said plainly ('0.40 NM off the line', 'about 0.4 m under the keel'). */
     value: string;
@@ -29,13 +33,16 @@ export interface UnderwayAlarmCard {
 }
 
 export interface UnderwayAlarmAction {
-    kind: UnderwayAlarmKind;
+    kind: UnderwayCardKind;
     nowMs: number;
 }
 
-const ORDER: Record<UnderwayAlarmKind, number> = { shoal: 0, 'off-route': 1 };
+const ORDER: Record<UnderwayCardKind, number> = { shoal: 0, 'off-route': 1, 'watch-check': 2 };
 const MUTE_MS = 30 * 60_000;
 
+/** What the under-way watch last published, and what the watch check last published. */
+let own: { cards: UnderwayAlarmCard[]; notices: string[] } = { cards: [], notices: [] };
+let check: { cards: UnderwayAlarmCard[]; notices: string[] } = { cards: [], notices: [] };
 let cards: UnderwayAlarmCard[] = [];
 let notices: string[] = [];
 let signature = '';
@@ -48,6 +55,18 @@ function signatureOf(nextCards: UnderwayAlarmCard[], nextNotices: string[]): str
 
 function emit(): void {
     for (const l of listeners) l();
+}
+
+/** Both parts as one stack. Re-renders only when something changed. */
+function merge(): void {
+    const sorted = [...own.cards, ...check.cards].sort((a, b) => ORDER[a.kind] - ORDER[b.kind]);
+    const nextNotices = [...own.notices, ...check.notices];
+    const next = signatureOf(sorted, nextNotices);
+    if (next === signature) return;
+    signature = next;
+    cards = sorted;
+    notices = nextNotices;
+    emit();
 }
 
 function act(action: UnderwayAlarmAction): void {
@@ -77,15 +96,16 @@ export const UnderwayAlarmStore = {
         return cards.some((c) => c.sounding);
     },
 
-    /** The watch's whole word for this pass. Re-renders only when something changed. */
+    /** The under-way watch's whole word for this pass. Re-renders only when something changed. */
     set(nextCards: UnderwayAlarmCard[], nextNotices: string[]): void {
-        const sorted = [...nextCards].sort((a, b) => ORDER[a.kind] - ORDER[b.kind]);
-        const next = signatureOf(sorted, nextNotices);
-        if (next === signature) return;
-        signature = next;
-        cards = sorted;
-        notices = [...nextNotices];
-        emit();
+        own = { cards: nextCards.filter((c) => c.kind !== 'watch-check'), notices: [...nextNotices] };
+        merge();
+    },
+
+    /** The watch check's whole word (126-02b): its one card or none, and its strip notices. */
+    setWatchCheck(card: UnderwayAlarmCard | null, nextNotices: string[]): void {
+        check = { cards: card ? [{ ...card, kind: 'watch-check' }] : [], notices: [...nextNotices] };
+        merge();
     },
 
     subscribe(listener: () => void): () => void {
@@ -97,8 +117,8 @@ export const UnderwayAlarmStore = {
     mute(kind: 'off-route', nowMs = Date.now()): void {
         const until = nowMs + MUTE_MS;
         UnderwayAlarmStore.set(
-            cards.map((c) => (c.kind === kind && c.sounding ? { ...c, sounding: false, mutedUntil: until } : c)),
-            notices,
+            own.cards.map((c) => (c.kind === kind && c.sounding ? { ...c, sounding: false, mutedUntil: until } : c)),
+            own.notices,
         );
         act({ kind, nowMs });
     },
@@ -106,10 +126,18 @@ export const UnderwayAlarmStore = {
     /** Shoal's Acknowledge: silent, and the card stands aside until the water deepens and it re-arms. */
     acknowledge(kind: 'shoal', nowMs = Date.now()): void {
         UnderwayAlarmStore.set(
-            cards.filter((c) => c.kind !== kind),
-            notices,
+            own.cards.filter((c) => c.kind !== kind),
+            own.notices,
         );
         act({ kind, nowMs });
+    },
+
+    /**
+     * The watch check's "I'm on watch" (126-02b): the only answer it takes.
+     * The watch check hears it at once, silences, and books the next check.
+     */
+    onWatch(nowMs = Date.now()): void {
+        act({ kind: 'watch-check', nowMs });
     },
 
     /** The watch hears the buttons here, at once. */
@@ -120,6 +148,8 @@ export const UnderwayAlarmStore = {
 
     /** Tests: no cards, no notices. The watch keeps listening. */
     clear(): void {
+        own = { cards: [], notices: [] };
+        check = { cards: [], notices: [] };
         cards = [];
         notices = [];
         signature = signatureOf([], []);

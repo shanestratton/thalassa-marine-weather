@@ -12,14 +12,21 @@ export interface AnchorNotificationReadiness {
 
 /**
  * The shared safety-notification path (build 125, 125-01): the anchor's
- * plugin also carries the collision alarm, (125-02) the distress alarm and
- * (126-02a) the under-way off-route and shoal alarms, each with its own fixed
- * ids, Time Sensitive, behind the same verified-enabled check. The anchor's
- * ids and behaviour are unchanged (tests/NativeSafetyNotificationContract.test.ts).
+ * plugin also carries the collision alarm, (125-02) the distress alarm,
+ * (126-02a) the under-way off-route and shoal alarms and (126-02b) the watch
+ * check, each with its own fixed ids, Time Sensitive, behind the same
+ * verified-enabled check. The anchor's ids and behaviour are unchanged
+ * (tests/NativeSafetyNotificationContract.test.ts).
  */
-export type SafetyAlertKind = 'collision' | 'distress' | 'off-route' | 'shoal';
+export type SafetyAlertKind = 'collision' | 'distress' | 'off-route' | 'shoal' | 'watch-check';
 /** A primary and two reminders, 30 s apart; the anchor keeps its 21 slots. */
 export const SAFETY_ALERT_REQUEST_COUNT = 3;
+/**
+ * How far ahead a safety alert may be booked with iOS (126-02b, the watch
+ * check), in whole seconds; the plugin checks the same range. Without a lead
+ * the primary fires at +5 s, as it always has.
+ */
+export const SAFETY_ALERT_LEAD_SECONDS = { min: 5, max: 3_600 } as const;
 
 interface AnchorSafetyNotificationsPlugin {
     checkReadiness(options: { requiredSlots: number }): Promise<AnchorNotificationReadiness>;
@@ -28,7 +35,12 @@ interface AnchorSafetyNotificationsPlugin {
         interruptionLevel: 'timeSensitive';
     }>;
     cancelAlarm(): Promise<{ cancelled: boolean }>;
-    scheduleSafetyAlert(options: { kind: SafetyAlertKind; title: string; body: string }): Promise<{
+    scheduleSafetyAlert(options: {
+        kind: SafetyAlertKind;
+        title: string;
+        body: string;
+        leadSeconds?: number;
+    }): Promise<{
         scheduled: number;
         interruptionLevel: 'timeSensitive';
     }>;
@@ -40,6 +52,7 @@ const SAFETY_ALERT_NAMES: Record<SafetyAlertKind, string> = {
     distress: 'the distress alarm',
     'off-route': 'the off-route alarm',
     shoal: 'the shoal alarm',
+    'watch-check': 'the watch check',
 };
 
 /** The plugin's readiness messages name the anchor; say the feature that asked. */
@@ -156,11 +169,27 @@ class AnchorSafetyNotificationServiceClass {
         }
     }
 
-    async scheduleSafetyAlert(kind: SafetyAlertKind, title: string, body: string): Promise<boolean> {
+    /**
+     * Book a kind's primary and two reminders. `leadSeconds` (126-02b) books
+     * the primary that far ahead, whole seconds 5 to 3,600, so iOS delivers it
+     * with Thalassa suspended; without it the primary is at +5 s.
+     */
+    async scheduleSafetyAlert(
+        kind: SafetyAlertKind,
+        title: string,
+        body: string,
+        options: { leadSeconds?: number } = {},
+    ): Promise<boolean> {
+        const { leadSeconds } = options;
+        const { min, max } = SAFETY_ALERT_LEAD_SECONDS;
+        if (leadSeconds !== undefined && !(Number.isInteger(leadSeconds) && leadSeconds >= min && leadSeconds <= max)) {
+            throw new Error(`A safety alert can be booked 5 to 3,600 seconds ahead, not ${leadSeconds}.`);
+        }
         if (!this.isNativeIOS()) return false;
         return this.runMutation(async () => {
             try {
-                const result = await NativeAnchorNotifications.scheduleSafetyAlert({ kind, title, body });
+                const request = leadSeconds === undefined ? { kind, title, body } : { kind, title, body, leadSeconds };
+                const result = await NativeAnchorNotifications.scheduleSafetyAlert(request);
                 if (result.scheduled !== SAFETY_ALERT_REQUEST_COUNT || result.interruptionLevel !== 'timeSensitive') {
                     throw new Error(
                         `iOS confirmed only ${result.scheduled ?? 0} of ${SAFETY_ALERT_REQUEST_COUNT} alerts.`,

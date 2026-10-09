@@ -9,6 +9,10 @@
  * timed mute, the danger is now); off route is muted for 30 minutes and then
  * says until when. Not a toast: a card goes only when its alarm is answered
  * or over. The strip under them says when the watch cannot see.
+ *
+ * Build 126 (126-02b): the watch check rides last. A minute ahead it is a
+ * calm heads-up (a status, not an alarm); at the check it sounds. Either
+ * way its one button is "I'm on watch", the only answer it takes.
  */
 import React from 'react';
 import { UnderwayAlarmStore, type UnderwayAlarmCard } from '../../services/underway/underwayAlarmStore';
@@ -46,9 +50,12 @@ const BUTTON: React.CSSProperties = {
     cursor: 'pointer',
 };
 
-/** A number keeps its unit on its line ('0.25 NM', '2.4 m'): the stack wraps at 320 pt in wide fonts. */
+/**
+ * A number keeps its unit on its line ('0.25 NM', '2.4 m'), and a clock its
+ * AM / PM ('5:00 AM', the watch check): the stack wraps at 320 pt in wide fonts.
+ */
 function keepUnits(text: string): string {
-    return text.replace(/(\d) (NM|m|kn|s|min)\b/g, '$1 $2');
+    return text.replace(/(\d) (NM|m|kn|s|min|AM|PM|am|pm)\b/g, '$1 $2');
 }
 
 /** 'your sounder reads…' → 'Your sounder reads….' */
@@ -63,10 +70,24 @@ function clock(ms: number): string {
     return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
 }
 
+/** The watch check a minute ahead: the strip's calm colours, not the alarm's red. */
+const HEADS_UP: React.CSSProperties = {
+    background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.94))',
+    border: '1px solid rgba(245, 158, 11, 0.5)',
+    color: 'var(--day-ui-warning, #fcd34d)',
+    boxShadow: 'none',
+};
+
 function Glyph({ kind }: { kind: UnderwayAlarmCard['kind'] }) {
     return (
         <svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" style={{ flexShrink: 0, marginTop: 1 }}>
-            {kind === 'shoal' ? (
+            {kind === 'watch-check' ? (
+                // A clock face: the check comes round on the interval.
+                <>
+                    <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2" />
+                    <path d="M10 5v5l3 2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </>
+            ) : kind === 'shoal' ? (
                 // A hull and her keel, over a rising bottom.
                 <path
                     d="M2 5h16c-1.5 3.5-4.5 4.5-8 4.5S3.5 8.5 2 5zM10 9.5v3.5M2 18c3-3 13-3 16 0"
@@ -89,8 +110,13 @@ function Glyph({ kind }: { kind: UnderwayAlarmCard['kind'] }) {
 
 function AlarmCard({ card }: { card: UnderwayAlarmCard }) {
     const muted = card.kind === 'off-route' && !card.sounding && card.mutedUntil !== null;
+    const headsUp = card.kind === 'watch-check' && !card.sounding;
     return (
-        <div role="alert" data-underway={card.kind} style={{ ...CARD, opacity: muted ? 0.85 : 1 }}>
+        <div
+            role={headsUp ? 'status' : 'alert'}
+            data-underway={card.kind}
+            style={{ ...CARD, ...(headsUp ? HEADS_UP : null), opacity: muted ? 0.85 : 1 }}
+        >
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                 <Glyph kind={card.kind} />
                 <div style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
@@ -105,7 +131,16 @@ function AlarmCard({ card }: { card: UnderwayAlarmCard }) {
                     )}
                 </div>
             </div>
-            {card.kind === 'shoal' ? (
+            {card.kind === 'watch-check' ? (
+                <button
+                    type="button"
+                    style={headsUp ? { ...BUTTON, color: 'inherit', borderColor: 'rgba(252, 211, 77, 0.4)' } : BUTTON}
+                    aria-label="I'm on watch"
+                    onClick={() => UnderwayAlarmStore.onWatch()}
+                >
+                    I&apos;m on watch
+                </button>
+            ) : card.kind === 'shoal' ? (
                 <button
                     type="button"
                     style={BUTTON}

@@ -15,6 +15,12 @@ import UserNotifications
  * their own fixed identifiers, the same FIFO and the same verified-settings
  * check. Nothing on that path reads, replaces or removes an anchor identifier,
  * and it always leaves the anchor room for its full 21-request set.
+ *
+ * Build 126 (126-02b): the watch check books its alert minutes ahead, so iOS
+ * delivers it with Thalassa suspended. scheduleSafetyAlert takes an optional
+ * `leadSeconds` (whole seconds, 5...3600): the primary fires then and the two
+ * reminders 30 s and 60 s after it. Without one, every kind keeps the +5 s
+ * primary and the +30 s / +60 s reminders exactly as before.
  */
 @objc(AnchorSafetyNotificationPlugin)
 public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
@@ -74,7 +80,8 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
         "collision": "thalassa.collision-watch",
         "distress": "thalassa.distress-watch",
         "off-route": "thalassa.off-route-watch",
-        "shoal": "thalassa.shoal-watch"
+        "shoal": "thalassa.shoal-watch",
+        "watch-check": "thalassa.watch-check"
     ]
     private let safetyAlertRequestCount = 3
 
@@ -182,6 +189,21 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("A safety alert needs a known kind, a title and a message.", "SAFETY_NOTIFICATION_INVALID_CONTENT")
             return
         }
+        // An optional lead (126-02b): whole seconds, 5...3600. Absent, the
+        // primary keeps its +5 s. Anything else is refused before the queue,
+        // so a bad lead can never replace a good booking.
+        let leadSeconds: Int?
+        if call.getValue("leadSeconds") == nil {
+            leadSeconds = nil
+        } else if let raw = call.getDouble("leadSeconds"), raw.rounded() == raw, (5...3600).contains(raw) {
+            leadSeconds = Int(raw)
+        } else {
+            call.reject(
+                "A safety alert can be booked 5 to 3,600 seconds ahead.",
+                "SAFETY_NOTIFICATION_INVALID_LEAD"
+            )
+            return
+        }
 
         enqueueMutatingOperation { [weak self] finish in
             guard let self else {
@@ -207,7 +229,13 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
                             return
                         }
                         self.addSafetyAlertRequests(
-                            prefix: prefix, kind: kind, title: title, body: body, call: call, finish: finish
+                            prefix: prefix,
+                            kind: kind,
+                            title: title,
+                            body: body,
+                            leadSeconds: leadSeconds,
+                            call: call,
+                            finish: finish
                         )
                     }
                 }
@@ -647,6 +675,7 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
         kind: String,
         title: String,
         body: String,
+        leadSeconds: Int?,
         call: CAPPluginCall,
         finish: @escaping () -> Void
     ) {
@@ -675,7 +704,9 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
 
             let group = DispatchGroup()
             var addErrors: [Error] = []
-            for request in self.makeSafetyAlertRequests(prefix: prefix, kind: kind, title: title, body: body) {
+            for request in self.makeSafetyAlertRequests(
+                prefix: prefix, kind: kind, title: title, body: body, leadSeconds: leadSeconds
+            ) {
                 group.enter()
                 self.notificationCenter.add(request) { error in
                     DispatchQueue.main.async {
@@ -718,7 +749,8 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
         prefix: String,
         kind: String,
         title: String,
-        body: String
+        body: String,
+        leadSeconds: Int?
     ) -> [UNNotificationRequest] {
         safetyIdentifiers(prefix).enumerated().map { index, identifier in
             let content = UNMutableNotificationContent()
@@ -733,9 +765,16 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
             if #available(iOS 15.0, *) {
                 content.interruptionLevel = .timeSensitive
             }
-            // As the anchor's: the in-app alarm sounds at once, and the lead
-            // lets the readback finish before iOS delivers the primary.
-            let interval = index == 0 ? 5.0 : Double(index * 30)
+            // Booked ahead (126-02b, the watch check): the primary at the
+            // lead, the reminders 30 s and 60 s after it. Otherwise as the
+            // anchor's: the in-app alarm sounds at once, and the lead lets the
+            // readback finish before iOS delivers the primary.
+            let interval: Double
+            if let leadSeconds {
+                interval = Double(leadSeconds + index * 30)
+            } else {
+                interval = index == 0 ? 5.0 : Double(index * 30)
+            }
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
             return UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
         }
