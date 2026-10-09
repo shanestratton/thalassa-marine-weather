@@ -2,13 +2,14 @@
  * MealCalendar — component tests
  */
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock service dependencies
 vi.mock('../services/MealPlanService', () => ({
     scheduleMeal: vi.fn().mockResolvedValue(undefined),
     unscheduleMeal: vi.fn().mockResolvedValue(undefined),
+    copyMealPlan: vi.fn().mockResolvedValue(undefined),
     getStoresAvailability: vi.fn(() => []),
 }));
 
@@ -38,7 +39,10 @@ vi.mock('../components/chat/CaptainsTable', () => ({
 }));
 
 import { MealCalendar } from '../components/chat/MealCalendar';
-import { getStoresAvailability, scheduleMeal } from '../services/MealPlanService';
+import { copyMealPlan, getStoresAvailability, scheduleMeal, unscheduleMeal } from '../services/MealPlanService';
+import type { MealPlan } from '../services/MealPlanService';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { getAll, getFullQueue, initLocalDatabase } from '../services/vessel/LocalDatabase';
 import { searchRecipes } from '../services/GalleyRecipeService';
 import { addManualItem, getShoppingList } from '../services/ShoppingListService';
 
@@ -396,5 +400,114 @@ describe('MealCalendar', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Add 1 items to shopping list' }));
 
         expect(addManualItem).not.toHaveBeenCalled();
+    });
+
+    // 126-B2a (GAL-02): copy and move clone the planned meal; they never
+    // rebuild a fake search result, so no recipe copy and no display key.
+    describe('long-press copy and move (Horta → Ponta Delgada)', () => {
+        const FEIJOADA = '3f2b6c1e-8a4d-4e7f-9b21-5c6d7e8f9a0b';
+        const mealDays = {
+            dates: ['2026-10-12', '2026-10-13'],
+            emergencyDates: new Set<string>(),
+            passageDays: 2,
+            emergencyDays: 0,
+            totalDays: 2,
+        };
+        const planned = (overrides: Partial<MealPlan>): MealPlan => ({
+            id: 'm-feijoada',
+            user_id: 'owner-1',
+            voyage_id: 'v1',
+            recipe_id: FEIJOADA,
+            spoonacular_id: null,
+            title: 'Feijoada',
+            planned_date: '2026-10-12',
+            meal_slot: 'dinner',
+            servings_planned: 4,
+            ingredients: [{ name: 'Black beans', amount: 500, unit: 'g', aisle: 'Dry', scalable: true }],
+            status: 'reserved',
+            cook_started_at: null,
+            completed_at: null,
+            leftovers_saved: false,
+            notes: 'Soak the beans the night before',
+            created_at: '2026-10-01T00:00:00Z',
+            updated_at: '2026-10-01T00:00:00Z',
+            ...overrides,
+        });
+
+        let phone = 0;
+
+        beforeEach(async () => {
+            // A fresh local database (account scope) per test.
+            phone += 1;
+            localStorage.setItem('thalassa_localdb_moved_to_library', '1');
+            setAuthIdentityScope(`galley-phone-${phone}`);
+            await initLocalDatabase(`galley-phone-${phone}`);
+            // The real copy, over the real local database.
+            const actual =
+                await vi.importActual<typeof import('../services/MealPlanService')>('../services/MealPlanService');
+            vi.mocked(copyMealPlan).mockImplementation(actual.copyMealPlan);
+        });
+
+        async function longPressThenPickDay2(meal: MealPlan, action: 'copy' | 'move') {
+            render(
+                <MealCalendar
+                    {...baseProps}
+                    voyageName="Horta → Ponta Delgada"
+                    mealDays={mealDays}
+                    activeMeals={[meal]}
+                />,
+            );
+            fireEvent.touchStart(screen.getByRole('button', { name: new RegExp(`Dinner: ${meal.title}`) }));
+            const dialog = await screen.findByRole('dialog', { name: `Copy ${meal.title}` }, { timeout: 2000 });
+            if (action === 'move') fireEvent.click(within(dialog).getByRole('button', { name: /Move/ }));
+            fireEvent.click(within(dialog).getByRole('button', { name: /^Day 2/ }));
+            await waitFor(() => expect(copyMealPlan).toHaveBeenCalledTimes(1));
+            await waitFor(() => expect(baseProps.onMealsChanged).toHaveBeenCalled());
+        }
+
+        it('copies a recipe meal: the same recipe link, no recipe insert, the source kept', async () => {
+            const meal = planned({});
+            await longPressThenPickDay2(meal, 'copy');
+
+            expect(copyMealPlan).toHaveBeenCalledWith(meal, '2026-10-13', 'v1', 'owner-1');
+            expect(getAll<MealPlan>('meal_plans')).toEqual([
+                expect.objectContaining({
+                    planned_date: '2026-10-13',
+                    meal_slot: 'dinner',
+                    recipe_id: FEIJOADA,
+                    spoonacular_id: null,
+                    title: 'Feijoada',
+                    notes: 'Soak the beans the night before',
+                    user_id: 'owner-1',
+                }),
+            ]);
+            expect(getAll('recipes')).toEqual([]);
+            expect(getFullQueue().map((item) => item.table_name)).toEqual(['meal_plans']);
+            expect(scheduleMeal).not.toHaveBeenCalled();
+            expect(unscheduleMeal).not.toHaveBeenCalled();
+        });
+
+        it('moves a simple meal: null ids on the target, the source deleted, no recipe insert', async () => {
+            const meal = planned({
+                id: 'm-pizza',
+                title: 'Pizza night',
+                recipe_id: null,
+                ingredients: [],
+                notes: null,
+            });
+            await longPressThenPickDay2(meal, 'move');
+
+            expect(getAll<MealPlan>('meal_plans')).toEqual([
+                expect.objectContaining({
+                    planned_date: '2026-10-13',
+                    title: 'Pizza night',
+                    recipe_id: null,
+                    spoonacular_id: null,
+                }),
+            ]);
+            await waitFor(() => expect(unscheduleMeal).toHaveBeenCalledWith('m-pizza'));
+            expect(getAll('recipes')).toEqual([]);
+            expect(scheduleMeal).not.toHaveBeenCalled();
+        });
     });
 });

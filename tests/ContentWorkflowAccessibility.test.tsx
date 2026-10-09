@@ -9,7 +9,7 @@ import type { MealPlan } from '../services/MealPlanService';
 const serviceMocks = vi.hoisted(() => ({
     createCustomRecipe: vi.fn(),
     updateCustomRecipe: vi.fn(),
-    getRecipeInstructions: vi.fn(),
+    getMealSteps: vi.fn(),
     startCooking: vi.fn(),
     completeMeal: vi.fn(),
     saveLeftovers: vi.fn(),
@@ -25,7 +25,7 @@ const serviceMocks = vi.hoisted(() => ({
 vi.mock('../services/GalleyRecipeService', () => ({
     createCustomRecipe: serviceMocks.createCustomRecipe,
     updateCustomRecipe: serviceMocks.updateCustomRecipe,
-    getRecipeInstructions: serviceMocks.getRecipeInstructions,
+    getMealSteps: serviceMocks.getMealSteps,
 }));
 
 vi.mock('../services/MealPlanService', () => ({
@@ -106,7 +106,7 @@ beforeEach(() => {
     vi.clearAllMocks();
     serviceMocks.createCustomRecipe.mockResolvedValue({ id: 'recipe-1' });
     serviceMocks.updateCustomRecipe.mockResolvedValue({ id: 'recipe-1' });
-    serviceMocks.getRecipeInstructions.mockResolvedValue([]);
+    serviceMocks.getMealSteps.mockResolvedValue([]);
     serviceMocks.startCooking.mockResolvedValue(true);
     serviceMocks.completeMeal.mockResolvedValue(true);
     serviceMocks.saveLeftovers.mockResolvedValue(true);

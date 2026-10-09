@@ -10,7 +10,7 @@
  */
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { startCooking, completeMeal, saveLeftovers, skipMeal, type MealPlan } from '../../services/MealPlanService';
-import { getRecipeInstructions } from '../../services/GalleyRecipeService';
+import { getMealSteps } from '../../services/GalleyRecipeService';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
@@ -75,7 +75,9 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
     useEffect(() => {
         let active = true;
 
-        void getRecipeInstructions(meal.spoonacular_id)
+        // The recipe the meal links to (the sailor's own directions), else a
+        // real Spoonacular recipe's (126-B2a, GAL-07).
+        void getMealSteps({ recipe_id: meal.recipe_id, spoonacular_id: meal.spoonacular_id })
             .then((recipeSteps) => {
                 if (!active) return;
                 const loadedSteps = recipeSteps.map((step) => step.step.trim()).filter(Boolean);
@@ -93,7 +95,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
         return () => {
             active = false;
         };
-    }, [meal.spoonacular_id]);
+    }, [meal.recipe_id, meal.spoonacular_id]);
 
     useEffect(() => {
         if (!wasCookingRef.current && isCooking) firstStepRef.current?.focus();

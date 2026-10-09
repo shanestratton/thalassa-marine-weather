@@ -12,6 +12,7 @@ vi.mock('../services/vessel/LocalDatabase', () => {
             const t = localStore.get(table);
             return t ? Array.from(t.values()) : [];
         },
+        getById: (table: string, id: string) => localStore.get(table)?.get(id) ?? null,
         query: (table: string, fn: (item: unknown) => boolean) => {
             const t = localStore.get(table);
             if (!t) return [];
@@ -116,9 +117,12 @@ import {
     completeMeal,
     skipMeal,
     saveLeftovers,
+    copyMealPlan,
 } from '../services/MealPlanService';
 import { getAll, insertLocal } from '../services/vessel/LocalDatabase';
-import type { MealSlot } from '../services/MealPlanService';
+import { persistRecipe } from '../services/GalleyRecipeService';
+import type { GalleyMeal, StoredRecipe } from '../services/GalleyRecipeService';
+import type { MealPlan, MealSlot } from '../services/MealPlanService';
 
 const OWNER_A = 'owner-a';
 const OWNER_B = 'owner-b';
@@ -472,6 +476,196 @@ describe('MealPlanService', () => {
             const stores = getAll<{ id: string; user_id: string; quantity: number }>('inventory_items');
             expect(stores.find((item) => item.id === `owner-a-store-${unique}`)?.quantity).toBe(1);
             expect(stores.find((item) => item.id === `owner-b-store-${unique}`)?.quantity).toBe(100);
+        });
+    });
+
+    // ── 126-B2a (GAL-02): what a planned meal stores ─────────────────────
+    describe('a planned meal links to the recipe it cooks from', () => {
+        const FEIJOADA = '3f2b6c1e-8a4d-4e7f-9b21-5c6d7e8f9a0b';
+        const realPersistRecipe = async () =>
+            (await vi.importActual<typeof import('../services/GalleyRecipeService')>('../services/GalleyRecipeService'))
+                .persistRecipe;
+
+        /** A search result as the old mappers made it: a fresh fake id every search. */
+        const communityResult = (overrides: Partial<GalleyMeal> = {}): GalleyMeal => ({
+            id: Date.now() + Math.random(),
+            title: 'Feijoada',
+            readyInMinutes: 180,
+            servings: 6,
+            image: '',
+            sourceUrl: '',
+            ingredients: [{ name: 'Black beans', amount: 500, unit: 'g', scalable: true, aisle: 'Dry' }],
+            instructions: [
+                { number: 1, step: 'Soak the beans overnight.' },
+                { number: 2, step: 'Simmer with the pork for 2 h.' },
+            ],
+            source: 'community',
+            supabaseId: FEIJOADA,
+            ...overrides,
+        });
+
+        function twin(): StoredRecipe {
+            return {
+                id: FEIJOADA,
+                spoonacular_id: null,
+                user_id: 'sailor-9',
+                title: 'Feijoada',
+                image_url: '',
+                ready_in_minutes: 180,
+                servings: 6,
+                source_url: '',
+                instructions: 'Soak the beans overnight.\nSimmer with the pork for 2 h.',
+                ingredients: [],
+                is_favorite: false,
+                is_custom: true,
+                visibility: 'shared',
+                tags: [],
+                created_at: '2026-10-01T00:00:00.000Z',
+                updated_at: '2026-10-01T00:00:00.000Z',
+            };
+        }
+
+        it('a community result with a local twin: spoonacular_id null, recipe_id the twin, the recipe first', async () => {
+            await insertLocal('recipes', twin());
+            const real = await realPersistRecipe();
+            vi.mocked(persistRecipe).mockImplementationOnce(async (meal, owner) => {
+                // Linked before the meal row exists, so its INSERT queues first.
+                expect(getAll('meal_plans')).toEqual([]);
+                return real(meal, owner);
+            });
+
+            const plan = await scheduleMeal(communityResult(), '2026-10-12', 'dinner', 'v-horta', 6, OWNER_A);
+
+            expect(persistRecipe).toHaveBeenCalledWith(expect.objectContaining({ supabaseId: FEIJOADA }), OWNER_A);
+            expect(plan).toMatchObject({ spoonacular_id: null, recipe_id: FEIJOADA });
+            // The twin is only read: no copy, no write to another sailor's row.
+            expect(getAll('recipes')).toEqual([twin()]);
+        });
+
+        it('a display key never reaches spoonacular_id; a real Spoonacular id (716429) is kept', async () => {
+            const fractional = await scheduleMeal(
+                communityResult({ id: 1791234567890.42 }),
+                '2026-10-12',
+                'lunch',
+                null,
+                2,
+                OWNER_A,
+            );
+            const outOfRange = await scheduleMeal(
+                communityResult({ id: 1791234567890, source: 'spoonacular' }),
+                '2026-10-12',
+                'dinner',
+                null,
+                2,
+                OWNER_A,
+            );
+            const spoonacular = await scheduleMeal(
+                communityResult({ id: 716429, source: 'spoonacular', supabaseId: undefined }),
+                '2026-10-13',
+                'dinner',
+                null,
+                2,
+                OWNER_A,
+            );
+
+            expect(fractional.spoonacular_id).toBeNull();
+            expect(outOfRange.spoonacular_id).toBeNull();
+            expect(spoonacular.spoonacular_id).toBe(716429);
+        });
+
+        it('a library that will not save still plans the meal, with no link, and says why', async () => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+            vi.mocked(persistRecipe).mockRejectedValueOnce(new Error('disk full'));
+
+            const plan = await scheduleMeal(communityResult(), '2026-10-12', 'dinner', null, 6, OWNER_A);
+
+            expect(plan).toMatchObject({ title: 'Feijoada', recipe_id: null, spoonacular_id: null });
+            expect(getAll<MealPlan>('meal_plans').map((meal) => meal.id)).toEqual([plan.id]);
+            expect(warn).toHaveBeenCalledWith('[MealPlan]', 'galley: persist-recipe-failed');
+            warn.mockRestore();
+        });
+
+        it('the default persistRecipe mock (resolves undefined) still plans with recipe_id null', async () => {
+            const plan = await scheduleMeal(communityResult(), '2026-10-12', 'dinner', null, 6, OWNER_A);
+            expect(plan.recipe_id).toBeNull();
+        });
+
+        it('the same community recipe scheduled five times makes ONE recipes row', async () => {
+            const real = await realPersistRecipe();
+            vi.mocked(persistRecipe).mockImplementation(real);
+
+            const plans: MealPlan[] = [];
+            for (const date of ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16']) {
+                // A fresh search each time: the old fake id differed every time.
+                plans.push(await scheduleMeal(communityResult(), date, 'dinner', null, 6, OWNER_A));
+            }
+
+            const recipes = getAll<StoredRecipe>('recipes');
+            expect(recipes).toHaveLength(1);
+            expect(recipes[0]).toMatchObject({
+                user_id: OWNER_A,
+                spoonacular_id: null,
+                is_custom: false,
+                visibility: 'personal',
+            });
+            expect(new Set(plans.map((plan) => plan.recipe_id))).toEqual(new Set([recipes[0].id]));
+            vi.mocked(persistRecipe).mockReset();
+            vi.mocked(persistRecipe).mockResolvedValue(undefined as never);
+        });
+
+        it('copyMealPlan keeps the recipe link and the real Spoonacular id, and never touches the library', async () => {
+            const source: MealPlan = {
+                id: 'meal-akaroa-1',
+                user_id: OWNER_A,
+                voyage_id: 'v-akaroa',
+                recipe_id: FEIJOADA,
+                spoonacular_id: 716429,
+                title: 'Feijoada',
+                planned_date: '2026-10-20',
+                meal_slot: 'dinner',
+                servings_planned: 6,
+                ingredients: [{ name: 'Black beans', amount: 500, unit: 'g', scalable: true, aisle: 'Dry' }],
+                status: 'cooking',
+                cook_started_at: '2026-10-20T17:00:00.000Z',
+                completed_at: null,
+                leftovers_saved: false,
+                notes: 'Soak the beans the night before',
+                created_at: '2026-10-01T00:00:00.000Z',
+                updated_at: '2026-10-01T00:00:00.000Z',
+            };
+
+            const copy = await copyMealPlan(source, '2026-10-21', 'v-akaroa', OWNER_A);
+            const legacy = await copyMealPlan(
+                { ...source, id: 'meal-akaroa-2', recipe_id: null, spoonacular_id: 1791234567890.42 },
+                '2026-10-22',
+                'v-akaroa',
+                OWNER_A,
+            );
+
+            expect(copy).toMatchObject({
+                user_id: OWNER_A,
+                voyage_id: 'v-akaroa',
+                recipe_id: FEIJOADA,
+                spoonacular_id: 716429,
+                title: 'Feijoada',
+                planned_date: '2026-10-21',
+                meal_slot: 'dinner',
+                servings_planned: 6,
+                ingredients: source.ingredients,
+                notes: 'Soak the beans the night before',
+                status: 'reserved',
+                cook_started_at: null,
+                completed_at: null,
+                leftovers_saved: false,
+            });
+            expect(copy.id).not.toBe(source.id);
+            // A display key from before 126 is not carried into the copy.
+            expect(legacy).toMatchObject({ recipe_id: null, spoonacular_id: null });
+            expect(persistRecipe).not.toHaveBeenCalled();
+            expect(getAll('recipes')).toEqual([]);
+            await expect(copyMealPlan(source, '2026-10-21', 'v-akaroa', null)).rejects.toThrow(
+                /authoritative voyage owner/i,
+            );
         });
     });
 });

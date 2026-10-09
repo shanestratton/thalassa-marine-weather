@@ -13,11 +13,15 @@
  */
 
 import { atomicLocalTransaction, getAll, query, insertLocal, generateUUID } from './vessel/LocalDatabase';
-import { scaleIngredient, type RecipeIngredient, type GalleyMeal } from './GalleyRecipeService';
+import { persistRecipe, scaleIngredient, type RecipeIngredient, type GalleyMeal } from './GalleyRecipeService';
 import { convertQuantity } from './PurchaseUnits';
 import { triggerHaptic } from '../utils/system';
 import { getMyCrew } from './CrewService';
 import { binderWriteGranted, galleyShareOwner } from './vessel/sharedBinders';
+import { isPgInteger, realSpoonacularId } from './galley/recipeRefs';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('MealPlan');
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -73,6 +77,19 @@ const STORES_TABLE = 'inventory_items';
 // ── Scheduling ─────────────────────────────────────────────────────────────
 
 /**
+ * Who a new meal row belongs to. A meal with no passage goes into the galley
+ * this account is using: the skipper's while they share their galley
+ * (sharedBinders), never the sailor's own hidden one.
+ */
+function mealOwner(voyageId: string | null, ownerUserId: string | null): string {
+    const owner = (!voyageId ? galleyShareOwner() : null) ?? (ownerUserId?.trim() || '');
+    if (voyageId && !owner) {
+        throw new Error('An authoritative voyage owner is required to schedule a shared meal.');
+    }
+    return owner;
+}
+
+/**
  * Schedule a recipe to a specific date and meal slot.
  * Auto-sets status to 'reserved' and snapshots ingredients.
  */
@@ -85,13 +102,7 @@ export async function scheduleMeal(
     ownerUserId: string | null = null,
 ): Promise<MealPlan> {
     const now = new Date().toISOString();
-    // A meal with no passage goes into the galley this account is using: the
-    // skipper's while they share their galley (sharedBinders), never the
-    // sailor's own hidden one.
-    const owner = (!voyageId ? galleyShareOwner() : null) ?? (ownerUserId?.trim() || '');
-    if (voyageId && !owner) {
-        throw new Error('An authoritative voyage owner is required to schedule a shared meal.');
-    }
+    const owner = mealOwner(voyageId, ownerUserId);
 
     // Scale ingredients to planned servings
     const scaledIngredients = (meal.ingredients || []).map((ing) => ({
@@ -99,15 +110,27 @@ export async function scheduleMeal(
         amount: scaleIngredient(ing.amount, ing.scalable, meal.servings, servings, ing.unit),
     }));
 
+    // The library recipe the meal cooks from (GAL-02), saved first so its
+    // INSERT queues ahead of the meal's. A local write: planning stays
+    // instant offline, and never fails because of the library. A simple
+    // meal is only a planned title: no recipe, no ids.
+    let recipeId: string | null = null;
+    if (!meal.isSimpleMeal) {
+        try {
+            recipeId = (await persistRecipe(meal, owner))?.id ?? null;
+        } catch {
+            log.warn('galley: persist-recipe-failed');
+        }
+    }
+
     const plan: MealPlan = {
         id: generateUUID(),
         user_id: owner,
         voyage_id: voyageId,
-        recipe_id: null,
-        // Simple calendar items deliberately have no backing recipe. Keeping
-        // this null prevents a generated local ID being mistaken for a real
-        // Spoonacular recipe later in the cooking flow.
-        spoonacular_id: meal.isSimpleMeal ? null : meal.id,
+        recipe_id: recipeId,
+        // Only a real Spoonacular id: a search result's display key is
+        // refused by the INTEGER column and fenced the meal in the outbox.
+        spoonacular_id: meal.isSimpleMeal ? null : realSpoonacularId(meal),
         title: meal.title,
         planned_date: plannedDate,
         meal_slot: slot,
@@ -123,22 +146,60 @@ export async function scheduleMeal(
     };
 
     await insertLocal(TABLE, plan);
-
-    // Auto-persist actual recipes for offline access at sea. A simple meal is
-    // intentionally only a planned title, so it must not create a faux recipe.
-    if (!meal.isSimpleMeal) {
-        try {
-            const { persistRecipe } = await import('./GalleyRecipeService');
-            persistRecipe(meal).catch(() => {
-                /* offline — recipe may already be stored */
-            });
-        } catch {
-            /* GalleyRecipeService not available */
-        }
-    }
-
     triggerHaptic('light');
     return plan;
+}
+
+/**
+ * The recipe link a copy keeps. A meal planned before 126 has no recipe_id,
+ * only its search result's display key in spoonacular_id, and this phone
+ * stored the recipe under that key (getMealSteps reads it the same way). The
+ * copy cannot carry the key (the INTEGER column refuses it), so it links to
+ * that row instead and keeps its directions.
+ */
+function copiedRecipeId(plan: MealPlan): string | null {
+    if (plan.recipe_id) return plan.recipe_id;
+    const key = plan.spoonacular_id;
+    if (typeof key !== 'number' || isPgInteger(key)) return null;
+    return (
+        query<{ id: string; spoonacular_id: number | null }>('recipes', (r) => r.spoonacular_id === key)[0]?.id ?? null
+    );
+}
+
+/**
+ * Copy a planned meal to another day (the calendar's long-press copy/move).
+ * A clone of the plan: the same recipe link, a real Spoonacular id only, the
+ * ingredient snapshot and notes, reserved again. It never goes through the
+ * recipe library, so it adds no recipe and no display key.
+ */
+export async function copyMealPlan(
+    plan: MealPlan,
+    targetDate: string,
+    voyageId: string | null,
+    ownerUserId: string | null = null,
+): Promise<MealPlan> {
+    const now = new Date().toISOString();
+    const copy: MealPlan = {
+        id: generateUUID(),
+        user_id: mealOwner(voyageId, ownerUserId),
+        voyage_id: voyageId,
+        recipe_id: copiedRecipeId(plan),
+        spoonacular_id: isPgInteger(plan.spoonacular_id) ? plan.spoonacular_id : null,
+        title: plan.title,
+        planned_date: targetDate,
+        meal_slot: plan.meal_slot,
+        servings_planned: plan.servings_planned,
+        ingredients: (plan.ingredients ?? []).map((ingredient) => ({ ...ingredient })),
+        status: 'reserved',
+        cook_started_at: null,
+        completed_at: null,
+        leftovers_saved: false,
+        notes: plan.notes ?? null,
+        created_at: now,
+        updated_at: now,
+    };
+    await insertLocal(TABLE, copy);
+    return copy;
 }
 
 /** Remove a scheduled meal */

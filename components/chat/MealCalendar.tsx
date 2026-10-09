@@ -9,6 +9,7 @@ import React, { useState, useCallback, useRef, useEffect, useMemo, useSyncExtern
 import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import {
+    copyMealPlan,
     scheduleMeal,
     unscheduleMeal,
     getStoresAvailability,
@@ -170,25 +171,10 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             const meal = contextMenu.meal;
             const isMove = contextMenu.action === 'move';
 
-            // Construct GalleyMeal from MealPlan for scheduleMeal
-            const galleyMeal: GalleyMeal = {
-                id: meal.spoonacular_id || Date.now(),
-                title: meal.title,
-                readyInMinutes: 30,
-                servings: meal.servings_planned,
-                image: '',
-                sourceUrl: '',
-                ingredients: meal.ingredients,
-            };
-
-            await scheduleMeal(
-                galleyMeal,
-                targetDate,
-                meal.meal_slot,
-                voyageId,
-                meal.servings_planned,
-                scopeOwnerUserId,
-            );
+            // A clone of the planned meal (126-B2a): the same recipe link and
+            // snapshot. Rebuilding a GalleyMeal here gave a copied simple meal
+            // a Date.now() id and a copied recipe meal a new recipe copy.
+            await copyMealPlan(meal, targetDate, voyageId, scopeOwnerUserId);
 
             // If move, delete original
             if (isMove) {

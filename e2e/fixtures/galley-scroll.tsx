@@ -64,6 +64,8 @@ const ingredient = (name: string, amount: number, unit: string) => ({
     scalable: true,
     aisle: 'Pantry',
 });
+// Catalogue recipes with real-shaped provider ids: since 126-B2a only a
+// Spoonacular recipe (or a library row) is saved into the library.
 const meal = (id: number, title: string, names: string[]) => ({
     id,
     title,
@@ -72,6 +74,7 @@ const meal = (id: number, title: string, names: string[]) => ({
     image: '',
     sourceUrl: '',
     ingredients: names.map((name, i) => ingredient(name, i + 1, 'cup')),
+    source: 'spoonacular' as const,
 });
 
 // Two active meals, six ingredients each: the cards that pushed the button down.

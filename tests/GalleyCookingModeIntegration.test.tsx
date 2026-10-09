@@ -7,7 +7,7 @@ import type { PassageStatus } from '../services/PassagePlanService';
 const serviceMocks = vi.hoisted(() => ({
     getMealsByStatus: vi.fn(),
     getShoppingList: vi.fn(),
-    getRecipeInstructions: vi.fn(),
+    getMealSteps: vi.fn(),
     startCooking: vi.fn(),
     completeMeal: vi.fn(),
     saveLeftovers: vi.fn(),
@@ -25,7 +25,7 @@ vi.mock('../services/MealPlanService', () => ({
 }));
 
 vi.mock('../services/GalleyRecipeService', () => ({
-    getRecipeInstructions: serviceMocks.getRecipeInstructions,
+    getMealSteps: serviceMocks.getMealSteps,
 }));
 
 vi.mock('../services/ShoppingListService', () => ({
@@ -115,7 +115,7 @@ describe('Galley cooking mode production integration', () => {
             remaining: 0,
             zones: [],
         });
-        serviceMocks.getRecipeInstructions.mockResolvedValue([
+        serviceMocks.getMealSteps.mockResolvedValue([
             { number: 1, step: 'Heat the pan' },
             { number: 2, step: 'Cook the pasta' },
         ]);
@@ -181,5 +181,7 @@ describe('Galley cooking mode production integration', () => {
             resolveStart({ ...meal, status: 'cooking' });
         });
         expect(await screen.findByText('Heat the pan')).toBeInTheDocument();
+        // The steps come from the recipe the meal links to (126-B2a, GAL-07).
+        expect(serviceMocks.getMealSteps).toHaveBeenCalledWith({ recipe_id: 'recipe-1', spoonacular_id: 123 });
     });
 });
