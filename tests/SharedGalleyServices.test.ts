@@ -20,14 +20,23 @@ const cloud = vi.hoisted(() => ({
 
 vi.mock('../services/supabase', () => ({
     supabase: {
-        from: (table: string) => ({
-            upsert: async (row: Record<string, unknown>) => {
-                if (table === 'recipes') cloud.recipeUpserts.push(row);
-                return { error: null };
-            },
-        }),
+        from: (table: string) => {
+            // A read of the owner's cloud rows (updateCustomRecipe): none yet,
+            // the new recipe's INSERT is still in the outbox.
+            const read = { eq: () => read, maybeSingle: async () => ({ data: null, error: null }) };
+            return {
+                upsert: async (row: Record<string, unknown>) => {
+                    if (table === 'recipes') cloud.recipeUpserts.push(row);
+                    return { error: null };
+                },
+                select: () => read,
+            };
+        },
         auth: {
-            getSession: async () => ({ data: { session: { user: { id: cloud.crewId } } }, error: null }),
+            getSession: async () => ({
+                data: { session: { access_token: 'test-token', user: { id: cloud.crewId } } },
+                error: null,
+            }),
             getUser: async () => ({ data: { user: { id: cloud.crewId } }, error: null }),
         },
     },
@@ -43,9 +52,21 @@ vi.mock('../utils/system', async (importOriginal) => ({
 }));
 
 import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
-import { getAll, getById, getFullQueue, initLocalDatabase, mergePulledRecords } from '../services/vessel/LocalDatabase';
+import {
+    getAll,
+    getById,
+    getFullQueue,
+    initLocalDatabase,
+    mergePulledRecords,
+    removeSynced,
+} from '../services/vessel/LocalDatabase';
 import { isGalleyShareLive, reloadSharedBindersFromStorage } from '../services/vessel/sharedBinders';
-import { getStoredRecipes, createCustomRecipe, type StoredRecipe } from '../services/GalleyRecipeService';
+import {
+    getStoredRecipes,
+    createCustomRecipe,
+    updateCustomRecipe,
+    type StoredRecipe,
+} from '../services/GalleyRecipeService';
 import {
     getMealsByStatus,
     getStoresAvailability,
@@ -335,9 +356,19 @@ describe('a crew write in a shared galley goes to the skipper’s galley', () =>
         });
         // The skipper's library, and personal: the community is the skipper's call.
         expect(added).toMatchObject({ user_id: 'skipper-1', visibility: 'personal' });
-        expect(cloud.recipeUpserts).toEqual([
-            expect.objectContaining({ user_id: 'skipper-1', visibility: 'personal', title: 'Galley bread' }),
-        ]);
+        // 126-B2a (GAL-03), changed on purpose: no direct upsert any more. It
+        // landed before the outbox push without is_custom (server default
+        // false), and the next pull took the recipe's Edit button away. The
+        // queued INSERT carries the whole row instead.
+        expect(cloud.recipeUpserts).toEqual([]);
+        expect(JSON.parse(queued('recipes')[0].payload)).toMatchObject({
+            id: added!.id,
+            user_id: 'skipper-1',
+            visibility: 'personal',
+            title: 'Galley bread',
+            is_custom: true,
+            spoonacular_id: null,
+        });
         expect(titles(getStoredRecipes())).toEqual(['Galley bread', 'Skipper chowder']);
 
         await startCooking('m-skipper');
@@ -345,6 +376,90 @@ describe('a crew write in a shared galley goes to the skipper’s galley', () =>
             ['INSERT', planned.id],
             ['UPDATE', 'm-skipper'],
         ]);
+    });
+});
+
+describe('a recipe written in the Galley keeps its Edit (126-B2a, GAL-03)', () => {
+    const tarteTatin = (visibility: 'personal' | 'shared' = 'personal') =>
+        createCustomRecipe({
+            title: 'Tarte Tatin',
+            instructions: 'Caramelise the sugar.\nAdd the apples.\nBake under pastry.',
+            ready_in_minutes: 70,
+            servings: 6,
+            ingredients: [],
+            tags: [],
+            visibility,
+        });
+
+    it('queues the whole row (is_custom, no Spoonacular id, its owner) and makes no direct upsert', async () => {
+        noShares();
+        const created = await tarteTatin();
+
+        expect(cloud.recipeUpserts).toEqual([]);
+        expect(queued('recipes').map((item) => [item.mutation_type, item.record_id])).toEqual([
+            ['INSERT', created!.id],
+        ]);
+        expect(JSON.parse(queued('recipes')[0].payload)).toMatchObject({
+            user_id: CREW,
+            is_custom: true,
+            spoonacular_id: null,
+            instructions: 'Caramelise the sugar.\nAdd the apples.\nBake under pastry.',
+        });
+    });
+
+    it('an edit while the INSERT is still queued is applied behind it', async () => {
+        noShares();
+        const created = await tarteTatin();
+
+        const edited = await updateCustomRecipe(created!.id, { title: 'Tarte Tatin aux poires' });
+
+        expect(edited).toMatchObject({ id: created!.id, title: 'Tarte Tatin aux poires', is_custom: true });
+        expect(getById<StoredRecipe>('recipes', created!.id)?.title).toBe('Tarte Tatin aux poires');
+        expect(queued('recipes').map((item) => item.mutation_type)).toEqual(['INSERT', 'UPDATE']);
+        expect(JSON.parse(queued('recipes')[1].payload)).toMatchObject({ title: 'Tarte Tatin aux poires' });
+    });
+
+    it('a photo change while queued still waits for the cloud rows (unchanged from before)', async () => {
+        noShares();
+        const created = await tarteTatin('shared');
+
+        await expect(
+            updateCustomRecipe(created!.id, { image_url: 'https://images.example.test/tarte-tatin.jpg' }),
+        ).resolves.toBeNull();
+        expect(getById<StoredRecipe>('recipes', created!.id)?.image_url).toBe('');
+        expect(queued('recipes').map((item) => item.mutation_type)).toEqual(['INSERT']);
+    });
+
+    it('a personal recipe with a photo URL: a text edit while queued is applied (the photo clears, as on every personal edit)', async () => {
+        noShares();
+        const photo = 'https://images.example.test/tarte-tatin.jpg';
+        const created = await createCustomRecipe({
+            title: 'Tarte Tatin',
+            instructions: 'Caramelise the sugar.\nAdd the apples.\nBake under pastry.',
+            image_url: photo,
+            ready_in_minutes: 70,
+            servings: 6,
+            ingredients: [],
+            tags: [],
+            visibility: 'personal',
+        });
+
+        // What RecipeEditor sends: the whole form, the photo URL unchanged.
+        const edited = await updateCustomRecipe(created!.id, { title: 'Tarte Tatin aux poires', image_url: photo });
+
+        expect(edited).toMatchObject({ id: created!.id, title: 'Tarte Tatin aux poires', image_url: '' });
+        expect(queued('recipes').map((item) => item.mutation_type)).toEqual(['INSERT', 'UPDATE']);
+    });
+
+    it('a recipe neither on the server nor still queued is refused, and nothing is queued for it', async () => {
+        noShares();
+        const created = await tarteTatin();
+        // Pushed, then deleted on the server from another device: no cloud row, no queued INSERT.
+        await removeSynced(queued('recipes').map((item) => item.id));
+
+        await expect(updateCustomRecipe(created!.id, { title: 'Tarte Tatin aux poires' })).resolves.toBeNull();
+        expect(getById<StoredRecipe>('recipes', created!.id)?.title).toBe('Tarte Tatin');
+        expect(queued('recipes')).toEqual([]);
     });
 });
 

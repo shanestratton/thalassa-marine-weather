@@ -29,6 +29,7 @@ import {
 } from '../../services/MealPlanService';
 import { getShoppingList, type ShoppingListSummary } from '../../services/ShoppingListService';
 import { getStoredRecipes, type StoredRecipe } from '../../services/GalleyRecipeService';
+import { purgeOrphanRecipeImagesWhenIdle } from '../../services/galley/recipeImagePurge';
 import { triggerHaptic } from '../../utils/system';
 import { useAuthStore } from '../../stores/authStore';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
@@ -231,6 +232,9 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
         refreshShoppingSummary();
         refreshSavedRecipes();
     }, [refreshActiveMeals, refreshSavedRecipes, refreshShoppingSummary]);
+
+    // Once per install, at idle: throwaway recipe photo copies go (126-B2a, GAL-12).
+    useEffect(() => purgeOrphanRecipeImagesWhenIdle(), []);
 
     // A sync that brought rows in, or the galley changing hands, reloads all three.
     reloadGalleyRef.current = () => {
