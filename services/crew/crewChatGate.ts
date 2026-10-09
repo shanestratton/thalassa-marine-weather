@@ -59,6 +59,47 @@ export function isCrewChatGroup(channel: ChatChannel | null | undefined, viewerI
     );
 }
 
+/** A room's created_at as an instant; a missing or unreadable one sorts last. */
+const ageOf = (channel: ChatChannel) => {
+    const at = Date.parse(channel.created_at);
+    return Number.isFinite(at) ? at : Infinity;
+};
+
+/** Older room first: by created_at, then by id, so every phone sorts alike. */
+export function compareCrewChatRooms(a: ChatChannel, b: ChatChannel): number {
+    // Date.parse keeps milliseconds only; the server's microseconds break a tie.
+    return (
+        ageOf(a) - ageOf(b) ||
+        (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0) ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    );
+}
+
+/**
+ * The skipper's one Crew Chat among `channels`: the OLDEST active private 👥
+ * room `ownerId` owns, never chosen by name (build 125, Shane 2026-10-09: "it
+ * say mackay - whitsundays at the top"). The skipper's card
+ * (services/crew/crewChatRoom) and the crew's card (useCrewChatGate) both
+ * pick with this, so skipper and crew always meet in one room, whatever
+ * passage-named copies older builds made.
+ */
+export function pickCrewChatRoom<T extends ChatChannel>(channels: readonly T[], ownerId: string | null): T | null {
+    if (!ownerId) return null;
+    let oldest: T | null = null;
+    for (const channel of channels) {
+        const status = (channel as { status?: unknown }).status;
+        if (
+            channel?.owner_id !== ownerId ||
+            channel.is_private !== true ||
+            channel.icon !== '👥' ||
+            (status !== undefined && status !== 'active')
+        )
+            continue;
+        if (!oldest || compareCrewChatRooms(channel, oldest) < 0) oldest = channel;
+    }
+    return oldest;
+}
+
 // ── The remembered gate ────────────────────────────────────────
 
 function isRecord(value: unknown): value is Record<string, unknown> {
