@@ -1267,14 +1267,20 @@ describe('the locate button follows the location box', () => {
         expect(subject(false, false)).toEqual({ kind: 'boat', crewOwnerId: null });
     });
 
-    it('is wired so in MapHub: the box decides, never the place or the weather point', () => {
+    // 126-18 (Shane 2026-10-09): a chosen place is Locate's first stop, then
+    // the boat, then the phone (obsPlacePin.obsLocateStops, which keeps
+    // obsLocateSubject for the box following a receiver and for the boat stop).
+    it('is wired so in MapHub: the box decides, never the raw weather point', () => {
         const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
         expect(OBS_VESSEL_ZOOM).toBe(14);
         expect(hub).toContain('const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;');
         const handler = hub.slice(hub.indexOf('onLocateMe={() => {'), hub.indexOf('onRecenter={() => {'));
+        expect(handler).toContain('obsLocateStops(');
+        expect(handler).toContain('nextLocateStop(');
         expect(handler).toContain('locateOnObs(');
-        expect(handler).toContain("obsLocateSubject(obsStart.kind === 'follow', Boolean(ownBoatName))");
         expect(handler).toContain('LOCATE_BOAT_ZOOM');
+        // The place comes from the pin's own strict point, never the raw report.
+        expect(handler).toContain('placePin');
         for (const absent of ['GpsService', 'LocationStore', 'resolveOwnshipPosition', 'weatherCoords'])
             expect(handler).not.toContain(absent);
     });

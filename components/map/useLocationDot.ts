@@ -23,6 +23,9 @@ import { createPhoneMarkerElement } from './phoneMarker';
  * boat has sees the phone AS the own-ship marker, one pin, as always), and
  * hidden while the phone is aboard her (within PHONE_DOT_ABOARD_M of her live
  * fix): one marker on the boat, not two pins one on top of the other.
+ *
+ * With a place chosen in the box it shows too (126-18): Locate goes to the
+ * place, the boat and the phone in turn, and every mark it goes to is drawn.
  */
 
 /** The phone counts as aboard within this of the boat's live fix, and draws no second pin on her. */
@@ -40,23 +43,35 @@ export function phoneDotWanted(state: {
     /** What the own-ship marker draws (useVesselTracker's subject). */
     markerSubject: 'phone' | 'boat';
 }): boolean {
-    return state.obsShowing && state.boxFollows && state.followTarget === 'phone' && state.markerSubject === 'boat';
+    if (!state.obsShowing || state.markerSubject !== 'boat') return false;
+    // Following a receiver: Current Location only. A chosen place: always.
+    return state.boxFollows ? state.followTarget === 'phone' : true;
 }
 
-/** The phone is aboard the boat the marker draws (her own or a crewed one): within PHONE_DOT_ABOARD_M of her current fix. */
-function nearBoat(fix: ObsFix, now: number): boolean {
+/**
+ * Where the boat the marker draws (her own or a crewed one) is now, from a
+ * current fix only: her held fix is history, and she may have moved since.
+ */
+export function boatMarkLiveFix(now = Date.now()): { lat: number; lon: number } | null {
     try {
         const subject = ownshipMarkerSubject(now);
-        if (subject.kind !== 'boat') return false;
+        if (subject.kind !== 'boat') return null;
         const boat = vesselMarkerFixNow(subject.crewOwnerId, now);
-        return (
-            !!boat &&
-            boat.lane !== 'held' &&
-            calculateDistance(fix.lat, fix.lon, boat.lat, boat.lon) * 1852 <= PHONE_DOT_ABOARD_M
-        );
+        return boat && boat.lane !== 'held' ? { lat: boat.lat, lon: boat.lon } : null;
     } catch {
-        return false;
+        return null;
     }
+}
+
+/** Within `metres` of the boat the marker draws, by her current fix (great circle: safe across 180°). */
+export function nearBoatMark(point: { lat: number; lon: number }, metres: number, now = Date.now()): boolean {
+    const boat = boatMarkLiveFix(now);
+    return !!boat && calculateDistance(point.lat, point.lon, boat.lat, boat.lon) * 1852 <= metres;
+}
+
+/** The phone is aboard the boat the marker draws: within PHONE_DOT_ABOARD_M of her current fix. */
+function nearBoat(fix: ObsFix, now: number): boolean {
+    return nearBoatMark(fix, PHONE_DOT_ABOARD_M, now);
 }
 
 export function useLocationDot(

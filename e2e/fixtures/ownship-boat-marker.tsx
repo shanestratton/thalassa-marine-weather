@@ -15,6 +15,14 @@
 // bearing=<deg>, name=<boat>, wind=<kt>[@<from deg>][~] (her own wind on her
 // icon, W1-WC; '~' = the stale tier), unit=kts|kmh|mph|mps, furniture=1 (the
 // real right-rail zoom control and Locate row, MapActionFabs).
+//
+// state=place (126-18): a place chosen in the location box, its production
+// gold pin (obsPlacePin.createPlacePinElement) at the chart's centre at z10,
+// the boat and the phone drawn where they are. place=<name> names it
+// (fictional), overlap=1 puts it 300 m from the boat, notice=1 stands the
+// boat's "No position" message, popup=1 opens a weather-bubble-sized popup
+// over the place, and with furniture=1 Locate draws the pin and answers a
+// tap with the place's label.
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import '../../index.css';
@@ -38,6 +46,7 @@ import { gpsFixState } from '../../components/gpsFixState';
 import { ObsCentreNoticeChip } from '../../components/map/ObsCentreNoticeChip';
 import { showObsCentreNotice } from '../../components/map/obsCentre';
 import { createPhoneMarkerElement } from '../../components/map/phoneMarker';
+import { createPlacePinElement, placePinPoint } from '../../components/map/obsPlacePin';
 
 const params = new URLSearchParams(location.search);
 const base = params.get('base') ?? 'plain';
@@ -55,6 +64,11 @@ const BOAT: [number, number] = [148.72, -20.27];
 const HOME: [number, number] = [153.1, -27.2];
 const current = stateName === 'current';
 const phoneLast = current && params.get('phone') === 'last';
+/** A place chosen in the box: ~10 km west of her on the synthetic coast, or 300 m south of her (overlap=1). */
+const placeScene = stateName === 'place';
+const placeName = params.get('place') ?? 'Port Kittiwake';
+const overlap = params.get('overlap') === '1';
+const PLACE: [number, number] = overlap ? [BOAT[0], BOAT[1] - 300 / 111_195] : [148.625, -20.3];
 const NOW = Date.now();
 const HOUR = 3_600_000;
 const MS_PER_KT = 1 / 1.94384;
@@ -83,6 +97,9 @@ const STATES: Record<string, Scene> = {
     held: { lane: 'held', ageMs: 3 * HOUR, sogKts: null },
 };
 const scene = STATES[stateName] ?? STATES.stopped;
+const pinPoint = placeScene
+    ? placePinPoint({ defaultLocation: placeName, defaultLocationCoords: { lat: PLACE[1], lon: PLACE[0] } })
+    : null;
 
 // ── The page, as the app paints it ──
 if (theme === 'light') document.documentElement.classList.add('display-light');
@@ -207,8 +224,9 @@ function paintBase(map: mapboxgl.Map): void {
 
 const map = new mapboxgl.Map({
     container: 'map',
-    center: current ? HOME : BOAT,
-    zoom: 15,
+    center: placeScene ? PLACE : current ? HOME : BOAT,
+    // Obs opens a chosen place at z10 (OBS_PLACE_ZOOM).
+    zoom: placeScene ? 10 : 15,
     bearing,
     attributionControl: false,
     testMode: true,
@@ -315,12 +333,38 @@ new mapboxgl.Marker({ element: el, anchor: 'center', rotationAlignment: 'map', p
     .addTo(map);
 
 // ── Current Location: the phone's own dot where the chart centres (useLocationDot) ──
-if (current) {
+// With a place chosen it is drawn too, where the phone is (126-18).
+if (current || placeScene) {
     const dot = createPhoneMarkerElement();
     dot.classList.toggle('loc-dot--last', phoneLast);
     dot.setAttribute('aria-label', phoneLast ? 'Your phone, last fix 2 h ago' : 'Your phone');
     new mapboxgl.Marker({ element: dot, anchor: 'center' }).setLngLat(HOME).addTo(map);
 }
+
+// ── A chosen place: its gold pin, tip on the place (useObsPlacePin) ──
+if (pinPoint) {
+    const pinEl = createPlacePinElement(pinPoint.name);
+    new mapboxgl.Marker({ element: pinEl, anchor: 'bottom' }).setLngLat([pinPoint.lon, pinPoint.drawLat]).addTo(map);
+    if (params.get('popup') === '1') {
+        // A weather bubble's stacking (.weather-inspect-popup), solid so a pixel says whose it is.
+        const card = document.createElement('div');
+        card.style.cssText = 'width:160px;height:110px;background:#ff00c8;';
+        new mapboxgl.Popup({
+            closeButton: false,
+            closeOnClick: false,
+            className: 'weather-inspect-popup',
+            anchor: 'center',
+        })
+            .setLngLat([pinPoint.lon, pinPoint.drawLat])
+            .setDOMContent(card)
+            .addTo(map);
+    }
+}
+(window as unknown as { __ownship: unknown }).__ownship = {
+    /** Where the place projects on the canvas, in viewport pixels (the map fills the viewport). */
+    placePx: () => (pinPoint ? map.project([pinPoint.lon, pinPoint.drawLat]) : null),
+    boatPx: () => map.project(BOAT),
+};
 
 // ── The held position's message, under the 'Whole route' button ──
 const overlay = document.getElementById('overlay')!;
@@ -336,18 +380,36 @@ if (route) {
 if (route || scene.lane === 'held') {
     showObsCentreNotice({ subject: { kind: 'boat', crewOwnerId: null }, state: 'held', at: fixAt });
 }
+if (placeScene && params.get('notice') === '1') {
+    showObsCentreNotice({ subject: { kind: 'boat', crewOwnerId: null }, state: 'none', at: null });
+}
 if (furniture) {
     // The real right-rail zoom control and Locate row, where Obs puts them.
     const fabHost = document.createElement('div');
     fabHost.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
     overlay.appendChild(fabHost);
     createRoot(fabHost).render(
-        <MapActionFabs
-            onLocateMe={() => {}}
-            onRecenter={() => {}}
-            recenterDisabled
-            target={current ? 'phone' : 'boat'}
-        />,
+        placeScene ? (
+            // Locate's next stop is the place; a tap answers as locatePlace does, with its label.
+            <MapActionFabs
+                onLocateMe={async () => ({
+                    centred: true,
+                    announcement: `Chart centred on ${placeName}.`,
+                    label: placeName,
+                })}
+                onRecenter={() => {}}
+                recenterDisabled
+                target="place"
+                placeName={placeName}
+            />
+        ) : (
+            <MapActionFabs
+                onLocateMe={() => {}}
+                onRecenter={() => {}}
+                recenterDisabled
+                target={current ? 'phone' : 'boat'}
+            />
+        ),
     );
 }
 const chipHost = document.createElement('div');

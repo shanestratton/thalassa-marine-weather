@@ -114,7 +114,9 @@ describe('the bubble points at the spot', () => {
 
     it('also marks the exact coordinate, so an offset bubble is unambiguous', () => {
         expect(hook).toMatch(/new mapboxgl\.Marker\(\{ element: spotEl, anchor: 'center' \}\)/);
-        expect(hook).toMatch(/\.setLngLat\(\[lon, lat\]\)/);
+        // At the point, or where the chart draws it (a polar place's pin, 126-18).
+        expect(hook).toMatch(/\.setLngLat\(\[spotLon, spotLat\]\)/);
+        expect(hook).toMatch(/const \[spotLon, spotLat\] = drawn \? \[drawn\.lon, drawn\.lat\] : \[lon, lat\];/);
         expect(css).toContain('.weather-inspect-spot');
         // A ring, not a blob — the pixel being reported stays visible.
         expect(css.slice(css.indexOf('.weather-inspect-spot'), css.indexOf('.weather-inspect-spot') + 300)).toContain(

@@ -36,11 +36,33 @@ interface Open {
     furniture?: boolean;
     /** state 'current': the phone's mark as a live fix or a last known one. */
     phone?: 'live' | 'last';
+    /** state 'place' (126-18): the chosen place's name, 300 m from her, her message, a bubble over it. */
+    place?: string;
+    overlap?: boolean;
+    notice?: boolean;
+    popup?: boolean;
 }
 
 async function open(
     page: Page,
-    { width, height, state, base = 'plain', theme = 'dark', route, bearing, name, wind, unit, furniture, phone }: Open,
+    {
+        width,
+        height,
+        state,
+        base = 'plain',
+        theme = 'dark',
+        route,
+        bearing,
+        name,
+        wind,
+        unit,
+        furniture,
+        phone,
+        place,
+        overlap,
+        notice,
+        popup,
+    }: Open,
 ) {
     await page.setViewportSize({ width, height });
     await page.route('**/*', (r) => (new URL(r.request().url()).hostname === '127.0.0.1' ? r.continue() : r.abort()));
@@ -64,6 +86,10 @@ async function open(
     if (unit) query.set('unit', unit);
     if (furniture) query.set('furniture', '1');
     if (phone === 'last') query.set('phone', 'last');
+    if (place) query.set('place', place);
+    if (overlap) query.set('overlap', '1');
+    if (notice) query.set('notice', '1');
+    if (popup) query.set('popup', '1');
     await page.goto(`/e2e/fixtures/ownship-boat-marker.html?${query}`);
     await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
     await page.evaluate(async () => {
@@ -474,5 +500,326 @@ test.describe('her own wind on her own icon, under the boat', () => {
         const m = await measureWind(page);
         expect(m.shown).toBe(false);
         expect(m.aria).toBe('Kittiwake, stopped; heading unavailable');
+    });
+});
+
+/**
+ * 126-18. Shane 2026-10-09: "also in the obs page, if it isnt the vessel
+ * location or the phone location, can we have a pin in the location and that
+ * is where the locate fab goes to on the obs page". The production gold pin
+ * (obsPlacePin.createPlacePinElement) on the real Mapbox projection, beside
+ * the boat and the phone, with the real Locate row. Phones as drawn (the
+ * AS_DRAWN convention, day-planner-layout.spec.ts): the status bar and home
+ * bar taken off. Wide fonts, fictional places.
+ */
+const PLACE_SIZES = [
+    { name: '320x568 as drawn', width: 320, height: 561 },
+    { name: '390x844 as drawn', width: 390, height: 779 },
+    { name: '430x932 as drawn', width: 430, height: 856 },
+] as const;
+
+/** The pin, its chip and its tip, in viewport pixels, and where the place projects. */
+async function measurePin(page: Page) {
+    const placePx = await page.evaluate(() =>
+        (window as unknown as { __ownship: { placePx(): { x: number; y: number } } }).__ownship.placePx(),
+    );
+    const pin = await page.locator('.obs-place-pin').evaluate((el) => {
+        const rect = (node: Element) => {
+            const b = node.getBoundingClientRect();
+            return { left: b.left, top: b.top, right: b.right, bottom: b.bottom, width: b.width, height: b.height };
+        };
+        const chip = el.querySelector<HTMLElement>('.obs-place-pin__label')!;
+        const fill = el.querySelector<SVGPathElement>('path[data-part="fill"]')!;
+        const svg = el.querySelector('svg')!;
+        const cs = getComputedStyle(chip);
+        const hit = rect(el);
+        const centre = { x: hit.left + hit.width / 2, y: hit.top + hit.height / 2 };
+        const atCentre = document.elementFromPoint(centre.x, centre.y);
+        return {
+            hit,
+            chip: rect(chip),
+            svg: rect(svg),
+            // The drawn tip: the bottom of the gold teardrop's own geometry, at its centre line.
+            tip: { x: rect(fill).left + rect(fill).width / 2, y: rect(fill).bottom },
+            chipText: chip.textContent,
+            chipScroll: { scrollWidth: chip.scrollWidth, clientWidth: chip.clientWidth },
+            chipLineHeight: parseFloat(cs.lineHeight),
+            chipFontPx: parseFloat(cs.fontSize),
+            chipFont: cs.fontFamily,
+            chipDirection: cs.direction,
+            chipMaxWidth: cs.maxWidth,
+            rootPx: parseFloat(getComputedStyle(document.documentElement).fontSize),
+            fill: getComputedStyle(fill).fill,
+            glyph: el.getAttribute('data-glyph'),
+            aria: el.getAttribute('aria-label'),
+            hitIsPin: !!atCentre && el.contains(atCentre),
+            zIndex: getComputedStyle(el).zIndex,
+        };
+    });
+    return { placePx, ...pin };
+}
+
+/**
+ * WCAG contrast of the pin's edge against the base under it: on each base
+ * pixel in a ring just outside the pin, the stronger of its navy rim and its
+ * white halo; the worst pixel is returned. The night scrim tints both.
+ */
+async function pinEdgeContrast(page: Page, night: boolean) {
+    return page.evaluate((nightScrim) => {
+        const pin = document.querySelector('.obs-place-pin svg')!.getBoundingClientRect();
+        const base = document.getElementById('base') as HTMLCanvasElement;
+        const dpr = base.width / base.getBoundingClientRect().width;
+        const ctx = base.getContext('2d')!;
+        const lum = (rgb: number[]) => {
+            const [r, g, b] = rgb.map((v) => {
+                const c = v / 255;
+                return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+            });
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        };
+        const ratio = (a: number[], b: number[]) => {
+            const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+            return (hi + 0.05) / (lo + 0.05);
+        };
+        const scrim = (rgb: number[]) => (nightScrim ? rgb.map((c, i) => [69, 10, 10][i] * 0.25 + c * 0.75) : rgb);
+        const navy = scrim([15, 23, 42]);
+        const white = scrim([255, 255, 255]);
+        let worst = Infinity;
+        const ring: Array<[number, number]> = [];
+        const pad = 3;
+        for (let x = pin.left - pad; x <= pin.right + pad; x += 2) ring.push([x, pin.top - pad], [x, pin.bottom + pad]);
+        for (let y = pin.top - pad; y <= pin.bottom + pad; y += 2) ring.push([pin.left - pad, y], [pin.right + pad, y]);
+        for (const [x, y] of ring) {
+            const [r, g, b] = ctx.getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data;
+            const under = scrim([r, g, b]);
+            worst = Math.min(worst, Math.max(ratio(navy, under), ratio(white, under)));
+        }
+        return worst;
+    }, night);
+}
+
+/** The colour actually painted at a viewport point (markers are DOM, so read a screenshot). */
+async function pixelAt(page: Page, x: number, y: number): Promise<number[]> {
+    const png = (await page.screenshot({ clip: { x: Math.round(x), y: Math.round(y), width: 1, height: 1 } })).toString(
+        'base64',
+    );
+    return page.evaluate(async (data) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${data}`;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width;
+        c.height = img.height;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        return [...ctx.getImageData(0, 0, 1, 1).data];
+    }, png);
+}
+
+const LONG_NAME = 'Puerto Bahía de los Ángeles, Baja California Sur';
+/** A box with its size, as getBoundingClientRect().toJSON() gives it. */
+type Rect = Box & { width: number; height: number };
+
+test.describe("the chosen place's pin", () => {
+    for (const size of PLACE_SIZES) {
+        test(`on the place, named, beside the boat and the phone, at ${size.name}`, async ({ page }) => {
+            await open(page, { width: size.width, height: size.height, state: 'place', furniture: true });
+            const m = await measurePin(page);
+            // 1. Its tip on the place.
+            expect(Math.abs(m.tip.x - m.placePx.x), `tip x ${m.tip.x} vs ${m.placePx.x}`).toBeLessThanOrEqual(1);
+            expect(Math.abs(m.tip.y - m.placePx.y), `tip y ${m.tip.y} vs ${m.placePx.y}`).toBeLessThanOrEqual(1);
+            // Obs opens the place at the canvas centre.
+            expect(Math.abs(m.placePx.x - size.width / 2)).toBeLessThan(1);
+            expect(Math.abs(m.placePx.y - size.height / 2)).toBeLessThan(1);
+            // 2. The name whole, on one line, in the wide face, at the 12 px floor.
+            expect(m.chipText).toBe('Port Kittiwake');
+            expect(m.chipFont, 'the house wide-font rule').toMatch(/^(Verdana|"DejaVu Sans"|DejaVu Sans)/);
+            expect(m.chipFontPx).toBeGreaterThanOrEqual(12);
+            expect(m.chipScroll.scrollWidth).toBeLessThanOrEqual(m.chipScroll.clientWidth);
+            expect(m.chip.height).toBeLessThanOrEqual(m.chipLineHeight + 4);
+            // Centred above the head.
+            expect(Math.abs(m.chip.left + m.chip.width / 2 - m.placePx.x)).toBeLessThanOrEqual(1);
+            expect(m.chip.bottom).toBeLessThanOrEqual(m.svg.top + 1);
+            // 4. A real button, at least 44 × 44, on top where it is.
+            expect(m.hit.width).toBeGreaterThanOrEqual(44);
+            expect(m.hit.height).toBeGreaterThanOrEqual(44);
+            expect(m.hitIsPin).toBe(true);
+            expect(m.aria).toBe('Port Kittiwake, the place you chose. Show its weather');
+            // A button to VoiceOver on the real Marker too (Mapbox makes a role-less one an image).
+            await expect(
+                page.getByRole('button', {
+                    name: 'Port Kittiwake, the place you chose. Show its weather',
+                    exact: true,
+                }),
+            ).toHaveCount(1);
+            await expect(page.getByRole('img', { name: /the place you chose/ })).toHaveCount(0);
+            // 5. Its own mark: gold, not the boat's sky nor the phone's blue.
+            expect(m.glyph).toBe('place');
+            expect(m.fill).toBe('rgb(250, 204, 21)');
+            expect(m.fill).not.toBe('rgb(56, 189, 248)');
+            expect(m.fill).not.toBe('rgb(37, 99, 235)');
+            expect(m.zIndex).toBe('1');
+            // The boat and the phone are still drawn where they are.
+            await expect(page.locator('.vessel-tracker-marker')).toHaveCount(1);
+            await expect(page.locator('.loc-dot')).toHaveCount(1);
+            // 7. Locate draws the pin it goes to, and says where.
+            const locate = page.getByRole('button', { name: 'Locate me', exact: true });
+            await expect(locate.locator('svg[data-glyph="place"]')).toHaveCount(1);
+            await expect(locate).toHaveAccessibleDescription('Goes to Port Kittiwake');
+            // 8. The pin and its chip clear of the Locate row, the zoom rail and the message.
+            const furniture = await page
+                .locator('.thalassa-map-zoom, .thalassa-map-action-fabs')
+                .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON() as Box));
+            expect(furniture).toHaveLength(2);
+            for (const part of furniture) {
+                expect(overlaps(m.chip, part), 'chip vs furniture').toBe(false);
+                expect(overlaps(m.svg, part), 'pin vs furniture').toBe(false);
+            }
+            if (size.width === 430) await shot(page, 'obspin-430-place-plain');
+        });
+    }
+
+    test('a long name is cut with an ellipsis at 10rem, never wrapped; Arabic reads right to left', async ({
+        page,
+    }) => {
+        await open(page, { width: 320, height: 561, state: 'place', place: LONG_NAME, base: 'relief' });
+        const long = await measurePin(page);
+        expect(long.chipText).toBe(LONG_NAME);
+        expect(long.chipScroll.scrollWidth).toBeGreaterThan(long.chipScroll.clientWidth);
+        expect(long.chip.width).toBeLessThanOrEqual(10 * long.rootPx + 0.5);
+        expect(long.chip.height).toBeLessThanOrEqual(long.chipLineHeight + 4);
+        expect(long.chip.left).toBeGreaterThanOrEqual(0);
+        expect(long.chip.right).toBeLessThanOrEqual(320);
+        await shot(page, 'obspin-320-place-longname');
+        await open(page, { width: 320, height: 561, state: 'place', place: 'الدوحة' });
+        const rtl = await measurePin(page);
+        expect(rtl.chipText).toBe('الدوحة');
+        expect(rtl.chipDirection).toBe('rtl');
+        expect(rtl.chipScroll.scrollWidth).toBeLessThanOrEqual(rtl.chipScroll.clientWidth);
+    });
+
+    for (const theme of ['dark', 'light', 'night'] as const) {
+        for (const base of ['plain', 'relief', 'sat'] as const) {
+            test(`legible: ${base} · ${theme}`, async ({ page }) => {
+                await open(page, { width: 390, height: 779, state: 'place', base, theme });
+                // 3. 12 px bold is not large text: 4.5:1 whatever is under the chip.
+                expect(await badgeContrast(page, '.obs-place-pin__label')).toBeGreaterThanOrEqual(4.5);
+                // The pin's edge holds 3:1 against the base around it.
+                const edge = await pinEdgeContrast(page, theme === 'night');
+                expect(edge, `edge ${edge.toFixed(2)}:1`).toBeGreaterThanOrEqual(3);
+                await shot(page, `obspin-390-place-${base}-${theme}`);
+            });
+        }
+    }
+
+    test('on Relief at 430x932 as drawn', async ({ page }) => {
+        await open(page, { width: 430, height: 856, state: 'place', base: 'relief', theme: 'light', furniture: true });
+        const m = await measurePin(page);
+        expect(m.chipScroll.scrollWidth).toBeLessThanOrEqual(m.chipScroll.clientWidth);
+        await shot(page, 'obspin-430-place-relief');
+    });
+
+    test('300 m from the boat at z10: she draws over the pin, and a weather bubble over both', async ({ page }) => {
+        await open(page, { width: 430, height: 856, state: 'place', overlap: true });
+        // A point painted by both: inside her mainsail and inside the pin's gold (never an antialiased edge).
+        const both = await page.evaluate(() => {
+            const pinFill = document.querySelector<SVGGeometryElement>('.obs-place-pin path[data-part="fill"]')!;
+            // Her side-on boat: mainsail, jib, hull.
+            const shapes = [
+                ...document.querySelectorAll<SVGGeometryElement>('.vessel-tracker-marker .vessel-neutral-shape path'),
+            ];
+            const inside = (shape: SVGGeometryElement, x: number, y: number) => {
+                const m = shape.getScreenCTM()!.inverse();
+                const p = new DOMPoint(x, y).matrixTransform(m);
+                return shape.isPointInFill(p);
+            };
+            const a = pinFill.getBoundingClientRect();
+            for (const shape of shapes) {
+                const b = shape.getBoundingClientRect();
+                for (let y = Math.ceil(Math.max(a.top, b.top)); y <= Math.floor(Math.min(a.bottom, b.bottom)); y += 1)
+                    for (
+                        let x = Math.ceil(Math.max(a.left, b.left));
+                        x <= Math.floor(Math.min(a.right, b.right));
+                        x += 1
+                    ) {
+                        const around = [
+                            [x, y],
+                            [x - 1, y],
+                            [x + 1, y],
+                            [x, y - 1],
+                            [x, y + 1],
+                            [x + 1, y + 1],
+                        ];
+                        if (
+                            around.every(
+                                ([px, py]) => inside(pinFill, px + 0.5, py + 0.5) && inside(shape, px + 0.5, py + 0.5),
+                            )
+                        )
+                            return { x, y };
+                    }
+            }
+            return null;
+        });
+        expect(both, 'the pin and her sail overlap').not.toBeNull();
+        const atBoth = await pixelAt(page, both!.x, both!.y);
+        // Hers (white sail, blue trim), never the pin's gold.
+        expect(atBoth[2], `pixel ${atBoth.join(',')}`).toBeGreaterThan(atBoth[0]);
+        // And the stacking itself: hit-testing her (pointer-events lent for the look) finds her above the pin.
+        const order = await page.evaluate(({ x, y }) => {
+            const root = document.querySelector<HTMLElement>('.vessel-tracker-marker')!;
+            root.style.pointerEvents = 'auto';
+            const hit = document.elementFromPoint(x + 0.5, y + 0.5);
+            root.style.pointerEvents = 'none';
+            return hit?.closest('.vessel-tracker-marker, .obs-place-pin')?.className ?? null;
+        }, both!);
+        expect(order).toContain('vessel-tracker-marker');
+        await shot(page, 'obspin-430-overlap-z10');
+        // The bubble the pin's tap opens draws above both.
+        await open(page, { width: 430, height: 856, state: 'place', overlap: true, popup: true });
+        expect((await pixelAt(page, both!.x, both!.y)).slice(0, 3)).toEqual([255, 0, 200]);
+        const pinBox = await measurePin(page);
+        const top = await page.evaluate(
+            ({ x, y }) => document.elementFromPoint(x, y)?.closest('.mapboxgl-popup')?.className ?? null,
+            { x: pinBox.hit.left + pinBox.hit.width / 2, y: pinBox.hit.top + pinBox.hit.height / 2 },
+        );
+        expect(top).toContain('weather-inspect-popup');
+    });
+
+    test('at 320, a Locate tap labels where it went, left of the button, clear of the rail and the message', async ({
+        page,
+    }) => {
+        await open(page, { width: 320, height: 561, state: 'place', furniture: true, notice: true });
+        const locate = page.getByRole('button', { name: 'Locate me', exact: true });
+        await locate.dispatchEvent('click');
+        const label = page.locator('[data-locate-label]');
+        await expect(label).toHaveText('Port Kittiwake');
+        await expect(page.getByRole('status').filter({ hasText: 'Chart centred on Port Kittiwake.' })).toHaveCount(1);
+        const boxes = await page.evaluate(() => {
+            const r = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().toJSON() as Rect;
+            const labelEl = document.querySelector<HTMLElement>('[data-locate-label]')!;
+            return {
+                label: r('[data-locate-label]'),
+                button: document
+                    .querySelector('.thalassa-map-action-fabs button[aria-label="Locate me"]')!
+                    .getBoundingClientRect()
+                    .toJSON() as Rect,
+                rail: r('.thalassa-map-zoom'),
+                notice: r('.thalassa-obs-centre-notice > div'),
+                oneLine: labelEl.scrollWidth <= labelEl.clientWidth,
+                hidden: labelEl.getAttribute('aria-hidden'),
+            };
+        });
+        expect(boxes.label.right).toBeLessThanOrEqual(boxes.button.left);
+        expect(boxes.label.left).toBeGreaterThanOrEqual(8);
+        expect(boxes.label.height).toBeLessThanOrEqual(boxes.button.height + 0.5);
+        expect(boxes.oneLine).toBe(true);
+        expect(boxes.hidden).toBe('true');
+        expect(overlaps(boxes.label, boxes.rail), 'the zoom rail').toBe(false);
+        expect(overlaps(boxes.label, boxes.notice), 'the message').toBe(false);
+        await shot(page, 'obspin-320-locate-label');
+        await open(page, { width: 430, height: 856, state: 'place', furniture: true, notice: true });
+        await page.getByRole('button', { name: 'Locate me', exact: true }).dispatchEvent('click');
+        await expect(page.locator('[data-locate-label]')).toHaveText('Port Kittiwake');
+        await shot(page, 'obspin-430-locate-label');
     });
 });

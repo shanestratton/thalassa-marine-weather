@@ -71,8 +71,13 @@ interface InspectSettings {
 }
 
 export interface WeatherInspectPopup {
-    /** Open the bubble at a tapped position, replacing any open one. */
-    showWeatherInspect: (lat: number, lon: number) => void;
+    /**
+     * Open the bubble at a tapped position, replacing any open one. `drawn`,
+     * when given, is where the bubble and its spot sit if the chart draws
+     * the point elsewhere (a polar place's pin at 85°); the forecast is still
+     * asked for at lat, lon.
+     */
+    showWeatherInspect: (lat: number, lon: number, drawn?: { lat: number; lon: number }) => void;
     /** Tear the bubble down — used when a clean planning surface takes over. */
     closeWeatherInspect: () => void;
 }
@@ -106,11 +111,13 @@ export function useWeatherInspectPopup(
     }, []);
 
     const showWeatherInspect = useCallback(
-        (lat: number, lon: number): void => {
+        (lat: number, lon: number, drawn?: { lat: number; lon: number }): void => {
             const map = mapRef.current;
             if (!map) return;
             // Close any existing inspect popup
             closeWeatherInspect();
+            // Where the bubble and its spot sit: the point, or where the chart draws it.
+            const [spotLon, spotLat] = drawn ? [drawn.lon, drawn.lat] : [lon, lat];
 
             const container = document.createElement('div');
             container.style.minWidth = '240px';
@@ -260,7 +267,7 @@ export function useWeatherInspectPopup(
                 maxWidth: '300px',
                 offset: 8,
             })
-                .setLngLat([lon, lat])
+                .setLngLat([spotLon, spotLat])
                 .setDOMContent(container)
                 .addTo(map);
 
@@ -273,7 +280,9 @@ export function useWeatherInspectPopup(
             // together are unambiguous even when the bubble flips.
             const spotEl = document.createElement('div');
             spotEl.className = 'weather-inspect-spot';
-            const spot = new mapboxgl.Marker({ element: spotEl, anchor: 'center' }).setLngLat([lon, lat]).addTo(map);
+            const spot = new mapboxgl.Marker({ element: spotEl, anchor: 'center' })
+                .setLngLat([spotLon, spotLat])
+                .addTo(map);
             inspectSpotRef.current = spot;
 
             inspectPopupRef.current = popup;

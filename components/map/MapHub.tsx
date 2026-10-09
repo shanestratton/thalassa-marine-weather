@@ -46,6 +46,7 @@ import { seaBaseLayers, setReliefPalette } from './reliefBase';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
 import {
+    OBS_PLACE_ZOOM,
     OBS_VESSEL_ZOOM,
     obsStartTarget,
     useObsStartupCamera,
@@ -54,7 +55,19 @@ import {
 } from './useObsStartupCamera';
 import { clearCameraPadding } from './cameraPadding';
 import { phoneDotWanted } from './useLocationDot';
-import { locateOnObs, obsLocateSubject, useObsCentreNoticeWatch, type ObsBoatNames } from './obsCentre';
+import { locateOnObs, useObsCentreNoticeWatch, type ObsBoatNames } from './obsCentre';
+import {
+    chartAtStop,
+    followLocateFlight,
+    locateStopLabel,
+    nextLocateStop,
+    noteLocateStop,
+    obsLocateStops,
+    placePinPoint,
+    useNextLocateStop,
+    useObsPlacePin,
+    type LastLocateStop,
+} from './obsPlacePin';
 import { ObsCentreNoticeChip } from './ObsCentreNoticeChip';
 import { useCrewingBoat } from '../../hooks/useCrewingBoat';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
@@ -3143,12 +3156,54 @@ export const MapHub: React.FC<MapHubProps> = ({
             markerSubject: ownship.subject,
         }),
     );
-    // Locate draws where it goes (Shane 2026-10-08): the phone it flies to on
-    // Current Location (or for an account with no boat), else the boat.
-    const locateTarget = useMemo(
-        () => obsLocateSubject(obsStart.kind === 'follow', Boolean(ownBoatName)).kind,
+    // ── The chosen place: a gold pin, and Locate goes there first (126-18) ──
+    // Shane 2026-10-09: "if it isnt the vessel location or the phone location,
+    // can we have a pin in the location and that is where the locate fab goes
+    // to on the obs page". Only a point that belongs to the box's name (never
+    // a name still resolving); none off Obs, on a planning surface or during
+    // a MOB. Its tap opens that spot's weather bubble (obsPlacePin).
+    const placePin = useMemo(
+        () =>
+            placePinPoint({
+                defaultLocation: settings.defaultLocation,
+                defaultLocationCoords: boxPlace,
+                weatherCoords,
+                weatherName: weatherData?.locationName,
+            }),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [obsStart.kind, ownBoatName, followKey, ownship.subject],
+        [
+            settings.defaultLocation,
+            boxPlace?.lat,
+            boxPlace?.lon,
+            weatherCoords?.lat,
+            weatherCoords?.lon,
+            weatherData?.locationName,
+        ],
+    );
+    const placePinOnChart = obsShowing && !planningSurface && !mobActive;
+    useObsPlacePin(mapRef, mapReady, placePinOnChart ? placePin : null, showWeatherInspect);
+    // Locate draws where its NEXT tap goes (Shane 2026-10-08; 126-18): the
+    // place, then the boat, then the phone, each tap the stop after the one
+    // the chart is still at. Following a receiver: its one stop, as before.
+    const lastStopRef = useRef<LastLocateStop | null>(null);
+    const locateStopState = {
+        boxFollows: obsStart.kind === 'follow',
+        ownBoatNamed: Boolean(ownBoatName),
+        place: placePin,
+        mobActive,
+    };
+    const [locateNext, refreshLocateNext] = useNextLocateStop(
+        mapRef,
+        mapReady,
+        obsShowing,
+        () => {
+            const map = mapRef.current;
+            return nextLocateStop(
+                obsLocateStops(locateStopState),
+                map ? chartAtStop(map, { place: placePin, last: lastStopRef.current }) : null,
+            );
+        },
+        [obsStart.kind, ownBoatName, followKey, ownship.subject, placePin, mobActive],
     );
 
     // ── Picker Mode ──
@@ -5549,17 +5604,31 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // Locate follows the location box (Shane
                             // 2026-10-06): the boat for her row (or the boat
                             // crewed on), never the phone on a bus; the phone
-                            // for Current Location, never the boat; for a
-                            // chosen place the boat, or the phone for an
-                            // account with no boat. No live fix: the last
-                            // known one with the message (obsCentre).
+                            // for Current Location, never the boat. For a
+                            // chosen place (126-18) its pin first, then the
+                            // boat, then the phone: each tap the stop after
+                            // the one the chart is still at. No live fix: the
+                            // last known one with the message (obsCentre).
                             const map = mapRef.current;
                             if (!map) return;
-                            return locateOnObs(
-                                map,
-                                obsLocateSubject(obsStart.kind === 'follow', Boolean(ownBoatName)),
-                                obsBoatNames,
-                                LOCATE_BOAT_ZOOM,
+                            const stops = obsLocateStops(locateStopState);
+                            const stop = nextLocateStop(
+                                stops,
+                                chartAtStop(map, { place: placePin, last: lastStopRef.current }),
+                            );
+                            const tap = noteLocateStop(map, stop);
+                            lastStopRef.current = tap;
+                            refreshLocateNext();
+                            return locateOnObs(map, stop, obsBoatNames, LOCATE_BOAT_ZOOM, OBS_PLACE_ZOOM).then(
+                                (outcome) => {
+                                    if (!outcome) return outcome;
+                                    if (outcome.centred && lastStopRef.current === tap)
+                                        followLocateFlight(map, tap, refreshLocateNext);
+                                    else refreshLocateNext();
+                                    return stops.length > 1
+                                        ? { ...outcome, label: locateStopLabel(stop, obsBoatNames) }
+                                        : outcome;
+                                },
                             );
                         }}
                         onRecenter={() => {
@@ -5576,7 +5645,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             triggerHaptic('light');
                         }}
                         recenterDisabled={!weatherCoords}
-                        target={locateTarget}
+                        target={locateNext.kind}
+                        placeName={locateNext.kind === 'place' ? locateNext.name : undefined}
                     />
                 )}
 

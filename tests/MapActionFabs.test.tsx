@@ -277,3 +277,111 @@ describe('MapActionFabs locate feedback', () => {
         expect(onLocateMe).toHaveBeenCalledOnce();
     });
 });
+
+// ── A chosen place (126-18) ───────────────────────────────────────────────
+// Shane 2026-10-09: "if it isnt the vessel location or the phone location,
+// can we have a pin in the location and that is where the locate fab goes to
+// on the obs page". The button draws where the NEXT tap goes, and a small
+// label says where the last one went. Fictional places.
+describe('MapActionFabs, a chosen place', () => {
+    afterEach(() => {
+        cleanup();
+        vi.useRealTimers();
+    });
+
+    it('draws a pin and says the place it goes to', () => {
+        render(
+            <MapActionFabs
+                onLocateMe={vi.fn()}
+                onRecenter={vi.fn()}
+                recenterDisabled={false}
+                target="place"
+                placeName="Port Kittiwake"
+            />,
+        );
+        const button = screen.getByRole('button', { name: 'Locate me' });
+        expect(button.querySelector('svg[data-glyph="place"]')).not.toBeNull();
+        expect(button.querySelector('svg[data-glyph="crosshair"]')).toBeNull();
+        expect(button.querySelector('svg[data-glyph="phone"]')).toBeNull();
+        expect(button).toHaveAccessibleDescription('Goes to Port Kittiwake');
+        expect(button).toHaveAttribute('data-target', 'place');
+    });
+
+    it('an answer with a label shows it for 3 s beside the button; the status says the answer’s words', async () => {
+        vi.useFakeTimers();
+        let mapRef: ReturnType<typeof fakeMap> | null = null;
+        const { map, release } = renderBesideMap({
+            target: 'place',
+            placeName: 'Port Kittiwake',
+            // locatePlace: the flight starts after a microtask, then the answer.
+            onLocateMe: async () => {
+                await Promise.resolve();
+                mapRef?.emit('movestart', {});
+                return { centred: true, announcement: 'Chart centred on Port Kittiwake.', label: 'Port Kittiwake' };
+            },
+        });
+        mapRef = map;
+        fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
+        await act(async () => {});
+        const chip = screen.getByText('Port Kittiwake');
+        expect(chip).toHaveAttribute('aria-hidden', 'true');
+        expect(chip.className).toContain('truncate');
+        expect(screen.queryByText('Finding position…')).not.toBeInTheDocument();
+        expect(screen.getByRole('status')).toHaveTextContent('Chart centred on Port Kittiwake.');
+        expect(screen.getByRole('status')).not.toHaveTextContent('Chart centred on your position.');
+        act(() => vi.advanceTimersByTime(2_900));
+        expect(screen.getByText('Port Kittiwake')).toBeInTheDocument();
+        act(() => vi.advanceTimersByTime(200));
+        expect(screen.queryByText('Port Kittiwake')).not.toBeInTheDocument();
+        release();
+    });
+
+    it('a new tap takes the label down at once', async () => {
+        vi.useFakeTimers();
+        const answers: Array<(result: { centred: boolean; announcement: string; label?: string }) => void> = [];
+        const { release } = renderBesideMap({
+            onLocateMe: () => new Promise((resolve) => answers.push(resolve)),
+        });
+        const button = screen.getByRole('button', { name: 'Locate me' });
+        fireEvent.click(button);
+        await act(async () =>
+            answers[0]({ centred: true, announcement: 'Chart centred on Kittiwake.', label: 'Kittiwake' }),
+        );
+        expect(screen.getByText('Kittiwake')).toBeInTheDocument();
+        fireEvent.click(button);
+        expect(screen.queryByText('Kittiwake')).not.toBeInTheDocument();
+        expect(screen.getByText('Finding position…')).toBeInTheDocument();
+        release();
+    });
+
+    it('an answer without a label: no new chip (every 124 flow looks the same)', async () => {
+        vi.useFakeTimers();
+        const { release, container } = renderBesideMap({
+            target: 'boat',
+            onLocateMe: () => Promise.resolve({ centred: true, announcement: 'Chart centred on Kittiwake.' }),
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
+        await act(async () => {});
+        expect(container.querySelector('[data-locate-label]')).toBeNull();
+        expect(screen.getByRole('status')).toHaveTextContent('Chart centred on Kittiwake.');
+        release();
+    });
+
+    it('a "no fix" answer keeps its own words on screen, never a label', async () => {
+        vi.useFakeTimers();
+        const { release, container } = renderBesideMap({
+            onLocateMe: () =>
+                Promise.resolve({
+                    centred: false,
+                    announcement: 'No position from Kittiwake yet. The chart has not moved.',
+                    noFix: true,
+                    label: 'Kittiwake',
+                }),
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
+        await act(async () => {});
+        expect(screen.getByText('No position fix')).toBeInTheDocument();
+        expect(container.querySelector('[data-locate-label]')).toBeNull();
+        release();
+    });
+});
