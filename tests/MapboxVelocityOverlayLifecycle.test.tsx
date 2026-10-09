@@ -453,7 +453,9 @@ describe('MapboxVelocityOverlay React lifecycle', () => {
         expect(mapbox.listenerCount('moveend')).toBe(2);
         expect(mapbox.listenerCount('zoom')).toBe(1);
         expect(mapbox.listenerCount('zoomend')).toBe(2);
-        expect(mapbox.listenerCount('resize')).toBe(1);
+        // Leaflet's re-measure, and the close-in mode deciding again when the
+        // chart is shown after another page (125-18): its resize, never a zoomend.
+        expect(mapbox.listenerCount('resize')).toBe(2);
         const firstMountHandlers = new Set([...mapbox.listeners.values()].flatMap((handlers) => [...handlers]));
 
         // Schedule the old mount's deferred snap, then tear the effect down by
