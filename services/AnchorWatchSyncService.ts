@@ -56,6 +56,21 @@ export interface PositionBroadcast {
      * a shore watcher reads, not the whole config.
      */
     config?: Partial<AnchorWatchConfig>;
+    /**
+     * OPTIONAL: the boat's live depth and wind, sent by the Pi (126-05) and
+     * shown ashore (126-03a). Each value only when fresh, with its own time;
+     * an older Pi or a phone-kept watch sends none. Read it only through
+     * services/anchorLiveConditions.ts, which bounds and ages it.
+     */
+    live?: {
+        depthM?: number;
+        depthReference?: string; // readDepth's reference (below keel first)
+        depthAt?: number;
+        twsKn?: number; // <= 20 s on the Pi
+        twsAt?: number;
+        twdDeg?: number; // degrees true, <= 60 s on the Pi
+        twdAt?: number;
+    };
     timestamp: number;
 }
 

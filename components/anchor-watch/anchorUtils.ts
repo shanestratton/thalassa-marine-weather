@@ -6,6 +6,8 @@
  * and elapsed time display.
  */
 
+import type { DistanceUnit, LengthUnit } from '../../types/units';
+
 // Nav status → color (same logic as useAisStreamLayer)
 export function navStatusColorSimple(code: number): string {
     switch (code) {
@@ -49,6 +51,45 @@ export function getWeatherRecommendation(windKts: number, gustKts: number, waveM
 export function formatDistance(meters: number): string {
     if (meters < 1000) return `${meters.toFixed(0)} m`;
     return `${(meters / 1852).toFixed(1)} NM`;
+}
+
+const METRES_PER_FOOT = 0.3048;
+const METRES_PER_LONG: Record<DistanceUnit, [number, string]> = {
+    nm: [1852, 'NM'],
+    km: [1000, 'km'],
+    mi: [1609.344, 'mi'],
+};
+
+/**
+ * A length at anchor in the VIEWER's own unit (Settings → units.length), the
+ * number and its unit apart for a big readout: metres or feet, and from
+ * 1000 m on their distance unit (NM unless they chose km or miles). Shore
+ * Watch (126-03a): a feet skipper watching from ashore reads feet, whatever
+ * the boat's phone uses. Not a number reads '--', never NaN.
+ */
+export function anchorLengthParts(
+    metres: number,
+    unit: LengthUnit,
+    { decimals = 0, long = 'nm' }: { decimals?: number; long?: DistanceUnit } = {},
+): { value: string; unit: string } {
+    if (!Number.isFinite(metres)) return { value: '--', unit: '' };
+    if (Math.abs(metres) >= 1000) {
+        const [per, label] = METRES_PER_LONG[long] ?? METRES_PER_LONG.nm;
+        return { value: (metres / per).toFixed(1), unit: label };
+    }
+    return unit === 'ft'
+        ? { value: (metres / METRES_PER_FOOT).toFixed(decimals), unit: 'ft' }
+        : { value: metres.toFixed(decimals), unit: 'm' };
+}
+
+/** '35 m', '115 ft', '1.0 NM': anchorLengthParts as one string. */
+export function formatAnchorLength(
+    metres: number,
+    unit: LengthUnit,
+    options?: { decimals?: number; long?: DistanceUnit },
+): string {
+    const parts = anchorLengthParts(metres, unit, options);
+    return parts.unit ? `${parts.value} ${parts.unit}` : parts.value;
 }
 
 /** Format bearing to compass cardinal */
