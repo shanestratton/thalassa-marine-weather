@@ -366,16 +366,6 @@ export interface UserProfile {
     updated_at?: string;
 }
 
-export interface Waypoint {
-    id: string;
-    user_id: string;
-    name: string;
-    latitude: number;
-    longitude: number;
-    notes?: string;
-    created_at?: string;
-}
-
 /**
  * Fetch the signed-in user's community-facing profile. Chat profiles are the
  * canonical deployed identity surface; the old generic `profiles` relation
@@ -416,37 +406,5 @@ export async function updateUserProfile(userId: string, updates: Partial<UserPro
     const { error } = await supabase
         .from('chat_profiles')
         .upsert({ user_id: userId, ...snapshot, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-    return !error && isAuthIdentityScopeCurrent(scope);
-}
-
-/**
- * Sync waypoints to the `waypoints` table (upsert by id).
- */
-export async function syncWaypoints(userId: string, waypoints: Waypoint[]): Promise<boolean> {
-    if (waypoints.length === 0) return true;
-    const scope = getAuthIdentityScope();
-    if (!supabase || userId !== scope.userId || (await getCurrentUserId(scope)) !== userId) return false;
-    const rows = waypoints
-        .filter(
-            (waypoint) =>
-                typeof waypoint.id === 'string' &&
-                waypoint.id.trim() &&
-                typeof waypoint.name === 'string' &&
-                Number.isFinite(waypoint.latitude) &&
-                Number.isFinite(waypoint.longitude) &&
-                Math.abs(waypoint.latitude) <= 90 &&
-                Math.abs(waypoint.longitude) <= 180,
-        )
-        .map((waypoint) => ({
-            id: waypoint.id,
-            user_id: userId,
-            name: waypoint.name,
-            latitude: waypoint.latitude,
-            longitude: waypoint.longitude,
-            ...(typeof waypoint.notes === 'string' ? { notes: waypoint.notes } : {}),
-            ...(typeof waypoint.created_at === 'string' ? { created_at: waypoint.created_at } : {}),
-        }));
-    if (rows.length !== waypoints.length) return false;
-    const { error } = await supabase.from('waypoints').upsert(rows, { onConflict: 'id' });
     return !error && isAuthIdentityScopeCurrent(scope);
 }

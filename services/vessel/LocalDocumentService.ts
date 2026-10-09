@@ -14,6 +14,15 @@ const TABLE = 'ship_documents';
 // Documents, otherwise the sailor's own (sharedBinders.ts).
 const REGISTER = 'documents' as const;
 
+/**
+ * Drops client-only fields (_offline, _pendingFile) so they never reach the
+ * outbox: ship_documents has no such columns, and PostgREST refuses a payload
+ * naming one (PGRST204), fencing the record on this phone.
+ */
+function withoutClientFields<T extends object>(fields: T): T {
+    return Object.fromEntries(Object.entries(fields).filter(([key]) => !key.startsWith('_'))) as T;
+}
+
 export class LocalDocumentService {
     // ── READ ──
 
@@ -46,7 +55,7 @@ export class LocalDocumentService {
         const owner = binderInsertOwner(REGISTER);
         const now = new Date().toISOString();
         const record: ShipDocument = {
-            ...item,
+            ...withoutClientFields(item),
             id: generateUUID(),
             user_id: owner,
             created_at: now,
@@ -59,7 +68,7 @@ export class LocalDocumentService {
 
     static async update(id: string, updates: Partial<ShipDocument>): Promise<ShipDocument | null> {
         assertBinderWritable(REGISTER, getById<ShipDocument>(TABLE, id));
-        const updated = await updateLocal<ShipDocument>(TABLE, id, updates);
+        const updated = await updateLocal<ShipDocument>(TABLE, id, withoutClientFields(updates));
         dispatchDataChange(DATA_EVENTS.DOCUMENTS);
         return updated;
     }

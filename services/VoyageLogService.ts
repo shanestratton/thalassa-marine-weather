@@ -884,9 +884,10 @@ class VoyageLogServiceClass {
             const { error } = hidden
                 ? await supabase
                       .from('voyage_log_hidden_voyages')
+                      // Insert-only table (no UPDATE policy): hiding it again is a no-op, not a 42501.
                       .upsert(
                           { user_id: operation.userId, voyage_id: immutableVoyageId },
-                          { onConflict: 'user_id,voyage_id' },
+                          { onConflict: 'user_id,voyage_id', ignoreDuplicates: true },
                       )
                 : await supabase
                       .from('voyage_log_hidden_voyages')

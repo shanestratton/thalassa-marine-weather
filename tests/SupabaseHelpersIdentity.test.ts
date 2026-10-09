@@ -32,13 +32,7 @@ vi.mock('@capacitor/preferences', () => ({
     },
 }));
 
-import {
-    getCurrentUser,
-    getCurrentUserId,
-    getUserProfile,
-    syncWaypoints,
-    updateUserProfile,
-} from '../services/supabase';
+import { getCurrentUser, getCurrentUserId, getUserProfile, updateUserProfile } from '../services/supabase';
 
 interface Deferred<T> {
     promise: Promise<T>;
@@ -148,47 +142,5 @@ describe('Supabase identity-bound helpers', () => {
         result.resolve({ error: null });
 
         await expect(pending).resolves.toBe(false);
-    });
-
-    it('overwrites waypoint ownership and rejects malformed coordinates', async () => {
-        const upsert = vi.fn().mockResolvedValue({ error: null });
-        mocks.from.mockReturnValue({ upsert });
-
-        await expect(
-            syncWaypoints('account-a', [
-                {
-                    id: 'waypoint-a',
-                    user_id: 'account-b',
-                    name: 'Safe anchorage',
-                    latitude: -27.47,
-                    longitude: 153.02,
-                },
-            ]),
-        ).resolves.toBe(true);
-        expect(upsert).toHaveBeenCalledWith(
-            [
-                {
-                    id: 'waypoint-a',
-                    user_id: 'account-a',
-                    name: 'Safe anchorage',
-                    latitude: -27.47,
-                    longitude: 153.02,
-                },
-            ],
-            { onConflict: 'id' },
-        );
-
-        await expect(
-            syncWaypoints('account-a', [
-                {
-                    id: 'bad',
-                    user_id: 'account-a',
-                    name: 'Impossible',
-                    latitude: 91,
-                    longitude: 153.02,
-                },
-            ]),
-        ).resolves.toBe(false);
-        expect(upsert).toHaveBeenCalledOnce();
     });
 });
