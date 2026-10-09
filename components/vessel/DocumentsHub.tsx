@@ -131,26 +131,72 @@ const isQuietShareEnd = (e: unknown) => {
     return message.includes('cancel') || message.includes('dismissed') || message.includes('in progress');
 };
 
+type VaultModule = typeof import('../../services/vessel/vaultFiles');
+
+/** The Documents file store on this phone (126-B3a), loaded with the first file this page touches. */
+const loadVault = (): Promise<VaultModule> => import('../../services/vessel/vaultFiles');
+
+/** No copy on this phone, and no signal to fetch the cloud's. */
+class NeedsSignalError extends Error {}
+
+const NEEDS_SIGNAL = "This file isn't on this phone yet. Open it once with signal to keep a copy.";
+
+const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
+
+/**
+ * Write one paper's file into a share sheet's Cache folder: the copy on this
+ * phone first (126-B3a; a native copy, no bytes through JS), else the cloud's.
+ * A copy that may be older than the cloud's is used with no signal, or when
+ * the cloud does not answer: it is the best copy there is. Null when the page
+ * moved on (another account).
+ */
+async function writePaperToCache(
+    doc: ShipDocument,
+    copies: ShareCopies,
+    isCurrent: () => boolean,
+): Promise<string | null> {
+    const vault = await loadVault();
+    const offline = isOffline();
+    const copy = await vault.localCopyFor(doc);
+    if (!isCurrent()) return null;
+    const fromPhone = (found: NonNullable<typeof copy>) => {
+        copies.used = true;
+        return vault.openLocalCopy(found, doc, copies.folder);
+    };
+    if (copy && (copy.fresh || offline)) return fromPhone(copy);
+    if (!doc.file_uri || doc.file_uri.startsWith(vault.LOCAL_VAULT_SCHEME)) {
+        throw new Error('documents: the file on this phone is missing');
+    }
+    // An old inline file (data:) is on the phone; everything else is fetched.
+    if (offline && !doc.file_uri.startsWith('data:')) throw new NeedsSignalError();
+    try {
+        const freshUri = await DocumentSyncService.getDownloadUrl(doc.file_uri);
+        if (!isCurrent()) return null;
+        return await writeUriToCache(freshUri, doc, copies);
+    } catch (error) {
+        if (copy && isCurrent()) return fromPhone(copy);
+        throw error;
+    }
+}
+
 /**
  * Present a document file through the native share sheet.
  *
- * Resolves a fresh download URL (re-signing an expired Supabase link), writes
- * it to the cache, then hands it to Share. Opening, sharing and "Save to
- * Files" were three near-identical copies of this body; on iOS there is no
- * direct download, so saving IS the share sheet. The copy is cleared after.
+ * Writes the paper's file to the cache (from this phone's copy, or a fresh
+ * download URL, re-signing an expired Supabase link), then hands it to Share.
+ * Opening, sharing and "Save to Files" were three near-identical copies of
+ * this body; on iOS there is no direct download, so saving IS the share
+ * sheet. The copy is cleared after.
  */
 async function presentDocFile(
-    uri: string,
     doc: ShipDocument,
     isCurrent: () => boolean,
     opts: { text?: string; dialogTitle: string },
-): Promise<boolean> {
+): Promise<'shown' | 'failed' | 'needs-signal'> {
     const copies = newShareCopies();
     try {
-        const freshUri = await DocumentSyncService.getDownloadUrl(uri);
-        if (!isCurrent()) return false;
-        const fileUri = await writeUriToCache(freshUri, doc, copies);
-        if (!isCurrent()) return false;
+        const fileUri = await writePaperToCache(doc, copies, isCurrent);
+        if (!fileUri || !isCurrent()) return 'failed';
         const { Share } = await import('@capacitor/share');
         await Share.share({
             title: doc.document_name,
@@ -158,14 +204,30 @@ async function presentDocFile(
             files: [fileUri],
             dialogTitle: opts.dialogTitle,
         });
-        return true;
+        return 'shown';
     } catch (e: unknown) {
-        if (isQuietShareEnd(e)) return true;
+        if (e instanceof NeedsSignalError) return 'needs-signal';
+        if (isQuietShareEnd(e)) return 'shown';
         log.warn(' presentDocFile failed:', e);
-        return false;
+        return 'failed';
     } finally {
         await clearShareCopies(copies);
     }
+}
+
+/**
+ * What a refused pick says (126-B3a): the size in MB as the Files app counts
+ * it (1,000,000 bytes) and the skipper's locale writes it. The cap is 25 MiB
+ * (26.2 MB), so a refused file always reads over 25.
+ */
+function refusedPickMessage(result: { reason: string; bytes?: number }): string {
+    if (result.reason === 'too-large' && typeof result.bytes === 'number') {
+        const megabytes = result.bytes / 1_000_000;
+        const shown = megabytes >= 100 ? Math.round(megabytes) : Math.round(megabytes * 10) / 10;
+        return `That file is ${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(shown)} MB. Documents can be up to 25 MB.`;
+    }
+    if (result.reason === 'unsupported-type') return 'Attach a PDF, photo or Word document.';
+    return "Couldn't read that file. Try again.";
 }
 
 // SwipeableDocCard now in ./documents/SwipeableDocCard.tsx
@@ -194,6 +256,11 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     const [formNotes, setFormNotes] = useState('');
     const [formFileUri, setFormFileUri] = useState<string | null>(null);
     const [formFileName, setFormFileName] = useState<string | null>(null);
+    // A picked file is read and kept on the phone before it can be filed (126-B3a).
+    const [fileState, setFileState] = useState<'idle' | 'reading' | 'ready'>('idle');
+    const pickedRef = React.useRef<{ uri: string; bytes: number } | null>(null);
+    // Papers too big to back up, kept on this phone only (their rows have no file).
+    const [phoneOnlyIds, setPhoneOnlyIds] = useState<ReadonlySet<string>>(() => new Set());
     // Soft delete with undo (126-B10a): the document stays in state, hidden,
     // until its delete is committed. The commit is fenced on the account, not
     // on the page being open, so a delete flushed by Back or by the phone
@@ -204,7 +271,12 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         onCommitted: () => loadDocs(),
         commit: async (doc, scope) => {
             await LocalDocumentService.delete(doc.id);
-            if (isAuthIdentityScopeCurrent(scope)) DocumentSyncService.markDeleted(doc.id);
+            if (!isAuthIdentityScopeCurrent(scope)) return;
+            DocumentSyncService.markDeleted(doc.id);
+            // Its copy on this phone goes with it (126-B3a; the file an hour on).
+            void loadVault()
+                .then((vault) => vault.recordLocalCopy(doc.id, null))
+                .catch((error) => log.warn('documents: index-forget-failed', error));
         },
         onCommitFailed: () => toast.error('Failed to delete document'),
         onRestored: () => toast.success('Document restored'),
@@ -263,6 +335,9 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             setFormNotes('');
             setFormFileUri(null);
             setFormFileName(null);
+            setFileState('idle');
+            pickedRef.current = null;
+            setPhoneOnlyIds(new Set());
             reloadTimerRef.current = setTimeout(() => {
                 if (isAuthIdentityScopeCurrent(next)) loadDocs();
             }, 0);
@@ -278,6 +353,33 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
     // Realtime sync — crew edits appear instantly
     useRealtimeSync('ship_documents', loadDocs);
+
+    // Papers kept on this phone only, too big to back up (126-B3a): their rows
+    // have no file, but their cards still open.
+    useEffect(() => {
+        if (loading) return;
+        const scope = getAuthIdentityScope();
+        let cancelled = false;
+        loadVault()
+            .then(async (vault) => {
+                const kept = await vault.phoneOnlyCopies();
+                if (cancelled || !currentOperation(scope)) return;
+                setPhoneOnlyIds((previous) =>
+                    previous.size === kept.size && [...kept].every((id) => previous.has(id)) ? previous : kept,
+                );
+            })
+            .catch((error) => log.warn('documents: vault-index-failed', error));
+        return () => {
+            cancelled = true;
+        };
+    }, [currentOperation, documents, loading]);
+
+    // Files picked here that nothing refers to any more go, an hour on (126-B3a).
+    useEffect(() => {
+        loadVault()
+            .then((vault) => vault.gcVaultFiles())
+            .catch((error) => log.warn('documents: vault-gc-failed', error));
+    }, [dataScopeKey]);
 
     // Whose papers these are (shared binders, 2026-10-02): the skipper's while
     // this sailor is crew on a boat that shares Documents. Crew may file and
@@ -336,6 +438,10 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
     // ── Handlers ──
     const resetForm = () => {
+        // A file still being read belongs to no form now.
+        fileReadVersionRef.current += 1;
+        setFileState('idle');
+        pickedRef.current = null;
         setFormName('');
         setFormCategory('Registration');
         setFormIssueDate('');
@@ -360,50 +466,88 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         setFormNotes(doc.notes || '');
         setFormFileUri(doc.file_uri || null);
         setFormFileName(doc.file_uri ? 'Attached file' : null);
+        setFileState(doc.file_uri ? 'ready' : 'idle');
         setShowForm(true);
     };
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
+        // Reset input so same file can be re-selected
+        e.target.value = '';
         if (!file) return;
         const scope = getAuthIdentityScope();
         const readVersion = ++fileReadVersionRef.current;
-        setFormFileName(file.name);
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (!currentOperation(scope) || fileReadVersionRef.current !== readVersion) return;
-            setFormFileUri(reader.result as string);
+        const isCurrentPick = () => currentOperation(scope) && fileReadVersionRef.current === readVersion;
+        setFileState('reading');
+        // The file is kept on the phone (Library/vault), photos shrunk, never
+        // read whole into memory as base64 (126-B3a).
+        void (async () => {
+            let vault: VaultModule | null = null;
+            let result: Awaited<ReturnType<VaultModule['saveAttachment']>>;
+            try {
+                vault = await loadVault();
+                result = await vault.saveAttachment(file);
+            } catch {
+                result = { ok: false, reason: 'write-failed' };
+            }
+            if (!isCurrentPick()) {
+                // Its form, or its account, is gone: nothing of it stays.
+                if (result.ok) void vault?.discardAttachment(result.uri);
+                return;
+            }
+            if (!result.ok) {
+                // A pick is only offered with no file attached.
+                setFileState('idle');
+                log.warn(`documents: attach-${result.reason}`);
+                toast.error(refusedPickMessage(result));
+                return;
+            }
+            pickedRef.current = { uri: result.uri, bytes: result.bytes };
+            setFormFileUri(result.uri);
+            setFormFileName(file.name);
+            setFileState('ready');
             triggerHaptic('light');
-        };
-        reader.readAsDataURL(file);
-        // Reset input so same file can be re-selected
-        e.target.value = '';
+        })();
     };
 
     const handleSave = useCallback(async () => {
-        if (!formName.trim()) return;
+        if (!formName.trim() || fileState === 'reading') return;
         const scope = getAuthIdentityScope();
         const wasEditing = Boolean(editDoc);
         const documentId = editDoc?.id ?? null;
-        const input = {
+        // The file goes in only when it was added, replaced or removed: an
+        // edit of the notes must not upload the same file again (126-B3a).
+        const attachmentChanged = !editDoc || formFileUri !== (editDoc.file_uri || null);
+        const picked = pickedRef.current?.uri === formFileUri ? pickedRef.current : null;
+        const details = {
             document_name: formName.trim(),
             category: formCategory,
             issue_date: formIssueDate || null,
             expiry_date: formExpiryDate || null,
-            file_uri: formFileUri,
             notes: formNotes.trim() || null,
         };
         try {
             triggerHaptic('medium');
             let savedId: string;
             if (documentId) {
-                await LocalDocumentService.update(documentId, input);
+                await LocalDocumentService.update(
+                    documentId,
+                    attachmentChanged ? { ...details, file_uri: formFileUri } : details,
+                );
                 savedId = documentId;
             } else {
-                const created = await LocalDocumentService.create(input);
+                const created = await LocalDocumentService.create({ ...details, file_uri: formFileUri });
                 savedId = created.id;
             }
             if (!currentOperation(scope)) return;
+            if (attachmentChanged && (picked || wasEditing)) {
+                // Which file on this phone is this paper's, so it opens after
+                // the pull replaces the reference (or forget a removed one).
+                await loadVault()
+                    .then((vault) => vault.recordLocalCopy(savedId, picked?.uri ?? null, picked?.bytes))
+                    .catch((error) => log.warn('documents: index-write-failed', error));
+                if (!currentOperation(scope)) return;
+            }
             setShowForm(false);
             resetForm();
             loadDocs();
@@ -416,7 +560,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             if (currentOperation(scope)) toast.error('Failed to save document');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editDoc, formName, formCategory, formIssueDate, formExpiryDate, formNotes, formFileUri, loadDocs]);
+    }, [editDoc, formName, formCategory, formIssueDate, formExpiryDate, formNotes, formFileUri, fileState, loadDocs]);
 
     const { remove: removeDoc } = undoDelete;
     const handleDelete = useCallback(
@@ -438,12 +582,18 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
     const handleOpenDoc = async (doc: ShipDocument) => {
         const scope = getAuthIdentityScope();
-        if (doc.file_uri) {
+        if (doc.file_uri || phoneOnlyIds.has(doc.id)) {
             triggerHaptic('light');
-            const ok = await presentDocFile(doc.file_uri, { ...doc }, () => currentOperation(scope), {
+            const shown = await presentDocFile({ ...doc }, () => currentOperation(scope), {
                 dialogTitle: `Open ${doc.document_name}`,
             });
-            if (!ok && currentOperation(scope)) toast.error('Could not open document');
+            if (!currentOperation(scope)) return;
+            if (shown === 'needs-signal') {
+                log.warn('documents: open-needs-signal');
+                toast.info(NEEDS_SIGNAL);
+            } else if (shown === 'failed') {
+                toast.error('Could not open document');
+            }
         } else {
             if (currentOperation(scope)) openEditForm(doc);
         }
@@ -473,10 +623,10 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             if (!currentOperation(scope)) return;
             if (
                 doc.file_uri &&
-                (await presentDocFile(doc.file_uri, doc, () => currentOperation(scope), {
+                (await presentDocFile(doc, () => currentOperation(scope), {
                     text: `Ship's Document: ${doc.document_name} (${doc.category})`,
                     dialogTitle: `Share ${doc.document_name}`,
-                }))
+                })) === 'shown'
             )
                 ok++;
         }
@@ -499,15 +649,34 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         const copies = newShareCopies();
         try {
             const fileUris: string[] = [];
+            // With no signal, papers not on this phone are left out, and said so.
+            let leftOut = 0;
             for (const doc of selected) {
                 if (doc.file_uri) {
-                    const freshUri = await DocumentSyncService.getDownloadUrl(doc.file_uri);
-                    if (!currentOperation(scope)) return;
-                    fileUris.push(await writeUriToCache(freshUri, doc, copies));
-                    if (!currentOperation(scope)) return;
+                    let fileUri: string | null;
+                    try {
+                        fileUri = await writePaperToCache(doc, copies, () => currentOperation(scope));
+                    } catch (e: unknown) {
+                        if (!(e instanceof NeedsSignalError)) throw e;
+                        leftOut += 1;
+                        continue;
+                    }
+                    if (!fileUri || !currentOperation(scope)) return;
+                    fileUris.push(fileUri);
                 }
             }
             if (!currentOperation(scope)) return;
+            if (leftOut > 0) {
+                log.warn('documents: share-needs-signal');
+                toast.info(
+                    fileUris.length === 0
+                        ? "These papers aren't on this phone yet. Connect to share them."
+                        : leftOut === 1
+                          ? "1 paper isn't on this phone yet and was left out."
+                          : `${leftOut} papers aren't on this phone yet and were left out.`,
+                );
+                if (fileUris.length === 0) return;
+            }
             const { Share } = await import('@capacitor/share');
             await Share.share({
                 title: `Ship's Documents (${fileUris.length})`,
@@ -823,10 +992,12 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             onRemoveFile={() => {
                                 setFormFileUri(null);
                                 setFormFileName(null);
+                                setFileState('idle');
                             }}
                             onSave={handleSave}
                             allowAttach={!sharedBinder}
                             crewView={sharedBinder}
+                            fileBusy={fileState === 'reading'}
                         />
                     </ModalSheet>
                 )}

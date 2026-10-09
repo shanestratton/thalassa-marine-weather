@@ -41,6 +41,8 @@ vi.mock('../../services/vessel/LocalDatabase', () => ({
     initLocalDatabase: vi.fn(async () => undefined),
     purgeLocalDatabaseForUser: vi.fn(async () => []),
 }));
+// The Documents vault folder (126-B3a) is purged beside these; its own test is AccountDeletionService.
+vi.mock('../../services/vessel/vaultFiles', () => ({ purgeVaultFilesForUser: vi.fn(async () => undefined) }));
 vi.mock('../../services/nativeStorage', () => ({
     usesNativeEncryptedLargeStorage: () => false,
     DATA_CACHE_KEY: 'thalassa_weather_cache_v9',

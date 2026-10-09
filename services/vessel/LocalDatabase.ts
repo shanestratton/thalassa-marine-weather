@@ -218,9 +218,10 @@ function normalizeIdentity(userId: string | null | undefined): string | null {
 
 /**
  * Hex encoding is reversible and collision-free for UTF-8 identities while
- * remaining safe in native filesystem paths.
+ * remaining safe in native filesystem paths. Exported for the Documents vault
+ * (vaultFiles.ts, 126-B3a), whose folders are scoped by the same token.
  */
-function identityFileToken(identity: string | null): string {
+export function identityFileToken(identity: string | null): string {
     if (!identity) return 'anonymous';
     const bytes = new TextEncoder().encode(identity);
     return `user_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
@@ -1756,12 +1757,18 @@ export async function rewriteQueuedInsert(
  * with the same crash order (outbox first, then the table). Nothing changed
  * means nothing written. Refused (throws) while the record is being pushed:
  * that push carries the old payload, and its success would drop the rewrite.
+ * `rowChanges` may be a function of the row as it is inside the write, so a
+ * caller that read the row earlier never overwrites a newer edit (126-B3a's
+ * drain); it returns null to leave the row alone.
  */
 export async function rewriteQueuedRecord(
     tableName: string,
     recordId: string,
     rewrite: (payload: Record<string, unknown>, item: Readonly<SyncQueueItem>) => Record<string, unknown>,
-    rowChanges?: Record<string, unknown> | null,
+    rowChanges?:
+        | Record<string, unknown>
+        | null
+        | ((row: Readonly<Record<string, unknown>>) => Record<string, unknown> | null),
 ): Promise<{ items: number; row: boolean }> {
     const session = getLocalDatabaseSession();
     return serializeMutation(async () => {
@@ -1792,13 +1799,14 @@ export async function rewriteQueuedRecord(
         });
         const previousTable = cache[tableName] || {};
         const row = previousTable[recordId] as Record<string, unknown> | undefined;
+        const changes = typeof rowChanges === 'function' ? (row ? rowChanges({ ...row }) : null) : rowChanges;
         // Only the changed fields are compared: a row can be large (DOC-2).
         outcome.row =
             !!row &&
-            !!rowChanges &&
-            Object.keys(rowChanges).some((key) => JSON.stringify(row[key]) !== JSON.stringify(rowChanges[key]));
+            !!changes &&
+            Object.keys(changes).some((key) => JSON.stringify(row[key]) !== JSON.stringify(changes[key]));
         if (!outcome.items && !outcome.row) return outcome;
-        const nextTable = outcome.row ? { ...previousTable, [recordId]: { ...row, ...rowChanges } } : previousTable;
+        const nextTable = outcome.row ? { ...previousTable, [recordId]: { ...row, ...changes } } : previousTable;
         await persistTableAndQueue(tableName, nextTable, nextQueue, previousTable, previousQueue);
         cache[tableName] = nextTable;
         syncQueueCache = nextQueue;

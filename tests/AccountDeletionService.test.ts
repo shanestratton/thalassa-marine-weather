@@ -10,6 +10,7 @@ const harness = vi.hoisted(() => ({
     deleteLargeData: vi.fn(),
     deletePhoto: vi.fn(),
     deleteAudio: vi.fn(),
+    purgeVaultFiles: vi.fn(),
     preferences: {} as Record<string, string>,
     authState: {
         user: null as { id: string; email?: string } | null,
@@ -49,6 +50,9 @@ vi.mock('../services/vessel/LocalDatabase', () => ({
     initLocalDatabase: harness.initLocalDatabase,
     purgeLocalDatabaseForUser: harness.purgeLocalDatabase,
 }));
+
+// The Documents vault on the phone (126-B3a): passport scans kept as files.
+vi.mock('../services/vessel/vaultFiles', () => ({ purgeVaultFilesForUser: harness.purgeVaultFiles }));
 
 vi.mock('../services/nativeStorage', () => ({
     usesNativeEncryptedLargeStorage: () => false,
@@ -101,6 +105,7 @@ beforeEach(async () => {
     harness.deleteLargeData.mockResolvedValue(undefined);
     harness.deletePhoto.mockResolvedValue(undefined);
     harness.deleteAudio.mockResolvedValue(undefined);
+    harness.purgeVaultFiles.mockResolvedValue(undefined);
     const identity = await import('../services/authIdentityScope');
     identity.setAuthIdentityScope(accountA.id);
 });
@@ -184,6 +189,7 @@ describe('deleteCurrentAccount', () => {
         expect(harness.preferences.ship_log_offline_queue_quarantine_v2).toContain('"private":"b"');
         expect(harness.preferences.ship_log_offline_queue_quarantine_v2).not.toContain('"private":"a"');
         expect(harness.purgeLocalDatabase).toHaveBeenCalledWith(accountA.id);
+        expect(harness.purgeVaultFiles).toHaveBeenCalledWith(accountA.id);
         expect(harness.deleteLargeData.mock.calls.map(([key]) => key)).toEqual([
             'thalassa_weather_cache_v9::user%3Aaccount-a',
             'thalassa_voyage_cache_v2::user%3Aaccount-a',
@@ -203,6 +209,18 @@ describe('deleteCurrentAccount', () => {
         expect(harness.signOut).toHaveBeenCalledWith({ scope: 'local' });
         expect(harness.authState.user).toBeNull();
         expect(result).toEqual({ deleted: true, localCleanupComplete: true, appleRevocationRequired: false });
+    });
+
+    it("removes the account's Documents files from the phone, and says so when it cannot", async () => {
+        const { deleteCurrentAccount } = await import('../services/accountDeletion');
+        harness.purgeVaultFiles.mockRejectedValueOnce(new Error('Folder could not be removed'));
+
+        const result = await deleteCurrentAccount('DELETE');
+
+        expect(harness.purgeVaultFiles).toHaveBeenCalledWith(accountA.id);
+        expect(result).toMatchObject({ deleted: true, localCleanupComplete: false });
+        // The binder database and the rest are still removed.
+        expect(harness.purgeLocalDatabase).toHaveBeenCalledWith(accountA.id);
     });
 
     it('blocks remote deletion while MOB or Anchor Watch recovery is active', async () => {
