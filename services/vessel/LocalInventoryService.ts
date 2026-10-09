@@ -23,6 +23,7 @@ import {
     isRowInBinder,
 } from './sharedBinders';
 import type { InventoryItem, InventoryCategory } from '../../types';
+import { inventoryStats, type InventoryStats } from './inventoryStats';
 
 const TABLE = 'inventory_items';
 // Whose stores these are: the skipper's while the sailor is crew on a boat
@@ -155,26 +156,9 @@ export class LocalInventoryService {
         return await deleteLocal(TABLE, id);
     }
 
-    /** Get inventory stats */
-    static getStats(): {
-        totalItems: number;
-        totalQuantity: number;
-        lowStock: number;
-        categories: Record<string, number>;
-    } {
-        const items = LocalInventoryService.getItems();
-        const categories: Record<string, number> = {};
-
-        for (const item of items) {
-            categories[item.category] = (categories[item.category] || 0) + 1;
-        }
-
-        return {
-            totalItems: items.length,
-            totalQuantity: items.reduce((sum, i) => sum + i.quantity, 0),
-            lowStock: items.filter((i) => i.quantity <= i.min_quantity).length,
-            categories,
-        };
+    /** Get inventory stats (the same sum the Stores header makes of its visible rows) */
+    static getStats(): InventoryStats {
+        return inventoryStats(LocalInventoryService.getItems());
     }
 
     // ── Aliases for compatibility with existing inventory consumers ──

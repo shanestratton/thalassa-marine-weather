@@ -13,6 +13,7 @@ import { INVENTORY_CATEGORIES as CATEGORIES } from '../../types';
 import { storesCategoryIcon } from './inventory/categoryIcons';
 import { StoresCategoryGrid } from './inventory/StoresCategoryGrid';
 import { LocalInventoryService as InventoryService } from '../../services/vessel/LocalInventoryService';
+import { inventoryStats } from '../../services/vessel/inventoryStats';
 import { InventoryScanner } from './InventoryScanner';
 import { downloadInventoryPdf, shareInventoryPdf } from '../../utils/inventoryPdfExport';
 import { triggerHaptic } from '../../utils/system';
@@ -30,6 +31,7 @@ import { Button } from '../ui/Button';
 import { toast } from '../Toast';
 import { SwipeableInventoryCard } from './inventory/SwipeableInventoryCard';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
+import { useUndoDelete } from '../../hooks/useUndoDelete';
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
@@ -51,7 +53,8 @@ interface InventoryListProps {
 interface ScopedInventoryData {
     identity: AuthIdentityScope;
     items: InventoryItem[];
-    stats: { totalItems: number; totalQuantity: number; lowStock: number } | null;
+    /** False until this account's first load lands: the header says 'Loading…'. */
+    loaded: boolean;
 }
 
 // SwipeableInventoryCard now in ./inventory/SwipeableInventoryCard.tsx
@@ -60,14 +63,34 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [inventoryData, setInventoryData] = useState<ScopedInventoryData>(() => ({
         identity: getAuthIdentityScope(),
         items: [],
-        stats: null,
+        loaded: false,
     }));
     const inventoryDataIsCurrent = isAuthIdentityScopeCurrent(inventoryData.identity);
-    const items = useMemo(
-        () => (inventoryDataIsCurrent ? inventoryData.items : []),
-        [inventoryData.items, inventoryDataIsCurrent],
+    // Soft delete with undo (126-B10a): a deleted item stays in state, hidden,
+    // until its delete is committed, so no reload brings it back and Undo
+    // returns it once, in its place.
+    const undoDelete = useUndoDelete<InventoryItem>({
+        rows: inventoryData.items,
+        commit: (item) => InventoryService.delete(item.id),
+        // Declared below; called only once a delete has landed.
+        onCommitted: () => reloadInBackground(),
+        onCommitFailed: () => toast.error('Failed to delete item'),
+        onRestored: () => toast.success('Item restored'),
+        describe: (item) => `"${item.item_name}" deleted`,
+    });
+    const { hiddenIds } = undoDelete;
+    // Keyed per item: a second delete gets a fresh toast, countdown and bar.
+    const { key: undoToastKey, ...undoToastProps } = undoDelete.toastProps;
+    const items = useMemo(() => {
+        if (!inventoryDataIsCurrent) return [];
+        return hiddenIds.size > 0 ? inventoryData.items.filter((item) => !hiddenIds.has(item.id)) : inventoryData.items;
+    }, [inventoryData.items, inventoryDataIsCurrent, hiddenIds]);
+    // The header counts what is on screen, so an item waiting out its undo
+    // window drops out of '3 items' with its row.
+    const stats = useMemo(
+        () => (inventoryDataIsCurrent && inventoryData.loaded ? inventoryStats(items) : null),
+        [inventoryDataIsCurrent, inventoryData.loaded, items],
     );
-    const stats = inventoryDataIsCurrent ? inventoryData.stats : null;
     const [loading, setLoading] = useState(true);
     // Distinct from "no items": a failed fetch used to fall straight through to
     // the empty state, so a network error read as "you have no stores".
@@ -113,9 +136,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             setLoadError(false);
             const data = await InventoryService.getAll();
             if (!isCurrentRequest()) return;
-            const nextStats = await InventoryService.getStats();
-            if (!isCurrentRequest()) return;
-            setInventoryData({ identity, items: data, stats: nextStats });
+            setInventoryData({ identity, items: data, loaded: true });
         } catch (e) {
             log.warn(' load failed:', e);
             if (isCurrentRequest()) {
@@ -143,7 +164,8 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     // from a skipper's stores, and a view-only share hides every edit.
     const { source: binder, fetchingSkipperBinder } = useBinderSource('stores', {
         reload: reloadInBackground,
-        rowCount: items.length,
+        // Every row this account holds, a hidden one included.
+        rowCount: inventoryDataIsCurrent ? inventoryData.items.length : 0,
     });
     const sharedBinder = binder.mode === 'shared';
     const viewOnly = binder.mode === 'shared' && !binder.canWrite;
@@ -228,69 +250,13 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         [filtered],
     );
 
-    const [deletedItem, setDeletedItem] = useState<{ identity: AuthIdentityScope; item: InventoryItem } | null>(null);
-
-    // ── Soft-delete with undo ──
+    // ── Soft-delete with undo (useUndoDelete above) ──
     const handleDelete = (id: string, identity: AuthIdentityScope = getAuthIdentityScope()) => {
         const item = items.find((i) => i.id === id);
         if (!item || !isAuthIdentityScopeCurrent(identity)) return;
         triggerHaptic('medium');
-        // Remove from UI immediately
-        setInventoryData((previous) =>
-            isAuthIdentityScopeCurrent(identity) &&
-            previous.identity.key === identity.key &&
-            previous.identity.generation === identity.generation
-                ? { ...previous, items: previous.items.filter((candidate) => candidate.id !== id) }
-                : previous,
-        );
         setExpandedId(null);
-        // One undo slot: a second swipe-delete inside the window used to orphan
-        // the first item — gone from the list, never deleted, back on reload
-        // (audit 2026-09-02). Commit the pending one before taking the slot.
-        setDeletedItem((pending) => {
-            if (pending && isAuthIdentityScopeCurrent(pending.identity)) {
-                void InventoryService.delete(pending.item.id).catch((e) => {
-                    log.warn(' delete failed:', e);
-                    if (isAuthIdentityScopeCurrent(pending.identity)) toast.error('Failed to delete item');
-                });
-            }
-            return { identity, item };
-        });
-    };
-
-    // Called by UndoToast after 5s — performs the actual API delete
-    const handleDismissDelete = async () => {
-        if (!deletedItem) return;
-        const { identity, item } = deletedItem;
-        setDeletedItem(null);
-        if (!isAuthIdentityScopeCurrent(identity)) return;
-        try {
-            await InventoryService.delete(item.id);
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-        } catch (e) {
-            log.warn(' delete failed:', e);
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            toast.error('Failed to delete item');
-            // Restore item on failure
-            setInventoryData((previous) =>
-                previous.identity.key === identity.key && previous.identity.generation === identity.generation
-                    ? { ...previous, items: [...previous.items, item] }
-                    : previous,
-            );
-        }
-    };
-
-    const handleUndoDelete = () => {
-        if (deletedItem && isAuthIdentityScopeCurrent(deletedItem.identity)) {
-            const { identity, item } = deletedItem;
-            setInventoryData((previous) =>
-                previous.identity.key === identity.key && previous.identity.generation === identity.generation
-                    ? { ...previous, items: [...previous.items, item] }
-                    : previous,
-            );
-            toast.success('Item restored');
-        }
-        setDeletedItem(null);
+        undoDelete.remove(item);
     };
 
     // ── Edit item ──
@@ -308,7 +274,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     useEffect(
         () =>
             subscribeAuthIdentityScope((next) => {
-                setInventoryData({ identity: next, items: [], stats: null });
+                setInventoryData({ identity: next, items: [], loaded: false });
                 setLoading(true);
                 setSearchQuery('');
                 setShowScanner(false);
@@ -317,7 +283,6 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 setShowExportPicker(false);
                 setExportCategories(new Set());
                 setExportMode('download');
-                setDeletedItem(null);
                 setEditItem(null);
                 setEditName('');
                 setEditCategory('Provisions');
@@ -661,6 +626,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             }
                             onConfirm={() => {
                                 triggerHaptic('medium');
+                                // The scanner finds rows by barcode, a hidden
+                                // one too: a delete waiting out its undo is
+                                // made now, not restocked and then deleted.
+                                undoDelete.commitNow();
                                 setShowScanner(true);
                             }}
                             theme="emerald"
@@ -824,12 +793,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 </ModalSheet>
             )}
 
-            <UndoToast
-                isOpen={!!deletedItem}
-                message={`"${deletedItem?.item.item_name}" deleted`}
-                onUndo={handleUndoDelete}
-                onDismiss={handleDismissDelete}
-            />
+            <UndoToast key={undoToastKey} {...undoToastProps} />
 
             {/* ═══ EXPORT CATEGORY PICKER ═══ */}
             {showExportPicker && (
