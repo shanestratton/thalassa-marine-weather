@@ -2118,7 +2118,10 @@ check(
         'const lease = await leasePromise',
         'AlarmAudioService.releaseEventually(resolvedLease)',
         'disabled={!alarmAudibilityConfirmed || notificationBlocked || audioCleanupBlocked}',
-        'Play the real alarm and confirm you heard it before Anchor Watch can start.',
+        // Since 125-01 the modal also arms the collision watch, so the sentence
+        // names the watch; pin both the sentence and the anchor name it gets.
+        'Play the real alarm and confirm you heard it before ${watchName} can start.',
+        "const watchName = collision ? 'the collision watch' : 'Anchor Watch';",
     ]) &&
         anchorUi.includes('Every arming attempt requires a fresh audible test') &&
         !anchorUi.includes('soundCheckShownRef'),
