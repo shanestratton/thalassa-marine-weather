@@ -13,9 +13,11 @@
  *
  * The real chain: the real LocalDatabase over the in-memory filesystem, the
  * real galley services, the real SyncService push, and the REAL supabase-js
- * client, with only fetch faked. The fake PostgREST refuses a fractional or
- * out-of-range INTEGER the way Postgres does (22P02 / 22003, HTTP 400) and
- * applies the recipes / meal_plans insert policies.
+ * client, with only fetch faked. The fake PostgREST has live's columns
+ * (helpers/galleyLiveSchema) and refuses a key with no column (PGRST204), then
+ * a fractional or out-of-range INTEGER the way Postgres does (22P02 / 22003,
+ * HTTP 400), and applies the recipes / meal_plans insert policies. By default
+ * it is live once 20261010145000_recipes_live_schema_alignment is pushed.
  *
  * Fictional boats and sailors only: 'Kestrel' (skipper 'skipper-1'),
  * 'Albatross' (crew 'crew-1'), community cook 'sailor-9'; passages
@@ -59,6 +61,8 @@ const h = vi.hoisted(() => {
         /** crew → passages they cook for (can_access_passage) */
         passageCrew: new Map<string, Set<string>>(),
         requests: [] as { method: string; path: string }[],
+        /** Live's Galley columns today, or once the alignment migration is pushed. */
+        schema: 'aligned' as 'live' | 'aligned',
     };
 
     const json = (status: number, body: unknown) =>
@@ -168,8 +172,10 @@ const h = vi.hoisted(() => {
             state.writes.push({ method, table: name, body, user });
             const incoming = Array.isArray(body) ? body : [body];
             const ignoreDuplicates = (headers.get('Prefer') ?? '').includes('resolution=ignore-duplicates');
+            const { unknownColumnError } = await import('./helpers/galleyLiveSchema');
             for (const row of incoming) {
-                const invalid = typeError(name, row);
+                // PostgREST first (no such column), then Postgres (the value's type).
+                const invalid = unknownColumnError(name, row, state.schema) ?? typeError(name, row);
                 if (invalid) {
                     state.refusals.push({ table: name, code: invalid.code });
                     return json(400, { ...invalid, details: null, hint: null });
@@ -204,6 +210,12 @@ const h = vi.hoisted(() => {
         if (method === 'PATCH') {
             const patch = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
             state.writes.push({ method, table: name, body: patch, user });
+            const { unknownColumnError } = await import('./helpers/galleyLiveSchema');
+            const unknown = unknownColumnError(name, patch, state.schema);
+            if (unknown) {
+                state.refusals.push({ table: name, code: unknown.code });
+                return json(400, { ...unknown, details: null, hint: null });
+            }
             const target = [...rows.values()].find(
                 (row) => matches(row, url.searchParams) && String(row.user_id ?? '') === user,
             );
@@ -447,6 +459,7 @@ beforeEach(() => {
     h.state.requests = [];
     h.state.galleyWriters.clear();
     h.state.passageCrew.clear();
+    h.state.schema = 'aligned';
 });
 
 afterEach(async () => {
@@ -742,6 +755,39 @@ describe('a Galley-made recipe keeps is_custom on the server (GAL-03)', () => {
         expect(insert?.body).not.toHaveProperty('updated_at');
         expect(serverRows('recipes')).toEqual([
             expect.objectContaining({ id: created!.id, title: 'Tarte Tatin aux poires', is_custom: true }),
+        ]);
+    });
+
+    it('on live as it is today it waits in the outbox (PGRST204), and pushes once the alignment migration lands', async () => {
+        await signIn('skipper-1');
+        // Live public.recipes has no spoonacular_id or source_url column until
+        // 20261010145000_recipes_live_schema_alignment.sql is pushed.
+        h.state.schema = 'live';
+        const created = await createCustomRecipe({
+            title: 'Bobotie',
+            instructions: 'Brown the mince.\nPour over the egg custard.\nBake.',
+            ready_in_minutes: 60,
+            servings: 4,
+            ingredients: [],
+            tags: [],
+            visibility: 'personal',
+        });
+
+        const today = await syncNow();
+
+        expect(h.state.refusals).toEqual([{ table: 'recipes', code: 'PGRST204' }]);
+        expect(today.errors).toEqual([expect.stringMatching(/Could not find the '\w+' column of 'recipes'/)]);
+        expect(serverRows('recipes')).toEqual([]);
+        // Kept on the phone, queued: nothing is lost while the migration waits.
+        expect(getFullQueue().map((item) => [item.record_id, item.mutation_type, item.status])).toEqual([
+            [created!.id, 'INSERT', 'failed'],
+        ]);
+
+        h.state.schema = 'aligned';
+        expect((await syncNow()).errors).toEqual([]);
+        expect(getFullQueue()).toEqual([]);
+        expect(serverRows('recipes')).toEqual([
+            expect.objectContaining({ id: created!.id, title: 'Bobotie', is_custom: true, user_id: 'skipper-1' }),
         ]);
     });
 });

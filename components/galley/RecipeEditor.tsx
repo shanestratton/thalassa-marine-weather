@@ -23,6 +23,11 @@ import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { SafeImage } from '../ui/SafeImage';
+import { createLogger, getErrorMessage } from '../../utils/createLogger';
+
+// A device-log trace for each failure the editor shows (GAL-13): a reason and
+// the error message, never the recipe's title or text.
+const log = createLogger('Galley');
 
 interface RecipeEditorProps {
     onClose: () => void;
@@ -63,6 +68,10 @@ function instructionsForEditing(instructions: string): string {
             .filter(Boolean)
             .join('\n');
     } catch {
+        // Plain text is the editor's own format and lands here every time.
+        // Only text that looks like stored steps and is not is worth a trace,
+        // and without the parser's message: it quotes the recipe.
+        if (instructions.trimStart().startsWith('[')) log.warn('galley: recipe-step-parse');
         return instructions;
     }
 }
@@ -180,7 +189,8 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
             triggerHaptic('heavy');
             onSaved();
             onClose();
-        } catch {
+        } catch (error) {
+            log.warn('galley: recipe-save', getErrorMessage(error));
             if (mountedRef.current) {
                 setSaveError('The recipe could not be saved. Check your storage and try again.');
             }

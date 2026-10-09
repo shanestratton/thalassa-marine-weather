@@ -19,7 +19,7 @@ import { triggerHaptic } from '../utils/system';
 import { getMyCrew } from './CrewService';
 import { binderWriteGranted, galleyShareOwner } from './vessel/sharedBinders';
 import { isPgInteger, realSpoonacularId } from './galley/recipeRefs';
-import { createLogger } from '../utils/createLogger';
+import { createLogger, getErrorMessage } from '../utils/createLogger';
 
 const log = createLogger('MealPlan');
 
@@ -671,7 +671,8 @@ export async function getCrewCount(voyageId: string): Promise<number> {
         const crew = await getMyCrew(voyageId);
         // +1 for the captain (who is the owner, not in the crew list)
         return crew.filter((c) => c.status === 'accepted').length + 1;
-    } catch {
+    } catch (error) {
+        log.warn('galley: crew-count', getErrorMessage(error));
         return 1; // Offline fallback — at least the captain
     }
 }
@@ -713,7 +714,8 @@ export async function addShortfallItem(
 
         triggerHaptic('medium');
         return true;
-    } catch {
+    } catch (error) {
+        log.warn('galley: shortfall', getErrorMessage(error));
         return false;
     }
 }
