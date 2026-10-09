@@ -40,6 +40,8 @@ function value(body: string, selector: string, property: string): string {
 }
 
 const px = (text: string) => Number(text.replace(/px.*/, ''));
+/** A value on one line, however the formatter broke it. */
+const flat = (text: string) => text.replace(/\s+/g, ' ').replace(/\( /g, '(').replace(/ \)/g, ')');
 
 const COMPACT = '@container vessel-hub (max-height: 719.98px)';
 const TIGHT = '@container vessel-hub (max-height: 539.98px)';
@@ -54,7 +56,9 @@ describe('Vessel page fits one screen', () => {
 
     it('keeps every row and button at least 44 pt in the tighter tiers', () => {
         const compact = block(COMPACT);
-        expect(value(compact, '.vessel-hub-menu .hub-row', 'min-height')).toBe('44px');
+        // The menu rows are 44 pt at every height since 2026-10-09 (below).
+        expect(value(css, '.vessel-hub-menu .hub-row', 'min-height')).toBe('44px');
+        expect(compact).not.toContain('.vessel-hub-menu .hub-row {');
         expect(value(compact, '.vessel-hub-tile', 'min-height')).toBe('44px');
         expect(value(compact, '.skipper-device-action', 'height')).toBe('44px');
         // The tight tier only closes gaps: it must not undo a 44 pt floor.
@@ -166,6 +170,143 @@ describe('Settings menu fits one screen', () => {
         expect(value(runOff, '.settings-menu-list', 'padding-bottom')).toBe('1rem');
         expect(runOff).not.toContain('.settings-menu-row');
         expect(block('@container settings-menu (max-height: 699.98px)')).not.toContain('padding-bottom: 1rem');
+    });
+});
+
+describe('Boat Binder and Settings fill their screen, with bigger words', () => {
+    // Shane 2026-10-09, with a screenshot of the Binder on his phone: "i think
+    // the words can be bigger also and take up the whole screen claude. same
+    // goes for the settings main page". The geometry is measured in
+    // browser-tests/menu-pages-fit.spec.ts; this pins the rules that do it.
+    const ROOMY_HUB = '@container vessel-hub (min-height: 580px)';
+    const ROOMY_SETTINGS = '@container settings-menu (min-height: 580px)';
+
+    it("fills the Binder the Vessel page's way: a flex column whose cards share the height by their rows", () => {
+        expect(value(css, '.vessel-binder-port', 'display')).toBe('flex');
+        expect(value(css, '.vessel-binder-port', 'flex-direction')).toBe('column');
+        expect(value(css, '.vessel-binder-port > *', 'flex-shrink')).toBe('0');
+        expect(value(css, '.vessel-binder-port > .vessel-hub-menu', 'flex')).toBe('1 0 auto');
+        expect(value(css, '.vessel-binder-port .vessel-hub-menu > .hub-row', 'flex')).toBe('1 0 auto');
+        // Each card grows by its row count, so a row in the four-row card gets
+        // the same share as one in the five-row card.
+        for (const rows of [2, 3, 4, 5, 6]) {
+            expect(css).toMatch(new RegExp(`:has\\(button:nth-of-type\\(${rows}\\)\\) \\{\\s*flex-grow: ${rows};`));
+        }
+        // It ends where the Vessel page's menu box does: the root's 8 px and 0.5rem.
+        expect(value(css, '.vessel-binder-port', 'padding-bottom')).toBe('0.5rem');
+    });
+
+    it('fills the full Settings menu only, never a search result', () => {
+        expect(value(css, '.settings-menu-fill', 'display')).toBe('flex');
+        expect(value(css, '.settings-menu-fill', 'min-height')).toBe('100%');
+        expect(value(css, '.settings-menu-fill > .settings-menu-group', 'flex')).toBe('1 0 auto');
+        expect(value(css, '.settings-menu-fill .settings-menu-row', 'flex')).toBe('1 0 auto');
+        expect(value(css, '.settings-menu-fill .settings-menu-row', 'min-height')).toBe('44px');
+        // The 80 px now-playing run-off goes when the menu fills (the pill drags).
+        expect(value(css, '.settings-menu-fill', 'padding-bottom')).toBe('1rem');
+        // A plain .settings-menu-row rule would stretch a search's rows too.
+        expect(css).not.toMatch(/^\s*\.settings-menu-row \{[^}]*flex:/m);
+        const settings = readFileSync('components/SettingsModal.tsx', 'utf8');
+        expect(settings).toContain("searchIsActive ? '' : ' settings-menu-fill'");
+    });
+
+    it('keeps every hub row a 44 pt target at every height, its share of the page as its spacing', () => {
+        expect(value(css, '.vessel-hub-menu .hub-row', 'min-height')).toBe('44px');
+        expect(value(css, '.vessel-hub-menu .hub-row', 'padding-top')).toBe('0.25rem');
+        expect(value(css, '.vessel-hub-menu .hub-row', 'padding-bottom')).toBe('0.25rem');
+    });
+
+    it('grows the words from the room the page has, floored at today and capped', () => {
+        // The room is how far the page is past ~580 px, where today's rows
+        // just fit with a little to spare: none on an SE, so it is unchanged.
+        expect(value(css, '.vessel-hub-surface', '--menu-room')).toBe('calc(100cqh - 580px)');
+        expect(value(css, '.settings-menu-screen', '--menu-room')).toBe('calc(100cqh - 580px)');
+        const title = value(css, '.vessel-hub-menu .hub-row-label', 'font-size');
+        expect(title).toMatch(
+            /^clamp\(13px, min\(13px \+ 0\.04 \* var\(--menu-room\), var\(--menu-title-wide\)\), 19px\)$/,
+        );
+        const settingsTitle = value(css, '.settings-menu-row .settings-menu-title', 'font-size');
+        expect(settingsTitle).toMatch(
+            /^clamp\(0\.875rem, min\(13px \+ 0\.04 \* var\(--menu-room\), var\(--menu-title-wide\)\), 19px\)$/,
+        );
+        // The subtitle: today's text-xs, half the title's rate, 15 px; the
+        // Vessel page also caps it by its width (a second line there would
+        // come out of the Diary pair's height).
+        const floor = 'max(0.75rem, var(--text-micro))';
+        const grown = `${floor} + 0.02 * var(--menu-room)`;
+        expect(flat(value(css, '.vessel-hub-menu .hub-row-status', 'font-size'))).toBe(
+            `clamp(${floor}, min(${grown}, var(--menu-subtitle-wide, 15px)), 15px)`,
+        );
+        expect(flat(value(css, '.settings-menu-row .settings-menu-desc', 'font-size'))).toBe(
+            `clamp(${floor}, ${grown}, 15px)`,
+        );
+        // A live value beside a title ("Not connected", "Needs sign-in")
+        // keeps its size: the title needs the width.
+        expect(css).not.toContain('hub-row-value');
+        expect(css).not.toContain('settings-menu-status');
+        // The icon grows about a third, to the Settings tile's 2.25rem.
+        expect(value(css, '.vessel-hub-menu .hub-row-icon svg', 'width')).toMatch(/^clamp\(1rem, .*, 1\.35rem\)$/);
+        const bigger = css.slice(css.indexOf('BIGGER WORDS WHERE THERE IS ROOM'));
+        expect(value(bigger, '.vessel-hub-menu .hub-row-icon', 'padding')).toMatch(/, 0\.45rem\)$/);
+        // A title never runs past its row: each page caps it by its own width.
+        for (const page of ['.vessel-hub-binder', '.vessel-hub-home', '.settings-menu-screen']) {
+            expect(value(css, page, '--menu-title-wide')).toMatch(/^calc\(\(100cqw - .+\) \/ \d+(\.\d+)?\)$/);
+        }
+        expect(value(css, '.vessel-hub-home', '--menu-subtitle-wide')).toMatch(
+            /^calc\(\(100cqw - .+\) \/ \d+(\.\d+)?\)$/,
+        );
+    });
+
+    it('lets a subtitle wrap only where there is room; a short screen keeps its one line', () => {
+        // The Binder's; the Vessel page keeps its tiers' rule, its room being
+        // shared with the Diary pair.
+        const roomy = block(ROOMY_HUB);
+        expect(value(roomy, '.vessel-hub-binder .hub-row-status', 'white-space')).toBe('normal');
+        expect(roomy).not.toContain('.vessel-hub-home');
+        const roomySettings = block(ROOMY_SETTINGS);
+        expect(value(roomySettings, '.settings-menu-row .settings-menu-desc', 'white-space')).toBe('normal');
+        // A live state that no longer fits beside its title goes under it, whole.
+        expect(value(roomySettings, '.settings-menu-row .settings-menu-line', 'flex-wrap')).toBe('wrap');
+        // The short tiers still hold the line (see the fit tests above).
+        expect(value(block(COMPACT), '.vessel-hub-menu .hub-row-status', 'white-space')).toBe('nowrap');
+        expect(
+            value(block('@container settings-menu (max-height: 699.98px)'), '.settings-menu-desc', 'white-space'),
+        ).toBe('nowrap');
+    });
+
+    it("keeps a Settings state that drops under its title in the right-hand column, its siblings' side", () => {
+        // Review 2026-10-09: dropped to the left, a grey state over the grey
+        // description read as one long subtitle, and one card mixed two layouts.
+        const roomySettings = block(ROOMY_SETTINGS);
+        expect(value(roomySettings, '.settings-menu-line .settings-menu-state', 'margin-left')).toBe('auto');
+        // Its size is still the one it has today (above): only its place moves.
+        expect(roomySettings).not.toMatch(/settings-menu-state \{[^}]*font-size/);
+        // And a wrapped description or Binder subtitle does not leave one word
+        // alone on its last line ("... see your / voyage").
+        expect(value(roomySettings, '.settings-menu-row .settings-menu-desc', 'text-wrap')).toBe('pretty');
+        expect(value(block(ROOMY_HUB), '.vessel-hub-binder .hub-row-status', 'text-wrap')).toBe('pretty');
+    });
+
+    it("holds a fresh install's Vessel page at today's words while its setup card makes it scroll", () => {
+        // Review 2026-10-09: the rows get no share of the height there, so
+        // grown words only made the page scroll further (+37 px at 430x856).
+        expect(value(css, '.vessel-hub-home:has(.vessel-hub-setup)', '--menu-room')).toBe('0px');
+        const hub = readFileSync('components/VesselHub.tsx', 'utf8');
+        expect(hub).toMatch(/className="vessel-hub-setup /);
+    });
+
+    it('gives the rows the hooks the rules read', () => {
+        const rows = readFileSync('components/vesselHub/listRows.tsx', 'utf8');
+        for (const hook of ['hub-row-badge', 'hub-row-chevron']) expect(rows).toContain(hook);
+        const settings = readFileSync('components/SettingsModal.tsx', 'utf8');
+        for (const hook of [
+            'settings-menu-group',
+            'settings-menu-line',
+            'settings-menu-title',
+            'settings-menu-state',
+        ]) {
+            expect(settings).toContain(hook);
+        }
     });
 });
 
