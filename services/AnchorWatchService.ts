@@ -957,7 +957,7 @@ class AnchorWatchServiceClass {
             return refuse('There is no anchor watch on this phone to move.');
         }
         if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
-            return refuse('That is not a real position. Check the distance and bearing.');
+            return refuse('That is not a real position. Check where you put the anchor.');
         }
         if (!Number.isFinite(this.swingRadius) || this.swingRadius < MIN_ANCHOR_SWING_RADIUS_M) {
             return refuse('This watch has no valid swing circle to move. Weigh anchor and set it again.');
@@ -971,7 +971,7 @@ class AnchorWatchServiceClass {
         // Written as a negated `<=` so a NaN distance refuses too.
         if (!(haversineDistance(fix.latitude, fix.longitude, lat, lon) <= this.swingRadius)) {
             return refuse(
-                'The boat would be outside the swing circle around that point, so the alarm would sound at once. Check the distance and bearing.',
+                'The boat would be outside the swing circle around that point, so the alarm would sound at once. Check where you put the anchor.',
             );
         }
 
@@ -1077,7 +1077,7 @@ class AnchorWatchServiceClass {
             return refuse('GPS is lost, so a move cannot be checked. Silence the alarm and check her position.');
         }
         if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
-            return refuse('That is not a real position. Check the distance and bearing.');
+            return refuse('That is not a real position. Check where you put the anchor.');
         }
         if (!Number.isFinite(this.swingRadius) || this.swingRadius < MIN_ANCHOR_SWING_RADIUS_M) {
             return refuse('This watch has no valid swing circle to move. Weigh anchor and set it again.');

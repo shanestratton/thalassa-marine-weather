@@ -79,7 +79,7 @@ export type PiMoveRefusal =
 export type PiMoveVerdict = { ok: true } | { ok: false; refusal: PiMoveRefusal; error: string; lead: string };
 
 const IF_DRAGGING = 'If she is dragging, re-anchor.';
-const CHECK_FIELDS = 'Check the distance and bearing.';
+const CHECK_POINT = 'Check where you put the anchor.';
 /** Each refusal's first sentence and the rest. */
 export const PI_MOVE_REFUSAL_WORDS: Record<PiMoveRefusal, readonly [string, string]> = {
     'no-fix': [
@@ -91,11 +91,11 @@ export const PI_MOVE_REFUSAL_WORDS: Record<PiMoveRefusal, readonly [string, stri
         `Check her position. ${IF_DRAGGING}`,
     ],
     'gps-lost': ['The Pi has lost the boat’s GPS, so a move cannot be checked.', 'Wait for GPS.'],
-    position: ['That is not a real position.', CHECK_FIELDS],
+    position: ['That is not a real position.', CHECK_POINT],
     'no-circle': ['This watch has no valid swing circle to move.', 'Weigh anchor and set it again.'],
     outside: [
         'The boat would be outside the swing circle around that point.',
-        `The alarm would sound at once. ${CHECK_FIELDS}`,
+        `The alarm would sound at once. ${CHECK_POINT}`,
     ],
     'beyond-rode': ['That point is beyond your rode’s reach from where the watch was set.', IF_DRAGGING],
     'beyond-circle': ['That point is further from where the watch was set than her swing circle reaches.', IF_DRAGGING],

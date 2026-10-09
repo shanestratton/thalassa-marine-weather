@@ -65,6 +65,24 @@
  *
  * The Pi keeps its own watch with its own keeper; this sheet never touches it.
  * In pi mode it is handed a function to call, and never names the keeper.
+ *
+ * Position (build 126, 126-07b), in every mode: a second way to say where the
+ * anchor is, beside "From the boat". One field takes a position the way a
+ * skipper copies it from the plotter, a guide or a text message (decimal
+ * degrees, degrees and minutes, or degrees, minutes and seconds; N/S and E/W
+ * before or after, or a minus for decimal degrees; a decimal comma:
+ * utils/anchorPosition.ts), and a line under it reads it back ("Reads as
+ * 16°46.800′S 179°20.100′E"), so a wrong hemisphere shows before anything
+ * moves. Or the skipper drags the anchor on the preview: the live line follows
+ * the finger, the view stays where it was when the finger went down (the
+ * centre the drag measures from), and letting go fills Position with that
+ * point, which is then exactly what Move sends (to 0.001′, about 2 m).
+ * Nothing moves until Move. Every check above applies whichever way the
+ * point was given: the same plan, the same live check, the same service or
+ * keeper. The heading only matters to From the boat. The two tabs sit under
+ * the title, or in its row on a short screen (where a small phone's title
+ * gives them its place, still naming the dialog), and step aside with it
+ * while the keyboard is up: the choice is made before typing.
  */
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
@@ -84,12 +102,15 @@ import {
 } from '../../services/anchorPiMove';
 import { NmeaStore, type NmeaStoreState } from '../../services/NmeaStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { calculateDistance, destinationPoint } from '../../utils/navigationCalculations';
+import { calculateBearing, calculateDistance, destinationPoint } from '../../utils/navigationCalculations';
+import { formatDmm, parseAnchorPosition } from '../../utils/anchorPosition';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { Button } from '../ui/Button';
 import { XIcon } from '../Icons';
 import { SwingCircleCanvas, type SwingCanvasModel } from './SwingCircleCanvas';
+import type { AnchorDragHandlers } from './anchorDrag';
+import { bearingToCardinal } from './anchorUtils';
 
 /** A true heading older than this does not prefill the bearing. */
 export const HEADING_PREFILL_MAX_AGE_MS = 10_000;
@@ -106,6 +127,10 @@ const METRES_PER_NM = 1852;
 
 type LengthUnit = 'm' | 'ft';
 type LatLon = { latitude: number; longitude: number };
+/** Where the anchor is said to be: measured from the boat, or as a position (126-07b). */
+type How = 'boat' | 'position';
+/** How a position is typed, without a degree sign (the iOS keyboard hides it). */
+const POSITION_EXAMPLE = '16 46.8 S 179 20.1 E';
 
 const fromMetres = (metres: number, unit: LengthUnit) => (unit === 'ft' ? metres / METRES_PER_FOOT : metres);
 const toMetres = (value: number, unit: LengthUnit) => (unit === 'ft' ? value * METRES_PER_FOOT : value);
@@ -174,6 +199,28 @@ export interface AnchorMovePlan {
     inside: boolean;
     /** How far the anchor moves from where the watch has it now (metres). */
     movesM: number | null;
+    /** Which way it moves (°T), when it moves at all. */
+    movesTowardDeg: number | null;
+}
+
+/** What putting the anchor at `point` (typed, or dragged on the preview) would mean. */
+export function planFromPoint(
+    boat: LatLon,
+    anchorNow: LatLon | null,
+    point: LatLon,
+    swingRadiusM: number,
+): AnchorMovePlan {
+    const lon = point.longitude;
+    const target = { lat: point.latitude, lon: Math.abs(lon) <= 180 ? lon : ((((lon + 180) % 360) + 360) % 360) - 180 };
+    const boatToAnchorM = calculateDistance(boat.latitude, boat.longitude, target.lat, target.lon) * METRES_PER_NM;
+    const movesM = anchorNow
+        ? calculateDistance(anchorNow.latitude, anchorNow.longitude, target.lat, target.lon) * METRES_PER_NM
+        : null;
+    const movesTowardDeg =
+        anchorNow && movesM !== null && movesM > 0
+            ? calculateBearing(anchorNow.latitude, anchorNow.longitude, target.lat, target.lon)
+            : null;
+    return { target, boatToAnchorM, inside: boatToAnchorM <= swingRadiusM, movesM, movesTowardDeg };
 }
 
 /** Where a distance and true bearing from the boat put the anchor, and what that would mean. */
@@ -185,11 +232,7 @@ export function planAnchorMove(
     swingRadiusM: number,
 ): AnchorMovePlan {
     const target = destinationPoint(boat.latitude, boat.longitude, bearingDeg, distanceM / METRES_PER_NM);
-    const boatToAnchorM = calculateDistance(boat.latitude, boat.longitude, target.lat, target.lon) * METRES_PER_NM;
-    const movesM = anchorNow
-        ? calculateDistance(anchorNow.latitude, anchorNow.longitude, target.lat, target.lon) * METRES_PER_NM
-        : null;
-    return { target, boatToAnchorM, inside: boatToAnchorM <= swingRadiusM, movesM };
+    return planFromPoint(boat, anchorNow, { latitude: target.lat, longitude: target.lon }, swingRadiusM);
 }
 
 /** The watch the Pi keeps, as Shore Watch hears it from the Pi (126-07a). */
@@ -308,6 +351,20 @@ const PREVIEW_ASIDE =
 /** Tighter while the keyboard is up. */
 const FORM =
     "flex flex-none flex-col gap-1.5 px-4 pt-2 pb-4 [html[data-keyboard-open='true']_&]:pt-1 [html[data-keyboard-open='true']_&]:pb-3";
+/**
+ * The tabs (126-07b): their own row under the title, and on a short screen (a
+ * small phone, or landscape) in the title's row, where the preview has no
+ * height left to give them. Only where the header has 17rem for them (the
+ * header is the container): at large text on a small phone they keep their
+ * own row, and the card scrolls, as it may there.
+ */
+const TABS =
+    'order-last grid basis-full grid-cols-2 gap-2 pr-3 [@media(max-height:600px)]:@min-[17rem]:order-none [@media(max-height:600px)]:@min-[17rem]:min-w-0 [@media(max-height:600px)]:@min-[17rem]:flex-1 [@media(max-height:600px)]:@min-[17rem]:basis-0 [@media(max-height:600px)]:@min-[17rem]:pr-0';
+/** On a small phone the title gives the tabs its place; it still names the dialog. */
+const TITLE_ASIDE = '[@media(orientation:portrait)_and_(max-height:600px)]:@min-[17rem]:sr-only';
+/** The Position field: on the label's line where it fits, on its own where it does not. */
+const POSITION_FIELD =
+    'min-h-11 min-w-0 flex-1 basis-56 rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-base font-bold text-white tabular-nums outline-hidden placeholder:font-normal placeholder:text-slate-500 focus:border-sky-400';
 
 export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
     const { onClose, onMoved } = props;
@@ -353,6 +410,14 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
     // until then, and what they type is theirs (no heading overwrites it).
     const [typedBearing, setTypedBearing] = useState<string | null>(null);
     const following = typedBearing === null;
+    // 126-07b: From the boat, or a Position (typed, or dragged on the preview).
+    const [how, setHow] = useState<How>('boat');
+    const byBoat = how === 'boat';
+    const [positionText, setPositionText] = useState('');
+    // A drag on the preview while the finger is down: where the preview was
+    // centred when the finger went down (it stays there, the point the drag
+    // measures from), and where the anchor is now.
+    const [dragging, setDragging] = useState<{ from: LatLon; at: LatLon } | null>(null);
     const headingAgeMs = reading ? Math.max(0, now - reading.at) : null;
     const headingStale = following && headingAgeMs !== null && headingAgeMs > HEADING_PREFILL_MAX_AGE_MS;
     const heading = following && reading && !headingStale ? reading : null;
@@ -381,6 +446,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
 
     const titleId = useId();
     const hintId = useId();
+    const readbackId = useId();
     const titleRef = useRef<HTMLHeadingElement>(null);
     // The heading takes focus, not a field: the keyboard stays down until the
     // skipper asks for it, so the preview and the check are seen first.
@@ -393,9 +459,16 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
     const boat = subject.boat;
     const fixStale =
         !!boat && !(Number.isFinite(boat.timestamp) && now - boat.timestamp <= ANCHOR_RELOCATE_FIX_MAX_AGE_MS);
-    const plan =
-        boat && distanceM !== null && bearingDeg !== null
-            ? planAnchorMove(boat, subject.anchor, distanceM, bearingDeg, subject.swingRadius)
+    const typed = byBoat ? null : parseAnchorPosition(positionText);
+    // The point the fields describe, which the preview centres on.
+    const fieldsPlan = !boat
+        ? null
+        : byBoat
+          ? distanceM !== null && bearingDeg !== null
+              ? planAnchorMove(boat, subject.anchor, distanceM, bearingDeg, subject.swingRadius)
+              : null
+          : typed
+            ? planFromPoint(boat, subject.anchor, { latitude: typed.lat, longitude: typed.lon }, subject.swingRadius)
             : null;
     const alarm = snapshot?.state === 'alarm';
     const movable = pi
@@ -403,6 +476,32 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
         : fromAlarm
           ? alarm && snapshot?.alarmCause === 'drag'
           : snapshot?.state === 'watching' || snapshot?.state === 'paused';
+    // A drag is offered whenever a move could be: in every mode, either tab.
+    const dragOn = movable && !busy && piPhase.kind !== 'moved';
+    useEffect(() => {
+        if (!dragOn) setDragging(null);
+    }, [dragOn]);
+    const drag = dragOn ? dragging : null;
+    const fieldsPoint = fieldsPlan && { latitude: fieldsPlan.target.lat, longitude: fieldsPlan.target.lon };
+    // While a finger drags the anchor, the live check follows it; the preview
+    // stays centred where it was, so the anchor stays under the finger.
+    const plan = drag && boat ? planFromPoint(boat, subject.anchor, drag.at, subject.swingRadius) : fieldsPlan;
+    const preview = drag ? drag.from : fieldsPoint;
+    const onAnchorDrag: AnchorDragHandlers | undefined = dragOn
+        ? {
+              move: (latitude, longitude, from) => setDragging({ from, at: { latitude, longitude } }),
+              // Let go: Position, filled with the point, which is what Move will send.
+              end: (lat, lon) => {
+                  setDragging(null);
+                  setHow('position');
+                  setPositionText(formatDmm(lat, lon));
+                  edited();
+              },
+              cancel: () => setDragging(null),
+          }
+        : undefined;
+    // Only From the boat takes the bearing from the heading.
+    const headingMatters = byBoat && !drag;
     // From the alarm: does her track back the move? Asked of the watch live,
     // before the tap (it holds her whole track; the snapshot's trail is short).
     const verdict =
@@ -430,6 +529,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
         movable &&
         !fixStale &&
         !busy &&
+        !drag &&
         (!fromAlarm || !!verdict?.ok) &&
         (!pi || (!!piVerdict?.ok && !piAwaiting && piPhase.kind !== 'moved'));
     // Too early, or a track this phone did not see: no point would pass, so how
@@ -473,12 +573,17 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
                 : 'Waiting for a fresh position fix for the boat.',
             tone: 'quiet',
         };
-    else if (headingStale)
+    else if (headingMatters && headingStale)
         live = {
             text: `The boat’s heading is ${Math.round((headingAgeMs ?? 0) / 1000)} s old, too old to use. Enter the bearing, or wait for a fresh heading.`,
             tone: 'warn',
         };
-    else if (!plan) live = { text: 'Enter the distance and the bearing from the boat to the anchor.', tone: 'quiet' };
+    else if (!plan)
+        live = byBoat
+            ? { text: 'Enter the distance and the bearing from the boat to the anchor.', tone: 'quiet' }
+            : positionText.trim()
+              ? { text: `That isn’t a position I can read: try ${POSITION_EXAMPLE}`, tone: 'warn' }
+              : { text: 'Type the anchor’s position, or drag the anchor on the preview.', tone: 'quiet' };
     else if (verdict && !verdict.ok)
         live = { text: verdict.lead, more: verdict.error.slice(verdict.lead.length + 1), tone: 'warn' };
     else if (plan.inside && piVerdict && !piVerdict.ok)
@@ -489,7 +594,11 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
             more: fromAlarm
                 ? 'Her track so far fits a swing round it.'
                 : plan.movesM !== null
-                  ? `The anchor moves ${say(plan.movesM, unit)}.`
+                  ? `The anchor moves ${say(plan.movesM, unit)}${
+                        plan.movesM >= 1 && plan.movesTowardDeg !== null
+                            ? ` ${bearingToCardinal(plan.movesTowardDeg)}`
+                            : ''
+                    }.`
                   : undefined,
             tone: 'ok',
         };
@@ -503,11 +612,13 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
     const distanceWords = subject.rode
         ? `Distance from your rode (${say(subject.rode.rodeLength, unit)} in ${say(subject.rode.waterDepth, unit)}), less its sag.`
         : 'The Pi has no rode for this watch: enter the distance.';
-    const hint = !following
-        ? `${distanceWords} Bearing in °T, true, not magnetic.`
-        : heading
-          ? `${distanceWords} Bearing from the boat’s heading, ${Math.round((headingAgeMs ?? 0) / 1000)} s ago, ${heading.via}. °T is true, not magnetic.`
-          : `${distanceWords} No fresh boat heading: enter the bearing in °T, true, not magnetic.`;
+    const hint = !byBoat
+        ? 'As the plotter shows it: degrees, minutes or seconds with N/S and E/W, or decimal degrees with a minus. Or drag the anchor on the preview.'
+        : !following
+          ? `${distanceWords} Bearing in °T, true, not magnetic.`
+          : heading
+            ? `${distanceWords} Bearing from the boat’s heading, ${Math.round((headingAgeMs ?? 0) / 1000)} s ago, ${heading.via}. °T is true, not magnetic.`
+            : `${distanceWords} No fresh boat heading: enter the bearing in °T, true, not magnetic.`;
     // From the alarm, and from ashore on the Pi's watch: 125-03's words.
     const caution = fromAlarm || !!pi?.ashore;
 
@@ -532,7 +643,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
         if (!canMove || !plan) return;
         // The prefill is checked again at the moment of the tap, not as of the
         // last tick of the sheet's clock.
-        if (following && (!reading || Date.now() - reading.at > HEADING_PREFILL_MAX_AGE_MS)) {
+        if (byBoat && following && (!reading || Date.now() - reading.at > HEADING_PREFILL_MAX_AGE_MS)) {
             setError('The boat’s heading has gone stale. Check the bearing and try again.');
             return;
         }
@@ -596,15 +707,40 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
                 // live check, Cancel and Move are never clipped out of reach.
                 className="thalassa-keyboard-safe-sheet relative flex w-full max-w-sm flex-col overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-slate-900 text-white shadow-2xl [@media(max-height:500px)]:max-w-2xl"
             >
-                <header className={`flex shrink-0 items-center gap-2 pt-1 pr-1 pl-4 ${KEYBOARD_ASIDE}`}>
+                <header
+                    className={`@container flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 pt-1 pr-1 pl-4 ${KEYBOARD_ASIDE}`}
+                >
                     <h2
                         id={titleId}
                         ref={titleRef}
                         tabIndex={-1}
-                        className="ui-dialog-title min-w-0 flex-1 outline-none"
+                        className={`ui-dialog-title min-w-0 flex-1 outline-none ${TITLE_ASIDE}`}
                     >
                         Move anchor
                     </h2>
+                    {/* How the anchor's place is given (126-07b). Chosen before
+                        typing, so it steps aside with the header while the
+                        keyboard is up. */}
+                    <div role="group" aria-label="Where the anchor is" className={TABS}>
+                        {(['boat', 'position'] as const).map((value) => (
+                            <button
+                                key={value}
+                                type="button"
+                                aria-pressed={how === value}
+                                onClick={() => {
+                                    setHow(value);
+                                    edited();
+                                }}
+                                className={`min-h-11 min-w-0 rounded-xl border px-2 text-sm leading-tight font-bold ${
+                                    how === value
+                                        ? 'border-sky-400 bg-sky-500/20 text-white'
+                                        : 'border-white/15 bg-white/5 text-slate-300'
+                                }`}
+                            >
+                                {value === 'boat' ? 'From the boat' : 'Position'}
+                            </button>
+                        ))}
+                    </div>
                     <button
                         type="button"
                         onClick={onClose}
@@ -620,51 +756,87 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
                 <div className={`relative mx-3 h-[200px] min-h-0 shrink ${PREVIEW_ASIDE}`}>
                     <SwingCircleCanvas
                         snapshot={subject.model}
-                        previewAnchor={plan ? { latitude: plan.target.lat, longitude: plan.target.lon } : null}
+                        previewAnchor={preview}
+                        onAnchorDrag={onAnchorDrag}
                         className="absolute inset-0 h-full w-full"
                         ariaLabel="Preview of the swing circle around the new anchor, with the boat"
                     />
                 </div>
 
                 <form noValidate onSubmit={(event) => void submit(event)} className={FORM}>
-                    {/* One sentence, read as the skipper would say it. */}
-                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-base font-semibold text-white">
-                        <span>Anchor is</span>
-                        <span className="inline-flex items-center gap-1.5">
-                            <input
-                                type="text"
-                                inputMode="decimal"
-                                autoComplete="off"
-                                aria-label={`Distance from the boat to the anchor, in ${unit === 'ft' ? 'feet' : 'metres'}`}
-                                value={distanceText}
-                                onChange={(event) => {
-                                    setDistanceText(event.target.value);
-                                    edited();
-                                }}
-                                className={`${FIELD} w-[4.5rem]`}
-                            />
-                            <span aria-hidden="true">{unit}</span>
-                        </span>
-                        <span>from the boat, bearing</span>
-                        <span className="inline-flex items-center gap-1.5">
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                autoComplete="off"
-                                aria-label="Bearing from the boat to the anchor, in degrees true"
-                                placeholder="°T"
-                                value={bearingText}
-                                onChange={(event) => {
-                                    setTypedBearing(event.target.value);
-                                    edited();
-                                }}
-                                className={`${FIELD} w-14`}
-                            />
-                            <span aria-hidden="true" title="degrees true, not magnetic">
-                                °T
+                    {byBoat ? (
+                        /* One sentence, read as the skipper would say it. */
+                        <p className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-base font-semibold text-white">
+                            <span>Anchor is</span>
+                            <span className="inline-flex items-center gap-1.5">
+                                <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    autoComplete="off"
+                                    aria-label={`Distance from the boat to the anchor, in ${unit === 'ft' ? 'feet' : 'metres'}`}
+                                    value={distanceText}
+                                    onChange={(event) => {
+                                        setDistanceText(event.target.value);
+                                        edited();
+                                    }}
+                                    className={`${FIELD} w-[4.5rem]`}
+                                />
+                                <span aria-hidden="true">{unit}</span>
                             </span>
-                        </span>
-                    </p>
+                            <span>from the boat, bearing</span>
+                            <span className="inline-flex items-center gap-1.5">
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    autoComplete="off"
+                                    aria-label="Bearing from the boat to the anchor, in degrees true"
+                                    placeholder="°T"
+                                    value={bearingText}
+                                    onChange={(event) => {
+                                        setTypedBearing(event.target.value);
+                                        edited();
+                                    }}
+                                    className={`${FIELD} w-14`}
+                                />
+                                <span aria-hidden="true" title="degrees true, not magnetic">
+                                    °T
+                                </span>
+                            </span>
+                        </p>
+                    ) : (
+                        /* The readback sits beside the field where there is room
+                            (landscape), under it where there is not. */
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-base font-semibold text-white">
+                            <span aria-hidden="true">Anchor at</span>
+                            <input
+                                type="text"
+                                inputMode="text"
+                                autoCapitalize="characters"
+                                autoComplete="off"
+                                autoCorrect="off"
+                                spellCheck={false}
+                                aria-label="Anchor at: position, latitude and longitude"
+                                aria-describedby={typed ? readbackId : undefined}
+                                placeholder={POSITION_EXAMPLE}
+                                value={positionText}
+                                onChange={(event) => {
+                                    setPositionText(event.target.value);
+                                    edited();
+                                }}
+                                className={POSITION_FIELD}
+                            />
+                            {/* How it was read: a wrong hemisphere shows here first. */}
+                            {typed && (
+                                <p
+                                    id={readbackId}
+                                    data-testid="move-anchor-readback"
+                                    className="min-w-0 text-sm leading-snug font-semibold text-sky-200 tabular-nums"
+                                >
+                                    Reads as {formatDmm(typed.lat, typed.lon)}
+                                </p>
+                            )}
+                        </div>
+                    )}
                     {/* Under the fields, so they sit where they do in the watch-page
                         sheet (the keyboard guard measures them there); it steps
                         aside with the hint while the keyboard is up. */}

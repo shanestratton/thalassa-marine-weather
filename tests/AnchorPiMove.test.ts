@@ -81,7 +81,12 @@ describe('judgePiMove', () => {
     it('refuses a point that would leave the boat outside the new circle', () => {
         // 50 m past the boat: 80 m from where the watch was set, and 50 m from her.
         const verdict = judgePiMove(horta({ target: toward(HORTA, 220, 80), swingRadiusM: 45 }));
-        expect(verdict).toMatchObject({ ok: false, refusal: 'outside' });
+        // In words for any way the point was given: no bearing field on the Position tab.
+        expect(verdict).toMatchObject({
+            ok: false,
+            refusal: 'outside',
+            error: expect.stringMatching(/Check where you put the anchor\.$/),
+        });
     });
 
     it('refuses a point more than the rode’s reach plus 15 m from where the watch was set', () => {

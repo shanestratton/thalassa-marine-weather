@@ -117,7 +117,7 @@ const WORDS: Record<Exclude<LateSetRefusal, 'unseen'>, [string, string]> = {
     'no-fix': ['The boat has no recent position fix, so the move cannot be checked.', 'Wait for GPS.'],
     outside: [
         'The boat would be outside the swing circle around that point.',
-        'The alarm would go on sounding. Check the distance and bearing.',
+        'The alarm would go on sounding. Check where you put the anchor.',
     ],
     'beyond-rode': ['That point is beyond your rode’s reach from where the watch was set.', IF_DRAGGING],
     'too-early': [

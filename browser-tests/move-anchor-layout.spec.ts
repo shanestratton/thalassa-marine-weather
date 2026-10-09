@@ -22,6 +22,11 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test';
  * the keyboard up, with nothing of the alarm screen covering its controls.
  * So must its longest refusal (&restarted: the app restarted, so the phone has
  * only minutes of her track before the alarm).
+ *
+ * Build 126 (126-07b): the Position tab, one field for a typed position and a
+ * readback under it, at every size, keyboard up and down, from the alarm too;
+ * the tab row steps aside while the keyboard is up. And a real drag of the
+ * anchor on the preview, which fills Position and moves nothing until Move.
  */
 
 const sizes = [
@@ -72,9 +77,9 @@ async function keyboard(page: Page, height: number) {
  * `mayScroll`: the card may scroll inside itself (large text); each control is
  * then scrolled into view in turn, as a skipper would, and must be whole there.
  */
-function layoutIssues(page: Page, keyboardHeight: number, mayScroll = false) {
+function layoutIssues(page: Page, keyboardHeight: number, mayScroll = false, fields = 2) {
     return page.evaluate(
-        ({ kb, mayScroll }) => {
+        ({ kb, mayScroll, fields }) => {
             const issues: string[] = [];
             const W = window.innerWidth;
             const H = window.innerHeight;
@@ -135,16 +140,26 @@ function layoutIssues(page: Page, keyboardHeight: number, mayScroll = false) {
             const statusBox = reach(status);
             if (statusBox.top < box.top - 0.5 || statusBox.bottom > Math.min(floor, box.bottom) + 0.5)
                 issues.push('the live check is not fully visible');
+            // 126-07b: a typed position's readback is read with the field, keyboard up or down.
+            const readback = card.querySelector<HTMLElement>('[data-testid="move-anchor-readback"]');
+            if (readback) {
+                const readbackBox = reach(readback);
+                if (readbackBox.top < box.top - 0.5 || readbackBox.bottom > Math.min(floor, box.bottom) + 0.5)
+                    issues.push('the readback is not fully visible');
+            }
 
             const controls = [...card.querySelectorAll<HTMLElement>('button, input')].filter(
                 (element) => element.getClientRects().length > 0,
             );
-            if (controls.filter((element) => element.tagName === 'INPUT').length !== 2)
-                issues.push('a field is missing');
+            if (controls.filter((element) => element.tagName === 'INPUT').length !== fields)
+                issues.push(`${fields} fields expected`);
             for (const element of controls) {
                 const rect = reach(element);
                 const name = element.getAttribute('aria-label') || element.textContent?.trim() || element.tagName;
                 if (rect.height < 43.5) issues.push(`${name}: ${rect.height}px tall`);
+                // A button's own words stay inside it (126-07b: the tabs, at large text).
+                if (element.tagName === 'BUTTON' && element.scrollWidth > element.clientWidth + 1)
+                    issues.push(`${name}: its label runs out of the button`);
                 if (
                     rect.top < Math.max(0, box.top) - 0.5 ||
                     rect.bottom > Math.min(floor, box.bottom) + 0.5 ||
@@ -172,13 +187,13 @@ function layoutIssues(page: Page, keyboardHeight: number, mayScroll = false) {
             card.scrollTop = scrolledTo;
             return issues;
         },
-        { kb: keyboardHeight, mayScroll },
+        { kb: keyboardHeight, mayScroll, fields },
     );
 }
 
-async function expectLayout(page: Page, keyboardHeight: number, mayScroll = false) {
+async function expectLayout(page: Page, keyboardHeight: number, mayScroll = false, fields = 2) {
     // The keyboard guard settles over a few frames; the final geometry is what counts.
-    await expect.poll(() => layoutIssues(page, keyboardHeight, mayScroll), { timeout: 3_000 }).toEqual([]);
+    await expect.poll(() => layoutIssues(page, keyboardHeight, mayScroll, fields), { timeout: 3_000 }).toEqual([]);
 }
 
 async function screenshot(page: Page, info: TestInfo, name: string) {
@@ -480,4 +495,127 @@ for (const answer of ['unknown', 'refused']) {
             expect(errors).toEqual([]);
         });
     }
+}
+
+// 126-07b: the Position tab (the fixture's ?how=position, opened by its tab, as
+// a skipper would). The position typed is the real anchor's, 33 m at 212° from
+// the boat, as a plotter shows it.
+const ANCHOR_HERE = '43 17.685 N 5 21.587 E';
+const movesMade = (page: Page) =>
+    page.evaluate(
+        () =>
+            (window as unknown as { __moveAnchorFixture: { moves: Array<[number, number]> } }).__moveAnchorFixture
+                .moves,
+    );
+const positionTab = (page: Page) => page.getByRole('button', { name: 'Position', exact: true });
+const positionField = (page: Page) => page.getByRole('textbox', { name: /^anchor at/i });
+
+for (const size of sizes) {
+    test(`Position: Move anchor fits ${size.name}, with the field and its readback above the keyboard`, async ({
+        page,
+    }, info) => {
+        const errors = await open(page, size, size.query);
+        const label = `position-${size.width}x${size.height}${size.query ? '-large-text' : ''}`;
+        await positionTab(page).click();
+        await expect(positionTab(page)).toHaveAttribute('aria-pressed', 'true');
+        await expect(liveCheck(page)).toContainText(/type the anchor.s position/i);
+        await expectLayout(page, 0, size.mayScroll, 1);
+
+        await positionField(page).click();
+        await keyboard(page, size.keyboard);
+        await expect(positionField(page)).toBeFocused();
+        // The choice was made before typing: the tab row steps aside for the keyboard.
+        await expect(positionTab(page)).toBeHidden();
+        await positionField(page).fill(ANCHOR_HERE);
+        await expect(page.getByTestId('move-anchor-readback')).toHaveText('Reads as 43°17.685′N 005°21.587′E');
+        await expect(liveCheck(page)).toContainText('inside your 43 m circle');
+        await screenshot(page, info, `move-anchor-keyboard-${label}`);
+        await expectLayout(page, size.keyboard, size.mayScroll, 1);
+
+        // The longest thing it says to an entry it cannot read.
+        await positionField(page).fill('48,85,2,35');
+        await expect(liveCheck(page)).toContainText(/isn.t a position I can read: try 16 46\.8 S 179 20\.1 E/);
+        await expect(page.getByRole('button', { name: 'Move anchor', exact: true })).toBeDisabled();
+        await expectLayout(page, size.keyboard, size.mayScroll, 1);
+
+        await positionField(page).fill(ANCHOR_HERE);
+        await keyboard(page, 0);
+        await expect(positionTab(page)).toBeVisible();
+        await screenshot(page, info, `move-anchor-${label}`);
+        await expectLayout(page, 0, size.mayScroll, 1);
+        await page.getByRole('button', { name: 'Move anchor', exact: true }).click();
+        await expect(page.getByRole('dialog', { name: 'Move anchor' })).toBeHidden();
+        await expect(page.getByTestId('outcome')).toHaveText('moved');
+        const moves = await movesMade(page);
+        expect(moves).toHaveLength(1);
+        expect(moves[0][0]).toBeCloseTo(43 + 17.685 / 60, 9);
+        expect(moves[0][1]).toBeCloseTo(5 + 21.587 / 60, 9);
+        expect(errors).toEqual([]);
+    });
+}
+
+test('A real drag of the anchor on the preview fills Position, and nothing moves until Move', async ({
+    page,
+}, info) => {
+    const errors = await open(page, sizes[1], '');
+    const preview = page.getByRole('img', { name: /preview of the swing circle/i });
+    const box = (await preview.boundingBox())!;
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    // A touch beside the anchor, not on it, does nothing.
+    await page.mouse.move(cx + 60, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + 90, cy, { steps: 4 });
+    await page.mouse.up();
+    await expect(positionTab(page)).toHaveAttribute('aria-pressed', 'false');
+
+    // On the anchor, 30 px east: about 19 m on this preview's 43 m circle.
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + 30, cy, { steps: 6 });
+    await expect(liveCheck(page)).toContainText('inside your 43 m circle');
+    await page.mouse.up();
+
+    await expect(positionTab(page)).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('move-anchor-readback')).toHaveText(/^Reads as 43°17\.\d{3}′N 005°21\.\d{3}′E$/);
+    await expect(positionField(page)).toHaveValue(/^43°17\.\d{3}′N 005°21\.\d{3}′E$/);
+    await expect(liveCheck(page)).toContainText('inside your 43 m circle');
+    await screenshot(page, info, 'move-anchor-dragged-390x844');
+    await expectLayout(page, 0, false, 1);
+    expect(await movesMade(page)).toHaveLength(0);
+
+    await page.getByRole('button', { name: 'Move anchor', exact: true }).click();
+    await expect(page.getByTestId('outcome')).toHaveText('moved');
+    const moves = await movesMade(page);
+    expect(moves).toHaveLength(1);
+    // East of where From the boat had it (33 m at 212° from the boat), by the drag.
+    const [lat, lon] = moves[0];
+    const was = { lat: 43.294745931763735, lon: 5.359781874760074 };
+    const eastM = (lon - was.lon) * 111_320 * Math.cos((was.lat * Math.PI) / 180);
+    const northM = (lat - was.lat) * 110_540;
+    expect(eastM).toBeGreaterThan(12);
+    expect(eastM).toBeLessThan(26);
+    expect(Math.abs(northM)).toBeLessThan(3);
+    expect(errors).toEqual([]);
+});
+
+for (const size of alarmSizes.filter((s) => s.width === 320)) {
+    test(`From the alarm: Position fits ${size.name}, keyboard up and down`, async ({ page }, info) => {
+        const errors = await openFromAlarm(page, size, size.query);
+        const label = `alarm-position-${size.width}x${size.height}${size.query ? '-large-text' : ''}`;
+        await positionTab(page).click();
+        await expect(page.getByTestId('move-anchor-caution')).toContainText(/sure the anchor hasn.t moved/i);
+        await expectLayout(page, 0, size.mayScroll, 1);
+        await positionField(page).click();
+        await keyboard(page, size.keyboard);
+        await positionField(page).fill(ANCHOR_HERE);
+        await expect(page.getByTestId('move-anchor-readback')).toHaveText('Reads as 43°17.685′N 005°21.587′E');
+        await expect(liveCheck(page)).toContainText('inside your 43 m circle');
+        await screenshot(page, info, `move-anchor-keyboard-${label}`);
+        await expectLayout(page, size.keyboard, size.mayScroll, 1);
+        await keyboard(page, 0);
+        await expectLayout(page, 0, size.mayScroll, 1);
+        expect(await movesMade(page)).toHaveLength(0);
+        expect(errors).toEqual([]);
+    });
 }
