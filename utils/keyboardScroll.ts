@@ -434,6 +434,11 @@ export function scheduleKeyboardAvoidance(target: EventTarget | null): void {
     clearScheduledFocusTimers();
     scheduledFocusTimers = FOCUS_SETTLE_DELAYS_MS.map((delay) =>
         setTimeout(() => {
+            // A settle check can outlive its field (the sheet closed) or, in
+            // tests, the whole DOM (CI 37902865620: "document is not defined"
+            // from a timer left by tests/components/CastOffPanel.test.tsx).
+            // A field that is gone has nothing to keep above the keyboard.
+            if (typeof document === 'undefined' || !element.isConnected) return;
             if (document.activeElement === element || element.contains(document.activeElement)) {
                 keepEditableAboveKeyboard(element, true);
             }

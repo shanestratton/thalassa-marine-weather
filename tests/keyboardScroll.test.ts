@@ -116,6 +116,35 @@ describe('keyboardScroll', () => {
         expect(scrollBy).toHaveBeenCalled();
     });
 
+    it('a settle check that outlives its field, or the DOM itself, does nothing (CI 37902865620)', () => {
+        // The field's sheet closed before the 120/360 ms checks fired; in a
+        // test the whole jsdom can be torn down first. Neither may throw or
+        // scroll: a field that is gone has nothing to keep above the keyboard.
+        vi.useFakeTimers();
+        setViewport({ height: 500 });
+        const { form, scrollBy } = scrollableForm();
+        const input = document.createElement('input');
+        form.append(input);
+        input.focus();
+
+        scheduleKeyboardAvoidance(input);
+        input.remove();
+        expect(() => vi.runAllTimers()).not.toThrow();
+        expect(scrollBy).not.toHaveBeenCalled();
+
+        const other = document.createElement('input');
+        form.append(other);
+        other.focus();
+        scheduleKeyboardAvoidance(other);
+        vi.stubGlobal('document', undefined);
+        try {
+            expect(() => vi.runAllTimers()).not.toThrow();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+        expect(scrollBy).not.toHaveBeenCalled();
+    });
+
     it('never scrolls the whole app into blank space to rescue an undersized inner panel', () => {
         setViewport({ height: 500 });
         const appRoot = document.createElement('div');
