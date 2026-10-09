@@ -981,7 +981,10 @@ describe('buildModelCheckView: every string the card shows', () => {
 // ── the request, against the proxy's own source ────────────────
 
 describe('buildModelCheckParams: every value the proxy accepts (a 400 still spends a quota unit)', () => {
-    const proxySource = readFileSync(resolve(process.cwd(), 'supabase/functions/proxy-openmeteo/index.ts'), 'utf8');
+    // The vocabulary moved to validation.ts in build 125 (SND); read the function whole.
+    const proxySource = ['index.ts', 'validation.ts']
+        .map((file) => readFileSync(resolve(process.cwd(), 'supabase/functions/proxy-openmeteo', file), 'utf8'))
+        .join('\n');
     const setOf = (name: string): Set<string> => {
         const match = proxySource.match(new RegExp(`const ${name} = new Set\\(\\[([\\s\\S]*?)\\]\\);`));
         if (!match) throw new Error(`${name} not found in the proxy`);

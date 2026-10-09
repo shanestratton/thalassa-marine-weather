@@ -1,0 +1,464 @@
+/*
+ * The Sounding sheet (build 125, SND). Its own tokens, one set per palette,
+ * so the skew-T and the sheet around it read in daylight, in the dark and
+ * under the red night palette from one drawing. Dark is the approved mock-up's
+ * palette; night keeps to reds only and tells the three lines apart by dash
+ * as well as shade. Loaded with the lazy sheet, never with the map.
+ *
+ * No text under the app's 12 px floor (index.css --text-micro), the diagram's
+ * labels included: the room a short screen needs comes from the layout, never
+ * from smaller type.
+ */
+.snd-overlay {
+    --snd-surface: #0b1520;
+    --snd-card: #111e2b;
+    --snd-ink: #e6eef4;
+    --snd-muted: #93a4b3;
+    --snd-line: #22344a;
+    --snd-accent: #7cc7f2;
+    --snd-temp: #ff7a6b;
+    --snd-dew: #5fd39a;
+    --snd-parcel: #f2c46d;
+    --snd-iso: #24384c;
+    --snd-iso0: #3d6b8f;
+    --snd-dry: #4a3a2a;
+    --snd-moist: #2f4d3a;
+    --snd-barb: #cfe3f1;
+    --snd-cape: rgba(242, 196, 109, 0.18);
+    --snd-lid: rgba(124, 199, 242, 0.1);
+    --snd-lid-ink: #9fd6f5;
+    --snd-chip: #152536;
+    --snd-chip-on: #1d4a6b;
+    --snd-chip-on-ink: #ffffff;
+    --snd-frame: #2b4258;
+    --snd-tick: #4b6075;
+    --snd-dew-dash: none;
+    --snd-parcel-dash: 5 3;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.snd-overlay[data-palette='day'] {
+    --snd-surface: #f8fafc;
+    --snd-card: #ffffff;
+    --snd-ink: #0f172a;
+    --snd-muted: #475569;
+    --snd-line: #d5dde7;
+    --snd-accent: #0369a1;
+    --snd-temp: #dc2626;
+    --snd-dew: #047857;
+    --snd-parcel: #b45309;
+    --snd-iso: #e2e8f0;
+    --snd-iso0: #7dd3fc;
+    --snd-dry: #eadbc8;
+    --snd-moist: #c3e6d1;
+    --snd-barb: #1e293b;
+    --snd-cape: rgba(217, 119, 6, 0.16);
+    --snd-lid: rgba(3, 105, 161, 0.08);
+    --snd-lid-ink: #075985;
+    --snd-chip: #e2e8f0;
+    --snd-chip-on: #0369a1;
+    --snd-chip-on-ink: #ffffff;
+    --snd-frame: #cbd5e1;
+    --snd-tick: #94a3b8;
+    background: rgba(15, 23, 42, 0.45);
+}
+
+.snd-overlay[data-palette='night'] {
+    --snd-surface: #0d0404;
+    --snd-card: #140606;
+    --snd-ink: #f87171;
+    --snd-muted: #d06060;
+    --snd-line: #3a1010;
+    --snd-accent: #ef4444;
+    --snd-temp: #ff5a5a;
+    --snd-dew: #c23b3b;
+    --snd-parcel: #e57373;
+    --snd-iso: #2a0d0d;
+    --snd-iso0: #5c1a1a;
+    --snd-dry: #2a0d0d;
+    --snd-moist: #2a0d0d;
+    --snd-barb: #f87171;
+    --snd-cape: rgba(239, 68, 68, 0.14);
+    --snd-lid: rgba(239, 68, 68, 0.08);
+    --snd-lid-ink: #f87171;
+    --snd-chip: #210909;
+    --snd-chip-on: #5c1414;
+    --snd-chip-on-ink: #fca5a5;
+    --snd-frame: #4a1414;
+    --snd-tick: #6a2020;
+    --snd-dew-dash: 7 3;
+    --snd-parcel-dash: 1.5 3;
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.snd-sheet {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    max-width: 30rem;
+    max-height: 100%;
+    overflow-y: auto;
+    padding: 10px 12px;
+    border: 1px solid var(--snd-line);
+    border-radius: 22px;
+    background: var(--snd-surface);
+    color: var(--snd-ink);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+/* The focus ring in the sheet's own accent: no bright blue on a night watch. */
+.snd-sheet :focus-visible {
+    outline: 2px solid var(--snd-accent);
+    outline-offset: 2px;
+}
+
+.snd-head {
+    position: relative;
+    flex: none;
+    /* The close button is 32 px at -2 px: the title and the place stay clear of it, on one line at 320 wide. */
+    padding-right: 36px;
+}
+
+.snd-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 6px;
+}
+
+.snd-where {
+    color: var(--snd-muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.snd-head h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.snd-sub {
+    margin: 1px 0 0;
+    color: var(--snd-muted);
+    font-size: 12px;
+    line-height: 1.3;
+}
+
+.snd-close {
+    position: absolute;
+    top: 0;
+    right: -2px;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--snd-chip);
+    color: var(--snd-muted);
+}
+
+.snd-close svg {
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+
+/* The picker scrolls sideways inside itself; its 6 px padding holds each chip's 44 px hit area. */
+.snd-hours {
+    display: flex;
+    flex: none;
+    gap: 6px;
+    margin: -4px -12px 0;
+    padding: 6px 12px;
+    overflow-x: auto;
+    scroll-padding-inline: 12px;
+    scrollbar-width: none;
+}
+
+.snd-hours::-webkit-scrollbar {
+    display: none;
+}
+
+.snd-chip {
+    flex: none;
+    min-height: 32px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--snd-chip);
+    color: var(--snd-muted);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.snd-chip[aria-pressed='true'] {
+    background: var(--snd-chip-on);
+    color: var(--snd-chip-on-ink);
+}
+
+.snd-chip:disabled {
+    opacity: 0.4;
+}
+
+.snd-headline {
+    flex: none;
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+/* The diagram takes what is left: drawn at this box's pixel size, never scrolled. */
+.snd-chart {
+    position: relative;
+    flex: 1 1 340px;
+    min-height: 120px;
+    max-height: 380px;
+    overflow: hidden;
+    border: 1px solid var(--snd-line);
+    border-radius: 14px;
+    background: var(--snd-card);
+}
+
+.snd-chart-svg {
+    position: absolute;
+    inset: 0;
+    display: block;
+    overflow: hidden;
+}
+
+.snd-rows {
+    display: grid;
+    flex: none;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+    margin: 0;
+}
+
+.snd-row {
+    min-width: 0;
+}
+
+.snd-row dt {
+    color: var(--snd-muted);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.snd-row dd {
+    margin: 0;
+    font-size: 12.5px;
+    font-weight: 650;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+.snd-legend {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    /* One line at 320 wide in wide fonts: short samples, tight gaps. */
+    gap: 2px 10px;
+    margin-top: -2px;
+    color: var(--snd-muted);
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.snd-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    white-space: nowrap;
+}
+
+.snd-legend svg {
+    overflow: visible;
+}
+
+.snd-state {
+    flex: none;
+    padding: 14px 4px;
+    text-align: center;
+}
+
+.snd-notice {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.snd-retry {
+    min-height: 44px;
+    margin-top: 10px;
+    padding: 0 18px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--snd-chip-on);
+    color: var(--snd-chip-on-ink);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.snd-foot {
+    flex: none;
+    margin: 0;
+    color: var(--snd-muted);
+    font-size: 12px;
+    line-height: 1.3;
+}
+
+/* The skew-T's strokes and labels. SVG text inherits the app's face. */
+.snd-iso {
+    fill: none;
+    stroke: var(--snd-iso);
+    stroke-width: 0.8;
+}
+
+.snd-iso0 {
+    stroke: var(--snd-iso0);
+    stroke-width: 1.1;
+}
+
+.snd-dry {
+    fill: none;
+    stroke: var(--snd-dry);
+    stroke-width: 0.7;
+}
+
+.snd-moist {
+    fill: none;
+    stroke: var(--snd-moist);
+    stroke-width: 0.8;
+    stroke-dasharray: 3 3;
+}
+
+.snd-temp {
+    fill: none;
+    stroke: var(--snd-temp);
+    stroke-width: 2.4;
+    stroke-linejoin: round;
+}
+
+.snd-dew {
+    fill: none;
+    stroke: var(--snd-dew);
+    stroke-width: 2.4;
+    stroke-linejoin: round;
+    stroke-dasharray: var(--snd-dew-dash);
+}
+
+.snd-parcel {
+    fill: none;
+    stroke: var(--snd-parcel);
+    stroke-width: 1.4;
+    stroke-dasharray: var(--snd-parcel-dash);
+}
+
+.snd-cape {
+    fill: var(--snd-cape);
+}
+
+.snd-tdot {
+    fill: var(--snd-temp);
+}
+
+.snd-ddot {
+    fill: var(--snd-dew);
+}
+
+.snd-lidband {
+    fill: var(--snd-lid);
+}
+
+.snd-lcl {
+    stroke: var(--snd-accent);
+    stroke-width: 1;
+    stroke-dasharray: 2 3;
+}
+
+.snd-ax {
+    fill: var(--snd-muted);
+    font-size: 12px;
+}
+
+.snd-ann {
+    fill: var(--snd-accent);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.snd-lidtxt {
+    fill: var(--snd-lid-ink);
+}
+
+.snd-frame {
+    fill: none;
+    stroke: var(--snd-frame);
+}
+
+.snd-tick {
+    stroke: var(--snd-tick);
+}
+
+.snd-barb {
+    stroke: var(--snd-barb);
+    stroke-width: 1.3;
+    stroke-linecap: round;
+}
+
+.snd-pennant {
+    fill: var(--snd-barb);
+}
+
+/* Short screens (320 × 568 and the like): tighter, so the diagram keeps its room. */
+@media (max-height: 640px) {
+    .snd-sheet {
+        gap: 4px;
+        padding: 6px 12px;
+    }
+
+    .snd-headline {
+        font-size: 12.5px;
+        line-height: 1.25;
+    }
+
+    .snd-legend {
+        margin-top: -3px;
+        line-height: 1.1;
+    }
+
+    .snd-rows {
+        gap: 2px 12px;
+    }
+
+    .snd-row dt {
+        line-height: 1.2;
+    }
+
+    .snd-row dd {
+        font-size: 12px;
+        line-height: 1.2;
+    }
+
+    .snd-foot {
+        line-height: 1.25;
+    }
+
+    /* A note the barbs' own titles also carry: dropped where the diagram needs the line. */
+    .snd-only-tall {
+        display: none;
+    }
+}
