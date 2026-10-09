@@ -2,9 +2,21 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getAllMock, logWarn } = vi.hoisted(() => ({
+const { getAllMock, logWarn, live } = vi.hoisted(() => ({
     getAllMock: vi.fn(),
     logWarn: vi.fn(),
+    /** What the page subscribed to: its realtime tables and handler, its sync listeners, shimmer mounts. */
+    live: {
+        tables: null as string[] | null,
+        onRealtime: null as (() => void) | null,
+        syncListeners: [] as ((result: {
+            pushed: number;
+            pulled: number;
+            pruned?: number;
+            errors: string[];
+        }) => void)[],
+        shimmerMounts: 0,
+    },
 }));
 
 vi.mock('../../utils/createLogger', () => ({
@@ -12,6 +24,32 @@ vi.mock('../../utils/createLogger', () => ({
 }));
 
 vi.mock('../../utils/system', () => ({ triggerHaptic: vi.fn() }));
+
+vi.mock('../../hooks/useRealtimeSync', () => ({
+    useRealtimeSync: vi.fn(),
+    useRealtimeSyncMulti: (tables: string[], onSync: () => void) => {
+        live.tables = tables;
+        live.onRealtime = onSync;
+    },
+}));
+
+vi.mock('../../services/vessel/SyncService', () => ({
+    onSyncComplete: (listener: (typeof live.syncListeners)[number]) => {
+        live.syncListeners.push(listener);
+        return () => {
+            live.syncListeners = live.syncListeners.filter((candidate) => candidate !== listener);
+        };
+    },
+}));
+
+vi.mock('../../components/ui/ShimmerBlock', () => ({
+    ShimmerBlock: () => {
+        React.useEffect(() => {
+            live.shimmerMounts += 1;
+        }, []);
+        return <div data-testid="shimmer" />;
+    },
+}));
 
 vi.mock('../../services/vessel/LocalChecklistService', () => ({
     LocalChecklistService: {
@@ -309,5 +347,110 @@ describe('ChecklistsPage: flagged repairs on Complete', () => {
             if (was === undefined) delete process.env.TZ;
             else process.env.TZ = was;
         }
+    });
+});
+
+/**
+ * Live across devices (126-B9a, CHK-01): a list changed on the phone shows on
+ * the open page on the iPad, without the loading shimmer. Fictional lists.
+ */
+describe('ChecklistsPage: changes from another device', () => {
+    const at = '2026-01-01T00:00:00.000Z';
+    const preDeparture = [
+        {
+            id: 'h-pre',
+            type: 'heading' as const,
+            text: 'Pre-departure',
+            heading_id: null,
+            order: 1,
+            created_at: at,
+            updated_at: at,
+        },
+        {
+            id: 'i-bilge',
+            type: 'detail' as const,
+            text: 'Check bilge pump',
+            heading_id: 'h-pre',
+            order: 2,
+            created_at: at,
+            updated_at: at,
+        },
+    ];
+    const seacocks = {
+        id: 'i-seacocks',
+        type: 'detail' as const,
+        text: 'Close seacocks',
+        heading_id: 'h-pre',
+        order: 3,
+        created_at: at,
+        updated_at: at,
+    };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        live.tables = null;
+        live.onRealtime = null;
+        live.syncListeners = [];
+        live.shimmerMounts = 0;
+        getAllMock.mockReturnValue(preDeparture);
+    });
+
+    it('follows both checklist tables on one realtime channel', () => {
+        render(<ChecklistsPage onBack={vi.fn()} />);
+        expect(live.tables).toEqual(['checklists', 'checklist_runs']);
+    });
+
+    it('a background reload shows the change without the loading shimmer', () => {
+        render(<ChecklistsPage onBack={vi.fn()} />);
+        expect(screen.getByText('Check bilge pump')).toBeDefined();
+        const shimmerAfterMount = live.shimmerMounts;
+
+        getAllMock.mockReturnValue([...preDeparture, seacocks]);
+        act(() => live.onRealtime?.());
+        expect(screen.getByText('Close seacocks')).toBeDefined();
+        expect(screen.queryByTestId('shimmer')).toBeNull();
+        expect(live.shimmerMounts).toBe(shimmerAfterMount);
+    });
+
+    it('a failed background read keeps the list on screen: no error state, no toast', () => {
+        render(<ChecklistsPage onBack={vi.fn()} />);
+        getAllMock.mockImplementation(() => {
+            throw new Error('device database closed mid-switch');
+        });
+
+        act(() => live.onRealtime?.());
+        act(() => live.syncListeners.forEach((listener) => listener({ pushed: 0, pulled: 1, errors: [] })));
+
+        expect(screen.getByText('Check bilge pump')).toBeDefined();
+        expect(screen.queryByTestId('empty-state')).toBeNull();
+        expect(toast.error).not.toHaveBeenCalledWith('Failed to load checklists');
+    });
+
+    it('a Save onto an item already deleted on another device says nothing was saved', async () => {
+        vi.mocked(LocalChecklistService.update).mockResolvedValueOnce(null);
+        render(<ChecklistsPage onBack={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Edit checklist item: Check bilge pump' }));
+        fireEvent.change(screen.getByLabelText(/Check item/), { target: { value: 'Check both bilge pumps' } });
+
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+        });
+
+        expect(LocalChecklistService.update).toHaveBeenCalledWith('i-bilge', { text: 'Check both bilge pumps' });
+        expect(toast.error).toHaveBeenCalledWith('This item was removed on another device. Nothing was saved.');
+        expect(toast.success).not.toHaveBeenCalled();
+        expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    });
+
+    it('re-reads after a sync that changed rows here, and not after one that changed nothing', () => {
+        render(<ChecklistsPage onBack={vi.fn()} />);
+        const readsAfterMount = getAllMock.mock.calls.length;
+
+        act(() => live.syncListeners.forEach((listener) => listener({ pushed: 0, pulled: 0, errors: [] })));
+        expect(getAllMock.mock.calls.length).toBe(readsAfterMount);
+
+        getAllMock.mockReturnValue([preDeparture[0]]);
+        act(() => live.syncListeners.forEach((listener) => listener({ pushed: 0, pulled: 0, pruned: 1, errors: [] })));
+        expect(screen.queryByText('Check bilge pump')).toBeNull();
     });
 });

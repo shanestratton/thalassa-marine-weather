@@ -34,6 +34,9 @@ import { OfflineBadge } from '../ui/OfflineBadge';
 import { FormField } from '../ui/FormField';
 import { generateUUID } from '../../services/vessel/LocalDatabase';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useRealtimeSyncMulti } from '../../hooks/useRealtimeSync';
+import { onSyncComplete } from '../../services/vessel/SyncService';
+import { changedFields, REMOVED_ELSEWHERE, REMOVED_NOTHING_SAVED } from '../../utils/changedFields';
 import { SwipeableItemCard } from './checklists/SwipeableItemCard';
 import {
     getAuthIdentityScope,
@@ -139,25 +142,32 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     });
 
     // ── Load ──
-    const loadEntries = useCallback(() => {
-        setLoadError(false);
+    // A background reload (a change from another device, a sync) keeps the
+    // list on screen and its scroll: no shimmer, and a failed read keeps what
+    // is shown rather than swapping it for the error state.
+    const loadEntries = useCallback((background = false) => {
         const scope = getAuthIdentityScope();
-        setLoading(true);
+        if (!background) {
+            setLoadError(false);
+            setLoading(true);
+        }
         try {
             const loaded = LocalChecklistService.getAll();
             if (!isAuthIdentityScopeCurrent(scope)) return;
             setDataScopeKey(scope.key);
             setEntries(loaded);
+            setLoadError(false);
         } catch (e) {
             log.error('Failed to load checklists:', e);
-            if (isAuthIdentityScopeCurrent(scope)) {
+            if (!background && isAuthIdentityScopeCurrent(scope)) {
                 setLoadError(true);
                 toast.error('Failed to load checklists');
             }
         } finally {
-            if (isAuthIdentityScopeCurrent(scope)) setLoading(false);
+            if (!background && isAuthIdentityScopeCurrent(scope)) setLoading(false);
         }
     }, []);
+    const reloadInBackground = useCallback(() => loadEntries(true), [loadEntries]);
 
     useEffect(() => {
         mountedRef.current = true;
@@ -189,12 +199,45 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         };
     }, [loadEntries]);
 
+    // Live across devices (126-B9a): a change saved on the sailor's other
+    // device lands within seconds, on one channel for the lists and their
+    // runs; a sync that pulled or pruned rows (deleted elsewhere while the
+    // socket was down) reloads too.
+    useRealtimeSyncMulti(['checklists', 'checklist_runs'], reloadInBackground);
+    useEffect(
+        () =>
+            onSyncComplete((result) => {
+                if (result.pulled > 0 || (result.pruned ?? 0) > 0) reloadInBackground();
+            }),
+        [reloadInBackground],
+    );
+
     // ── Computed ──
     const visibleEntries = useMemo(
         () => (dataScopeKey === getAuthIdentityScope().key ? entries : []),
         [dataScopeKey, entries],
     );
+
     const headings = useMemo(() => visibleEntries.filter((e) => e.type === 'heading'), [visibleEntries]);
+
+    // Deleted on another device while the form is open: the entry being
+    // edited, or the last checklist an item could go under, closes the form
+    // rather than save into nothing (every open resets its fields). A picked
+    // checklist that is gone falls back to one still there, the one the picker
+    // already shows. The page's own delete closes the form first. A run in
+    // progress keeps its snapshot: it is a record of what was checked.
+    useEffect(() => {
+        if (!showForm || loading) return;
+        const live = editEntry && visibleEntries.find((e) => e.id === editEntry.id);
+        const headingGone = formType === 'detail' && !headings.some((h) => h.id === formHeadingId);
+        if ((editEntry && !live) || (headingGone && !headings.length)) {
+            setShowForm(false);
+            setEditEntry(null);
+            toast.info(REMOVED_ELSEWHERE);
+        } else if (headingGone) {
+            setFormHeadingId((headings.find((h) => h.id === live?.heading_id) ?? headings[0]).id);
+        }
+    }, [showForm, editEntry, loading, visibleEntries, headings, formType, formHeadingId]);
 
     const grouped = useMemo(
         () =>
@@ -244,18 +287,21 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     const handleSave = useCallback(async () => {
         if (!formText.trim()) return;
         const scope = getAuthIdentityScope();
-        const entryId = editEntry?.id ?? null;
         const text = formText.trim();
         const headingId = formType === 'detail' ? formHeadingId : null;
         try {
             triggerHaptic('medium');
-            if (entryId) {
-                await LocalChecklistService.update(entryId, {
-                    text,
-                    heading_id: headingId,
-                });
-                if (!currentOperation(scope)) return;
-                toast.success('Updated');
+            if (editEntry) {
+                // Only what was changed against the item as the form opened, so
+                // a move or rename made on another device meanwhile stands.
+                const updates = changedFields(editEntry, { text, heading_id: headingId });
+                if (Object.keys(updates).length) {
+                    const saved = await LocalChecklistService.update(editEntry.id, updates);
+                    if (!currentOperation(scope)) return;
+                    // A null write: the row was gone (deleted elsewhere) when it landed.
+                    if (saved) toast.success('Updated');
+                    else toast.error(REMOVED_NOTHING_SAVED);
+                }
                 setShowForm(false);
                 resetForm();
             } else {

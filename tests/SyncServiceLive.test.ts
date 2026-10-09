@@ -378,8 +378,12 @@ describe('the app catches up when it comes back', () => {
         await vi.advanceTimersByTimeAsync(1500);
 
         expect(cycles()).toBe(2);
+        // The binder tables, and (126-B9a, on purpose) the two owner-only
+        // checklist tables.
         expect([...new Set(h.idListings)].sort()).toEqual(
             [
+                'checklist_runs',
+                'checklists',
                 'equipment_register',
                 'inventory_items',
                 'maintenance_history',
@@ -392,7 +396,7 @@ describe('the app catches up when it comes back', () => {
             new Set(['stores-kept']),
             expect.objectContaining({ keepUpdatedAfter: WATERMARK }),
         );
-        // Only the binder tables: the rest keep their six-hourly full pull.
+        // Only the swept tables: the rest keep their six-hourly full pull.
         expect(h.prunePulledTable).not.toHaveBeenCalledWith('recipes', expect.anything(), expect.anything());
         // The open binders hear that rows went (useBinderSource reloads on it).
         expect(completions.at(-1)).toMatchObject({ pruned: 2 });
@@ -570,7 +574,8 @@ describe('the sweep reads as the signed-in user, and one reading never empties a
         sync.requestCatchUpSync();
         await vi.advanceTimersByTimeAsync(1500);
 
-        expect(h.state.listingAuth).toHaveLength(5);
+        // Five binder tables and the two checklist tables (126-B9a).
+        expect(h.state.listingAuth).toHaveLength(7);
         expect(h.state.listingAuth.every((value) => value === 'Bearer token-user-1')).toBe(true);
     });
 
