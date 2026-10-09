@@ -26,6 +26,14 @@ const RECENTER_FAB_VISIBLE = false;
 const LOCATE_NO_FIX_MS = 11_000;
 const LOCATE_NOTICE_MS = 5_000;
 const LOCATE_LISTEN_MS = 30_000;
+/** How long the label saying where a tap went stays beside the button (126-18). */
+const LOCATE_LABEL_MS = 3_000;
+
+/** The map-pin outline (the parked recentre button's): Locate's glyph when the next tap goes to a chosen place. */
+const PLACE_GLYPH_PATHS = [
+    'M15 10.5a3 3 0 11-6 0 3 3 0 016 0z',
+    'M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z',
+];
 
 type LocateState = 'idle' | 'finding' | 'no-fix';
 
@@ -36,6 +44,12 @@ export interface LocateResult {
     announcement: string;
     /** Nothing found, and the chart's own message is about something else: say it here, on screen too. */
     noFix?: boolean;
+    /**
+     * Where the tap went ("Port Kittiwake", "Kittiwake", "Your phone"), when
+     * Locate has more than one stop (126-18): shown beside the button for 3 s.
+     * The status line already speaks the announcement, so it is not spoken.
+     */
+    label?: string;
 }
 
 interface MapActionFabsProps {
@@ -50,9 +64,13 @@ interface MapActionFabsProps {
      * Where Locate goes, when the chart knows (Obs follows the location box):
      * 'phone' draws the button as the phone it flies to, the same phone as
      * the chart's own mark, so Current Location is never a guess (Shane
-     * 2026-10-08). Omitted or 'boat': the crosshair, as always.
+     * 2026-10-08). 'place' (126-18) draws a map pin: the next tap goes to the
+     * place chosen in the box, named by `placeName`. Omitted or 'boat': the
+     * crosshair, as always.
      */
-    target?: 'phone' | 'boat';
+    target?: 'phone' | 'boat' | 'place';
+    /** The chosen place's name, for 'place'. */
+    placeName?: string;
 }
 
 /** Camera events carry originalEvent only when a person moved the map. */
@@ -60,20 +78,37 @@ function isGesture(event: unknown): boolean {
     return !!event && typeof event === 'object' && 'originalEvent' in event && !!event.originalEvent;
 }
 
-export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRecenter, recenterDisabled, target }) => {
+/** What the button says it goes to, for VoiceOver. */
+function targetWords(target: 'phone' | 'boat' | 'place', placeName: string | undefined): string {
+    if (target === 'phone') return 'Goes to your phone';
+    if (target === 'boat') return 'Goes to the boat';
+    return placeName?.trim() ? `Goes to ${placeName.trim()}` : 'Goes to the place you chose';
+}
+
+export const MapActionFabs: React.FC<MapActionFabsProps> = ({
+    onLocateMe,
+    onRecenter,
+    recenterDisabled,
+    target,
+    placeName,
+}) => {
     const rootRef = useRef<HTMLDivElement>(null);
     const [locate, setLocate] = useState<LocateState>('idle');
     const targetId = useId();
     const [announcement, setAnnouncement] = useState('');
+    /** Where the last tap went, shown for LOCATE_LABEL_MS (126-18). */
+    const [stopLabel, setStopLabel] = useState<string | null>(null);
     const stopWatchingLocate = useRef<(() => void) | null>(null);
     /** Ends a "No position fix" line the handler's own answer put up. */
     const noFixTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const labelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [zoomLimits, setZoomLimits] = useState({ atMin: false, atMax: false });
 
     useEffect(
         () => () => {
             stopWatchingLocate.current?.();
             if (noFixTimer.current) clearTimeout(noFixTimer.current);
+            if (labelTimer.current) clearTimeout(labelTimer.current);
         },
         [],
     );
@@ -121,6 +156,9 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
         stopWatchingLocate.current = null;
         if (noFixTimer.current) clearTimeout(noFixTimer.current);
         noFixTimer.current = null;
+        if (labelTimer.current) clearTimeout(labelTimer.current);
+        labelTimer.current = null;
+        setStopLabel(null);
         const map = chartMapBeside(rootRef.current);
         // Set once the handler has returned a promise: its answer speaks.
         let answerComing = false;
@@ -168,6 +206,13 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
                     setAnnouncement(answer.announcement);
                     if (!answer.noFix) {
                         setLocate('idle');
+                        if (answer.label) {
+                            setStopLabel(answer.label);
+                            labelTimer.current = setTimeout(() => {
+                                labelTimer.current = null;
+                                setStopLabel(null);
+                            }, LOCATE_LABEL_MS);
+                        }
                         return;
                     }
                     setLocate('no-fix');
@@ -226,11 +271,23 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
                         No position fix
                     </span>
                 )}
+                {/* Where the last tap went, when Locate has more than one stop
+                    (126-18): one line, cut short with an ellipsis, never a
+                    wrap. The status line speaks the answer itself. */}
+                {locate === 'idle' && stopLabel && (
+                    <span
+                        aria-hidden="true"
+                        data-locate-label=""
+                        className="block h-12 max-w-[min(14rem,calc(100vw-7rem))] truncate rounded-2xl border border-sky-400/40 bg-slate-900/90 px-3 text-[13px] font-bold leading-[3rem] text-sky-300 shadow-2xl backdrop-blur-xl"
+                    >
+                        {stopLabel}
+                    </span>
+                )}
 
                 {/* Where it goes, for VoiceOver: the name stays "Locate me". */}
                 {target && (
                     <span id={targetId} className="sr-only">
-                        {target === 'phone' ? 'Goes to your phone' : 'Goes to the boat'}
+                        {targetWords(target, placeName)}
                     </span>
                 )}
 
@@ -252,7 +309,23 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
                         />
                     )}
                     {/* White like the layers glyph beside it: one glyph colour on the rail. */}
-                    {target === 'phone' ? (
+                    {target === 'place' ? (
+                        <svg
+                            className="w-5 h-5 text-white"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                            data-glyph="place"
+                        >
+                            {PLACE_GLYPH_PATHS.map((d) => (
+                                <path key={d} d={d} />
+                            ))}
+                        </svg>
+                    ) : target === 'phone' ? (
                         <svg
                             className="w-5 h-5 text-white"
                             fill="none"
@@ -299,12 +372,9 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
                             stroke="currentColor"
                             strokeWidth={1.5}
                         >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                            />
+                            {PLACE_GLYPH_PATHS.map((d) => (
+                                <path key={d} strokeLinecap="round" strokeLinejoin="round" d={d} />
+                            ))}
                         </svg>
                     </button>
                 )}

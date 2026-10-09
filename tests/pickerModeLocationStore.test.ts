@@ -17,16 +17,23 @@ import { renderHook } from '@testing-library/react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type mapboxgl from 'mapbox-gl';
 
+const markers = vi.hoisted(() => ({ all: [] as Array<{ removed: boolean }> }));
 vi.mock('mapbox-gl', () => ({
     default: {
         Marker: class {
+            removed = false;
+            constructor() {
+                markers.all.push(this);
+            }
             setLngLat() {
                 return this;
             }
             addTo() {
                 return this;
             }
-            remove() {}
+            remove() {
+                this.removed = true;
+            }
         },
     },
 }));
@@ -141,5 +148,75 @@ describe('usePickerMode → LocationStore', () => {
         // a name must short-circuit it.
         expect(fetchSpy).not.toHaveBeenCalled();
         vi.unstubAllGlobals();
+    });
+});
+
+/**
+ * The picker's own pin goes when the picker closes (126-18). It was sky blue
+ * and never removed, and MapHub stays mounted, so it stayed on Obs at the old
+ * pick beside the chosen place's gold pin.
+ */
+describe('usePickerMode: its pin goes with the picker', () => {
+    beforeAll(async () => {
+        await import('../services/weatherService');
+    });
+
+    beforeEach(() => {
+        markers.all.length = 0;
+        reverseGeocode.mockReset();
+        reverseGeocode.mockResolvedValue('Puerto Kittiwake');
+    });
+
+    function mountPicker() {
+        const { map, tap } = stubMap();
+        const mapRef = { current: map };
+        const pinRef = { current: null as mapboxgl.Marker | null };
+        const view = renderHook(
+            ({
+                picking,
+                onSelect,
+            }: {
+                picking: boolean;
+                onSelect?: (lat: number, lon: number, name?: string) => void;
+            }) => usePickerMode(mapRef, pinRef, picking, onSelect),
+            { initialProps: { picking: true, onSelect: vi.fn() } },
+        );
+        return { view, tap, pinRef };
+    }
+
+    it('closing the picker removes the pin it dropped', async () => {
+        const { view, tap, pinRef } = mountPicker();
+        tap(38.53, -28.63);
+        const dropped = pinRef.current as unknown as { removed: boolean };
+        expect(dropped).not.toBeNull();
+        expect(dropped.removed).toBe(false);
+        await settle();
+        view.rerender({ picking: false, onSelect: vi.fn() });
+        expect(dropped.removed).toBe(true);
+        expect(pinRef.current).toBeNull();
+    });
+
+    it('an App re-render mid-pick (a new onLocationSelect arrow) keeps it', async () => {
+        const { view, tap, pinRef } = mountPicker();
+        tap(-36.84, 174.76);
+        const dropped = pinRef.current as unknown as { removed: boolean };
+        await settle();
+        view.rerender({ picking: true, onSelect: vi.fn() });
+        expect(dropped.removed).toBe(false);
+        expect(pinRef.current).toBe(dropped);
+    });
+
+    it('a pin someone else put in the shared ref since (the chat pin view) is not the picker’s to remove', async () => {
+        const { view, tap, pinRef } = mountPicker();
+        tap(-16.48, 145.46);
+        await settle();
+        // usePinViewMode: removes what the ref holds, then holds its own.
+        const picked = pinRef.current!;
+        picked.remove();
+        const pinView = { removed: false, remove() {} } as unknown as mapboxgl.Marker;
+        pinRef.current = pinView;
+        view.rerender({ picking: false, onSelect: vi.fn() });
+        expect(pinRef.current).toBe(pinView);
+        expect((pinView as unknown as { removed: boolean }).removed).toBe(false);
     });
 });

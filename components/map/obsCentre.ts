@@ -21,8 +21,9 @@
  *    position is missing.
  *
  * The locate button follows the box too (locateOnObs): the boat for her row
- * or the boat crewed on, the phone for the phone, and for a chosen place the
- * boat when the account has one, else the phone.
+ * or the boat crewed on, the phone for the phone. For a chosen place it goes
+ * to the place first (locatePlace, 126-18), then the boat when the account
+ * has one, then the phone (the order lives in obsPlacePin.obsLocateStops).
  */
 import { useEffect, useSyncExternalStore } from 'react';
 import type mapboxgl from 'mapbox-gl';
@@ -569,7 +570,7 @@ function showForTap(next: Parameters<typeof showObsCentreNotice>[0], names: ObsB
     return { id, standing };
 }
 
-function flyFor(map: mapboxgl.Map, to: ObsFix, zoom: number): boolean {
+function flyFor(map: mapboxgl.Map, to: { lat: number; lon: number }, zoom: number): boolean {
     claimObsCamera(map);
     try {
         obsFlyTo(map, to, zoom);
@@ -686,14 +687,56 @@ export async function locatePhone(map: mapboxgl.Map, zoom: number): Promise<Loca
     return standing ? { centred: false, announcement: standing, noFix: true } : { centred: false, announcement: '' };
 }
 
-/** The locate button on Obs: the boat or the phone, as obsLocateSubject chose. */
+/** A place chosen in the location box, as Locate flies to it: its drawn point (Mercator-clamped) and its name. */
+export interface LocatePlace {
+    lat: number;
+    lon: number;
+    name: string;
+}
+
+/** Where one Locate tap goes: the boat, the phone, or (126-18) the chosen place. */
+export type LocateStop = ObsSubject | ({ kind: 'place' } & LocatePlace);
+
+/**
+ * Locate to the place chosen in the location box (126-18; Shane 2026-10-09:
+ * "if it isnt the vessel location or the phone location, can we have a pin in
+ * the location and that is where the locate fab goes to on the obs page").
+ * The camera only: no fix and no network, so it works offline. A newer tap
+ * supersedes an older one (a boat lookup still running resolves null and
+ * never flies), the startup camera stands down (a name-only centring still
+ * resolving included), and the message about the boat or the phone goes: it
+ * no longer describes the chart.
+ */
+export async function locatePlace(map: mapboxgl.Map, place: LocatePlace, zoom: number): Promise<LocateOutcome | null> {
+    const seq = ++locateSeq;
+    // After the tap returns, so the button hears this flight as its answer's.
+    await Promise.resolve();
+    if (seq !== locateSeq) return null;
+    claimObsCamera(map);
+    clearObsCentreNotice();
+    let centred = true;
+    try {
+        obsFlyTo(map, place, zoom);
+    } catch {
+        centred = false; // the map went away meanwhile
+    }
+    return { centred, announcement: `Chart centred on ${place.name}.` };
+}
+
+/**
+ * The locate button on Obs: the stop obsPlacePin chose (the place, the boat
+ * or the phone). `placeZoom` is the place's zoom (Obs opens a place at z10),
+ * passed in so this module never imports the startup camera.
+ */
 export function locateOnObs(
     map: mapboxgl.Map,
-    subject: ObsSubject,
+    stop: LocateStop,
     names: ObsBoatNames,
     zoom: number,
+    placeZoom = zoom,
 ): Promise<LocateOutcome | null> {
-    return subject.kind === 'phone' ? locatePhone(map, zoom) : locateVessel(map, subject.crewOwnerId, names, zoom);
+    if (stop.kind === 'place') return locatePlace(map, stop, placeZoom);
+    return stop.kind === 'phone' ? locatePhone(map, zoom) : locateVessel(map, stop.crewOwnerId, names, zoom);
 }
 
 /** Test seam. */

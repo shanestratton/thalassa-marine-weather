@@ -4,7 +4,9 @@
  * telling them that").
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { renderHook } from '@testing-library/react';
 import type { GpsPosition } from '../services/GpsService';
+import type { BoatFix } from '../services/boatPositionChain';
 
 const deps = vi.hoisted(() => ({
     lastKnown: null as GpsPosition | null,
@@ -14,6 +16,18 @@ const deps = vi.hoisted(() => ({
         source: string;
         timestamp: number;
     },
+    // The boat's rungs (126-18: a place tap supersedes a boat tap still looking).
+    busFix: vi.fn<() => BoatFix | null>(() => null),
+    piFix: vi.fn<() => Promise<BoatFix | null>>(async () => null),
+    cloudFix: vi.fn<(now?: number, owner?: string) => Promise<BoatFix | null>>(async () => null),
+    deviceRungOwner: vi.fn<(rung: 'bus' | 'pi') => string | null>(() => null),
+}));
+vi.mock('../services/boatPositionChain', () => ({
+    busFix: deps.busFix,
+    piFix: deps.piFix,
+    cloudFix: deps.cloudFix,
+    deviceRungOwner: deps.deviceRungOwner,
+    CLOUD_FIX_MAX_AGE_MS: 60_000,
 }));
 vi.mock('../services/GpsService', () => ({
     GpsService: { getLastKnownPosition: () => deps.lastKnown, getCurrentPositionIfGranted: vi.fn(async () => null) },
@@ -41,12 +55,15 @@ import {
     clearObsCentreNotice,
     subscribeObsCentreNotice,
     locateOnObs,
+    locatePlace,
+    locateVessel,
     obsFlyTo,
     type ObsCentreNotice,
 } from '../components/map/obsCentre';
+import { obsStartTarget, useObsStartupCamera } from '../components/map/useObsStartupCamera';
 import { NO_CAMERA_PADDING, clearCameraPadding } from '../components/map/cameraPadding';
 import type mapboxgl from 'mapbox-gl';
-import { WEATHER_FOLLOW_TARGET_EVENT } from '../services/weatherPosition';
+import { WEATHER_FOLLOW_TARGET_EVENT, __resetWeatherPositionForTests } from '../services/weatherPosition';
 
 /** Local clock times, so the words do not depend on the machine's time zone. */
 const at = (day: number, hour: number, minute = 0) => new Date(2026, 9, day, hour, minute).getTime();
@@ -314,5 +331,149 @@ describe('Obs never flies under a padding another surface left (build 124)', () 
             },
         } as unknown as mapboxgl.Map;
         expect(clearCameraPadding(gone)).toBe(false);
+    });
+});
+
+/**
+ * Locate to the place chosen in the location box (126-18). Shane 2026-10-09:
+ * "if it isnt the vessel location or the phone location, can we have a pin in
+ * the location and that is where the locate fab goes to on the obs page".
+ * Fictional places; the boat is "Kittiwake".
+ */
+describe('Locate to the chosen place (locatePlace)', () => {
+    const PORT_KITTIWAKE = { lat: -16.48, lon: 145.46, name: 'Port Kittiwake' };
+    const KITTIWAKE_NAMES = { own: 'Kittiwake', crew: null };
+
+    /** paddedMap, with the event methods the startup camera listens through. */
+    function cameraMap(padding: Partial<typeof PLAN_CARD> = {}) {
+        const listeners = new Map<string, Set<(event?: unknown) => void>>();
+        const padded = paddedMap(padding);
+        Object.assign(padded.map, {
+            on: vi.fn((name: string, listener: (event?: unknown) => void) => {
+                const set = listeners.get(name) ?? new Set();
+                set.add(listener);
+                listeners.set(name, set);
+            }),
+            off: vi.fn((name: string, listener: (event?: unknown) => void) => {
+                listeners.get(name)?.delete(listener);
+            }),
+        });
+        return padded;
+    }
+
+    beforeEach(() => {
+        __resetWeatherPositionForTests();
+        deps.busFix.mockImplementation(() => null);
+        deps.piFix.mockImplementation(async () => null);
+        deps.cloudFix.mockImplementation(async () => null);
+        deps.deviceRungOwner.mockImplementation(() => null);
+    });
+
+    it('flies after the tap returns, to the place at the given zoom, on the whole canvas', async () => {
+        const { as, calls, map } = paddedMap();
+        const answer = locatePlace(as, PORT_KITTIWAKE, 10);
+        // Not yet: the button must hear the flight as this tap's (MapActionFabs).
+        expect(map.flyTo).not.toHaveBeenCalled();
+        const outcome = await answer;
+        expect(calls).toEqual([
+            ['setPadding', { top: 0, right: 0, bottom: 0, left: 0 }],
+            ['flyTo', { center: [145.46, -16.48], zoom: 10, duration: 1200 }],
+        ]);
+        expect(outcome).toEqual({ centred: true, announcement: 'Chart centred on Port Kittiwake.' });
+    });
+
+    it('needs no fix and no network: it works offline', async () => {
+        const { as, map } = paddedMap({});
+        await locatePlace(as, PORT_KITTIWAKE, 10);
+        expect(map.flyTo).toHaveBeenCalledOnce();
+        expect(deps.piFix).not.toHaveBeenCalled();
+        expect(deps.cloudFix).not.toHaveBeenCalled();
+    });
+
+    it('clears a standing message: it no longer describes the chart', async () => {
+        showObsCentreNotice({ subject: { kind: 'boat', crewOwnerId: null }, state: 'held', at: NOW - 3_600_000 });
+        expect(obsCentreNoticeText(getObsCentreNotice()!, KITTIWAKE_NAMES, NOW)).toBe(
+            "Showing Kittiwake's last known position · 1 h ago",
+        );
+        const { as } = paddedMap({});
+        await locatePlace(as, PORT_KITTIWAKE, 10);
+        expect(getObsCentreNotice()).toBeNull();
+    });
+
+    it('claims the camera: a name-only startup centring still resolving settles and never jumps later', async () => {
+        const { as, map } = cameraMap();
+        const mapRef = { current: as };
+        const view = renderHook(({ target }) => useObsStartupCamera(mapRef, true, true, target), {
+            initialProps: { target: obsStartTarget({ defaultLocation: 'Port Kittiwake' }) },
+        });
+        expect(map.jumpTo).not.toHaveBeenCalled();
+        await locatePlace(as, PORT_KITTIWAKE, 10);
+        // The name resolves after the tap: the skipper's flight stands.
+        view.rerender({
+            target: obsStartTarget({ defaultLocation: 'Port Kittiwake', weatherCoords: { lat: -16.5, lon: 145.5 } }),
+        });
+        expect(map.jumpTo).not.toHaveBeenCalled();
+        expect(map.flyTo).toHaveBeenCalledOnce();
+        view.unmount();
+    });
+
+    it('a place tap after a boat tap still looking: her late answer resolves null and never flies', async () => {
+        let answer!: (fix: BoatFix | null) => void;
+        deps.piFix.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+        const { as, map } = paddedMap({});
+        const boat = locateVessel(as, null, KITTIWAKE_NAMES, 14);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(deps.piFix).toHaveBeenCalledOnce();
+        const place = await locatePlace(as, PORT_KITTIWAKE, 10);
+        expect(place).toEqual({ centred: true, announcement: 'Chart centred on Port Kittiwake.' });
+        answer({ latitude: -16.2, longitude: 145.7, timestamp: Date.now(), rung: 'pi', source: 'ydwg-tcp.YD' });
+        expect(await boat).toBeNull();
+        expect(map.flyTo).toHaveBeenCalledExactlyOnceWith({ center: [145.46, -16.48], zoom: 10, duration: 1200 });
+    });
+
+    it('across the antimeridian: flyTo is given the place itself (Mapbox takes the short way)', async () => {
+        const { as, map } = paddedMap({});
+        await locatePlace(as, { lat: -16.78, lon: 179.999, name: 'Savusavu' }, 10);
+        await locatePlace(as, { lat: -16.78, lon: -179.999, name: 'Savusavu, east' }, 10);
+        expect(map.flyTo.mock.calls.map(([options]) => (options as { center: number[] }).center)).toEqual([
+            [179.999, -16.78],
+            [-179.999, -16.78],
+        ]);
+    });
+
+    it('locateOnObs routes a place stop to locatePlace at the place zoom, and the others exactly as before', async () => {
+        const { as, map } = paddedMap({});
+        const outcome = await locateOnObs(
+            as,
+            { kind: 'place', lat: -36.84, lon: 174.76, name: 'Viaduct Harbour' },
+            KITTIWAKE_NAMES,
+            14,
+            10,
+        );
+        expect(outcome).toEqual({ centred: true, announcement: 'Chart centred on Viaduct Harbour.' });
+        expect(map.flyTo).toHaveBeenLastCalledWith({ center: [174.76, -36.84], zoom: 10, duration: 1200 });
+        // The phone, as it always was: the fix zoom.
+        deps.lastKnown = { ...pos(38.53, -28.63, NOW - 1_000), accuracy: 5, altitude: null, heading: null, speed: 0 };
+        expect(await locateOnObs(as, { kind: 'phone' }, KITTIWAKE_NAMES, 14, 10)).toEqual({
+            centred: true,
+            announcement: 'Chart centred on your position.',
+        });
+        expect(map.flyTo).toHaveBeenLastCalledWith({ center: [-28.63, 38.53], zoom: 14, duration: 1200 });
+        // The boat, as it always was.
+        deps.busFix.mockImplementation(() => ({
+            latitude: -16.2,
+            longitude: 145.7,
+            timestamp: Date.now(),
+            rung: 'bus',
+            source: 'nmea-gateway',
+        }));
+        expect(await locateOnObs(as, { kind: 'boat', crewOwnerId: null }, KITTIWAKE_NAMES, 14, 10)).toEqual({
+            centred: true,
+            announcement: 'Chart centred on Kittiwake.',
+        });
+        expect(map.flyTo).toHaveBeenLastCalledWith({ center: [145.7, -16.2], zoom: 14, duration: 1200 });
+        // A place stop with no place zoom given flies at the one zoom passed.
+        await locateOnObs(as, { kind: 'place', lat: 38.53, lon: -28.63, name: 'Horta' }, KITTIWAKE_NAMES, 12);
+        expect(map.flyTo).toHaveBeenLastCalledWith({ center: [-28.63, 38.53], zoom: 12, duration: 1200 });
     });
 });

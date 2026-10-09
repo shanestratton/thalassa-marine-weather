@@ -2533,6 +2533,67 @@ body,
     }
 }
 
+/* The place chosen in the location box, on Obs (126-18, obsPlacePin.ts;
+   Shane 2026-10-09: "can we have a pin in the location"). A gold teardrop
+   (the ★ box's own yellow-400) with a navy rim for light bases, a white halo
+   for dark and satellite ones and a navy star, its tip on the place; the name
+   in a chip above. A 44 px button: tapped, that spot's weather. Its size and
+   the layout that puts the tip on the anchor are set on the element itself
+   (createPlacePinElement), so no stylesheet can move the tip. */
+.obs-place-pin {
+    margin: 0;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.obs-place-pin:focus-visible {
+    outline: 2px solid #facc15;
+    outline-offset: 2px;
+    border-radius: 8px;
+}
+
+.obs-place-pin__pin {
+    filter: drop-shadow(0 1px 1.5px rgba(2, 6, 23, 0.5));
+    pointer-events: none;
+}
+
+/* One line, cut with an ellipsis, never a wrap; any script (dir="auto").
+   Yellow-100 on slate-900/94 is over 14:1. Clicks pass through to the chart.
+   Its place above the head is set on the element. */
+.obs-place-pin__label {
+    max-width: 10rem;
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.94);
+    color: #fef9c3;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 16px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+
+/* Where the marks meet: the place's pin under the boat and the phone, the
+   MOB datum (and the weather bubble's spot, z 3 in its own rule below) over
+   all of them, and every popup (.mapboxgl-popup 500, .weather-inspect-popup
+   10000) above the lot. */
+.obs-place-pin {
+    z-index: 1;
+}
+
+.vessel-tracker-marker,
+.loc-dot {
+    z-index: 2;
+}
+
+.mob-marker {
+    z-index: 3;
+}
+
 /* Vessel Tracker — GPS position layer */
 @keyframes vesselPulse {
     0%,
@@ -3222,6 +3283,8 @@ body,
         0 0 0 1.5px rgba(2, 6, 23, 0.85),
         0 0 10px rgba(56, 189, 248, 0.55);
     pointer-events: none;
+    /* Over the boat, the phone and the place's pin (126-18: they stack 1-2). */
+    z-index: 3;
 }
 
 /* ── Seamark Popup — dark glass theme for nautical feature info ──────── */

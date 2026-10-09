@@ -1,5 +1,5 @@
 import mapboxgl from 'mapbox-gl';
-import { useEffect, type MutableRefObject } from 'react';
+import { useEffect, useRef, type MutableRefObject } from 'react';
 import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
 import { createPinMarker } from '../../utils/createMarkerEl';
@@ -13,6 +13,26 @@ export function usePickerMode(
     pickerMode: boolean,
     onLocationSelect?: (lat: number, lon: number, name?: string) => void,
 ) {
+    /** The pin this picker dropped, while the shared ref may still hold it. */
+    const droppedRef = useRef<mapboxgl.Marker | null>(null);
+
+    // The pin goes with the picker (126-18): MapHub stays mounted, so it stayed
+    // on Obs at the old pick beside the chosen place's own pin. Keyed on the
+    // picker alone: App's onLocationSelect is a new arrow each render, and a
+    // re-render mid-pick must keep it. Only its own pin: the chat pin view and
+    // dropPin share the ref.
+    useEffect(() => {
+        if (!pickerMode) return undefined;
+        return () => {
+            const dropped = droppedRef.current;
+            droppedRef.current = null;
+            if (dropped && pinMarkerRef.current === dropped) {
+                dropped.remove();
+                pinMarkerRef.current = null;
+            }
+        };
+    }, [pickerMode, pinMarkerRef]);
+
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !pickerMode) return;
@@ -26,6 +46,7 @@ export function usePickerMode(
             pinMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
                 .setLngLat([lng, lat])
                 .addTo(map);
+            droppedRef.current = pinMarkerRef.current;
 
             const fallback = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
 

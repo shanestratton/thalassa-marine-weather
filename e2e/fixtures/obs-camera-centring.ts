@@ -26,6 +26,11 @@
  *                    locateVessel → her own position chain → obsFlyTo. Only
  *                    her instrument bus is faked: NmeaGpsProvider answers
  *                    `fix`, stamped now (a fictional boat, "Sea Wren").
+ *   locatePlace(place)  Locate to a place chosen in the location box (126-18),
+ *                    the real path: placePinPoint → locateOnObs → locatePlace
+ *                    → obsFlyTo at z10, with the production gold pin drawn
+ *                    at the place. Returns the camera's longitudes seen in
+ *                    flight (the short way across 180°) and the pin's tip.
  *   tracerFly(fix, zoom)  A tracer flight (a pin, a leg's mark): the real
  *                    tracerFlyTo, which frames beside the route card.
  *   leave(padding)   Any surface leaving a padding on the map (setPadding).
@@ -45,7 +50,8 @@ import { fitTraceBounds, tracerFlyTo } from '../../components/map/mapHubHelpers'
 import { NmeaGpsProvider } from '../../services/NmeaGpsProvider';
 import { locateOnObs } from '../../components/map/obsCentre';
 import { clearCameraPadding } from '../../components/map/cameraPadding';
-import { OBS_VESSEL_ZOOM } from '../../components/map/useObsStartupCamera';
+import { OBS_PLACE_ZOOM, OBS_VESSEL_ZOOM } from '../../components/map/useObsStartupCamera';
+import { createPlacePinElement, placePinPoint } from '../../components/map/obsPlacePin';
 
 type Fix = { lat: number; lon: number };
 type Padding = { top: number; right: number; bottom: number; left: number };
@@ -85,6 +91,9 @@ const map = new mapboxgl.Map({
     preserveDrawingBuffer: true,
     testMode: true,
 } as mapboxgl.MapOptions);
+
+/** The chosen place's pin, while a locatePlace has drawn one. */
+let placeMarker: mapboxgl.Marker | null = null;
 
 /** The phone's receiver: answers where the fixture says the phone is. */
 let phoneAt: Fix | null = null;
@@ -211,6 +220,38 @@ const fixture = {
         await settled();
         await idle();
         return { outcome, ...measure(fix) };
+    },
+    async locatePlace(place: Fix & { name: string }) {
+        const pin = placePinPoint({ defaultLocation: place.name, defaultLocationCoords: place });
+        if (!pin) throw new Error('not a place');
+        setFix({ lat: pin.drawLat, lon: pin.lon });
+        placeMarker?.remove();
+        const el = createPlacePinElement(pin.name);
+        placeMarker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+            .setLngLat([pin.lon, pin.drawLat])
+            .addTo(map);
+        const seen: number[] = [];
+        const hear = () => seen.push(map.getCenter().lng);
+        map.on('move', hear);
+        const outcome = await locateOnObs(
+            map,
+            { kind: 'place', lat: pin.drawLat, lon: pin.lon, name: pin.name },
+            { own: null, crew: null },
+            OBS_VESSEL_ZOOM,
+            OBS_PLACE_ZOOM,
+        );
+        await settled();
+        await idle();
+        map.off('move', hear);
+        const fill = el.querySelector('path[data-part="fill"]')!.getBoundingClientRect();
+        const box = container.getBoundingClientRect();
+        return {
+            outcome,
+            ...measure({ lat: pin.drawLat, lon: pin.lon }),
+            centreLat: map.getCenter().lat,
+            seenLngs: seen,
+            tipPx: { x: fill.left + fill.width / 2 - box.left, y: fill.bottom - box.top },
+        };
     },
     async tracerFly(fix: Fix, zoom: number) {
         setFix(fix);

@@ -902,7 +902,7 @@ describe('box = Current Location: the phone gets its own dot, the boat keeps her
         expect(phoneDot()).toBeUndefined();
     });
 
-    it('the dot is wanted only on Obs, with the box on Current Location, and the marker on a boat', () => {
+    it('the dot is wanted only on Obs, with the box on Current Location or a place, and the marker on a boat', () => {
         const base = {
             obsShowing: true,
             boxFollows: true,
@@ -911,7 +911,11 @@ describe('box = Current Location: the phone gets its own dot, the boat keeps her
         };
         expect(phoneDotWanted(base)).toBe(true);
         expect(phoneDotWanted({ ...base, obsShowing: false })).toBe(false);
-        expect(phoneDotWanted({ ...base, boxFollows: false })).toBe(false);
+        // A chosen place draws the phone too (126-18): every mark Locate goes to is drawn.
+        expect(phoneDotWanted({ ...base, boxFollows: false })).toBe(true);
+        expect(phoneDotWanted({ ...base, boxFollows: false, followTarget: 'boat' })).toBe(true);
+        // The box on the boat's row still draws none.
+        expect(phoneDotWanted({ ...base, boxFollows: true, followTarget: 'boat' })).toBe(false);
         expect(phoneDotWanted({ ...base, followTarget: 'boat' })).toBe(false);
         expect(phoneDotWanted({ ...base, followTarget: 'crew' })).toBe(false);
         // A phone-only punter's marker IS the phone: no second pin.

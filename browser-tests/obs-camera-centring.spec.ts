@@ -37,6 +37,14 @@ type Fixture = {
     planFit(points: Fix[]): Promise<Measure & { endsPx: Array<{ x: number }> }>;
     locate(fix: Fix): Promise<Measure & { outcome: { centred: boolean; announcement: string } | null }>;
     locateBoat(fix: Fix): Promise<Measure & { outcome: { centred: boolean; announcement: string } | null }>;
+    locatePlace(place: Fix & { name: string }): Promise<
+        Measure & {
+            outcome: { centred: boolean; announcement: string } | null;
+            centreLat: number;
+            seenLngs: number[];
+            tipPx: { x: number; y: number };
+        }
+    >;
     tracerFly(fix: Fix, zoom: number): Promise<Measure>;
     leave(padding: Padding): Promise<Measure>;
     showObs(): Promise<Measure & { cleared: boolean }>;
@@ -260,5 +268,87 @@ for (const size of VIEWPORTS) {
         const located = await call(page, 'locate', route.fix);
         expectCentredOnWholeCanvas(located, 'locate after a tracer flight');
         await expectDrawnAtCentre(page, painted, located, 'locate after a tracer flight');
+    });
+}
+
+/**
+ * 126-18. Shane 2026-10-09: "if it isnt the vessel location or the phone
+ * location, can we have a pin in the location and that is where the locate
+ * fab goes to on the obs page". Locate's first stop for a chosen place, on
+ * the real path (placePinPoint → locateOnObs → locatePlace → obsFlyTo), after
+ * Plan's padded fit, with the production gold pin. Fictional names; the
+ * coordinates are open water and harbours anywhere.
+ */
+const PLACES = [
+    { name: 'Port Kittiwake', lat: -16.48, lon: 145.46 },
+    { name: 'Horta', lat: 38.53, lon: -28.63 },
+    { name: 'Viaduct Harbour', lat: -36.84, lon: 174.76 },
+];
+const SAVUSAVU = { name: 'Savusavu', lat: -16.78, lon: 179.999 };
+const SAVUSAVU_TWIN = { name: 'Savusavu, east', lat: -16.78, lon: -179.999 };
+const POLAR_CAMP = { name: 'Polar Camp', lat: 88, lon: 30 };
+
+for (const motion of ['no-preference', 'reduce'] as const) {
+    test(`motion ${motion}: after Plan's route fit, Locate puts the chosen place at the canvas centre at z10, on the whole canvas`, async ({
+        page,
+    }) => {
+        const size = VIEWPORTS[1];
+        const painted = await open(page, motion, size);
+        for (const place of PLACES) {
+            await call(page, 'planFit', ROUTES[0].points);
+            const m = await call(page, 'locatePlace', place);
+            test.info().annotations.push({ type: place.name, description: JSON.stringify(m) });
+            expect(m.outcome).toEqual({ centred: true, announcement: `Chart centred on ${place.name}.` });
+            expect.soft(m.zoom, `${place.name}: zoom`).toBeCloseTo(10, 5);
+            expect.soft(m.padding, `${place.name}: no padding`).toEqual(ZERO);
+            expect.soft(Math.abs(m.fixPx!.x - m.width / 2), `${place.name}: x`).toBeLessThanOrEqual(1);
+            expect.soft(Math.abs(m.fixPx!.y - m.height / 2), `${place.name}: y`).toBeLessThanOrEqual(1);
+            // The pin's tip is on the place, at the centre.
+            expect.soft(Math.abs(m.tipPx.x - m.width / 2), `${place.name}: tip x`).toBeLessThanOrEqual(1);
+            expect.soft(Math.abs(m.tipPx.y - m.height / 2), `${place.name}: tip y`).toBeLessThanOrEqual(1);
+            if (painted) {
+                // The magenta dot is at the place: the pin covers its top half, the lower half shows.
+                const below = await call(page, 'probe', m.width / 2, m.height / 2 + 6);
+                expect(below.slice(0, 3), `${place.name}: drawn at the centre`).toEqual(FIX_RGB);
+            }
+        }
+        expect(await page.evaluate(() => (window as unknown as FixtureWindow).__obsCamera.errors)).toEqual([]);
+    });
+}
+
+test('across the antimeridian: Savusavu to its twin the short way, the pin at the centre', async ({ page }) => {
+    const size = VIEWPORTS[1];
+    await open(page, 'no-preference', size);
+    await call(page, 'locatePlace', SAVUSAVU);
+    const m = await call(page, 'locatePlace', SAVUSAVU_TWIN);
+    test.info().annotations.push({ type: 'twin', description: JSON.stringify(m) });
+    expect(m.outcome?.centred).toBe(true);
+    expect(m.seenLngs.length).toBeGreaterThan(0);
+    // Never the long way round the world: every longitude in flight within 0.01° of 180°.
+    for (const lng of m.seenLngs) {
+        const wrapped = ((((lng + 180) % 360) + 360) % 360) - 180;
+        expect(Math.abs(Math.abs(wrapped) - 180), `lng ${lng}`).toBeLessThan(0.01);
+    }
+    expect(Math.abs(m.tipPx.x - m.width / 2)).toBeLessThanOrEqual(1);
+    expect(Math.abs(m.tipPx.y - m.height / 2)).toBeLessThanOrEqual(1);
+});
+
+// Drawn and flown to at 85°, just inside Mercator's edge: at the edge itself
+// (85.0511°) Mapbox keeps the camera off it and the pin's tip landed on the
+// canvas's top edge, its body clipped (measured here, 126-18).
+for (const size of VIEWPORTS) {
+    test(`${size.width} × ${size.height}: a polar place does not throw, and its pin is centred and whole on the canvas`, async ({
+        page,
+    }) => {
+        await open(page, 'no-preference', size);
+        const m = await call(page, 'locatePlace', POLAR_CAMP);
+        test.info().annotations.push({ type: 'polar', description: JSON.stringify(m) });
+        expect(m.outcome?.centred).toBe(true);
+        expect(await page.evaluate(() => (window as unknown as FixtureWindow).__obsCamera.errors)).toEqual([]);
+        expect(m.centreLat).toBeCloseTo(85, 3);
+        expect(Math.abs(m.tipPx.x - m.width / 2)).toBeLessThanOrEqual(1);
+        expect(Math.abs(m.tipPx.y - m.height / 2)).toBeLessThanOrEqual(1);
+        // The pin and its chip (about 55 px above the tip) are on the canvas.
+        expect(m.tipPx.y).toBeGreaterThan(60);
     });
 }
