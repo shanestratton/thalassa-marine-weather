@@ -400,15 +400,22 @@ class AnchorPiWatchKeeperClass {
      * rejoin cannot repair a lapsed lease or a Pi that rebooted, and after two
      * minutes of hearing nothing that is the likelier fault.
      */
-    async renewNow(): Promise<boolean> {
+    async renewNow(): Promise<PiRenewal> {
         if (!this.current) return false;
-        await this.renew();
-        return this.current !== null;
+        const renewed = await this.renew();
+        return this.current ? renewed : false;
     }
 
-    private async renew(): Promise<void> {
+    /**
+     * 'assigned': the Pi took the watch again. 'authorised': the cloud renewed
+     * the Pi's week (the renewal Shore Watch's "ends soon" asks for) but no
+     * address could re-send the Pi the watch, as for a skipper ashore with no
+     * route to the boat. False: neither (126-03b).
+     */
+    private async renew(): Promise<PiRenewal> {
         const held = this.current;
-        if (!held) return;
+        if (!held) return false;
+        let authorised = false;
         // The Pi may have moved (remote access) or dropped off the tailnet.
         const target = resolvePiWatchTarget() ?? held.target;
         // The SAME ladder begin() and the capability probe use. Without it a
@@ -418,11 +425,11 @@ class AnchorPiWatchKeeperClass {
         const remote = piCache.getRemoteBaseUrl();
         if (remote && remote !== target.baseUrl) addresses.push(remote);
         for (const baseUrl of addresses) {
-            if (await handOffToPi(held.assignment, target.relayId, baseUrl)) {
+            if (await handOffToPi(held.assignment, target.relayId, baseUrl, () => (authorised = true))) {
                 // Remember which address answered so teardown uses it too.
                 this.current = { assignment: held.assignment, target: { ...target, baseUrl } };
                 this.persist();
-                return;
+                return 'assigned';
             }
         }
         // Do NOT tear down: the phone is still broadcasting, and the next
@@ -431,8 +438,11 @@ class AnchorPiWatchKeeperClass {
         log.warn(
             `Pi watch renewal failed at every known address (${addresses.join(', ')}); will try again at the next interval`,
         );
+        return authorised ? 'authorised' : false;
     }
 }
+
+export type PiRenewal = 'assigned' | 'authorised' | false;
 
 function sameAssignment(a: PiWatchAssignment, b: PiWatchAssignment): boolean {
     return (

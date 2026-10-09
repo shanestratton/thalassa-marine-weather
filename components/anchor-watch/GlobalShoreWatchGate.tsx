@@ -1,12 +1,19 @@
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ShoreWatchAlarmService } from '../../services/ShoreWatchAlarmService';
 import { AnchorWatchService } from '../../services/AnchorWatchService';
+import { AnchorPhoneHeartbeat } from '../../services/anchorPhoneHeartbeat';
+import { AnchorPiWatchKeeper } from '../../services/anchorPiWatchKeeper';
 import { ShoreSwingTrail } from '../../services/shoreSwingTrail';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { formatAnchorLength } from './anchorUtils';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { AlertTriangleIcon, RadioTowerIcon } from '../Icons';
+import { toast } from '../Toast';
+
+/** Only the phone that handed its own Pi this watch can renew it (126-03b). */
+const keepsOwnPi = (sessionCode: string | null) =>
+    !!sessionCode && AnchorPiWatchKeeper.keepingSessionCode() === sessionCode;
 
 function ShoreAlarmDialog() {
     const watch = useSyncExternalStore(ShoreWatchAlarmService.subscribe, ShoreWatchAlarmService.getSnapshot);
@@ -14,6 +21,25 @@ function ShoreAlarmDialog() {
     const ref = useFocusTrap<HTMLDivElement>(true, { initialFocusRef: silenceRef });
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [renewing, setRenewing] = useState(false);
+    const canRenew = watch.cause === 'session-expiring' && keepsOwnPi(watch.sessionCode);
+    const renew = () => {
+        const failed = () => setError('This phone could not renew the Pi’s watch. Check it is online, then try again.');
+        setRenewing(true);
+        setError(null);
+        void AnchorPiWatchKeeper.renewNow()
+            .then((renewed) => {
+                if (!renewed) return failed();
+                // The cloud authorisation is the renewal; re-sending the Pi the watch is extra.
+                ShoreWatchAlarmService.clearSessionExpiring();
+                if (renewed === 'authorised')
+                    toast.info(
+                        'Renewed for another week. This phone could not reach the Pi just now; it keeps trying.',
+                    );
+            })
+            .catch(failed)
+            .finally(() => setRenewing(false));
+    };
     // The viewer's own units (126-03a): feet for a feet skipper, wherever the boat is.
     const units = useSettingsStore((state) => state.settings.units);
     const length = (metres: number) =>
@@ -24,7 +50,7 @@ function ShoreAlarmDialog() {
             : watch.cause === 'gps-lost'
               ? 'Vessel GPS lost'
               : watch.cause === 'session-expiring'
-                ? 'Shore Watch expiring'
+                ? 'Shore Watch ends soon'
                 : 'Vessel contact lost';
     return (
         <OverlayPortal
@@ -51,7 +77,9 @@ function ShoreAlarmDialog() {
                 {watch.cause === 'drag'
                     ? 'The boat’s watchkeeper reported an anchor alarm. Check the vessel immediately.'
                     : watch.cause === 'session-expiring'
-                      ? 'Remote watch authorisation is ending. Open Shore Watch and renew the watch before leaving the app.'
+                      ? canRenew
+                          ? 'The Pi keeping the anchor watch stops within 12 hours unless this phone renews it.'
+                          : 'The Pi keeping the anchor watch stops within 12 hours unless the skipper opens Thalassa on the phone that handed it the watch.'
                       : 'We cannot confirm the boat is holding. Check the vessel, its GPS and its internet connection.'}
             </p>
             {watch.position && (
@@ -76,10 +104,19 @@ function ShoreAlarmDialog() {
                     Retry alarm sound
                 </button>
             )}
+            {canRenew && (
+                <button
+                    disabled={renewing}
+                    className="mt-8 min-h-14 w-full max-w-sm rounded-2xl bg-sky-600 px-6 py-4 text-lg font-black text-white disabled:opacity-60"
+                    onClick={renew}
+                >
+                    {renewing ? 'Renewing…' : 'Renew watch'}
+                </button>
+            )}
             <button
                 ref={silenceRef}
                 disabled={busy}
-                className="mt-8 min-h-14 w-full max-w-sm rounded-2xl bg-red-700 px-6 py-4 text-lg font-black text-white disabled:opacity-60"
+                className={`${canRenew ? 'mt-3' : 'mt-8'} min-h-14 w-full max-w-sm rounded-2xl bg-red-700 px-6 py-4 text-lg font-black text-white disabled:opacity-60`}
                 onClick={() => {
                     setBusy(true);
                     void ShoreWatchAlarmService.mute()
@@ -102,6 +139,7 @@ export function GlobalShoreWatchGate({ showStatus, onOpen }: { showStatus: boole
     const [localAlarm, setLocalAlarm] = useState(() => AnchorWatchService.getSnapshot().state === 'alarm');
     useEffect(() => {
         ShoreWatchAlarmService.start();
+        AnchorPhoneHeartbeat.start();
         ShoreSwingTrail.start();
         const unsubscribe = AnchorWatchService.subscribe((snap) => setLocalAlarm(snap.state === 'alarm'));
         return () => {
@@ -120,7 +158,12 @@ export function GlobalShoreWatchGate({ showStatus, onOpen }: { showStatus: boole
             className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-1/2 z-[80] flex min-h-11 max-w-[90vw] -translate-x-1/2 items-center gap-2 rounded-full border border-amber-400/50 bg-slate-950/95 px-4 py-2 text-sm font-bold text-amber-200 shadow-xl backdrop-blur-xl"
         >
             <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-amber-400" />
-            Shore Watch · {watch.cause === 'session-expiring' ? 'Renew watch' : 'Check vessel'}
+            Shore Watch ·{' '}
+            {watch.cause === 'session-expiring'
+                ? keepsOwnPi(watch.sessionCode)
+                    ? 'Renew watch'
+                    : 'Ends soon'
+                : 'Check vessel'}
         </button>
     );
 }

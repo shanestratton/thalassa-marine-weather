@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { anchorAlarmMessage, validAnchorGps } from '../supabase/functions/_shared/anchor-alarm';
+import {
+    anchorAlarmMessage,
+    phoneWatchAlarmCurrent,
+    piWatchEndsSoon,
+    validAnchorGps,
+} from '../supabase/functions/_shared/anchor-alarm';
 
 const sql = readFileSync('supabase/migrations/20260923170000_shore_watch_reliability.sql', 'utf8');
 const relay = readFileSync('supabase/functions/anchor-relay/index.ts', 'utf8');
@@ -89,5 +94,107 @@ describe('Shore Watch cloud alarm contract', () => {
         expect(sql).toContain(
             'WITH CHECK (user_id = auth.uid() AND public.is_anchor_watch_member(session_code, auth.uid()))',
         );
+    });
+});
+
+// ── 126-03b: the phone keeping the watch, and a watch that runs for a week ──
+describe('Shore Watch when the boat phone keeps the watch (126-03b)', () => {
+    const MIN = 60_000;
+    const DAY = 24 * 60 * MIN;
+    /** The phone branch of send-anchor-alarm, from its test to its else, code only. */
+    const phoneBranch = (() => {
+        const start = push.indexOf('if (phoneKept) {');
+        return start < 0
+            ? ''
+            : push
+                  .slice(start, push.indexOf('} else {', start))
+                  .split('\n')
+                  .filter((line) => !line.trimStart().startsWith('//'))
+                  .join('\n');
+    })();
+    const piBranch = (() => {
+        const start = push.indexOf('if (phoneKept) {');
+        const elseAt = start < 0 ? -1 : push.indexOf('} else {', start);
+        return elseAt < 0 ? '' : push.slice(elseAt, push.indexOf('if (!stillRelevant)', elseAt));
+    })();
+
+    it('says the phone has stopped checking in, never that the anchor dragged', () => {
+        const message = anchorAlarmMessage({ alarm_kind: 'contact_lost', watchkeeper: 'phone', distance_m: 0 });
+        expect(message).toEqual({
+            kind: 'contact_lost',
+            title: '⚓ SHORE WATCH — CONTACT LOST',
+            body: 'The phone keeping the anchor watch has stopped checking in. The anchor position cannot be confirmed. Check the boat and the phone immediately.',
+        });
+        // A Pi's (legacy NULL) contact loss keeps its own words.
+        expect(anchorAlarmMessage({ alarm_kind: 'contact_lost' }).body).toBe(
+            'The boat has stopped reporting. Its anchor position cannot be confirmed. Check the boat and its connection immediately.',
+        );
+    });
+
+    it('warns "ends soon" in words a crew member can act on', () => {
+        expect(anchorAlarmMessage({ alarm_kind: 'session_expiring' })).toEqual({
+            kind: 'session_expiring',
+            title: '⚓ SHORE WATCH — ENDS SOON',
+            body: 'The Pi keeping the anchor watch stops within 12 hours unless the skipper opens Thalassa on the phone that handed it the watch.',
+        });
+    });
+
+    it.each([
+        ['a beat 6 min old while watching', { heartbeatAt: -6 * MIN, vesselState: 'watching' }, true],
+        ['a beat 4 min old (it came back)', { heartbeatAt: -4 * MIN, vesselState: 'watching' }, false],
+        ['a weighed anchor (ended)', { heartbeatAt: null, vesselState: 'ended' }, false],
+        ['a session that never had a phone beat', { heartbeatAt: null, vesselState: null }, false],
+    ])('sends a phone contact-lost page only while the phone is still quiet: %s', (_label, row, expected) => {
+        const now = Date.parse('2026-10-10T02:00:00Z');
+        expect(
+            phoneWatchAlarmCurrent({
+                kind: 'contact_lost',
+                createdAt: now - 30_000,
+                heartbeatAt: row.heartbeatAt === null ? null : now + row.heartbeatAt,
+                vesselState: row.vesselState,
+                now,
+            }),
+        ).toBe(expected);
+    });
+
+    it("judges the phone's own drag push on time alone (120 s), never against a Pi binding", () => {
+        const now = Date.parse('2026-10-10T02:00:00Z');
+        const drag = (age: number) =>
+            phoneWatchAlarmCurrent({ kind: 'drag', createdAt: now - age, heartbeatAt: null, vesselState: null, now });
+        expect(drag(60_000)).toBe(true);
+        expect(drag(120_000)).toBe(true);
+        expect(drag(121_000)).toBe(false);
+        expect(phoneBranch).toContain('phoneWatchAlarmCurrent(');
+        expect(phoneBranch).not.toMatch(/pi_anchor_sessions|pi_diary_relays|binding/);
+    });
+
+    it('reads the phone columns only for phone rows, so a function deployed before the DB push still delivers', () => {
+        expect(push).toContain("const phoneKept = record.watchkeeper === 'phone';");
+        expect(push).toContain(
+            "const sessionColumns: string = phoneKept ? 'expires_at,vessel_heartbeat_at,vessel_state' : 'expires_at';",
+        );
+        expect(push).toContain('.select(sessionColumns)');
+    });
+
+    it('keeps legacy (NULL watchkeeper) rows on the Pi path exactly as before', () => {
+        expect(piBranch).toContain(".from('pi_anchor_sessions')");
+        expect(piBranch).toContain(
+            'stillRelevant = !record.pi_relay_id && Date.now() - Date.parse(record.created_at) <= 120_000;',
+        );
+        expect(piBranch).toContain('? !!fresh && binding.gps_available && binding.is_dragging');
+        expect(piBranch).toContain('? Date.now() - heartbeat > 60_000');
+    });
+
+    it('warns "ends soon" from the Pi lease cap (authorised_at + 7 days), 12 hours out', () => {
+        const now = Date.parse('2026-10-10T02:00:00Z');
+        expect(piWatchEndsSoon(now - 6.4 * DAY, now)).toBe(false);
+        expect(piWatchEndsSoon(now - 6.5 * DAY, now)).toBe(true);
+        expect(piWatchEndsSoon(Number.NaN, now)).toBe(false);
+        expect(piBranch).toContain(
+            "select('relay_id,last_heartbeat_at,gps_available,is_dragging,expires_at,authorised_at')",
+        );
+        expect(piBranch).toContain('piWatchEndsSoon(Date.parse(binding.authorised_at), Date.now())');
+        // Kept only so a function deployed ahead of the DB push still warns before a 24 h session ends.
+        expect(piBranch).toContain('Date.parse(session.expires_at) - Date.now() <= 15 * 60_000');
     });
 });

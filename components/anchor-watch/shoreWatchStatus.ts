@@ -51,8 +51,8 @@ export function presentShoreWatchStatus(
         status.label = 'Vessel GPS lost';
         status.detail = 'The vessel has no usable GPS position. We cannot confirm the boat is holding.';
     } else if (watch.cause === 'session-expiring') {
-        status.label = 'Shore Watch expiring';
-        status.detail = 'Open Shore Watch and renew its authorisation before it ends.';
+        status.label = 'Shore Watch ends soon';
+        status.detail = 'The Pi’s watch stops within 12 hours unless the skipper’s phone renews it.';
     } else if (!watch.stale && watch.position && watch.lastContactAt !== null) {
         status.tone = 'blue';
         status.label = 'Receiving vessel data';

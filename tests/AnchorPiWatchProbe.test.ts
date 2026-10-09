@@ -36,7 +36,8 @@ vi.mock('../services/anchorPiHandoff', () => ({
     RENEW_INTERVAL_MS: 60_000,
 }));
 
-import { probePiWatchCapability } from '../services/anchorPiWatchKeeper';
+import { AnchorPiWatchKeeper, probePiWatchCapability } from '../services/anchorPiWatchKeeper';
+import { handOffToPi } from '../services/anchorPiHandoff';
 
 describe('probePiWatchCapability', () => {
     beforeEach(() => {
@@ -186,5 +187,44 @@ describe('probePiWatchCapability', () => {
             url: 'https://100.86.90.84:3001/api/anchor/capability',
         });
         expect(cap.capable).toBe(true);
+    });
+});
+
+// 126-03b review (2026-10-10): Shore Watch's Renew. The cloud authorisation IS
+// the renewal (it restarts the 7-day week); re-sending the watch to the Pi is
+// a second step a skipper ashore without a route to the boat cannot always
+// take. Renew must report the two apart.
+describe('AnchorPiWatchKeeper.renewNow', () => {
+    // Fictional: a boat at anchor off Cádiz.
+    const assignment = { sessionCode: 'K7Q2M9X4P8R3', anchorLat: 36.53, anchorLon: -6.3, swingRadius: 40 };
+    beforeEach(async () => {
+        vi.clearAllMocks();
+        await AnchorPiWatchKeeper.end();
+        getStatus.mockReturnValue({ reachable: true, lastCheck: 0, latencyMs: 0, diaryRelayId: 'pi_fictional' });
+        getBaseUrl.mockReturnValue('https://192.168.1.180:3001');
+        getRemoteBaseUrl.mockReturnValue('https://100.86.90.84:3001');
+        vi.mocked(handOffToPi).mockResolvedValueOnce(true);
+        expect(await AnchorPiWatchKeeper.begin(assignment)).toBe(true);
+        vi.mocked(handOffToPi).mockReset();
+    });
+
+    it("says 'assigned' when the Pi took the watch again", async () => {
+        vi.mocked(handOffToPi).mockResolvedValue(true);
+        expect(await AnchorPiWatchKeeper.renewNow()).toBe('assigned');
+    });
+
+    it("says 'authorised' when the week was renewed but no address could re-send the Pi the watch", async () => {
+        vi.mocked(handOffToPi).mockImplementation(async (_assignment, _relay, _url, onAuthorised) => {
+            onAuthorised?.();
+            return false;
+        });
+        expect(await AnchorPiWatchKeeper.renewNow()).toBe('authorised');
+        expect(handOffToPi).toHaveBeenCalledTimes(2); // the boat LAN, then the tailnet
+        expect(AnchorPiWatchKeeper.keepingSessionCode()).toBe('K7Q2M9X4P8R3');
+    });
+
+    it('says false when not even the authorisation went through', async () => {
+        vi.mocked(handOffToPi).mockResolvedValue(false);
+        expect(await AnchorPiWatchKeeper.renewNow()).toBe(false);
     });
 });

@@ -182,6 +182,7 @@ function Fixture() {
                                 speedUnit={speedUnit}
                                 trail={trail}
                                 now={now}
+                                phoneWatched={params.has('quietWatch')}
                             />
                             {params.has('ownPi') && <ShoreWeighAnchorBar onWeighAnchor={() => setWeighed(true)} />}
                         </div>

@@ -238,6 +238,37 @@ for (const size of [
     });
 }
 
+// 126-03b: the boat's phone checks in with the server, so the crew are told if
+// it goes quiet. The shore view says so only while it is true, and the line
+// costs the healthy short phone no scroll.
+for (const size of [
+    { width: 375, height: 667, query: '?quietWatch=1' },
+    { width: 320, height: 568, query: '?quietWatch=1&largeText=true' },
+]) {
+    test(`Shore Watch promises a page when the boat phone goes quiet at ${size.width}x${size.height}${size.query.includes('largeText') ? ' in wide fonts' : ''}`, async ({
+        page,
+    }) => {
+        const promise =
+            'Her phone checks in every minute. If it goes quiet you’ll be told, even with this phone locked.';
+        await openFixture(page, size.width, size.height);
+        await expect(page.getByText(promise)).toHaveCount(0);
+        await openFixture(page, size.width, size.height, size.query);
+        const line = page.getByText(promise, { exact: true });
+        await line.scrollIntoViewIfNeeded();
+        await expect(line).toBeVisible();
+        await assertInsideReadings(line);
+        await assertNoHorizontalOverflow(page);
+        if (!size.query.includes('largeText')) {
+            // The healthy short phone still fits whole: no scroll inside the readings either.
+            const scroll = page.getByTestId('shore-readings-scroll');
+            expect(await scroll.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1);
+            await assertRadar(page);
+            for (const label of ['Swing Radius', 'Rode', 'Depth', 'Last Update'])
+                await assertInsideReadings(page.getByText(label, { exact: true }));
+        }
+    });
+}
+
 // 126-03a: the radar ashore, her trail, the viewer's units, and the boat's
 // live depth and wind when the Pi sends them (126-05).
 
