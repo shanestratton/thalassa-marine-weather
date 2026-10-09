@@ -260,10 +260,16 @@ export interface UserSettings {
      * for every account; a switch is off only when set to exactly false, and
      * the limits are clamped on read (services/underway/underwayRule.ts
      * sanitiseUnderwayPrefs).
+     *
+     * The watch check (126-02b): while a voyage track records, a dead-man
+     * check every 10, 15, 20 or 30 min (15 by default), booked ahead with
+     * iOS. OFF by default (it asks for a tap every interval); on only when
+     * set to exactly true, and the interval snaps to the nearest choice.
      */
     underwayAlarms?: {
         offRoute?: { enabled?: boolean; inshoreNm?: number; offshoreNm?: number };
         shoal?: { enabled?: boolean };
+        watchCheck?: { enabled?: boolean; intervalMin?: number };
     };
     /**
      * Settings → Preferences → Routing: "Auto route (trial)" (2026-10-01).

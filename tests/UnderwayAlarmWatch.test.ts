@@ -373,6 +373,22 @@ describe('shoal water', () => {
         expect(kinds()).toEqual(['shoal']);
     });
 
+    it('the watch check’s I’m on watch is never a shoal acknowledgement (126-02b stage-3 review)', async () => {
+        await shallow(false);
+        expect(AlarmAudioService.getActiveLeaseCount()).toBe(1);
+        UnderwayAlarmStore.onWatch(clock); // the watch-keeper answers the watch check
+        await idle();
+        expect(AlarmAudioService.getActiveLeaseCount()).toBe(1);
+        expect(UnderwayAlarmStore.getCards()).toEqual([expect.objectContaining({ kind: 'shoal', sounding: true })]);
+        expect(mocks.notify.cancelSafetyAlert).not.toHaveBeenCalled();
+        // Still shallow on the next pass: the same lease, still sounding.
+        pass({ following: false, depthM: 0.3 });
+        await idle();
+        expect(acquire).toHaveBeenCalledTimes(1);
+        expect(AlarmAudioService.getActiveLeaseCount()).toBe(1);
+        expect(UnderwayAlarmStore.getCards()).toEqual([expect.objectContaining({ kind: 'shoal', sounding: true })]);
+    });
+
     it('says when the sounder it was reading goes stale, and nothing when there never was one', async () => {
         // No boat sounder at all (a phone on its own): nothing to say on the chart.
         for (let i = 0; i < 3; i++) pass({ following: false, boatFeed: false, depthM: null });

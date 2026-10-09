@@ -30,6 +30,7 @@ import {
     nextShoalState,
     nextXteState,
     sanitiseUnderwayPrefs,
+    WATCH_CHECK_INTERVALS_MIN,
     shoalAudible,
     shoalDepthFrom,
     shoalLines,
@@ -112,6 +113,8 @@ describe('the off-route limit, worldwide', () => {
         expect(UNDERWAY_DEFAULTS).toEqual({
             offRoute: { enabled: true, inshoreNm: 0.25, offshoreNm: 1 },
             shoal: { enabled: true },
+            // 126-02b: the watch check asks for a tap every interval, so it is OFF until switched on.
+            watchCheck: { enabled: false, intervalMin: 15 },
         });
         expect(sanitiseUnderwayPrefs(undefined)).toEqual(UNDERWAY_DEFAULTS);
         expect(sanitiseUnderwayPrefs('junk')).toEqual(UNDERWAY_DEFAULTS);
@@ -129,6 +132,27 @@ describe('the off-route limit, worldwide', () => {
         expect(wild.inshoreNm).toBeLessThanOrEqual(1);
         expect(wild.offshoreNm).toBeGreaterThanOrEqual(0.25);
         expect(sanitiseUnderwayPrefs({ offRoute: { inshoreNm: Number.NaN } }).offRoute.inshoreNm).toBe(0.25);
+    });
+
+    it('reads the watch check defensively: on only when switched on, every 10, 15, 20 or 30 min', () => {
+        expect(WATCH_CHECK_INTERVALS_MIN).toEqual([10, 15, 20, 30]);
+        expect(sanitiseUnderwayPrefs({ watchCheck: { enabled: true } }).watchCheck).toEqual({
+            enabled: true,
+            intervalMin: 15,
+        });
+        expect(sanitiseUnderwayPrefs({ watchCheck: { enabled: 'yes' } }).watchCheck.enabled).toBe(false);
+        for (const [saved, read] of [
+            [10, 10],
+            [30, 30],
+            [12, 10],
+            [26, 30],
+            [2, 10],
+            [600, 30],
+            [Number.NaN, 15],
+            ['20', 15],
+        ] as const) {
+            expect(sanitiseUnderwayPrefs({ watchCheck: { intervalMin: saved } }).watchCheck.intervalMin).toBe(read);
+        }
     });
 
     it('is the offshore limit when the Ship’s Log puts her offshore, the inshore one when coastal or nearshore', () => {

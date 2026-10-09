@@ -99,6 +99,9 @@ vi.mock('@capacitor/app', () => ({
 // The under-way alarms (126-02a): off route and shoal water, started on idle.
 const underway = vi.hoisted(() => ({ start: vi.fn(), stop: vi.fn() }));
 vi.mock('../services/underway/UnderwayAlarmWatch', () => ({ startUnderwayAlarmWatch: underway.start }));
+// The watch check (126-02b): its own lazy chunk, started beside the under-way watch.
+const watchCheck = vi.hoisted(() => ({ start: vi.fn(), stop: vi.fn() }));
+vi.mock('../services/underway/watchCheck', () => ({ startWatchCheck: watchCheck.start }));
 
 import { useAppBootstrap } from '../hooks/useAppBootstrap';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
@@ -120,6 +123,7 @@ beforeEach(() => {
     boot.initLocalDatabase.mockResolvedValue(undefined);
     boot.watchSharedBinderLoss.mockImplementation(() => boot.stopSharedBinderLoss);
     underway.start.mockImplementation(() => underway.stop);
+    watchCheck.start.mockImplementation(() => watchCheck.stop);
     boot.appAddListener.mockImplementation((_event: string, handler: (state: { isActive: boolean }) => void) => {
         // Keep the FIRST registration. Two things listen for appStateChange
         // now — the bootstrap itself and webContentKill's session watch — and
@@ -139,10 +143,14 @@ describe('useAppBootstrap', () => {
         const { unmount } = renderHook(() => useAppBootstrap());
         // On idle, or a second after the first paint where there is no requestIdleCallback (WKWebView, jsdom).
         expect(underway.start).not.toHaveBeenCalled();
+        expect(watchCheck.start).not.toHaveBeenCalled();
         await waitFor(() => expect(underway.start).toHaveBeenCalledOnce(), { timeout: 3_000 });
+        await waitFor(() => expect(watchCheck.start).toHaveBeenCalledOnce(), { timeout: 3_000 });
         expect(underway.stop).not.toHaveBeenCalled();
+        expect(watchCheck.stop).not.toHaveBeenCalled();
         unmount();
         expect(underway.stop).toHaveBeenCalledOnce();
+        expect(watchCheck.stop).toHaveBeenCalledOnce();
     });
 
     it('starts app services, routes global events, and cleans up owned callbacks', async () => {

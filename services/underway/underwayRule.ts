@@ -96,15 +96,25 @@ export interface OffRoutePrefs {
 export interface UnderwayPrefs {
     offRoute: OffRoutePrefs;
     shoal: { enabled: boolean };
+    /** The watch check (126-02b): a dead-man check every `intervalMin` while a voyage track records. */
+    watchCheck: { enabled: boolean; intervalMin: number };
 }
 
 export const XTE_INSHORE_CHOICES_NM: readonly number[] = [0.1, 0.25, 0.5];
 export const XTE_OFFSHORE_CHOICES_NM: readonly number[] = [0.5, 1, 2];
+/** The watch check's intervals, in minutes (126-02b). */
+export const WATCH_CHECK_INTERVALS_MIN: readonly number[] = [10, 15, 20, 30];
 
-/** ON for every account (safety is never paywalled): a quarter mile inshore, a mile offshore. */
+/**
+ * Off route and shoal water ON for every account (safety is never paywalled):
+ * a quarter mile inshore, a mile offshore. The watch check OFF until switched
+ * on: it asks for a tap every interval, and an alarm people learn to swipe
+ * away is worse than none (126-02b).
+ */
 export const UNDERWAY_DEFAULTS: UnderwayPrefs = {
     offRoute: { enabled: true, inshoreNm: 0.25, offshoreNm: 1 },
     shoal: { enabled: true },
+    watchCheck: { enabled: false, intervalMin: 15 },
 };
 
 const PREF_LIMITS = { inshoreNm: { min: 0.05, max: 1 }, offshoreNm: { min: 0.25, max: 3 } };
@@ -116,11 +126,21 @@ function clampNm(raw: unknown, fallback: number, limits: { min: number; max: num
     return typeof raw === 'number' && Number.isFinite(raw) ? Math.min(limits.max, Math.max(limits.min, raw)) : fallback;
 }
 
-/** Saved choices, read defensively: a switch is off only when switched off; limits are clamped. */
+/** A saved interval, as the nearest choice (the shorter on a tie); unreadable is the default. */
+function watchIntervalMin(raw: unknown): number {
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return UNDERWAY_DEFAULTS.watchCheck.intervalMin;
+    return WATCH_CHECK_INTERVALS_MIN.reduce((best, m) => (Math.abs(m - raw) < Math.abs(best - raw) ? m : best));
+}
+
+/**
+ * Saved choices, read defensively: off route and shoal are off only when
+ * switched off, the watch check on only when switched on; limits are clamped.
+ */
 export function sanitiseUnderwayPrefs(raw: unknown): UnderwayPrefs {
     const saved = record(raw);
     const offRoute = record(saved.offRoute);
     const shoal = record(saved.shoal);
+    const watchCheck = record(saved.watchCheck);
     const d = UNDERWAY_DEFAULTS.offRoute;
     return {
         offRoute: {
@@ -129,6 +149,7 @@ export function sanitiseUnderwayPrefs(raw: unknown): UnderwayPrefs {
             offshoreNm: clampNm(offRoute.offshoreNm, d.offshoreNm, PREF_LIMITS.offshoreNm),
         },
         shoal: { enabled: shoal.enabled !== false },
+        watchCheck: { enabled: watchCheck.enabled === true, intervalMin: watchIntervalMin(watchCheck.intervalMin) },
     };
 }
 

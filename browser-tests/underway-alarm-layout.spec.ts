@@ -13,6 +13,10 @@ import { ONBOARDED_STORAGE } from '../e2e/helpers/storageState';
  *  - Settings → Preferences → Under-way alarms in the real app, under its real
  *    header: both switches and both selects whole, uncovered, nothing sideways
  *    (the selects 44 pt targets).
+ *  - (126-02b) the watch check's card, a minute ahead, sounding and missed,
+ *    last in the stack under a collision card (and the shoal and off-route
+ *    cards, the worst case), fits the same sizes with its one 44 pt button;
+ *    its Preferences switch and interval are whole and uncovered at 320x568.
  */
 
 const SIZES = [
@@ -145,6 +149,59 @@ for (const size of SIZES) {
     }
 }
 
+for (const size of SIZES) {
+    for (const watch of ['warning', 'sounding', 'missed'] as const) {
+        test(`the watch check (${watch}) fits ${size.width}x${size.height} under a collision card with wide fonts`, async ({
+            page,
+        }, info) => {
+            const errors = await openFixture(page, size, `&watch=${watch}`);
+            const card = page.locator('[data-underway="watch-check"]');
+            await expect(card).toHaveCount(1);
+            await settle(page);
+            await expect(card).toContainText('WATCH CHECK');
+            if (watch === 'warning') {
+                await expect(card).toHaveAttribute('role', 'status');
+                await expect(card).toContainText('Watch check in 1 min');
+                await expect(card).toContainText('Every 20 min while the track records.');
+                await expect(page.getByRole('alert')).toHaveCount(3);
+            } else {
+                await expect(card).toHaveAttribute('role', 'alert');
+                await expect(card).toContainText(
+                    watch === 'missed' ? /Missed watch check at \d{1,2}:\d{2}/ : "Tap I'm on watch",
+                );
+                await expect(page.getByRole('alert')).toHaveCount(4);
+            }
+            await expect(card.getByRole('button', { name: "I'm on watch" })).toHaveCount(1);
+            await expect(page.getByRole('status').filter({ hasText: 'iOS did not book' })).toHaveCount(1);
+            // Last of the cards: after the collision card, the shoal card and the off-route card.
+            const order = await page.evaluate(() =>
+                [...document.querySelectorAll<HTMLElement>('[data-testid="ais-guard-stack"] [role]')]
+                    .filter((el) => el.getAttribute('role') === 'alert' || el.dataset.underway)
+                    .map(
+                        (el) => el.dataset.underway ?? (el.textContent?.includes('CLOSE QUARTERS') ? 'collision' : '?'),
+                    ),
+            );
+            expect(order).toEqual(['collision', 'shoal', 'off-route', 'watch-check']);
+
+            const geometry = await stackGeometry(page);
+            expect(Math.abs(geometry.left - geometry.right), 'centred across').toBeLessThanOrEqual(1);
+            expect(geometry.top).toBeGreaterThanOrEqual(0);
+            expect(geometry.bottom, 'clear of the tab bar').toBeLessThanOrEqual(geometry.navTop + 0.5);
+            expect(geometry.sideways).toEqual([]);
+            expect(geometry.pageSideways).toBe(false);
+            expect(await controlIssues(page, '[data-testid="ais-guard-stack"]')).toEqual([]);
+            expect(errors).toEqual([]);
+
+            if (size.width === 320) {
+                await card.evaluate((element) => element.scrollIntoView({ block: 'nearest' }));
+                const path = info.outputPath(`watch-check-${watch}-${info.project.name}-320x568.png`);
+                await page.screenshot({ path, animations: 'disabled' });
+                await info.attach(`watch-check-${watch}-320x568`, { path, contentType: 'image/png' });
+            }
+        });
+    }
+}
+
 test.describe('Settings → Preferences → Under-way alarms, in the real app', () => {
     test.use({
         serviceWorkers: 'block',
@@ -187,6 +244,9 @@ test.describe('Settings → Preferences → Under-way alarms, in the real app', 
             [page.getByLabel('Off route inshore', { exact: true }), 43.5],
             [page.getByLabel('Off route offshore', { exact: true }), 43.5],
             [page.getByRole('switch', { name: 'Shoal alarm' }), 24],
+            // 126-02b: the watch check's switch and interval.
+            [page.getByRole('switch', { name: 'Watch check' }), 24],
+            [page.getByLabel('Watch check every', { exact: true }), 43.5],
         ] as const) {
             await control.evaluate((element) => element.scrollIntoView({ block: 'center' }));
             await expect
@@ -207,6 +267,8 @@ test.describe('Settings → Preferences → Under-way alarms, in the real app', 
         await expect(page.getByRole('switch', { name: 'Shoal alarm' })).toHaveAttribute('aria-checked', 'true');
         await expect(page.getByLabel('Off route inshore', { exact: true })).toHaveValue('0.25');
         await expect(page.getByLabel('Off route offshore', { exact: true })).toHaveValue('1');
+        await expect(page.getByRole('switch', { name: 'Watch check' })).toHaveAttribute('aria-checked', 'false');
+        await expect(page.getByLabel('Watch check every', { exact: true })).toHaveValue('15');
         expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
         const card = heading.locator('xpath=following-sibling::*[1]');
         expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);

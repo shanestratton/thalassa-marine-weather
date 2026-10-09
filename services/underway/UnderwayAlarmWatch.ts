@@ -346,10 +346,12 @@ export function runUnderwayPass(inputs: UnderwayInputs = readUnderwayInputs()): 
     publish(nowMs);
 }
 
-// The cards' buttons, heard at once (not on the next pass).
+// The cards' buttons, heard at once (not on the next pass). The watch check's
+// "I'm on watch" (126-02b) is its own to hear, never a shoal acknowledgement.
 UnderwayAlarmStore.subscribeActions(({ kind, nowMs }) => {
     if (kind === 'off-route') xte = muteXte(xte, nowMs);
-    else shoal = acknowledgeShoal(shoal);
+    else if (kind === 'shoal') shoal = acknowledgeShoal(shoal);
+    else return;
     publish(nowMs);
 });
 

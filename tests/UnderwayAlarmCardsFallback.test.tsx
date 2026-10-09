@@ -110,4 +110,31 @@ describe('the under-way cards when their chunk will not load', () => {
         fireEvent.click(mute);
         expect(actions).toEqual(['shoal', 'off-route']);
     });
+
+    // 126-02b: the watch check keeps its one answer too.
+    it('keeps the watch check’s card and its I’m on watch button', async () => {
+        const actions: string[] = [];
+        UnderwayAlarmStore.subscribeActions((a) => actions.push(a.kind));
+        act(() =>
+            UnderwayAlarmStore.setWatchCheck(
+                {
+                    kind: 'watch-check',
+                    title: 'WATCH CHECK',
+                    value: "Tap I'm on watch",
+                    detail: "Nobody has tapped I'm on watch for 15 min",
+                    sounding: true,
+                    mutedUntil: null,
+                },
+                [],
+            ),
+        );
+        render(<AisGuardAlert />);
+        const card = (await screen.findByText(/WATCH CHECK/)).closest('[role="alert"]') as HTMLElement;
+        expect(card).toHaveTextContent("Tap I'm on watch");
+        const button = within(card).getByRole('button', { name: "I'm on watch" });
+        expect(button.style.minHeight).toBe('44px');
+        expect(within(card).queryByRole('button', { name: /Mute|Acknowledge/ })).toBeNull();
+        fireEvent.click(button);
+        expect(actions).toEqual(['watch-check']);
+    });
 });

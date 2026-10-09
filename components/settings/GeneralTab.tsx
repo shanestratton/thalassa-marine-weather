@@ -29,6 +29,7 @@ import { runWithConfirmedDraft } from '../../stores/draftConfirmStore';
 import { sanitiseCollisionPrefs, type CollisionPair, type CollisionPrefs } from '../../utils/collisionRule';
 import {
     sanitiseUnderwayPrefs,
+    WATCH_CHECK_INTERVALS_MIN,
     XTE_INSHORE_CHOICES_NM,
     XTE_OFFSHORE_CHOICES_NM,
     type UnderwayPrefs,
@@ -644,6 +645,60 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         With the phone locked they reach the lock screen only if Time Sensitive notifications are
                         allowed for Thalassa. Focus lets them through only if you allow it.
                     </p>
+                </div>
+                {/* The watch check (126-02b): a dead-man check while a voyage
+                    track records. OFF by default (it asks for a tap every
+                    interval; an alarm people learn to swipe away is worse than
+                    none), 15 min by default. Its lock-screen alert is booked
+                    with iOS ahead, so unlike the two above it reaches a
+                    suspended app; the in-app sound still needs Thalassa running. */}
+                <div className="border-t border-white/5">
+                    <Row>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm text-white font-medium">Watch check</p>
+                            <p className="text-xs text-gray-400">
+                                While a voyage track records, Thalassa asks whoever is on watch to tap I&apos;m on
+                                watch. If nobody does, it sounds, on the lock screen too.
+                            </p>
+                        </div>
+                        <Toggle
+                            label="Watch check"
+                            checked={underway.watchCheck.enabled}
+                            onChange={(on) =>
+                                saveUnderway({ ...underway, watchCheck: { ...underway.watchCheck, enabled: on } })
+                            }
+                        />
+                    </Row>
+                    <div className="p-4 space-y-2">
+                        <label htmlFor="settings-underway-watch-every" className={FIELD_LABEL_CLASS}>
+                            Watch check every
+                        </label>
+                        <select
+                            id="settings-underway-watch-every"
+                            value={String(underway.watchCheck.intervalMin)}
+                            onChange={(e) =>
+                                saveUnderway({
+                                    ...underway,
+                                    watchCheck: { ...underway.watchCheck, intervalMin: Number(e.target.value) },
+                                })
+                            }
+                            className={SELECT_CLASS}
+                        >
+                            {WATCH_CHECK_INTERVALS_MIN.map((minutes) => (
+                                <option key={minutes} value={String(minutes)}>
+                                    {`${minutes} min`}
+                                </option>
+                            ))}
+                        </select>
+                        <p className="text-xs text-gray-400">
+                            It starts once you are under way and runs until the track ends. It waits while the track is
+                            paused or an anchor watch is on, and when she has stopped (at a berth, say) once somebody
+                            there has tapped I&apos;m on watch. Its lock-screen alert is booked with iOS ahead, so it
+                            comes even if Thalassa is suspended, as long as Time Sensitive notifications are allowed for
+                            Thalassa; Focus lets it through only if you allow it. The sound inside Thalassa plays only
+                            while it is running.
+                        </p>
+                    </div>
                 </div>
             </Section>
 
