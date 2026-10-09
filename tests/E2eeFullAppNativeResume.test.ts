@@ -8,6 +8,9 @@ import {
     inspectCachedRuntimeSelection,
     FULL_APP_CACHED_RUNTIME_IDS,
     inspectFailedLaunchObservation,
+    inspectControlLaunchMetadata,
+    inspectControlLaunchObservation,
+    FULL_APP_CONTROL_BUNDLE,
 } from '../experiments/scuttlebutt-e2ee/bridge-native/fullAppUiResumeContract.mjs';
 import {
     FULL_APP_NATIVE_COUNTERS,
@@ -182,6 +185,111 @@ describe('cached unsigned native resume — pure plan only', () => {
             });
         Object.defineProperty(raw, 'sourceHashes', { get: getter });
         expect(() => inspectFullAppCachedBuild(raw, checkout, digest)).toThrow('contract refused');
+        expect(getter).not.toHaveBeenCalled();
+    });
+});
+
+describe('fixed Apple control launch — pure metadata and syscall fixtures only', () => {
+    const inventory = () => ({
+        [FULL_APP_CONTROL_BUNDLE]: {
+            ApplicationType: 'System',
+            CFBundleIdentifier: FULL_APP_CONTROL_BUNDLE,
+            privateContainer: 'private-canary',
+        },
+    });
+    it('enables the fixed probe only after an explicit approved27 runtime', () => {
+        expect(
+            inspectCachedResumeOptions([
+                '109997',
+                '--runtime',
+                FULL_APP_CACHED_RUNTIME_IDS[1],
+                '--control-launch-probe',
+            ]),
+        ).toEqual({
+            remainingWaitMs: 109997,
+            requestedRuntimeId: FULL_APP_CACHED_RUNTIME_IDS[1],
+            controlLaunchProbe: true,
+        });
+        expect(inspectCachedResumeOptions([])).toEqual({ remainingWaitMs: null, requestedRuntimeId: null });
+    });
+    it.each([
+        ['--control-launch-probe'],
+        ['--runtime', FULL_APP_CACHED_RUNTIME_IDS[0], '--control-launch-probe'],
+        ['--control-launch-probe', '--runtime', FULL_APP_CACHED_RUNTIME_IDS[1]],
+        ['--runtime', FULL_APP_CACHED_RUNTIME_IDS[1], '--control-launch-probe', FULL_APP_CONTROL_BUNDLE],
+        ['--runtime', FULL_APP_CACHED_RUNTIME_IDS[1], '--control-launch-probe', '--control-launch-probe'],
+    ])('refuses unbound, reordered, alternate or duplicate control inputs', (...args) => {
+        expect(() => inspectCachedResumeOptions(args)).toThrow('contract refused');
+    });
+    it('copies only fixed System metadata with no container, optional path or provenance claim', () => {
+        const result = inspectControlLaunchMetadata(inventory());
+        expect(result).toEqual({
+            version: 1,
+            bundleIdentifier: FULL_APP_CONTROL_BUNDLE,
+            applicationType: 'System',
+            installedSystemMetadataVerified: true,
+            controlBinaryProvenanceProved: false,
+        });
+        expect(Object.isFrozen(result)).toBe(true);
+        expect(JSON.stringify(result)).not.toContain('private-canary');
+        expect(inspectControlLaunchMetadata({ [FULL_APP_CONTROL_BUNDLE]: { ApplicationType: 'System' } })).toEqual(
+            result,
+        );
+    });
+    it('refuses absent or foreign/User control metadata without a fallback', () => {
+        for (const raw of [
+            {},
+            { 'com.apple.calculator': { ApplicationType: 'System' } },
+            { [FULL_APP_CONTROL_BUNDLE]: { ApplicationType: 'User' } },
+            { [FULL_APP_CONTROL_BUNDLE]: { ApplicationType: 'System', CFBundleIdentifier: 'com.apple.calculator' } },
+            { [FULL_APP_CONTROL_BUNDLE]: null },
+        ])
+            expect(() => inspectControlLaunchMetadata(raw)).toThrow('contract refused');
+    });
+    it('does not read unrelated app data or invoke selected metadata accessors', () => {
+        const raw = inventory(),
+            getter = vi.fn(() => {
+                throw new Error('private-canary');
+            });
+        Object.defineProperty(raw, 'com.apple.foreign', { get: getter });
+        expect(inspectControlLaunchMetadata(raw).bundleIdentifier).toBe(FULL_APP_CONTROL_BUNDLE);
+        Object.defineProperty(raw[FULL_APP_CONTROL_BUNDLE], 'ApplicationType', { get: getter });
+        expect(() => inspectControlLaunchMetadata(raw)).toThrow('contract refused');
+        expect(getter).not.toHaveBeenCalled();
+    });
+    it('requires a status0 exact fixed-bundle PID line while proving no native Research acceptance', () => {
+        const result = inspectControlLaunchObservation({
+            exitStatus: 0,
+            timedOut: false,
+            stdout: 'com.apple.Preferences: 123\n',
+        });
+        expect(result.returnedPID).toBe(123);
+        expect(result.launchCallAccepted).toBe(true);
+        expect(result.nativeResearchAcceptanceProved).toBe(false);
+        expect(Object.isFrozen(result)).toBe(true);
+    });
+    it.each([
+        { exitStatus: null, timedOut: true, stdout: '' },
+        { exitStatus: 1, timedOut: false, stdout: 'com.apple.Preferences: 123\n' },
+        { exitStatus: 0, timedOut: true, stdout: 'com.apple.Preferences: 123\n' },
+        { exitStatus: 0, timedOut: false, stdout: 'com.apple.calculator: 123\n' },
+        { exitStatus: 0, timedOut: false, stdout: 'com.apple.Preferences: 0\n' },
+        { exitStatus: 0, timedOut: false, stdout: 'com.apple.Preferences: 123\nprivate-canary' },
+    ])('never admits Research after missing PID or a failed control call', (raw) => {
+        const result = inspectControlLaunchObservation(raw);
+        expect(result.launchCallAccepted).toBe(false);
+        expect(result.nativeResearchAcceptanceProved).toBe(false);
+        expect(JSON.stringify(result)).not.toContain('private-canary');
+    });
+    it('refuses unbounded/accessor syscall bodies without retaining any raw output', () => {
+        const raw = { exitStatus: 0, timedOut: false, stdout: 'com.apple.Preferences: 123' },
+            getter = vi.fn(() => {
+                throw new Error('private-canary');
+            });
+        expect(() => inspectControlLaunchObservation({ ...raw, stdout: 'x'.repeat(4097) })).toThrow('contract refused');
+        expect(() => inspectControlLaunchObservation({ ...raw, error: 'private-canary' })).toThrow('contract refused');
+        Object.defineProperty(raw, 'stdout', { get: getter });
+        expect(() => inspectControlLaunchObservation(raw)).toThrow('contract refused');
         expect(getter).not.toHaveBeenCalled();
     });
 });

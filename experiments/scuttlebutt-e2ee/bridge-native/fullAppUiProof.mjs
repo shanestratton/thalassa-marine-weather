@@ -1,10 +1,11 @@
 /** Owned WK full-root fixture. Synthetic Auth only, no human/production/hosted actors.
  * Node24 fullAppUiProof.mjs CACHE FRAMEWORK_RECEIPT EXCHANGE_RECEIPT WEB_RECEIPT WEB_RECEIPT_SHA256
- * Node24 fullAppUiProof.mjs --resume-unsigned BUILD_RECEIPT BUILD_SHA256 WEB_RECEIPT WEB_SHA256 [REMAINING_WAIT_MS] [--runtime EXACT_INSTALLED_ID]
+ * Node24 fullAppUiProof.mjs --resume-unsigned BUILD_RECEIPT BUILD_SHA256 WEB_RECEIPT WEB_SHA256 [REMAINING_WAIT_MS] [--runtime EXACT_INSTALLED_ID] [--control-launch-probe]
  */
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { Buffer } from 'node:buffer';
 import {
     chmodSync,
     cpSync,
@@ -34,6 +35,9 @@ import {
     inspectCachedResumeOptions,
     inspectCachedRuntimeSelection,
     inspectFailedLaunchObservation,
+    inspectControlLaunchMetadata,
+    inspectControlLaunchObservation,
+    FULL_APP_CONTROL_BUNDLE,
 } from './fullAppUiResumeContract.mjs';
 import { inspectSimulatorEntitlementSections } from './machOEntitlementEvidence.mjs';
 
@@ -74,6 +78,7 @@ let simulator, ownedName, web, cache, frameworkReceipt, prior, webReceipt, expec
 let expectedStatusFile, expectedPhaseFile;
 let cachedBuildPath, cachedBuildHash, cachedPlan;
 let requestedRuntimeId = null;
+let controlLaunchProbe = false;
 let waited = 0;
 let waitBudget = 120000;
 function regular(path, limit = 16 * 1024 * 1024) {
@@ -151,12 +156,14 @@ function operationName(bin, args) {
         return (
             {
                 list: 'simulator-inventory',
+                listapps: 'owned-control-app-inventory',
                 create: 'simulator-create',
                 boot: 'simulator-boot',
                 bootstatus: 'simulator-bootstatus',
                 install: 'simulator-install',
                 get_app_container: 'owned-app-container',
-                launch: 'owned-app-launch',
+                launch:
+                    args[args.length - 1] === FULL_APP_CONTROL_BUNDLE ? 'owned-control-app-launch' : 'owned-app-launch',
                 shutdown: 'owned-simulator-shutdown',
                 delete: 'owned-simulator-delete',
             }[args[1]] ?? 'unknown-owned-operation'
@@ -164,17 +171,24 @@ function operationName(bin, args) {
     }
     return 'unknown-owned-operation';
 }
-function quiet(bin, args, timeout = 30000) {
+function quiet(bin, args, timeout = 30000, maxBuffer = 8 * 1024 * 1024) {
     receipt.lastOperation = operationName(bin, args);
     receipt.lastOperationExitStatus = null;
     receipt.lastOperationTimedOut = false;
     save();
-    const r = spawnSync(bin, args, { encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024 });
+    const r = spawnSync(bin, args, { encoding: 'utf8', timeout, maxBuffer });
     receipt.lastOperationExitStatus = Number.isInteger(r.status) ? r.status : null;
     receipt.lastOperationTimedOut = r.error?.code === 'ETIMEDOUT';
     if (receipt.lastOperation === 'owned-app-launch') {
         const found = r.stdout?.match(/^app\.thalassa\.research\.scuttlebutt-auth: ([1-9][0-9]{0,8})\s*$/);
         receipt.ownedLaunchPID = found ? Number(found[1]) : null;
+    }
+    if (receipt.lastOperation === 'owned-control-app-launch') {
+        receipt.controlLaunchObservation = inspectControlLaunchObservation({
+            exitStatus: receipt.lastOperationExitStatus,
+            timedOut: receipt.lastOperationTimedOut,
+            stdout: r.stdout ?? '',
+        });
     }
     save();
     if (receipt.phase === 'native-build') {
@@ -272,11 +286,12 @@ try {
     const extra = process.argv.slice(2);
     const resume = extra[0] === '--resume-unsigned';
     if (resume) {
-        assert(extra.length >= 5 && extra.length <= 8);
+        assert(extra.length >= 5 && extra.length <= 9);
         [cachedBuildPath, cachedBuildHash, webReceipt, expectedWebHash] = extra.slice(1, 5);
         const options = inspectCachedResumeOptions(extra.slice(5));
         if (options.remainingWaitMs !== null) waitBudget = options.remainingWaitMs;
         requestedRuntimeId = options.requestedRuntimeId;
+        controlLaunchProbe = options.controlLaunchProbe === true;
     } else {
         assert(extra.length === 5 || extra.length === 6);
         [cache, frameworkReceipt, prior, webReceipt, expectedWebHash] = extra;
@@ -450,6 +465,42 @@ try {
     quiet('/usr/bin/xcrun', ['simctl', 'boot', simulator]);
     quiet('/usr/bin/xcrun', ['simctl', 'bootstatus', simulator, '-b'], 180000);
     own();
+    if (controlLaunchProbe) {
+        receipt.phase = 'owned-control-launch-probe';
+        receipt.controlLaunchBundle = FULL_APP_CONTROL_BUNDLE;
+        receipt.controlLaunchBoundMs = 30000;
+        receipt.researchInstallAttempted = false;
+        save();
+        const inventory = quiet('/usr/bin/xcrun', ['simctl', 'listapps', simulator], 30000, 1024 * 1024);
+        assert(Buffer.byteLength(inventory, 'utf8') <= 1024 * 1024);
+        receipt.lastOperation = 'owned-control-app-metadata-convert';
+        receipt.lastOperationExitStatus = null;
+        receipt.lastOperationTimedOut = false;
+        save();
+        const converted = spawnSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '-'], {
+            input: inventory,
+            encoding: 'utf8',
+            timeout: 10000,
+            maxBuffer: 1024 * 1024,
+        });
+        receipt.lastOperationExitStatus = Number.isInteger(converted.status) ? converted.status : null;
+        receipt.lastOperationTimedOut = converted.error?.code === 'ETIMEDOUT';
+        assert(!converted.error && converted.status === 0);
+        receipt.controlAppMetadata = inspectControlLaunchMetadata(JSON.parse(converted.stdout));
+        save();
+        quiet('/usr/bin/xcrun', ['simctl', 'launch', simulator, FULL_APP_CONTROL_BUNDLE], 30000, 4096);
+        assert(receipt.controlLaunchObservation.launchCallAccepted);
+        receipt.controlLaunchReturnedPIDAlive = null;
+        try {
+            process.kill(receipt.controlLaunchObservation.returnedPID, 0);
+            receipt.controlLaunchReturnedPIDAlive = true;
+        } catch (error) {
+            receipt.controlLaunchReturnedPIDAlive = error?.code === 'EPERM' ? null : false;
+        }
+        // Signal0 is only a liveness observation, not process identity or native acceptance.
+        receipt.researchInstallAttempted = true;
+        save();
+    }
     quiet('/usr/bin/xcrun', ['simctl', 'install', simulator, app], 180000);
     const container = quiet('/usr/bin/xcrun', ['simctl', 'get_app_container', simulator, bundle, 'data']);
     assert(isAbsolute(container));

@@ -253,7 +253,24 @@ storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gate
 before treating this routing seam as startup integration. No ordinary activation,
 shared dependency write, primary sync, master or production change is included.
 
-The [10 October iOS 27 launch evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-runtime27-2026-10-10.json)
+The [10 October control launch preparation](../experiments/scuttlebutt-e2ee/review/full-app-native-control-launch-2026-10-10.json)
+passes all 53 final-byte cases in the focused modified resume file, narrow types
+and named lint/format. A cached-only explicit iOS 27 probe selects only
+`com.apple.Preferences`, verifies its exact System entry from private bounded
+installed-app metadata, and requires status zero plus a fixed-bundle PID line
+before Research installation/launch. No fallback, raw inventory export or
+control-binary provenance claim is included. Runtime Swift/JS, builder, cached
+artifact/resource binding, transport/admission and CSP are unchanged.
+
+Invocation is queued-unrun before the child driver: no new preflight, signing,
+simulator, control or Research observation exists. The carried 10,003 ms plus
+110,010 ms wait totals 120,013/120,000 ms, a 13 ms timer overshoot without reset.
+Next invoke the prepared mode when the shared slot is free, retaining the two
+prior unexplained launch timeouts and all native, physical, production,
+dependency/licence and independent-assessment gates. No unchanged compilation
+or human/shared-service reset is justified by this queue result.
+
+The historical [10 October iOS 27 launch evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-runtime27-2026-10-10.json)
 adds an explicit cached-only runtime option with observed installed version/build
 and supported model, preserving default 26.5 and compile-mode behaviour. Fourteen
 new pure selection cases passed with fourteen prior cases skipped before a
@@ -270,9 +287,8 @@ observed. Both exact simulators were removed. Sources, original unsigned 304-fil
 app, 20 Swift sources, fixture resource/JS, provider/bindings/frameworks, configs,
 CSP copy and measured entitlement sections remained unchanged; no compile or
 runtime/builder change occurred. Only fresh owned copies were signed. Shared
-waiting was 10,003/120,000 ms without reset. Next propose a bounded control-app
-launch on a new owned simulator to distinguish infrastructure before another
-Research attempt; that probe is not implemented or executed. Native startup,
+waiting was 10,003/120,000 ms without reset. At that checkpoint a bounded control-app
+probe was proposed only; the later preparation above is implemented but unrun. Native startup,
 protected exchange and release gates remain unproved; no boot/launch cause is
 inferred from runtime availability or the limited absence of host crash reports.
 

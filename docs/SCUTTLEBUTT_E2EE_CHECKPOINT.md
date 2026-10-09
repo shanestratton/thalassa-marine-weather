@@ -112,7 +112,9 @@ Cached-only replay passed strict preflight without recompilation. After the
 earlier boot timeout, two fresh iOS 27.0 attempts booted and installed the same
 app, but each launch call timed out. The second attempt captured absence of both
 expected diagnostic files before cleanup; that does not prove no app code ran.
-All exact simulators were removed; native acceptance remains unproved. The ordinary
+All exact simulators were removed; native acceptance remains unproved. A fixed
+Settings launch-control probe is now prepared and locally tested, but its owned
+simulator invocation is queued-unrun. The ordinary
 app/router still has no experimental startup admission. Production
 cutover is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
@@ -148,6 +150,35 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 10 October fixed Settings launch control prepared
+
+The [control launch preparation evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-control-launch-2026-10-10.json)
+records **53 final-byte focused cases, narrow types and named lint/format
+passing**. The modified resume file includes its prior cases plus 17 new control
+cases; this is a focused parser/driver regression, not a new native or browser
+acceptance run. Runtime Swift/JS, builder, exact unsigned app, packaged fixture
+binding, transport/admission and CSP rules are unchanged.
+
+The cached-only probe requires explicit iOS 27 and the fixed
+`com.apple.Preferences` bundle. On a new owned simulator it will privately parse
+bounded installed-app metadata and require the exact System entry, with no
+fallback or whole inventory export. One bounded control launch must return
+status zero and an exact fixed-bundle PID line before Research installation or
+launch proceeds. PID liveness is an observation, not process-identity or native
+acceptance proof. The control is a launch-path comparison, not pinned binary
+provenance. Existing strict Research diagnostics and exact simulator cleanup
+remain separate.
+
+The one invocation is **queued-unrun before the child driver** because competing
+heavy work exhausted the carried opportunity. No new cached preflight, copying,
+signing, boot, control or Research execution occurred. Prior waiting of
+10,003 ms plus 110,010 ms in this continuation totals **120,013/120,000 ms**, a
+13 ms timer overshoot with no budget reset. No further slot or attempt ran.
+Next invoke this prepared cached-control mode when the shared slot is free;
+do not repeat unchanged compilation or human/service resets. The two earlier
+iOS 27 launch timeouts remain unexplained, and all native, physical, production,
+dependency/licence and independent-review gates remain open.
+
 ### 10 October iOS 27 native boot and installation passed
 
 The [runtime selection and launch evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-runtime27-2026-10-10.json)
@@ -179,9 +210,8 @@ removed. No native/web recompilation, runtime/builder change, human reset or
 shared-service reset occurred. Normal-turn shared waiting totalled
 **10,003/120,000 ms**, without a budget reset; no further attempt ran.
 
-Next isolate launch infrastructure with a bounded control-app probe on a new
-owned simulator before launching Research again. This is a proposal, not
-implemented, executed or authorization for another attempt now. Preserve the
+At that checkpoint the bounded control-app probe was proposed only. The later
+preparation above implements it but records invocation as queued-unrun. Preserve the
 cached app and diagnose the harness instead of repeating unchanged compilation.
 The earlier iOS 26.5 boot cause remains unknown. Native startup, protected
 exchange and every release gate remain unproved; master `196bcb0e` is observed
