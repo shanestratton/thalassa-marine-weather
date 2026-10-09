@@ -16,6 +16,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { calculateDistance, destinationPoint } from '../utils/navigationCalculations';
 import type { AnchorWatchConfig, AnchorWatchSnapshot } from '../services/AnchorWatchService';
+import type { VesselProfile } from '../types/vessel';
 
 const service = vi.hoisted(() => ({
     relocateAnchor: vi.fn(),
@@ -386,6 +387,165 @@ describe('MoveAnchorSheet', () => {
             render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
             expect(distanceField()).toHaveValue(prefill);
             expect(liveLine()).toHaveTextContent(`inside your ${circle} m circle`);
+            expect(moveButton()).toBeEnabled();
+        });
+    });
+
+    describe('the GPS antenna aft of the bow (126-07c)', () => {
+        // A 14 m boat off Lyttelton, her GPS antenna 12 m aft of the bow. The
+        // watch measures from the antenna when the boat's GPS is its source, so
+        // the hook is her lie plus those 12 m from it.
+        const boat = { latitude: -43.61, longitude: 172.72 };
+        const config: AnchorWatchConfig = {
+            rodeLength: 40,
+            waterDepth: 8,
+            scopeRatio: 5,
+            rodeType: 'chain',
+            safetyMargin: 10,
+        };
+        const lie = Math.sqrt(40 ** 2 - 8 ** 2) * 0.85;
+
+        function setBoat(gpsToBowM: number | null) {
+            const settings = useSettingsStore.getState().settings;
+            const vessel =
+                gpsToBowM === null
+                    ? undefined
+                    : ({ name: 'Kotare', type: 'sail', length: 14 / FT, gpsToBow: gpsToBowM / FT } as VesselProfile);
+            useSettingsStore.setState({ settings: { ...settings, vessel } });
+        }
+        /** The watch as the boat's GPS armed it: with a heading (allowance 12) or without (24). */
+        const armedByBoat = (allowance: number, extra: Partial<AnchorWatchConfig> = {}) => {
+            const armed = { ...config, ...extra, antennaAllowanceM: allowance };
+            const reach = Math.sqrt(armed.rodeLength ** 2 - armed.waterDepth ** 2);
+            return snapshotAt(boat, armed, {
+                gpsSource: 'nmea',
+                swingRadius: reach * 0.85 + allowance + armed.safetyMargin,
+            });
+        };
+
+        beforeEach(() => setBoat(12));
+        afterEach(() => setBoat(null));
+
+        it.each([
+            ['with a heading (the circle allows 12 m)', 12, '55'],
+            ['without one (the circle allows 24 m)', 24, '67'],
+        ])('the boat’s GPS, armed %s: the prefill is her lie plus 12 m, and says so', (_name, allowance, circle) => {
+            heading(212, 4_000);
+            render(<MoveAnchorSheet snapshot={armedByBoat(allowance)} onClose={vi.fn()} />);
+
+            // 33.3 m of lie and 12 m from the antenna to the bow.
+            expect(distanceField()).toHaveValue(String(Math.round(lie + 12)));
+            expect(screen.getByTestId('move-anchor-hint')).toHaveTextContent(
+                /rode \(40 m in 8 m\), less its sag, plus 12 m from the GPS to the bow\./,
+            );
+            expect(liveLine()).toHaveTextContent(
+                `The boat would be 45 m from the anchor, inside your ${circle} m circle.`,
+            );
+            expect(moveButton()).toBeEnabled();
+        });
+
+        it('in feet: "plus 39 ft from the GPS to the bow"', () => {
+            setUnits('ft');
+            heading(212, 4_000);
+            render(<MoveAnchorSheet snapshot={armedByBoat(12)} onClose={vi.fn()} />);
+            // 45.3 m = 149 ft.
+            expect(distanceField()).toHaveValue('149');
+            expect(screen.getByTestId('move-anchor-hint')).toHaveTextContent(/plus 39 ft from the GPS to the bow\./);
+        });
+
+        it('a long chain in deep water (80 m in 12 m) still opens inside the circle', () => {
+            heading(30, 1_000);
+            render(
+                <MoveAnchorSheet
+                    snapshot={armedByBoat(12, { rodeLength: 80, waterDepth: 12, scopeRatio: 80 / 12 })}
+                    onClose={vi.fn()}
+                />,
+            );
+            // A 79.1 m reach, a 67.2 m lie, plus 12 m: 79 m, in an 89 m circle.
+            expect(distanceField()).toHaveValue('79');
+            expect(liveLine()).toHaveTextContent('inside your 89 m circle');
+            expect(moveButton()).toBeEnabled();
+        });
+
+        it.each([
+            ['the phone’s own GPS', 'native' as const],
+            ['no source yet', null],
+        ])('%s: unchanged, the lie alone', (_name, gpsSource) => {
+            heading(212, 4_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config, { gpsSource })} onClose={vi.fn()} />);
+            expect(distanceField()).toHaveValue('33');
+            expect(screen.getByTestId('move-anchor-hint')).not.toHaveTextContent(/GPS to the bow/);
+        });
+
+        it('a boat with no distance entered: unchanged', () => {
+            setBoat(0);
+            heading(212, 4_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config, { gpsSource: 'nmea' })} onClose={vi.fn()} />);
+            expect(distanceField()).toHaveValue('33');
+            expect(screen.getByTestId('move-anchor-hint')).not.toHaveTextContent(/GPS to the bow/);
+        });
+
+        it('the Pi’s watch: its fix is the boat’s GPS, so the prefill adds the 12 m too', () => {
+            heading(220, 3_000, { source: 'pi', via: 'lan' });
+            const pi: PiMoveSource = {
+                anchor: boat,
+                boatFix: { ...boat, timestamp: NOW - 4_000 },
+                // Handed over from a watch the boat's GPS armed with a heading.
+                swingRadius: lie + 12 + 10,
+                rodeLength: 40,
+                waterDepth: 8,
+                centreAtSet: boat,
+                ashore: false,
+                alarm: false,
+                gpsLost: false,
+            };
+            render(<MoveAnchorSheet mode="pi" pi={pi} onPiMove={vi.fn()} onClose={vi.fn()} />);
+            expect(distanceField()).toHaveValue('45');
+            expect(screen.getByTestId('move-anchor-hint')).toHaveTextContent(/plus 12 m from the GPS to the bow\./);
+        });
+
+        // The watch's own circle is the truth (D4), not what Vessel says now:
+        // armed from the phone during a gap in the instruments, restored from
+        // a 125 record, or the distance entered while it runs. The prefill adds
+        // no more than the circle allows for, so it still opens inside it.
+        it('the boat’s GPS, but a watch armed with no allowance: the lie alone, inside the circle', () => {
+            heading(212, 4_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config, { gpsSource: 'nmea' })} onClose={vi.fn()} />);
+            expect(distanceField()).toHaveValue('33');
+            expect(screen.getByTestId('move-anchor-hint')).not.toHaveTextContent(/GPS to the bow/);
+            expect(liveLine()).toHaveTextContent('The boat would be 33 m from the anchor, inside your 43 m circle.');
+            expect(moveButton()).toBeEnabled();
+        });
+
+        it('a watch armed when the antenna was set nearer the bow (5 m): adds the 5 m its circle allows', () => {
+            heading(212, 4_000);
+            render(<MoveAnchorSheet snapshot={armedByBoat(5)} onClose={vi.fn()} />);
+            // 33.3 m of lie and 5 m, in a 48 m circle.
+            expect(distanceField()).toHaveValue('38');
+            expect(screen.getByTestId('move-anchor-hint')).toHaveTextContent(/plus 5 m from the GPS to the bow\./);
+            expect(liveLine()).toHaveTextContent('inside your 48 m circle');
+            expect(moveButton()).toBeEnabled();
+        });
+
+        it('the Pi’s watch on the 20 m floor, with no room for the antenna: the lie alone, inside the circle', () => {
+            heading(220, 3_000, { source: 'pi', via: 'lan' });
+            const pi: PiMoveSource = {
+                anchor: boat,
+                boatFix: { ...boat, timestamp: NOW - 4_000 },
+                // 12 m in 5 m, handed over from a phone-armed watch: the 20 m floor.
+                swingRadius: 20,
+                rodeLength: 12,
+                waterDepth: 5,
+                centreAtSet: boat,
+                ashore: false,
+                alarm: false,
+                gpsLost: false,
+            };
+            render(<MoveAnchorSheet mode="pi" pi={pi} onPiMove={vi.fn()} onClose={vi.fn()} />);
+            // The circle less its margin, as before 126-07c.
+            expect(distanceField()).toHaveValue('10');
+            expect(screen.getByTestId('move-anchor-hint')).not.toHaveTextContent(/GPS to the bow/);
+            expect(liveLine()).toHaveTextContent('inside your 20 m circle');
             expect(moveButton()).toBeEnabled();
         });
     });

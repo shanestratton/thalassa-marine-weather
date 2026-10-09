@@ -11,7 +11,10 @@
  *    reckons it: the rode's horizontal reach, √(rode² − depth²), less its sag
  *    (lyingDistanceM), so it opens inside the circle even for a long chain in
  *    deep water. In the skipper's own length unit (metres or feet, from
- *    Settings), never assumed metres.
+ *    Settings), never assumed metres. When her fix is the boat's own GPS (the
+ *    instruments, or the Pi), it adds the antenna's distance from the bow
+ *    (Settings → Vessel → Dimensions, 126-07c) and says so, but never more
+ *    than the watch's own circle allows for, so it still opens inside it.
  *  - Bearing is prefilled from the boat's TRUE heading only while it is under
  *    10 s old, and the sheet says where it came from and how old it is, live.
  *    A boat at anchor lies head to the rode, so her heading points at the
@@ -100,10 +103,12 @@ import {
     type PiBoatFix,
     type PiMoveResult,
 } from '../../services/anchorPiMove';
-import { NmeaStore, type NmeaStoreState } from '../../services/NmeaStore';
+import { NmeaStore } from '../../services/NmeaStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { calculateBearing, calculateDistance, destinationPoint } from '../../utils/navigationCalculations';
 import { formatDmm, parseAnchorPosition } from '../../utils/anchorPosition';
+import { freshTrueHeading, HEADING_PREFILL_MAX_AGE_MS, type HeadingReading } from '../../utils/trueHeading';
+import { gpsToBowMetres } from '../../utils/gpsAntenna';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { Button } from '../ui/Button';
@@ -112,8 +117,8 @@ import { SwingCircleCanvas, type SwingCanvasModel } from './SwingCircleCanvas';
 import type { AnchorDragHandlers } from './anchorDrag';
 import { bearingToCardinal } from './anchorUtils';
 
-/** A true heading older than this does not prefill the bearing. */
-export const HEADING_PREFILL_MAX_AGE_MS = 10_000;
+// The heading rule is shared with the watch itself (126-07c): utils/trueHeading.ts.
+export { freshTrueHeading, HEADING_PREFILL_MAX_AGE_MS };
 /** How long "Sent to the Pi…" waits for the Pi's report to show the new point. */
 const PI_REPORT_WAIT_MS = 30_000;
 /**
@@ -149,34 +154,19 @@ function horizontalScopeM(config: Pick<AnchorWatchConfig, 'rodeLength' | 'waterD
 /**
  * Where the boat lies from the anchor as the swing circle reckons it, in
  * metres: the reach less the rode's sag. The circle is that plus the safety
- * margin (AnchorWatchService), so this is the circle less its margin, and it
- * always opens inside the circle: the full reach does not, for a long chain in
- * deep water (80 m in 12 m: a 79 m reach, a 77 m circle). Never more than the
- * full reach, for a short rode whose circle is held up by the 20 m floor.
+ * margin and any GPS antenna allowance (AnchorWatchService), so this is the
+ * circle less both, and it always opens inside the circle: the full reach does
+ * not, for a long chain in deep water (80 m in 12 m: a 79 m reach, a 77 m
+ * circle). Never more than the full reach, for a short rode whose circle is
+ * held up by the 20 m floor.
  */
 export function lyingDistanceM(
-    config: Pick<AnchorWatchConfig, 'rodeLength' | 'waterDepth' | 'safetyMargin'>,
+    config: Pick<AnchorWatchConfig, 'rodeLength' | 'waterDepth' | 'safetyMargin' | 'antennaAllowanceM'>,
     swingRadiusM: number,
 ): number {
     const reach = horizontalScopeM(config);
-    const lying = swingRadiusM - config.safetyMargin;
+    const lying = swingRadiusM - config.safetyMargin - (config.antennaAllowanceM ?? 0);
     return Number.isFinite(lying) && lying > 0 ? Math.min(reach, lying) : reach;
-}
-
-/** A true heading as it was read: degrees, when the instruments sent it, and from where. */
-type HeadingReading = { deg: number; at: number; via: string };
-
-/** The boat's true heading if it is fresh enough to stand for the bearing to the anchor. */
-export function freshTrueHeading(
-    state: Pick<NmeaStoreState, 'headingTrue' | 'remote'>,
-    now: number,
-): HeadingReading | null {
-    const { value, lastUpdated } = state.headingTrue;
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value >= 360) return null;
-    const ageMs = now - lastUpdated;
-    if (!(lastUpdated > 0) || ageMs < -1_000 || ageMs > HEADING_PREFILL_MAX_AGE_MS) return null;
-    const via = !state.remote ? 'from the instruments' : state.remote.via === 'lan' ? 'via the Pi' : 'via the cloud';
-    return { deg: value, at: lastUpdated, via };
 }
 
 const sameReading = (a: HeadingReading | null, b: HeadingReading) =>
@@ -289,6 +279,8 @@ interface MoveSubject {
     rode: Pick<AnchorWatchConfig, 'rodeLength' | 'waterDepth'> | null;
     /** Where she lies from the anchor as the circle reckons it, or null to leave the distance empty. */
     lyingM: number | null;
+    /** The boat's GPS antenna aft of the bow, in metres, when her fix is from it (else 0, 126-07c). */
+    gpsToBowM: number;
     /** What the preview radar draws. */
     model: SwingCanvasModel;
 }
@@ -313,29 +305,51 @@ function piCanvasModel(pi: PiMoveSource): SwingCanvasModel {
     };
 }
 
-function piSubject(pi: PiMoveSource, model: SwingCanvasModel | null): MoveSubject {
+/**
+ * The Pi's fix is the boat's GPS antenna, so the distance from it to the hook
+ * is her lie plus the antenna's distance from the bow (126-07c). The Pi's
+ * assignment carries the circle but not its allowance: a boat GPS with a
+ * heading, the usual Pi boat, arms with the antenna's distance once, so that
+ * is what is taken out. Exact then, and still inside the circle when it was
+ * armed with twice it, or with none. A circle with no room for it past its
+ * margin (a short rode on the 20 m floor) keeps the lie alone.
+ */
+function piSubject(pi: PiMoveSource, model: SwingCanvasModel | null, gpsToBowM: number): MoveSubject {
     const rode =
         pi.rodeLength !== undefined && pi.waterDepth !== undefined
             ? { rodeLength: pi.rodeLength, waterDepth: pi.waterDepth }
             : null;
+    const fromAntenna = pi.swingRadius - ARMING_MARGIN_M - gpsToBowM > 0 ? gpsToBowM : 0;
+    const lying =
+        rode &&
+        lyingDistanceM({ ...rode, safetyMargin: ARMING_MARGIN_M, antennaAllowanceM: fromAntenna }, pi.swingRadius);
     return {
         boat: pi.boatFix,
         anchor: pi.anchor,
         swingRadius: pi.swingRadius,
         rode,
         // No rode, no guess: the distance starts empty.
-        lyingM: rode && lyingDistanceM({ ...rode, safetyMargin: ARMING_MARGIN_M }, pi.swingRadius),
+        lyingM: lying === null ? null : lying + fromAntenna,
+        gpsToBowM: fromAntenna,
         model: model ?? piCanvasModel(pi),
     };
 }
 
-function watchSubject(snapshot: AnchorWatchSnapshot): MoveSubject {
+/**
+ * This phone's watch: from the antenna only while it believes the boat's GPS,
+ * and never more than its own circle allows for (126-07c). A watch armed from
+ * the phone, restored from before 126, or running when the distance was
+ * entered has no allowance, so it keeps the lie alone and opens inside.
+ */
+function watchSubject(snapshot: AnchorWatchSnapshot, gpsToBowM: number): MoveSubject {
+    const fromAntenna = snapshot.gpsSource === 'nmea' ? Math.min(gpsToBowM, snapshot.config.antennaAllowanceM ?? 0) : 0;
     return {
         boat: snapshot.vesselPosition,
         anchor: snapshot.anchorPosition,
         swingRadius: snapshot.swingRadius,
         rode: snapshot.config,
-        lyingM: lyingDistanceM(snapshot.config, snapshot.swingRadius),
+        lyingM: lyingDistanceM(snapshot.config, snapshot.swingRadius) + fromAntenna,
+        gpsToBowM: fromAntenna,
         model: snapshot,
     };
 }
@@ -372,6 +386,8 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
     const pi = props.mode === 'pi' ? props.pi : null;
     const snapshot = props.mode === 'pi' ? null : props.snapshot;
     const unit: LengthUnit = useSettingsStore((state) => (state.settings.units?.length === 'ft' ? 'ft' : 'm'));
+    // Settings → Vessel → Dimensions: the boat's GPS antenna aft of the bow (126-07c).
+    const antennaM = useSettingsStore((state) => gpsToBowMetres(state.settings.vessel));
     // The page builds `pi` afresh each render; the preview redraws only when
     // what it draws changes.
     const piModel = useMemo(
@@ -387,7 +403,8 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
             pi?.swingRadius,
         ],
     );
-    const subject = props.mode === 'pi' ? piSubject(props.pi, piModel) : watchSubject(props.snapshot);
+    const subject =
+        props.mode === 'pi' ? piSubject(props.pi, piModel, antennaM) : watchSubject(props.snapshot, antennaM);
     // The sheet's clock: ages are said as they are NOW, and a heading or a fix
     // that goes stale while the sheet is open stops counting, not just one
     // that was stale when it opened.
@@ -610,7 +627,9 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
         };
 
     const distanceWords = subject.rode
-        ? `Distance from your rode (${say(subject.rode.rodeLength, unit)} in ${say(subject.rode.waterDepth, unit)}), less its sag.`
+        ? `Distance from your rode (${say(subject.rode.rodeLength, unit)} in ${say(subject.rode.waterDepth, unit)}), less its sag${
+              subject.gpsToBowM > 0 ? `, plus ${say(subject.gpsToBowM, unit)} from the GPS to the bow` : ''
+          }.`
         : 'The Pi has no rode for this watch: enter the distance.';
     const hint = !byBoat
         ? 'As the plotter shows it: degrees, minutes or seconds with N/S and E/W, or decimal degrees with a minus. Or drag the anchor on the preview.'

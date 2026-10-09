@@ -36,6 +36,7 @@ import type { ReleaseReason, ReleaseVesselResult, UndoReleaseResult } from '../.
 import { ReleaseVesselDialog } from './ReleaseVesselDialog';
 import { ReleaseResultDialog, type ReleaseOutcome } from './ReleaseResultDialog';
 import { vesselWithSettingsDefaults } from '../../utils/defaultVessel';
+import { clampGpsToBowFt } from '../../utils/gpsAntenna';
 
 /**
  * The fleet store is deliberately read through this small compatibility
@@ -457,6 +458,7 @@ function MetricInput({
     isEstimated,
     autoInStandard,
     decimals = 2,
+    note,
 }: {
     label: string;
     valInStandard: number;
@@ -475,6 +477,8 @@ function MetricInput({
     /** Decimals shown in the display unit. A converted weight is whole kg or
      *  lbs: '6350.29 kg' was a lbs→kg artefact, not a measurement (UX scorecard run 7). */
     decimals?: number;
+    /** One line under the field saying what it is for; it also describes the field. */
+    note?: string;
 }) {
     const inputId = useId();
     // Convert from standard (stored) unit → display unit
@@ -557,7 +561,11 @@ function MetricInput({
                     id={inputId}
                     aria-label={label}
                     aria-describedby={
-                        [isAuto ? `${inputId}-auto` : '', unitOptions.length > 1 ? '' : `${inputId}-unit`]
+                        [
+                            isAuto ? `${inputId}-auto` : '',
+                            unitOptions.length > 1 ? '' : `${inputId}-unit`,
+                            note ? `${inputId}-note` : '',
+                        ]
                             .filter(Boolean)
                             .join(' ') || undefined
                     }
@@ -597,6 +605,11 @@ function MetricInput({
                     </span>
                 )}
             </div>
+            {note && (
+                <p id={`${inputId}-note`} className="mt-1.5 text-xs leading-snug text-gray-400">
+                    {note}
+                </p>
+            )}
         </div>
     );
 }
@@ -1806,6 +1819,19 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                                 onChangeValue={(v) => updateVessel('airDraft', v)}
                                 onChangeUnit={(u) => updateVesselUnits({ length: u as LengthUnit })}
                                 placeholder="--"
+                            />
+                            {/* 126-07c: no default, and nothing changes until it is
+                                entered. Never more than her length (or 60 m). */}
+                            <MetricInput
+                                label="GPS antenna to bow"
+                                valInStandard={vessel?.gpsToBow || 0}
+                                standardUnit="ft"
+                                unitType={lengthUnit}
+                                unitOptions={['ft', 'm']}
+                                onChangeValue={(v) => updateVessel('gpsToBow', clampGpsToBowFt(v, vessel?.length))}
+                                onChangeUnit={(u) => updateVesselUnits({ length: u as LengthUnit })}
+                                placeholder="--"
+                                note="Where the boat’s GPS antenna is, measured back from the bow. Used by the anchor watch."
                             />
                         </div>
                     </SubSection>

@@ -120,6 +120,10 @@ export default defineConfig({
         // note fit the invite and Edit Access sheets at 320 × 568 to the iPad
         // pane in wide fonts, chips unchanged, above the tab bar (e2e/fixtures/crew-invite.tsx).
         'crew-invite-layout.spec.ts',
+        // The GPS antenna aft of the bow (126-07c): "Marked at the GPS…" under the
+        // Anchor Watch radar, and "GPS antenna to bow" in Vessel's Dimensions, at
+        // 320 × 568 to 390 × 844 in wide fonts (e2e/fixtures/anchor-antenna.tsx).
+        'anchor-antenna-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

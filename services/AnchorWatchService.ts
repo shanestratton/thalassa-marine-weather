@@ -29,7 +29,8 @@ import { AnchorWatchSyncService } from './AnchorWatchSyncService';
 import { AlarmAudioService } from './AlarmAudioService';
 import { AnchorSafetyNotificationService } from './AnchorSafetyNotificationService';
 import { createLogger } from '../utils/createLogger';
-import { calculateDistance, calculateBearing } from '../utils/navigationCalculations';
+import { calculateDistance, calculateBearing, destinationPoint } from '../utils/navigationCalculations';
+import { currentTrueHeading } from '../utils/trueHeading';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import { NmeaGpsProvider } from './NmeaGpsProvider';
 import {
@@ -120,7 +121,20 @@ export interface AnchorWatchConfig {
     rodeType: 'chain' | 'rope' | 'mixed';
     /** Extra safety margin in meters added to swing radius */
     safetyMargin: number;
+    /**
+     * Metres added to the circle for the boat's GPS antenna sitting aft of the
+     * bow (126-07c): its distance from the bow when the mark was put at the
+     * bow along a fresh heading, twice that when the mark is at the antenna.
+     * Set by setAnchor from the boat's own GPS only. Absent means none.
+     */
+    antennaAllowanceM?: number;
 }
+
+/** setAnchor's options: the watch's config, and where the boat's GPS antenna is (126-07c). */
+export type AnchorSetOptions = Partial<AnchorWatchConfig> & {
+    /** The boat's GPS antenna, metres aft of the bow (Settings → Vessel). Used for her own GPS only. */
+    gpsToBowM?: number;
+};
 
 export interface AnchorWatchConfigLimits {
     rodeLength: { min: number; max: number };
@@ -169,6 +183,10 @@ export interface AnchorWatchSnapshot {
     /** Why the alarm sounds, beyond its cause: set when the drift watch after a
      *  move from the alarm raised it (FURTHER_AFTER_MOVE). */
     alarmDetail?: string | null;
+    /** The mark is at the boat's GPS antenna, not the bow: there was no fresh
+     *  heading to put it there, so the circle allows for the antenna twice
+     *  over (config.antennaAllowanceM). False once the mark is moved. */
+    markedAtGps?: boolean;
 }
 
 export type AnchorWatchListener = (snapshot: AnchorWatchSnapshot) => void;
@@ -195,6 +213,15 @@ export const ANCHOR_WATCH_CONFIG_LIMITS: AnchorWatchConfigLimits = {
     safetyMargin: { min: 1, max: 100 },
 };
 const SCOPE_RATIO_TOLERANCE = 0.01;
+/**
+ * The longest GPS-antenna-to-bow distance the watch accepts (126-07c): the
+ * Vessel settings' own bound, GPS_TO_BOW_MAX_M in utils/gpsAntenna.ts (a test
+ * pins the two together). Kept here so the settings helpers stay out of the
+ * boot chunk this service lives in.
+ */
+export const ANTENNA_TO_BOW_MAX_M = 60;
+/** The largest antenna allowance: twice the longest antenna-to-bow distance. */
+export const ANTENNA_ALLOWANCE_MAX_M = 2 * ANTENNA_TO_BOW_MAX_M;
 /** NMEA emits every five seconds; two missed emissions makes it stale. */
 const PRIMARY_SOURCE_FRESH_MS = 12_000;
 /**
@@ -233,6 +260,11 @@ interface PersistedWatchState {
     alarmCause: 'drag' | 'gps-lost' | null;
     identityKey: string;
     savedAt: number;
+    /** Where the watch was first set, kept through every move (126-07c).
+     *  Optional: a record from 125, or a corrupt one, means the anchor position. */
+    centreAtSet?: { latitude: number; longitude: number };
+    /** The mark is at the boat's GPS antenna (AnchorWatchSnapshot.markedAtGps). */
+    markedAtGps?: boolean;
 }
 
 type PersistedWatchValidation =
@@ -345,6 +377,18 @@ export function validateAndNormalizeAnchorWatchConfig(
         return { ok: false, error: 'Rode type must be chain, rope, or mixed.' };
     }
 
+    // Optional (126-07c): absent is none, and a saved watch from before has none.
+    const antennaAllowanceM = read('antennaAllowanceM');
+    if (
+        antennaAllowanceM !== undefined &&
+        (typeof antennaAllowanceM !== 'number' ||
+            !Number.isFinite(antennaAllowanceM) ||
+            antennaAllowanceM < 0 ||
+            antennaAllowanceM > ANTENNA_ALLOWANCE_MAX_M)
+    ) {
+        return { ok: false, error: fieldError('GPS antenna allowance', 0, ANTENNA_ALLOWANCE_MAX_M) };
+    }
+
     const derivedScopeRatio = rodeLength / waterDepth;
     const ratioLimits = ANCHOR_WATCH_CONFIG_LIMITS.scopeRatio;
     if (
@@ -383,6 +427,8 @@ export function validateAndNormalizeAnchorWatchConfig(
             scopeRatio: derivedScopeRatio,
             rodeType,
             safetyMargin,
+            // Left out when 0, so a watch with no antenna allowance is exactly as before.
+            ...(typeof antennaAllowanceM === 'number' && antennaAllowanceM > 0 ? { antennaAllowanceM } : {}),
         },
     };
 }
@@ -394,7 +440,62 @@ function calculateValidatedSwingRadius(config: AnchorWatchConfig): number {
     // guarantees rode >= depth through the minimum 1:1 scope ratio.
     const horizontalProjection = Math.sqrt(Math.max(0, rodeLength * rodeLength - waterDepth * waterDepth));
     const rodeFactor = rodeType === 'chain' ? 0.85 : rodeType === 'rope' ? 0.95 : 0.9;
-    return Math.max(horizontalProjection * rodeFactor + safetyMargin, MIN_ANCHOR_SWING_RADIUS_M);
+    return Math.max(
+        horizontalProjection * rodeFactor + (config.antennaAllowanceM ?? 0) + safetyMargin,
+        MIN_ANCHOR_SWING_RADIUS_M,
+    );
+}
+
+/** The config with this antenna allowance, or none (126-07c). */
+function withAntennaAllowance(config: AnchorWatchConfig, allowanceM: number): AnchorWatchConfig {
+    const next = { ...config };
+    delete next.antennaAllowanceM;
+    return allowanceM > 0 ? { ...next, antennaAllowanceM: allowanceM } : next;
+}
+
+/**
+ * Where a fix from the boat's own GPS puts the mark, and what the circle
+ * allows for it, with the antenna `gpsToBowM` metres aft of the bow (126-07c).
+ *
+ *  - No distance (absent, 0, or not a plausible one): the fix, no allowance.
+ *  - A true heading no more than 10 s old: the bow, the fix moved forward
+ *    along the heading (destinationPoint wraps at 180°). The antenna lies up
+ *    to her lie plus that distance from the hook: an allowance of it once.
+ *  - No fresh heading: the fix, and an allowance of twice it, since the
+ *    antenna can end up on the far side of the hook from where it was.
+ */
+function markFromBoatGps(
+    fix: { latitude: number; longitude: number },
+    gpsToBowM: unknown,
+): { latitude: number; longitude: number; allowanceM: number; markedAtGps: boolean } {
+    const offsetM =
+        typeof gpsToBowM === 'number' &&
+        Number.isFinite(gpsToBowM) &&
+        gpsToBowM > 0 &&
+        gpsToBowM <= ANTENNA_TO_BOW_MAX_M
+            ? gpsToBowM
+            : 0;
+    if (offsetM === 0) return { ...fix, allowanceM: 0, markedAtGps: false };
+    const heading = currentTrueHeading();
+    if (!heading) return { ...fix, allowanceM: 2 * offsetM, markedAtGps: true };
+    const bow = destinationPoint(fix.latitude, fix.longitude, heading.deg, offsetM / 1852);
+    return { latitude: bow.lat, longitude: bow.lon, allowanceM: offsetM, markedAtGps: false };
+}
+
+/** A saved first centre, if it is a real position (126-07c). Never an error. */
+function savedCentre(value: unknown): { latitude: number; longitude: number } | undefined {
+    if (!isRecord(value)) return undefined;
+    const { latitude, longitude } = value;
+    return typeof latitude === 'number' &&
+        Number.isFinite(latitude) &&
+        latitude >= -90 &&
+        latitude <= 90 &&
+        typeof longitude === 'number' &&
+        Number.isFinite(longitude) &&
+        longitude >= -180 &&
+        longitude <= 180
+        ? { latitude, longitude }
+        : undefined;
 }
 
 /**
@@ -427,9 +528,11 @@ class AnchorWatchServiceClass {
     private alarmCause: 'drag' | 'gps-lost' | null = null;
     private watchStartedAt: number | null = null;
     /** Where the watch was set: its first centre, kept through every move of
-     *  the mark (a move from the alarm is checked against it). Not saved:
-     *  after a restore it is the saved centre, and her track starts again. */
+     *  the mark (a move from the alarm is checked against it). Saved with the
+     *  watch (126-07c), so a restart keeps it too; her track starts again. */
     private watchCentreAtSet: { latitude: number; longitude: number } | null = null;
+    /** The mark is at the boat's GPS antenna, with no heading to put it at the bow (126-07c). */
+    private markedAtGps = false;
     private alarmDetail: string | null = null;
     /** The drift watch after a move from the alarm: the new mark, her mean
      *  distance from it just before the move, and when. One-shot. */
@@ -549,6 +652,7 @@ class AnchorWatchServiceClass {
             blindGpsReason: this.alarmCause === 'gps-lost' ? this.describeBlindGps() : null,
             gpsSource: this.primaryGpsSource,
             alarmDetail: this.alarmDetail,
+            markedAtGps: this.markedAtGps,
         };
     }
 
@@ -662,24 +766,26 @@ class AnchorWatchServiceClass {
     }
 
     /** Set anchor at current GPS position */
-    async setAnchor(config?: Partial<AnchorWatchConfig>): Promise<boolean> {
-        return this.runExclusive(() => this.setAnchorLocked(config));
+    async setAnchor(options?: AnchorSetOptions): Promise<boolean> {
+        return this.runExclusive(() => this.setAnchorLocked(options));
     }
 
-    private async setAnchorLocked(config?: Partial<AnchorWatchConfig>): Promise<boolean> {
+    private async setAnchorLocked(options?: AnchorSetOptions): Promise<boolean> {
         const persistenceScope = getAuthIdentityScope();
         if (this.state !== 'idle') {
             this.setupError = 'Anchor Watch is already active. Stop the current watch before setting a new anchor.';
             this.notify();
             return false;
         }
-        const validatedConfig = validateAndNormalizeAnchorWatchConfig(config ?? {}, this.config);
+        const { gpsToBowM, ...config } = options ?? {};
+        const validatedConfig = validateAndNormalizeAnchorWatchConfig(config, this.config);
         if (!validatedConfig.ok) {
             this.setupError = `Anchor Watch configuration is invalid. ${validatedConfig.error}`;
             this.notify();
             return false;
         }
-        this.config = validatedConfig.config;
+        // The allowance is this drop's own, from where its fix came (below).
+        this.config = withAntennaAllowance(validatedConfig.config, 0);
 
         this.setupError = null;
         this.alarmNotificationError = null;
@@ -732,9 +838,16 @@ class AnchorWatchServiceClass {
                 anchorTs = pos.timestamp;
             }
 
+            // 126-07c: the boat's own GPS antenna has a fixed place aboard,
+            // usually well aft of the bow. The phone has none.
+            const mark =
+                nmeaPos || piBoatFix
+                    ? markFromBoatGps({ latitude: anchorLat, longitude: anchorLon }, gpsToBowM)
+                    : { latitude: anchorLat, longitude: anchorLon, allowanceM: 0, markedAtGps: false };
+            this.config = withAntennaAllowance(this.config, mark.allowanceM);
             this.anchorPosition = {
-                latitude: anchorLat,
-                longitude: anchorLon,
+                latitude: mark.latitude,
+                longitude: mark.longitude,
                 timestamp: anchorTs,
             };
 
@@ -747,7 +860,7 @@ class AnchorWatchServiceClass {
             this.alarmTriggeredAt = null;
             this.alarmCause = null;
             this.alarmNotificationError = null;
-            this.resetMoveState({ latitude: anchorLat, longitude: anchorLon });
+            this.resetMoveState({ latitude: mark.latitude, longitude: mark.longitude }, mark.markedAtGps);
 
             // Keep screen awake during anchor watch. Bounded: a nicety must
             // never be the thing that stalls arming a safety watch.
@@ -806,7 +919,8 @@ class AnchorWatchServiceClass {
             this.notify();
             return false;
         }
-        this.config = validatedConfig.config;
+        // A point chosen on the chart: no GPS antenna to allow for (126-07c).
+        this.config = withAntennaAllowance(validatedConfig.config, 0);
         this.setupError = null;
         this.alarmNotificationError = null;
         this.state = 'setting';
@@ -976,7 +1090,10 @@ class AnchorWatchServiceClass {
         }
 
         const previousWorst = this.maxDistanceRecorded;
+        const previousMarkedAtGps = this.markedAtGps;
         this.anchorPosition = { latitude: lat, longitude: lon, timestamp: previous.timestamp };
+        // Moved off the antenna; the circle keeps its allowance (the looser side).
+        this.markedAtGps = false;
         this.outsideCircleCount = 0;
         this.jitterBuffer = [];
         this.measureFromAnchor(true);
@@ -995,6 +1112,7 @@ class AnchorWatchServiceClass {
         } catch (error) {
             failures.push(this.asError(error));
             this.anchorPosition = { ...previous };
+            this.markedAtGps = previousMarkedAtGps;
             this.outsideCircleCount = 0;
             this.jitterBuffer = [];
             this.maxDistanceRecorded = previousWorst;
@@ -1088,7 +1206,9 @@ class AnchorWatchServiceClass {
         const alarm = { cause: this.alarmCause, at: this.alarmTriggeredAt, detail: this.alarmDetail };
         const priorSetupError = this.setupError;
         const previousWorst = this.maxDistanceRecorded;
+        const previousMarkedAtGps = this.markedAtGps;
         this.anchorPosition = { latitude: lat, longitude: lon, timestamp: previous.timestamp };
+        this.markedAtGps = false;
         this.outsideCircleCount = 0;
         this.jitterBuffer = [];
         this.measureFromAnchor(true);
@@ -1113,6 +1233,7 @@ class AnchorWatchServiceClass {
             this.alarmTriggeredAt = alarm.at;
             this.alarmDetail = alarm.detail;
             this.anchorPosition = { ...previous };
+            this.markedAtGps = previousMarkedAtGps;
             this.outsideCircleCount = 0;
             this.jitterBuffer = [];
             this.maxDistanceRecorded = previousWorst;
@@ -1170,9 +1291,10 @@ class AnchorWatchServiceClass {
         });
     }
 
-    /** A new watch: its first centre, and no move from the alarm yet. */
-    private resetMoveState(centre: { latitude: number; longitude: number } | null): void {
+    /** A new watch: its first centre, where it was marked, and no move from the alarm yet. */
+    private resetMoveState(centre: { latitude: number; longitude: number } | null, markedAtGps = false): void {
         this.watchCentreAtSet = centre;
+        this.markedAtGps = markedAtGps;
         this.moveWatch = null;
         this.alarmDetail = null;
     }
@@ -1543,10 +1665,14 @@ class AnchorWatchServiceClass {
             // preflight. Once active, later auth switches intentionally leave
             // this physical safety watch running in memory.
             this.anchorPosition = persisted.anchorPosition;
-            this.resetMoveState({
-                latitude: persisted.anchorPosition.latitude,
-                longitude: persisted.anchorPosition.longitude,
-            });
+            // The first centre as saved (126-07c), or the anchor for a record without one.
+            this.resetMoveState(
+                persisted.centreAtSet ?? {
+                    latitude: persisted.anchorPosition.latitude,
+                    longitude: persisted.anchorPosition.longitude,
+                },
+                persisted.markedAtGps === true,
+            );
             this.config = persisted.config;
             this.swingRadius = calculateSwingRadius(this.config);
             this.watchStartedAt = persisted.watchStartedAt;
@@ -1653,6 +1779,13 @@ class AnchorWatchServiceClass {
             alarmCause: this.alarmCause,
             identityKey: persistenceScope.key,
             savedAt: Date.now(),
+            // 126-07c: a move from the alarm after a restart is still judged
+            // from where the watch was first set.
+            centreAtSet: savedCentre(this.watchCentreAtSet) ?? {
+                latitude: this.anchorPosition.latitude,
+                longitude: this.anchorPosition.longitude,
+            },
+            markedAtGps: this.markedAtGps,
         };
         await writeAnchorWatchRecovery(persistenceScope, JSON.stringify(data));
     }
@@ -1745,6 +1878,9 @@ class AnchorWatchServiceClass {
                 alarmCause: value.alarmCause == null ? null : value.alarmCause,
                 identityKey: scope.key,
                 savedAt: value.savedAt,
+                // Optional and never blocking: anything but a real position is the anchor's.
+                centreAtSet: savedCentre(value.centreAtSet),
+                markedAtGps: value.markedAtGps === true,
             },
         };
     }
@@ -1804,10 +1940,13 @@ class AnchorWatchServiceClass {
         const failures = [this.asError(cause), ...cleanupFailures];
 
         this.anchorPosition = { ...persisted.anchorPosition };
-        this.resetMoveState({
-            latitude: persisted.anchorPosition.latitude,
-            longitude: persisted.anchorPosition.longitude,
-        });
+        this.resetMoveState(
+            persisted.centreAtSet ?? {
+                latitude: persisted.anchorPosition.latitude,
+                longitude: persisted.anchorPosition.longitude,
+            },
+            persisted.markedAtGps === true,
+        );
         this.config = { ...persisted.config };
         this.swingRadius = calculateSwingRadius(this.config);
         this.watchStartedAt = persisted.watchStartedAt;

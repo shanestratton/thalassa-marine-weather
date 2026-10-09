@@ -27,6 +27,10 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test';
  * readback under it, at every size, keyboard up and down, from the alarm too;
  * the tab row steps aside while the keyboard is up. And a real drag of the
  * anchor on the preview, which fills Position and moves nothing until Move.
+ *
+ * Build 126 (126-07c): a watch marked by the boat's own GPS with its antenna
+ * 12 m aft of the bow (&antenna): a longer prefill and one more clause in the
+ * hint, at 320 x 568, ordinary and large text.
  */
 
 const sizes = [
@@ -239,6 +243,26 @@ for (const size of sizes) {
                         .length,
             ),
         ).toBe(1);
+        await keyboard(page, 0);
+        expect(errors).toEqual([]);
+    });
+}
+
+// 126-07c: marked by the boat's own GPS, its antenna 12 m aft of the bow. The
+// distance is her lie plus the 12 m, and the hint says so in one more clause:
+// the sheet still fits 320 x 568 outright, keyboard up and down, and at large
+// text it scrolls inside itself with everything in reach.
+for (const size of sizes.filter((entry) => entry.width === 320)) {
+    test(`A boat GPS 12 m aft of the bow: the longer prefill and hint fit ${size.name}`, async ({ page }) => {
+        const errors = await open(page, size, `antenna${size.query ? `&${size.query}` : ''}`);
+        const distance = page.getByRole('textbox', { name: /distance from the boat to the anchor/i });
+        await expect(distance).toHaveValue('45');
+        await expect(page.getByTestId('move-anchor-hint')).toContainText('plus 12 m from the GPS to the bow.');
+        await expect(liveCheck(page)).toContainText('inside your 55 m circle');
+        await expectLayout(page, 0, size.mayScroll);
+        await distance.click();
+        await keyboard(page, size.keyboard);
+        await expectLayout(page, size.keyboard, size.mayScroll);
         await keyboard(page, 0);
         expect(errors).toEqual([]);
     });

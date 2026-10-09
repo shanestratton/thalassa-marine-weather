@@ -42,6 +42,7 @@ import { createLogger } from '../utils/createLogger';
 import { AnchorIcon, AlertTriangleIcon, CheckIcon, DeviceIcon, LockIcon, PhoneIcon, PowerBoatIcon } from './Icons';
 import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { gpsToBowMetres } from '../utils/gpsAntenna';
 import { ShoreSwingTrail } from '../services/shoreSwingTrail';
 import { SignInScreen } from './SignInScreen';
 
@@ -169,6 +170,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const units = useSettingsStore((state) => state.settings.units);
     /** Moving the Pi's mark is a trial until Shane's smoke aboard (126-07a, D6). */
     const piMoveTrial = useSettingsStore((state) => state.settings.anchorPiMoveTrial === true);
+    /** The boat's GPS antenna aft of the bow, metres (Settings → Vessel → Dimensions, 126-07c). */
+    const gpsToBowM = useSettingsStore((state) => gpsToBowMetres(state.settings.vessel));
 
     // Setup form state
     const [rodeLength, setRodeLength] = useState(30);
@@ -559,7 +562,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             scopeRatio: rodeLength / waterDepth,
         };
 
-        const success = await AnchorWatchService.setAnchor(config);
+        // The watch uses it only when the boat's own GPS marks the anchor (126-07c).
+        const success = await AnchorWatchService.setAnchor(gpsToBowM > 0 ? { ...config, gpsToBowM } : config);
         clearInterval(stagePoll);
         setIsSettingAnchor(false);
 
@@ -584,7 +588,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     'Anchor Watch could not start. Check location and notification permissions.',
             );
         }
-    }, [rodeLength, waterDepth, rodeType, safetyMargin]);
+    }, [rodeLength, waterDepth, rodeType, safetyMargin, gpsToBowM]);
 
     const handleStopWatch = useCallback(async () => {
         // Shore follower: there's no local anchor watch to stop — leaving just
@@ -2003,6 +2007,20 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             </div>
                         </div>
                     </div>
+                    {/* Marked at the boat's GPS with no heading to put it at
+                        the bow (126-07c): the circle allows for the antenna
+                        twice over, so the radius is larger than the rode
+                        explains. One sentence: it comes out of the radar's
+                        height (browser-tests/anchor-antenna-layout.spec.ts). */}
+                    {snapshot?.markedAtGps && (snapshot.config.antennaAllowanceM ?? 0) > 0 && (
+                        <p className="mt-1 text-[11px] leading-snug font-medium text-cyan-200/80">
+                            Marked at the GPS,{' '}
+                            {units?.length === 'ft'
+                                ? `${Math.round((snapshot.config.antennaAllowanceM ?? 0) / 2 / 0.3048)} ft`
+                                : `${Math.round((snapshot.config.antennaAllowanceM ?? 0) / 2)} m`}{' '}
+                            aft of the bow: the circle allows for it.
+                        </p>
+                    )}
                 </div>
 
                 {/* Distance / Radius — premium readout */}
