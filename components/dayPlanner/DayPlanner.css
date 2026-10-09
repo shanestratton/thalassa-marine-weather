@@ -232,6 +232,10 @@
    window (Slide Over, 375 × 1100, 320 × 1000) gets the room's sizes only as
    far as its width holds, and never less than 126-17 gave it where the width
    is not what holds them (the light, the stop's name and its shelter word).
+   The times themselves are short since 126-17c ("07:00 → 10:28 · back 15:57";
+   Shane, offered it: "your pick"), so they have their own guard,
+   --today-fit-stop, and reach ~16.5 px on his phone; the rest still follow
+   --today-fit-times as 126-17b set them.
 
    A day with a line more under the light (a notice: default-boat, which every
    skipper without a boat set sees, an old fix, a cyclone, offline; or
@@ -272,12 +276,17 @@
         ((var(--today-inner) - 2 * var(--today-gap-chip)) / 3 - 3px
             - clamp(6px, 6px + 0.022 * var(--today-room), 10px) - var(--today-cell-pad-r)) / 7.15
     );
-    /* A stop row's text column (the card's, less the row's padding, the level glyph's 1.1em and its gap, the chevron and its gap) over 21. */
-    --today-fit-times: calc(
-        (var(--today-inner) - 2 * clamp(6px, 6px + 0.022 * var(--today-room), 10px)
+    /* A stop row's text column: the card's, less the row's padding, the level glyph's 1.1em and its gap, the chevron and its gap. */
+    --today-stop-col: calc(
+        var(--today-inner) - 2 * clamp(6px, 6px + 0.022 * var(--today-room), 10px)
             - 1.1 * clamp(0.8125rem, 0.8125rem + 0.0182 * var(--today-room), 17px)
-            - clamp(6px, 6px + 0.011 * var(--today-room), 8px) - var(--today-chevron-room)) / 21
+            - clamp(6px, 6px + 0.011 * var(--today-room), 8px) - var(--today-chevron-room)
     );
+    /* What it holds of 126-17b's widest times, which the light, a notice, the name and the credit still follow, over 21. */
+    --today-fit-times: calc(var(--today-stop-col) / 21);
+    /* What it holds of a stop's widest line now its times are short (126-17c): a stop whose weather is not
+       checked, "About 22 NM · weather not checked" (18.05 in the wide face; the times at most 15.19, SF 12.47). */
+    --today-fit-stop: calc(var(--today-stop-col) / 18.25);
     width: calc(min(100%, 560px) + 2 * var(--today-widen));
     margin-inline: calc(-1 * var(--today-widen));
 }
@@ -304,9 +313,9 @@
 .today-main .today-cell-wind { font-size: clamp(0.8125rem, min(0.8125rem + 0.0123 * var(--today-room), var(--today-fit-tile)), 16px); }
 .today-main .today-cell-word { font-size: clamp(0.6875rem, min(0.6875rem + 0.027 * var(--today-room), var(--today-fit-tile)), 16.5px); }
 .today-main .today-headline { font-size: clamp(0.875rem, 0.875rem + 0.0345 * var(--today-room), 21px); }
-.today-main :is(.today-notice, .today-stop-l2) {
-    font-size: clamp(0.6875rem, min(0.6875rem + 0.0242 * var(--today-room), var(--today-fit-times)), 16px);
-}
+.today-main .today-notice { font-size: clamp(0.6875rem, min(0.6875rem + 0.0242 * var(--today-room), var(--today-fit-times)), 16px); }
+/* The times, short since 126-17c ("07:00 → 10:28 · back 15:57"; Shane: "your pick"), to 16.5 px at his room. */
+.today-main .today-stop-l2 { font-size: clamp(0.6875rem, min(0.6875rem + 0.0271 * var(--today-room), var(--today-fit-stop)), 16.5px); }
 /* The light follows the times, but never under 126-17's (a tall narrow window's times are width-bound; the light wraps freely). */
 .today-main .today-facts {
     font-size: clamp(
@@ -318,7 +327,9 @@
 .today-main .today-stop { padding-top: var(--today-stop-pad); padding-bottom: var(--today-stop-pad); }
 /* The level glyph keeps 126-17's size: its column is width the times can use. */
 .today-main .today-stop-glyph { font-size: clamp(0.8125rem, 0.8125rem + 0.0182 * var(--today-room), 17px); }
-/* The name at most 1.3 × the times, and the shelter word 3 px under that, but neither under 126-17's sizes. */
+/* The name at most 1.3 × --today-fit-times (126-17b's times guard, not the stop row's own --today-fit-stop),
+   and the shelter word 3 px under that, but neither under 126-17's sizes. Since 126-17c the times can be
+   bigger than the shelter word; the name stays the biggest. */
 .today-main .today-stop-l1 {
     font-size: clamp(
         0.8125rem,
@@ -340,6 +351,11 @@
 /* Only where the sheet grows (the room past 576 px): an SE, phone landscape and large text keep build 124's. */
 @container today-room (height > max(576px, 33.5rem)) {
     .today-main .today-headline { text-wrap: balance; }
+    /* The times grow inside 126-17b's line box (126-17c): every row keeps its height, so a notice day's three stops
+       stay in view unscrolled. Here only: an SE and landscape keep line-height 1.4 to the pixel. */
+    .today-main .today-stop-l2 {
+        line-height: calc(1.4 * clamp(0.6875rem, min(0.6875rem + 0.0242 * var(--today-room), var(--today-fit-times)), 16px));
+    }
     /* A day too long for the room: the stops scroll alone, in their own area,
        under a fade at its foot. 4 px above the first row keep its focus ring
        whole. The header, the day chips, the tiles, the headline, the light and

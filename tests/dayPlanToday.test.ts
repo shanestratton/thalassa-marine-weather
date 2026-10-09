@@ -12,7 +12,12 @@ import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { CruisingPoint } from '../services/anchorages/cruisingReference';
 import { DEFAULT_CRUISING_POLAR } from '../services/defaultPolar';
-import { gatherPlaces, type AtlasFeature, type GatheredPlaces } from '../services/dayPlanner/places';
+import {
+    gatherPlaces,
+    type AtlasFeature,
+    type DistanceEstimate,
+    type GatheredPlaces,
+} from '../services/dayPlanner/places';
 import {
     compactWindow,
     departureScore,
@@ -31,6 +36,7 @@ import {
     pointHours,
     resolveDayPlanLimits,
     stopDetail,
+    stopTimes,
     type DayPlanInput,
     type DayPlanLimits,
     type DayPlanView,
@@ -285,7 +291,21 @@ describe("Shane's case: Coral Sea Marina, Thursday 8 October, a south-east trade
         expect(view.tooLate).toBe(false);
         expect(view.top.length).toBeGreaterThanOrEqual(1);
         expect(view.top.some((row) => (row.plan?.window.length ?? 0) >= 1)).toBe(true);
-        for (const row of view.top) expect(row.line2).toMatch(/^Leave \d\d:\d\d · there \d\d:\d\d · home \d\d:\d\d$/);
+        for (const row of view.top) expect(row.line2).toMatch(/^\d\d:\d\d → \d\d:\d\d · back \d\d:\d\d$/);
+    });
+
+    // 126-17c (Shane, offered the shorter times line so they can grow: "your pick").
+    it('says its times short, from the same numbers VoiceOver reads in words, never "right arrow"', () => {
+        for (const row of view.top) {
+            const best = row.plan!.best!;
+            const [leave, arrive, home] = [best.departureMs, best.arriveMs!, best.homeMs!].map((ms) =>
+                hhmm(ms, BRISBANE),
+            );
+            expect(row.line2).toBe(`${leave} → ${arrive} · back ${home}`);
+            expect(row.line2Spoken).toBe(`Leave ${leave}, arrive ${arrive}, back home ${home}`);
+            expect(row.ariaLabel.startsWith(`${row.line1}. ${row.line2Spoken}. `)).toBe(true);
+            expect(row.ariaLabel).not.toMatch(/→/);
+        }
     });
 
     it('puts Cid Harbour in the top three', () => {
@@ -366,7 +386,9 @@ describe('an overnight stay', () => {
         const view = planWithLegs({ stay: 'overnight' }, SE_TRADE);
         expect(view.top.length).toBeGreaterThanOrEqual(1);
         for (const row of view.top) {
-            expect(row.line2).toMatch(/^Leave \d\d:\d\d · there \d\d:\d\d · about \d+ NM$/);
+            expect(row.line2).toMatch(/^\d\d:\d\d → \d\d:\d\d · about \d+ NM$/);
+            expect(row.line2Spoken).toMatch(/^Leave \d\d:\d\d, arrive \d\d:\d\d, about \d+ nautical miles$/);
+            expect(row.ariaLabel).not.toMatch(/→| NM\b/);
             const best = row.plan!.best!;
             expect(best.home).toBeNull();
             expect(best.homeMs).toBeNull();
@@ -621,6 +643,7 @@ describe('a stop whose route weather failed', () => {
         const view = planDay(input({ legs }));
         for (const row of view.top) {
             expect(row.line2).toMatch(/^About \d+ NM · weather not checked$/);
+            expect(row.line2Spoken).toBe(row.line2);
             expect(row.glyph).toBe('?');
             expect(view.notToday.find((r) => r.id === row.id)?.reason).toBe("weather didn't load");
         }
@@ -837,6 +860,145 @@ describe('Tromsø on 21 June 2026', () => {
         expect(window.lastLightMs! - window.firstLightMs!).toBe(14 * H);
         const view = planDay(input({ nowMs: now, zone, start, atmos: trade(now), places: null, tides: null }));
         expect(view.facts.text).toBe('☀ Light all day: plan capped at 14 h · No tide prediction here');
+    });
+});
+
+// ── 10b. The times line worldwide, on the place's 24 h clock (126-17c) ──
+
+describe('a stop’s times at Horta and Tromsø: short to read, whole to hear, on a 24 h clock', () => {
+    /** The place's own 24 h clock, worked out apart from hhmm. */
+    const clock = (ms: number, zone: string) =>
+        new Intl.DateTimeFormat('en-GB', {
+            timeZone: zone,
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+        }).format(ms);
+    const places = [
+        {
+            // 08:00 AZOST (Azores summer time, UTC+0) on Thursday 8 October 2026, until the clocks go back on the 25th.
+            zone: 'Atlantic/Azores',
+            start: { lat: 38.533, lon: -28.627, name: 'Marina da Horta' },
+            now: Date.UTC(2026, 9, 8, 8),
+            stop: [9201, 'Baía Fictícia', 38.47, -28.53] as const,
+        },
+        {
+            // 08:00 CEST on Sunday 21 June 2026, under the midnight sun.
+            zone: 'Europe/Oslo',
+            start: { lat: 69.65, lon: 18.96, name: 'Tromsø' },
+            now: Date.UTC(2026, 5, 21, 6),
+            stop: [9301, 'Fiktiv Vik', 69.74, 19.18] as const,
+        },
+    ];
+    const plan = (place: (typeof places)[number], stay: DayPlanInput['stay']) => {
+        const { zone, start, now } = place;
+        const [node, name, lat, lon] = place.stop;
+        return planWithLegs(
+            {
+                nowMs: now,
+                zone,
+                start,
+                stay,
+                atmos: trade(Math.floor(now / H) * H),
+                tides: null,
+                places: gatherPlaces({
+                    start,
+                    nowMs: now,
+                    radiusNm: 30,
+                    atlas: [],
+                    osm: [{ points: [osmPoint(node, name, lat, lon)], stale: false }],
+                    coastline: null,
+                }),
+            },
+            SE_TRADE,
+            { from: Math.floor(now / H) * H },
+        );
+    };
+
+    for (const place of places) {
+        it(`a day trip from ${place.start.name}: "leave → arrive · back home", heard in words`, () => {
+            const view = plan(place, '4h');
+            expect(view.top.map((row) => row.name)).toEqual([place.stop[1]]);
+            const row = view.top[0];
+            const best = row.plan!.best!;
+            const [leave, arrive, home] = [best.departureMs, best.arriveMs!, best.homeMs!].map((ms) =>
+                clock(ms, place.zone),
+            );
+            expect(row.line2).toBe(`${leave} → ${arrive} · back ${home}`);
+            expect(row.line2Spoken).toBe(`Leave ${leave}, arrive ${arrive}, back home ${home}`);
+            expect(
+                row.ariaLabel.startsWith(`${row.line1}. Leave ${leave}, arrive ${arrive}, back home ${home}. `),
+            ).toBe(true);
+            expect(row.ariaLabel).not.toMatch(/→/);
+            // Four hours ashore from 09:00 at the earliest: home in the afternoon, on the 24 h clock (never "pm").
+            expect(leave >= '09:00').toBe(true);
+            expect(Number(home.slice(0, 2))).toBeGreaterThanOrEqual(13);
+            expect(row.line2).not.toMatch(/[ap]\.?m\b/i);
+        });
+
+        it(`an overnight stay from ${place.start.name}: "leave → arrive · about N NM", heard in words`, () => {
+            const view = plan(place, 'overnight');
+            const row = view.top[0];
+            const best = row.plan!.best!;
+            const [leave, arrive] = [best.departureMs, best.arriveMs!].map((ms) => clock(ms, place.zone));
+            const nm = Math.round(row.candidate.distance.nm);
+            expect(row.line2).toBe(`${leave} → ${arrive} · about ${nm} NM`);
+            expect(row.line2Spoken).toBe(`Leave ${leave}, arrive ${arrive}, about ${nm} nautical miles`);
+            expect(row.ariaLabel).not.toMatch(/→| NM\b/);
+        });
+    }
+
+    it('a home time not known reads "back --:--", and is said in words', () => {
+        const zone = 'Atlantic/Azores';
+        const [leave, arrive] = [Date.UTC(2026, 9, 8, 9), Date.UTC(2026, 9, 8, 10, 40)];
+        expect(stopTimes(leave, arrive, null, zone, null)).toEqual([
+            '09:00 → 10:40 · back --:--',
+            'Leave 09:00, arrive 10:40, home time not known',
+        ]);
+        expect(stopTimes(leave, arrive, Date.UTC(2026, 9, 8, 16, 20), zone, null)).toEqual([
+            '09:00 → 10:40 · back 16:20',
+            'Leave 09:00, arrive 10:40, back home 16:20',
+        ]);
+        // An overnight on a saved route keeps the route's own length, to the tenth.
+        const saved: DistanceEstimate = {
+            basis: 'saved',
+            factor: 1,
+            straightNm: 11.2,
+            nm: 12.34,
+            route: { name: 'Horta → Fictícia', points: [], lengthNm: 12.34 },
+        };
+        expect(stopTimes(leave, arrive, null, 'Europe/Oslo', saved)).toEqual([
+            '11:00 → 12:40 · 12.3 NM',
+            'Leave 11:00, arrive 12:40, 12.3 nautical miles',
+        ]);
+    });
+
+    it('an overnight just across the bay is "about 1 nautical mile", never "1 nautical miles"', () => {
+        const zone = 'Atlantic/Azores';
+        const [leave, arrive] = [Date.UTC(2026, 9, 8, 9), Date.UTC(2026, 9, 8, 9, 20)];
+        // 1.1 NM straight, stretched by the clear-water factor: rounds to 1.
+        const near: DistanceEstimate = { basis: 'clear', factor: 1.15, straightNm: 1.1, nm: 1.265 };
+        expect(stopTimes(leave, arrive, null, zone, near)).toEqual([
+            '09:00 → 09:20 · about 1 NM',
+            'Leave 09:00, arrive 09:20, about 1 nautical mile',
+        ]);
+        // Two and up, and a saved route's tenths ("1.0", "0.8"), keep the plural.
+        for (const [nm, said] of [
+            [1.6, 'about 2 nautical miles'],
+            [11.4, 'about 11 nautical miles'],
+        ] as const)
+            expect(stopTimes(leave, arrive, null, zone, { ...near, nm })[1]).toBe(`Leave 09:00, arrive 09:20, ${said}`);
+        const saved = (nm: number): DistanceEstimate => ({
+            basis: 'saved',
+            factor: 1,
+            straightNm: nm,
+            nm,
+            route: { name: 'Horta → Fictícia', points: [], lengthNm: nm },
+        });
+        expect(stopTimes(leave, arrive, null, zone, saved(1))[1]).toBe('Leave 09:00, arrive 09:20, 1.0 nautical miles');
+        expect(stopTimes(leave, arrive, null, zone, saved(0.8))[1]).toBe(
+            'Leave 09:00, arrive 09:20, 0.8 nautical miles',
+        );
     });
 });
 

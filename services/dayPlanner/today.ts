@@ -1670,6 +1670,30 @@ export function distanceLine(distance: DistanceEstimate): string {
 const aboutNm = (d: DistanceEstimate) =>
     d.basis === 'saved' ? `${d.nm.toFixed(1)} NM` : `about ${Math.round(d.nm)} NM`;
 
+/**
+ * A stop's times, short so they can be big (126-17c; Shane, offered it: "your
+ * pick"): "07:00 → 10:28 · back 15:57", or an overnight's "07:00 → 10:28 ·
+ * about 22 NM". And the same times as VoiceOver reads them, never "right
+ * arrow": "Leave 07:00, arrive 10:28, back home 15:57".
+ */
+export function stopTimes(
+    departureMs: number,
+    arriveMs: number,
+    homeMs: number | null,
+    zone: string,
+    overnight: DistanceEstimate | null,
+): [shown: string, spoken: string] {
+    const leave = hhmm(departureMs, zone);
+    const arrive = hhmm(arriveMs, zone);
+    const home = homeMs === null ? null : hhmm(homeMs, zone);
+    const nm = overnight && aboutNm(overnight);
+    // "about 1 nautical mile"; a saved route's tenths ("1.0") keep the plural.
+    return [
+        `${leave} → ${arrive} · ${nm ?? `back ${home ?? '--:--'}`}`,
+        `Leave ${leave}, arrive ${arrive}, ${nm ? nm.replace('NM', nm === 'about 1 NM' ? 'nautical mile' : 'nautical miles') : home ? `back home ${home}` : 'home time not known'}`,
+    ];
+}
+
 export interface StopRow {
     id: string;
     name: string;
@@ -1682,8 +1706,10 @@ export interface StopRow {
     glyph: string;
     /** "{name} · {shelter}". */
     line1: string;
-    /** "Leave 07:30 · there 09:40 · home 15:10", or why there are no times. */
+    /** "07:30 → 09:40 · back 15:10" (stopTimes), or why there are no times. */
     line2: string;
+    /** line2 as VoiceOver reads it: "Leave 07:30, arrive 09:40, back home 15:10". */
+    line2Spoken: string;
     reason: string | null;
     plan: StopPlan | null;
     /** Its route forecasts are still loading. */
@@ -1706,16 +1732,22 @@ function stopRow(
     const shelter = shelterWord(verdict, !!c.fetchLandNM);
     const level: StopLevel | null = plan ? plan.level : null;
     let line2: string;
+    let spoken: string | undefined;
     // Times only from a route forecast that loaded: a failed leg's walk is at
     // cruising speed in no wind, and is not shown as if it were a plan.
-    if (plan?.weatherLoaded && best && best.arriveMs !== null) {
-        line2 =
-            stay === 'overnight'
-                ? `Leave ${hhmm(best.departureMs, zone)} · there ${hhmm(best.arriveMs, zone)} · ${aboutNm(c.distance)}`
-                : `Leave ${hhmm(best.departureMs, zone)} · there ${hhmm(best.arriveMs, zone)} · home ${best.homeMs === null ? '--:--' : hhmm(best.homeMs, zone)}`;
-    } else if (mode === 'pending') line2 = `${capital(aboutNm(c.distance))} · checking the route`;
+    if (plan?.weatherLoaded && best && best.arriveMs !== null)
+        [line2, spoken] = stopTimes(
+            best.departureMs,
+            best.arriveMs,
+            best.homeMs,
+            zone,
+            stay === 'overnight' ? c.distance : null,
+        );
+    else if (mode === 'pending') line2 = `${capital(aboutNm(c.distance))} · checking the route`;
     else if (mode === 'unswept') line2 = `${capital(aboutNm(c.distance))} · route weather not checked`;
     else line2 = `${capital(aboutNm(c.distance))} · weather not checked`;
+    // Without times, the line is said as it reads.
+    spoken ??= line2;
     const line1 = `${c.name} · ${shelter}`;
     const reason = best && (best.level === 'over' || best.level === 'unknown') ? best.reason : null;
     return {
@@ -1728,11 +1760,12 @@ function stopRow(
         glyph: level ? STOP_GLYPH[level] : '?',
         line1,
         line2,
+        line2Spoken: spoken,
         reason,
         plan,
         pending: mode === 'pending',
         mapped: c.mappedAtMs !== undefined ? `mapped ${dayMonth(c.mappedAtMs, zone)}` : null,
-        ariaLabel: `${line1}. ${line2}. ${level ? STOP_ARIA[level] : 'weather not checked'}${reason ? `: ${reason}` : ''}`,
+        ariaLabel: `${line1}. ${spoken}. ${level ? STOP_ARIA[level] : 'weather not checked'}${reason ? `: ${reason}` : ''}`,
     };
 }
 

@@ -82,7 +82,8 @@ function open(
     return { ...handlers, io: sheetIo, dialog: screen.getByRole('dialog', { name: 'Plan Your Day' }) };
 }
 
-const LEAVE_THERE_HOME = /^Leave \d\d:\d\d · there \d\d:\d\d · home \d\d:\d\d$/;
+/** A stop's times, short so they can be big (126-17c): leave → arrive · back home. */
+const TIMES_BACK = /^\d\d:\d\d → \d\d:\d\d · back \d\d:\d\d$/;
 
 /** The stop rows on screen 1 once their route forecasts are in. */
 async function stopRows(dialog: HTMLElement, count = 3) {
@@ -90,7 +91,7 @@ async function stopRows(dialog: HTMLElement, count = 3) {
     await waitFor(() => {
         const rows = within(list).getAllByRole('button');
         expect(rows).toHaveLength(count);
-        for (const row of rows) expect(row.textContent).toMatch(/Leave \d\d:\d\d · there \d\d:\d\d/);
+        for (const row of rows) expect(row.textContent).toMatch(/\d\d:\d\d → \d\d:\d\d · /);
     });
     return within(list).getAllByRole('button');
 }
@@ -142,7 +143,7 @@ describe('Screen 1: today at the boat, with no form', () => {
             /^☀ \d\d:\d\d–\d\d:\d\d · HW 10:52 · LW 17:03$/,
         );
         const rows = await stopRows(dialog);
-        for (const row of rows) expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(LEAVE_THERE_HOME);
+        for (const row of rows) expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(TIMES_BACK);
         // Only the best three got their own route forecasts: one spread and one sea each.
         expect(sources.loader.loadRouteSpread).toHaveBeenCalledTimes(3);
         expect(sources.loader.loadRouteSea).toHaveBeenCalledTimes(3);
@@ -157,6 +158,33 @@ describe('Screen 1: today at the boat, with no form', () => {
         expect(within(dialog).getByRole('button', { name: /^Bureau of Meteorology warnings/ })).toHaveTextContent(
             'BoM warnings ↗',
         );
+    });
+
+    // 126-17c (Shane, offered "07:00 → 10:28 · back 15:57" so the times can grow: "your pick").
+    it('a stop shows its times short, and VoiceOver hears them in words, never "right arrow"', async () => {
+        const { dialog } = open();
+        const rows = await stopRows(dialog);
+        for (const row of rows) {
+            const [leave, arrive, home] = row.querySelector('.today-stop-l2')!.textContent!.match(/\d\d:\d\d/g)!;
+            expect(row.querySelector('.today-stop-l2')!.textContent).toBe(`${leave} → ${arrive} · back ${home}`);
+            expect(row).toHaveAccessibleName(
+                expect.stringContaining(`. Leave ${leave}, arrive ${arrive}, back home ${home}. `),
+            );
+            expect(row.getAttribute('aria-label')).not.toMatch(/→/);
+        }
+        fireEvent.change(within(dialog).getByRole('combobox', { name: 'Stay' }), { target: { value: 'overnight' } });
+        await waitFor(() => {
+            for (const row of within(within(dialog).getByRole('list', { name: 'Stops' })).getAllByRole('button')) {
+                expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(
+                    /^\d\d:\d\d → \d\d:\d\d · (about \d+|\d+\.\d) NM$/,
+                );
+                expect(row).toHaveAccessibleName(
+                    expect.stringMatching(
+                        /\. Leave \d\d:\d\d, arrive \d\d:\d\d, (about \d+|\d+\.\d) nautical miles\. /,
+                    ),
+                );
+            }
+        });
     });
 
     it('a third stop row is there for a taller screen to show', async () => {
@@ -222,7 +250,7 @@ describe('Screen 1: today at the boat, with no form', () => {
         expect(within(dialog).getByTestId('day-plan-headline').textContent).not.toMatch(/Too late/);
         const chips = within(within(dialog).getByRole('group', { name: 'Day' })).getAllByRole('button');
         expect(chips[0]).toHaveAttribute('aria-pressed', 'true');
-        for (const row of rows) expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(/^Leave 0[7-9]:/);
+        for (const row of rows) expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(/^0[7-9]:/);
     });
 
     it('thunder shows in the part it falls in, and stays out of the headline', async () => {
@@ -288,7 +316,7 @@ describe('Stay and day', () => {
             const rows = within(within(dialog).getByRole('list', { name: 'Stops' })).getAllByRole('button');
             for (const row of rows)
                 expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(
-                    /^Leave \d\d:\d\d · there \d\d:\d\d · (about \d+|\d+\.\d) NM$/,
+                    /^\d\d:\d\d → \d\d:\d\d · (about \d+|\d+\.\d) NM$/,
                 );
         });
 
