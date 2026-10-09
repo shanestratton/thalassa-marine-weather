@@ -48,9 +48,11 @@ type Size = {
     mayScroll: boolean;
     landscape?: boolean;
 };
-const AS_DRAWN: Record<'se' | 'se2' | 'shane', Size> = {
+const AS_DRAWN: Record<'se' | 'se2' | 'mid' | 'shane', Size> = {
     se: { name: '320x568 as drawn', width: 320, height: 561, query: '&root=app', stops: 2, mayScroll: false },
     se2: { name: '375x667 as drawn', width: 375, height: 662, query: '&root=app', stops: 3, mayScroll: false },
+    // A 390 x 844 phone: 47 pt above (31.4 over its 15.6 px 1rem) and 34 below; the sheet gets 685 px.
+    mid: { name: '390x844 as drawn', width: 390, height: 779, query: '&root=app', stops: 3, mayScroll: false },
     shane: { name: '430x932 as drawn', width: 430, height: 856, query: '&root=app', stops: 3, mayScroll: false },
 };
 
@@ -68,6 +70,8 @@ const sizes: Size[] = [
     { name: 'large text 390x844', width: 390, height: 844, query: '&largeText', stops: 3, mayScroll: true },
     // His phone again, as the app draws it: its bigger root type and its spacing at the most, in less room.
     AS_DRAWN.shane,
+    // The phone most people have, as the app draws it: part way to his (build 126, 126-17).
+    AS_DRAWN.mid,
 ];
 const modes = [
     'normal',
@@ -378,7 +382,7 @@ for (const size of sizes.filter((s) => !s.mayScroll)) {
     });
 }
 
-for (const size of [sizes[0], sizes[2], sizes[3], AS_DRAWN.shane]) {
+for (const size of [sizes[0], sizes[2], sizes[3], AS_DRAWN.mid, AS_DRAWN.shane]) {
     test(`an overnight stay fits ${size.name}, and so does its stop's detail`, async ({ page }) => {
         const errors = await open(page, size, `&mode=normal${size.query}`);
         const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
@@ -390,6 +394,8 @@ for (const size of [sizes[0], sizes[2], sizes[3], AS_DRAWN.shane]) {
         );
         expect(await layoutIssues(page, false)).toEqual([]);
         expect(await placeClockIssues(page, 'normal')).toEqual([]);
+        // "Overnight ▾" is Stay's longest word: the day chips keep one row, whole, at their biggest type.
+        expect((await breathing(page)).chips).toEqual({ oneRow: true, overlapping: false, cut: [] });
 
         await first.click();
         const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot on chart' }) });
@@ -431,6 +437,19 @@ test('Plot on chart hands the chart straight pins there and back, and closes the
  * scrolls that did not, every target 44 pt, the card clear of the status bar
  * and the tab bar, and the type steps up a little with its order kept:
  * headline, stop name, details, credit.
+ *
+ * Use the screen (build 126, 126-17). Shane 2026-10-09, after the first pass:
+ * "the plan your day is still a bit cramped for no reason. can we make that
+ * better." Build 125's spacing and type reached their most at his phone's room
+ * and stopped there, ~190 px of his 754 idle, the stop's times still the
+ * smallest words on it. Screen 1 now fills most of his room (the card ~85% of
+ * it as he sees it, ~55 px each side) with the type he reads up to 14-18 px
+ * and 48 pt targets, and his tallest day (a thunder afternoon's three-line
+ * headline over the default-boat notice, in wide fonts) still fits without a
+ * scroll; a 390 x 844 phone moves part way; an SE, phone landscape and large
+ * text keep build 124's to the pixel, targets 44 pt. The headline may now pass
+ * the root's size, deliberately: at most 18 px (the menus' row titles are
+ * 17-19 px on a Pro Max, 125-14), always bigger than the stop's name.
  */
 const BUILD_124 = {
     gaps: {
@@ -448,7 +467,49 @@ const BUILD_124 = {
     tileFromRule: 6,
     stopPad: [3, 6],
     // At the fixture's 16 px root; the type is in rem, so it scales with the app's root.
-    type: { headline: 14, stopName: 13, details: 11, light: 11, credit: 11 },
+    type: {
+        headline: 14,
+        stopName: 13,
+        details: 11,
+        light: 11,
+        credit: 11,
+        tileWord: 11,
+        tileWind: 13,
+        // The grey label over the tile's wind, and the ⓘ and ✕ glyphs (1.125rem).
+        tileLabel: 11,
+        icon: 18,
+    },
+    // The place button, ⓘ, ✕, the day chips and Stay, and both footer links: 44 pt tall.
+    targets: 44,
+};
+
+/**
+ * Build 125 at 390 x 844 as drawn (R ≈ 109 px past 576, its 15.6 px root),
+ * measured on 558666f0 in both engines: build 126 must pass every one.
+ */
+const BUILD_125_MID = {
+    gaps: {
+        'header → day': 8.5,
+        'day → tiles': 8.5,
+        'tiles → headline': 8.5,
+        'headline → light': 6.1,
+        'light → stops': 8.5,
+        'stop → stop': 7.4,
+        'stops → footer': 7.3,
+    } as Record<string, number>,
+    // Rounded UP to the hundredth (build 125 draws 14.853, 13.583, 11.338, 10.725, 13.288, 17.55),
+    // so that build 125's own sizes fail "greater than".
+    type: {
+        headline: 14.86,
+        stopName: 13.59,
+        details: 11.34,
+        light: 11.34,
+        credit: 10.73,
+        tileWord: 11.34,
+        tileWind: 13.29,
+        tileLabel: 11.34,
+        icon: 17.56,
+    } as Record<string, number>,
 };
 
 /** The gaps between screen 1's blocks and the sizes that set them, measured in the page. */
@@ -502,13 +563,38 @@ function breathing(page: Page) {
                 details: px(card.querySelector('.today-stop-l2'), 'font-size'),
                 light: px(card.querySelector('.today-facts'), 'font-size'),
                 credit: px(card.querySelector('.today-credit'), 'font-size'),
+                tileWord: px(card.querySelector('.today-cell-word'), 'font-size'),
+                tileWind: px(card.querySelector('.today-cell-wind'), 'font-size'),
+                tileLabel: px(card.querySelector('.today-cell-label'), 'font-size'),
+                icon: px(card.querySelector('.today-head > .today-icon'), 'font-size'),
             },
+            // Every target she presses on screen 1 bar the stop rows (48 px tall since build 124), as drawn:
+            // the place button, ⓘ and ✕, the day chips and Stay, and the footer's two links.
+            targets: Object.fromEntries(
+                [
+                    ...card.querySelectorAll<HTMLElement>(
+                        '.today-place, .today-head > .today-icon, .today-controls .today-chip, .today-foot .today-link',
+                    ),
+                ].map((el) => [
+                    el.classList.contains('today-place')
+                        ? 'place'
+                        : (el.getAttribute('aria-label')?.split(',')[0] ??
+                          [...el.childNodes]
+                              .filter((n) => n.nodeName !== 'SELECT')
+                              .map((n) => n.textContent)
+                              .join('')
+                              .trim()),
+                    Math.round(el.getBoundingClientRect().height * 10) / 10,
+                ]),
+            ) as Record<string, number>,
             header: {
                 infoOffCentre: Math.abs(centre(info) - centre(place)),
                 closeOffCentre: Math.abs(centre(close) - centre(place)),
                 placeToInfo: Math.round((info.left - place.right) * 10) / 10,
                 infoToClose: Math.round((close.left - info.right) * 10) / 10,
                 cardToClose: Math.round((card.getBoundingClientRect().right - close.right) * 10) / 10,
+                // ⓘ and ✕ grow as squares: their focus rings stay square.
+                iconsNotSquare: [info, close].some((r) => Math.abs(r.width - r.height) > 0.5),
             },
             chips: {
                 oneRow: chipBoxes.every((r) => Math.abs(r.top - chipBoxes[0].top) < 1),
@@ -548,6 +634,7 @@ const roomSizes = [
     { ...sizes[4], room: 'phone landscape' },
     { ...AS_DRAWN.se, room: 'an SE' },
     { ...AS_DRAWN.se2, room: 'an SE' },
+    { ...AS_DRAWN.mid, room: 'a tall phone' },
     { ...AS_DRAWN.shane, room: 'the tallest phone' },
 ] as const;
 
@@ -574,6 +661,9 @@ for (const size of roomSizes) {
             expect(m.tileFromRule).toBe(BUILD_124.tileFromRule);
             expect(m.stopPad).toEqual(BUILD_124.stopPad);
             expect(m.type).toEqual(type124);
+            expect(m.targets).toEqual(
+                Object.fromEntries(Object.keys(m.targets).map((key) => [key, BUILD_124.targets])),
+            );
         } else {
             // Every gap grows; the ones she reads down the sheet by are 10 px and more on his phone.
             for (const [key, gap] of Object.entries(m.gaps))
@@ -593,9 +683,45 @@ for (const size of roomSizes) {
             expect(m.type.headline).toBeGreaterThan(m.type.stopName);
             expect(m.type.stopName).toBeGreaterThan(m.type.details);
             expect(m.type.details).toBeGreaterThanOrEqual(m.type.credit);
-            // The headline never passes the root's own size, nor the menus' 17 px.
-            expect(m.type.headline).toBeLessThanOrEqual(m.root);
-            expect(m.type.headline).toBeLessThan(17);
+            // The tile's wind, its one number, stands clear above the grey label over it, as in builds 124 and 125.
+            expect(m.type.tileWind - m.type.tileLabel).toBeGreaterThanOrEqual(1.75);
+            // The headline stays under the menus' row titles (17-19 px on a Pro Max, 125-14).
+            // Changed on purpose in build 126 (126-17): it was "≤ the root and < 17 px".
+            expect(m.type.headline).toBeLessThanOrEqual(18);
+            // The targets grow with the room, to 48 pt at the most.
+            for (const [key, height] of Object.entries(m.targets)) {
+                expect(height, key).toBeGreaterThan(BUILD_124.targets);
+                expect(height, key).toBeLessThanOrEqual(48);
+            }
+            if (size.name === AS_DRAWN.mid.name) {
+                // The phone most people have moves part way: past build 125 in every gap and every size.
+                for (const [key, gap] of Object.entries(m.gaps))
+                    expect(gap, `${key} past build 125`).toBeGreaterThan(BUILD_125_MID.gaps[key]);
+                for (const [key, value] of Object.entries(m.type)) {
+                    expect(value, `${key} past build 124`).toBeGreaterThan(type124[key as keyof typeof type124]);
+                    expect(value, `${key} past build 125`).toBeGreaterThan(BUILD_125_MID.type[key]);
+                }
+            }
+            if (size.name === AS_DRAWN.shane.name) {
+                // His phone uses its screen: the card fills most of his room and stays centred in it
+                // (above counts the overlay's own 1rem), the words he acts on read bigger, every
+                // target is 48 pt, and the blocks he reads down the sheet by stand 15 px and more apart.
+                expect(m.card.height).toBeGreaterThanOrEqual(630);
+                expect(m.card.above).toBeGreaterThanOrEqual(32);
+                expect(m.card.above).toBeLessThanOrEqual(70);
+                expect(m.type.headline).toBeGreaterThanOrEqual(17.5);
+                expect(m.type.stopName).toBeGreaterThanOrEqual(16.5);
+                expect(m.type.details).toBeGreaterThanOrEqual(14);
+                expect(m.type.tileWord).toBeGreaterThanOrEqual(14);
+                expect(m.type.tileWind).toBeGreaterThanOrEqual(14.9);
+                expect(m.type.icon).toBeGreaterThanOrEqual(19.75);
+                expect(m.type.light).toBeGreaterThanOrEqual(13.5);
+                expect(m.type.credit).toBeGreaterThanOrEqual(12);
+                for (const [key, height] of Object.entries(m.targets)) expect(height, key).toBeGreaterThanOrEqual(47.5);
+                for (const key of ['day → tiles', 'tiles → headline', 'stops → footer'])
+                    expect(m.gaps[key], key).toBeGreaterThanOrEqual(15);
+                expect(m.gaps['stop → stop']).toBeGreaterThanOrEqual(11.5);
+            }
         }
         // ⓘ and ✕ sit on the place button's centre line, evenly spaced, and ✕ is
         // never hard against the card's edge.
@@ -603,6 +729,7 @@ for (const size of roomSizes) {
         expect(m.header.closeOffCentre).toBeLessThanOrEqual(1);
         expect(Math.abs(m.header.placeToInfo - m.header.infoToClose)).toBeLessThanOrEqual(1);
         expect(m.header.cardToClose).toBeGreaterThanOrEqual(BUILD_124.cardPad(size.width) + 1);
+        expect(m.header.iconsNotSquare).toBe(false);
         // Stay never squeezes the day chips: one row, whole, apart.
         expect(m.chips).toEqual({ oneRow: true, overlapping: false, cut: [] });
         expect(m.detailsWrapped).toBe(false);
