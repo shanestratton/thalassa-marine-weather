@@ -31,8 +31,51 @@ class FixtureStorage implements Storage {
 }
 Object.defineProperty(window, 'localStorage', { configurable: true, value: new FixtureStorage() });
 Object.defineProperty(window, 'sessionStorage', { configurable: true, value: new FixtureStorage() });
-window.fetch = async () =>
-    new Response(JSON.stringify({ error: 'Move-anchor fixture: network disabled.' }), { status: 503 });
+// &area=park (126-07d): the anchorage atlas's files, stood in for here: one
+// FICTIONAL tile with one GBRMPA-shaped no-anchoring polygon around the
+// anchorage, its name and clause as long as any the app ships, so the sheet's
+// line is the real check's on the atlas path ("…(GBRMPA, CC BY).").
+const PARK_RING = [
+    [5.34, 43.28],
+    [5.38, 43.28],
+    [5.38, 43.31],
+    [5.34, 43.31],
+    [5.34, 43.28],
+];
+const PARK_ATLAS: Record<string, unknown> = {
+    '/anchorages/qld/index.json': {
+        built: '2026-10-10',
+        tileDeg: 2,
+        fetchCapNM: 20,
+        sectors: 36,
+        tiles: [{ id: 't-44e004', bbox: [4, 42, 6, 44], points: 0, noAnchor: 1, zoning: 0 }],
+    },
+    '/anchorages/qld/t-44e004.geojson': { type: 'FeatureCollection', features: [] },
+    '/anchorages/qld/t-44e004-zoning.geojson': { type: 'FeatureCollection', features: [] },
+    '/anchorages/qld/t-44e004-noanchor.geojson': {
+        type: 'FeatureCollection',
+        features: [
+            {
+                type: 'Feature',
+                properties: {
+                    id: 'fixture-noanchor-1',
+                    name: 'Fixture Haven Bay North',
+                    type: 'No-anchoring area',
+                    source: 'GBRMPA',
+                    legal: 'Fixture Plan of Management — Schedule 9, clause 99',
+                },
+                geometry: { type: 'Polygon', coordinates: [PARK_RING] },
+            },
+        ],
+    },
+};
+const parkAtlas = new URLSearchParams(location.search).get('area') === 'park';
+window.fetch = async (input: RequestInfo | URL) => {
+    const path = new URL(input instanceof Request ? input.url : String(input), location.href).pathname;
+    return parkAtlas && path in PARK_ATLAS
+        ? new Response(JSON.stringify(PARK_ATLAS[path]), { status: 200 })
+        : new Response(JSON.stringify({ error: 'Move-anchor fixture: network disabled.' }), { status: 503 });
+};
 
 const params = new URLSearchParams(location.search);
 // Large text: the root size the Shore Watch and draft fixtures use for the same check.
@@ -88,6 +131,57 @@ const [
     import('../../services/anchorLateSet'),
 ]);
 initGlobalKeyboardScroll();
+
+// &area=cable (126-07d): a FICTIONAL submarine cable area charted around the
+// anchorage, in a synthetic chart cell that lives on this page only. The
+// sheet's line ("That point is inside a submarine cable area…") comes from the
+// real check through the real chart store and index; nothing is stubbed.
+// &area=worst: the longest line the sheet can say, the cable area charted
+// "anchoring prohibited" with a pipeline area under it ("That point is inside
+// a submarine cable area: anchoring prohibited (official chart). And 1
+// more."). With no area the page has no chart cells and no atlas (the network
+// is off), so the sheet says "No chart areas loaded here…" instead; &area=park
+// (above) has the atlas and still no chart cell.
+const areaCase = params.get('area');
+if (areaCase === 'cable' || areaCase === 'worst') {
+    const { importCell } = await import('../../services/enc/EncHazardService');
+    const ring = [
+        [5.34, 43.28],
+        [5.38, 43.28],
+        [5.38, 43.31],
+        [5.34, 43.31],
+        [5.34, 43.28],
+    ];
+    await importCell({
+        cellId: 'ZZ5MOVE1',
+        sourceHO: 'ZZ',
+        edition: 1,
+        issued: '2026-10-10',
+        bbox: [5.3, 43.25, 5.42, 43.33],
+        layers: {
+            CBLARE: {
+                type: 'FeatureCollection',
+                features: [
+                    {
+                        type: 'Feature',
+                        properties: areaCase === 'worst' ? { RESTRN: '1' } : {},
+                        geometry: { type: 'Polygon', coordinates: [ring] },
+                    },
+                ],
+            },
+            ...(areaCase === 'worst'
+                ? {
+                      PIPARE: {
+                          type: 'FeatureCollection',
+                          features: [
+                              { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } },
+                          ],
+                      },
+                  }
+                : {}),
+        },
+    });
+}
 
 await settingsModule.awaitSettingsLoaded();
 const settings = settingsModule.useSettingsStore.getState().settings;

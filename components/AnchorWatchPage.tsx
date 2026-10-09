@@ -18,7 +18,13 @@ import React, { useState, useEffect, useCallback, useRef, useMemo, useId } from 
 import { useWeather } from '../context/WeatherContext';
 import { t } from '../theme';
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll';
-import { AnchorWatchService, type AnchorWatchSnapshot, type AnchorWatchConfig } from '../services/AnchorWatchService';
+import {
+    AnchorWatchService,
+    type AnchorPosition,
+    type AnchorWatchSnapshot,
+    type AnchorWatchConfig,
+} from '../services/AnchorWatchService';
+import type { AnchorAreaWarning, ChartAnswer } from '../services/anchorAreaCheck';
 import {
     AnchorWatchSyncService,
     type SyncState,
@@ -33,13 +39,22 @@ import { SoundCheckModal } from './anchor-watch/SoundCheckModal';
 import { ShoreWeighAnchorBar } from './anchor-watch/ShoreWeighAnchorBar';
 import { ShoreWatchModal } from './anchor-watch/ShoreWatchModal';
 import { ShoreWatchReadings } from './anchor-watch/ShoreWatchReadings';
-import { MoveAnchorSheet, type PiMoveSource } from './anchor-watch/MoveAnchorSheet';
+import { loadAnchorAreaCheck, MoveAnchorSheet, type PiMoveSource } from './anchor-watch/MoveAnchorSheet';
 import { MoveAnchorChip } from './anchor-watch/MoveAnchorChip';
 import { useAnchorRadarTargets } from './anchor-watch/anchorRadarTargets';
 import { PageHeader } from './ui/PageHeader';
 import { toast } from './Toast';
 import { createLogger } from '../utils/createLogger';
-import { AnchorIcon, AlertTriangleIcon, CheckIcon, DeviceIcon, LockIcon, PhoneIcon, PowerBoatIcon } from './Icons';
+import {
+    AnchorIcon,
+    AlertTriangleIcon,
+    CheckIcon,
+    DeviceIcon,
+    LockIcon,
+    PhoneIcon,
+    PowerBoatIcon,
+    XIcon,
+} from './Icons';
 import { useAuthStore } from '../stores/authStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { gpsToBowMetres } from '../utils/gpsAntenna';
@@ -52,6 +67,12 @@ import { piFixIsFresh } from '../services/anchorPiMove';
 import { AnchorPiWatchOfferModal } from './anchor/AnchorPiWatchOfferModal';
 
 const log = createLogger('AnchorWatch');
+
+/**
+ * The chart-area note is read for this long (126-07d), then a warning folds
+ * to a chip on the radar and a quiet line goes, giving the readout back.
+ */
+const AREA_NOTE_READ_MS = 10_000;
 
 /**
  * The setup sliders' track: an 8 px line in the middle of the 44 px touch box
@@ -156,6 +177,19 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [showMoveAnchor, setShowMoveAnchor] = useState(false);
     /** The same sheet for the watch this phone handed to the Pi (126-07a). */
     const [showPiMove, setShowPiMove] = useState(false);
+    /**
+     * 126-07d: the charted areas where anchoring is a problem that the anchor
+     * just set is inside, found after the watch was armed, or that the chart
+     * could not be looked at there. For that anchor only (its set time and
+     * point), in memory; Dismiss clears it, and a warning folds to a chip.
+     */
+    const [areaNote, setAreaNote] = useState<{
+        anchor: AnchorPosition;
+        warnings: AnchorAreaWarning[];
+        charts: ChartAnswer;
+        all: boolean;
+        folded: boolean;
+    } | null>(null);
     const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(null);
     const [syncState, setSyncState] = useState<SyncState>(() => AnchorWatchSyncService.getState());
     const [shoreData, setShoreData] = useState<PositionBroadcast | null>(() =>
@@ -541,6 +575,35 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     // ---- HANDLERS ----
 
+    /**
+     * 126-07d: is the anchor just set inside a charted no-anchoring, cable,
+     * pipeline or restricted area? Asked only once the watch is armed, never
+     * awaited, and a note at most: it stops, delays and undoes nothing. The
+     * check (services/anchorAreaCheck.ts) is its own lazily loaded chunk and
+     * never throws. Nothing waits on it here, so the first ask in a new place
+     * gets the time to build the chart's index (ANCHOR_AREA_AFTER_ARM_MS); a
+     * chunk that will not load is a log line. Where no chart cell covers the
+     * anchor, or the chart could not be checked, it says so in a quiet line:
+     * a silence would read as clear.
+     */
+    const areaAnchorRef = useRef<AnchorPosition | null>(null);
+    const noteAnchorAreas = useCallback((anchor: AnchorPosition) => {
+        areaAnchorRef.current = anchor;
+        setAreaNote(null);
+        loadAnchorAreaCheck()
+            .then(({ checkAnchorAreas, ANCHOR_AREA_AFTER_ARM_MS }) =>
+                checkAnchorAreas(anchor.latitude, anchor.longitude, ANCHOR_AREA_AFTER_ARM_MS),
+            )
+            .then(({ warnings, charts }) => {
+                // Only the latest anchor's answer: a slow one for an earlier anchor is not said.
+                if (areaAnchorRef.current === anchor && (warnings.length > 0 || charts !== 'checked'))
+                    setAreaNote({ anchor, warnings, charts, all: false, folded: false });
+            })
+            .catch((error: unknown) =>
+                log.warn(`Anchor area check did not run: ${error instanceof Error ? error.message : 'unknown error'}`),
+            );
+    }, []);
+
     const handleSetAnchor = useCallback(async () => {
         setIsSettingAnchor(true);
         // Arming is five steps, only one of which is the fix. This used to
@@ -569,6 +632,9 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
         if (success) {
             setViewMode('watching');
+            // Armed: only now look at the chart for an area here (126-07d).
+            const anchor = AnchorWatchService.getSnapshot()?.anchorPosition;
+            if (anchor) noteAnchorAreas(anchor);
             // The offer is driven by the effect below, which also covers the
             // case a probe here would miss: a Pi that becomes capable AFTER
             // the anchor is already down.
@@ -588,7 +654,25 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     'Anchor Watch could not start. Check location and notification permissions.',
             );
         }
-    }, [rodeLength, waterDepth, rodeType, safetyMargin, gpsToBowM]);
+    }, [rodeLength, waterDepth, rodeType, safetyMargin, gpsToBowM, noteAnchorAreas]);
+
+    // 126-07d: read, then folded (a warning) or gone (a quiet line). Any tap on
+    // the note ("+1 more", the chip) makes a new note and a new read.
+    useEffect(() => {
+        if (!areaNote || areaNote.folded) return;
+        const timer = window.setTimeout(
+            () =>
+                setAreaNote((note) =>
+                    !note || note !== areaNote
+                        ? note
+                        : note.warnings.length > 0
+                          ? { ...note, all: false, folded: true }
+                          : null,
+                ),
+            AREA_NOTE_READ_MS,
+        );
+        return () => window.clearTimeout(timer);
+    }, [areaNote]);
 
     const handleStopWatch = useCallback(async () => {
         // Shore follower: there's no local anchor watch to stop — leaving just
@@ -1699,6 +1783,21 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     );
     const isHolding = Boolean(snapshot && !monitoringBlocked && snapshot.distanceFromAnchor <= snapshot.swingRadius);
     const liveStatusLabel = monitoringBlocked ? 'Not Monitoring' : isHolding ? 'Holding' : 'Drifting';
+    // 126-07d: the area note, only while the anchor is still the one it was about.
+    const anchorNow = snapshot?.anchorPosition;
+    const areaNoteShown =
+        areaNote &&
+        anchorNow &&
+        anchorNow.timestamp === areaNote.anchor.timestamp &&
+        anchorNow.latitude === areaNote.anchor.latitude &&
+        anchorNow.longitude === areaNote.anchor.longitude
+            ? areaNote
+            : null;
+    const areaLines = areaNoteShown
+        ? areaNoteShown.all
+            ? areaNoteShown.warnings
+            : areaNoteShown.warnings.slice(0, 2)
+        : [];
     const holdPercent =
         snapshot && snapshot.swingRadius > 0
             ? Math.min(100, (snapshot.distanceFromAnchor / snapshot.swingRadius) * 100)
@@ -1934,136 +2033,234 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         aisTargets={showAisOnRadar ? aisTargets : undefined}
                         ariaLabel={`Anchor watch radar display. ${monitoringBlocked ? 'Monitoring is blocked; values are retained reference data only' : isHolding ? 'Vessel holding position' : 'Vessel drifting'}. Current distance from anchor: ${snapshot ? formatDistance(snapshot.distanceFromAnchor) : 'unknown'}. Swing radius: ${snapshot ? formatDistance(snapshot.swingRadius) : 'unknown'}.`}
                     />
-                    {canMoveAnchor && (
-                        <MoveAnchorChip
-                            className="absolute bottom-1.5 left-1.5"
-                            onClick={() => setShowMoveAnchor(true)}
-                        />
-                    )}
-                </div>
-
-                {/* Stats Grid — 2×3 */}
-                <div className="shrink-0 px-2.5 pb-1.5">
-                    <div className="grid grid-cols-3 gap-1.5">
-                        {/* WHICH receiver the watch believes, not just how
-                            accurate it is. 'BOAT' means the vessel's own GPS;
-                            'PHONE' means this device — and if this device is
-                            ashore, the swing circle is being measured from the
-                            wrong place. Those two must never look alike
-                            (Shane 2026-08-08, monitoring over Tailscale). */}
-                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
-                            <div className={t.typography.labelSm}>
-                                {snapshot?.gpsSource === 'nmea' ? (
-                                    <span className="inline-flex items-center gap-1 text-cyan-300">
-                                        <AnchorIcon className="h-3 w-3 shrink-0" />
-                                        BOAT GPS
-                                    </span>
-                                ) : snapshot?.gpsSource === 'native' ? (
-                                    <span className="inline-flex items-center gap-1 text-amber-300">
-                                        <DeviceIcon className="h-3 w-3 shrink-0" />
-                                        PHONE GPS
-                                    </span>
-                                ) : (
-                                    'GPS'
+                    {/* Along the radar's foot, side by side so they never overlap:
+                        Move anchor, and (126-07d) the area note folded once read,
+                        the area in a chip that opens it again. Where the radar is
+                        squeezed out (a small phone, landscape, large text) it has
+                        no room for that chip, which would lie over the status
+                        badge: there the read note leaves none. */}
+                    {(canMoveAnchor || areaNoteShown?.folded) && (
+                        <div className="pointer-events-none absolute inset-0 [container-type:size]">
+                            <div className="absolute inset-x-1.5 bottom-1.5 flex items-end gap-2">
+                                {canMoveAnchor && (
+                                    <MoveAnchorChip
+                                        className="pointer-events-auto shrink-0"
+                                        onClick={() => setShowMoveAnchor(true)}
+                                    />
+                                )}
+                                {areaNoteShown?.folded && (
+                                    <button
+                                        type="button"
+                                        data-testid="anchor-area-chip"
+                                        onClick={() => setAreaNote({ ...areaNoteShown, folded: false })}
+                                        aria-label={`Chart area note: ${areaNoteShown.warnings[0].area}`}
+                                        className="pointer-events-auto ml-auto flex min-h-11 min-w-11 items-center gap-1.5 rounded-full border border-amber-300/50 bg-amber-950/90 px-3 text-sm font-bold text-amber-100 [@container(max-height:3.5rem)]:hidden"
+                                    >
+                                        <AlertTriangleIcon className="h-4 w-4 shrink-0" />
+                                        <span className="truncate first-letter:uppercase">
+                                            {areaNoteShown.warnings[0].area}
+                                        </span>
+                                    </button>
                                 )}
                             </div>
-                            <div
-                                className={`text-sm font-black font-mono ${(snapshot?.gpsAccuracy ?? 99) < 10 ? 'text-emerald-400' : (snapshot?.gpsAccuracy ?? 99) < 20 ? 'text-amber-400' : 'text-red-400'}`}
-                            >
-                                {snapshot ? `±${snapshot.gpsAccuracy.toFixed(0)} m` : '--'}
-                            </div>
                         </div>
-                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
-                            <div className={t.typography.labelSm}>Bearing</div>
-                            <div className="text-sm font-black font-mono text-slate-200">
-                                {snapshot
-                                    ? `${snapshot.bearingToAnchor.toFixed(0)}° ${bearingToCardinal(snapshot.bearingToAnchor)}`
-                                    : `--`}
-                            </div>
-                        </div>
-                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
-                            <div className={t.typography.label}>Max Drift</div>
-                            <div className="text-sm font-black font-mono text-slate-200">
-                                {snapshot ? formatDistance(snapshot.maxDistanceRecorded) : `--`}
-                            </div>
-                        </div>
-                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
-                            <div className={t.typography.label}>Rode</div>
-                            <div className="text-sm font-black font-mono text-slate-200">
-                                {snapshot ? `${Math.round(snapshot.config.rodeLength)} m` : '--'}
-                            </div>
-                        </div>
-                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
-                            <div className={t.typography.label}>Depth</div>
-                            <div className="text-sm font-black font-mono text-slate-200">
-                                {snapshot ? `${snapshot.config.waterDepth.toFixed(1)} m` : '--'}
-                            </div>
-                        </div>
-                        <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
-                            <div className={t.typography.label}>Scope</div>
-                            <div className="text-sm font-black font-mono text-slate-200">
-                                {snapshot ? (snapshot.config.rodeLength / snapshot.config.waterDepth).toFixed(1) : `--`}
-                                :1
-                            </div>
-                        </div>
-                    </div>
-                    {/* Marked at the boat's GPS with no heading to put it at
-                        the bow (126-07c): the circle allows for the antenna
-                        twice over, so the radius is larger than the rode
-                        explains. One sentence: it comes out of the radar's
-                        height (browser-tests/anchor-antenna-layout.spec.ts). */}
-                    {snapshot?.markedAtGps && (snapshot.config.antennaAllowanceM ?? 0) > 0 && (
-                        <p className="mt-1 text-[11px] leading-snug font-medium text-cyan-200/80">
-                            Marked at the GPS,{' '}
-                            {units?.length === 'ft'
-                                ? `${Math.round((snapshot.config.antennaAllowanceM ?? 0) / 2 / 0.3048)} ft`
-                                : `${Math.round((snapshot.config.antennaAllowanceM ?? 0) / 2)} m`}{' '}
-                            aft of the bow: the circle allows for it.
-                        </p>
                     )}
                 </div>
 
-                {/* Distance / Radius — premium readout */}
-                <div className="shrink-0 border-t border-white/6 px-4 py-1.5 bg-slate-900/30">
-                    <div className="flex items-center justify-around gap-4">
-                        <div className="text-center flex-1">
-                            <div className="text-xs text-slate-400 uppercase tracking-wider">
-                                {monitoringBlocked ? 'Last-Known Distance' : 'Distance'}
-                            </div>
-                            <div
-                                className={`text-xl font-black font-mono ${monitoringBlocked ? 'text-amber-300' : isHolding ? 'text-emerald-400' : 'text-red-400'}`}
+                {/* The stats and the readout, and the area note read over them.
+                    It gives way (min-h-0) only where the card cannot show them
+                    all, so the note stays on what the card shows. */}
+                <div className="relative min-h-0">
+                    {/* 126-07d: the anchor is down inside a charted area where
+                        anchoring is a problem: which area, what it is, where that
+                        comes from, and that the watch is on. The two most serious,
+                        "+N more" for the rest. Or, quietly, that no chart covers
+                        the anchor or the chart could not be checked. Under the
+                        radar in reading order, drawn over the stats and the
+                        readout for a read (AREA_NOTE_READ_MS), never over the
+                        radar or its chips: in the flow it took a 375 x 667 radar
+                        from 95 px to 5, and the radar is already squeezed out at
+                        320 x 568, in landscape and at large text. A long list
+                        scrolls inside the note; Dismiss (44 px, floated in its
+                        corner so the words use the width under it) or the read
+                        running out gives the readout back
+                        (browser-tests/anchor-antenna-layout.spec.ts). */}
+                    {areaNoteShown && !areaNoteShown.folded && (
+                        <div
+                            role="status"
+                            data-testid="anchor-area-note"
+                            className={`absolute inset-x-2 bottom-2 z-10 max-h-[calc(100%-0.5rem)] overflow-y-auto overscroll-contain rounded-xl border pb-1.5 pl-3 text-[12px] leading-snug font-semibold shadow-[0_0_24px_rgba(0,0,0,0.45)] ${
+                                areaLines.length
+                                    ? 'border-amber-300/50 bg-amber-950 text-amber-100'
+                                    : 'border-white/10 bg-slate-900 text-slate-300'
+                            }`}
+                        >
+                            <button
+                                type="button"
+                                onClick={() => setAreaNote(null)}
+                                aria-label="Dismiss the chart area note"
+                                className="float-right flex h-11 w-11 items-center justify-center rounded-xl"
                             >
-                                {snapshot ? formatDistance(snapshot.distanceFromAnchor) : '--'}
+                                <XIcon className="h-4 w-4" />
+                            </button>
+                            {areaLines.map((line) => (
+                                <p key={`${line.source}|${line.kind}|${line.area}`} className="pt-1.5">
+                                    {line.words.startsWith(`Inside ${line.area}`) ? (
+                                        <>
+                                            Inside <strong className="font-black text-amber-50">{line.area}</strong>
+                                            {line.words.slice(`Inside ${line.area}`.length)}
+                                        </>
+                                    ) : (
+                                        line.words
+                                    )}
+                                </p>
+                            ))}
+                            {areaLines.length < areaNoteShown.warnings.length && (
+                                <button
+                                    type="button"
+                                    onClick={() => setAreaNote({ ...areaNoteShown, all: true })}
+                                    className="flex min-h-11 items-center font-black text-amber-50 underline"
+                                >
+                                    +{areaNoteShown.warnings.length - areaLines.length} more
+                                </button>
+                            )}
+                            {areaLines.length === 0 ? (
+                                <p className="pt-3.5">
+                                    {areaNoteShown.charts === 'none'
+                                        ? 'No chart areas loaded here to check the anchor against.'
+                                        : 'The chart here could not be checked.'}
+                                </p>
+                            ) : (
+                                !monitoringBlocked && <p className="pt-1">Your anchor watch is on.</p>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Stats Grid — 2×3 */}
+                    <div className="shrink-0 px-2.5 pb-1.5">
+                        <div className="grid grid-cols-3 gap-1.5">
+                            {/* WHICH receiver the watch believes, not just how
+                                accurate it is. 'BOAT' means the vessel's own GPS;
+                                'PHONE' means this device — and if this device is
+                                ashore, the swing circle is being measured from the
+                                wrong place. Those two must never look alike
+                                (Shane 2026-08-08, monitoring over Tailscale). */}
+                            <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
+                                <div className={t.typography.labelSm}>
+                                    {snapshot?.gpsSource === 'nmea' ? (
+                                        <span className="inline-flex items-center gap-1 text-cyan-300">
+                                            <AnchorIcon className="h-3 w-3 shrink-0" />
+                                            BOAT GPS
+                                        </span>
+                                    ) : snapshot?.gpsSource === 'native' ? (
+                                        <span className="inline-flex items-center gap-1 text-amber-300">
+                                            <DeviceIcon className="h-3 w-3 shrink-0" />
+                                            PHONE GPS
+                                        </span>
+                                    ) : (
+                                        'GPS'
+                                    )}
+                                </div>
+                                <div
+                                    className={`text-sm font-black font-mono ${(snapshot?.gpsAccuracy ?? 99) < 10 ? 'text-emerald-400' : (snapshot?.gpsAccuracy ?? 99) < 20 ? 'text-amber-400' : 'text-red-400'}`}
+                                >
+                                    {snapshot ? `±${snapshot.gpsAccuracy.toFixed(0)} m` : '--'}
+                                </div>
+                            </div>
+                            <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
+                                <div className={t.typography.labelSm}>Bearing</div>
+                                <div className="text-sm font-black font-mono text-slate-200">
+                                    {snapshot
+                                        ? `${snapshot.bearingToAnchor.toFixed(0)}° ${bearingToCardinal(snapshot.bearingToAnchor)}`
+                                        : `--`}
+                                </div>
+                            </div>
+                            <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
+                                <div className={t.typography.label}>Max Drift</div>
+                                <div className="text-sm font-black font-mono text-slate-200">
+                                    {snapshot ? formatDistance(snapshot.maxDistanceRecorded) : `--`}
+                                </div>
+                            </div>
+                            <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
+                                <div className={t.typography.label}>Rode</div>
+                                <div className="text-sm font-black font-mono text-slate-200">
+                                    {snapshot ? `${Math.round(snapshot.config.rodeLength)} m` : '--'}
+                                </div>
+                            </div>
+                            <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
+                                <div className={t.typography.label}>Depth</div>
+                                <div className="text-sm font-black font-mono text-slate-200">
+                                    {snapshot ? `${snapshot.config.waterDepth.toFixed(1)} m` : '--'}
+                                </div>
+                            </div>
+                            <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/4">
+                                <div className={t.typography.label}>Scope</div>
+                                <div className="text-sm font-black font-mono text-slate-200">
+                                    {snapshot
+                                        ? (snapshot.config.rodeLength / snapshot.config.waterDepth).toFixed(1)
+                                        : `--`}
+                                    :1
+                                </div>
                             </div>
                         </div>
-                        <div className="w-px h-8 bg-linear-to-b from-transparent via-white/10 to-transparent" />
-                        <div className="text-center flex-1">
-                            <div className="text-xs text-slate-400 uppercase tracking-wider">Radius</div>
-                            <div className="text-xl font-black font-mono text-white">
-                                {snapshot ? formatDistance(snapshot.swingRadius) : `--`}
-                            </div>
-                        </div>
+                        {/* Marked at the boat's GPS with no heading to put it at
+                            the bow (126-07c): the circle allows for the antenna
+                            twice over, so the radius is larger than the rode
+                            explains. One sentence: it comes out of the radar's
+                            height (browser-tests/anchor-antenna-layout.spec.ts). */}
+                        {snapshot?.markedAtGps && (snapshot.config.antennaAllowanceM ?? 0) > 0 && (
+                            <p className="mt-1 text-[11px] leading-snug font-medium text-cyan-200/80">
+                                Marked at the GPS,{' '}
+                                {units?.length === 'ft'
+                                    ? `${Math.round((snapshot.config.antennaAllowanceM ?? 0) / 2 / 0.3048)} ft`
+                                    : `${Math.round((snapshot.config.antennaAllowanceM ?? 0) / 2)} m`}{' '}
+                                aft of the bow: the circle allows for it.
+                            </p>
+                        )}
                     </div>
 
-                    {/* Gradient usage bar */}
-                    <div className="mt-1.5 h-1.5 bg-slate-800/60 rounded-full overflow-hidden">
-                        <div
-                            className="h-full rounded-full transition-all duration-500"
-                            style={{
-                                width: `${holdPercent}%`,
-                                background:
-                                    holdPercent > 85
-                                        ? 'linear-gradient(90deg, #f59e0b, #ef4444)'
-                                        : holdPercent > 60
-                                          ? 'linear-gradient(90deg, #22c55e, #f59e0b)'
-                                          : 'linear-gradient(90deg, #06b6d4, #22c55e)',
-                            }}
-                        />
-                    </div>
-                    <div className="flex justify-between text-xs text-slate-400 mt-0.5">
-                        <span>Anchor</span>
-                        <span className="font-bold font-mono">{holdPercent.toFixed(0)}%</span>
-                        <span>Alarm</span>
+                    {/* Distance / Radius — premium readout */}
+                    <div className="shrink-0 border-t border-white/6 px-4 py-1.5 bg-slate-900/30">
+                        <div className="flex items-center justify-around gap-4">
+                            <div className="text-center flex-1">
+                                <div className="text-xs text-slate-400 uppercase tracking-wider">
+                                    {monitoringBlocked ? 'Last-Known Distance' : 'Distance'}
+                                </div>
+                                <div
+                                    className={`text-xl font-black font-mono ${monitoringBlocked ? 'text-amber-300' : isHolding ? 'text-emerald-400' : 'text-red-400'}`}
+                                >
+                                    {snapshot ? formatDistance(snapshot.distanceFromAnchor) : '--'}
+                                </div>
+                            </div>
+                            <div className="w-px h-8 bg-linear-to-b from-transparent via-white/10 to-transparent" />
+                            <div className="text-center flex-1">
+                                <div className="text-xs text-slate-400 uppercase tracking-wider">Radius</div>
+                                <div className="text-xl font-black font-mono text-white">
+                                    {snapshot ? formatDistance(snapshot.swingRadius) : `--`}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Gradient usage bar */}
+                        <div className="mt-1.5 h-1.5 bg-slate-800/60 rounded-full overflow-hidden">
+                            <div
+                                className="h-full rounded-full transition-all duration-500"
+                                style={{
+                                    width: `${holdPercent}%`,
+                                    background:
+                                        holdPercent > 85
+                                            ? 'linear-gradient(90deg, #f59e0b, #ef4444)'
+                                            : holdPercent > 60
+                                              ? 'linear-gradient(90deg, #22c55e, #f59e0b)'
+                                              : 'linear-gradient(90deg, #06b6d4, #22c55e)',
+                                }}
+                            />
+                        </div>
+                        <div className="flex justify-between text-xs text-slate-400 mt-0.5">
+                            <span>Anchor</span>
+                            <span className="font-bold font-mono">{holdPercent.toFixed(0)}%</span>
+                            <span>Alarm</span>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -86,6 +86,23 @@
  * the title, or in its row on a short screen (where a small phone's title
  * gives them its place, still naming the dialog), and step aside with it
  * while the keyboard is up: the choice is made before typing.
+ *
+ * Chart areas (build 126, 126-07d), in every mode: 400 ms after the point
+ * settles, the lazily loaded services/anchorAreaCheck.ts looks for a charted
+ * no-anchoring, cable, pipeline or restricted area there, and one line under
+ * the live check says so in its short form ("That point is inside a pipeline
+ * area (official chart)."; the name and clause wait for the page's note).
+ * Move still works: it is said, never a block. Where no chart cell covers the
+ * point it says that instead ("No chart areas loaded here…"; a marine-park
+ * atlas never looks for cables), and where the chart did not answer in time
+ * it asks once more, then says "The chart here could not be checked." and
+ * lets that answer go when the point moves; neither from the alarm, which is
+ * no time for it, nor on a short portrait screen, which has no room for it.
+ * An answer stands for the point it was about and anything within 10 m (a
+ * fix's jitter moves a From the boat point every second); further away it
+ * keeps its place, unread, until the new answer comes. It steps aside while
+ * the keyboard is up, and on a short screen the hint steps aside for a
+ * warning (the sheet has room for one of them there).
  */
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
@@ -110,6 +127,8 @@ import { formatDmm, parseAnchorPosition } from '../../utils/anchorPosition';
 import { freshTrueHeading, HEADING_PREFILL_MAX_AGE_MS, type HeadingReading } from '../../utils/trueHeading';
 import { gpsToBowMetres } from '../../utils/gpsAntenna';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import type { AnchorAreaCheck } from '../../services/anchorAreaCheck';
+import { createLogger } from '../../utils/createLogger';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { Button } from '../ui/Button';
 import { XIcon } from '../Icons';
@@ -129,6 +148,19 @@ const PI_REPORT_WAIT_MS = 30_000;
 const ARMING_MARGIN_M = 10;
 const METRES_PER_FOOT = 0.3048;
 const METRES_PER_NM = 1852;
+/** The chart-area check waits this long for the point to settle (126-07d). */
+const AREA_CHECK_DEBOUNCE_MS = 400;
+/** An area answer stands for its point and anything this close (metres): a fix's jitter does not re-ask. */
+const AREA_ANSWER_STANDS_M = 10;
+
+const log = createLogger('MoveAnchorSheet');
+
+/**
+ * The chart-area check (126-07d), its own lazily loaded chunk. The one import
+ * site for this sheet and the Anchor Watch page, so the build writes the
+ * chunk's preload list once, not into both.
+ */
+export const loadAnchorAreaCheck = () => import('../../services/anchorAreaCheck');
 
 type LengthUnit = 'm' | 'ft';
 type LatLon = { latitude: number; longitude: number };
@@ -362,6 +394,15 @@ const KEYBOARD_ASIDE = "[html[data-keyboard-open='true']_&]:hidden";
 /** The preview: gone in a short landscape band, and on a short phone while the keyboard is up. */
 const PREVIEW_ASIDE =
     "[@media(max-height:500px)]:hidden [@media(max-height:700px)]:[html[data-keyboard-open='true']_&]:hidden";
+/** The least of the lines, "No chart areas loaded here…" or "The chart here could not be checked." (126-07d): not on a short portrait screen. */
+const COVERAGE_ASIDE = '[@media(orientation:portrait)_and_(max-height:600px)]:hidden';
+/**
+ * On a short screen (a small phone, a landscape band) the hint gives its place
+ * to a charted area at the point (126-07d): the warning is worth more there
+ * than where the prefill came from, and the sheet has room for one of them
+ * (from the alarm at 320 x 568 it had none to spare).
+ */
+const HINT_AREA_ASIDE = '[@media(max-height:600px)]:hidden';
 /** Tighter while the keyboard is up. */
 const FORM =
     "flex flex-none flex-col gap-1.5 px-4 pt-2 pb-4 [html[data-keyboard-open='true']_&]:pt-1 [html[data-keyboard-open='true']_&]:pb-3";
@@ -441,6 +482,9 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
     const bearingText = typedBearing ?? (heading ? String(Math.round(heading.deg) % 360).padStart(3, '0') : '');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // 126-07d: the last chart-area answer, and the point it was about.
+    const [area, setArea] = useState<{ at: { lat: number; lon: number }; check: AnchorAreaCheck } | null>(null);
+    const areaAskedRef = useRef<{ lat: number; lon: number } | null>(null);
     // Pi mode: where the move stands once sent (126-07a).
     const [piPhase, setPiPhase] = useState<PiPhase>(PI_IDLE);
     const piLate = piPhase.kind === 'sent' && now - piPhase.at > PI_REPORT_WAIT_MS;
@@ -519,6 +563,50 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
         : undefined;
     // Only From the boat takes the bearing from the heading.
     const headingMatters = byBoat && !drag;
+    // 126-07d: ask about the point once it settles, unless the last answer still stands for it.
+    const areaLat = plan?.target.lat;
+    const areaLon = plan?.target.lon;
+    const areaStands = (at: { lat: number; lon: number } | null) =>
+        !!at &&
+        areaLat !== undefined &&
+        areaLon !== undefined &&
+        calculateDistance(at.lat, at.lon, areaLat, areaLon) * METRES_PER_NM < AREA_ANSWER_STANDS_M;
+    useEffect(() => {
+        if (areaLat === undefined || areaLon === undefined || areaStands(areaAskedRef.current)) return;
+        const point = { lat: areaLat, lon: areaLon };
+        const ask = (again: boolean): Promise<unknown> =>
+            loadAnchorAreaCheck()
+                .then(({ checkAnchorAreas }) => checkAnchorAreas(point.lat, point.lon))
+                .then((check) => {
+                    // Only the latest point's answer: a slow one for an older point is not said.
+                    if (areaAskedRef.current !== point) return;
+                    // A chart here that did not answer in time is still building its
+                    // index (the first ask in a new place): ask once more, and an
+                    // answer that still could not check it does not stand.
+                    if (check.charts === 'unchecked' && again) return ask(false);
+                    setArea({ at: point, check });
+                    if (check.charts === 'unchecked') areaAskedRef.current = null;
+                });
+        const timer = window.setTimeout(() => {
+            areaAskedRef.current = point;
+            ask(true).catch((caught: unknown) =>
+                log.warn(`Anchor area check did not run: ${caught instanceof Error ? caught.message : 'unknown'}`),
+            );
+        }, AREA_CHECK_DEBOUNCE_MS);
+        return () => window.clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the point, not the closure
+    }, [areaLat, areaLon]);
+    const areaFresh = !!area && areaStands(area.at);
+    const [firstArea, ...moreAreas] = area?.check.warnings ?? [];
+    // The short form (kind and source, no name or clause), so the line stays
+    // within the sheet on a small phone whatever the chart calls the area.
+    const areaWords = firstArea
+        ? `That point is inside ${firstArea.brief}.${moreAreas.length ? ` And ${moreAreas.length} more.` : ''}`
+        : !area || fromAlarm || area.check.charts === 'checked'
+          ? null
+          : area.check.charts === 'none'
+            ? 'No chart areas loaded here to check the point against.'
+            : 'The chart here could not be checked.';
     // From the alarm: does her track back the move? Asked of the watch live,
     // before the tap (it holds her whole track; the snapshot's trail is short).
     const verdict =
@@ -870,7 +958,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
                     <p
                         id={hintId}
                         data-testid="move-anchor-hint"
-                        className={`text-xs leading-snug text-slate-400 ${noPointWouldDo ? 'hidden' : KEYBOARD_ASIDE}`}
+                        className={`text-xs leading-snug text-slate-400 ${noPointWouldDo ? 'hidden' : KEYBOARD_ASIDE} ${firstArea ? HINT_AREA_ASIDE : ''}`}
                     >
                         {hint}
                     </p>
@@ -888,6 +976,19 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
                         {live.text}
                         {live.more && <span className={KEYBOARD_ASIDE}> {live.more}</span>}
                     </p>
+                    {/* 126-07d: a charted area at the point, under the live check.
+                        An answer about a point it no longer is keeps its place,
+                        unread, so nothing jumps under a dragging finger. */}
+                    {areaWords && (
+                        <p
+                            data-testid="move-anchor-area"
+                            aria-live="polite"
+                            aria-hidden={areaFresh ? undefined : true}
+                            className={`${firstArea ? 'text-sm font-semibold text-amber-200' : `text-xs text-slate-400 ${COVERAGE_ASIDE}`} leading-snug ${areaFresh ? '' : 'invisible'} ${KEYBOARD_ASIDE}`}
+                        >
+                            {areaWords}
+                        </p>
+                    )}
                     {error && (
                         <p role="alert" className="text-sm text-red-300">
                             {error}
