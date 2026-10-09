@@ -1,16 +1,20 @@
 /**
  * SmartPolarService — 5-Gate data filtering pipeline for empirical polars.
- * Subscribes to NmeaListenerService, filters for clean sailing conditions,
- * and records accepted samples into SmartPolarStore.
+ * Hears the boat through services/smartPolarFeed — a gateway socket's samples,
+ * or the Pi over the boat link (build 126, 126-B6a: before that it heard only
+ * the socket, which never opens on a Pi boat) — filters for clean sailing
+ * conditions, and records accepted samples into SmartPolarStore. Starting and
+ * stopping it touches nothing else: the instrument store and the socket
+ * belong to InstrumentSourcePolicy.
  *
  * Gate 1: Engine Off (RPM=0 or no alternator spike)
  * Gate 2: Stable Heading (ROT < 3°/s — no tacking/gybing)
  * Gate 3: Steady Wind (TWS/TWA stable for 30s window)
- * Gate 4: Minimum Speed (STW > 1.0 kts)
+ * Gate 4: Minimum Speed (STW > 1.0 kts, and SOG > 1.0 kts when known: a boat
+ *         moored or berthed in a stream has STW without going anywhere)
  * Gate 5: Steady State Timer (all gates pass for ≥30s before recording)
  */
-import type { NmeaSample } from '../types';
-import { NmeaListenerService } from './NmeaListenerService';
+import { subscribeLearnerSamples, type LearnerSample } from './smartPolarFeed';
 import { SmartPolarStore } from './SmartPolarStore';
 
 // ── Filter thresholds ──
@@ -20,6 +24,7 @@ const MAX_ROT_DEG_PER_SEC = 3.0; // Rate of Turn threshold
 const TWS_STD_MAX = 3.0; // Max TWS std-dev over window
 const TWA_STD_MAX = 15.0; // Max TWA std-dev over window
 const MIN_STW = 1.0; // Minimum boat speed (kts)
+const MIN_SOG = 1.0; // Minimum speed over the ground (kts), when known
 const STEADY_STATE_SEC = 30; // Seconds of clean data before recording
 const ROLLING_WINDOW_SEC = 30; // Window for std-dev calculations
 
@@ -41,7 +46,7 @@ class SmartPolarServiceClass {
     private enabled = false;
 
     // Rolling window buffers
-    private sampleHistory: NmeaSample[] = [];
+    private sampleHistory: LearnerSample[] = [];
     private readonly MAX_HISTORY = Math.ceil(ROLLING_WINDOW_SEC / 5) + 2; // ~8 samples
 
     // Steady-state timer
@@ -68,7 +73,7 @@ class SmartPolarServiceClass {
         this.enabled = true;
         await SmartPolarStore.ensureLoaded();
         if (!this.enabled || this.unsubscribe) return;
-        this.unsubscribe = NmeaListenerService.onSample((sample) => this.processSample(sample));
+        this.unsubscribe = subscribeLearnerSamples((sample) => this.processSample(sample));
     }
 
     stop(): void {
@@ -98,7 +103,7 @@ class SmartPolarServiceClass {
 
     // ── Core Pipeline ──
 
-    private processSample(sample: NmeaSample): void {
+    private processSample(sample: LearnerSample): void {
         // Push to history
         this.sampleHistory.push(sample);
         if (this.sampleHistory.length > this.MAX_HISTORY) {
@@ -138,7 +143,7 @@ class SmartPolarServiceClass {
     }
 
     // ── Gate 1: Engine Off ──
-    private gateEngineOff(sample: NmeaSample): FilterGateStatus {
+    private gateEngineOff(sample: LearnerSample): FilterGateStatus {
         // If RPM data available, check it
         if (sample.rpm !== null) {
             return sample.rpm <= MAX_RPM ? 'pass' : 'fail';
@@ -189,14 +194,19 @@ class SmartPolarServiceClass {
     }
 
     // ── Gate 4: Minimum Speed ──
-    private gateMinimumSpeed(sample: NmeaSample): FilterGateStatus {
+    private gateMinimumSpeed(sample: LearnerSample): FilterGateStatus {
         if (sample.stw === null) return 'unavailable';
+        // A mooring, a berth or an anchor in a tidal stream: the log reads the
+        // current going by, the heading and wind are steady and the engine is
+        // off, so only the ground says she is not sailing (build 126: the
+        // learner now hears the Pi over the tailnet, from any phone).
+        if ((sample.sog ?? Infinity) < MIN_SOG) return 'fail';
         return sample.stw >= MIN_STW ? 'pass' : 'fail';
     }
 
     // ── Helpers ──
 
-    private getWindowSamples(): NmeaSample[] {
+    private getWindowSamples(): LearnerSample[] {
         const cutoff = Date.now() - ROLLING_WINDOW_SEC * 1000;
         return this.sampleHistory.filter((s) => s.timestamp >= cutoff);
     }
