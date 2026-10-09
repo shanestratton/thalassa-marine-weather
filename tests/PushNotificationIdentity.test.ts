@@ -235,6 +235,29 @@ describe('PushNotificationService identity ownership', () => {
         await expect(registration).resolves.toBeNull();
     });
 
+    it('reports a token as registered only once this account’s server claim accepted it (126-04b)', async () => {
+        const { identity, service } = await loadService();
+        dbMocks.rpc.mockResolvedValueOnce({ data: null, error: { message: 'offline at launch' } });
+        emitRegistration();
+        await vi.waitFor(() => expect(dbMocks.rpc).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(service.getToken()).toBe('device-token-that-is-long-enough'));
+        // APNs handed the token over, but push_device_tokens has no row for it.
+        expect(service.getAssociatedToken()).toBeNull();
+
+        await service.setUser('account-a');
+        expect(service.getAssociatedToken()).toBe('device-token-that-is-long-enough');
+
+        // Another account on this phone: not registered for it until its own claim.
+        identity.setAuthIdentityScope('account-b');
+        dbMocks.remoteUserId = 'account-b';
+        expect(service.getAssociatedToken()).toBeNull();
+        await service.setUser('account-b');
+        expect(service.getAssociatedToken()).toBe('device-token-that-is-long-enough');
+
+        await service.clearUser();
+        expect(service.getAssociatedToken()).toBeNull();
+    });
+
     it('verifies the remote user before an owner-bound token claim', async () => {
         const { service } = await loadService();
         dbMocks.remoteUserId = 'different-remote-account';

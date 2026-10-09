@@ -17,6 +17,7 @@ import {
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
 import { PI_INTEGRATION_ENABLED } from '../services/piPublicBetaBoundary';
+import { PiNightWatchStatus } from '../services/piNightWatchStatus';
 import { seabedLocallyEnabled } from '../services/seabed/seabedSink';
 import { sightingsOutboxFlagged } from '../services/sightings/outboxFlag';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
@@ -494,10 +495,22 @@ export function useAppBootstrap() {
         const actionScope = identityScope;
         let active = true;
         let unbind: (() => void) | null = null;
+        // The Pi's alarm (126-04b): a card 'from the Pi', and its acknowledgement reaches the cloud.
+        const receivePiAlarm = (data: Readonly<Record<string, unknown>>) => {
+            const got = PiNightWatchStatus.receivePush({ ...data });
+            void import('../services/piNightWatch')
+                .then(({ startPiAlarmCloud }) => startPiAlarmCloud())
+                .catch(() => undefined);
+            return got.hadCard;
+        };
         const foregroundHandler = (notification: Parameters<typeof pushForegroundToast>[0]) => {
-            if (notification.data?.notification_type === 'anchor_alarm') {
-                ShoreWatchAlarmService.receivePush(notification.data);
+            const data = notification.data;
+            const type = data?.notification_type;
+            if (data && type === 'anchor_alarm') {
+                ShoreWatchAlarmService.receivePush(data);
             }
+            // No toast over a card this phone already shows for her.
+            if (data && (type === 'collision_alarm' || type === 'distress_alarm') && receivePiAlarm(data)) return;
             pushForegroundToast(notification);
         };
         const tapHandler = (data: Readonly<Record<string, unknown>>) => {
@@ -513,6 +526,16 @@ export function useAppBootstrap() {
                     // 'compass' = the anchor-watch page — the surface with the
                     // alarm overlay + silence control ('map' has neither).
                     setPage('compass');
+                    break;
+                case 'collision_alarm':
+                case 'distress_alarm':
+                    // The chart, with the Pi's alarm card on it (126-04b).
+                    receivePiAlarm(data);
+                    setPage('map');
+                    break;
+                case 'pi_watch_notice':
+                    // The AIS key on the chart says what the Pi's watch is doing.
+                    setPage('map');
                     break;
                 case 'bolo_alert':
                 case 'suspicious_alert':

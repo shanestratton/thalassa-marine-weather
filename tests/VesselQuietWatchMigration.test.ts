@@ -307,7 +307,8 @@ describe('vessel_quiet_watch migration', () => {
     });
 
     it('stays an ordinary alert in send-push: boat_quiet is not a critical type', () => {
-        const sendPush = readFileSync('supabase/functions/send-push/index.ts', 'utf8');
+        // The per-type settings moved to send-push/config.ts in 126-04b.
+        const sendPush = readFileSync('supabase/functions/send-push/config.ts', 'utf8');
         const critical = sendPush.slice(
             sendPush.indexOf('function isCriticalType'),
             sendPush.indexOf('function getThreadId'),

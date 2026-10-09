@@ -5,6 +5,8 @@
  *   POST /api/ais-watch        { armed: true, prefs, ownMmsi?, device? }
  *                              | { armed: false, device?, everyone? }
  *   POST /api/ais-watch/ack    { kind, mmsi }: silence one alarm, for every phone aboard
+ *   POST /api/ais-watch/test   "Send a test from the Pi" (126-04b): one push through the
+ *                              whole path to the skipper's phone; answers { push, queued }
  *
  * `device` is the phone's install id: the watch keeps every device that armed
  * it and stands down when the last of them disarms. `everyone: true` is the
@@ -17,7 +19,7 @@
  * pairs with (server.ts), like every other app endpoint.
  */
 import { Router, type Request, type Response } from 'express';
-import type { AisNightWatch, AisWatchKind } from '../aisWatch.js';
+import type { AisNightWatch, AisWatchKind, AisWatchPushState } from '../aisWatch.js';
 import { isDeviceId, isMmsi } from '../aisWatchStore.js';
 import { sanitiseCollisionPrefs } from '../collisionRule/collisionRule.js';
 
@@ -35,7 +37,12 @@ function bodyOf(value: unknown): Record<string, unknown> | null {
     return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
-export function createAisWatchRoutes(watch: AisNightWatch): Router {
+export interface AisWatchRouteOptions {
+    /** The relay's test push (piAlarmRelay.ts test()); absent on a Pi with no relay wired. */
+    test?: () => Promise<{ push: AisWatchPushState; queued: boolean }>;
+}
+
+export function createAisWatchRoutes(watch: AisNightWatch, options: AisWatchRouteOptions = {}): Router {
     const router = Router();
 
     router.get('/', (_req: Request, res: Response) => {
@@ -74,6 +81,18 @@ export function createAisWatchRoutes(watch: AisNightWatch): Router {
         // No alarm open here yet is still taken: the watch keeps it for one raised soon after.
         const alarm = watch.ack(body.kind as AisWatchKind, body.mmsi);
         return res.json({ status: 'ok', acked: alarm !== null, alarm, watch: watch.describe() });
+    });
+
+    router.post('/test', async (_req: Request, res: Response) => {
+        if (!options.test) {
+            return res.status(503).json({ status: 'error', error: 'This Pi cannot send a test push' });
+        }
+        try {
+            const result = await options.test();
+            return res.json({ status: 'ok', push: result.push, queued: result.queued });
+        } catch {
+            return res.status(502).json({ status: 'error', error: 'The test could not be sent' });
+        }
     });
 
     return router;

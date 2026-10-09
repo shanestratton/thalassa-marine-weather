@@ -45,6 +45,8 @@ type RegistrationAttempt = Readonly<{
 
 class PushNotificationServiceClass {
     private deviceToken: string | null = null;
+    /** The token claim_push_device_token last accepted, and for which auth scope. */
+    private associated: { token: string; scope: AuthIdentityScope } | null = null;
     private initialized = false;
     private initializing: Promise<void> | null = null;
     private userId: string | null = null;
@@ -414,6 +416,7 @@ class PushNotificationServiceClass {
         const token = this.deviceToken;
         this.userId = null;
         this.ownerScope = null;
+        this.associated = null;
         this.foregroundBinding = null;
         this.tapBinding = null;
         this.cancelTokenWaiters();
@@ -468,6 +471,16 @@ class PushNotificationServiceClass {
     /** Get the current device token (null if not registered) */
     getToken(): string | null {
         return this.deviceToken;
+    }
+
+    /**
+     * This phone's token only once the server has it for the current account
+     * (claim_push_device_token accepted it in this auth scope): what a push to
+     * this account can actually reach. APNs handing over a token is not enough.
+     */
+    getAssociatedToken(): string | null {
+        const a = this.associated;
+        return a && a.token === this.deviceToken && this.isOwnedScope(a.scope) ? a.token : null;
     }
 
     /** Check if push notifications are supported and permitted */
@@ -567,6 +580,7 @@ class PushNotificationServiceClass {
         const { data, error } = await supabase.rpc('claim_push_device_token', args);
         if (error) throw error;
         if (data !== true) return false;
+        this.associated = { token: deviceToken, scope };
         log.info('Push token associated with current Supabase user');
         return true;
     }

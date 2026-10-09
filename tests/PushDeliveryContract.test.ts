@@ -21,7 +21,8 @@ describe('iOS push-delivery contract', () => {
     });
 
     it('uses prompt APNs delivery for every Notification Center alert', () => {
-        const edge = source('supabase/functions/send-push/index.ts');
+        // The per-type settings live beside the handler since 126-04b (send-push/config.ts, deno-tested).
+        const edge = source('supabase/functions/send-push/index.ts') + source('supabase/functions/send-push/config.ts');
 
         expect(edge).toContain("'apns-push-type': 'alert'");
         expect(edge).toContain("'apns-priority': '10'");

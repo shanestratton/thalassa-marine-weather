@@ -69,6 +69,13 @@ verify_jwt = false
 # function (requireAuthenticatedQuota), and every boat is re-proved owned.
 verify_jwt = false
 
+# pi-alarm-relay (build 126, 126-04b) is deliberately NOT listed: it keeps the
+# default verify_jwt = true, like anchor-relay. The Pi presents the public anon
+# key at the gateway and its real identity is checked inside (the pairing
+# relay token, _shared/pi-relay-auth.ts). No new gateway bypass: adding a
+# [functions.pi-alarm-relay] section here would be one, with its own approval
+# (tests/SupabaseEdgeJwtPolicyContract.test.ts).
+
 [functions.diary-relay]
 # The gateway must NOT demand a JWT here: the Pi relay authenticates with the
 # per-pairing relay token (X-Thalassa-Pi-Relay-*) and holds no user JWT by

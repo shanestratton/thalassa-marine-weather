@@ -186,7 +186,8 @@ for (const size of SIZES) {
         const errors = await openFixture(page, size, 'key');
         const row = page.getByTestId('collision-watch-row');
         await expect(row).toContainText('Watching: this phone and the Pi');
-        await expect(row).toContainText("The Pi can't wake a locked phone yet.");
+        // 126-04b: never claimed until the Pi has proved its push path to this account.
+        await expect(row).toContainText("The Pi watches, but can't wake a locked phone yet.");
         const geometry = await page.evaluate(() => {
             const panel = document.querySelector<HTMLElement>('[data-testid="ais-key-panel"]')!;
             const key = panel.querySelector<HTMLElement>('[role="group"]')!;
@@ -265,6 +266,26 @@ for (const size of SIZES) {
         }
         await button.click();
         expect(await page.evaluate(() => document.body.dataset.piStoodDown ?? 'no')).toBe('yes');
+        expect(errors).toEqual([]);
+
+        // 126-04b: the Pi can wake this phone, said once proved, and 'Send a test from the Pi'
+        // beside the stand-down; its longest answer still fits.
+        errors = await openFixture(page, size, 'key', '', '&key=wake');
+        row = page.getByTestId('collision-watch-row');
+        await expect(row).toContainText('The Pi can wake this phone.');
+        const test = page.getByTestId('collision-watch-send-test');
+        await expect(test).toHaveText('Send a test from the Pi');
+        await expect(page.getByTestId('collision-watch-stand-down')).toBeVisible();
+        expect(await fits()).toEqual({ inside: true, rowSideways: false, keySideways: false, pageSideways: false });
+        await test.click();
+        await expect(test).toHaveText("The Pi couldn't send it. Try again in a minute.");
+        expect(await fits()).toEqual({ inside: true, rowSideways: false, keySideways: false, pageSideways: false });
+        expect(await controlIssues(page, '[data-testid="collision-watch-row"]')).toEqual([]);
+        if (size.width === 320) {
+            const path = info.outputPath(`collision-watch-send-test-${info.project.name}-320x568.png`);
+            await page.screenshot({ path, animations: 'disabled' });
+            await info.attach('collision-watch-send-test-320x568', { path, contentType: 'image/png' });
+        }
         expect(errors).toEqual([]);
     });
 

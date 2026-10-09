@@ -23,16 +23,17 @@ const boot = vi.hoisted(() => ({
     appStateHandler: null as ((state: { isActive: boolean }) => void) | null,
     authUserId: 'bootstrap-user' as string | null,
     authChecked: true,
+    startPiAlarmCloud: vi.fn(),
 }));
 
 const pushService = vi.hoisted(() => ({
-    onForegroundPush: null as ((notification: { title?: string }) => void) | null,
+    onForegroundPush: null as ((notification: { title?: string; data?: Record<string, unknown> }) => void) | null,
     onNotificationTap: null as ((data: Readonly<Record<string, unknown>>) => void) | null,
     bindNotificationHandlers: vi.fn(
         (
             _scope: unknown,
             handlers: {
-                onForegroundPush: (notification: { title?: string }) => void;
+                onForegroundPush: (notification: { title?: string; data?: Record<string, unknown> }) => void;
                 onNotificationTap: (data: Readonly<Record<string, unknown>>) => void;
             },
         ) => {
@@ -85,6 +86,11 @@ vi.mock('../stores/authStore', () => ({
         }),
 }));
 vi.mock('../services/PushNotificationService', () => ({ PushNotificationService: pushService }));
+// The Pi's cloud alarm link (126-04b), started by a push from the Pi.
+vi.mock('../services/piNightWatch', () => ({
+    startPiAlarmCloud: boot.startPiAlarmCloud,
+    startPiNightWatch: vi.fn(() => () => undefined),
+}));
 vi.mock('@capacitor/app', () => ({
     App: {
         addListener: boot.appAddListener,
@@ -93,6 +99,8 @@ vi.mock('@capacitor/app', () => ({
 
 import { useAppBootstrap } from '../hooks/useAppBootstrap';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { AisGuardAlertStore } from '../services/aisGuardAlertStore';
+import { PiNightWatchStatus } from '../services/piNightWatchStatus';
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -214,6 +222,61 @@ describe('useAppBootstrap', () => {
             expect(pushService.onForegroundPush).toBeNull();
             expect(pushService.onNotificationTap).toBeNull();
         });
+    });
+
+    it('a push from the Pi opens the chart with its card; in the foreground, no toast for a card already shown', async () => {
+        // Build 126 (126-04b). Fictional: Nordlicht 211000001, Bay Runner 366000002, a SART 970000003.
+        PiNightWatchStatus.__resetForTests();
+        AisGuardAlertStore.clear();
+        renderHook(() => useAppBootstrap());
+        await waitFor(() => expect(pushService.onNotificationTap).toBeTypeOf('function'));
+        const raisedAt = Date.now() - 60_000;
+        const nordlicht = {
+            notification_type: 'collision_alarm',
+            kind: 'collision',
+            alarm_key: `collision:211000001:${raisedAt}`,
+            mmsi: 211000001,
+            name: 'NORDLICHT',
+            cpa_nm: 0.08,
+            tcpa_min: 4.2,
+            range_nm: 1.6,
+            bearing_deg: 312,
+        };
+        act(() => pushService.onNotificationTap?.(nordlicht));
+        expect(boot.setPage).toHaveBeenLastCalledWith('map');
+        expect(PiNightWatchStatus.piCards().map((c) => c.key)).toEqual([nordlicht.alarm_key]);
+        await waitFor(() => expect(boot.startPiAlarmCloud).toHaveBeenCalled());
+
+        act(() =>
+            pushService.onNotificationTap?.({
+                notification_type: 'distress_alarm',
+                kind: 'distress',
+                alarm_key: `distress:970000003:${raisedAt}`,
+                mmsi: 970000003,
+                name: '',
+                distress_kind: 'sart',
+                position_known: false,
+            }),
+        );
+        expect(boot.setPage).toHaveBeenLastCalledWith('map');
+        act(() => pushService.onNotificationTap?.({ notification_type: 'pi_watch_notice', kind: 'test' }));
+        expect(boot.setPage).toHaveBeenLastCalledWith('map');
+
+        // Foreground: Nordlicht is already a card here, so no toast over it.
+        boot.pushForegroundToast.mockClear();
+        act(() => pushService.onForegroundPush?.({ title: 'Collision risk: NORDLICHT', data: nordlicht }));
+        expect(boot.pushForegroundToast).not.toHaveBeenCalled();
+        // A vessel this phone has no card for: the toast, and a card from the Pi.
+        const bayRunner = {
+            ...nordlicht,
+            alarm_key: `collision:366000002:${raisedAt}`,
+            mmsi: 366000002,
+            name: 'BAY RUNNER',
+        };
+        act(() => pushService.onForegroundPush?.({ title: 'Collision risk: BAY RUNNER', data: bayRunner }));
+        expect(boot.pushForegroundToast).toHaveBeenCalledOnce();
+        expect(PiNightWatchStatus.piCards().map((c) => c.mmsi)).toContain(366000002);
+        PiNightWatchStatus.__resetForTests();
     });
 
     it('removes every native listener that resolves after unmount', async () => {

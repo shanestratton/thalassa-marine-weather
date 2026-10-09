@@ -21,16 +21,30 @@
  * still watching. From aboard it may stand the Pi down for everyone, with a
  * deliberate second tap (`action: 'stand-down-all'`).
  *
- * Until 126-04b the Pi cannot wake a locked phone, and the row says so
- * whenever the Pi is watching.
+ * Whether the Pi can wake THIS phone (126-04b) is said whenever the Pi is
+ * watching, and claimed only when it is proved (the capability rule): the Pi
+ * says its push path works ('ready': its relay answered within the hour with
+ * a phone to wake), this phone's push token is registered for this account,
+ * and this account is the one the Pi wakes (the skipper; crew come later
+ * with a register, 132). Otherwise
+ * the row says why not: internet use off on the Pi, notifications off here,
+ * the skipper's phones only, or simply "can't wake a locked phone yet".
+ * Aboard, with the Pi's push path known, it offers the skipper "Send a test
+ * from the Pi" (not a crew phone: the test wakes the Pi's owner only).
  */
 
 export type PiWatchState = 'off' | 'armed' | 'blind' | 'no-fix';
+/** The Pi's word on its push path (pi-cache/src/piAlarmRelay.ts). */
+export type PiPushState = 'ready' | 'unavailable' | 'internet-off' | 'not-paired';
 
 /** The Pi's last pass older than this: not answering. */
 export const PI_WATCH_STALE_MS = 30_000;
 
-export const PI_WATCH_LOCKED_PHONE_NOTE = "The Pi can't wake a locked phone yet.";
+export const PI_WATCH_LOCKED_PHONE_NOTE = "The Pi watches, but can't wake a locked phone yet.";
+export const PI_WATCH_CAN_WAKE_NOTE = 'The Pi can wake this phone.';
+export const PI_WATCH_INTERNET_OFF_NOTE = "The Pi can't wake this phone: internet use is off on the Pi.";
+export const PI_WATCH_NO_TOKEN_NOTE = "The Pi can't wake this phone: notifications are off here.";
+export const PI_WATCH_SKIPPER_ONLY_NOTE = "The Pi wakes only the skipper's phones (crew come later).";
 export const PI_WATCH_HAND_ANCHOR_NOTE = 'Hand the anchor watch to the Pi so it grades her at anchor.';
 
 export interface PhoneWatch {
@@ -63,6 +77,14 @@ export interface PiWatchView {
     noWatch?: boolean;
     /** This phone can send 'stand the Pi down for everyone' (its link to the Pi is running). */
     canStandDown?: boolean;
+    /**
+     * Whether the Pi can wake this phone (126-04b): the Pi's word on its push
+     * path (null when it gave none), whether this account is the one it wakes
+     * (null: not known), and whether this phone's push token is registered for this account.
+     */
+    push?: { state: PiPushState | null; forThisAccount: boolean | null; tokenHere: boolean };
+    /** This phone can send "a test from the Pi" (its link to the Pi is running). */
+    canTest?: boolean;
 }
 
 export interface CollisionWatchRow {
@@ -71,6 +93,17 @@ export interface CollisionWatchRow {
     note: string | null;
     /** A control the row offers: stand the Pi down for every device (a confirmed, second tap). */
     action?: 'stand-down-all' | null;
+    /** The row offers "Send a test from the Pi" (aboard, the Pi's push path known). */
+    test?: true;
+}
+
+/** Whether the Pi can wake this phone, said only as far as it is proved. */
+function pushNote(push: PiWatchView['push']): string {
+    if (push?.state === 'internet-off') return PI_WATCH_INTERNET_OFF_NOTE;
+    if (push?.state !== 'ready') return PI_WATCH_LOCKED_PHONE_NOTE;
+    if (push.forThisAccount === false) return PI_WATCH_SKIPPER_ONLY_NOTE;
+    if (push.forThisAccount !== true) return PI_WATCH_LOCKED_PHONE_NOTE;
+    return push.tokenHere ? PI_WATCH_CAN_WAKE_NOTE : PI_WATCH_NO_TOKEN_NOTE;
 }
 
 const PI_SAYS: Record<'blind' | 'no-fix', string> = {
@@ -109,11 +142,21 @@ export function presentCollisionWatchRow(phone: PhoneWatch, pi: PiWatchView, now
         const who = phone.armed ? 'this phone and the Pi' : 'the Pi';
         const standDown =
             !phone.armed && report.via === 'lan' && pi.reachable && pi.pending === null && pi.canStandDown === true;
+        // A Pi whose push path is known can prove it: aboard only, never with
+        // its internet off, and only on the skipper's own account (the test
+        // wakes the Pi's owner; a crew phone would be told to wait for nothing).
+        const test =
+            report.via === 'lan' &&
+            pi.reachable &&
+            pi.canTest === true &&
+            pi.push?.forThisAccount === true &&
+            (pi.push.state === 'ready' || pi.push.state === 'unavailable');
         return {
             text: `Watching: ${who}${aside ? ` (${aside})` : ''}`,
             tone: trouble || anchorUnseen ? 'warn' : 'ok',
-            note: anchorUnseen ? PI_WATCH_HAND_ANCHOR_NOTE : PI_WATCH_LOCKED_PHONE_NOTE,
+            note: anchorUnseen ? PI_WATCH_HAND_ANCHOR_NOTE : pushNote(pi.push),
             ...(standDown ? { action: 'stand-down-all' as const } : {}),
+            ...(test ? { test: true as const } : {}),
         };
     }
 

@@ -27,6 +27,12 @@
  * - pin_drop: Pin shared in channel
  * - track_shared: Voyage track shared
  * - weather_alert: Severe weather warning
+ * - collision_alarm: The boat Pi's night watch, a ship closing (126-04b, safety)
+ * - distress_alarm: The boat Pi hears an active distress beacon (126-04b, safety)
+ * - pi_watch_notice: The Pi's watch blind / no fix, or a test (126-04b, ordinary)
+ *
+ * The per-type settings (critical, thread, collapse id, sound, expiry) are in
+ * ./config.ts, tested by config_test.ts.
  *
  * Required Secrets (Supabase Dashboard → Edge Functions → Secrets):
  * - APNS_KEY_P8: Apple .p8 auth key contents
@@ -41,6 +47,14 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { encode as base64urlEncode } from 'https://deno.land/std@0.177.0/encoding/base64url.ts';
 import { internalServerErrorResponse } from '../_shared/public-errors.ts';
+import {
+    buildAps,
+    getApnsExpiration,
+    getCollapseId,
+    getThreadId,
+    isCriticalType,
+    isStaleForDelivery,
+} from './config.ts';
 
 // std@0.177 declares this encoder as taking `ArrayBuffer | string`, but at runtime it
 // forwards a Uint8Array straight through (its base64 helper branches on
@@ -52,9 +66,6 @@ const base64url = base64urlEncode as (data: Uint8Array | ArrayBuffer | string) =
 // ── Retry Config ──
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 500; // 500ms, 1s, 2s
-const DIRECT_MESSAGE_TTL_SECONDS = 24 * 60 * 60;
-const WEATHER_ALERT_TTL_SECONDS = 60 * 60;
-const DEFAULT_ALERT_TTL_SECONDS = 6 * 60 * 60;
 
 // ── JWT Token Cache (re-sign every 45 minutes, Apple allows 1 hour) ──
 let cachedJwt: { token: string; expiresAt: number } | null = null;
@@ -101,72 +112,8 @@ async function getApnsJwt(): Promise<string> {
 }
 
 // ---------- NOTIFICATION TYPE CONFIG ----------
-
-function isCriticalType(type: string): boolean {
-    return [
-        'anchor_alarm',
-        'bolo_alert', // Armed vessel moved — safety critical
-        'suspicious_alert', // Suspicious activity reported — safety critical
-        'drag_warning', // Neighbor dragging anchor — safety critical
-        'geofence_alert', // Vessel left home geofence — safety critical
-        'severe_weather_alert', // 50kt+ wind / extreme conditions — safety critical
-    ].includes(type);
-}
-
-/** Map notification type to APNs thread-id for grouping in Notification Center */
-function getThreadId(type: string): string {
-    switch (type) {
-        case 'dm':
-            return 'thalassa-messages';
-        case 'bolo_alert':
-        case 'suspicious_alert':
-        case 'drag_warning':
-        case 'geofence_alert':
-            return 'thalassa-guardian';
-        case 'anchor_alarm':
-            return 'thalassa-anchor';
-        case 'weather_alert':
-            return 'thalassa-weather';
-        case 'hail':
-            return 'thalassa-social';
-        default:
-            return 'thalassa-general';
-    }
-}
-
-/** Get the APNs collapse-id to coalesce duplicate alerts */
-function getCollapseId(type: string, data: Record<string, unknown>): string | null {
-    // Collapse repeated BOLO alerts for the same vessel
-    if (type === 'bolo_alert' && data?.mmsi) return `bolo-${data.mmsi}`;
-    // Collapse geofence alerts for the same vessel
-    if (type === 'geofence_alert' && data?.mmsi) return `geofence-${data.mmsi}`;
-    // Collapse anchor alarms (only latest matters)
-    if (type === 'anchor_alarm') return 'anchor-alarm';
-    return null;
-}
-
-/**
- * Alert pushes are accepted by APNs even when a device is temporarily
- * unreachable.  An expiration of zero tells APNs to discard the alert rather
- * than retain it, which is right for an immediate safety alarm but wrong for a
- * private message a sailor may receive while briefly out of coverage.
- */
-function getApnsExpiration(type: string, isCritical: boolean): string {
-    if (isCritical) return '0';
-
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    switch (type) {
-        case 'dm':
-        case 'sos':
-        case 'hail':
-        case 'watch_schedule_published':
-            return String(nowSeconds + DIRECT_MESSAGE_TTL_SECONDS);
-        case 'weather_alert':
-            return String(nowSeconds + WEATHER_ALERT_TTL_SECONDS);
-        default:
-            return String(nowSeconds + DEFAULT_ALERT_TTL_SECONDS);
-    }
-}
+// isCriticalType, getThreadId, getCollapseId, getApnsExpiration and the aps
+// dictionary live in ./config.ts (126-04b).
 
 // ---------- SEND PUSH WITH RETRY ----------
 
@@ -193,34 +140,9 @@ async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<
     const useProduction = Deno.env.get('APNS_PRODUCTION') !== 'false';
     const host = useProduction ? 'https://api.push.apple.com' : 'https://api.sandbox.push.apple.com';
 
-    // Build APNs payload
-    // No 'content-available': the app has no background completion handler
-    // (AppDelegate implements no didReceiveRemoteNotification:fetchCompletionHandler:),
-    // so a silent-wake hint did nothing but declare a background mode the app
-    // never used (audit item 20). An alert push is delivered without it.
-    const aps: Record<string, unknown> = {
-        alert: { title: payload.title, body: payload.body },
-        'thread-id': payload.threadId,
-    };
-
-    // Badge management
-    if (payload.badge !== undefined) {
-        aps.badge = payload.badge;
-    }
-
-    if (payload.isCritical && criticalAlertsEntitled) {
-        // Critical Alert — bypasses DND and silent mode (requires Apple entitlement)
-        aps.sound = { critical: 1, name: 'default', volume: 1.0 };
-        aps['interruption-level'] = 'critical';
-    } else if (payload.isCritical) {
-        // Safety alerts remain prominent without falsely claiming an Apple
-        // Critical Alerts entitlement that may not be provisioned.
-        aps.sound = 'default';
-        aps['interruption-level'] = 'time-sensitive';
-    } else {
-        aps.sound = 'default';
-        aps['interruption-level'] = 'active';
-    }
+    // Build APNs payload (./config.ts buildAps: alert, thread, badge, sound, interruption level).
+    const type = typeof payload.data.notification_type === 'string' ? payload.data.notification_type : 'general';
+    const aps = buildAps({ ...payload, type }, criticalAlertsEntitled);
 
     const apnsPayload = { aps, ...payload.data };
 
@@ -240,10 +162,7 @@ async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<
                 // still distinguished by their interruption level above, but
                 // all visible alerts should reach the device promptly.
                 'apns-priority': '10',
-                'apns-expiration': getApnsExpiration(
-                    typeof payload.data.notification_type === 'string' ? payload.data.notification_type : 'general',
-                    !!payload.isCritical,
-                ),
+                'apns-expiration': getApnsExpiration(type, !!payload.isCritical),
                 'content-type': 'application/json',
             };
 
@@ -345,7 +264,7 @@ serve(async (req: Request) => {
             });
         }
 
-        const { id, recipient_user_id, notification_type, title, body, data } = record;
+        const { id, recipient_user_id, notification_type, title, body, data, created_at } = record;
         const releaseClaim = async (message: string) => {
             await supabase
                 .from('push_notification_queue')
@@ -363,6 +282,23 @@ serve(async (req: Request) => {
         ) {
             await releaseClaim('Invalid persisted queue record');
             return new Response(JSON.stringify({ error: 'Invalid persisted queue record' }), { status: 422 });
+        }
+
+        // A Pi alarm the retry drain found late is history, not news (126-04b):
+        // marked done unsent, so nothing retries it.
+        if (isStaleForDelivery(notification_type, created_at)) {
+            await supabase
+                .from('push_notification_queue')
+                .update({
+                    sent_at: new Date().toISOString(),
+                    processing_at: null,
+                    last_error: 'expired before delivery',
+                })
+                .eq('id', id);
+            return new Response(JSON.stringify({ sent: 0, message: 'Expired before delivery' }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            });
         }
 
         // ── Look up device tokens for the recipient ──

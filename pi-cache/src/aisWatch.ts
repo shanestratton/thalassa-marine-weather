@@ -47,8 +47,15 @@
  * tap on the phone's watch row). One device's disarm never ends a watch
  * another device set.
  *
- * WHAT IT DOES NOT DO (yet): wake a locked phone (126-04b, through onAlarm),
- * or sound aboard on its own (126-04c, a Signal K notification and DSC).
+ * WAKING A LOCKED PHONE (126-04b). Each alarm raised (onAlarm) and each pass
+ * (onPass) goes to the cloud relay (piAlarmRelay.ts), which pushes it to the
+ * skipper's phones; an acknowledgement made ashore comes back through ack().
+ * Whether the Pi can wake a phone at all is the relay's word (pushStatus), in
+ * describe() and the cloud row, so the phone never claims it before the Pi
+ * has proved it.
+ *
+ * WHAT IT DOES NOT DO (yet): sound aboard on its own (126-04c, a Signal K
+ * notification and DSC).
  */
 import { readFix } from './anchorBroadcaster.js';
 import { readAisTargets, readSelfUrn, type AisTargetWire, type SignalkDocuments } from './lanTelemetry.js';
@@ -95,6 +102,15 @@ export const AIS_WATCH_MAX_ALARMS = 20;
 export const AIS_WATCH_EARLY_ACK_MS = 5 * 60_000;
 
 export type AisWatchState = 'off' | 'armed' | 'blind' | 'no-fix';
+/** Whether the Pi can wake the skipper's phone (piAlarmRelay.ts): 'ready' only after the relay answered within the hour. */
+export type AisWatchPushState = 'ready' | 'unavailable' | 'internet-off' | 'not-paired';
+export interface AisWatchPushStatus {
+    state: AisWatchPushState;
+    /** When the relay last answered (the Pi's clock), or null. */
+    checkedAt: number | null;
+    /** The account the Pi wakes (its pairing's owner), so a crew phone never claims it. */
+    ownerId: string | null;
+}
 export type AisWatchKind = 'collision' | 'close-quarters' | 'distress';
 /** What our own fix and motion let the rule do this pass. */
 export type AisWatchOwn = 'moving' | 'stopped' | 'unknown' | 'no-fix';
@@ -148,9 +164,11 @@ export interface AisWatchDescription {
     /** How many devices armed it (it stands down when the last of them disarms). */
     devices: number;
     alarms: AisWatchAlarm[];
+    /** Whether the Pi can wake the skipper's phone (126-04b); null with no relay wired. */
+    push: AisWatchPushStatus | null;
 }
 
-/** The three keys the cloud row carries, first in `extra` (telemetryPublisher.ts). */
+/** The keys the cloud row carries, first in `extra` (telemetryPublisher.ts). */
 export interface AisWatchCloudExtra {
     [key: string]: string | number;
     ais_watch: AisWatchState;
@@ -168,6 +186,14 @@ export interface AisWatchDeps {
     store?: AisWatchStore;
     /** A new alarm, or one sounding again: the hook 126-04b (push) and 126-04c (Signal K, DSC) use. */
     onAlarm?: (alarm: AisWatchAlarm) => void;
+    /**
+     * After every pass, what the watch says now (126-04b: the relay's sync,
+     * probe and notices); and once more when it stands down, so the relay
+     * closes what is open and the next arm starts afresh.
+     */
+    onPass?: (description: AisWatchDescription) => void;
+    /** Whether the Pi can wake the skipper's phone (126-04b, piAlarmRelay.ts status()). */
+    pushStatus?: () => AisWatchPushStatus;
     setIntervalImpl?: typeof setInterval;
     clearIntervalImpl?: typeof clearInterval;
 }
@@ -349,6 +375,8 @@ export class AisNightWatch {
             /* A stale file would re-arm on restart: the next disarm clears it. */
         }
         console.log(`[ais-watch] STOOD DOWN${opts.everyone ? ' for everyone' : ''}`);
+        // No pass runs while disarmed: the stand-down is handed on itself.
+        this.handOn();
     }
 
     /** At boot: a watch that was armed when the Pi stopped is armed again (who armed it, thresholds and all). */
@@ -436,7 +464,17 @@ export class AisNightWatch {
             ownMmsi: this.ownMmsi,
             devices: this.armed ? this.armers.size : 0,
             alarms: this.armed ? this.published.map((a) => ({ ...a })) : [],
+            push: this.pushStatus(),
         };
+    }
+
+    private pushStatus(): AisWatchPushStatus | null {
+        try {
+            const status = this.deps.pushStatus?.();
+            return status ? { ...status } : null;
+        } catch {
+            return null;
+        }
     }
 
     /** The cloud row's three keys (telemetryPublisher.ts puts them first). */
@@ -448,6 +486,18 @@ export class AisNightWatch {
             ais_watch_at_ms: this.lastPassAt ?? this.armedAt ?? now,
             ais_watch_alarms: this.published.filter((a) => a.ackedAt === null).length,
         };
+    }
+
+    /**
+     * The cloud row's fourth key (126-04b): whether the Pi can wake the
+     * skipper's phone, so ashore the AIS key can say so. Written LAST in
+     * `extra` (telemetryPublisher.ts trailingExtra): the relay keeps 40 keys,
+     * and the Pi's worst case already sends 40, so when one must go it is
+     * this word (the phone then claims nothing), never an instrument's.
+     */
+    cloudPushExtra(): Record<string, string> {
+        const push = this.pushStatus();
+        return push ? { ais_watch_push: push.state } : {};
     }
 
     /** One pass, now: the tick's step, and a test seam. Concurrent callers share the pass in flight. */
@@ -596,6 +646,17 @@ export class AisNightWatch {
             } catch {
                 /* A hook that fails must not stop the watch. */
             }
+        }
+        this.handOn();
+    }
+
+    /** What the watch says now, to onPass; a hook that fails must not stop the watch. */
+    private handOn(): void {
+        if (!this.deps.onPass) return;
+        try {
+            this.deps.onPass(this.describe());
+        } catch {
+            /* The watch runs on. */
         }
     }
 

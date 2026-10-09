@@ -142,9 +142,16 @@ export function readSelfUrn(selfAnswer: unknown): string | null {
 
 function mmsiOf(key: string, doc: unknown): number | null {
     const fromKey = MMSI_IN_URN.exec(key)?.[1];
-    if (fromKey) return Number(fromKey);
     const raw = (doc as Record<string, unknown> | null)?.mmsi;
-    const n = typeof raw === 'string' ? Number(raw) : typeof raw === 'number' ? raw : Number.NaN;
+    const n = fromKey
+        ? Number(fromKey)
+        : typeof raw === 'string'
+          ? Number(raw)
+          : typeof raw === 'number'
+            ? raw
+            : Number.NaN;
+    // One range whichever names her: a zero-padded URN (a misconfigured
+    // transponder) is no MMSI a radio sends, and the cloud relay refuses it.
     return Number.isInteger(n) && n >= 1_000_000 && n <= 999_999_999 ? n : null;
 }
 
