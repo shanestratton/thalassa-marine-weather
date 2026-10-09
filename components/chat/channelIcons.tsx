@@ -40,7 +40,20 @@ const NAME_OVERRIDES: Record<string, string> = {
     'Find Crew': 'The Crew List',
 };
 
-export const getChannelName = (ch: { name: string }) => NAME_OVERRIDES[ch.name] ?? ch.name;
+/**
+ * A crew room: private with the 👥 icon (the join RPC and the directory's
+ * filter read it the same way). It is the skipper's one Crew Chat.
+ */
+export const isCrewRoom = (ch: { is_private?: boolean; icon?: string } | null | undefined) =>
+    ch?.is_private === true && ch.icon === '👥';
+
+/**
+ * The name a channel shows. Every crew room reads 'Crew Chat', whatever an
+ * older build stored on it (build 125, Shane 2026-10-09: "it say mackay -
+ * whitsundays at the top"): the passage-named copies need no data change.
+ */
+export const getChannelName = (ch: { name: string; is_private?: boolean; icon?: string }) =>
+    isCrewRoom(ch) ? 'Crew Chat' : (NAME_OVERRIDES[ch.name] ?? ch.name);
 
 /**
  * The glyph for a channel, always decorative (the channel name is the label).

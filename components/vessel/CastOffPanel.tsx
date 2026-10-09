@@ -30,7 +30,7 @@ import { getActiveLeg, getLegsForVoyage, closeLeg, startLeg, getLegSummary } fro
 import type { PassageLeg } from '../../types/navigation';
 import { triggerHaptic } from '../../utils/system';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
-import { ChatService } from '../../services/ChatService';
+import { openOwnCrewChat } from '../../services/crew/crewChatRoom';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { EmptyState } from '../ui/EmptyState';
@@ -347,8 +347,10 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             if (result.ok && result.voyage) {
                 activatedVoyage = result.voyage;
                 // No chat/crew artefacts are minted by opening or abandoning
-                // preflight. The private voyage channel begins only at sea.
-                void ChatService.createVoyageChannel(activatedVoyage.id, activatedVoyage.voyage_name).catch(() => {});
+                // preflight. At sea the skipper's one Crew Chat is made ready
+                // (never a passage-named room, build 125); a skipper with no
+                // crew gets nothing.
+                void openOwnCrewChat().catch(() => {});
                 // Hand off to the Log page IMMEDIATELY (Shane 2026-08-26:
                 // "press the cast off button and the next button after that,
                 // it goes to the log page"). The old flow dwelt here while a

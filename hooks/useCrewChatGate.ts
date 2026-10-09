@@ -37,7 +37,9 @@ import {
 } from '../services/PassagePlanService';
 import {
     MAX_CREW_CHAT_OWNERS,
+    compareCrewChatRooms,
     isCrewChatGroup,
+    pickCrewChatRoom,
     readCrewChatChannelMemberships,
     readCrewChatGateMemory,
     readCrewChatRows,
@@ -188,8 +190,11 @@ export function useCrewChatGate({ channels, memberChannelIds }: CrewChatGateInpu
 
     // Crew reach the skipper's Crew Chat through the channel they are already
     // a member of (Shane 2026-10-02: Crew Chat is every crew member's by
-    // default, no tick box). The group the memory names keeps the card until
-    // an answer says this account is no longer in it.
+    // default, no tick box). The group the memory names paints first and
+    // keeps the card until an answer says this account is no longer in it.
+    // Of that skipper's rooms this account is confirmed in, the OLDEST wins
+    // (pickCrewChatRoom, the skipper's own pick), never the first by name:
+    // skipper and crew always meet in one room (build 125).
     const members = live.members;
     const crewChatChannel = useMemo(() => {
         if (!hasCrewMembership) return null;
@@ -199,12 +204,15 @@ export function useCrewChatGate({ channels, memberChannelIds }: CrewChatGateInpu
         const confirmed = (id: string) => pageMemberIds.has(id) || members?.ids.has(id) === true;
         const refused = (id: string) => !pageMemberIds.has(id) && !!members?.complete && !members.ids.has(id);
         const remembered = memory?.channel;
+        let held: ChatChannel | null = null;
         if (isGroup(remembered) && !refused(remembered.id)) {
             const listed = channels.find((channel) => channel.id === remembered.id);
-            if (!listed) return remembered;
-            if (isGroup(listed)) return listed;
+            if (!listed) held = remembered;
+            else if (isGroup(listed)) held = listed;
         }
-        return channels.find((channel) => isGroup(channel) && confirmed(channel.id)) ?? null;
+        const groups = channels.filter((channel) => isGroup(channel) && confirmed(channel.id));
+        const ownerId = held?.owner_id ?? [...groups].sort(compareCrewChatRooms)[0]?.owner_id ?? null;
+        return pickCrewChatRoom(held ? [held, ...groups] : groups, ownerId);
     }, [hasCrewMembership, memberOwnerIds, viewerId, pageMemberIds, members, memory, channels]);
 
     const knownPassage = live.verifiedPassage !== undefined ? live.verifiedPassage : (memory?.passage ?? null);
