@@ -1,6 +1,7 @@
 /**
  * A stand-in for mapbox-gl in jsdom, for the Log page's Mapbox maps
- * (components/map/logMap.ts, components/LiveMiniMapGL.tsx). It keeps the
+ * (components/map/logMap.ts, components/LiveMiniMapGL.tsx and, since
+ * 125-13b, components/TrackMapViewerGL.tsx with its popups). It keeps the
  * style's layers and sources in memory, as addReliefBase and the overlays
  * write them, so a test can read what would be drawn: which layers are
  * visible, which tile URLs any source asked for, and what each GeoJSON
@@ -79,6 +80,11 @@ export class FakeMapboxMap {
     container: HTMLElement;
     canvasContainer: HTMLElement;
     touchZoomRotate?: { disableRotation: ReturnType<typeof vi.fn> };
+    /**
+     * What queryRenderedFeatures answers: the features a test says are drawn
+     * under the point, each with its layer id (filtered by options.layers).
+     */
+    rendered: Array<{ layer: { id: string }; properties: Record<string, unknown>; geometry: unknown }> = [];
     fitBounds = vi.fn();
     jumpTo = vi.fn();
     resize = vi.fn();
@@ -199,6 +205,10 @@ export class FakeMapboxMap {
         return this.canvasContainer;
     }
 
+    queryRenderedFeatures(_geometry?: unknown, options: { layers?: string[] } = {}) {
+        return this.rendered.filter((feature) => !options.layers || options.layers.includes(feature.layer.id));
+    }
+
     /** Every tile URL template any source in the style asked for. */
     tileUrls(): string[] {
         return [...this.sources.values()].flatMap((source) => (source.spec.tiles as string[] | undefined) ?? []);
@@ -216,7 +226,65 @@ export class FakeAttributionControl {
     constructor(public options?: Record<string, unknown>) {}
 }
 
-export const fakeMapboxGl = { Map: FakeMapboxMap, AttributionControl: FakeAttributionControl };
+/**
+ * mapboxgl.Popup as the track map uses it: placed, filled with DOM, added to
+ * a map (its element joins the map's box), and 'close' on remove().
+ */
+export class FakePopup {
+    static instances: FakePopup[] = [];
+    options: Record<string, unknown>;
+    lngLat: unknown = null;
+    content: Node | null = null;
+    html: string | null = null;
+    map: FakeMapboxMap | null = null;
+    removed = false;
+    element = document.createElement('div');
+    private handlers = new Map<string, Handler[]>();
+
+    constructor(options: Record<string, unknown> = {}) {
+        this.options = options;
+        this.element.className = `mapboxgl-popup ${String(options.className ?? '')}`.trim();
+        FakePopup.instances.push(this);
+    }
+    setLngLat(lngLat: unknown) {
+        this.lngLat = lngLat;
+        return this;
+    }
+    setDOMContent(node: Node) {
+        this.content = node;
+        this.element.replaceChildren(node);
+        return this;
+    }
+    setHTML(html: string) {
+        this.html = html;
+        this.element.innerHTML = html;
+        return this;
+    }
+    addTo(map: FakeMapboxMap) {
+        this.map = map;
+        map.getContainer().appendChild(this.element);
+        return this;
+    }
+    isOpen() {
+        return !!this.map && !this.removed;
+    }
+    getElement() {
+        return this.element;
+    }
+    on(type: string, handler: Handler) {
+        this.handlers.set(type, [...(this.handlers.get(type) ?? []), handler]);
+        return this;
+    }
+    remove() {
+        if (this.removed) return this;
+        this.removed = true;
+        this.element.remove();
+        for (const handler of this.handlers.get('close') ?? []) handler({ type: 'close', target: this });
+        return this;
+    }
+}
+
+export const fakeMapboxGl = { Map: FakeMapboxMap, AttributionControl: FakeAttributionControl, Popup: FakePopup };
 
 /**
  * A controllable IntersectionObserver (tests/setup.ts's never calls back).

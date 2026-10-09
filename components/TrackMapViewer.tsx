@@ -3,51 +3,30 @@
  * Full-screen voyage track visualization with playback scrubber.
  *
  * Features:
- *   - CARTO dark base + OpenSeaMap seamark overlay
- *   - Color-coded track segments (water=blue, land=green)
- *   - Start/End/Waypoint markers with popup info
+ *   - Relief + Sat in Mapbox GL (125-13b): our seafloor relief at sea,
+ *     satellite imagery on land, OpenSeaMap seamarks; the old satellite
+ *     tiles are gone. Drawn by TrackMapViewerGL, loaded lazily so the Log
+ *     page's own chunk carries no map engine.
+ *   - Color-coded track segments (forecast wind, or water/land)
+ *   - Start/End/turn markers, tap anywhere for the conditions logged there
  *   - Butter-smooth playback scrubber with play/pause
  *   - Animated vessel marker that moves along the track
  *   - Floating weather HUD showing conditions at current position
  *
- * Map is created ONCE on open, layers updated separately.
+ * The map is created when the viewer opens and removed when it closes;
+ * props only change its data.
  */
 
-import React, { useEffect, useRef, useCallback, useState, useMemo } from 'react';
-import { createLogger } from '../utils/createLogger';
-
-const _log = createLogger('TrackMapViewer');
+import React, { Suspense, lazy, useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { ShipLogEntry } from '../types';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import { piCache } from '../services/PiCacheService';
-import { logBaseTiles } from './map/logMapTiles';
 import { EditIcon, MapPinIcon, SailBoatIcon, CompassIcon, RouteIcon, ClockIcon, WindIcon } from './Icons';
-import { isTrackworthyEntry, isPlausibleTrackPoint, calculateDistanceNM } from '../services/shiplog/helpers';
-import { deriveTurnMarkers } from '../services/shiplog/turnMarkers';
-import {
-    windBucket,
-    buildSparkline,
-    nearestTrackEntry,
-    WIND_BUCKETS,
-    WIND_NODATA_COLOR,
-} from '../services/shiplog/trackViz';
+import { isTrackworthyEntry, calculateDistanceNM } from '../services/shiplog/helpers';
+import { buildSparkline, WIND_BUCKETS, WIND_NODATA_COLOR } from '../services/shiplog/trackViz';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { OverlayPortal } from './ui/OverlayPortal';
-import { addFollowedRouteLayer, FOLLOWED_ROUTE_PANE } from './map/followedRouteLayer';
-import { installLeafletTileSeamGuard } from './map/leafletTileSeamGuard';
-import { installCompactAttribution } from './map/leafletCompactAttribution';
 import { sanitizeRouteCoordinates, type RouteCoordinate } from '../utils/routeCoordinates';
 import { stripInitialTrackWarmupRebounds } from '../services/shiplog/initialTrackWarmupGuard';
-
-// Base-map tile templates: light Voyager by day, dark by night watch.
-// Esri World Imagery — Shane 2026-07-10: dark carto was "too dark,
-// maybe the satellite layer?" Token-free, CSP-allowed, and the neon
-// track palette reads perfectly on imagery (same look as the tracer).
-// Resolved per-render rather than hardcoded: the Log maps now follow the same
-// @2x satellite-streets tiles the OBS chart uses, with Esri as the no-token
-// fallback. See components/map/logMapTiles.ts.
-const LOG_TILES = logBaseTiles(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined);
+import type { TrackMapViewerGLHandle, TrackMapViewerGLProps } from './TrackMapViewerGL';
 
 interface TrackMapViewerProps {
     isOpen: boolean;
@@ -57,60 +36,106 @@ interface TrackMapViewerProps {
     followedRouteCoords?: readonly RouteCoordinate[];
 }
 
-// Conditions popup for tap-for-conditions. Shows what was logged at the
-// nearest track point — time, the FORECAST wind/sea at capture, plus the
-// GPS-measured SOG/COG. Kept honest: wind/wave are forecast-at-capture,
-// not instrument readings, and may be absent offshore.
-function conditionsPopupHtml(e: ShipLogEntry): string {
-    const t = new Date(e.timestamp).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
-    const d = new Date(e.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
-    const rows: string[] = [];
-    const wind =
-        typeof e.windSpeed === 'number'
-            ? `${Math.round(e.windSpeed)} kt${e.windDirection ? ' ' + e.windDirection : ''}`
-            : '—';
-    rows.push(`<div>💨 ${wind}</div>`);
-    if (typeof e.waveHeight === 'number') rows.push(`<div>🌊 ${e.waveHeight.toFixed(1)} m</div>`);
-    if (typeof e.speedKts === 'number') rows.push(`<div>⛵ ${e.speedKts.toFixed(1)} kt SOG</div>`);
-    if (typeof e.courseDeg === 'number') rows.push(`<div>🧭 ${Math.round(e.courseDeg)}°</div>`);
-    return (
-        `<div style="font-size:12px;font-weight:700;margin-bottom:2px">${d} · ${t}</div>` +
-        `<div style="font-size:11px;line-height:1.5;display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rows.join('')}</div>`
-    );
-}
+/** The map's box while its chunk arrives, or where there is no map: the app's dark, nothing in it. */
+const PlainMapBox = () => (
+    <div className="absolute inset-0">
+        <div className="thalassa-log-gl-map is-free track-map-gl relative h-full w-full" />
+    </div>
+);
 
-// ── Vessel Icon (Leaflet DivIcon) ──
-const VESSEL_ICON_HTML = `<div style="
-    width: 20px; height: 20px;
-    background: #00f0ff;
-    border: 2px solid white;
-    border-radius: 50%;
-    box-shadow: 0 0 12px rgba(0,240,255,0.6), 0 2px 8px rgba(0,0,0,0.4);
-"></div>`;
+/** A chunk that cannot load (a dropped link mid-update): the plain box, and the viewer says so. */
+const MapChunkMissing = React.forwardRef<TrackMapViewerGLHandle, TrackMapViewerGLProps>(({ onUnavailable }, _ref) => {
+    useEffect(() => onUnavailable('chunk'), [onUnavailable]);
+    return <PlainMapBox />;
+});
+MapChunkMissing.displayName = 'MapChunkMissing';
+
+/** Set when the map's chunk failed to load: the next opening asks for it again. */
+let mapChunkMissing = false;
+const loadTrackMapGL = () =>
+    import('./TrackMapViewerGL').catch(() => {
+        mapChunkMissing = true;
+        return { default: MapChunkMissing as unknown as typeof import('./TrackMapViewerGL').default };
+    });
+/** React.lazy keeps what its import gave for the life of the page, a failure included. */
+let TrackMapViewerGL = lazy(loadTrackMapGL);
+/** On close, after a missing chunk: a fresh lazy, so the next opening tries the import again. */
+const retryMissingMapChunk = () => {
+    if (!mapChunkMissing) return;
+    mapChunkMissing = false;
+    TrackMapViewerGL = lazy(loadTrackMapGL);
+};
+
+/** The dock's distance above the screen's bottom edge (over the tab bar and the home bar). */
+const DOCK_BOTTOM = 'calc(4rem + env(safe-area-inset-bottom) + 8px)';
+
+/** Interpolated playback frames step ~300 m (0.003°); the gap between two fixes, the short way round. */
+const shortLonDelta = (from: number, to: number) => ((((to - from) % 360) + 540) % 360) - 180;
 
 export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) => {
     const { isOpen, onClose, entries, followedRouteCoords } = props;
-    const mapRef = useRef<HTMLDivElement>(null);
+    /** The map (lazy): moves the playback boat. Null while its chunk arrives, or with no map. */
+    const mapHandleRef = useRef<TrackMapViewerGLHandle | null>(null);
+    /** The map area: what the track is framed inside. */
+    const mapAreaRef = useRef<HTMLDivElement>(null);
+    const dockRef = useRef<HTMLDivElement>(null);
+    const headerRef = useRef<HTMLDivElement>(null);
+    const legendRef = useRef<HTMLDivElement>(null);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, {
         initialFocusRef: closeButtonRef,
         onEscape: onClose,
     });
-    const mapInstanceRef = useRef<L.Map | null>(null);
-    const layerGroupRef = useRef<L.LayerGroup | null>(null);
-    const followedRouteLayerGroupRef = useRef<L.LayerGroup | null>(null);
-    const displayedTrackCoordsRef = useRef<[number, number][]>([]);
-    const displayedFollowedRouteCoordsRef = useRef<[number, number][]>([]);
-    const hasFitBoundsRef = useRef(false);
-    const baseTileRef = useRef<L.TileLayer | null>(null);
-    const seamarkTileRef = useRef<L.TileLayer | null>(null);
-    // True while any Leaflet popup is open — lets a map tap TOGGLE the
-    // conditions bubble (tap to show, tap again to dismiss).
-    const popupOpenRef = useRef(false);
+    /**
+     * No map this opening, and why: 'device' (no WebGL, no token) or 'chunk'
+     * (the map's own code did not load). A plain box and a word why.
+     */
+    const [mapUnavailable, setMapUnavailable] = useState<'device' | 'chunk' | null>(null);
+    const markMapUnavailable = useCallback((cause?: 'chunk') => setMapUnavailable(cause ?? 'device'), []);
+    /**
+     * How far down the playback HUD (and its waypoint banner) reaches, in px:
+     * the back button moves below it on a short screen rather than sit on it.
+     */
+    const [hudBottom, setHudBottom] = useState(0);
+    const hudObserverRef = useRef<ResizeObserver | null>(null);
+    const hudRef = useCallback((node: HTMLDivElement | null) => {
+        hudObserverRef.current?.disconnect();
+        hudObserverRef.current = null;
+        if (!node) {
+            setHudBottom(0);
+            return;
+        }
+        const measure = () => setHudBottom(node.offsetTop + node.offsetHeight);
+        measure();
+        if (typeof ResizeObserver === 'undefined') return;
+        hudObserverRef.current = new ResizeObserver(measure);
+        hudObserverRef.current.observe(node);
+    }, []);
+    /**
+     * Where the track can be framed: inside the map, clear of the header (and
+     * its wind key), the back button, the dock and the legend, with room for
+     * the map's credits above the dock. Undefined until the map area has a size.
+     */
+    const framePadding = useCallback(() => {
+        const area = mapAreaRef.current?.getBoundingClientRect();
+        if (!area || area.width === 0 || area.height === 0) return undefined;
+        const header = headerRef.current?.getBoundingClientRect();
+        const back = closeButtonRef.current?.getBoundingClientRect();
+        const floor = Math.min(
+            dockRef.current?.getBoundingClientRect().top ?? area.bottom,
+            legendRef.current?.getBoundingClientRect().top ?? area.bottom,
+        );
+        return {
+            top: Math.max(24, (header ? header.bottom - area.top : 0) + 16),
+            // The credits' ⓘ and wordmark ride just above the dock.
+            bottom: Math.max(24, area.bottom - floor + 44),
+            left: Math.max(24, (back ? back.right - area.left : 0) + 12),
+            right: 24,
+        };
+    }, []);
 
     // Track colour mode — 'wind' paints the line by the (forecast) wind
-    // at each point; 'plain' is the old water/land scheme. There is no
-    // day/night base swap: LOG_TILES resolves one template for the build.
+    // at each point; 'plain' is the old water/land scheme.
     const [colorMode, setColorMode] = useState<'wind' | 'plain'>('wind');
 
     // Playback state
@@ -130,9 +155,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         windDir?: string;
     } | null>(null);
     const waypointTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const vesselMarkerRef = useRef<L.Marker | null>(null);
     const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    const trailLayerRef = useRef<L.LayerGroup | null>(null);
 
     // Sorted entries for playback
     const sortedEntriesRef = useRef<ShipLogEntry[]>([]);
@@ -145,8 +168,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         const geometryEntries = stripInitialTrackWarmupRebounds(entries);
         const valid = geometryEntries.filter(isTrackworthyEntry);
         // When a planned route is overlaid with a sailed voyage, playback and
-        // statistics must describe the recorded voyage only. The drawing code
-        // below still renders both groups independently.
+        // statistics must describe the recorded voyage only. The map
+        // (map/trackMapFeatures.ts) still draws both, each its own line.
         const sailed = valid.filter((entry) => entry.source !== 'planned_route');
         const playbackEntries = sailed.length >= 2 ? sailed : valid;
         const sorted = [...playbackEntries].sort(
@@ -187,7 +210,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
             if (i < sorted.length - 1) {
                 const nxt = sorted[i + 1];
                 const dlat = nxt.latitude! - cur.latitude!;
-                const dlon = nxt.longitude! - cur.longitude!;
+                // The short way round: past Fiji, 179.9 to -179.9 is 0.2°, not 359.8°.
+                const dlon = shortLonDelta(cur.longitude!, nxt.longitude!);
                 const dist = Math.sqrt(dlat * dlat + dlon * dlon); // degrees
                 // If gap > ~500m (0.005°), insert intermediate frames (~300m steps)
                 const STEP = 0.003; // ~300m per frame
@@ -211,412 +235,42 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
     // happens at exactly the same point in the render as it always did.
     animFramesRef.current = animFrames;
 
-    // Create map ONCE when opened
+    // Reset playback when the viewer opens. Closing stops it: LogPage and
+    // PassageSummaryCard keep the viewer mounted and only close it, so the
+    // unmount cleanup below never runs then, and a loop left running would
+    // move the boat (and the scrubber) on the next opening's map. Closing
+    // also forgets a missing map, so the next opening tries again: the map is
+    // made per opening, and a chunk that failed to load is asked for afresh.
     useEffect(() => {
-        if (!isOpen || !mapRef.current) return;
-
-        if (mapInstanceRef.current) {
-            setTimeout(() => mapInstanceRef.current?.invalidateSize(), 100);
+        if (!isOpen) {
+            setMapUnavailable(null);
+            retryMissingMapChunk();
             return;
         }
-
-        const map = L.map(mapRef.current, {
-            zoomControl: false,
-            attributionControl: true,
-            zoomAnimation: true,
-            fadeAnimation: true,
-        }).setView([-27.5, 153.1], 6); // Default view — fitBounds overrides when track loads
-
-        // Base map — the same satellite-streets tiles the OBS chart uses
-        // (Esri when the build has no Mapbox token). Held on a ref so the
-        // layer stays addressable for the lifetime of the map.
-        const base = L.tileLayer(piCache.leafletTileTemplate(LOG_TILES.url, undefined, 'image/jpeg'), {
-            maxZoom: LOG_TILES.maxZoom,
-            attribution: LOG_TILES.attribution,
-            // /tiles/512/ uses a zoom scheme offset by one from Leaflet's 256
-            // default. See LiveMiniMap for the same pairing.
-            ...(LOG_TILES.isMapbox ? { tileSize: 512, zoomOffset: -1 } : {}),
-            className: '',
-        });
-        installLeafletTileSeamGuard(base);
-        base.addTo(map);
-        baseTileRef.current = base;
-
-        // OpenSeaMap seamark overlay — always on top of the base.
-        const seamark = L.tileLayer(
-            piCache.leafletTileTemplate('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'),
-            {
-                maxZoom: 18,
-                opacity: 0.9,
-                attribution:
-                    'Map data: &copy; <a href="https://www.openseamap.org" target="_blank" rel="noopener noreferrer">OpenSeaMap contributors</a>',
-            },
-        ).addTo(map);
-        seamarkTileRef.current = seamark;
-
-        const followedRoutePane = map.createPane(FOLLOWED_ROUTE_PANE);
-        followedRoutePane.style.zIndex = '390';
-        followedRoutePane.style.pointerEvents = 'none';
-
-        followedRouteLayerGroupRef.current = L.layerGroup().addTo(map);
-
-        // Layer group for track data
-        const layerGroup = L.layerGroup().addTo(map);
-        layerGroupRef.current = layerGroup;
-
-        // Trail layer for playback
-        const trailLayer = L.layerGroup().addTo(map);
-        trailLayerRef.current = trailLayer;
-
-        // Tap-for-conditions: a tap snaps to the nearest track point and
-        // shows the conditions logged there. Reads the sorted-entries REF
-        // (always fresh) so it's wired once at creation, not in
-        // updateTrackLayers (which full-rebuilds and would stale-close).
-        //
-        // Dismiss: a popup stays put (closeOnClick:false) and a tap is a
-        // TOGGLE — if one is open, the tap closes it (and opens nothing).
-        // The × button and a tap on the bubble itself also close it.
-        map.on('popupopen', () => {
-            popupOpenRef.current = true;
-        });
-        map.on('popupclose', () => {
-            popupOpenRef.current = false;
-        });
-        map.on('click', (e: L.LeafletMouseEvent) => {
-            if (popupOpenRef.current) {
-                map.closePopup();
-                return;
-            }
-            const near = nearestTrackEntry(sortedEntriesRef.current, e.latlng.lat, e.latlng.lng);
-            if (!near) return;
-            const popup = L.popup({
-                closeButton: true,
-                closeOnClick: false,
-                className: 'track-cond-popup',
-                offset: [0, -2],
-            })
-                .setLatLng([near.latitude!, near.longitude!])
-                .setContent(conditionsPopupHtml(near))
-                .openOn(map);
-            // Tapping anywhere on the bubble dismisses it too.
-            popup.getElement()?.addEventListener('click', () => map.closePopup());
-        });
-
-        mapInstanceRef.current = map;
-        // Credits collapse to an ⓘ button; one tap expands them.
-        installCompactAttribution(map);
-        setTimeout(() => map.invalidateSize(), 200);
-
+        setPlaybackIndex(0);
+        setIsPlaying(false);
+        setShowHUD(false);
         return () => {
             if (playIntervalRef.current) clearInterval(playIntervalRef.current);
-            if (mapInstanceRef.current) {
-                mapInstanceRef.current.remove();
-                mapInstanceRef.current = null;
-                layerGroupRef.current = null;
-                followedRouteLayerGroupRef.current = null;
-                displayedTrackCoordsRef.current = [];
-                displayedFollowedRouteCoordsRef.current = [];
-                trailLayerRef.current = null;
-                vesselMarkerRef.current = null;
-                baseTileRef.current = null;
-                seamarkTileRef.current = null;
-                hasFitBoundsRef.current = false;
-            }
-        };
-        // Base tiles are created here and only here. LOG_TILES is a module
-        // constant (one template, chosen once from the build's Mapbox token),
-        // so the old "day/night base swap" effect that used to sit below had
-        // nothing to swap: on every open it tore down the base layer this
-        // effect had just added and rebuilt an identical one, which cost a
-        // second TileLayer and a burst of aborted tile requests. The seamark
-        // overlay is added after the base below, so it is already on top.
-    }, [isOpen]);
-
-    // Reset playback when modal opens/closes
-    useEffect(() => {
-        if (isOpen) {
-            setPlaybackIndex(0);
+            playIntervalRef.current = null;
+            if (waypointTimerRef.current) clearTimeout(waypointTimerRef.current);
+            waypointTimerRef.current = null;
             setIsPlaying(false);
-            setShowHUD(false);
-        }
+            setActiveWaypoint(null);
+        };
     }, [isOpen]);
-
-    const fitDisplayGeometry = useCallback(() => {
-        const map = mapInstanceRef.current;
-        if (!map || hasFitBoundsRef.current) return;
-        const displayLatLngs = [...displayedFollowedRouteCoordsRef.current, ...displayedTrackCoordsRef.current];
-        if (displayLatLngs.length >= 2) {
-            map.fitBounds(L.latLngBounds(displayLatLngs), {
-                padding: [40, 40],
-                maxZoom: 16,
-                animate: false,
-            });
-            hasFitBoundsRef.current = true;
-        } else if (displayLatLngs.length === 1) {
-            map.setView(displayLatLngs[0], 14, { animate: false });
-            hasFitBoundsRef.current = true;
-        }
-    }, []);
-
-    // Route geometry has its own layer group so a dense saved curve is not
-    // rebuilt on every live-track poll.
-    useEffect(() => {
-        if (!isOpen) return;
-        const layerGroup = followedRouteLayerGroupRef.current;
-        if (!layerGroup) return;
-        layerGroup.clearLayers();
-        displayedFollowedRouteCoordsRef.current = addFollowedRouteLayer(layerGroup, sanitizedFollowedRoute);
-        hasFitBoundsRef.current = false;
-        fitDisplayGeometry();
-    }, [fitDisplayGeometry, isOpen, sanitizedFollowedRoute]);
-
-    // Update track layers when entries change
-    const updateTrackLayers = useCallback(() => {
-        const map = mapInstanceRef.current;
-        const layerGroup = layerGroupRef.current;
-        if (!map || !layerGroup) return;
-
-        layerGroup.clearLayers();
-
-        // Markers may come from any plausible entry (turn pins, manual
-        // entries); polyline VERTICES only from trackworthy ones — pins
-        // sit at past positions and bend the line backwards (zig-zag).
-        const geometryEntries = stripInitialTrackWarmupRebounds(entries);
-        const validEntries = geometryEntries.filter((e) => isPlausibleTrackPoint(e.latitude, e.longitude));
-        if (validEntries.length < 2) {
-            if (displayedTrackCoordsRef.current.length > 0) hasFitBoundsRef.current = false;
-            displayedTrackCoordsRef.current = [];
-            fitDisplayGeometry();
-            return;
-        }
-
-        const sorted = [...validEntries].sort(
-            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-        );
-        const lineEntries = sorted.filter(isTrackworthyEntry);
-        if (lineEntries.length < 2) {
-            if (displayedTrackCoordsRef.current.length > 0) hasFitBoundsRef.current = false;
-            displayedTrackCoordsRef.current = [];
-            fitDisplayGeometry();
-            return;
-        }
-
-        const trackCoords = lineEntries.map((e) => [e.latitude!, e.longitude!] as [number, number]);
-        const isFirstTrackPaint = displayedTrackCoordsRef.current.length === 0;
-        displayedTrackCoordsRef.current = trackCoords;
-        if (isFirstTrackPaint && displayedFollowedRouteCoordsRef.current.length >= 2) {
-            // The route-only effect may have framed first; include the track as
-            // soon as its first two fixes become drawable.
-            hasFitBoundsRef.current = false;
-        }
-
-        const addSegment = (coords: [number, number][], color: string, isPlannedRoute: boolean) => {
-            if (coords.length < 2) return;
-
-            // Glow + core, matching the chart-page tracer and the public page
-            // (Shane 2026-07-23). The wide underlay is the SAME hue as the core
-            // at low opacity, so it reads as the line glowing rather than the
-            // old white "chart route" casing around it. The followed route is
-            // no longer dashed — it is a solid core in its own colour, one
-            // notch brighter than its glow, so plan-vs-sailed still reads at a
-            // glance without the dashes that made it look dated.
-            L.polyline(coords, {
-                color,
-                weight: 11,
-                opacity: 0.26,
-                lineCap: 'round',
-                lineJoin: 'round',
-            }).addTo(layerGroup);
-
-            L.polyline(coords, {
-                color: isPlannedRoute ? '#c4b5fd' : color,
-                weight: 3.5,
-                opacity: 1,
-                lineCap: 'round',
-                lineJoin: 'round',
-            }).addTo(layerGroup);
-        };
-
-        // Per-entry segment key + colour. 'wind' paints by the (forecast)
-        // wind bucket at each point; 'plain' falls back to water/land.
-        // Splitting on the KEY keeps it to a handful of segments, not one
-        // polyline per point.
-        const segOf = (entry: ShipLogEntry): { key: string; color: string } => {
-            if (colorMode === 'wind') {
-                const b = windBucket(entry.windSpeed);
-                return { key: b.key, color: b.color };
-            }
-            const water = entry.isOnWater ?? true;
-            // Neon-on-dark palette — sky-400 water / emerald-400 land pop on
-            // the dark base where the old 600-weight blues sank into it.
-            return { key: water ? 'water' : 'land', color: water ? '#38bdf8' : '#34d399' };
-        };
-
-        // Partition by voyage — drawing one line through several
-        // voyages (the kebab "Track Map" path passes everything
-        // resident, planned routes included) connected them with
-        // phantom diagonals and let a single planned route recolor the
-        // whole set purple. Each voyage now gets its own polyline and
-        // its own planned-route styling.
-        const voyageGroups = new Map<string, ShipLogEntry[]>();
-        for (const e of lineEntries) {
-            const key = e.voyageId || 'default_voyage';
-            const arr = voyageGroups.get(key);
-            if (arr) arr.push(e);
-            else voyageGroups.set(key, [e]);
-        }
-
-        for (const groupEntries of voyageGroups.values()) {
-            if (groupEntries.length < 2) continue;
-            const isPlannedRoute = groupEntries.some((e) => e.source === 'planned_route');
-
-            // Planned routes carry no telemetry — always the dashed purple
-            // plan line, never wind-coloured.
-            if (isPlannedRoute) {
-                addSegment(
-                    groupEntries.map((e) => [e.latitude!, e.longitude!] as [number, number]),
-                    '#7c3aed',
-                    true,
-                );
-                continue;
-            }
-
-            let currentSegment: [number, number][] = [];
-            let currentSeg = segOf(groupEntries[0]);
-
-            groupEntries.forEach((entry) => {
-                const seg = segOf(entry);
-                const coord: [number, number] = [entry.latitude!, entry.longitude!];
-
-                if (seg.key !== currentSeg.key && currentSegment.length > 0) {
-                    currentSegment.push(coord);
-                    addSegment(currentSegment, currentSeg.color, false);
-                    currentSegment = [coord];
-                    currentSeg = seg;
-                } else {
-                    currentSegment.push(coord);
-                }
-            });
-            addSegment(currentSegment, currentSeg.color, false);
-
-            // Turn markers — DERIVED from the track geometry at render
-            // time, never stored (the stored-pin system put waypoints
-            // off-route and was retired 2026-06-12). Small dots sit ON
-            // actual track points: one at a sharp corner, several spaced
-            // around a wide sweep, none on straights. Tap for the course
-            // change + time.
-            if (!isPlannedRoute) {
-                for (const m of deriveTurnMarkers(groupEntries)) {
-                    L.circleMarker([m.lat, m.lon], {
-                        radius: 4,
-                        fillColor: '#f59e0b',
-                        fillOpacity: 0.9,
-                        color: '#ffffff',
-                        weight: 1,
-                    })
-                        .bindPopup(
-                            `<div style="font-size:12px;font-weight:700">${m.fromCardinal} → ${m.toCardinal}</div>` +
-                                `<div style="font-size:11px;opacity:.7">${new Date(m.timestamp).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}</div>`,
-                            { closeButton: true, closeOnClick: false },
-                        )
-                        .addTo(layerGroup);
-                }
-            }
-        }
-
-        // Start / end markers — a coloured core inside a soft same-hue halo,
-        // the app's glow language rather than the old flat disc with a hard
-        // white ring (Shane 2026-07-23). The halo is a wider translucent ring
-        // so the pin reads as lit on both the imagery and the dark base.
-        const endpointIcon = (core: string, glow: string) =>
-            L.divIcon({
-                html:
-                    `<div style="width:26px;height:26px;border-radius:50%;` +
-                    `background:radial-gradient(circle,${glow} 0%,transparent 70%);` +
-                    `display:flex;align-items:center;justify-content:center;">` +
-                    `<div style="width:13px;height:13px;background:${core};border:2.5px solid #fff;` +
-                    `border-radius:50%;box-shadow:0 0 8px ${glow},0 1px 3px rgba(0,0,0,0.5)"></div></div>`,
-                iconSize: [26, 26],
-                iconAnchor: [13, 13],
-                className: '',
-            });
-        L.marker([lineEntries[0].latitude!, lineEntries[0].longitude!], {
-            icon: endpointIcon('#34d399', 'rgba(52,211,153,0.55)'),
-        }).addTo(layerGroup);
-        const lastEntry = lineEntries[lineEntries.length - 1];
-        L.marker([lastEntry.latitude!, lastEntry.longitude!], {
-            icon: endpointIcon('#f87171', 'rgba(248,113,113,0.55)'),
-        }).addTo(layerGroup);
-
-        // Waypoint markers REMOVED 2026-06-12 (Shane: "do away with the
-        // wayward waypoints") — auto turn pins landed off-route and
-        // cluttered the track. Waypoint rendering returns when the
-        // waypoint feature is redesigned.
-
-        // GPS dots — line entries only, so off-route manual/pin
-        // positions don't reappear as stray dots. Deeper fills + a faint
-        // white stroke so they read on the light Voyager base.
-        lineEntries.forEach((entry) => {
-            if (entry.entryType === 'waypoint') return;
-            L.circleMarker([entry.latitude!, entry.longitude!], {
-                radius: 2,
-                fillColor: entry.isOnWater ? '#0284c7' : '#059669',
-                fillOpacity: 0.85,
-                color: '#ffffff',
-                weight: 0.5,
-            }).addTo(layerGroup);
-        });
-
-        // Fit the union once: the followed route and the recorded track stay
-        // visible without snapping the user's viewport on each live fix.
-        fitDisplayGeometry();
-
-        // Create vessel marker for playback (initially hidden)
-        if (!vesselMarkerRef.current && map) {
-            const vesselIcon = L.divIcon({
-                html: VESSEL_ICON_HTML,
-                iconSize: [20, 20],
-                iconAnchor: [10, 10],
-                className: '',
-            });
-            const marker = L.marker([lineEntries[0].latitude!, lineEntries[0].longitude!], {
-                icon: vesselIcon,
-                zIndexOffset: 1000,
-            });
-            vesselMarkerRef.current = marker;
-        }
-    }, [entries, colorMode, fitDisplayGeometry]);
-
-    // Trigger layer update. The debounce only needs to outlast React's
-    // commit — the old 300 ms was a visible beat of blank map on every
-    // open now that cached tracks arrive instantly.
-    useEffect(() => {
-        if (!isOpen) return;
-        const timer = setTimeout(updateTrackLayers, 50);
-        return () => clearTimeout(timer);
-    }, [isOpen, updateTrackLayers]);
 
     // ── Playback engine (uses interpolated frames) ──
     const moveVesselTo = useCallback((index: number) => {
         const sorted = sortedEntriesRef.current;
         if (!sorted.length || index < 0 || index >= sorted.length) return;
-
         const entry = sorted[index];
-        const marker = vesselMarkerRef.current;
-        const map = mapInstanceRef.current;
-        if (!marker || !map) return;
-
-        if (!map.hasLayer(marker)) marker.addTo(map);
-        marker.setLatLng([entry.latitude!, entry.longitude!]);
+        mapHandleRef.current?.moveVessel(entry.latitude!, entry.longitude!);
     }, []);
 
     // Move vessel to an interpolated frame position (no scrubber update)
     const moveVesselToFrame = useCallback((frame: { lat: number; lon: number }) => {
-        const marker = vesselMarkerRef.current;
-        const map = mapInstanceRef.current;
-        if (!marker || !map) return;
-        if (!map.hasLayer(marker)) marker.addTo(map);
-        marker.setLatLng([frame.lat, frame.lon]);
+        mapHandleRef.current?.moveVessel(frame.lat, frame.lon);
     }, []);
 
     // Play/pause
@@ -639,6 +293,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                     if (startFrameIdx < 0) startFrameIdx = 0;
                 }
 
+                // One loop at a time: a loop this replaced could never be paused.
+                if (playIntervalRef.current) clearInterval(playIntervalRef.current);
                 let frameIdx = startFrameIdx;
                 const interval = setInterval(() => {
                     frameIdx++;
@@ -750,6 +406,22 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
         return nm.toFixed(1);
     }, [sortedEntries]);
 
+    // The dock (speed line + scrubber) grows with the text size; its height,
+    // written on the dialog, lifts the map's credits clear of it (index.css,
+    // .track-map-gl) and keeps the back button above it.
+    const hasDock = sortedEntries.length >= 2;
+    useLayoutEffect(() => {
+        const root = dialogRef.current;
+        if (!isOpen || !root) return;
+        const dock = dockRef.current;
+        const write = () => root.style.setProperty('--track-dock-h', `${dock?.offsetHeight ?? 0}px`);
+        write();
+        if (!dock || typeof ResizeObserver === 'undefined') return;
+        const observer = new ResizeObserver(write);
+        observer.observe(dock);
+        return () => observer.disconnect();
+    }, [isOpen, hasDock, dialogRef]);
+
     if (!isOpen) return null;
 
     // Route geometry can arrive synchronously before the first GPS fix. In
@@ -789,88 +461,91 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
             aria-label="Voyage track viewer"
             className="bg-slate-900 flex flex-col overflow-hidden animate-in fade-in duration-200 transform-gpu"
         >
-            {/* Deep-water filter lives in index.css (.tmv-deepwater img) —
-                it must target the tile IMAGES, not the layer container, or
-                iOS WebKit ignores it on the 3D-composited tiles. */}
-
-            {/* Title overlay — top left (hidden during playback HUD) */}
+            {/* Title, colour mode and its key — top (hidden during the playback
+                HUD). One row, so the title wraps before it runs under the
+                toggle; the wind key on its own row below. Only the controls
+                take touches: the rest of the strip is the map's. */}
             {!showHUD && (
                 <div
-                    className="absolute top-0 left-0 right-0 z-1001 px-4"
+                    ref={headerRef}
+                    className="absolute top-0 left-0 right-0 z-1001 px-3 pointer-events-none"
                     style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}
                 >
-                    <div>
-                        <h2 className="text-sm font-bold text-white uppercase tracking-widest drop-shadow-lg">
-                            Voyage Track
-                        </h2>
-                        {hasPlaybackTrack ? (
-                            <div className="text-[11px] text-white/60 flex gap-3 mt-0.5 font-medium">
-                                <span>{totalDistance} NM</span>
-                                <span>{sortedEntries.length} pts</span>
-                                {maxWindKt !== null && <span>max {maxWindKt} kt</span>}
-                            </div>
-                        ) : hasFollowedRoute ? (
-                            <div className="mt-0.5 text-[11px] font-medium text-violet-200/80">
-                                Followed route · waiting for recorded fixes
-                            </div>
-                        ) : null}
-                    </div>
-                </div>
-            )}
-
-            {/* Top-right controls — colour mode + day/night */}
-            {!showHUD && hasPlaybackTrack && (
-                <div
-                    className="absolute right-3 z-1002 flex flex-col gap-2 items-end"
-                    style={{ top: 'max(16px, env(safe-area-inset-top))' }}
-                >
-                    <div
-                        role="group"
-                        aria-label="Track colour mode"
-                        className="flex rounded-full bg-slate-900/90 border border-white/15 p-0.5 shadow-xl"
-                    >
-                        {(['wind', 'plain'] as const).map((m) => (
-                            <button
-                                key={m}
-                                onClick={() => setColorMode(m)}
-                                aria-pressed={colorMode === m}
-                                className={`px-3 py-1 min-h-[44px] rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                                    colorMode === m ? 'bg-sky-500 text-white' : 'text-white/60'
-                                }`}
-                            >
-                                {m === 'wind' ? 'Wind' : 'Track'}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* Wind legend — only in wind mode, honest "forecast" framing */}
-            {!showHUD && hasPlaybackTrack && colorMode === 'wind' && (
-                <div
-                    className="absolute left-3 z-1001 rounded-xl bg-slate-900/85 border border-white/10 px-2.5 py-2 shadow-xl pointer-events-none"
-                    style={{ bottom: '12px' }}
-                >
-                    <div className="text-[9px] font-bold uppercase tracking-wider text-white/70 mb-1">
-                        Forecast wind (kt)
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                        {WIND_BUCKETS.map((b) => (
-                            <div key={b.key} className="flex flex-col items-center gap-0.5">
-                                <span className="w-4 h-2 rounded-xs" style={{ background: b.color }} />
-                                <span className="text-[10px] text-white/70 leading-none">{b.label}</span>
-                            </div>
-                        ))}
-                        <div className="flex flex-col items-center gap-0.5 ml-1">
-                            <span className="w-4 h-2 rounded-xs" style={{ background: WIND_NODATA_COLOR }} />
-                            <span className="text-[10px] text-white/70 leading-none">n/a</span>
+                    <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1 pl-1">
+                            <h2 className="text-sm font-bold text-white uppercase tracking-widest drop-shadow-lg">
+                                Voyage Track
+                            </h2>
+                            {hasPlaybackTrack ? (
+                                <div className="text-[11px] text-white/60 flex flex-wrap gap-x-3 mt-0.5 font-medium">
+                                    <span>{totalDistance} NM</span>
+                                    <span>{sortedEntries.length} pts</span>
+                                    {maxWindKt !== null && <span>max {maxWindKt} kt</span>}
+                                </div>
+                            ) : hasFollowedRoute ? (
+                                <div className="mt-0.5 text-[11px] font-medium text-violet-200/80">
+                                    Followed route · waiting for recorded fixes
+                                </div>
+                            ) : null}
                         </div>
+
+                        {hasPlaybackTrack && (
+                            <div
+                                role="group"
+                                aria-label="Track colour mode"
+                                className="pointer-events-auto shrink-0 flex rounded-full bg-slate-900/90 border border-white/15 p-0.5 shadow-xl"
+                            >
+                                {(['wind', 'plain'] as const).map((m) => (
+                                    <button
+                                        key={m}
+                                        onClick={() => setColorMode(m)}
+                                        aria-pressed={colorMode === m}
+                                        className={`px-3 py-1 min-h-[44px] rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                                            colorMode === m ? 'bg-sky-500 text-white' : 'text-white/60'
+                                        }`}
+                                    >
+                                        {m === 'wind' ? 'Wind' : 'Track'}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
+
+                    {/* Wind key — only in wind mode, honest "forecast" framing */}
+                    {hasPlaybackTrack && colorMode === 'wind' && (
+                        <div className="mt-2 inline-block max-w-full rounded-xl bg-slate-900/85 border border-white/10 px-2.5 py-2 shadow-xl">
+                            <div className="text-[9px] font-bold uppercase tracking-wider text-white/70 mb-1">
+                                Forecast wind (kt)
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+                                {WIND_BUCKETS.map((b) => (
+                                    <div key={b.key} className="flex flex-col items-center gap-0.5">
+                                        <span className="w-4 h-2 rounded-xs" style={{ background: b.color }} />
+                                        <span className="text-[10px] text-white/70 leading-none">{b.label}</span>
+                                    </div>
+                                ))}
+                                <div className="flex flex-col items-center gap-0.5 ml-1">
+                                    <span className="w-4 h-2 rounded-xs" style={{ background: WIND_NODATA_COLOR }} />
+                                    <span className="text-[10px] text-white/70 leading-none">n/a</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
-            {/* Back chevron — middle-left of screen */}
-            <div className="absolute z-1001 px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
+            {/* Back chevron — middle-left of screen, or just below the playback
+                HUD where the HUD and its waypoint banner reach that far, but
+                never lower than just above the dock: it is the only way out on
+                a phone (no Escape key), so where it must meet the HUD it lies
+                on top of it, never under the dock. Its top is its centre. */}
+            <div
+                className="absolute z-1001 px-3"
+                style={{
+                    top: `min(max(50%, ${hudBottom + 30}px), calc(100% - ${DOCK_BOTTOM} - var(--track-dock-h, 0px) - 30px))`,
+                    transform: 'translateY(-50%)',
+                }}
+            >
                 <button
                     ref={closeButtonRef}
                     onClick={onClose}
@@ -889,13 +564,45 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                 </button>
             </div>
 
-            {/* Map Container */}
-            <div className="relative flex-1 min-h-0">
-                <div
-                    ref={mapRef}
-                    className="thalassa-log-leaflet-map absolute inset-0"
-                    style={{ background: '#0b1220' }}
-                />
+            {/* Map Container — Mapbox GL on Relief + Sat, made as the viewer
+                opens (lazily: the Log page's chunk carries no map engine). The
+                dock's measured height (--track-dock-h, on the dialog) lifts the
+                map's credits clear of the speed line and the scrubber. */}
+            <div ref={mapAreaRef} className="relative flex-1 min-h-0">
+                <Suspense fallback={<PlainMapBox />}>
+                    <TrackMapViewerGL
+                        ref={mapHandleRef}
+                        entries={entries}
+                        followedRoute={sanitizedFollowedRoute}
+                        colorMode={colorMode}
+                        tapEntries={sortedEntries}
+                        onUnavailable={markMapUnavailable}
+                        framePadding={framePadding}
+                    />
+                </Suspense>
+
+                {/* No map here: say so plainly, and why; the track's figures and
+                    playback still work. Inset on the left, clear of the back
+                    button's column. */}
+                {mapUnavailable && (
+                    <div className="absolute inset-x-0 top-[38%] z-3 flex justify-center pl-[64px] pr-6 pointer-events-none">
+                        <div
+                            role="status"
+                            className="w-full max-w-xs rounded-xl bg-slate-900/85 border border-white/10 px-3 py-2 text-center shadow-xl"
+                        >
+                            <p className="text-[12px] font-bold text-white/85">
+                                {mapUnavailable === 'chunk'
+                                    ? 'The map didn’t load.'
+                                    : 'This device can’t draw the map.'}
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-white/60">
+                                {mapUnavailable === 'chunk'
+                                    ? 'Close and open it again to retry. The track’s figures and playback still work.'
+                                    : 'The track’s figures and playback still work.'}
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 {/* Loading overlay — entries still hydrating, nothing on the map yet */}
                 {isTrackLoading && (
@@ -911,7 +618,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
 
                 {/* ═══ FLOATING WEATHER HUD ═══ */}
                 {showHUD && currentEntry && (
-                    <div className="absolute top-3 left-3 right-3 z-1000 pointer-events-none">
+                    <div ref={hudRef} className="absolute top-3 left-3 right-3 z-1000 pointer-events-none">
                         <div
                             className="bg-slate-900/90 rounded-xl border border-white/10 shadow-2xl p-3 pointer-events-auto"
                             style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
@@ -1142,8 +849,10 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                                             )}
                                         </div>
 
+                                        {/* Three lines at most: a long note would run
+                                            the banner under the dock on a small phone. */}
                                         {activeWaypoint.notes && (
-                                            <p className="text-[11px] text-amber-200/70 mt-1 leading-relaxed">
+                                            <p className="text-[11px] text-amber-200/70 mt-1 leading-relaxed line-clamp-3">
                                                 {activeWaypoint.notes}
                                             </p>
                                         )}
@@ -1175,150 +884,168 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo((props) 
                     </div>
                 )}
 
-                {/* Legend dots — bottom of map */}
+                {/* Legend dots — bottom of map, above the home indicator, centred
+                    across the full width (and wrapping rather than running off a
+                    narrow screen) */}
                 {(hasPlaybackTrack || hasFollowedRoute) && (
                     <div
-                        aria-label="Track legend"
-                        className="absolute bottom-2 left-1/2 -translate-x-1/2 z-1000 flex gap-3 bg-black/60 rounded-lg px-3 py-1.5"
+                        ref={legendRef}
+                        className="absolute inset-x-0 z-1000 flex justify-center px-2 pointer-events-none"
+                        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
                     >
-                        {hasFollowedRoute && (
-                            <div className="flex items-center gap-1">
-                                <div
-                                    aria-hidden="true"
-                                    className="h-0.5 w-3 rounded-full bg-violet-300 shadow-[0_0_4px_rgba(167,139,250,0.8)]"
-                                />
-                                <span className="text-[11px] text-slate-400">Route</span>
-                            </div>
-                        )}
-                        {hasPlaybackTrack && (
-                            <>
-                                <div className="flex items-center gap-1">
-                                    <div aria-hidden="true" className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                                    <span className="text-[11px] text-slate-400">Start</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <div aria-hidden="true" className="w-2 h-2 rounded-full bg-red-500"></div>
-                                    <span className="text-[11px] text-slate-400">End</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <div aria-hidden="true" className="w-2 h-2 rounded-full bg-amber-500"></div>
-                                    <span className="text-[11px] text-slate-400">Turn</span>
-                                </div>
+                        <div
+                            aria-label="Track legend"
+                            className="flex flex-wrap justify-center gap-x-3 gap-y-1 bg-black/60 rounded-lg px-3 py-1.5"
+                        >
+                            {hasFollowedRoute && (
                                 <div className="flex items-center gap-1">
                                     <div
                                         aria-hidden="true"
-                                        className="w-2 h-2 rounded-full"
-                                        style={{
-                                            background: '#00f0ff',
-                                            boxShadow: '0 0 4px rgba(0,240,255,0.5)',
-                                        }}
-                                    ></div>
-                                    <span className="text-[11px] text-slate-400">Vessel</span>
+                                        className="h-0.5 w-3 rounded-full bg-violet-300 shadow-[0_0_4px_rgba(167,139,250,0.8)]"
+                                    />
+                                    <span className="text-[11px] text-slate-400">Route</span>
                                 </div>
-                            </>
-                        )}
+                            )}
+                            {hasPlaybackTrack && (
+                                <>
+                                    <div className="flex items-center gap-1">
+                                        <div aria-hidden="true" className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                                        <span className="text-[11px] text-slate-400">Start</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <div aria-hidden="true" className="w-2 h-2 rounded-full bg-red-500"></div>
+                                        <span className="text-[11px] text-slate-400">End</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <div aria-hidden="true" className="w-2 h-2 rounded-full bg-amber-500"></div>
+                                        <span className="text-[11px] text-slate-400">Turn</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <div
+                                            aria-hidden="true"
+                                            className="w-2 h-2 rounded-full"
+                                            style={{
+                                                background: '#00f0ff',
+                                                boxShadow: '0 0 4px rgba(0,240,255,0.5)',
+                                            }}
+                                        ></div>
+                                        <span className="text-[11px] text-slate-400">Vessel</span>
+                                    </div>
+                                </>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>
 
-            {/* ═══ SPEED SPARKLINE — sits just above the scrubber, cursor
-                tracks the playback position ═══ */}
-            {hasPlaybackTrack && sparkline.path && (
-                <div
-                    className="absolute left-2 right-2 z-1001 px-2.5 pt-1.5 pb-1 rounded-xl border border-white/10 shadow-lg"
-                    style={{
-                        bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px + 46px)',
-                        background: 'rgba(15, 23, 42, 0.85)',
-                    }}
-                >
-                    <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-white/60">Speed</span>
-                        <span className="text-[9px] font-mono text-white/60">{sparkline.maxKts.toFixed(0)} kt max</span>
-                    </div>
-                    <svg
-                        aria-hidden="true"
-                        viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
-                        preserveAspectRatio="none"
-                        className="w-full"
-                        style={{ height: 34 }}
-                    >
-                        <path d={`${sparkline.path}L${SPARK_W} ${SPARK_H}L0 ${SPARK_H}Z`} fill="rgba(34,197,94,0.18)" />
-                        <path
-                            d={sparkline.path}
-                            fill="none"
-                            stroke="#22c55e"
-                            strokeWidth={1.2}
-                            vectorEffect="non-scaling-stroke"
-                        />
-                        <line
-                            x1={sparkline.xs[playbackIndex] ?? 0}
-                            x2={sparkline.xs[playbackIndex] ?? 0}
-                            y1={0}
-                            y2={SPARK_H}
-                            stroke="#ffffff"
-                            strokeWidth={1}
-                            vectorEffect="non-scaling-stroke"
-                            opacity={0.8}
-                        />
-                    </svg>
-                </div>
-            )}
-
-            {/* ═══ PLAYBACK SCRUBBER — matches app-wide scrubber pattern ═══ */}
+            {/* ═══ THE DOCK — the speed line over the scrubber, one column, so
+                larger text can never slide one under the other. Its height is
+                measured for the map's credits, which sit just above it. ═══ */}
             {hasPlaybackTrack && (
                 <div
-                    className="absolute left-2 right-2 z-1001 flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-white/10 shadow-lg"
-                    style={{
-                        bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)',
-                        background: 'rgba(15, 23, 42, 0.85)',
-                    }}
+                    ref={dockRef}
+                    className="absolute left-2 right-2 z-1001 flex flex-col gap-1.5"
+                    style={{ bottom: DOCK_BOTTOM }}
                 >
-                    <style>{`
+                    {/* ═══ SPEED SPARKLINE — sits just above the scrubber, cursor
+                tracks the playback position ═══ */}
+                    {sparkline.path && (
+                        <div
+                            className="px-2.5 pt-1.5 pb-1 rounded-xl border border-white/10 shadow-lg"
+                            style={{ background: 'rgba(15, 23, 42, 0.85)' }}
+                        >
+                            <div className="flex items-center justify-between mb-0.5">
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-white/60">
+                                    Speed
+                                </span>
+                                <span className="text-[9px] font-mono text-white/60">
+                                    {sparkline.maxKts.toFixed(0)} kt max
+                                </span>
+                            </div>
+                            <svg
+                                aria-hidden="true"
+                                viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+                                preserveAspectRatio="none"
+                                className="w-full"
+                                style={{ height: 34 }}
+                            >
+                                <path
+                                    d={`${sparkline.path}L${SPARK_W} ${SPARK_H}L0 ${SPARK_H}Z`}
+                                    fill="rgba(34,197,94,0.18)"
+                                />
+                                <path
+                                    d={sparkline.path}
+                                    fill="none"
+                                    stroke="#22c55e"
+                                    strokeWidth={1.2}
+                                    vectorEffect="non-scaling-stroke"
+                                />
+                                <line
+                                    x1={sparkline.xs[playbackIndex] ?? 0}
+                                    x2={sparkline.xs[playbackIndex] ?? 0}
+                                    y1={0}
+                                    y2={SPARK_H}
+                                    stroke="#ffffff"
+                                    strokeWidth={1}
+                                    vectorEffect="non-scaling-stroke"
+                                    opacity={0.8}
+                                />
+                            </svg>
+                        </div>
+                    )}
+
+                    {/* ═══ PLAYBACK SCRUBBER — matches app-wide scrubber pattern ═══ */}
+                    <div
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-white/10 shadow-lg"
+                        style={{ background: 'rgba(15, 23, 42, 0.85)' }}
+                    >
+                        <style>{`
                     .track-slider { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
                     .track-slider::-webkit-slider-runnable-track { height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; }
                     .track-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #22c55e; margin-top: -5.5px; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
                 `}</style>
-                    <button
-                        aria-label={isPlaying ? 'Pause playback' : 'Play track'}
-                        onClick={togglePlayback}
-                        className="p-2 -m-2 shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center text-white/70 active:scale-90 transition-transform"
-                    >
-                        <span className="w-6 h-6 flex items-center justify-center">
-                            {isPlaying ? (
-                                <svg width="16" height="16" viewBox="0 0 10 10" fill="currentColor">
-                                    <rect x="1" y="1" width="3" height="8" rx="0.5" />
-                                    <rect x="6" y="1" width="3" height="8" rx="0.5" />
-                                </svg>
-                            ) : (
-                                <svg width="16" height="16" viewBox="0 0 10 10" fill="currentColor">
-                                    <polygon points="2,1 9,5 2,9" />
-                                </svg>
-                            )}
+                        <button
+                            aria-label={isPlaying ? 'Pause playback' : 'Play track'}
+                            onClick={togglePlayback}
+                            className="p-2 -m-2 shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center text-white/70 active:scale-90 transition-transform"
+                        >
+                            <span className="w-6 h-6 flex items-center justify-center">
+                                {isPlaying ? (
+                                    <svg width="16" height="16" viewBox="0 0 10 10" fill="currentColor">
+                                        <rect x="1" y="1" width="3" height="8" rx="0.5" />
+                                        <rect x="6" y="1" width="3" height="8" rx="0.5" />
+                                    </svg>
+                                ) : (
+                                    <svg width="16" height="16" viewBox="0 0 10 10" fill="currentColor">
+                                        <polygon points="2,1 9,5 2,9" />
+                                    </svg>
+                                )}
+                            </span>
+                        </button>
+                        <input
+                            type="range"
+                            min={0}
+                            max={maxIdx}
+                            value={playbackIndex}
+                            aria-label="Track playback position"
+                            aria-valuetext={`${dateLabel} ${timeLabel}`.trim()}
+                            onChange={(e) => {
+                                setIsPlaying(false);
+                                if (playIntervalRef.current) {
+                                    clearInterval(playIntervalRef.current);
+                                    playIntervalRef.current = null;
+                                }
+                                const idx = parseInt(e.target.value);
+                                setPlaybackIndex(idx);
+                                moveVesselTo(idx);
+                                setShowHUD(true);
+                            }}
+                            className="track-slider flex-1 h-3"
+                        />
+                        <span className="text-[11px] font-bold text-white/60 min-w-[44px] text-right font-mono">
+                            {timeLabel}
                         </span>
-                    </button>
-                    <input
-                        type="range"
-                        min={0}
-                        max={maxIdx}
-                        value={playbackIndex}
-                        aria-label="Track playback position"
-                        aria-valuetext={`${dateLabel} ${timeLabel}`.trim()}
-                        onChange={(e) => {
-                            setIsPlaying(false);
-                            if (playIntervalRef.current) {
-                                clearInterval(playIntervalRef.current);
-                                playIntervalRef.current = null;
-                            }
-                            const idx = parseInt(e.target.value);
-                            setPlaybackIndex(idx);
-                            moveVesselTo(idx);
-                            setShowHUD(true);
-                        }}
-                        className="track-slider flex-1 h-3"
-                    />
-                    <span className="text-[11px] font-bold text-white/60 min-w-[44px] text-right font-mono">
-                        {timeLabel}
-                    </span>
+                    </div>
                 </div>
             )}
         </OverlayPortal>

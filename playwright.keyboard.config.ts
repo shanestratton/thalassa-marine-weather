@@ -98,6 +98,12 @@ export default defineConfig({
         // internet, a plain sea with no style; its JS heap in Chromium
         // (e2e/fixtures/log-mini-map.tsx).
         'log-mini-map-layout.spec.ts',
+        // The big Log track map on Relief + Sat (build 125, 125-13b): Mapbox GL in
+        // TrackMapViewer at 320 × 568 and 390 × 844 in wide fonts, the Solent,
+        // Fiji across the antimeridian and the Whitsundays, offline tiles from
+        // made-up coastlines, no WebGL; its JS heap per open in Chromium
+        // (e2e/fixtures/track-map.tsx).
+        'track-map-viewer-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

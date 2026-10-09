@@ -128,6 +128,35 @@
 :root.display-light .thalassa-log-gl-map::after {
     box-shadow: inset 0 0 20px rgba(15, 23, 42, 0.1);
 }
+/* The big track map's bubbles (125-13b): white cards, as the Leaflet
+   viewer's were in daylight. */
+:root.display-light .track-map-gl .mapboxgl-popup-content {
+    background: #ffffff;
+    color: #0f172a;
+    border-color: #94a3b8;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.16);
+}
+:root.display-light .track-map-gl .mapboxgl-popup-close-button {
+    color: #475569;
+}
+:root.display-light
+    .track-map-gl
+    :is(.mapboxgl-popup-anchor-top, .mapboxgl-popup-anchor-top-left, .mapboxgl-popup-anchor-top-right)
+    .mapboxgl-popup-tip {
+    border-bottom-color: #ffffff;
+}
+:root.display-light
+    .track-map-gl
+    :is(.mapboxgl-popup-anchor-bottom, .mapboxgl-popup-anchor-bottom-left, .mapboxgl-popup-anchor-bottom-right)
+    .mapboxgl-popup-tip {
+    border-top-color: #ffffff;
+}
+:root.display-light .track-map-gl .mapboxgl-popup-anchor-left .mapboxgl-popup-tip {
+    border-right-color: #ffffff;
+}
+:root.display-light .track-map-gl .mapboxgl-popup-anchor-right .mapboxgl-popup-tip {
+    border-left-color: #ffffff;
+}
 
 /* Opaque/dense dark utility panels that were missed by the legacy allow-list. */
 :root.display-light
