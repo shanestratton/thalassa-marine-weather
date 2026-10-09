@@ -35,8 +35,10 @@ export const BinderSubLabel: React.FC<{ children: React.ReactNode }> = ({ childr
  *  The one exception is a short screen or an iPad pane, where the Vessel page
  *  must fit without scrolling (Shane 2026-10-04): styles/menu-page-fit.css
  *  holds the line to one row there, and the whole sentence is still the row's
- *  description for VoiceOver (hub-row / hub-row-icon / hub-row-label /
- *  hub-row-status are its hooks).
+ *  description for VoiceOver. Where the page has room (Shane 2026-10-09) the
+ *  same file grows the title, subtitle, icon, badge and chevron with it
+ *  (hub-row / hub-row-icon / hub-row-label / hub-row-status / hub-row-badge /
+ *  hub-row-chevron are its hooks).
  *
  *  `value` is ONLY for a short live value ("2 crew") — never a description —
  *  so it may sit on the right without squeezing the title. It never wraps, so
@@ -106,14 +108,14 @@ export const OfficeRow: React.FC<{
             {badge !== undefined && (
                 <span
                     aria-hidden="true"
-                    className={`shrink-0 px-1.5 py-0.5 text-xs font-bold rounded-full ${
+                    className={`hub-row-badge shrink-0 px-1.5 py-0.5 text-xs font-bold rounded-full ${
                         badgeUrgent ? 'bg-red-500/30 text-red-300 animate-pulse' : 'bg-amber-500/30 text-amber-300'
                     }`}
                 >
                     {badge}
                 </span>
             )}
-            <span aria-hidden="true" className="shrink-0">
+            <span aria-hidden="true" className="hub-row-chevron shrink-0">
                 <ChevronRight />
             </span>
         </button>

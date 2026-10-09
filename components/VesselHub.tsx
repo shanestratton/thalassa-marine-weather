@@ -2278,7 +2278,9 @@ const NavStationHero: React.FC<{
                             // might tap. No force — DEFAULT_VESSEL still
                             // lets them plan without configuring; this
                             // is just an invitation.
-                            <div className="flex flex-col gap-0.5">
+                            // vessel-hub-setup: while it shows, the menu's
+                            // words keep today's size (styles/menu-page-fit.css).
+                            <div className="vessel-hub-setup flex flex-col gap-0.5">
                                 <span className="text-lg font-black text-sky-300 tracking-tight truncate flex items-center gap-1">
                                     <span>Set up your vessel</span>
                                     <svg

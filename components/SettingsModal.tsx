@@ -462,12 +462,19 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         {item.icon('w-5 h-5')}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <div className="flex items-baseline justify-between gap-2">
-                            <p className="shrink-0 text-white font-bold text-sm tracking-wide">
+                        <div className="settings-menu-line flex items-baseline justify-between gap-2">
+                            <p className="settings-menu-title shrink-0 text-white font-bold text-sm tracking-wide">
                                 {item.rowTitle ?? item.label}
                             </p>
-                            {/* A long port or boat name ellipsises; the label never does. */}
-                            {status && <p className="min-w-0 truncate text-xs font-semibold text-gray-300">{status}</p>}
+                            {/* A long port or boat name ellipsises; the label never does.
+                                Where the title has grown, a state that no longer
+                                fits beside it drops under it, still set right
+                                (styles/menu-page-fit.css). */}
+                            {status && (
+                                <p className="settings-menu-state min-w-0 truncate text-xs font-semibold text-gray-300">
+                                    {status}
+                                </p>
+                            )}
                         </div>
                         <p id={descId} className="settings-menu-desc text-gray-300 text-xs mt-0.5">
                             {item.id === 'vessel' && isObserver
@@ -722,8 +729,16 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             rows' padding for a menu that fits without scrolling
                             (Shane 2026-10-04: "i prefer that all of the menu
                             itemed pages fit into one screen"); the bar is a
-                            draggable pill, so it can be moved off a row. */}
-                                <div className="settings-menu-list px-4 pt-4 pb-20 space-y-3">
+                            draggable pill, so it can be moved off a row.
+                            The full menu also FILLS the screen, its rows
+                            sharing the height and its words growing with it
+                            (Shane 2026-10-09: "take up the whole screen ...
+                            same goes for the settings main page"); a search
+                            does not, so one match is not stretched to the
+                            bottom of the page. */}
+                                <div
+                                    className={`settings-menu-list px-4 pt-4 pb-20 space-y-3${searchIsActive ? '' : ' settings-menu-fill'}`}
+                                >
                                     {/* Search input — same component shape as desktop,
                                 slightly taller (h-11 for thumb-friendly tap). */}
                                     <div className="relative">
@@ -790,7 +805,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                             const items = MENU_ITEMS.filter((m) => m.group === group.id);
                                             if (items.length === 0) return null;
                                             return (
-                                                <div key={group.id} className="space-y-2">
+                                                <div key={group.id} className="settings-menu-group space-y-2">
                                                     <SettingsSectionLabel>{group.label}</SettingsSectionLabel>
                                                     <div className={MENU_CARD}>{items.map(renderMenuRow)}</div>
                                                 </div>
