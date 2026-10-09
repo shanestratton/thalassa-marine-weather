@@ -61,7 +61,20 @@ const BUDGETS = {
     // guarded in vite.config.ts), plus the client polar check using only validatePolarData
     // (-3,018 B). Line unchanged: ~187 KB headroom stays below the ~300 KB an accidental
     // dependency adds, so the tripwire still trips.
-    javascript: 10.25 * MIB,
+    // 10.13, was 10.25 (2026-10-09, build 126 bundle diet, package 126-00). Build 125 shipped
+    // at 10,723,244 B, 24,660 B under the old line. The diet took out a net 286,119 B: four main
+    // cuts of 286,281 B, less 162 B elsewhere (StormPicker -49 B, marineEndpointName +211 B).
+    // The cuts: framer-motion with motion-dom and motion-utils (-126,237 B in MapHub; the layer
+    // menu and storm picker animate with CSS now, in a stylesheet that loads with the chart),
+    // the Queensland place-name table (-124,266 B) and the customs clearance guide (-35,127 B in
+    // CrewManagement), both now public/data JSON fetched when needed (a ~6 KB customs port
+    // index stays synchronous), and the retired dashboard widget settings (-651 B in
+    // ApplicationShell). Measured 10,437,125 B (9.95 MiB); install total 15,080,349 ->
+    // 14,959,958 B. Lowered to the measured figure + ~180 KB (10,622,075 B, 184,950 B
+    // headroom), below the ~300 KB an accidental dependency adds, so the tripwire trips again.
+    // Builds 126-128 plan ~140 KB of features: move the line for them deliberately, with the
+    // reason, never to make a build pass.
+    javascript: 10.13 * MIB,
     mainRaw: 800 * KIB,
     mainGzip: 250 * KIB,
 };

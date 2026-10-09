@@ -22,6 +22,14 @@ import { parseAst, transformWithEsbuild } from 'vite';
 /** The public/ scripts whose dist copies are whitespace-minified. */
 export const MINIFIED_PUBLIC_SCRIPTS = Object.freeze(['sw.js', 'pcm-worklet.js']);
 
+/**
+ * The public/ data files whose dist copies are minified JSON (build 126 bundle
+ * diet). Both were JavaScript tables until then; as data they are fetched
+ * when needed. The public/ sources stay indented so edits and refreshes are
+ * reviewable diffs; the shipped copy loses only the whitespace.
+ */
+export const MINIFIED_PUBLIC_DATA = Object.freeze(['data/marine-place-names-qld.json', 'data/customs-clearance.json']);
+
 /** Text each dist copy must still contain (verify-web-release.mjs greps CACHE_NAME). */
 export const REQUIRED_PUBLIC_SCRIPT_TOKENS = Object.freeze({
     'sw.js': ['CACHE_NAME', 'RUNTIME_TILE_CACHE', 'OFFLINE_TILE_CACHE', 'DATA_CACHE', 'LAN_TILE_CACHE'],
@@ -66,4 +74,24 @@ export async function minifyPublicScriptWhitespace(source, fileName) {
         }
     }
     return stripped;
+}
+
+/**
+ * Minify one public JSON file: parse, then serialise without whitespace.
+ * Throws (naming the file) if it does not parse, so a broken data file fails
+ * the build instead of shipping. Re-parsing the output proves the value
+ * survived unchanged.
+ */
+export function minifyPublicJson(source, fileName) {
+    let value;
+    try {
+        value = JSON.parse(source);
+    } catch (error) {
+        throw new Error(`${fileName}: not valid JSON (${error instanceof Error ? error.message : String(error)})`);
+    }
+    const minified = JSON.stringify(value);
+    if (JSON.stringify(JSON.parse(minified)) !== minified) {
+        throw new Error(`${fileName}: minified JSON does not round-trip`);
+    }
+    return minified;
 }

@@ -1,5 +1,11 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
+import { packagedFetch } from './helpers/packagedFetch';
 vi.mock('@capacitor/core', () => ({ CapacitorHttp: { get: vi.fn() } }));
+
+// The regional reference is a packaged data file (public/data, build 126),
+// read with a same-origin fetch; the stub serves it from public/.
+beforeAll(() => vi.stubGlobal('fetch', packagedFetch()));
+afterAll(() => vi.unstubAllGlobals());
 
 afterEach(() => {
     vi.useRealTimers();

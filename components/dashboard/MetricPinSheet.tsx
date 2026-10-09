@@ -8,8 +8,9 @@
  * temperature into the grid cell the metric vacated.
  *
  * Phase 1 implementation — tap-to-pick. Phase 2 will upgrade the trigger
- * to drag-and-drop from the grid (long-press activation, framer-motion
- * swap animation) while keeping the same state model and persistence.
+ * to drag-and-drop from the grid (long-press activation, a CSS swap
+ * animation: framer-motion left the app in the build-126 bundle diet) while
+ * keeping the same state model and persistence.
  */
 import React, { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';

@@ -5,7 +5,7 @@
  *  - Capacitor Preferences persistence (async load on init)
  *  - Supabase cloud sync for authenticated users
  *  - Screen keep-awake and orientation lock effects
- *  - Migration logic for legacy rowOrder formats
+ *  - Shedding retired keys from older saved settings (RETIRED_SETTINGS_KEYS)
  */
 
 import { create } from 'zustand';
@@ -133,10 +133,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     forecastModel: 'dwd_icon',
     offshoreModel: 'sg',
     aiPersona: 50,
-    heroWidgets: ['wind', 'wave', 'pressure'],
     heroMetric: 'temp',
-    detailsWidgets: ['score', 'pressure', 'humidity', 'precip', 'cloud', 'visibility', 'chill', 'swell'],
-    rowOrder: ['beaufort', 'details', 'tides', 'sunMoon', 'vessel', 'advice', 'hourly', 'daily', 'map'],
     mapboxToken: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN,
     dynamicHeaderMetrics: false,
     dashboardMode: 'full',
@@ -310,6 +307,26 @@ export function awaitSettingsLoaded(): Promise<void> {
 }
 
 /**
+ * Settings keys no build reads any more, still present in blobs older builds
+ * saved: on disk, in the warm-boot mirror and in the cloud row. Dropped on the
+ * way in (mergeSettings, mergeCloudSettings) and never sent, so the next save
+ * stops writing them back.
+ *
+ * Build 126 (gap #105): the customisable forecast dashboard's heroWidgets,
+ * detailsWidgets, rowOrder (with the migration that kept it current) and
+ * topHeroWidget. The Glass grid is fixed; heroMetric, the one hero choice
+ * left, is untouched.
+ */
+export const RETIRED_SETTINGS_KEYS = ['heroWidgets', 'detailsWidgets', 'rowOrder', 'topHeroWidget'] as const;
+
+function withoutRetiredSettings<T extends object>(settings: T): T {
+    if (!RETIRED_SETTINGS_KEYS.some((key) => key in settings)) return settings;
+    const kept = { ...settings } as Record<string, unknown>;
+    for (const key of RETIRED_SETTINGS_KEYS) delete kept[key];
+    return kept as T;
+}
+
+/**
  * The generic cloud-settings record is deliberately not a second authority
  * for vessel configuration or entitlements.  Fleet data has field-level
  * revisioned storage, while subscription state is resolved from its own
@@ -329,7 +346,7 @@ function settingsForCloudSync(settings: Partial<UserSettings>): Partial<UserSett
         isPro: _isPro,
         ...globalSettings
     } = settings;
-    return globalSettings;
+    return withoutRetiredSettings(globalSettings);
 }
 
 /**
@@ -1480,9 +1497,7 @@ function removeSettingsMirror(scope: AuthIdentityScope): void {
  *  mirror seed and the async Preferences load so both produce identical
  *  state — no drift between the instant-paint and the authoritative load. */
 export function mergeSettings(parsed: Record<string, unknown>): UserSettings {
-    const p = parsed as Partial<UserSettings> & Record<string, unknown>;
-    const validHeroWidgets =
-        Array.isArray(p.heroWidgets) && p.heroWidgets.length > 0 ? p.heroWidgets : DEFAULT_SETTINGS.heroWidgets;
+    const p = withoutRetiredSettings(parsed) as Partial<UserSettings> & Record<string, unknown>;
     // Historic builds persisted owner/isPro directly on the device. Those
     // values are untrusted preferences, not purchase evidence, so never
     // revive them during disk hydration.
@@ -1500,8 +1515,6 @@ export function mergeSettings(parsed: Record<string, unknown>): UserSettings {
         // The old Satellite base left the Obs picker (125-13a, Shane
         // 2026-10-09): a saved one becomes Relief + Sat (useMapBase reads it so).
         ...(p.obsChartBase === 'satellite' ? { obsChartBase: 'reliefSat' as const } : {}),
-        heroWidgets: validHeroWidgets,
-        rowOrder: migrateRowOrder(Array.isArray(p.rowOrder) ? p.rowOrder : [...(DEFAULT_SETTINGS.rowOrder || [])]),
         subscriptionTier: tier,
         subscriptionExpiry: undefined,
         isPro: false,
@@ -1529,25 +1542,6 @@ export function readSettingsMirrorSync(scope: AuthIdentityScope = getAuthIdentit
     } catch {
         return null;
     }
-}
-
-function migrateRowOrder(saved: string[]): string[] {
-    const order = [...saved];
-    const chartsIdx = order.indexOf('charts');
-    if (chartsIdx !== -1) order.splice(chartsIdx, 1, 'hourly', 'daily');
-    const fcIdx = order.indexOf('forecastChart');
-    if (fcIdx !== -1) order.splice(fcIdx, 1);
-    if (!order.includes('sunMoon')) {
-        const tidesIdx = order.indexOf('tides');
-        if (tidesIdx !== -1) order.splice(tidesIdx + 1, 0, 'sunMoon');
-        else order.push('sunMoon');
-    }
-    if (!order.includes('vessel')) {
-        const sunIdx = order.indexOf('sunMoon');
-        if (sunIdx !== -1) order.splice(sunIdx + 1, 0, 'vessel');
-        else order.push('vessel');
-    }
-    return [...new Set(order)];
 }
 
 // Seed synchronously from the mirror so a warm boot paints immediately
@@ -2246,11 +2240,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         try {
             await writeSettingsToPreferences(scope, updated);
             if (!isAuthIdentityScopeCurrent(scope)) return;
-            if (clientWritablePatch.heroWidgets) {
-                _addDebugLog(`SAVE OK: [${clientWritablePatch.heroWidgets.join(', ')}]`);
-            } else {
-                _addDebugLog('SAVE OK: Settings Updated');
-            }
+            _addDebugLog('SAVE OK: Settings Updated');
         } catch (err: unknown) {
             _addDebugLog(`SAVE FAIL: ${getErrorMessage(err)}`);
         }
@@ -2322,7 +2312,7 @@ async function loadSettings(scope: AuthIdentityScope): Promise<void> {
             // Refresh the sync mirror with the authoritative (migrated)
             // settings so the next warm boot seeds from the same shape.
             writeSettingsMirror(merged, scope);
-            _addDebugLog(`LOADED: [${(merged.heroWidgets ?? []).join(', ')}] from Disk.`);
+            _addDebugLog('LOADED: settings from Disk.');
             void manageScreenEffects(merged, scope);
 
             // Boot Pi Cache from saved settings (no UI dependency)

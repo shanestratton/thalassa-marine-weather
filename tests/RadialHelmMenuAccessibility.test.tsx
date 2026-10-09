@@ -186,12 +186,15 @@ describe('RadialHelmMenu accessibility', () => {
         // of the status row (ends 56px) and the right rail (starts 128px).
         const source = readFileSync(join(process.cwd(), 'components/map/RadialHelmMenu.tsx'), 'utf8');
         const mobButton = source.slice(source.indexOf("'MOB, open Man Overboard emergency'"));
-        const className = mobButton.slice(mobButton.indexOf('className={`'), mobButton.indexOf('animate='));
+        // The button's attributes end where its icon starts (build 126: the
+        // framer-motion animate= prop that used to follow className is gone).
+        const attributes = mobButton.slice(0, mobButton.indexOf('<MobIcon'));
+        const className = attributes.slice(attributes.indexOf('className={`'));
 
         // The class is what CSS targets; without it neither rule applies.
         expect(className).toContain('radial-helm-mob');
         // No inline top — that is what made it unoverridable in landscape.
-        expect(mobButton.slice(0, mobButton.indexOf('animate='))).not.toMatch(/style=\{\{\s*top:/);
+        expect(attributes).not.toMatch(/style=\{\{\s*top:/);
         // A constant Tailwind offset would silently un-centre it again.
         expect(className).not.toMatch(/-top-\d/);
 

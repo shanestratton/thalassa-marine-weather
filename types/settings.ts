@@ -164,8 +164,9 @@ export interface UserSettings {
     offshoreModel?: OffshoreModel;
     mapboxToken?: string;
     aiPersona?: number;
-    heroWidgets?: string[];
-    topHeroWidget?: string;
+    // heroWidgets, topHeroWidget, detailsWidgets and rowOrder were retired in
+    // build 126 (the customisable dashboard, gap #105): nothing read them.
+    // Older saved blobs still carry them; settingsStore drops them on load.
     /**
      * Which metric occupies the big top slot of the hero card.
      * Default: 'temp' (temperature — app's canonical hero metric).
@@ -184,8 +185,6 @@ export interface UserSettings {
      *  runs on a rising tide) for the wind-vs-tide view. Undefined = use the
      *  modelled current instead. */
     tideFloodDirection?: number;
-    detailsWidgets?: string[];
-    rowOrder?: string[];
     dynamicHeaderMetrics?: boolean;
     dashboardMode?: DashboardMode;
     screenOrientation?: ScreenOrientationType;

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
+import { packagedFetch } from './helpers/packagedFetch';
 vi.mock('@capacitor/core', () => ({
     CapacitorHttp: {
         get: vi.fn().mockResolvedValue({
@@ -28,6 +29,11 @@ const place = (name: string, lat: number, lon: number, kind: MarineLocality['kin
     lon,
     kind,
 });
+
+// The regional reference is a packaged data file (public/data, build 126),
+// read with a same-origin fetch; the stub serves it from public/.
+beforeAll(() => vi.stubGlobal('fetch', packagedFetch()));
+afterAll(() => vi.unstubAllGlobals());
 
 describe('marine endpoint labels', () => {
     it('resolves Daydream offline and disambiguates Hamilton with its local village, not its district or street', async () => {

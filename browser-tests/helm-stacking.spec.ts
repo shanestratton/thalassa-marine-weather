@@ -20,6 +20,11 @@ async function expectUncoveredTarget(target: Locator) {
         .toEqual({ covered: false, onScreen: true });
 }
 
+// Stacking is independent of motion. Reduced motion switches the menu's CSS
+// entrances and exits off (index.css), so no click waits on a moving target
+// and nothing lingers while it leaves before the idle-fold timer runs out.
+test.use({ contextOptions: { reducedMotion: 'reduce' } });
+
 for (const viewport of [
     { name: 'small phone', width: 320, height: 568 },
     { name: 'landscape phone', width: 844, height: 390 },

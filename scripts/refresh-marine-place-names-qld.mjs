@@ -8,7 +8,11 @@ const SERVICE_LAYER =
     'https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/QldPlaceNames/MapServer/1';
 const QUERY_ENDPOINT = `${SERVICE_LAYER}/query`;
 const DATASET_METADATA = 'https://www.data.qld.gov.au/api/3/action/package_show?id=place-names-gazetteer-queensland';
-const OUTPUT_PATH = fileURLToPath(new URL('../data/marine-place-names-qld.json', import.meta.url));
+// public/, not data/: the app fetches it as a data file (build 126 bundle diet;
+// it was a 124 KB JavaScript chunk). public/ is packaged in the app, so it
+// still works offline, and the production build minifies the dist copy
+// (scripts/minify-public-scripts.mjs). Keep this copy readable for review.
+const OUTPUT_PATH = fileURLToPath(new URL('../public/data/marine-place-names-qld.json', import.meta.url));
 
 const SOURCE_TYPES = ['IS', 'BAY', 'COVE', 'HBR', 'ANCH'];
 const KIND_BY_SOURCE_TYPE = {

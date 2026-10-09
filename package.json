@@ -70,7 +70,6 @@
         "@turf/point-to-line-distance": "^7.3.5",
         "capacitor-tcp-socket": "^7.1.0",
         "delaunator": "^5.1.0",
-        "framer-motion": "^12.38.0",
         "jspdf": "^4.1.0",
         "leaflet": "^1.9.4",
         "leaflet-velocity-ts": "^1.2.0",

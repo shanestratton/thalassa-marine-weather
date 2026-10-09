@@ -7,16 +7,20 @@
  * layer menu open/closed without gestures.
  *
  * Designed for single-handed iPad/iPhone use on a pitching deck.
- * All animations use Framer Motion tight mechanical springs.
+ * Animations are CSS keyframes with a tight, slightly springy settle
+ * (helmMotion.css, which this chart-only component brings in itself, so the
+ * boot stylesheet does not carry it); they all stop under reduced motion.
+ * They were framer-motion springs until the build-126 bundle diet.
  */
 
 import React, { useState, useCallback, useEffect, useId, useLayoutEffect, useRef, useMemo } from 'react';
-import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { LAYERS_GLYPH_PATH } from './LayersGlyph';
 import { type WeatherLayer, SEA_STATE_LAYERS } from './mapConstants';
 import { triggerHaptic } from '../../utils/system';
 import { isCmemsLayerAvailable, isCmemsProductLayer } from './cmemsFeatureAvailability';
 import { CORNER_STATUS_DOT_CLASS } from './cornerStatusDot';
+import { useExitPresence } from '../../hooks/useExitPresence';
+import './helmMotion.css';
 import {
     AnchorIcon as ChartAnchorIcon,
     NoaaIcon as ChartNoaaIcon,
@@ -281,49 +285,18 @@ function sameHoles(a: Hole[], b: Hole[]): boolean {
     );
 }
 
-// ── Animation variants ──────────────────────────────────────────
+// ── Motion ──────────────────────────────────────────────────────
+// The keyframes are the .helm-* classes in helmMotion.css; each tile and item
+// passes its index as --helm-i for the stagger. These are the exit lengths
+// this menu stays mounted for (hooks/useExitPresence.ts); they must match
+// the .helm-*-out rules in helmMotion.css.
 
-const SPRING_SNAPPY = { type: 'spring' as const, stiffness: 600, damping: 28, mass: 0.6 };
+const HELM_EXIT_MS = 150;
+/** Tiles leave one after another, 20 ms apart, as they arrived (40 ms). */
+const HELM_TILE_EXIT_STAGGER_MS = 20;
 
-const categoryVariants: Variants = {
-    hidden: { scale: 0, opacity: 0 },
-    visible: (i: number) => ({
-        scale: 1,
-        opacity: 1,
-        transition: { ...SPRING_SNAPPY, delay: i * 0.04 },
-    }),
-    exit: (i: number) => ({
-        scale: 0,
-        opacity: 0,
-        transition: { duration: 0.15, delay: i * 0.02 },
-    }),
-};
-
-const itemVariants: Variants = {
-    hidden: { scale: 0, opacity: 0 },
-    visible: (i: number) => ({
-        scale: 1,
-        opacity: 1,
-        transition: { ...SPRING_SNAPPY, delay: i * 0.03 },
-    }),
-    exit: {
-        scale: 0,
-        opacity: 0,
-        transition: { duration: 0.12 },
-    },
-};
-
-const glowPulse: Variants = {
-    inactive: { boxShadow: '0 0 0px 0px rgba(56,189,248,0)' },
-    active: {
-        boxShadow: [
-            '0 0 8px 2px rgba(56,189,248,0.3)',
-            '0 0 16px 4px rgba(56,189,248,0.5)',
-            '0 0 8px 2px rgba(56,189,248,0.3)',
-        ],
-        transition: { duration: 2, repeat: Infinity },
-    },
-};
+/** Inline stagger index for a tile or item's CSS animation delay. */
+const staggerStyle = (i: number) => ({ '--helm-i': i }) as React.CSSProperties;
 
 // Operational-reference tactical items PARKED (Shane 2026-07-17: "remove
 // marks, tides, protected areas and window from the tactical area — they're on
@@ -1092,6 +1065,19 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         (button ?? e.currentTarget).setPointerCapture(e.pointerId);
     }, []);
 
+    // What stays painted for its exit after it closes (hooks/useExitPresence):
+    // the tiles and scrim, the layer grid (by category), and the tier-1
+    // Clear All pill (by its count, so a leaving pill keeps its number).
+    const menuPresence = useExitPresence(
+        isOpen ? true : null,
+        HELM_EXIT_MS + HELM_TILE_EXIT_STAGGER_MS * Math.max(0, categories.length - 1),
+    );
+    const gridPresence = useExitPresence(isOpen ? activeCategory : null, HELM_EXIT_MS);
+    const tierClearPresence = useExitPresence(
+        isOpen && !activeCategory && totalActive > 0 ? totalActive : null,
+        HELM_EXIT_MS,
+    );
+
     if (hidden) return null;
 
     // ── Render ───────────────────────────────────────────────
@@ -1118,7 +1104,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             style={{ touchAction: 'none' }}
         >
             {tacticalState?.onOpenMob && (
-                <motion.button
+                <button
                     type="button"
                     aria-label={
                         tacticalState.mobActive
@@ -1147,87 +1133,75 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                     // unreachable and the rest sat under the status row. An
                     // inline style cannot lose to a media query, so it had to
                     // move out to be overridable at all.
+                    // An active MOB pulses red (.helm-mob-pulse, helmMotion.css); under
+                    // reduced motion it holds a steady red glow instead.
                     className={`radial-helm-mob absolute right-0 flex min-h-[52px] min-w-[52px] flex-col items-center justify-center rounded-2xl border text-white shadow-2xl backdrop-blur-xl transition-colors active:scale-95 ${
                         tacticalState.mobActive
-                            ? 'border-red-300 bg-red-600 shadow-red-500/50'
+                            ? 'helm-mob-pulse border-red-300 bg-red-600 shadow-red-500/50'
                             : 'border-red-400/70 bg-red-700/95 shadow-red-950/60 hover:bg-red-600'
                     }`}
-                    animate={
-                        tacticalState.mobActive
-                            ? {
-                                  boxShadow: [
-                                      '0 0 8px 2px rgba(248,113,113,0.45)',
-                                      '0 0 20px 6px rgba(248,113,113,0.75)',
-                                      '0 0 8px 2px rgba(248,113,113,0.45)',
-                                  ],
-                              }
-                            : undefined
-                    }
-                    transition={tacticalState.mobActive ? { duration: 1.2, repeat: Infinity } : undefined}
                 >
                     <MobIcon />
                     <span className="mt-0.5 text-[10px] font-black leading-none tracking-[0.08em]">MOB</span>
-                </motion.button>
+                </button>
             )}
 
             {/* ── Scrim (click-away to close) ── */}
-            <AnimatePresence>
-                {isOpen && (
-                    <motion.svg
-                        ref={scrimRef}
-                        data-helm-scrim
-                        className="fixed inset-0 z-[-1] h-full w-full"
-                        // A slate-950/45 wash so the tiles stop reading as part of
-                        // the chart under them (own-ship, its badge, place labels).
-                        // Even over every control under the menu — the zoom badge,
-                        // map base pill, Systems and Locate alike — so the layering
-                        // reads as deliberate; it used to fade out before the
-                        // bottom corners, which left Locate lit (UX scorecard run
-                        // 7). The licence credits are cut out of it instead, so
-                        // they stay exactly as legible as with the menu shut.
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.15 }}
-                        role="presentation"
-                        aria-hidden="true"
-                        focusable="false"
-                        onClick={() => closeMenu()}
-                    >
-                        <defs>
-                            {/* Soft-edged cut-outs, so they read as the scrim thinning
-                                around the credits rather than as windows in it. */}
-                            <filter
-                                id={`${scrimMaskId}-soft`}
-                                filterUnits="userSpaceOnUse"
-                                x="0"
-                                y="0"
-                                width="100%"
-                                height="100%"
-                            >
-                                <feGaussianBlur stdDeviation={4} />
-                            </filter>
-                            <mask id={scrimMaskId}>
-                                <rect width="100%" height="100%" fill="white" />
-                                <g filter={`url(#${scrimMaskId}-soft)`}>
-                                    {creditHoles.map((hole, i) => (
-                                        <rect
-                                            key={i}
-                                            x={hole.x}
-                                            y={hole.y}
-                                            width={hole.width}
-                                            height={hole.height}
-                                            rx={8}
-                                            fill="black"
-                                        />
-                                    ))}
-                                </g>
-                            </mask>
-                        </defs>
-                        <rect width="100%" height="100%" fill="rgb(2 6 23 / 0.45)" mask={`url(#${scrimMaskId})`} />
-                    </motion.svg>
-                )}
-            </AnimatePresence>
+            {menuPresence.shown && (
+                <svg
+                    ref={scrimRef}
+                    data-helm-scrim
+                    // Leaving, it fades with the tiles but already lets taps
+                    // through to the chart.
+                    className={`fixed inset-0 z-[-1] h-full w-full ${
+                        menuPresence.leaving ? 'helm-scrim-out pointer-events-none' : 'helm-scrim-in'
+                    }`}
+                    // A slate-950/45 wash so the tiles stop reading as part of
+                    // the chart under them (own-ship, its badge, place labels).
+                    // Even over every control under the menu — the zoom badge,
+                    // map base pill, Systems and Locate alike — so the layering
+                    // reads as deliberate; it used to fade out before the
+                    // bottom corners, which left Locate lit (UX scorecard run
+                    // 7). The licence credits are cut out of it instead, so
+                    // they stay exactly as legible as with the menu shut.
+                    role="presentation"
+                    aria-hidden="true"
+                    focusable="false"
+                    onClick={() => closeMenu()}
+                >
+                    <defs>
+                        {/* Soft-edged cut-outs, so they read as the scrim thinning
+                            around the credits rather than as windows in it. */}
+                        <filter
+                            id={`${scrimMaskId}-soft`}
+                            filterUnits="userSpaceOnUse"
+                            x="0"
+                            y="0"
+                            width="100%"
+                            height="100%"
+                        >
+                            <feGaussianBlur stdDeviation={4} />
+                        </filter>
+                        <mask id={scrimMaskId}>
+                            <rect width="100%" height="100%" fill="white" />
+                            <g filter={`url(#${scrimMaskId}-soft)`}>
+                                {creditHoles.map((hole, i) => (
+                                    <rect
+                                        key={i}
+                                        x={hole.x}
+                                        y={hole.y}
+                                        width={hole.width}
+                                        height={hole.height}
+                                        rx={8}
+                                        fill="black"
+                                    />
+                                ))}
+                            </g>
+                        </mask>
+                    </defs>
+                    <rect width="100%" height="100%" fill="rgb(2 6 23 / 0.45)" mask={`url(#${scrimMaskId})`} />
+                </svg>
+            )}
 
             {/* ── Tier 2: Layer Items ──
                 A compact 2-column grid anchored below the FAB. Replaces the
@@ -1238,129 +1212,114 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 drag semantics via hit-testing in handlePointerMove which now
                 uses geometric hit-testing against grid cells.
             */}
-            <AnimatePresence>
-                {isOpen &&
-                    activeCategory &&
-                    (() => {
-                        const cat = categories.find((c) => c.id === activeCategory);
-                        if (!cat) return null;
+            {gridPresence.shown &&
+                (() => {
+                    const cat = categories.find((c) => c.id === gridPresence.shown);
+                    if (!cat) return null;
+                    // Leaving: out of the accessibility tree, focus and taps
+                    // while it settles away (hooks/useExitPresence).
+                    const leaving = gridPresence.leaving;
 
-                        return (
-                            <motion.div
-                                key={`grid-${cat.id}`}
-                                role="menu"
-                                aria-label={`${cat.label} ${cat.itemNoun ?? 'layers'}`}
-                                className="radial-helm-layer-grid thalassa-popover-solid fixed flex flex-col gap-2 rounded-2xl border border-white/15 bg-slate-900/95 p-3 shadow-2xl"
-                                style={{
-                                    // Anchor the grid to the right edge of the viewport, BELOW the
-                                    // Tier 1 category tiles. Fixed (not absolute) so it escapes the
-                                    // 48px FAB container. Short landscape overrides all of this
-                                    // from index.css (.radial-helm-layer-grid).
-                                    right: 12,
-                                    // 12 px under the lowest tile.
-                                    top: HELM_TOP_PX + FAB_HALF + tier1Bottom + 12,
-                                    // Stop above the tab bar and scroll inside: on a 375x667
-                                    // phone a nine-item grid ran on under the bar.
-                                    maxHeight: `calc(100dvh - ${HELM_TOP_PX + FAB_HALF + tier1Bottom + 12}px - 4rem - 1px - env(safe-area-inset-bottom) - 8px)`,
-                                    overflowY: 'auto',
-                                    overscrollBehavior: 'contain',
-                                    // Span most of the viewport width on phones; cap on tablets.
-                                    width: 'calc(100vw - 24px)',
-                                    maxWidth: 360,
-                                }}
-                                initial={{ opacity: 0, scale: 0.92, y: -8 }}
-                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.92, y: -8 }}
-                                transition={SPRING_SNAPPY}
-                            >
-                                {/* Header chip: active category label + count */}
-                                <div className="flex items-center justify-between px-1">
-                                    <div className="flex items-center gap-2">
-                                        <span className={`text-lg ${cat.color}`}>{cat.icon}</span>
-                                        <span className="text-[11px] font-black uppercase tracking-[0.18em] text-white/90">
-                                            {cat.label}
-                                        </span>
-                                    </div>
-                                    <span className="text-[10px] font-semibold text-gray-500">
-                                        {cat.items.length} {cat.itemNoun ?? 'layers'}
+                    return (
+                        <div
+                            key={`grid-${cat.id}`}
+                            role="menu"
+                            aria-label={`${cat.label} ${cat.itemNoun ?? 'layers'}`}
+                            aria-hidden={leaving || undefined}
+                            className={`radial-helm-layer-grid thalassa-popover-solid fixed flex flex-col gap-2 rounded-2xl border border-white/15 bg-slate-900/95 p-3 shadow-2xl ${
+                                leaving ? 'helm-grid-out pointer-events-none' : 'helm-grid-in'
+                            }`}
+                            style={{
+                                // Anchor the grid to the right edge of the viewport, BELOW the
+                                // Tier 1 category tiles. Fixed (not absolute) so it escapes the
+                                // 48px FAB container. Short landscape overrides all of this
+                                // from index.css (.radial-helm-layer-grid).
+                                right: 12,
+                                // 12 px under the lowest tile.
+                                top: HELM_TOP_PX + FAB_HALF + tier1Bottom + 12,
+                                // Stop above the tab bar and scroll inside: on a 375x667
+                                // phone a nine-item grid ran on under the bar.
+                                maxHeight: `calc(100dvh - ${HELM_TOP_PX + FAB_HALF + tier1Bottom + 12}px - 4rem - 1px - env(safe-area-inset-bottom) - 8px)`,
+                                overflowY: 'auto',
+                                overscrollBehavior: 'contain',
+                                // Span most of the viewport width on phones; cap on tablets.
+                                width: 'calc(100vw - 24px)',
+                                maxWidth: 360,
+                            }}
+                        >
+                            {/* Header chip: active category label + count */}
+                            <div className="flex items-center justify-between px-1">
+                                <div className="flex items-center gap-2">
+                                    <span className={`text-lg ${cat.color}`}>{cat.icon}</span>
+                                    <span className="text-[11px] font-black uppercase tracking-[0.18em] text-white/90">
+                                        {cat.label}
                                     </span>
                                 </div>
+                                <span className="text-[10px] font-semibold text-gray-500">
+                                    {cat.items.length} {cat.itemNoun ?? 'layers'}
+                                </span>
+                            </div>
 
-                                {/* 3-column grid gives 9 items 3 rows with breathing room;
-                                    auto-fit lets it degrade to 2 cols gracefully on very
-                                    narrow viewports. */}
-                                <div
-                                    className="grid gap-2"
-                                    style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))' }}
+                            {/* 3-column grid gives 9 items 3 rows with breathing room;
+                                auto-fit lets it degrade to 2 cols gracefully on very
+                                narrow viewports. */}
+                            <div
+                                className="grid gap-2"
+                                style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))' }}
+                            >
+                                {cat.items.map((item, i) => {
+                                    const active = isItemActive(item);
+                                    const hovered = hoveredItem === item.id;
+                                    return (
+                                        <button
+                                            key={`item-${item.id}`}
+                                            data-helm-item={item.id}
+                                            role="menuitemcheckbox"
+                                            aria-checked={active}
+                                            aria-label={`${item.label}${active ? ', on' : ', off'}`}
+                                            tabIndex={leaving ? -1 : undefined}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleItemTap(item);
+                                            }}
+                                            style={staggerStyle(i)}
+                                            className={`helm-item-in relative flex h-16 flex-col items-center justify-center gap-1 rounded-xl border transition-[color,background-color,border-color,filter,scale] hover:brightness-125 active:scale-[0.94] focus-visible:rounded-xl! ${focusRing} ${
+                                                active
+                                                    ? 'bg-sky-500/20 border-sky-400/50 text-white'
+                                                    : hovered
+                                                      ? 'bg-white/10 border-white/25 text-white'
+                                                      : 'bg-slate-800/70 border-white/8 text-gray-300'
+                                            }`}
+                                        >
+                                            <span className="text-[18px] leading-none">{item.icon}</span>
+                                            <span className="text-[10px] font-bold uppercase tracking-wider leading-none">
+                                                {item.label}
+                                            </span>
+                                            {active && (
+                                                <span className="helm-dot-pulse absolute top-1 right-1 h-2 w-2 rounded-full bg-sky-400" />
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Footer — "Clear All" pill lives INSIDE the grid panel now so
+                                it can never overlap the Tier 1 arc or the categories. Shows
+                                only when at least one layer is active. */}
+                            {totalActive > 0 && (
+                                <button
+                                    data-helm-grid-clear
+                                    role="menuitem"
+                                    tabIndex={leaving ? -1 : undefined}
+                                    onClick={handleClearAll}
+                                    className="mt-1 min-h-[44px] w-full rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-black uppercase tracking-widest text-red-400 transition-colors hover:bg-red-500/20"
                                 >
-                                    {cat.items.map((item, i) => {
-                                        const active = isItemActive(item);
-                                        const hovered = hoveredItem === item.id;
-                                        return (
-                                            <motion.button
-                                                key={`item-${item.id}`}
-                                                data-helm-item={item.id}
-                                                role="menuitemcheckbox"
-                                                aria-checked={active}
-                                                aria-label={`${item.label}${active ? ', on' : ', off'}`}
-                                                custom={i}
-                                                variants={itemVariants}
-                                                initial="hidden"
-                                                animate="visible"
-                                                exit="exit"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleItemTap(item);
-                                                }}
-                                                className={`relative flex h-16 flex-col items-center justify-center gap-1 rounded-xl border transition-[color,background-color,border-color,filter] hover:brightness-125 focus-visible:rounded-xl! ${focusRing} ${
-                                                    active
-                                                        ? 'bg-sky-500/20 border-sky-400/50 text-white'
-                                                        : hovered
-                                                          ? 'bg-white/10 border-white/25 text-white'
-                                                          : 'bg-slate-800/70 border-white/8 text-gray-300'
-                                                }`}
-                                                whileTap={{ scale: 0.94 }}
-                                            >
-                                                <span className="text-[18px] leading-none">{item.icon}</span>
-                                                <span className="text-[10px] font-bold uppercase tracking-wider leading-none">
-                                                    {item.label}
-                                                </span>
-                                                {active && (
-                                                    <motion.span
-                                                        className="absolute top-1 right-1 h-2 w-2 rounded-full bg-sky-400"
-                                                        layoutId={`active-dot-${item.id}`}
-                                                        animate={{
-                                                            boxShadow: [
-                                                                '0 0 4px 1px rgba(56,189,248,0.4)',
-                                                                '0 0 8px 2px rgba(56,189,248,0.6)',
-                                                                '0 0 4px 1px rgba(56,189,248,0.4)',
-                                                            ],
-                                                        }}
-                                                        transition={{ duration: 2, repeat: Infinity }}
-                                                    />
-                                                )}
-                                            </motion.button>
-                                        );
-                                    })}
-                                </div>
-
-                                {/* Footer — "Clear All" pill lives INSIDE the grid panel now so
-                                    it can never overlap the Tier 1 arc or the categories. Shows
-                                    only when at least one layer is active. */}
-                                {totalActive > 0 && (
-                                    <button
-                                        data-helm-grid-clear
-                                        role="menuitem"
-                                        onClick={handleClearAll}
-                                        className="mt-1 min-h-[44px] w-full rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] font-black uppercase tracking-widest text-red-400 transition-colors hover:bg-red-500/20"
-                                    >
-                                        Clear all · {totalActive} active
-                                    </button>
-                                )}
-                            </motion.div>
-                        );
-                    })()}
-            </AnimatePresence>
+                                    Clear all · {totalActive} active
+                                </button>
+                            )}
+                        </div>
+                    );
+                })()}
 
             {/* ── Tier 1: Category tiles (block beside the FAB) ── */}
             <div
@@ -1369,78 +1328,80 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 aria-label={isOpen ? 'Map overlay categories' : undefined}
                 className="contents"
             >
-                <AnimatePresence>
-                    {isOpen &&
-                        categories.map((cat, i) => {
-                            const pos = tier1Positions[i];
-                            const isActive = activeCategory === cat.id;
-                            const hasActive = categoryHasActive(cat);
+                {menuPresence.shown &&
+                    categories.map((cat, i) => {
+                        const pos = tier1Positions[i];
+                        const isActive = activeCategory === cat.id;
+                        const hasActive = categoryHasActive(cat);
+                        // Leaving: out of the accessibility tree, focus and
+                        // taps while the tiles shrink away in turn.
+                        const leaving = menuPresence.leaving;
 
-                            return (
-                                <motion.button
-                                    key={`cat-${cat.id}`}
-                                    data-helm-category={cat.id}
-                                    role="menuitem"
-                                    aria-haspopup="menu"
-                                    aria-expanded={isActive}
-                                    aria-label={`${cat.label} ${cat.itemNoun ?? 'layers'}`}
-                                    custom={i}
-                                    variants={categoryVariants}
-                                    initial="hidden"
-                                    animate="visible"
-                                    exit="exit"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleCategoryTap(cat.id);
-                                    }}
-                                    // Opaque tiles: at /70–/90 the own-ship dot read through
-                                    // one while its badge seemed to sit on top. Hover is a
-                                    // brightness change only; the ring/glow belongs to the
-                                    // open category (aria-expanded) alone, and keyboard
-                                    // focus wears its own neutral ring (MENU_FOCUS_RING).
-                                    className={`absolute flex flex-col items-center justify-center rounded-2xl border transition-[color,background-color,border-color,filter] hover:brightness-125 focus-visible:rounded-2xl! ${focusRing} ${
-                                        isActive
-                                            ? `bg-slate-800 border-white/20 ${cat.color}`
-                                            : hasActive
-                                              ? `bg-slate-900 border-white/10 ${cat.color}`
-                                              : 'bg-slate-900 border-white/8 text-gray-500'
+                        return (
+                            <button
+                                key={`cat-${cat.id}`}
+                                data-helm-category={cat.id}
+                                role="menuitem"
+                                aria-haspopup="menu"
+                                aria-expanded={isActive}
+                                aria-label={`${cat.label} ${cat.itemNoun ?? 'layers'}`}
+                                aria-hidden={leaving || undefined}
+                                tabIndex={leaving ? -1 : undefined}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCategoryTap(cat.id);
+                                }}
+                                // Opaque tiles: at /70–/90 the own-ship dot read through
+                                // one while its badge seemed to sit on top. Hover is a
+                                // brightness change only; the ring/glow belongs to the
+                                // open category (aria-expanded) alone, and keyboard
+                                // focus wears its own neutral ring (MENU_FOCUS_RING).
+                                className={`${
+                                    leaving ? 'helm-tile-out pointer-events-none' : 'helm-tile-in'
+                                } absolute flex flex-col items-center justify-center rounded-2xl border transition-[color,background-color,border-color,filter,scale] hover:brightness-125 active:scale-[0.92] focus-visible:rounded-2xl! ${focusRing} ${
+                                    isActive
+                                        ? `bg-slate-800 border-white/20 ${cat.color}`
+                                        : hasActive
+                                          ? `bg-slate-900 border-white/10 ${cat.color}`
+                                          : 'bg-slate-900 border-white/8 text-gray-500'
+                                }`}
+                                style={{
+                                    ...staggerStyle(i),
+                                    width: TIER1_TILE_W,
+                                    height: TIER1_TILE_H,
+                                    // Centre the tile on its slot, measured from the FAB
+                                    // centre (the container is the 48 px FAB's box).
+                                    right: -pos.x - (TIER1_TILE_W / 2 - FAB_HALF),
+                                    top: pos.y - (TIER1_TILE_H / 2 - FAB_HALF),
+                                }}
+                            >
+                                {/* The open category glows: a sky pulse (.helm-glow-pulse),
+                                    or under reduced motion the steady category glow below. */}
+                                <div
+                                    className={`flex flex-col items-center justify-center w-full h-full rounded-2xl ${
+                                        isActive ? 'helm-glow-pulse' : ''
                                     }`}
-                                    style={{
-                                        width: TIER1_TILE_W,
-                                        height: TIER1_TILE_H,
-                                        // Centre the tile on its slot, measured from the FAB
-                                        // centre (the container is the 48 px FAB's box).
-                                        right: -pos.x - (TIER1_TILE_W / 2 - FAB_HALF),
-                                        top: pos.y - (TIER1_TILE_H / 2 - FAB_HALF),
-                                    }}
-                                    whileTap={{ scale: 0.92 }}
+                                    style={isActive ? { boxShadow: `0 0 12px 2px ${cat.glowColor}` } : {}}
                                 >
-                                    <motion.div
-                                        variants={glowPulse}
-                                        animate={isActive ? 'active' : 'inactive'}
-                                        className="flex flex-col items-center justify-center w-full h-full rounded-2xl"
-                                        style={isActive ? { boxShadow: `0 0 12px 2px ${cat.glowColor}` } : {}}
-                                    >
-                                        <span className="text-xl leading-none">{cat.icon}</span>
-                                        {/* Category label. Width clamp + truncate is a safety net
+                                    <span className="text-xl leading-none">{cat.icon}</span>
+                                    {/* Category label. Width clamp + truncate is a safety net
                                         for any future label longer than the tile. */}
-                                        <span className="mt-1 max-w-[96px] truncate text-[12px] font-black uppercase leading-none tracking-tighter">
-                                            {cat.label}
-                                        </span>
-                                        {/* What is inside, from the category's own items. The
+                                    <span className="mt-1 max-w-[96px] truncate text-[12px] font-black uppercase leading-none tracking-tighter">
+                                        {cat.label}
+                                    </span>
+                                    {/* What is inside, from the category's own items. The
                                         clamp is a safety net like the label's: categoryHint
                                         already keeps it to one line that fits. */}
-                                        <span className="mt-1 max-w-[100px] truncate text-[12px] font-medium leading-none tracking-tight text-gray-500">
-                                            {categoryHint(cat)}
-                                        </span>
-                                    </motion.div>
-                                    {hasActive && !isActive && (
-                                        <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-sky-400 shadow-lg shadow-sky-400/50" />
-                                    )}
-                                </motion.button>
-                            );
-                        })}
-                </AnimatePresence>
+                                    <span className="mt-1 max-w-[100px] truncate text-[12px] font-medium leading-none tracking-tight text-gray-500">
+                                        {categoryHint(cat)}
+                                    </span>
+                                </div>
+                                {hasActive && !isActive && (
+                                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-sky-400 shadow-lg shadow-sky-400/50" />
+                                )}
+                            </button>
+                        );
+                    })}
             </div>
 
             {/* ── FAB (layers) ──
@@ -1472,22 +1433,20 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 AND there are active layers. Hangs 10 px under the lowest tile,
                 measured from the FAB centre (24 px into this container), so it
                 follows the tiles in short landscape too. */}
-            <AnimatePresence>
-                {isOpen && !activeCategory && totalActive > 0 && (
-                    <motion.button
-                        data-helm-tier-clear
-                        initial={{ opacity: 0, scale: 0.85 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.85 }}
-                        transition={{ ...SPRING_SNAPPY, delay: 0.2 }}
-                        onClick={handleClearAll}
-                        className="absolute right-0 min-h-[44px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-4 py-2 text-[12px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
-                        style={{ top: FAB_HALF + tier1Bottom + 10 }}
-                    >
-                        Clear all · {totalActive}
-                    </motion.button>
-                )}
-            </AnimatePresence>
+            {tierClearPresence.shown !== null && (
+                <button
+                    data-helm-tier-clear
+                    aria-hidden={tierClearPresence.leaving || undefined}
+                    tabIndex={tierClearPresence.leaving ? -1 : undefined}
+                    onClick={handleClearAll}
+                    className={`${
+                        tierClearPresence.leaving ? 'helm-pill-out pointer-events-none' : 'helm-pill-in'
+                    } absolute right-0 min-h-[44px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-4 py-2 text-[12px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25`}
+                    style={{ top: FAB_HALF + tier1Bottom + 10 }}
+                >
+                    Clear all · {tierClearPresence.shown}
+                </button>
+            )}
         </div>
     );
 };

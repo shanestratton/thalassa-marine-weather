@@ -11,14 +11,20 @@
  * inherited from the legacy LayerFABMenu's storm section, which was deleted
  * 2026-07-22 (it had become unreachable). This is now the only storm chooser,
  * so the look is defined here rather than matched to anything else.
+ *
+ * Motion is CSS (.storm-picker-* in helmMotion.css): the backdrop fades and the
+ * card settles in, and on close both play a short exit while already out of
+ * the accessibility tree and taking no taps. None of it runs under reduced
+ * motion. It was framer-motion until the build-126 bundle diet.
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
-import { motion, AnimatePresence } from 'framer-motion';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useExitPresence } from '../../hooks/useExitPresence';
+import './helmMotion.css';
 import { calculateDistance } from '../../utils/navigationCalculations';
 
 interface StormPickerProps {
@@ -56,6 +62,9 @@ function distanceNm(lat1: number, lon1: number, lat2: number, lon2: number): num
     return Math.round(calculateDistance(lat1, lon1, lat2, lon2));
 }
 
+/** Matches .storm-picker-backdrop-out / .storm-picker-dialog-out in helmMotion.css. */
+const STORM_PICKER_EXIT_MS = 200;
+
 /** Trim storm names that sometimes arrive as "Hurricane Kiko" / "Tropical Storm Iona". */
 function shortStormName(full: string): string {
     return full.replace(/^(Hurricane|Typhoon|Cyclone|Tropical\s+Storm|Tropical\s+Depression|Severe)\s+/i, '').trim();
@@ -77,6 +86,8 @@ export const StormPicker: React.FC<StormPickerProps> = ({
         initialFocusRef: closeButtonRef,
         onEscape: onClose,
     });
+    const presence = useExitPresence(visible ? true : null, STORM_PICKER_EXIT_MS);
+    const leaving = presence.leaving;
 
     if (typeof document === 'undefined') return null;
 
@@ -87,148 +98,131 @@ export const StormPicker: React.FC<StormPickerProps> = ({
         return da - db;
     });
 
+    if (!presence.shown) return null;
+
     return createPortal(
-        <AnimatePresence>
-            {visible && (
-                <motion.div
-                    key="storm-picker"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="fixed inset-0 z-9999 flex items-center justify-center bg-black/60 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
-                    onClick={onClose}
-                    role="presentation"
-                >
-                    {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
-                    <motion.div
-                        ref={dialogRef}
-                        initial={{ opacity: 0, scale: 0.95, y: -8 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: -8 }}
-                        transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                        className="w-full max-w-md max-h-full bg-slate-900/95 backdrop-blur-xl border border-white/8 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
-                        onClick={(e) => e.stopPropagation()}
-                        role="dialog"
-                        aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
-                        aria-labelledby="storm-picker-title"
-                        tabIndex={-1}
+        <div
+            key="storm-picker"
+            className={`fixed inset-0 z-9999 flex items-center justify-center bg-black/60 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))] ${
+                leaving ? 'storm-picker-backdrop-out pointer-events-none' : 'storm-picker-backdrop-in'
+            }`}
+            onClick={onClose}
+            role="presentation"
+            aria-hidden={leaving || undefined}
+        >
+            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
+            <div
+                ref={dialogRef}
+                className={`w-full max-w-md max-h-full bg-slate-900/95 backdrop-blur-xl border border-white/8 rounded-2xl shadow-2xl overflow-hidden flex flex-col ${
+                    leaving ? 'storm-picker-dialog-out' : 'storm-picker-dialog-in'
+                }`}
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal={portalTarget?.tagName === 'BODY' ? true : undefined}
+                aria-labelledby="storm-picker-title"
+                tabIndex={-1}
+            >
+                <div className="h-[2px] bg-linear-to-r from-transparent via-red-500/60 to-transparent" />
+
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 pt-4 pb-2">
+                    <div>
+                        <h2 id="storm-picker-title" className="text-sm font-black text-white uppercase tracking-wider">
+                            Active Cyclones
+                        </h2>
+                        <p className="text-[11px] text-gray-500 mt-0.5">{cyclones.length} tracked — tap to focus</p>
+                    </div>
+                    <button
+                        ref={closeButtonRef}
+                        onClick={onClose}
+                        aria-label="Close storm picker"
+                        className="hit-target-44 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
                     >
-                        <div className="h-[2px] bg-linear-to-r from-transparent via-red-500/60 to-transparent" />
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M6 18L18 6M6 6l12 12"
+                            />
+                        </svg>
+                    </button>
+                </div>
 
-                        {/* Header */}
-                        <div className="flex items-center justify-between px-5 pt-4 pb-2">
-                            <div>
-                                <h2
-                                    id="storm-picker-title"
-                                    className="text-sm font-black text-white uppercase tracking-wider"
-                                >
-                                    Active Cyclones
-                                </h2>
-                                <p className="text-[11px] text-gray-500 mt-0.5">
-                                    {cyclones.length} tracked — tap to focus
-                                </p>
-                            </div>
+                {/* Storm list */}
+                <div className="max-h-[60vh] overflow-y-auto">
+                    {sorted.map((storm, idx) => {
+                        const dist = distanceNm(userLat, userLon, storm.currentPosition.lat, storm.currentPosition.lon);
+                        const isSelected = selectedStormName === storm.name;
+                        return (
                             <button
-                                ref={closeButtonRef}
-                                onClick={onClose}
-                                aria-label="Close storm picker"
-                                className="hit-target-44 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                                key={`${storm.sid}-${idx}`}
+                                aria-label={`Focus on ${shortStormName(storm.name)}`}
+                                onClick={() => {
+                                    onSelect(storm);
+                                    triggerHaptic('medium');
+                                    onClose();
+                                }}
+                                className={`w-full flex items-center gap-3 px-5 py-3 text-left transition-colors border-b border-white/4 last:border-b-0 ${
+                                    isSelected ? 'bg-red-500/15 text-white' : 'text-gray-300 hover:bg-white/5'
+                                }`}
                             >
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M6 18L18 6M6 6l12 12"
-                                    />
-                                </svg>
-                            </button>
-                        </div>
-
-                        {/* Storm list */}
-                        <div className="max-h-[60vh] overflow-y-auto">
-                            {sorted.map((storm, idx) => {
-                                const dist = distanceNm(
-                                    userLat,
-                                    userLon,
-                                    storm.currentPosition.lat,
-                                    storm.currentPosition.lon,
-                                );
-                                const isSelected = selectedStormName === storm.name;
-                                return (
-                                    <button
-                                        key={`${storm.sid}-${idx}`}
-                                        aria-label={`Focus on ${shortStormName(storm.name)}`}
-                                        onClick={() => {
-                                            onSelect(storm);
-                                            triggerHaptic('medium');
-                                            onClose();
-                                        }}
-                                        className={`w-full flex items-center gap-3 px-5 py-3 text-left transition-colors border-b border-white/4 last:border-b-0 ${
-                                            isSelected ? 'bg-red-500/15 text-white' : 'text-gray-300 hover:bg-white/5'
-                                        }`}
-                                    >
-                                        {/* Category badge */}
-                                        <span
-                                            className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white ${CAT_COLORS[storm.category] ?? 'bg-gray-500'} shrink-0`}
-                                        >
-                                            {storm.categoryLabel}
-                                        </span>
-
-                                        {/* Name + stats */}
-                                        <div className="flex-1 min-w-0">
-                                            <div className="text-sm font-bold truncate">
-                                                {shortStormName(storm.name)}
-                                            </div>
-                                            <div className="text-[11px] text-gray-500 mt-0.5">
-                                                {storm.maxWindKts} kt
-                                                {storm.minPressureMb ? ` · ${storm.minPressureMb} hPa` : ''}
-                                                {' · '}
-                                                {dist > 1000 ? `${dist.toLocaleString()} NM` : `${dist} NM`}
-                                            </div>
-                                        </div>
-
-                                        {/* Selected indicator */}
-                                        {isSelected ? (
-                                            <span
-                                                className="w-2 h-2 rounded-full bg-red-400 animate-pulse shrink-0"
-                                                aria-hidden
-                                            />
-                                        ) : (
-                                            <svg
-                                                className="w-4 h-4 text-gray-400 shrink-0"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                                strokeWidth={2}
-                                            >
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                            </svg>
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-
-                        {/* Footer — "Turn off storms" clears the layer entirely. */}
-                        {onClearStorms && (
-                            <div className="px-5 py-3 border-t border-white/6">
-                                <button
-                                    onClick={() => {
-                                        onClearStorms();
-                                        onClose();
-                                    }}
-                                    className="w-full py-2 min-h-[44px] text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-red-400 transition-colors"
+                                {/* Category badge */}
+                                <span
+                                    className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-black text-white ${CAT_COLORS[storm.category] ?? 'bg-gray-500'} shrink-0`}
                                 >
-                                    Hide All Storms
-                                </button>
-                            </div>
-                        )}
-                    </motion.div>
-                </motion.div>
-            )}
-        </AnimatePresence>,
+                                    {storm.categoryLabel}
+                                </span>
+
+                                {/* Name + stats */}
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-bold truncate">{shortStormName(storm.name)}</div>
+                                    <div className="text-[11px] text-gray-500 mt-0.5">
+                                        {storm.maxWindKts} kt
+                                        {storm.minPressureMb ? ` · ${storm.minPressureMb} hPa` : ''}
+                                        {' · '}
+                                        {dist > 1000 ? `${dist.toLocaleString()} NM` : `${dist} NM`}
+                                    </div>
+                                </div>
+
+                                {/* Selected indicator */}
+                                {isSelected ? (
+                                    <span
+                                        className="w-2 h-2 rounded-full bg-red-400 animate-pulse shrink-0"
+                                        aria-hidden
+                                    />
+                                ) : (
+                                    <svg
+                                        className="w-4 h-4 text-gray-400 shrink-0"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                    </svg>
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* Footer — "Turn off storms" clears the layer entirely. */}
+                {onClearStorms && (
+                    <div className="px-5 py-3 border-t border-white/6">
+                        <button
+                            onClick={() => {
+                                onClearStorms();
+                                onClose();
+                            }}
+                            className="w-full py-2 min-h-[44px] text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-red-400 transition-colors"
+                        >
+                            Hide All Storms
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>,
         portalTarget!,
     );
 };

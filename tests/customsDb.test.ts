@@ -2,9 +2,25 @@
  * CustomsClearanceCard.test.ts — Tests for the customs clearance database.
  *
  * Validates database completeness, alias matching, and findCountryData logic.
+ *
+ * Since build 126 the guide is the packaged data file
+ * public/data/customs-clearance.json joined to the synchronous port index
+ * (data/customsPortIndex.ts); COUNTRY_DB here is that join, the same records
+ * the card shows once the file has loaded.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { findCountryData, COUNTRY_DB, COUNTRY_ALIASES } from '../data/customsDb';
+import { findCountryData as findInGuide, joinClearance, type CountryClearanceDetails } from '../data/customsDb';
+import { COUNTRY_ALIASES } from '../data/customsPortIndex';
+
+const COUNTRY_DB = joinClearance(
+    JSON.parse(readFileSync(join(process.cwd(), 'public/data/customs-clearance.json'), 'utf8')) as Record<
+        string,
+        CountryClearanceDetails
+    >,
+);
+const findCountryData = (country: string | undefined) => findInGuide(country, COUNTRY_DB);
 
 describe('COUNTRY_DB', () => {
     it('should contain at least 25 countries', () => {

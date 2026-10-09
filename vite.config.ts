@@ -16,7 +16,12 @@ import {
     readPublicBetaFeatureProfile,
     serializePublicBetaFeatureArtifact,
 } from './scripts/public-beta-feature-profile.mjs';
-import { MINIFIED_PUBLIC_SCRIPTS, minifyPublicScriptWhitespace } from './scripts/minify-public-scripts.mjs';
+import {
+    MINIFIED_PUBLIC_DATA,
+    MINIFIED_PUBLIC_SCRIPTS,
+    minifyPublicJson,
+    minifyPublicScriptWhitespace,
+} from './scripts/minify-public-scripts.mjs';
 import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
 import { debugAisInjectorFenceError } from './scripts/debug-ais-injector-fence.mjs';
 import { handleOcean } from './api/ocean/[view]';
@@ -100,9 +105,11 @@ function releasePublicInputFence() {
  * service worker's 44 KB of cache-bump history comments counted against the
  * JavaScript budget. Rewrite only the dist copies without comments and
  * whitespace; scripts/minify-public-scripts.mjs proves each one parses to the
- * same program and fails the build otherwise. writeBundle runs only after a
- * successful write, when Vite has already copied public/ into dist. A build
- * that does not copy public/ at all has nothing here to rewrite.
+ * same program and fails the build otherwise. The public data files it lists
+ * (MINIFIED_PUBLIC_DATA, build 126) ship as whitespace-free JSON the same way.
+ * writeBundle runs only after a successful write, when Vite has already copied
+ * public/ into dist. A build that does not copy public/ at all has nothing
+ * here to rewrite.
  */
 function releaseMinifyPublicScripts(): Plugin {
     let outDir = path.resolve(__dirname, 'dist');
@@ -124,6 +131,15 @@ function releaseMinifyPublicScripts(): Plugin {
                 }
                 const source = fs.readFileSync(target, 'utf8');
                 fs.writeFileSync(target, await minifyPublicScriptWhitespace(source, fileName));
+            }
+            // Build 126: the place-name and customs tables ship as data files.
+            for (const fileName of MINIFIED_PUBLIC_DATA) {
+                const target = path.join(outDir, fileName);
+                if (!fs.existsSync(target)) {
+                    if (!copiesPublicDir) continue;
+                    throw new Error(`${fileName} was not copied into ${outDir}`);
+                }
+                fs.writeFileSync(target, minifyPublicJson(fs.readFileSync(target, 'utf8'), fileName));
             }
         },
     };
