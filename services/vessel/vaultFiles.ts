@@ -18,9 +18,15 @@
  *     file, never base64 across the bridge) and replaces with the cloud one.
  *   - A per-identity index (vault/<identity>/index.json) remembers which copy
  *     belongs to which paper after the pull replaces the reference, so the
- *     paper opens at the customs counter in airplane mode. With signal the
- *     cloud's file is asked first: another device may have replaced it at
- *     the same cloud path (126-B3b compares the stored object's stamp).
+ *     paper opens at the customs counter in airplane mode. With signal a copy
+ *     is used as it is only while its row has not changed since it was
+ *     checked; a newer row costs one look at the stored object, and a
+ *     download only when the object itself changed (another device may have
+ *     replaced the file at the same cloud path).
+ *   - Papers filed on another device, or in a skipper's shared binder, are
+ *     kept too (126-B3b): downloaded natively into the vault the first time
+ *     they open with signal, or ahead of time over Wi-Fi (a budgeted pass:
+ *     no Manuals, nothing over 25 MiB, 150 MiB a pass, one at a time).
  *   - Old inline base64 is drained to files once, through LocalDatabase's
  *     rewriteQueuedRecord (outbox first, crash-safe); papers filed while
  *     signed out are taken into the adopting account's own folder; files
@@ -58,7 +64,10 @@ const reasonOf = (error: unknown) => (error instanceof Error ? error.message : e
 
 // ── Constants ──────────────────────────────────────────────────
 
-/** A file under Library, on this phone: `local-vault://vault/<token>/documents/p-<uuid>.<ext>`. */
+/**
+ * A file under Library, on this phone: `local-vault://vault/<token>/documents/p-<uuid>.<ext>`
+ * (picked here); a cloud paper's copy is `c-<id>.<ext>` beside it.
+ */
 export const LOCAL_VAULT_SCHEME = 'local-vault://';
 /**
  * 25 MiB, the vessel_vault bucket's file_size_limit (20261010160000). Every
@@ -92,6 +101,25 @@ const CHUNK_BYTES = 699_050 * 3;
 const CHUNK_CHARS = (CHUNK_BYTES / 3) * 4;
 /** A file picked in a form that is still open is never collected. */
 const GC_MIN_AGE_MS = 60 * 60 * 1000;
+/** A paper's file in the cloud: `supabase-storage://vessel_vault/<owner>/documents/<id>.<ext>`. */
+const CLOUD_PREFIX = 'supabase-storage://vessel_vault/';
+/** One Wi-Fi pass downloads at most this: aboard, Wi-Fi is a satellite link, not free. */
+const PREFETCH_BUDGET = 150 * 1024 * 1024;
+/** Kept on their first open with signal, never ahead: big, and wanted rarely. */
+const MANUALS = 'User Manuals';
+/** Stay with their owner (126-B4): never kept ahead from someone else's binder. */
+const CREW_IDS = 'Crew Visas/IDs';
+/** A stalled link gives up a download in a minute, as the fetch it replaced did (the plugin's own is 10). */
+const DOWNLOAD_TIMEOUT_MS = 60_000;
+
+/**
+ * Files picked in a form that is still open: no collection takes them, however
+ * long the form waits (a sync's pass runs every half hour). Filing or
+ * discarding releases one; an abandoned form's goes at the next launch.
+ */
+const held = new Set<string>();
+/** Accounts deleted on this phone: nothing is written for them again, whatever was in flight. */
+const purged = new Set<string>();
 
 export type VaultExtension = 'pdf' | 'jpg' | 'png' | 'heic' | 'doc' | 'docx';
 
@@ -130,10 +158,18 @@ function extensionOfPath(path: string): VaultExtension {
     return ACCEPTED[path.slice(path.lastIndexOf('.') + 1).toLowerCase()] ?? 'pdf';
 }
 
-function currentScope(): { session: LocalDatabaseSession; token: string } {
+interface Scope {
+    session: LocalDatabaseSession;
+    token: string;
+}
+
+function currentScope(): Scope {
     const session = getLocalDatabaseSession();
     return { session, token: identityFileToken(session.identity) };
 }
+
+/** A paper's file kept in the cloud (Storage), not on this phone. */
+export const isCloudFile = (uri: unknown): uri is string => typeof uri === 'string' && uri.startsWith(CLOUD_PREFIX);
 
 // ── Bytes ──────────────────────────────────────────────────────
 
@@ -348,13 +384,16 @@ export async function saveAttachment(
     const path = `${documentsFolder(token)}/p-${generateUUID()}.${ext}`;
     const written = await writePieces(path, chunksOf(body));
     if (written !== 'ok') return { ok: false, reason: written };
+    held.add(path);
     return { ok: true, uri: `${LOCAL_VAULT_SCHEME}${path}`, bytes: body.size, ext };
 }
 
 /** Remove a picked file nothing will file (its form or account is gone). */
 export async function discardAttachment(uri: string): Promise<void> {
     const path = vaultPathOf(uri);
-    if (path) await removeQuietly(path);
+    if (!path) return;
+    held.delete(path);
+    await removeQuietly(path);
 }
 
 /**
@@ -462,6 +501,8 @@ let indexTail: Promise<unknown> = Promise.resolve();
 /** Read, change and write one index, one change at a time; `change` returns how many entries it changed. */
 function updateIndex(token: string, change: (entries: Record<string, IndexEntry>) => number): Promise<number> {
     const run = indexTail.then(async () => {
+        // A deleted account's index is never written back (its purge waits for this queue).
+        if (purged.has(token)) return 0;
         const index = await readIndex(token);
         const changed = change(index.entries);
         if (changed > 0) await writeIndex(token, index);
@@ -481,7 +522,12 @@ export async function recordLocalCopy(
     bytes = 0,
     extra: { tooLarge?: boolean } = {},
 ): Promise<void> {
-    await setIndexEntry(currentScope().token, docId, uri, bytes, extra);
+    try {
+        await setIndexEntry(currentScope().token, docId, uri, bytes, extra);
+    } finally {
+        // Filed: its row (and now the index) names it.
+        held.delete(vaultPathOf(uri) ?? '');
+    }
 }
 
 async function setIndexEntry(
@@ -514,20 +560,30 @@ interface DocRow {
     file_uri?: string | null;
     updated_at?: string;
     user_id?: string | null;
+    category?: string;
 }
 
 /**
  * After this phone uploaded a vault file (SyncService): note where it went on
  * the paper's own entry for that very file (a later pick has replaced it
- * otherwise). Never fails the push.
+ * otherwise), and the stored object's stamp read right after the upload, so
+ * a later open confirms this copy with one look instead of downloading the
+ * same file back (126-B3b). Never fails the push.
  */
 export async function notePushedCopy(docId: string, uri: string, remote: string): Promise<void> {
     const path = vaultPathOf(uri);
     if (!path) return;
+    const object = isCloudFile(remote) ? await storedObject(remote).catch(() => null) : null;
     await updateIndex(path.split('/')[1], (entries) => {
         const entry = entries[docId];
         if (!entry || entry.path !== path) return 0;
-        entries[docId] = { ...entry, remote, pushedAt: new Date().toISOString() };
+        entries[docId] = {
+            ...entry,
+            remote,
+            pushedAt: new Date().toISOString(),
+            // Another device's file in the moment since would not be these bytes.
+            ...(object && object.size === entry.bytes ? { objectStamp: object.stamp } : {}),
+        };
         return 1;
     }).catch((error) => log.warn('documents: index-push-note-failed', reasonOf(error)));
 }
@@ -538,12 +594,22 @@ export interface LocalCopy {
     ext: VaultExtension;
     bytes: number;
     /**
-     * True when it is the paper's current file: the row names it, or it is
-     * kept on this phone only. Any other copy may have been replaced in the
-     * cloud by another device, so with signal the cloud is asked first; it is
-     * still the best there is with no signal, or when the cloud does not answer.
+     * True when it is the paper's current file: the row names it, it is kept
+     * on this phone only, or it was checked against the cloud for this very
+     * row. Any other copy may have been replaced in the cloud by another
+     * device, so with signal the cloud is asked first; it is still the best
+     * there is with no signal, or when the cloud does not answer.
      */
     fresh: boolean;
+}
+
+/** A copy checked against the cloud for this very row (its file, and its last change). */
+function confirmed(entry: IndexEntry, doc: DocRow): boolean {
+    return (
+        !!entry.remote &&
+        entry.remote === doc.file_uri &&
+        Date.parse(entry.rowStamp ?? '') >= Date.parse(doc.updated_at ?? '')
+    );
 }
 
 async function sizeIfPresent(path: string): Promise<number | null> {
@@ -579,15 +645,29 @@ export async function localCopyFor(doc: DocRow): Promise<LocalCopy | null> {
         path: entry.path,
         ext: extensionOfPath(entry.path),
         bytes,
-        fresh: entry.tooLarge === true && !doc.file_uri,
+        fresh: (entry.tooLarge === true && !doc.file_uri) || confirmed(entry, doc),
     };
 }
 
-/** Ids of papers kept on this phone only (over the cap; their rows have no file). */
-export async function phoneOnlyCopies(): Promise<Set<string>> {
-    const { token } = currentScope();
-    const entries = (await readIndex(token)).entries;
-    return new Set(Object.keys(entries).filter((id) => entries[id].tooLarge === true));
+/** Where a paper's file is, for its card (126-B3b); none for a paper with no file. */
+export type PaperFileState = 'local' | 'cloud' | 'phone-only';
+
+/**
+ * Where each paper's file is: on this phone (filed here, or a copy kept), only
+ * in the cloud, or on this phone only (too big to back up). One read of the
+ * index for the whole list, never a filesystem call per card.
+ */
+export async function paperFileStates(docs: readonly DocRow[]): Promise<Record<string, PaperFileState>> {
+    const entries = (await readIndex(currentScope().token)).entries;
+    const states: Record<string, PaperFileState> = {};
+    for (const doc of docs) {
+        const entry = entries[doc.id];
+        // A copy of a file the paper no longer has (replaced on another device) is not its file.
+        const own = entry && (!entry.remote || entry.remote === doc.file_uri);
+        if (doc.file_uri) states[doc.id] = own || !/^(supabase-storage|https?):/.test(doc.file_uri) ? 'local' : 'cloud';
+        else if (entry?.tooLarge) states[doc.id] = 'phone-only';
+    }
+    return states;
 }
 
 /**
@@ -609,6 +689,263 @@ export async function openLocalCopy(
         toDirectory: Directory.Cache,
     });
     return uri;
+}
+
+// ── Cloud papers kept on this phone (126-B3b) ──────────────────
+
+/** The papers' bucket, signed in as this phone's account (the client is in the app already). */
+const vaultBucket = async () => (await import('../supabase')).supabase!.storage.from('vessel_vault');
+
+/**
+ * A stored object's stamp (its eTag, else when it was written) and listed
+ * size, from one listing of its folder. Throws when the cloud does not answer
+ * or has no such file.
+ */
+async function storedObject(remote: string): Promise<{ stamp: string; size: number; type?: string }> {
+    const path = remote.slice(CLOUD_PREFIX.length);
+    const slash = path.lastIndexOf('/');
+    const name = path.slice(slash + 1);
+    const { data, error } = await (await vaultBucket()).list(path.slice(0, slash), { search: name });
+    if (error) throw error;
+    const found = data?.find((object) => object.name === name);
+    if (!found) throw new Error('Not in the cloud');
+    const meta = (found.metadata ?? {}) as { eTag?: string; size?: number; mimetype?: string };
+    return {
+        stamp: String(meta.eTag ?? found.updated_at ?? found.id),
+        size: Number(meta.size) || 0,
+        type: meta.mimetype,
+    };
+}
+
+export interface KeptCopy {
+    /** The paper's copy on this phone; null when its file is bigger than the room given. */
+    copy: LocalCopy | null;
+    /** The stored file's size as Storage lists it (bytes). */
+    size: number;
+    downloaded: boolean;
+}
+
+const keeping = new Map<string, Promise<KeptCopy>>();
+
+/**
+ * Keep a cloud paper's file on this phone. A copy checked for this very row
+ * is used as it is, with no request; otherwise one look at the stored object,
+ * and a copy of that same object is confirmed (no download); otherwise the
+ * file is downloaded natively into the vault, its bytes never in JS (the 2 GB
+ * WebContent ceiling), unless it is bigger than `room`. One download per
+ * paper at a time. Throws when the cloud does not answer, has no such file,
+ * or the account changed meanwhile.
+ */
+export async function cacheCloudFile(doc: DocRow, room = Infinity): Promise<KeptCopy> {
+    const scope = currentScope();
+    const key = `${scope.token}/${doc.id}`;
+    const running = keeping.get(key);
+    if (running) {
+        // The Wi-Fi pass is on it: its copy, unless it left the file for want of room this ask has.
+        const kept = await running.catch(() => null);
+        if (kept && (kept.copy || kept.size > room)) return kept;
+        if (keeping.has(key)) return cacheCloudFile(doc, room);
+    }
+    const run = keepCloudCopy(doc, scope, room).finally(() => keeping.delete(key));
+    keeping.set(key, run);
+    return run;
+}
+
+async function keepCloudCopy(doc: DocRow, { session, token }: Scope, room: number): Promise<KeptCopy> {
+    const remote = doc.file_uri;
+    if (!isCloudFile(remote)) throw new Error('Not a cloud file');
+    if (purged.has(token)) throw new Error('Account changed');
+    const entry = (await readIndex(token)).entries[doc.id];
+    const had = entry && vaultPathOf(`${LOCAL_VAULT_SCHEME}${entry.path}`) ? await sizeIfPresent(entry.path) : null;
+    const copyAt = (path: string, bytes: number): LocalCopy => ({
+        path,
+        ext: extensionOfPath(path),
+        bytes,
+        fresh: true,
+    });
+    if (entry && had !== null && confirmed(entry, doc))
+        return { copy: copyAt(entry.path, had), size: had, downloaded: false };
+
+    const object = await storedObject(remote);
+    const same = !!entry && had !== null && entry.remote === remote && entry.objectStamp === object.stamp;
+    let path = entry?.path ?? '';
+    let bytes = had ?? 0;
+    if (!same) {
+        if (object.size > room) return { copy: null, size: object.size, downloaded: false };
+        const storagePath = remote.slice(CLOUD_PREFIX.length);
+        const name = storagePath.slice(storagePath.lastIndexOf('/') + 1);
+        // The stored path's own extension; an old upload stored without one
+        // (a type the push did not map) goes by the type Storage lists.
+        const ext =
+            (name.includes('.') && ACCEPTED[name.slice(name.lastIndexOf('.') + 1).toLowerCase()]) ||
+            (ACCEPTED[docFileExtension('', object.type)] ?? 'pdf');
+        path = `${documentsFolder(token)}/c-${doc.id.replace(/[^A-Za-z0-9_-]/g, '_')}.${ext}`;
+        // Signed for each file, just before it (a 1 h link, as DocumentSyncService signs).
+        const signed = await (await vaultBucket()).createSignedUrl(storagePath, 60 * 60);
+        if (!signed.data?.signedUrl) throw signed.error ?? new Error('Not signed');
+        // Deprecated in favour of @capacitor/file-transfer, but native and
+        // streaming in 8.1.2 (ChartLockerService uses it too); a Capacitor 9
+        // bump moves both.
+        await Filesystem.downloadFile({
+            url: signed.data.signedUrl,
+            path,
+            directory: VAULT_DIRECTORY,
+            recursive: true,
+            connectTimeout: DOWNLOAD_TIMEOUT_MS,
+            readTimeout: DOWNLOAD_TIMEOUT_MS,
+        });
+        bytes = (await sizeIfPresent(path)) ?? object.size;
+    }
+    if (purged.has(token) || !isLocalDatabaseSessionCurrent(session)) {
+        // An account deleted meanwhile: the download may have made its folder again.
+        if (purged.has(token))
+            await Filesystem.rmdir({ path: vaultRoot(token), directory: VAULT_DIRECTORY, recursive: true }).catch(
+                () => undefined,
+            );
+        else if (!same) await removeQuietly(path);
+        throw new Error('Account changed');
+    }
+    // The row read before the download: a later one is checked next time. A
+    // row with an edit of this phone's still queued carries this phone's own
+    // clock, never the server's, so it confirms nothing.
+    const queued = getFullQueue().some((item) => item.table_name === TABLE && item.record_id === doc.id);
+    const stamps = { remote, rowStamp: queued ? undefined : doc.updated_at, objectStamp: object.stamp };
+    await updateIndex(token, (entries) => {
+        // A paper re-filed here meanwhile keeps its new file.
+        if (entries[doc.id] && entries[doc.id].path !== entry?.path) return 0;
+        entries[doc.id] =
+            same && entry ? { ...entry, ...stamps } : { path, bytes, savedAt: new Date().toISOString(), ...stamps };
+        return 1;
+    });
+    return { copy: copyAt(path, bytes), size: object.size || bytes, downloaded: !same };
+}
+
+async function onWifi(): Promise<boolean> {
+    try {
+        const { Network } = await import('@capacitor/network');
+        const status = await Network.getStatus();
+        return status.connected && status.connectionType === 'wifi';
+    } catch {
+        return false;
+    }
+}
+
+let prefetchRun: Promise<number> | null = null;
+/** One more pass, asked for while one ran: rows may have come in since it read them. */
+let nextPass: { minGapMs?: number; run: Promise<number> } | null = null;
+/** When the last full pass ran on Wi-Fi (the gap after a sync counts from it). */
+let lastPrefetch: { token: string; at: number } | null = null;
+/** Papers a Wi-Fi pass has dealt with (kept, checked, skipped or failed), by account and file. */
+const handled = new Set<string>();
+const keptListeners = new Set<() => void>();
+
+/** Called when a pass has kept papers on this phone, so an open Documents page relabels its cards. */
+export function onPapersKept(listener: () => void): () => void {
+    keptListeners.add(listener);
+    return () => keptListeners.delete(listener);
+}
+
+/** The papers a Wi-Fi pass keeps, newest first. */
+function papersToKeep(identity: string | null): DocRow[] {
+    return getAll<DocRow>(TABLE)
+        .filter(
+            (doc) =>
+                isCloudFile(doc.file_uri) &&
+                doc.category !== MANUALS &&
+                (doc.category !== CREW_IDS || !doc.user_id || doc.user_id === identity),
+        )
+        .sort((a, b) => (Date.parse(b.updated_at ?? '') || 0) - (Date.parse(a.updated_at ?? '') || 0));
+}
+
+/**
+ * Over Wi-Fi, keep the ship's papers on this phone before they are needed:
+ * newest first, one file at a time; never Manuals, someone else's Crew IDs or
+ * a file over 25 MiB (those keep on an open with signal); at most 150 MiB a
+ * pass; stopping when the Wi-Fi goes or the account changes. Then copies
+ * nothing needs are collected. `minGapMs` holds the full pass after a sync to
+ * one per 30 min, counted from the last that ran on Wi-Fi; inside the gap only
+ * papers no pass has dealt with yet (filed elsewhere since) come down. Opening
+ * Documents asks without it. An ask while a pass runs gets one more pass after
+ * it. Returns the files downloaded. No Settings switch: papers are small and
+ * the pass is budgeted (a switch would go in Settings → Preferences).
+ */
+export function prefetchPapers(options: { minGapMs?: number } = {}): Promise<number> {
+    if (prefetchRun) {
+        if (!nextPass) {
+            const pass = { minGapMs: options.minGapMs, run: Promise.resolve(0) };
+            pass.run = prefetchRun
+                .catch(() => 0)
+                .then(() => {
+                    nextPass = null;
+                    return prefetchPapers({ minGapMs: pass.minGapMs });
+                });
+            nextPass = pass;
+        } else if (!options.minGapMs) nextPass.minGapMs = undefined;
+        return nextPass.run;
+    }
+    let scope: Scope;
+    let papers: DocRow[];
+    try {
+        scope = currentScope();
+        papers = papersToKeep(scope.session.identity);
+    } catch {
+        return Promise.resolve(0);
+    }
+    const key = (doc: DocRow) => `${scope.token} ${doc.id} ${doc.file_uri}`;
+    const inGap =
+        !!options.minGapMs && lastPrefetch?.token === scope.token && Date.now() - lastPrefetch.at < options.minGapMs;
+    if (inGap) {
+        // The gap spares repeat looks at papers already dealt with, never a new one.
+        papers = papers.filter((doc) => !handled.has(key(doc)));
+        if (!papers.length) return Promise.resolve(0);
+    }
+    const run = runPrefetch(scope, papers, key, !inGap, !options.minGapMs).finally(() => {
+        if (prefetchRun === run) prefetchRun = null;
+    });
+    prefetchRun = run;
+    return run;
+}
+
+async function runPrefetch(
+    { session, token }: Scope,
+    papers: DocRow[],
+    key: (doc: DocRow) => string,
+    full: boolean,
+    tidy: boolean,
+): Promise<number> {
+    let downloaded = 0;
+    let spent = 0;
+    const wifi = await onWifi();
+    try {
+        if (!wifi) return 0;
+        if (full) lastPrefetch = { token, at: Date.now() };
+        for (const [i, doc] of papers.entries()) {
+            if (!isLocalDatabaseSessionCurrent(session) || purged.has(token) || !(await onWifi())) break;
+            const kept = await cacheCloudFile(doc, Math.min(MAX_ATTACHMENT_BYTES, PREFETCH_BUDGET - spent)).catch(
+                (error) => {
+                    log.warn('documents: prefetch-failed', reasonOf(error));
+                    return null;
+                },
+            );
+            if (kept && !kept.copy && kept.size <= MAX_ATTACHMENT_BYTES) {
+                // Within 25 MiB but past the budget: the pass is done, the rest wait for the next.
+                for (const rest of papers.slice(i)) handled.add(key(rest));
+                break;
+            }
+            // Kept, checked, over 25 MiB (kept on an open) or failed: not again inside the gap.
+            handled.add(key(doc));
+            if (kept?.downloaded) {
+                downloaded += 1;
+                spent += kept.size;
+            }
+        }
+    } finally {
+        // Off Wi-Fi only Documents opening tidies: a sync comes every few minutes.
+        if (wifi || tidy)
+            await gcVaultFiles().catch((error) => log.warn('documents: vault-gc-failed', reasonOf(error)));
+    }
+    if (downloaded) keptListeners.forEach((listener) => listener());
+    return downloaded;
 }
 
 // ── Drain: old inline base64 to files, once ────────────────────
@@ -948,7 +1285,9 @@ async function discardAdoptedAnonymousCopies(identity: string): Promise<void> {
  * ship_documents payload or index entry names, and only when older than an
  * hour, so a file picked in a form that is still open is never collected.
  * The index forgets papers that are gone (deleted here or on another device,
- * or pruned from a shared binder), an hour on, so their copies go too.
+ * or pruned from a shared binder: a skipper's Crew IDs once 126-B4 hides
+ * them), and cloud copies whose file was removed, an hour on, so their copies
+ * go too.
  * Signed in, adopted signed-out papers are taken across first. Never before
  * this launch's drain has finished: until then a queued payload can still
  * hold megabytes of base64. Returns how many files went.
@@ -957,6 +1296,7 @@ export async function gcVaultFiles(options: { now?: number } = {}): Promise<numb
     let scope: { session: LocalDatabaseSession; token: string };
     try {
         scope = currentScope();
+        if (purged.has(scope.token)) return 0; // deleted: nothing is taken into its folder again
         if (!drainedThisLaunch.has(scope.token)) await drainInlineAttachments();
     } catch (error) {
         log.warn('documents: drain-failed', reasonOf(error));
@@ -979,9 +1319,11 @@ export async function gcVaultFiles(options: { now?: number } = {}): Promise<numb
 
     const keep = new Set<string>();
     const live = new Set<string>();
+    const fileless = new Set<string>();
     try {
         for (const row of getAll<DocRow>(TABLE)) {
             live.add(row.id);
+            if (!row.file_uri) fileless.add(row.id);
             const path = vaultPathOf(row.file_uri);
             if (path) keep.add(path);
         }
@@ -1012,7 +1354,9 @@ export async function gcVaultFiles(options: { now?: number } = {}): Promise<numb
         let dropped = 0;
         if (!signedOut && isLocalDatabaseSessionCurrent(scope.session)) {
             for (const [id, entry] of Object.entries(entries)) {
-                if (live.has(id) || !(now - Date.parse(entry.savedAt) >= GC_MIN_AGE_MS)) continue;
+                // Gone, or a cloud file's copy whose file was removed (126-B3b).
+                const stale = !live.has(id) || (fileless.has(id) && !!entry.remote && !entry.tooLarge);
+                if (!stale || !(now - Date.parse(entry.savedAt) >= GC_MIN_AGE_MS)) continue;
                 delete entries[id];
                 dropped += 1;
             }
@@ -1021,6 +1365,7 @@ export async function gcVaultFiles(options: { now?: number } = {}): Promise<numb
         return dropped;
     });
     for (const entry of indexed) keep.add(entry.path);
+    for (const path of held) keep.add(path);
 
     let removed = 0;
     for (const file of listing) {
@@ -1061,7 +1406,12 @@ export async function tidyVaultAfterLaunch(): Promise<void> {
 export async function purgeVaultFilesForUser(userId: string): Promise<void> {
     const identity = typeof userId === 'string' ? userId.trim() : '';
     if (!identity) throw new Error('A user id is required to purge Documents files');
-    const root = vaultRoot(identityFileToken(identity));
+    const token = identityFileToken(identity);
+    const root = vaultRoot(token);
+    // A download in flight (a Wi-Fi pass, an open) lands after this: it removes
+    // its own file, and no index is written for this account again.
+    purged.add(token);
+    await indexTail;
     let failure: unknown = null;
     try {
         await Filesystem.rmdir({ path: root, directory: VAULT_DIRECTORY, recursive: true });

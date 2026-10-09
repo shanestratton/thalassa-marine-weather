@@ -486,6 +486,7 @@ export function useAppBootstrap() {
         let stopSync: (() => void) | null = null;
         let stopLossNotice: (() => void) | null = null;
         let cancelVaultTidy: (() => void) | null = null;
+        let stopPaperPrefetch: (() => void) | null = null;
         import('../services/vessel')
             .then(
                 ({
@@ -494,6 +495,7 @@ export function useAppBootstrap() {
                     stopSyncEngine,
                     requestFullReconciliation,
                     watchSharedBinderLoss,
+                    onSyncComplete,
                 }) => {
                     // A superseded dynamic import must never stop B's newly
                     // started singleton engine.
@@ -521,6 +523,15 @@ export function useAppBootstrap() {
                                 const handle = window.setTimeout(tidyVault, 1_000);
                                 cancelVaultTidy = () => window.clearTimeout(handle);
                             }
+                            // After a sync, the ship's papers come down over Wi-Fi, at most
+                            // one pass in 30 min (126-B3b; the pass checks the Wi-Fi itself
+                            // and logs its own failures).
+                            stopPaperPrefetch = onSyncComplete(() => {
+                                if (!active || !isAuthIdentityScopeCurrent(actionScope)) return;
+                                void import('../services/vessel/vaultFiles')
+                                    .then((vault) => vault.prefetchPapers({ minGapMs: 30 * 60_000 }))
+                                    .catch(() => undefined);
+                            });
                             // Changes to a skipper's binder a sync could not keep
                             // get a toast, whichever page is open (2026-10-02).
                             stopLossNotice = watchSharedBinderLoss();
@@ -539,6 +550,7 @@ export function useAppBootstrap() {
             stopSync?.();
             stopLossNotice?.();
             cancelVaultTidy?.();
+            stopPaperPrefetch?.();
         };
     }, [authChecked, authenticatedUserId, identityScope]);
 

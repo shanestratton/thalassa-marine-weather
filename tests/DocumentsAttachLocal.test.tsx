@@ -18,14 +18,49 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ShipDocument } from '../types';
 
-const hoisted = vi.hoisted(() => ({
-    share: vi.fn(),
-    warn: vi.fn(),
-    getDownloadUrl: vi.fn(),
-}));
+const hoisted = vi.hoisted(() => {
+    /** Storage's own copy of each paper's file (126-B3b): what list and the native download see. */
+    const stored = new Map<string, { text: string; eTag: string }>();
+    const json = (status: number, body: unknown) =>
+        new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+    const storageFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new TypeError('Failed to fetch');
+        if (url.pathname === '/storage/v1/object/list/vessel_vault') {
+            const { prefix } = JSON.parse(String(init?.body)) as { prefix: string };
+            return json(
+                200,
+                [...stored]
+                    .filter(([path]) => path.startsWith(`${prefix}/`))
+                    .map(([path, object]) => ({
+                        name: path.slice(prefix.length + 1),
+                        id: path,
+                        updated_at: '2026-10-12T09:00:00.000Z',
+                        metadata: { eTag: object.eTag, size: object.text.length },
+                    })),
+            );
+        }
+        if (url.pathname.startsWith('/storage/v1/object/sign/vessel_vault/')) {
+            const path = url.pathname.slice('/storage/v1/object/sign/vessel_vault/'.length);
+            return json(200, { signedURL: `/object/sign/vessel_vault/${path}?token=fixture.signed.token` });
+        }
+        return json(404, { message: 'unexpected' });
+    });
+    return { share: vi.fn(), warn: vi.fn(), getDownloadUrl: vi.fn(), stored, storageFetch };
+});
 
 vi.mock('@capacitor/filesystem', async () => (await import('./helpers/memoryFilesystem')).memoryFilesystemModule());
 vi.mock('@capacitor/share', () => ({ Share: { share: hoisted.share } }));
+vi.mock('../services/supabase', async (importOriginal) => {
+    const { createClient } = await vi.importActual<typeof import('@supabase/supabase-js')>('@supabase/supabase-js');
+    return {
+        ...(await importOriginal<typeof import('../services/supabase')>()),
+        supabase: createClient('https://kestrel-project.test.invalid', 'anon-test-key', {
+            auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+            global: { fetch: hoisted.storageFetch as unknown as typeof fetch },
+        }),
+    };
+});
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: hoisted.warn, error: vi.fn() }),
 }));
@@ -127,6 +162,13 @@ const saveButton = (sheet: HTMLElement) => within(sheet).getByRole('button', { n
 
 beforeEach(async () => {
     memoryFs.reset();
+    hoisted.stored.clear();
+    // The native download (126-B3b): the signed URL's stored file, straight to disk.
+    memoryFs.serve = (url: string) => {
+        const path = decodeURIComponent(new URL(url).pathname.split('/object/sign/vessel_vault/')[1] ?? '');
+        const object = hoisted.stored.get(path);
+        return object ? new TextEncoder().encode(object.text) : 404;
+    };
     vi.restoreAllMocks();
     hoisted.share.mockReset().mockResolvedValue({});
     hoisted.warn.mockReset();
@@ -314,17 +356,10 @@ describe('Documents: with signal, and sharing several', () => {
         await mergePulledRecords('ship_documents', [
             { ...filed, user_id: SKIPPER, file_uri: remote, updated_at: '2026-10-12T09:00:00.000Z' },
         ]);
-        hoisted.getDownloadUrl.mockImplementation(
-            async (uri: string) => `https://storage.test.invalid/${uri.slice('supabase-storage://'.length)}?token=x`,
-        );
-        vi.stubGlobal(
-            'fetch',
-            vi.fn(async () => ({
-                ok: true,
-                status: 200,
-                blob: async () => new Blob(['%PDF-1.7 renewed certificate'], { type: 'application/pdf' }),
-            })),
-        );
+        hoisted.stored.set(`${SKIPPER}/documents/${filed.id}.pdf`, {
+            text: '%PDF-1.7 renewed certificate',
+            eTag: '"etag-renewed-on-the-ipad"',
+        });
         let sharedText = '';
         hoisted.share.mockImplementation(async ({ files }: { files: string[] }) => {
             const file = memoryFs.files.get(files[0].replace('mem://', ''));
@@ -338,7 +373,9 @@ describe('Documents: with signal, and sharing several', () => {
         });
 
         await waitFor(() => expect(hoisted.share).toHaveBeenCalledTimes(1));
-        expect(hoisted.getDownloadUrl).toHaveBeenCalledWith(remote);
+        // Downloaded natively and kept (126-B3b), never fetched into JS.
+        expect(memoryFs.calls.filter((c) => c.op === 'downloadFile')).toHaveLength(1);
+        expect(globalThis.fetch).not.toHaveBeenCalled();
         expect(sharedText).toBe('%PDF-1.7 renewed certificate');
     });
 
@@ -356,7 +393,7 @@ describe('Documents: with signal, and sharing several', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
 
         await act(async () => {
-            fireEvent.click(screen.getByRole('button', { name: 'Email or share selected documents' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Share or save selected documents' }));
         });
 
         await waitFor(() => expect(hoisted.share).toHaveBeenCalledTimes(1));

@@ -124,6 +124,11 @@ export default defineConfig({
         // Anchor Watch radar, and "GPS antenna to bow" in Vessel's Dimensions, at
         // 320 × 568 to 390 × 844 in wide fonts (e2e/fixtures/anchor-antenna.tsx).
         'anchor-antenna-layout.spec.ts',
+        // Documents (126-B3b): each card's "On this phone" / "Needs signal to open"
+        // line and the ⋮ menu's "Share or save selected" fit 320 × 568 to the iPad
+        // pane in wide fonts, dark, daylight and night, above the tab bar
+        // (e2e/fixtures/documents.tsx).
+        'documents-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

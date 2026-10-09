@@ -69,7 +69,9 @@ function newShareCopies(): ShareCopies {
  * typed from the document (components/vessel/documents/docFiles.ts): a synced
  * photo is a .jpg, not a ".pdf", and two papers with one name are two files.
  * A URL is fetched once; its own content type picks the extension. Returns
- * the file:// URI native APIs use.
+ * the file:// URI native APIs use. Only for an old inline file (data:) or a
+ * legacy https link: a paper in the vault bucket is kept on the phone and
+ * downloaded natively (126-B3b), never through JS.
  */
 async function writeUriToCache(
     uri: string,
@@ -132,6 +134,7 @@ const isQuietShareEnd = (e: unknown) => {
 };
 
 type VaultModule = typeof import('../../services/vessel/vaultFiles');
+type PaperFileState = import('../../services/vessel/vaultFiles').PaperFileState;
 
 /** The Documents file store on this phone (126-B3a), loaded with the first file this page touches. */
 const loadVault = (): Promise<VaultModule> => import('../../services/vessel/vaultFiles');
@@ -145,7 +148,8 @@ const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine ===
 
 /**
  * Write one paper's file into a share sheet's Cache folder: the copy on this
- * phone first (126-B3a; a native copy, no bytes through JS), else the cloud's.
+ * phone first (126-B3a; a native copy, no bytes through JS), else the cloud's,
+ * kept on this phone from then on (126-B3b: checked, or downloaded natively).
  * A copy that may be older than the cloud's is used with no signal, or when
  * the cloud does not answer: it is the best copy there is. Null when the page
  * moved on (another account).
@@ -170,6 +174,12 @@ async function writePaperToCache(
     // An old inline file (data:) is on the phone; everything else is fetched.
     if (offline && !doc.file_uri.startsWith('data:')) throw new NeedsSignalError();
     try {
+        if (vault.isCloudFile(doc.file_uri)) {
+            // Room is unlimited here, so the copy is always kept.
+            const kept = (await vault.cacheCloudFile(doc)).copy!;
+            if (!isCurrent()) return null;
+            return await fromPhone(kept);
+        }
         const freshUri = await DocumentSyncService.getDownloadUrl(doc.file_uri);
         if (!isCurrent()) return null;
         return await writeUriToCache(freshUri, doc, copies);
@@ -259,8 +269,11 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     // A picked file is read and kept on the phone before it can be filed (126-B3a).
     const [fileState, setFileState] = useState<'idle' | 'reading' | 'ready'>('idle');
     const pickedRef = React.useRef<{ uri: string; bytes: number } | null>(null);
-    // Papers too big to back up, kept on this phone only (their rows have no file).
-    const [phoneOnlyIds, setPhoneOnlyIds] = useState<ReadonlySet<string>>(() => new Set());
+    // Where each paper's file is, for its card (126-B3b): on this phone, only in
+    // the cloud, or on this phone only (too big to back up; the row has no file).
+    const [fileStates, setFileStates] = useState<Readonly<Record<string, PaperFileState>>>({});
+    const [vaultTick, setVaultTick] = useState(0);
+    const refreshFileStates = useCallback(() => setVaultTick((tick) => tick + 1), []);
     // Soft delete with undo (126-B10a): the document stays in state, hidden,
     // until its delete is committed. The commit is fenced on the account, not
     // on the page being open, so a delete flushed by Back or by the phone
@@ -337,7 +350,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             setFormFileName(null);
             setFileState('idle');
             pickedRef.current = null;
-            setPhoneOnlyIds(new Set());
+            setFileStates({});
             reloadTimerRef.current = setTimeout(() => {
                 if (isAuthIdentityScopeCurrent(next)) loadDocs();
             }, 0);
@@ -354,32 +367,42 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     // Realtime sync — crew edits appear instantly
     useRealtimeSync('ship_documents', loadDocs);
 
-    // Papers kept on this phone only, too big to back up (126-B3a): their rows
-    // have no file, but their cards still open.
+    // Where each paper's file is (126-B3b), from one read of the vault's index
+    // after every load, open, share and Wi-Fi pass: no filesystem call per card.
+    // A paper too big to back up has no file in its row, but its card opens.
     useEffect(() => {
         if (loading) return;
         const scope = getAuthIdentityScope();
         let cancelled = false;
         loadVault()
             .then(async (vault) => {
-                const kept = await vault.phoneOnlyCopies();
-                if (cancelled || !currentOperation(scope)) return;
-                setPhoneOnlyIds((previous) =>
-                    previous.size === kept.size && [...kept].every((id) => previous.has(id)) ? previous : kept,
-                );
+                const states = await vault.paperFileStates(documents);
+                if (!cancelled && currentOperation(scope)) setFileStates(states);
             })
             .catch((error) => log.warn('documents: vault-index-failed', error));
         return () => {
             cancelled = true;
         };
-    }, [currentOperation, documents, loading]);
+    }, [currentOperation, documents, loading, vaultTick]);
 
-    // Files picked here that nothing refers to any more go, an hour on (126-B3a).
+    // On Wi-Fi, the ship's papers come down to this phone before they are
+    // needed (126-B3b); then files nothing refers to any more go, an hour on.
+    // A later pass (after a sync) relabels the cards it kept, too.
     useEffect(() => {
+        let stop: (() => void) | undefined;
+        let cancelled = false;
         loadVault()
-            .then((vault) => vault.gcVaultFiles())
-            .catch((error) => log.warn('documents: vault-gc-failed', error));
-    }, [dataScopeKey]);
+            .then((vault) => {
+                if (cancelled) return;
+                stop = vault.onPapersKept(refreshFileStates);
+                return vault.prefetchPapers();
+            })
+            .catch((error) => log.warn('documents: prefetch-failed', error));
+        return () => {
+            cancelled = true;
+            stop?.();
+        };
+    }, [dataScopeKey, refreshFileStates]);
 
     // Whose papers these are (shared binders, 2026-10-02): the skipper's while
     // this sailor is crew on a boat that shares Documents. Crew may file and
@@ -582,12 +605,14 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
     const handleOpenDoc = async (doc: ShipDocument) => {
         const scope = getAuthIdentityScope();
-        if (doc.file_uri || phoneOnlyIds.has(doc.id)) {
+        if (doc.file_uri || fileStates[doc.id] === 'phone-only') {
             triggerHaptic('light');
             const shown = await presentDocFile({ ...doc }, () => currentOperation(scope), {
                 dialogTitle: `Open ${doc.document_name}`,
             });
             if (!currentOperation(scope)) return;
+            // Opened with signal, a cloud paper is now kept on this phone.
+            refreshFileStates();
             if (shown === 'needs-signal') {
                 log.warn('documents: open-needs-signal');
                 toast.info(NEEDS_SIGNAL);
@@ -608,88 +633,80 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         });
     };
 
-    // Batch download selected docs
-    const handleBatchDownload = async () => {
+    /**
+     * Share or save the ticked papers in ONE share sheet (126-B3b, DOC-10). On
+     * iOS saving IS the share sheet ("Save to Files"), so the old "Download
+     * selected", one sheet per paper that counted a cancel as saved, is gone.
+     * Each paper comes from this phone, or with signal is kept on it first;
+     * one that cannot be had is left out and counted (no signal, or it could
+     * not be read: said apart). The sheet is its own confirmation (no toast),
+     * and a cancel says nothing.
+     */
+    const handleShareOrSave = async () => {
         const scope = getAuthIdentityScope();
         setHeaderMenuOpen(false);
-        const selected = visibleDocuments.filter((d) => selectedIds.has(d.id) && d.file_uri).map((doc) => ({ ...doc }));
+        const selected = visibleDocuments
+            .filter((d) => selectedIds.has(d.id) && (d.file_uri || fileStates[d.id] === 'phone-only'))
+            .map((doc) => ({ ...doc }));
         if (selected.length === 0) {
             toast.error('No files attached to selected documents');
             return;
         }
         triggerHaptic('medium');
-        let ok = 0;
-        for (const doc of selected) {
-            if (!currentOperation(scope)) return;
-            if (
-                doc.file_uri &&
-                (await presentDocFile(doc, () => currentOperation(scope), {
-                    text: `Ship's Document: ${doc.document_name} (${doc.category})`,
-                    dialogTitle: `Share ${doc.document_name}`,
-                })) === 'shown'
-            )
-                ok++;
-        }
-        if (!currentOperation(scope)) return;
-        toast.success(`Saved ${ok} of ${selected.length} file${selected.length > 1 ? 's' : ''}`);
-        setSelectedIds(new Set());
-    };
-
-    // Batch share/email selected docs
-    const handleBatchShare = async () => {
-        const scope = getAuthIdentityScope();
-        setHeaderMenuOpen(false);
-        const selected = visibleDocuments.filter((d) => selectedIds.has(d.id) && d.file_uri).map((doc) => ({ ...doc }));
-        if (selected.length === 0) {
-            toast.error('No files attached to selected documents');
-            return;
-        }
-        triggerHaptic('medium');
-        // Share all files via a single share sheet if possible
         const copies = newShareCopies();
         try {
             const fileUris: string[] = [];
-            // With no signal, papers not on this phone are left out, and said so.
             let leftOut = 0;
+            let failed = 0;
             for (const doc of selected) {
-                if (doc.file_uri) {
-                    let fileUri: string | null;
-                    try {
-                        fileUri = await writePaperToCache(doc, copies, () => currentOperation(scope));
-                    } catch (e: unknown) {
-                        if (!(e instanceof NeedsSignalError)) throw e;
-                        leftOut += 1;
-                        continue;
+                let fileUri: string | null;
+                try {
+                    fileUri = await writePaperToCache(doc, copies, () => currentOperation(scope));
+                } catch (e: unknown) {
+                    // Not on this phone and no signal: left out, and said so.
+                    // Anything else (the cloud refused it, a full disk) failed.
+                    if (e instanceof NeedsSignalError || isOffline()) leftOut += 1;
+                    else {
+                        failed += 1;
+                        log.warn('documents: share-failed', e);
                     }
-                    if (!fileUri || !currentOperation(scope)) return;
-                    fileUris.push(fileUri);
+                    continue;
                 }
+                if (!fileUri || !currentOperation(scope)) return;
+                fileUris.push(fileUri);
             }
             if (!currentOperation(scope)) return;
             if (leftOut > 0) {
                 log.warn('documents: share-needs-signal');
                 toast.info(
-                    fileUris.length === 0
+                    fileUris.length + failed === 0
                         ? "These papers aren't on this phone yet. Connect to share them."
                         : leftOut === 1
                           ? "1 paper isn't on this phone yet and was left out."
                           : `${leftOut} papers aren't on this phone yet and were left out.`,
                 );
-                if (fileUris.length === 0) return;
             }
+            if (failed > 0)
+                toast.error(
+                    fileUris.length === 0
+                        ? 'Share failed'
+                        : `${failed} paper${failed === 1 ? " couldn't be read and was" : "s couldn't be read and were"} left out.`,
+                );
+            if (fileUris.length === 0) return;
             const { Share } = await import('@capacitor/share');
             await Share.share({
                 title: `Ship's Documents (${fileUris.length})`,
                 files: fileUris,
-                dialogTitle: 'Share Selected Documents',
+                dialogTitle: 'Share or save documents',
             });
         } catch (e: unknown) {
             if (!isQuietShareEnd(e)) {
-                log.warn('documents: batch-share-failed', e);
+                log.warn('documents: share-failed', e);
                 if (currentOperation(scope)) toast.error('Share failed');
             }
         } finally {
             await clearShareCopies(copies);
+            if (currentOperation(scope)) refreshFileStates();
         }
         if (currentOperation(scope)) setSelectedIds(new Set());
     };
@@ -776,15 +793,16 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             {headerMenuOpen && (
                                 <>
                                     <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
-                                    <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                    <div className="absolute right-0 top-full mt-1 z-50 w-60 max-w-[calc(100vw-2rem)] bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                         <button
-                                            aria-label="Download selected documents"
-                                            onClick={handleBatchDownload}
+                                            aria-label="Share or save selected documents"
+                                            onClick={handleShareOrSave}
                                             disabled={selectedIds.size === 0}
-                                            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
+                                            className="w-full min-h-11 flex items-center gap-2.5 px-4 py-3 text-left text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
                                         >
                                             <svg
-                                                className="w-4 h-4 text-sky-400"
+                                                aria-hidden="true"
+                                                className="w-4 h-4 shrink-0 text-sky-400"
                                                 fill="none"
                                                 viewBox="0 0 24 24"
                                                 stroke="currentColor"
@@ -793,32 +811,10 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                                 <path
                                                     strokeLinecap="round"
                                                     strokeLinejoin="round"
-                                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
                                                 />
                                             </svg>
-                                            Download selected
-                                        </button>
-                                        <div className="border-t border-white/5" />
-                                        <button
-                                            aria-label="Email or share selected documents"
-                                            onClick={handleBatchShare}
-                                            disabled={selectedIds.size === 0}
-                                            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
-                                        >
-                                            <svg
-                                                className="w-4 h-4 text-emerald-400"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                                strokeWidth={2}
-                                            >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                                                />
-                                            </svg>
-                                            Share selected
+                                            Share or save selected
                                         </button>
                                         {selectedIds.size > 0 && (
                                             <>
@@ -829,10 +825,11 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                                         setSelectedIds(new Set());
                                                         setHeaderMenuOpen(false);
                                                     }}
-                                                    className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-gray-400 hover:bg-white/5 transition-colors"
+                                                    className="w-full min-h-11 flex items-center gap-2.5 px-4 py-3 text-left text-sm text-gray-400 hover:bg-white/5 transition-colors"
                                                 >
                                                     <svg
-                                                        className="w-4 h-4"
+                                                        aria-hidden="true"
+                                                        className="w-4 h-4 shrink-0"
                                                         fill="none"
                                                         viewBox="0 0 24 24"
                                                         stroke="currentColor"
@@ -930,6 +927,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                             onDelete={sharedBinder ? undefined : () => handleDelete(doc.id)}
                                             selected={selectedIds.has(doc.id)}
                                             onToggleSelect={() => toggleSelectDoc(doc.id)}
+                                            fileState={fileStates[doc.id]}
                                         />
                                     ))}
                                 </div>
