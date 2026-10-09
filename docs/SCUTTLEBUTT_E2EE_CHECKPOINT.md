@@ -108,8 +108,9 @@ Window: startup, Chat selection, synthetic closure, whole-root remount, blocked
 audio CSP control and final synthetic terminal closure. A separate simulator-only
 native full-App startup fixture now compiles, but native startup and supported
 SDK login acceptance remain unproved.
-Cached-only replay is now prepared and schema-checked, but its invocation remains
-queued; no new simulator or artifact signing occurred on 10 October. The ordinary
+Cached-only replay passed strict preflight without recompilation, then timed out
+at owned-simulator boot before app installation/launch. Its exact simulator was
+removed; native acceptance remains unproved. The ordinary
 app/router still has no experimental startup admission. Production
 cutover is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
@@ -145,9 +146,37 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
-### 10 October cached native replay prepared
+### 10 October cached native invocation reached boot gate
 
-The [cached resume manifest](../experiments/scuttlebutt-e2ee/review/full-app-native-resume-2026-10-10.json)
+The [cached invocation manifest](../experiments/scuttlebutt-e2ee/review/full-app-native-cached-invocation-2026-10-10.json)
+records one actual `--resume-unsigned` attempt on `68135a94`, with **no native or
+web recompilation**. Strict preflight verified the original unsigned 304-file
+artifact, current 20 Swift sources and fixture JS/resource, provider, three
+bindings, 19/22 framework snapshots, configs and 256 web/CSP inputs. Both recorded
+entitlement sections were remeasured. Original compile proof and current
+uncompiled driver hashes remained separate; the packaged fixture binding and
+original unsigned bytes were retained. Only a fresh owned copy was ad-hoc signed.
+
+The new attempt-ID-owned simulator's boot-status call timed out after its
+180-second bound: exit status null, timeout true. The attempt stopped before app
+installation/launch, with no native phase/v2 receipt or native startup acceptance.
+The exact simulator was removed, with source/artifact hashes unchanged. Shared
+waiting was **10,003 ms** in this heartbeat, separate from the prior exhausted
+opportunity. No 14/46/nine/browser cases were repeated and no further attempt ran.
+This establishes an infrastructure boot gate, not an app regression or its cause.
+
+A later read-only runtime inventory found installed iOS 26.5 (`23F77`) and iOS
+27.0 (`24A434`); the cached build used Xcode/SDK 27.0. A future explicit, recorded
+driver option could select the already installed 27.0 runtime for one new owned
+diagnostic environment, with no download or shared-service/human-simulator reset.
+That option is **proposed only**, neither implemented nor executed, and the
+inventory does not establish a boot cause. Native startup, protected exchange
+and all release gates remain false; master `196bcb0e` remains unreconciled and
+foundation `3c30f47c` unchanged.
+
+### 10 October cached native replay preparation
+
+The historical [cached resume manifest](../experiments/scuttlebutt-e2ee/review/full-app-native-resume-2026-10-10.json)
 records **14 new pure cached-plan cases, narrow types and named lint/format
 passing**. The cached app invocation is **queued-unrun** after one shared two-minute
 opportunity expired behind competing heavy work. No driver preflight, copying,
@@ -172,9 +201,9 @@ failure's cause. One VM page snapshot recorded 111 MiB free, 2,030 MiB wired and
 of an OOM/boot cause. No process/service was killed or restarted and no existing
 simulator, human installation or keys were reset.
 
-Next invoke only the verified cached runner when the shared slot is free, using
-fresh explicit simulator ownership and strict copied diagnostics; do not rebuild
-the unchanged runtime or repeat passed suites. The prior unknown app-stage cause
+The later cached invocation above advances this queued gate to a measured boot
+timeout without recompilation. Do not rebuild the unchanged runtime or repeat
+passed suites. The prior unknown app-stage cause
 and later boot-status infrastructure timeout remain separate retained failures.
 Master `196bcb0e` is externally advanced and unreconciled; foundation `3c30f47c`
 is unchanged. No production, hosted/human, primary or master mutation occurred.

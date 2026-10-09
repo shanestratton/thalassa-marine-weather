@@ -253,9 +253,26 @@ storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gate
 before treating this routing seam as startup integration. No ordinary activation,
 shared dependency write, primary sync, master or production change is included.
 
-The [10 October cached native resume](../experiments/scuttlebutt-e2ee/review/full-app-native-resume-2026-10-10.json)
+The [10 October cached invocation](../experiments/scuttlebutt-e2ee/review/full-app-native-cached-invocation-2026-10-10.json)
+passed strict unsigned/artifact/source/resource/provider/binding/framework/config/
+CSP preflight and remeasured entitlement sections, with no native/web compile.
+It retained the original fixture binding and unsigned bytes, signing only a new
+owned copy under a distinct ownership attempt ID. The new simulator timed out
+at boot status after the 180-second bound, before install/launch/native receipt;
+exit status was null and timeout true. Exact simulator cleanup succeeded and
+sources remained unchanged. Shared waiting was 10,003 ms, separate from the earlier
+opportunity; no unchanged tests or further attempt ran. Native startup is still
+unproved, not an app regression inferred from a boot timeout.
+
+Read-only inventory shows installed iOS 26.5/build 23F77 and 27.0/build 24A434, while
+the cached compile used Xcode/SDK 27.0. Selecting 27.0 via a future explicit recorded
+option is a proposal for a new owned diagnostic environment, not implemented or
+executed and not proof of a cause. No downloads, service resets or human-simulator
+changes are authorized by that proposal. All native/release gates remain open.
+
+The historical [10 October cached native resume](../experiments/scuttlebutt-e2ee/review/full-app-native-resume-2026-10-10.json)
 is prepared with 14 new pure plan cases, narrow types and named lint/format passing.
-The invocation remains queued-unrun after one bounded shared-slot opportunity;
+At that checkpoint invocation was queued-unrun after one shared-slot opportunity;
 no cached preflight, copy/signing, simulator or new compilation/execution ran.
 The exact second unsigned artifact is the only admitted plan: 304 files, 20 Swift
 sources, three bindings, 19/22 framework files and 256 web assets. Planned checks
@@ -267,9 +284,9 @@ separate, with no general-cache/provenance or native acceptance claim.
 
 The limited checked crash location contained no matching app report; that does
 not establish no crash. A point-in-time VM page count is not available-memory or
-OOM/boot-cause evidence. Nothing was killed, reset or restarted. Next execute only
-the cached runner on a free shared slot, with new owned-simulator isolation and
-strict diagnostics; no old 46/nine/browser suite or unchanged compile is needed.
+OOM/boot-cause evidence. Nothing was killed, reset or restarted. The subsequent
+invocation above reached the boot gate with no old 46/nine/browser suite or
+unchanged compile; later diagnostics still require new owned-simulator isolation.
 Master `196bcb0e` remains unreconciled and native/release gates remain open.
 
 The [9 October native full-root startup implementation](../experiments/scuttlebutt-e2ee/review/full-app-native-startup-2026-10-09.json)
