@@ -26,7 +26,7 @@ interface ThalassaWindow {
     };
     /** MapLibre GL instance (set by map components) */
     mapboxgl?: typeof import('mapbox-gl');
-    /** Leaflet instance (set by TrackMapViewer) */
+    /** Leaflet instance (set by MapboxVelocityOverlay for its wind plugin) */
     L?: typeof import('leaflet');
     /** Wind particle debug info */
     __windDebug?: {

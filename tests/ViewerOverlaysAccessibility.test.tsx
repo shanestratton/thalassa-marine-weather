@@ -1,81 +1,20 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TrackMapViewer } from '../components/TrackMapViewer';
 import { VesselSearch } from '../components/map/VesselSearch';
 import { supabase } from '../services/supabase';
 import { PhotoLightbox } from '../src/components/PhotoLightbox';
+import { FakeMapboxMap } from './helpers/fakeMapboxGl';
 
 vi.mock('../services/PiCacheService', () => ({
-    piCache: {
-        leafletTileTemplate: (url: string) => url,
-    },
+    piCache: { canDisplayProxiedTiles: () => false, passthroughTileUrl: () => null },
 }));
 
-const trackMapLeaflet = vi.hoisted(() => {
-    const groups: Array<ReturnType<typeof makeLayer>> = [];
-
-    function makeLayer() {
-        const layer = {
-            addTo: vi.fn(),
-            bringToFront: vi.fn(),
-            clearLayers: vi.fn(),
-            getTileSize: vi.fn(() => ({ x: 256, y: 256 })),
-            off: vi.fn(),
-            on: vi.fn(),
-        };
-        layer.addTo.mockReturnValue(layer);
-        return layer;
-    }
-
-    const map = {
-        closePopup: vi.fn(),
-        createPane: vi.fn(() => ({ style: {} })),
-        fitBounds: vi.fn(),
-        hasLayer: vi.fn(() => false),
-        invalidateSize: vi.fn(),
-        on: vi.fn(),
-        remove: vi.fn(),
-        removeLayer: vi.fn(),
-        setView: vi.fn(),
-    };
-    map.setView.mockReturnValue(map);
-    map.on.mockReturnValue(map);
-
-    const layerGroup = vi.fn(() => {
-        const group = makeLayer();
-        groups.push(group);
-        return group;
-    });
-
-    return {
-        groups,
-        map,
-        circleMarker: vi.fn(makeLayer),
-        divIcon: vi.fn(() => ({})),
-        latLngBounds: vi.fn(() => ({})),
-        layerGroup,
-        marker: vi.fn(makeLayer),
-        polyline: vi.fn(makeLayer),
-        popup: vi.fn(makeLayer),
-        tileLayer: vi.fn(makeLayer),
-    };
-});
-
-vi.mock('leaflet', () => {
-    return {
-        default: {
-            circleMarker: trackMapLeaflet.circleMarker,
-            divIcon: trackMapLeaflet.divIcon,
-            latLngBounds: trackMapLeaflet.latLngBounds,
-            layerGroup: trackMapLeaflet.layerGroup,
-            map: vi.fn(() => trackMapLeaflet.map),
-            marker: trackMapLeaflet.marker,
-            polyline: trackMapLeaflet.polyline,
-            popup: trackMapLeaflet.popup,
-            tileLayer: trackMapLeaflet.tileLayer,
-        },
-    };
+// The track viewer's map is Mapbox GL on Relief + Sat since 125-13b.
+vi.mock('mapbox-gl', async () => {
+    const { fakeMapboxGl } = await import('./helpers/fakeMapboxGl');
+    return { default: fakeMapboxGl };
 });
 
 afterEach(() => {
@@ -123,48 +62,44 @@ function TrackMapHarness() {
 
 describe('viewer overlay accessibility', () => {
     it('shows and draws a followed route before the recorded voyage has two fixes', async () => {
-        trackMapLeaflet.groups.length = 0;
-        trackMapLeaflet.polyline.mockClear();
-        trackMapLeaflet.latLngBounds.mockClear();
-        trackMapLeaflet.map.fitBounds.mockClear();
-        render(
-            <TrackMapViewer
-                isOpen
-                onClose={() => {}}
-                entries={[]}
-                followedRouteCoords={[
-                    { lat: -27.5, lon: 153 },
-                    { lat: -23.9, lon: 152.4 },
-                ]}
-            />,
-        );
+        FakeMapboxMap.instances.length = 0;
+        vi.stubEnv('VITE_MAPBOX_ACCESS_TOKEN', 'pk.fixture');
+        try {
+            render(
+                <TrackMapViewer
+                    isOpen
+                    onClose={() => {}}
+                    entries={[]}
+                    followedRouteCoords={[
+                        { lat: -27.5, lon: 153 },
+                        { lat: -23.9, lon: 152.4 },
+                    ]}
+                />,
+            );
 
-        expect(screen.getByText('Followed route · waiting for recorded fixes')).toBeInTheDocument();
-        expect(screen.queryByText('Loading track…')).not.toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Play track' })).not.toBeInTheDocument();
-        expect(screen.getByText('Route')).toBeInTheDocument();
-        await vi.waitFor(() => expect(trackMapLeaflet.polyline).toHaveBeenCalledTimes(2));
-        expect(trackMapLeaflet.polyline).toHaveBeenNthCalledWith(
-            1,
-            [
-                [-27.5, 153],
-                [-23.9, 152.4],
-            ],
-            expect.objectContaining({ color: '#a78bfa', pane: 'followed-route-pane' }),
-        );
-        expect(trackMapLeaflet.polyline).toHaveBeenNthCalledWith(
-            2,
-            [
-                [-27.5, 153],
-                [-23.9, 152.4],
-            ],
-            expect.objectContaining({ color: '#c4b5fd', pane: 'followed-route-pane' }),
-        );
-        expect(trackMapLeaflet.latLngBounds).toHaveBeenCalledWith([
-            [-27.5, 153],
-            [-23.9, 152.4],
-        ]);
-        expect(trackMapLeaflet.map.fitBounds).toHaveBeenCalled();
+            expect(screen.getByText('Followed route · waiting for recorded fixes')).toBeInTheDocument();
+            expect(screen.queryByText('Loading track…')).not.toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: 'Play track' })).not.toBeInTheDocument();
+            expect(screen.getByText('Route')).toBeInTheDocument();
+            await waitFor(() => expect(FakeMapboxMap.instances).toHaveLength(1));
+            const map = FakeMapboxMap.instances[0];
+            // Framed on the route as the map is made, then drawn when its style lands.
+            expect(map.options.bounds).toEqual([
+                [152.4, -27.5],
+                [153, -23.9],
+            ]);
+            map.loadStyle();
+            await waitFor(() => expect(map.getSource('track-route')).toBeDefined());
+            const route = map.getSource('track-route')!.data as GeoJSON.FeatureCollection;
+            expect((route.features[0].geometry as GeoJSON.LineString).coordinates).toEqual([
+                [153, -27.5],
+                [152.4, -23.9],
+            ]);
+            expect(map.getLayer('track-route-glow')?.paint).toMatchObject({ 'line-color': '#a78bfa' });
+            expect(map.getLayer('track-route-core')?.paint).toMatchObject({ 'line-color': '#c4b5fd' });
+        } finally {
+            vi.unstubAllEnvs();
+        }
     });
 
     it('contains photo viewer focus, supports keyboard navigation, and restores its opener', () => {
