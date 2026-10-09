@@ -275,13 +275,58 @@ describe('the Pi can actually be handed the shore watch', () => {
         expect(page).toMatch(
             /const canMoveAnchor =[\s\S]{0,600}!piKeepingWatch &&\s*!AnchorPiWatchKeeper\.isKeeping\(\)/,
         );
-        // …and opening or finishing the sheet calls nothing on the Pi.
-        const sheetUse = page.slice(
-            page.indexOf('<MoveAnchorSheet'),
-            page.indexOf('/>', page.indexOf('<MoveAnchorSheet')),
-        );
+        // …and opening or finishing the sheet calls nothing on the Pi. Sliced
+        // from the WATCH sheet's own mount: since 126-07a the page mounts the
+        // sheet twice, and the Pi one (in Shore Watch) comes first in the file.
+        const watchMount = page.search(/<MoveAnchorSheet\s+snapshot=\{snapshot\}/);
+        expect(watchMount).toBeGreaterThan(-1);
+        const sheetUse = page.slice(watchMount, page.indexOf('/>', watchMount));
         expect(sheetUse.length).toBeGreaterThan(0);
-        expect(sheetUse).not.toMatch(/AnchorPiWatchKeeper|stopWatch|leaveSession/);
+        expect(sheetUse).not.toMatch(/AnchorPiWatchKeeper|stopWatch|leaveSession|mode="pi"/);
+    });
+
+    it('moving the mark of the PI’s watch only re-posts its assignment (126-07a)', () => {
+        // The Pi replaces a watch in place, so the move is AnchorPiWatchKeeper
+        // .relocate: never begin() (which re-authorises and resets the
+        // binding) and never end() (which would leave the boat unwatched).
+        const page = read('components/AnchorWatchPage.tsx');
+        const handlerAt = page.indexOf('const handlePiMove');
+        expect(handlerAt).toBeGreaterThan(-1);
+        const handler = page.slice(handlerAt, page.indexOf(';\n', handlerAt));
+        expect(handler).toMatch(/AnchorPiWatchKeeper\.relocate\(/);
+        expect(handler).not.toMatch(/AnchorPiWatchKeeper\.(begin|end)\(/);
+        // Still exactly two end() calls, both in weigh-anchor handlers.
+        expect(page.match(/AnchorPiWatchKeeper\.end\(\)/g) ?? []).toHaveLength(2);
+        // The chip needs this phone's OWN Pi watch and the trial switch, on top
+        // of fresh data, a fix the keeper would accept, and no alarm or lost GPS.
+        expect(page).toMatch(
+            /const canMovePiAnchor =\s*ownPiWatch &&\s*piMoveTrial &&\s*shoreDataFresh &&\s*piFixIsFresh\(shoreData\?\.vessel, Date\.now\(\)\) &&\s*!shoreStatusIsAlarm &&\s*!shoreGpsLost;/,
+        );
+        expect(page).toMatch(
+            /const piMoveTrial = useSettingsStore\(\(state\) => state\.settings\.anchorPiMoveTrial === true\);/,
+        );
+        // The Pi sheet is mounted with mode="pi" and the handler, and is
+        // closed (not hidden) when the chip's conditions go.
+        expect(page).toMatch(/<MoveAnchorSheet\s+mode="pi"[\s\S]{0,200}onPiMove=\{handlePiMove\}/);
+        expect(page).toMatch(/if \(showPiMove && !canMovePiAnchor\) setShowPiMove\(false\);/);
+        // The keeper re-posts without re-authorising, and never ends the watch.
+        const keeper = read('services/anchorPiWatchKeeper.ts');
+        const relocate = keeper.slice(
+            keeper.indexOf('async relocate('),
+            keeper.indexOf('private async relocateLocked('),
+        );
+        expect(relocate.length).toBeGreaterThan(0);
+        const locked = keeper.slice(
+            keeper.indexOf('private async relocateLocked('),
+            keeper.indexOf('private setPending('),
+        );
+        expect(locked.length).toBeGreaterThan(0);
+        expect(locked).toMatch(/sendAssignmentToPi\(/);
+        expect(locked).not.toMatch(/handOffToPi|authoriseRelay|this\.begin\(|this\.end\(/);
+        // The sheet still never names the keeper; it is handed a function.
+        const sheet = read('components/anchor-watch/MoveAnchorSheet.tsx');
+        expect(sheet).not.toMatch(/AnchorPiWatchKeeper|anchorPiWatchKeeper|anchorPiHandoff/);
+        expect(sheet).toMatch(/onPiMove\(/);
     });
 
     it('moving the anchor from the ALARM never touches the Pi’s watch either', () => {

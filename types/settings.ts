@@ -260,6 +260,15 @@ export interface UserSettings {
      * The manual planner's ⚡ Auto route and the passage planner ignore it.
      */
     autorouteTrialEnabled?: boolean;
+    /**
+     * Settings → Preferences → Anchor watch: "Move the anchor while the Pi
+     * keeps watch (trial)" (build 126, 126-07a). With it on, Shore Watch's
+     * radar offers Move anchor on the phone that handed its watch to the Pi,
+     * which re-posts the Pi's assignment (services/anchorPiWatchKeeper.ts
+     * relocate). Off by default until Shane's smoke test aboard; after a
+     * passing smoke the next build turns it on and the row goes away.
+     */
+    anchorPiMoveTrial?: boolean;
     gribMode?: 'direct' | 'iridium';
     satelliteMode?: boolean;
     cloudSyncSettings?: boolean;

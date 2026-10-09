@@ -3,7 +3,7 @@
  */
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../context/WeatherContext', () => ({
     useWeather: () => ({
@@ -817,6 +817,156 @@ describe('AnchorWatchPage', () => {
             } finally {
                 dateNow.mockRestore();
             }
+        });
+    });
+
+    // 126-07a: the phone that handed its watch to the Pi can move the Pi's
+    // mark from Shore Watch's radar, behind the trial switch until Shane's
+    // smoke. Not on a crew phone, not on stale data, not during an alarm or
+    // with the GPS lost. Off Horta, the Azores (fictional).
+    describe('Move anchor on the Pi’s watch, from Shore Watch (126-07a)', () => {
+        const HORTA = { latitude: 38.53, longitude: -28.62 };
+        function piShoreData(isAlarm = false, at = Date.now()): PositionBroadcast {
+            return {
+                type: 'position',
+                vessel: { ...HORTA, accuracy: 0, heading: 0, speed: 0, timestamp: at },
+                anchor: { ...HORTA, timestamp: at },
+                distance: 0,
+                swingRadius: 45,
+                isAlarm,
+                config: { rodeLength: 40, waterDepth: 8 },
+                timestamp: at,
+            };
+        }
+        const PI_STATE: SyncState = { ...CONNECTED_SHORE_STATE, peerConnected: false, peerDisconnectedAt: null };
+        let previous: ReturnType<typeof useSettingsStore.getState>['settings'];
+        const restores: Array<() => void> = [];
+
+        function trial(on: boolean) {
+            useSettingsStore.setState({ settings: { ...useSettingsStore.getState().settings, anchorPiMoveTrial: on } });
+        }
+        function ownPi(code: string | null = CONNECTED_SHORE_STATE.sessionCode) {
+            const keeping = vi.spyOn(AnchorPiWatchKeeper, 'keepingSessionCode').mockReturnValue(code);
+            const centre = vi.spyOn(AnchorPiWatchKeeper, 'centreAtSet').mockReturnValue(HORTA);
+            const ashore = vi.spyOn(AnchorPiWatchKeeper, 'answersFromAshore').mockReturnValue(false);
+            restores.push(
+                () => keeping.mockRestore(),
+                () => centre.mockRestore(),
+                () => ashore.mockRestore(),
+            );
+        }
+        const chip = () => screen.queryByRole('button', { name: 'Move anchor' });
+
+        beforeEach(() => {
+            previous = useSettingsStore.getState().settings;
+        });
+        afterEach(() => {
+            useSettingsStore.setState({ settings: previous });
+            while (restores.length) restores.pop()!();
+        });
+
+        it('shows the chip on the radar for this phone’s own Pi, with the trial on, fresh data and no alarm', async () => {
+            trial(true);
+            ownPi();
+            await renderShoreWatch(PI_STATE, piShoreData());
+            const action = screen.getByTestId('shore-radar-action');
+            expect(within(action).getByRole('button', { name: 'Move anchor' })).toBeInTheDocument();
+        });
+
+        it.each([
+            ['on a crew phone (someone else handed the watch over)', () => (trial(true), ownPi('SOMEONEELSE1'))],
+            ['with the trial switched off', () => (trial(false), ownPi())],
+        ])('is absent %s', async (_label, arrange) => {
+            arrange();
+            await renderShoreWatch(PI_STATE, piShoreData());
+            expect(screen.getByText('Holding')).toBeInTheDocument();
+            expect(chip()).toBeNull();
+        });
+
+        it('is absent while the Pi reports a drag alarm', async () => {
+            trial(true);
+            ownPi();
+            await renderShoreWatch(PI_STATE, piShoreData(true));
+            expect(screen.getByText('Drag Alarm')).toBeInTheDocument();
+            expect(chip()).toBeNull();
+        });
+
+        it('is absent with the boat’s GPS lost', async () => {
+            trial(true);
+            ownPi();
+            vi.mocked(ShoreWatchAlarmService.getSnapshot).mockReturnValue(shoreAlarmSnapshot('gps-lost'));
+            vi.mocked(AnchorWatchSyncService.restoreSession).mockResolvedValueOnce(true);
+            vi.mocked(AnchorWatchSyncService.getState).mockReturnValue(PI_STATE);
+            render(<AnchorWatchPage onBack={vi.fn()} />);
+            await waitFor(() => expect(AnchorWatchSyncService.onBroadcast).toHaveBeenCalled());
+            act(() => {
+                vi.mocked(AnchorWatchSyncService.onStateChange).mock.calls.at(-1)![0](PI_STATE);
+                vi.mocked(AnchorWatchSyncService.onBroadcast).mock.calls.at(-1)![0](piShoreData());
+            });
+            expect(await screen.findByText('Vessel GPS lost')).toBeInTheDocument();
+            expect(chip()).toBeNull();
+        });
+
+        it('is absent on stale data', async () => {
+            trial(true);
+            ownPi();
+            await renderShoreWatch(PI_STATE, piShoreData(false, Date.now() - SHORE_DATA_STALE_MS - 5_000));
+            expect(screen.getByText('Last-known data')).toBeInTheDocument();
+            expect(chip()).toBeNull();
+        });
+
+        it('is absent once the Pi’s fix is over 30 s old, though Shore Watch still reads it as fresh', async () => {
+            // The keeper refuses a move on a fix that old, so it is not offered.
+            trial(true);
+            ownPi();
+            const data = piShoreData();
+            data.vessel.timestamp = Date.now() - 32_000;
+            await renderShoreWatch(PI_STATE, data);
+            expect(screen.getByText('Holding')).toBeInTheDocument();
+            expect(chip()).toBeNull();
+        });
+
+        it('opens the Move anchor sheet filled from the Pi’s report, and Move asks the keeper to relocate', async () => {
+            trial(true);
+            ownPi();
+            const relocate = vi.spyOn(AnchorPiWatchKeeper, 'relocate').mockResolvedValue({ ok: true, ashore: false });
+            restores.push(() => relocate.mockRestore());
+            const data = piShoreData();
+            await renderShoreWatch(PI_STATE, data);
+
+            fireEvent.click(chip()!);
+            const dialog = screen.getByRole('dialog', { name: 'Move anchor' });
+            // The 45 m circle less its 10 m margin, inside the 40 m rode's reach in 8 m.
+            const distance = within(dialog).getByRole('textbox', { name: /distance from the boat to the anchor/i });
+            expect(distance).toHaveValue('35');
+            fireEvent.change(within(dialog).getByRole('textbox', { name: /bearing from the boat/i }), {
+                target: { value: '220' },
+            });
+            await act(async () => {
+                fireEvent.click(within(dialog).getByRole('button', { name: 'Move anchor' }));
+            });
+
+            expect(relocate).toHaveBeenCalledTimes(1);
+            const [lat, lon, live] = relocate.mock.calls[0];
+            expect(Number.isFinite(lat) && Number.isFinite(lon)).toBe(true);
+            expect(live).toEqual({ boatFix: data.vessel, alarm: false, gpsLost: false });
+            expect(within(dialog).getByRole('status')).toHaveTextContent(/^Sent to the Pi…/);
+        });
+
+        it('closes the sheet when a drag alarm arrives, and it does not spring back open', async () => {
+            trial(true);
+            ownPi();
+            await renderShoreWatch(PI_STATE, piShoreData());
+            fireEvent.click(chip()!);
+            expect(screen.getByRole('dialog', { name: 'Move anchor' })).toBeInTheDocument();
+
+            const hear = vi.mocked(AnchorWatchSyncService.onBroadcast).mock.calls.at(-1)![0];
+            act(() => hear(piShoreData(true)));
+            expect(screen.queryByRole('dialog', { name: 'Move anchor' })).toBeNull();
+
+            act(() => hear(piShoreData(false)));
+            expect(chip()).toBeInTheDocument();
+            expect(screen.queryByRole('dialog', { name: 'Move anchor' })).toBeNull();
         });
     });
 });

@@ -49,7 +49,7 @@ vi.mock('../components/anchor-watch/SwingCircleCanvas', async (importOriginal) =
     };
 });
 
-import { MoveAnchorSheet } from '../components/anchor-watch/MoveAnchorSheet';
+import { MoveAnchorSheet, type PiMoveSource } from '../components/anchor-watch/MoveAnchorSheet';
 import { offsetFromAnchorM } from '../components/anchor-watch/SwingCircleCanvas';
 import { useSettingsStore } from '../stores/settingsStore';
 
@@ -790,6 +790,245 @@ describe('MoveAnchorSheet', () => {
             });
             expect(screen.getByRole('alert')).toHaveTextContent(/alarm is still sounding/i);
             expect(onMoved).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('pi mode: move the mark of the watch the Pi keeps (126-07a)', () => {
+        // Off Horta, the Azores (fictional): the Pi's watch was set at the boat,
+        // 40 m of rode in 8 m (a 39.2 m reach), a 45 m circle.
+        const HORTA = { latitude: 38.53, longitude: -28.62 };
+        const LYTTELTON = { latitude: -43.61, longitude: 172.72 };
+        const toward = (from: LatLon, bearingDeg: number, metres: number) => {
+            const p = destinationPoint(from.latitude, from.longitude, bearingDeg, metres / 1852);
+            return { latitude: p.lat, longitude: p.lon };
+        };
+
+        function source(at: LatLon = HORTA, overrides: Partial<PiMoveSource> = {}): PiMoveSource {
+            return {
+                anchor: at,
+                boatFix: { ...at, timestamp: NOW - 4_000 },
+                swingRadius: 45,
+                rodeLength: 40,
+                waterDepth: 8,
+                centreAtSet: at,
+                ashore: false,
+                alarm: false,
+                gpsLost: false,
+                ...overrides,
+            };
+        }
+        const onPiMove = vi.fn();
+        beforeEach(() => {
+            onPiMove.mockReset().mockResolvedValue({ ok: true, ashore: false });
+        });
+
+        it('prefills from the rode and depth the Pi reports, and checks with the Pi’s guards', () => {
+            heading(220, 3_000, { source: 'pi', via: 'lan' });
+            render(<MoveAnchorSheet mode="pi" pi={source()} onPiMove={onPiMove} onClose={vi.fn()} />);
+            expect(screen.getByRole('dialog', { name: 'Move anchor' })).toBeInTheDocument();
+            // The 45 m circle less the 10 m margin the app arms with: 35 m, inside the 39.2 m reach.
+            expect(distanceField()).toHaveValue('35');
+            expect(bearingField()).toHaveValue('220');
+            expect(screen.getByTestId('move-anchor-hint')).toHaveTextContent(/rode \(40 m in 8 m\), less its sag/i);
+            expect(screen.getByTestId('move-anchor-hint')).toHaveTextContent(/via the Pi/);
+            expect(liveLine()).toHaveTextContent('The boat would be 35 m from the anchor, inside your 45 m circle.');
+            expect(moveButton()).toBeEnabled();
+        });
+
+        it('in feet for a feet skipper off Lyttelton, with the bearing via the cloud ashore, and moves in metres', async () => {
+            setUnits('ft');
+            heading(300, 2_000, { source: 'pi', via: 'cloud' });
+            render(
+                <MoveAnchorSheet
+                    mode="pi"
+                    pi={source(LYTTELTON, { ashore: true })}
+                    onPiMove={onPiMove}
+                    onClose={vi.fn()}
+                />,
+            );
+            // 35 m = 115 ft, inside the 45 m = 148 ft circle; 40 m in 8 m = 131 ft in 26 ft.
+            expect(distanceField()).toHaveValue('115');
+            expect(liveLine()).toHaveTextContent('inside your 148 ft circle');
+            expect(screen.getByTestId('move-anchor-hint')).toHaveTextContent(/131 ft in 26 ft/);
+            expect(screen.getByTestId('move-anchor-hint')).toHaveTextContent(/via the cloud/);
+            await move();
+            expect(onPiMove).toHaveBeenCalledTimes(1);
+            const [lat, lon] = onPiMove.mock.calls[0];
+            expect(metresBetween(LYTTELTON, { lat, lon })).toBeCloseTo(115 * FT, 3);
+            expect(service.relocateAnchor).not.toHaveBeenCalled();
+            expect(service.relocateAnchorFromAlarm).not.toHaveBeenCalled();
+        });
+
+        it('starts the distance empty when the Pi has no rode for the watch (an older Pi)', () => {
+            heading(220, 3_000);
+            render(
+                <MoveAnchorSheet
+                    mode="pi"
+                    pi={source(HORTA, { rodeLength: undefined, waterDepth: undefined })}
+                    onPiMove={onPiMove}
+                    onClose={vi.fn()}
+                />,
+            );
+            expect(distanceField()).toHaveValue('');
+            expect(moveButton()).toBeDisabled();
+        });
+
+        it('the live line is the Pi’s judgement: past the rode’s reach from where the watch was set', () => {
+            heading(220, 3_000);
+            // She lies 30 m out; 30 m further is 60 m from where it was set, past 39.2 + 15.
+            const boat = toward(HORTA, 220, 30);
+            render(
+                <MoveAnchorSheet
+                    mode="pi"
+                    pi={source(HORTA, { boatFix: { ...boat, timestamp: NOW - 4_000 } })}
+                    onPiMove={onPiMove}
+                    onClose={vi.fn()}
+                />,
+            );
+            type(distanceField(), '30');
+            expect(liveLine()).toHaveTextContent(/beyond your rode.s reach from where the watch was set/i);
+            expect(moveButton()).toBeDisabled();
+            type(distanceField(), '20');
+            expect(liveLine()).toHaveTextContent(/inside your 45 m circle/);
+            expect(moveButton()).toBeEnabled();
+        });
+
+        it('waits for a fix from the Pi no more than 30 s old', () => {
+            heading(220, 3_000);
+            render(
+                <MoveAnchorSheet
+                    mode="pi"
+                    pi={source(HORTA, { boatFix: { ...HORTA, timestamp: NOW - 31_000 } })}
+                    onPiMove={onPiMove}
+                    onClose={vi.fn()}
+                />,
+            );
+            expect(liveLine()).toHaveTextContent(/waiting for a fresh position/i);
+            expect(moveButton()).toBeDisabled();
+        });
+
+        it('says "Sent to the Pi…", then "Moved…" once the Pi’s own report shows the new point', async () => {
+            heading(220, 3_000);
+            const onMoved = vi.fn();
+            const { rerender } = render(
+                <MoveAnchorSheet mode="pi" pi={source()} onPiMove={onPiMove} onClose={vi.fn()} onMoved={onMoved} />,
+            );
+            await move();
+            expect(liveLine()).toHaveTextContent(/^Sent to the Pi…/);
+            expect(moveButton()).toBeDisabled();
+            expect(onMoved).not.toHaveBeenCalled();
+
+            const [lat, lon] = onPiMove.mock.calls[0];
+            rerender(
+                <MoveAnchorSheet
+                    mode="pi"
+                    pi={source(HORTA, { anchor: { latitude: lat, longitude: lon } })}
+                    onPiMove={onPiMove}
+                    onClose={vi.fn()}
+                    onMoved={onMoved}
+                />,
+            );
+            expect(liveLine()).toHaveTextContent('Moved. The Pi is watching the new point.');
+            expect(onMoved).toHaveBeenCalledTimes(1);
+        });
+
+        it('says so honestly when the Pi took it but has not shown it after 30 s', async () => {
+            vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+            vi.setSystemTime(NOW);
+            heading(220, 3_000);
+            const onMoved = vi.fn();
+            render(<MoveAnchorSheet mode="pi" pi={source()} onPiMove={onPiMove} onClose={vi.fn()} onMoved={onMoved} />);
+            await move();
+            expect(liveLine()).toHaveTextContent(/^Sent to the Pi…/);
+            act(() => {
+                vi.advanceTimersByTime(31_000);
+            });
+            expect(liveLine()).toHaveTextContent(/hasn.t shown the new point yet/i);
+            expect(liveLine()).not.toHaveTextContent(/^Moved/);
+            expect(onMoved).not.toHaveBeenCalled();
+        });
+
+        it('a refusal: the Pi is still watching the old point, and the sheet stays open to try again', async () => {
+            heading(220, 3_000);
+            onPiMove.mockResolvedValue({
+                ok: false,
+                outcome: 'refused',
+                error: 'The Pi is still watching the old point. Nothing was moved.',
+            });
+            const onMoved = vi.fn();
+            render(<MoveAnchorSheet mode="pi" pi={source()} onPiMove={onPiMove} onClose={vi.fn()} onMoved={onMoved} />);
+            await move();
+            expect(liveLine()).toHaveTextContent('The Pi is still watching the old point. Nothing was moved.');
+            expect(onMoved).not.toHaveBeenCalled();
+            type(distanceField(), '30');
+            expect(liveLine()).toHaveTextContent(/inside your 45 m circle/);
+            expect(moveButton()).toBeEnabled();
+        });
+
+        it('no answer: says the Pi is watching one point or the other, and a later report settles it', async () => {
+            heading(220, 3_000);
+            onPiMove.mockResolvedValue({
+                ok: false,
+                outcome: 'unknown',
+                error: 'The Pi didn’t answer. It is watching either the old or the new point; Shore Watch will show which within a minute.',
+            });
+            const onMoved = vi.fn();
+            const { rerender } = render(
+                <MoveAnchorSheet mode="pi" pi={source()} onPiMove={onPiMove} onClose={vi.fn()} onMoved={onMoved} />,
+            );
+            await move();
+            expect(liveLine()).toHaveTextContent(
+                /^The Pi didn’t answer\. It is watching either the old or the new point/,
+            );
+            expect(liveLine()).not.toHaveTextContent(/^Moved/);
+
+            const [lat, lon] = onPiMove.mock.calls[0];
+            rerender(
+                <MoveAnchorSheet
+                    mode="pi"
+                    pi={source(HORTA, { anchor: { latitude: lat, longitude: lon } })}
+                    onPiMove={onPiMove}
+                    onClose={vi.fn()}
+                    onMoved={onMoved}
+                />,
+            );
+            expect(liveLine()).toHaveTextContent('Moved. The Pi is watching the new point.');
+            expect(onMoved).toHaveBeenCalledTimes(1);
+        });
+
+        it('shows the keeper’s own refusal as an alert, and stays open', async () => {
+            heading(220, 3_000);
+            onPiMove.mockResolvedValue({
+                ok: false,
+                outcome: 'invalid',
+                error: 'The Pi reports a drag alarm, so the anchor cannot be moved from here.',
+            });
+            render(<MoveAnchorSheet mode="pi" pi={source()} onPiMove={onPiMove} onClose={vi.fn()} />);
+            await move();
+            expect(screen.getByRole('alert')).toHaveTextContent(/drag alarm/);
+            expect(screen.getByRole('dialog', { name: 'Move anchor' })).toBeInTheDocument();
+        });
+
+        it('asks the skipper to be sure only when the phone reaches the Pi from ashore', () => {
+            heading(220, 3_000);
+            const { unmount } = render(
+                <MoveAnchorSheet mode="pi" pi={source()} onPiMove={onPiMove} onClose={vi.fn()} />,
+            );
+            expect(screen.queryByTestId('move-anchor-caution')).toBeNull();
+            unmount();
+            render(
+                <MoveAnchorSheet
+                    mode="pi"
+                    pi={source(HORTA, { ashore: true })}
+                    onPiMove={onPiMove}
+                    onClose={vi.fn()}
+                />,
+            );
+            expect(screen.getByTestId('move-anchor-caution')).toHaveTextContent(
+                'Only move it if you’re sure the anchor hasn’t moved.',
+            );
+            // An ordinary modal, not the alarm's critical layer.
+            expect(document.querySelector('[data-overlay-layer="critical"]')).toBeNull();
         });
     });
 });
