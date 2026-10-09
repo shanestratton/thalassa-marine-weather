@@ -83,7 +83,7 @@ function writeLocal(all: SavedTrace[], scope: AuthIdentityScope, pendingIds: Rea
 //
 // A route check used to live only on the phone that made it. The column
 // carries it to a reinstall or a second phone. Its migration
-// (20261009140000_saved_routes_verification.sql) waits for Shane's db push,
+// (20261009172000_saved_routes_verification.sql) waits for Shane's db push,
 // and PostgREST refuses a whole row that names an unknown column — so the
 // sync PROBES first, and nothing reads or writes the column until it has been
 // SEEN. Present is remembered for the session; absent is asked again after an
