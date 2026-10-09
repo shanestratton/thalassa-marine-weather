@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { packagedFetch } from './helpers/packagedFetch';
 
 vi.mock('../services/weatherService', () => ({
     reverseGeocode: vi.fn(),
@@ -24,7 +25,13 @@ const mockedReverseGeocode = vi.mocked(reverseGeocode);
 
 beforeEach(() => {
     mockedReverseGeocode.mockReset();
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+    // The QLD place-name table ships in public/ since the 126 bundle diet and is
+    // fetched from the app's own files; every other request still fails here.
+    const packaged = packagedFetch();
+    vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL) => (String(input).startsWith('/') ? packaged(input) : { ok: false })),
+    );
 });
 
 afterEach(() => {
