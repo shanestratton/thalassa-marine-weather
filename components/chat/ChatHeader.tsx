@@ -20,7 +20,8 @@ import { SafeImage } from '../ui/SafeImage';
 import { useAuthStore } from '../../stores/authStore';
 import { ChatIcon, ProhibitedIcon } from '../Icons';
 import { UserIcon } from '../vesselHub/icons';
-import { getChannelName } from './channelIcons';
+import { getChannelName, isCrewRoom } from './channelIcons';
+import { useCrewChatVesselName } from '../../hooks/useCrewChatVesselName';
 
 type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'find_crew' | 'admin_panel';
 
@@ -270,9 +271,18 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
         // chevron LEAVES Scuttlebutt, which previously had no header exit at all.
         const onBack = view === 'channels' ? onExit : onGoBack;
 
+        // A crew room names the skipper's boat under "Crew Chat", in the card's
+        // words (build 125); with no name known it is a private group.
+        const inCrewRoom = view === 'messages' && isCrewRoom(activeChannel);
+        const crewVesselName = useCrewChatVesselName(inCrewRoom ? activeChannel : null);
+
         const subtitle =
             view === 'channels' ? (
                 'Community'
+            ) : inCrewRoom ? (
+                <p className="ui-caption line-clamp-2 text-xs text-gray-300">
+                    {crewVesselName ? `Only visible to crew on the ${crewVesselName}` : 'Private group'}
+                </p>
             ) : view === 'messages' && activeChannel?.description ? (
                 // Sentence case, not the house uppercase caption: this is a
                 // channel's own description, often a whole sentence.
