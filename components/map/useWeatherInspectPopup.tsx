@@ -39,7 +39,7 @@ import { triggerHaptic } from '../../utils/system';
 import { coordName } from './mapHubHelpers';
 import type { PointWeatherData } from '../../services/weather/pointWeather';
 import type { NearestBuoyResult } from '../../services/weather/buoys/types';
-import type { BuoyLineUnits } from '../../services/weather/buoys/describe';
+import type { DisplayMode, UnitPreferences } from '../../types/units';
 import {
     buildRemoveLocationPatch,
     buildSaveLocationPatch,
@@ -64,8 +64,10 @@ const getWeatherInspectPopup = async () => {
 interface InspectSettings {
     savedLocations?: string[];
     savedLocationCoords?: Record<string, { lat: number; lon: number }>;
-    /** Wave-height and distance units for the nearest-buoy line. */
-    units?: BuoyLineUnits;
+    /** The skipper's units: the nearest-buoy line and the Sounding sheet. */
+    units?: Partial<UnitPreferences>;
+    /** 'night' opens the Sounding sheet in the red night palette. */
+    displayMode?: DisplayMode;
 }
 
 export interface WeatherInspectPopup {
@@ -164,6 +166,29 @@ export function useWeatherInspectPopup(
                     });
             };
 
+            // THE SOUNDING (build 125, SND): ECMWF's upper air over this
+            // point, on an explicit tap only. The sheet is its own lazy chunk
+            // in its own root on <body>, like this bubble, so none of it rides
+            // in the map chunk. Night is the skipper's explicit choice ('auto'
+            // never resolves to it); daylight is what App.tsx syncs onto <html>.
+            const openSounding = (): void => {
+                triggerHaptic('light');
+                const s = settingsRef.current;
+                const palette =
+                    s.displayMode === 'night'
+                        ? 'night'
+                        : document.documentElement.classList.contains('display-light')
+                          ? 'day'
+                          : 'dark';
+                void import('../sounding/soundingSheetHost')
+                    .then(({ openSoundingSheet }) =>
+                        openSoundingSheet({ lat, lon, units: s.units, palette, placeName: view.savedAs }),
+                    )
+                    .catch(() => {
+                        /* the chunk did not load (offline after an update): the bubble stays as it was */
+                    });
+            };
+
             const paint = (): void => {
                 void getWeatherInspectPopup().then((WIP) => {
                     // The popup may have closed while the chunk loaded.
@@ -177,6 +202,7 @@ export function useWeatherInspectPopup(
                             onClose={closePopup}
                             buoy={view.buoy}
                             units={settingsRef.current.units}
+                            onOpenSounding={openSounding}
                             save={{
                                 suggestedName: view.suggestedName,
                                 savedAs: view.savedAs,
