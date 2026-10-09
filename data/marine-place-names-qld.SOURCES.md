@@ -1,8 +1,15 @@
 # Queensland marine place names — source and licence
 
-`marine-place-names-qld.json` is a deliberately small, bundled subset of the
-Queensland Place Names Gazetteer. It contains only current islands, bays,
-coves, harbours and anchorages for proximity-based display labels.
+`public/data/marine-place-names-qld.json` is a deliberately small, packaged
+subset of the Queensland Place Names Gazetteer. It contains only current
+islands, bays, coves, harbours and anchorages for proximity-based display
+labels.
+
+Since build 126 it is a data file the app fetches once and keeps in memory
+(`services/marineEndpointName.ts`), not part of the JavaScript bundle. Files in
+`public/` are packaged inside the app, so the lookup still works with no
+signal. The production build minifies the shipped copy; this one stays
+readable so a refresh shows as a reviewable diff.
 
 - Source: State of Queensland, Queensland Place Names Gazetteer
 - Original service: <https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Location/QldPlaceNames/MapServer/1/query>

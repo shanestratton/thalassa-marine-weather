@@ -5,13 +5,18 @@
  * and links to detailed walkthroughs. This is where Thalassa shines — giving
  * sailors exactly the info they need for the bureaucratic circus of international sailing.
  *
- * Data is sourced from data/customsDb.ts (28 countries, 1,100+ lines of clearance data).
+ * The tabs, flags and port-of-entry check come from the synchronous port
+ * index (data/customsPortIndex.ts). The guide itself (29 countries of
+ * procedures, contacts and documents) is a packaged data file loaded the
+ * first time a card opens (data/customsDb.ts, build-126 bundle diet), so
+ * the card shows a loading line for that moment, never "Limited Data".
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { VoyagePlan } from '../../types';
 import { PhoneIcon, RadioTowerIcon, AlertTriangleIcon, ExternalLinkIcon, MapPinIcon } from '../Icons';
-import { findCountryData, difficultyStyle } from '../../data/customsDb';
+import { findCountryData, difficultyStyle, loadCustomsClearance, peekCustomsClearance } from '../../data/customsDb';
+import { CUSTOMS_PORT_INDEX, findCountryKey } from '../../data/customsPortIndex';
 import { useReadinessSync, useScopedReadinessStorageState } from '../../hooks/useReadinessSync';
 import { safeExternalHttpUrl } from '../../utils/safeUrl';
 
@@ -64,10 +69,31 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
     const customsRequired = customs?.required ?? false;
     const customsDepartCountry = customs?.departingCountry ?? '';
     const customsArriveCountry = customs?.destinationCountry ?? '';
+
+    // The clearance guide, from memory if an earlier card loaded it.
+    const [guide, setGuide] = useState(peekCustomsClearance);
+    const [guideFailed, setGuideFailed] = useState(false);
     useEffect(() => {
-        if (!onCheckedChange || !customsRequired) return;
-        const departData = findCountryData(customsDepartCountry);
-        const arriveData = findCountryData(customsArriveCountry);
+        if (guide || !customsRequired) return;
+        let live = true;
+        loadCustomsClearance().then(
+            (loaded) => {
+                if (live) setGuide(loaded);
+            },
+            () => {
+                if (live) setGuideFailed(true);
+            },
+        );
+        return () => {
+            live = false;
+        };
+    }, [guide, customsRequired]);
+
+    useEffect(() => {
+        // No count until there are documents to count: the guide holds them.
+        if (!onCheckedChange || !customsRequired || !guide) return;
+        const departData = findCountryData(customsDepartCountry, guide);
+        const arriveData = findCountryData(customsArriveCountry, guide);
         const allDocs = [
             ...(departData?.requiredDocuments || []).map((d) => `depart:${d.name}`),
             ...(arriveData?.requiredDocuments || []).map((d) => `arrive:${d.name}`),
@@ -75,7 +101,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
         const total = allDocs.length;
         const checked = allDocs.filter((k) => checkedDocs[k]).length;
         onCheckedChange(total, checked);
-    }, [checkedDocs, customsRequired, customsDepartCountry, customsArriveCountry, onCheckedChange]);
+    }, [checkedDocs, customsRequired, customsDepartCountry, customsArriveCountry, onCheckedChange, guide]);
 
     if (!customs?.required) return null;
 
@@ -87,14 +113,20 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
     // hand too.
     const departInput = customs.departingCountry;
     const arriveInput = customs.destinationCountry;
-    const departData = findCountryData(departInput);
-    const arriveData = findCountryData(arriveInput);
+    // Name, flag and ports of entry from the index, at once; the rest of
+    // the record once the guide has loaded.
+    const departKey = findCountryKey(departInput);
+    const arriveKey = findCountryKey(arriveInput);
+    const departIndex = departKey ? CUSTOMS_PORT_INDEX[departKey] : undefined;
+    const arriveIndex = arriveKey ? CUSTOMS_PORT_INDEX[arriveKey] : undefined;
+    const departData = findCountryData(departInput, guide);
+    const arriveData = findCountryData(arriveInput, guide);
 
     // Display name: prefer the resolved country (e.g. 'Australia') over
     // the raw port input ('Newport, QLD'). Falls back to the input if
     // the country couldn't be resolved.
-    const departLabel = departData?.country || departInput || 'Departure';
-    const arriveLabel = arriveData?.country || arriveInput || 'Arrival';
+    const departLabel = departIndex?.country || departInput || 'Departure';
+    const arriveLabel = arriveIndex?.country || arriveInput || 'Arrival';
 
     /**
      * Detect whether the user's typed port matches a designated port
@@ -103,7 +135,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
      * Match is case-insensitive substring either way; handles
      * 'Nouméa (Port Moselle)' against 'Port Moselle, NC'.
      */
-    const isPortAnEntryPort = (portInput: string | undefined, portsOfEntry: string[] | undefined): boolean => {
+    const isPortAnEntryPort = (portInput: string | undefined, portsOfEntry: readonly string[] | undefined): boolean => {
         if (!portInput || !portsOfEntry) return false;
         const cleaned = portInput
             .toLowerCase()
@@ -115,11 +147,18 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
             return pl.includes(cleaned) || cleaned.includes(pl);
         });
     };
-    const departPortIsPOE = isPortAnEntryPort(departInput, departData?.portsOfEntry);
-    const arrivePortIsPOE = isPortAnEntryPort(arriveInput, arriveData?.portsOfEntry);
+    const departPortIsPOE = isPortAnEntryPort(departInput, departIndex?.portsOfEntry);
+    const arrivePortIsPOE = isPortAnEntryPort(arriveInput, arriveIndex?.portsOfEntry);
 
     // Which clearance data to show
     const activeData = activeTab === 'depart' ? departData : arriveData;
+    // The country and its ports of entry, from the index: ready on the first
+    // paint, and still there when the guide cannot be read.
+    const activeIndex = activeTab === 'depart' ? departIndex : arriveIndex;
+    // A covered country whose guide is still on its way, or could not be read.
+    const activeCovered = Boolean(activeIndex);
+    const guideLoading = activeCovered && !guide && !guideFailed;
+    const guideUnavailable = activeCovered && guideFailed;
     const activeCountryName = activeTab === 'depart' ? departLabel : arriveLabel;
     const activePortInput = activeTab === 'depart' ? departInput : arriveInput;
     const activePortIsPOE = activeTab === 'depart' ? departPortIsPOE : arrivePortIsPOE;
@@ -139,7 +178,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                                 : 'text-gray-400 hover:text-gray-300 hover:bg-white/5 border border-transparent'
                         }`}
                     >
-                        {departData?.flag || '🚢'} Departing {departLabel}
+                        {departIndex?.flag || '🚢'} Departing {departLabel}
                     </button>
                 )}
                 <button
@@ -151,7 +190,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                             : 'text-gray-400 hover:text-gray-300 hover:bg-white/5 border border-transparent'
                     }`}
                 >
-                    {arriveData?.flag || '🏁'} Arriving {arriveLabel}
+                    {arriveIndex?.flag || '🏁'} Arriving {arriveLabel}
                 </button>
             </div>
 
@@ -161,7 +200,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                 this banner the user sees Australia's clearance info
                 and assumes they can do it from Newport, when really
                 they need to detour to Brisbane / Bundaberg / etc. */}
-            {activeData && activePortInput && !activePortIsPOE && activeData.portsOfEntry.length > 0 && (
+            {activeIndex && activePortInput && !activePortIsPOE && activeIndex.portsOfEntry.length > 0 && (
                 <div className="bg-amber-500/10 border border-amber-500/25 rounded-xl p-4">
                     <div className="flex items-start gap-3">
                         <span className="text-xl">⚠️</span>
@@ -171,11 +210,11 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                             </p>
                             <p className="text-[11px] text-amber-200/90 leading-relaxed mb-2">
                                 {activeTab === 'depart'
-                                    ? `You'll need to clear out at one of ${activeData.country}'s designated ports of entry before departing internationally:`
-                                    : `You'll need to clear in at one of ${activeData.country}'s designated ports of entry on arrival — flying the Q flag until cleared:`}
+                                    ? `You'll need to clear out at one of ${activeIndex.country}'s designated ports of entry before departing internationally:`
+                                    : `You'll need to clear in at one of ${activeIndex.country}'s designated ports of entry on arrival — flying the Q flag until cleared:`}
                             </p>
                             <div className="flex flex-wrap gap-1.5">
-                                {activeData.portsOfEntry.map((port, i) => (
+                                {activeIndex.portsOfEntry.map((port, i) => (
                                     <span
                                         key={i}
                                         className="text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-full px-2.5 py-1"
@@ -445,18 +484,27 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                         </div>
                     )}
                 </div>
+            ) : guideLoading ? (
+                /* ── The guide is loading (first card this session) ── */
+                <p role="status" className="px-1 py-3 text-xs text-gray-400">
+                    Loading the clearance guide for {activeCountryName}…
+                </p>
             ) : (
-                /* ── Fallback: Gemini AI data only (country not in our DB) ── */
+                /* ── Fallback: Gemini AI data only (country not in our DB, or the guide could not be read) ── */
                 <div className="space-y-4">
                     <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl p-4">
                         <div className="flex items-start gap-2.5">
                             <AlertTriangleIcon className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
                             <div>
-                                <h5 className="text-xs font-bold text-amber-300 mb-1">Limited Data Available</h5>
+                                <h5 className="text-xs font-bold text-amber-300 mb-1">
+                                    {guideUnavailable ? 'Clearance Guide Unavailable' : 'Limited Data Available'}
+                                </h5>
                                 <p className="text-xs text-gray-400 leading-relaxed">
-                                    We don't have detailed clearance procedures for {activeCountryName} in our database
-                                    yet. Below is the AI-generated information from your passage plan. Always verify
-                                    with the relevant authorities before departure.
+                                    {guideUnavailable
+                                        ? `The clearance guide could not be loaded just now, so the procedures for ${activeCountryName} are not shown.`
+                                        : `We don't have detailed clearance procedures for ${activeCountryName} in our database yet.`}{' '}
+                                    Below is the AI-generated information from your passage plan. Always verify with the
+                                    relevant authorities before departure.
                                 </p>
                             </div>
                         </div>

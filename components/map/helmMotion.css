@@ -1,0 +1,181 @@
+/* ── Layer menu and storm picker motion (build 126 bundle diet) ─────
+   Imported by RadialHelmMenu.tsx and StormPicker.tsx, so it ships in the
+   chart's lazy CSS, not the boot stylesheet (index.css): neither component
+   is on the start-up path.
+
+   CSS keyframes in place of framer-motion, which these two components alone
+   kept in the app (about 126 KB of JavaScript with motion-dom and
+   motion-utils). The springs become a short settle with a slight overshoot:
+   the menu's old spring (stiffness 600, damping 28, mass 0.6) was 0.74 of
+   critical damping and settled in about 0.2 s, the storm picker's (500, 30)
+   in about 0.27 s. Tiles and layers stagger by --helm-i, their index, set
+   inline. Entrances fill backwards only, so a finished animation leaves no
+   transform behind to fight the press scale; exits fill forwards and are
+   held until hooks/useExitPresence.ts unmounts them (exit lengths there and
+   in RadialHelmMenu/StormPicker match these). Reduced motion: none of it
+   runs, and the pulses hold a steady glow. */
+.helm-scrim-in,
+.storm-picker-backdrop-in {
+    animation: thalassa-fade-in 150ms ease-out backwards;
+}
+.storm-picker-backdrop-in {
+    animation-duration: 200ms;
+}
+.helm-scrim-out,
+.storm-picker-backdrop-out {
+    animation: thalassa-fade-out 150ms ease-in forwards;
+}
+.storm-picker-backdrop-out {
+    animation-duration: 200ms;
+}
+.helm-tile-in {
+    animation: helm-pop-in 240ms cubic-bezier(0.3, 1.3, 0.6, 1) backwards;
+    animation-delay: calc(var(--helm-i, 0) * 40ms);
+}
+.helm-tile-out {
+    animation: helm-pop-out 150ms ease-in forwards;
+    animation-delay: calc(var(--helm-i, 0) * 20ms);
+}
+.helm-item-in {
+    animation: helm-pop-in 240ms cubic-bezier(0.3, 1.3, 0.6, 1) backwards;
+    animation-delay: calc(var(--helm-i, 0) * 30ms);
+}
+.helm-grid-in {
+    animation: helm-settle-in 240ms cubic-bezier(0.3, 1.3, 0.6, 1) backwards;
+}
+.helm-grid-out {
+    animation: helm-settle-out 150ms ease-in forwards;
+}
+.helm-pill-in {
+    animation: helm-pill-pop-in 240ms cubic-bezier(0.3, 1.3, 0.6, 1) 200ms backwards;
+}
+.helm-pill-out {
+    animation: helm-pill-pop-out 150ms ease-in forwards;
+}
+.storm-picker-dialog-in {
+    animation: storm-picker-settle-in 280ms cubic-bezier(0.3, 1.3, 0.6, 1) backwards;
+}
+.storm-picker-dialog-out {
+    animation: storm-picker-settle-out 200ms ease-in forwards;
+}
+/* The open category's sky pulse; under reduced motion the tile's own
+   inline category glow shows instead. */
+.helm-glow-pulse {
+    animation: helm-glow-pulse 2s ease-in-out infinite;
+}
+.helm-dot-pulse {
+    box-shadow: 0 0 6px 1.5px rgba(56, 189, 248, 0.5);
+    animation: helm-dot-pulse 2s ease-in-out infinite;
+}
+/* An active MOB: a red pulse, or a steady red glow under reduced motion. */
+.helm-mob-pulse {
+    box-shadow: 0 0 14px 4px rgba(248, 113, 113, 0.6);
+    animation: helm-mob-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes thalassa-fade-in {
+    from {
+        opacity: 0;
+    }
+}
+@keyframes thalassa-fade-out {
+    to {
+        opacity: 0;
+    }
+}
+@keyframes helm-pop-in {
+    from {
+        opacity: 0;
+        transform: scale(0);
+    }
+}
+@keyframes helm-pop-out {
+    to {
+        opacity: 0;
+        transform: scale(0);
+    }
+}
+@keyframes helm-settle-in {
+    from {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.92);
+    }
+}
+@keyframes helm-settle-out {
+    to {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.92);
+    }
+}
+@keyframes helm-pill-pop-in {
+    from {
+        opacity: 0;
+        transform: scale(0.85);
+    }
+}
+@keyframes helm-pill-pop-out {
+    to {
+        opacity: 0;
+        transform: scale(0.85);
+    }
+}
+@keyframes storm-picker-settle-in {
+    from {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.95);
+    }
+}
+@keyframes storm-picker-settle-out {
+    to {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.95);
+    }
+}
+@keyframes helm-glow-pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 8px 2px rgba(56, 189, 248, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 16px 4px rgba(56, 189, 248, 0.5);
+    }
+}
+@keyframes helm-dot-pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 4px 1px rgba(56, 189, 248, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 8px 2px rgba(56, 189, 248, 0.6);
+    }
+}
+@keyframes helm-mob-pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 8px 2px rgba(248, 113, 113, 0.45);
+    }
+    50% {
+        box-shadow: 0 0 20px 6px rgba(248, 113, 113, 0.75);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .helm-scrim-in,
+    .helm-scrim-out,
+    .helm-tile-in,
+    .helm-tile-out,
+    .helm-grid-in,
+    .helm-grid-out,
+    .helm-item-in,
+    .helm-pill-in,
+    .helm-pill-out,
+    .helm-glow-pulse,
+    .helm-dot-pulse,
+    .helm-mob-pulse,
+    .storm-picker-backdrop-in,
+    .storm-picker-backdrop-out,
+    .storm-picker-dialog-in,
+    .storm-picker-dialog-out {
+        animation: none;
+    }
+}

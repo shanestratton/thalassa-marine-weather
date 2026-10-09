@@ -5,7 +5,7 @@ import type { PassageStatus } from '../services/PassagePlanService';
 import type { VoyageRow } from '../components/CrewManagement';
 import type { CrewMember } from '../services/CrewService';
 
-vi.mock('../data/customsDb', () => ({
+vi.mock('../data/customsPortIndex', () => ({
     isSameCountry: vi.fn(() => false),
 }));
 
@@ -123,7 +123,7 @@ vi.mock('../components/chat/GalleyCard', () => ({
     ),
 }));
 import { ReadinessCardStack } from '../components/crew/ReadinessCardStack';
-import { isSameCountry } from '../data/customsDb';
+import { isSameCountry } from '../data/customsPortIndex';
 
 const voyage: VoyageRow = {
     id: 'voyage-1',

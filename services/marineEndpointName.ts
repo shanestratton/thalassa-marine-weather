@@ -130,16 +130,46 @@ export async function resolveDetailedEndpointName(lat: number, lon: number): Pro
     }
 }
 
-/** Bundled reference resolves clear matches offline; ambiguous ones use a
+/**
+ * The regional reference, a data file in public/ (build 126 bundle diet: it
+ * was a 124 KB JavaScript chunk). public/ is packaged inside the app, so this
+ * same-origin fetch works with no signal at all. Fetched once per session and
+ * kept; a failed read is not cached, so the next lookup tries again.
+ */
+export const MARINE_PLACE_NAMES_URL = '/data/marine-place-names-qld.json';
+let placesPromise: Promise<readonly MarineLocality[]> | null = null;
+
+function loadMarinePlaces(): Promise<readonly MarineLocality[]> {
+    if (placesPromise) return placesPromise;
+    const pending = (async () => {
+        const res = await fetch(MARINE_PLACE_NAMES_URL);
+        if (!res.ok) throw new Error(`marine place names: HTTP ${res.status}`);
+        const places = (await res.json()) as unknown;
+        if (!Array.isArray(places)) throw new Error('marine place names: not a list');
+        return places as MarineLocality[];
+    })();
+    placesPromise = pending;
+    pending.catch(() => {
+        if (placesPromise === pending) placesPromise = null;
+    });
+    return pending;
+}
+
+/** Packaged reference resolves clear matches offline; ambiguous ones use a
  * bounded, cached locality lookup rather than guessing the nearest island. */
 export async function marineEndpointName(lat: number, lon: number): Promise<string | null> {
     // Current maintained reference covers Queensland. Elsewhere retain the
     // global locality geocoder; do not pretend this is worldwide coverage.
     if (lat < -29.3 || lat > -9 || lon < 138 || lon > 154) return null;
-    const { default: places } = await import('../data/marine-place-names-qld.json');
-    const name = selectMarineEndpointName(lat, lon, places as MarineLocality[]);
+    let places: readonly MarineLocality[];
+    try {
+        places = await loadMarinePlaces();
+    } catch {
+        return null; // No reference: the callers' geocoder or coordinates stand.
+    }
+    const name = selectMarineEndpointName(lat, lon, places);
     if (name) return name;
-    if ((places as MarineLocality[]).some((p) => distanceM(lat, lon, p) <= (p.kind === 'island' ? 2_000 : 800))) {
+    if (places.some((p) => distanceM(lat, lon, p) <= (p.kind === 'island' ? 2_000 : 800))) {
         // Each request has a deadline; queue wait must not consume it.
         // Otherwise several cards can cache a district just before their
         // precise queued result arrives.

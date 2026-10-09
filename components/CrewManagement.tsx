@@ -58,7 +58,7 @@ import {
 } from '../services/routeTracer';
 import { savedRouteGeometryFingerprint } from '../services/savedRouteLibrary';
 import { buildTraceStubRows, traceVerificationNote } from '../services/savedRouteRows';
-import { isSameCountry } from '../data/customsDb';
+import { isSameCountry } from '../data/customsPortIndex';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,

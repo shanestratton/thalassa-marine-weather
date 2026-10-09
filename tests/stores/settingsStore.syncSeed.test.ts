@@ -28,17 +28,12 @@ describe('mergeSettings — sync-seed / async-load parity', () => {
     it('fills missing keys from DEFAULT_SETTINGS', () => {
         const merged = mergeSettings({ firstName: 'Shane' });
         expect(merged.firstName).toBe('Shane');
-        expect(merged.heroWidgets).toEqual(DEFAULT_SETTINGS.heroWidgets);
-        expect((merged.rowOrder ?? []).length).toBeGreaterThan(0);
+        expect(merged.heroMetric).toBe(DEFAULT_SETTINGS.heroMetric);
         expect(merged.units.waveHeight).toBeDefined();
     });
 
-    it('empty/invalid heroWidgets fall back to defaults (never blank dashboard)', () => {
-        expect(mergeSettings({ heroWidgets: [] }).heroWidgets).toEqual(DEFAULT_SETTINGS.heroWidgets);
-        expect(mergeSettings({ heroWidgets: 'nope' as unknown as string[] }).heroWidgets).toEqual(
-            DEFAULT_SETTINGS.heroWidgets,
-        );
-    });
+    // The retired dashboard keys (heroWidgets, rowOrder, ...: build 126) are
+    // covered by tests/stores/settingsRetiredDashboardKeys.test.ts.
 
     it('does not treat a legacy local isPro flag as paid entitlement', () => {
         const merged = mergeSettings({ isPro: true });
@@ -115,6 +110,7 @@ describe('settings mirror round-trip', () => {
     });
 
     it('the mirror read is identical to merging the same blob (no drift)', () => {
+        // heroWidgets is retired (build 126): the old key must not cause drift either.
         const blob = { firstName: 'Shane', units: { temp: 'F' }, heroWidgets: ['wind'] };
         writeSettingsMirror(mergeSettings(blob));
         expect(readSettingsMirrorSync()).toEqual(mergeSettings(blob));

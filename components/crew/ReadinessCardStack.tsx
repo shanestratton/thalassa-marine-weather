@@ -17,7 +17,7 @@ import { CommsPlanCard } from '../passage/CommsPlanCard';
 import { VesselCheckCard } from '../passage/VesselCheckCard';
 import { MedicalFirstAidCard } from '../passage/MedicalFirstAidCard';
 import { CustomsClearanceCard } from '../passage/CustomsClearanceCard';
-import { isSameCountry } from '../../data/customsDb';
+import { isSameCountry } from '../../data/customsPortIndex';
 import { GalleyCard } from '../chat/GalleyCard';
 import { DelegationBadge } from './DelegationBadge';
 import { VesselProfileSummary, type VesselProfileOverride } from '../passage/VesselProfileSummary';

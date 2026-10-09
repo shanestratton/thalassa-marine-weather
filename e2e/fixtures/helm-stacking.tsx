@@ -1,7 +1,6 @@
 /** Production helm and modal with local state only; no map, account or feed access. */
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { MotionConfig } from 'framer-motion';
 import { RadialHelmMenu } from '../../components/map/RadialHelmMenu';
 import type { WeatherLayer } from '../../components/map/mapConstants';
 import { ModalSheet } from '../../components/ui/ModalSheet';
@@ -125,10 +124,7 @@ function Fixture() {
     );
 }
 
-// Stacking is independent of spring motion. Reduced-motion rendering avoids
-// waiting for moving click targets until the menu's idle-fold timer expires.
-createRoot(document.getElementById('root')!).render(
-    <MotionConfig reducedMotion="always">
-        <Fixture />
-    </MotionConfig>,
-);
+// Stacking is independent of motion: browser-tests/helm-stacking.spec.ts runs
+// this page with prefers-reduced-motion, so the menu's CSS entrances and exits
+// are off and no click waits on a moving target.
+createRoot(document.getElementById('root')!).render(<Fixture />);

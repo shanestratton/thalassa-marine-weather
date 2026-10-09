@@ -101,8 +101,10 @@ describe('the helm menu dismissal contract', () => {
         expect(handler).not.toContain('closeMenu');
 
         // Both pills (the tier-2 grid footer and the tier-1 pill) call it
-        // directly, with nothing else in their click path.
-        const pills = [...code.matchAll(/Clear all · \{totalActive\}/gi)];
+        // directly, with nothing else in their click path. The tier-1 pill
+        // shows the count it was opened with while it plays its exit (build
+        // 126: CSS motion via useExitPresence), so it reads its presence.
+        const pills = [...code.matchAll(/Clear all · \{(?:totalActive|tierClearPresence\.shown)\}/gi)];
         expect(pills).toHaveLength(2);
         for (const m of pills) {
             const button = code.slice(code.lastIndexOf('button', m.index!), m.index!);
@@ -133,8 +135,11 @@ describe('the helm menu dismissal contract', () => {
     it('keeps the click-away scrim covering the whole screen while open', () => {
         // Click-away is now one of only four ways out, so the scrim has to be
         // there for the entire open state — not just while a category panel is.
+        // menuPresence.shown is true for every open render (it only also
+        // lingers through the short CSS exit, build 126).
         const scrim = src.slice(src.indexOf('Scrim (click-away to close)'), src.indexOf('Tier 2: Layer Items'));
-        expect(scrim).toContain('{isOpen && (');
+        expect(scrim).toContain('{menuPresence.shown && (');
+        expect(src).toMatch(/const menuPresence = useExitPresence\(\s*isOpen \? true : null,/);
         expect(scrim).toContain('fixed inset-0');
         expect(scrim).toContain('onClick={() => closeMenu()}');
     });
