@@ -34,6 +34,14 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
 test.use({ timezoneId: 'Europe/London' });
 
 /**
+ * A stop's times once its route forecasts are in, short so they can be big
+ * (126-17c; Shane, offered "07:00 → 10:28 · back 15:57": "your pick"):
+ * leave → arrive · back home, or an overnight's "· about 22 NM". VoiceOver
+ * hears them in words, "Leave 07:00, arrive 10:28, back home 15:57".
+ */
+const TIMES = /^\d\d:\d\d → \d\d:\d\d · /;
+
+/**
  * Phones as the app draws them. The fixture's root is a fixed 16 px; the app's
  * is fluid on a phone (index.css: clamp(13px, 4vw, 17px), so 13 px on a 320
  * SE, 15 on a 375, 17 on a Pro Max), and a browser draws the status bar and
@@ -100,9 +108,9 @@ type Mode = (typeof modes)[number];
 /**
  * Each place's own clock: the facts line's light (first and last light, or
  * Tromsø's 06:00–20:00 planning day under the midnight sun) and the earliest a
- * stop row may say "Leave", now + 30 min rounded up to the hour the sweep runs
- * on. Opened at 06:30 at Airlie Beach (AEST), 07:30 at Nouméa (UTC+11), 08:00
- * at Tromsø (CEST); too late opens on tomorrow, from first light.
+ * stop row may leave (its first time), now + 30 min rounded up to the hour the
+ * sweep runs on. Opened at 06:30 at Airlie Beach (AEST), 07:30 at Nouméa
+ * (UTC+11), 08:00 at Tromsø (CEST); too late opens on tomorrow, from first light.
  */
 const AIRLIE = { facts: /^☀ (05:\d\d)–(18:\d\d) · /, leaveFrom: '07:00' };
 const PLACE_CLOCK: Record<
@@ -276,9 +284,7 @@ for (const size of sizes) {
                 await expect.poll(() => visibleStops(page)).toBe(size.stops);
                 // Measured once the route forecasts are in: the rows at their longest.
                 await expect(stops.first().locator('.today-stop-l2')).toHaveText(
-                    mode === 'offline'
-                        ? /weather not checked$/
-                        : /^Leave \d\d:\d\d · there \d\d:\d\d · home \d\d:\d\d$/,
+                    mode === 'offline' ? /weather not checked$/ : /^\d\d:\d\d → \d\d:\d\d · back \d\d:\d\d$/,
                 );
                 await expect(dialog.getByTestId('day-plan-credit')).toContainText('Not a clearance');
             }
@@ -339,7 +345,7 @@ for (const size of nestedSizes) {
         const errors = await open(page, size, `&mode=default-boat${size.query}`);
         const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
         const first = dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first();
-        await expect(first.locator('.today-stop-l2')).toHaveText(/^Leave /);
+        await expect(first.locator('.today-stop-l2')).toHaveText(TIMES);
 
         // The stop's detail fits outright at ordinary text from 375 x 667 up, with
         // its leave chips, a reviewed stop's own Parks notes and both buttons; in
@@ -385,7 +391,7 @@ for (const size of sizes.filter((s) => !s.mayScroll)) {
         const errors = await open(page, size, `&mode=noumea${size.query}`);
         const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
         const first = dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first();
-        await expect(first.locator('.today-stop-l2')).toHaveText(/^Leave /);
+        await expect(first.locator('.today-stop-l2')).toHaveText(TIMES);
         await first.click();
         const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot on chart' }) });
         await expect(detail.getByRole('group', { name: 'Leave at' })).toBeVisible();
@@ -402,9 +408,7 @@ for (const size of [sizes[0], sizes[2], sizes[3], AS_DRAWN.mid, AS_DRAWN.shane])
         await dialog.getByRole('combobox', { name: 'Stay' }).selectOption('overnight');
         await expect(dialog.locator('.today-stay')).toContainText('Overnight');
         const first = dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first();
-        await expect(first.locator('.today-stop-l2')).toHaveText(
-            /^Leave \d\d:\d\d · there \d\d:\d\d · (about )?[\d.]+ NM$/,
-        );
+        await expect(first.locator('.today-stop-l2')).toHaveText(/^\d\d:\d\d → \d\d:\d\d · (about )?[\d.]+ NM$/);
         expect(await layoutIssues(page, false)).toEqual([]);
         expect(await placeClockIssues(page, 'normal')).toEqual([]);
         // "Overnight ▾" is Stay's longest word: the day chips keep one row, whole, at their biggest type.
@@ -623,6 +627,13 @@ const BUILD_126_17 = {
         row: 57,
     },
 };
+
+/**
+ * 126-17b's times on the phone most people have, measured on bd9c9ed4 in both
+ * engines in wide fonts and rounded UP to the hundredth, so that 126-17b's own
+ * size fails "greater than": the short times line (126-17c) must pass it.
+ */
+const BUILD_126_17B = { mid: { details: 13.38 } };
 
 /** The gaps between screen 1's blocks and the sizes that set them, measured in the page. */
 function breathing(page: Page) {
@@ -962,10 +973,13 @@ function withoutScrollTimelines(page: Page) {
  * The widest words the engine can put in a tile and a stop row (126-17b), put
  * there and measured, then put back: "≈ NW 18–22" (compass8 writes two letters
  * at most, two-digit knots; the widest of the ✓ ≈ ✕ readings in the wide face,
- * 7.08 px per px of type), "No forecast", "Afternoon", and an overnight stay's
- * times ("… · about 22 NM", wider than "… · home 15:57"). Each keeps one line
- * and is whole; the stop's name is whole and its shelter word gives way first.
- * Returns what broke.
+ * 7.08 px per px of type), "No forecast", "Afternoon", and a stop row's widest
+ * line: an overnight stay's times ("… · about 22 NM", wider than "… · back
+ * 15:57"), and since the times are short (126-17c) a stop whose weather is not
+ * checked, "About 22 NM · weather not checked" (offline; 18.05 px per px of
+ * type in the wide face, the times 15.19). Each keeps one line and is whole;
+ * the stop's name is whole and its shelter word gives way first. Returns what
+ * broke.
  */
 function widestIssues(page: Page) {
     return page.evaluate(() => {
@@ -976,7 +990,8 @@ function widestIssues(page: Page) {
             ['.today-cell-wind', '≈ NW 18–22'],
             ['.today-cell-wind', '✕ NW 88–88'],
             ['.today-cell-word', 'No forecast'],
-            ['.today-stop-l2', 'Leave 07:00 · there 10:28 · about 22 NM'],
+            ['.today-stop-l2', '07:00 → 10:28 · about 22 NM'],
+            ['.today-stop-l2', 'About 22 NM · weather not checked'],
         ];
         const oneLine = (el: HTMLElement) =>
             el.getClientRects().length === 1 &&
@@ -1030,7 +1045,7 @@ for (const size of roomSizes) {
         const errors = await open(page, size, `&mode=normal${size.query}`);
         const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
         const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
-        await expect(stops.first().locator('.today-stop-l2')).toHaveText(/^Leave /);
+        await expect(stops.first().locator('.today-stop-l2')).toHaveText(TIMES);
         await expect.poll(() => visibleStops(page)).toBe(size.stops);
         const m = await breathing(page);
         // Build 124's type on this root (16 px in the fixture, 13-17 px as the app draws it).
@@ -1103,6 +1118,8 @@ for (const size of roomSizes) {
                 for (const [key, height] of Object.entries(m.targets))
                     expect(height, `${key} past 126-17`).toBeGreaterThan(was.targets);
                 for (const height of m.rowHeights) expect(height, 'stop row past 126-17').toBeGreaterThan(was.row);
+                // The times past 126-17b's, now that they are short (126-17c).
+                expect(m.type.details, 'times past 126-17b').toBeGreaterThan(BUILD_126_17B.mid.details);
             }
             if (size.name === AS_DRAWN.shane.name) {
                 // His phone filled (126-17b, "ok, make plan your day even bigger!!"): the card is at
@@ -1122,9 +1139,10 @@ for (const size of roomSizes) {
                     expect(gap, `${key} past 126-17`).toBeGreaterThan(was.gaps[key]);
                 expect(m.type.headline).toBeGreaterThanOrEqual(20);
                 expect(m.type.stopName).toBeGreaterThanOrEqual(18.5);
-                // The times and the tile's words are as big as one line holds, in the widest face
-                // (widestIssues): ~15.2 and ~15.1 px across his 430 pt, not the plan's 16.5 and 18.
-                expect(m.type.details).toBeGreaterThanOrEqual(15.1);
+                // The tile's words are as big as one line holds, in the widest face (widestIssues):
+                // ~15.1 px across his 430 pt, not the plan's 18. The times, short since 126-17c
+                // ("07:00 → 10:28 · back 15:57"), reach the plan's ~16.5 px; the light keeps 126-17b's.
+                expect(m.type.details).toBeGreaterThanOrEqual(16);
                 expect(m.type.light).toBeGreaterThanOrEqual(15.1);
                 expect(m.type.tileWord).toBeGreaterThanOrEqual(15.05);
                 expect(m.type.tileWind).toBeGreaterThanOrEqual(15.05);
@@ -1184,7 +1202,7 @@ for (const size of [AS_DRAWN.shane, AS_DRAWN.mid])
             const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
             const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
             await expect(stops.first().locator('.today-stop-l2')).toHaveText(
-                mode === 'offline' ? /weather not checked$/ : /^Leave /,
+                mode === 'offline' ? /weather not checked$/ : TIMES,
             );
             await expect.poll(() => visibleStops(page)).toBe(3);
             const { issues, scrolls, timeline } = await stopsScrollIssues(page);
@@ -1219,7 +1237,7 @@ test('only the stops scroll on a day too long for the room, with Reduce Motion o
     const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
     await expect(
         dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
-    ).toHaveText(/^Leave /);
+    ).toHaveText(TIMES);
     await expect.poll(() => visibleStops(page)).toBe(3);
     const { issues, scrolls } = await stopsScrollIssues(page);
     expect(issues).toEqual([]);
@@ -1238,7 +1256,7 @@ test('a list that hides only a few px barely dims its last stop', async ({ page 
     const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
     await expect(
         dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
-    ).toHaveText(/^Leave /);
+    ).toHaveText(TIMES);
     await expect.poll(() => visibleStops(page)).toBe(3);
     // The stops pushed down by the card's spare room, the list's foot room and 4 px.
     const push = await page.evaluate(() => {
@@ -1278,7 +1296,7 @@ test('only the stops scroll where no scroll timeline runs (iOS 17-18), with a fa
     const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
     await expect(
         dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
-    ).toHaveText(/^Leave /);
+    ).toHaveText(TIMES);
     await expect.poll(() => visibleStops(page)).toBe(3);
     expect(await withoutScrollTimelines(page)).toBeGreaterThan(0);
     const { issues, scrolls, timeline } = await stopsScrollIssues(page);
@@ -1340,7 +1358,7 @@ for (const [size, was] of [
         const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
         await expect(
             dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
-        ).toHaveText(/^Leave /);
+        ).toHaveText(TIMES);
         const m = await breathing(page);
         for (const [key, value] of Object.entries(was.type))
             expect(m.type[key as keyof typeof m.type], key).toBeGreaterThanOrEqual(value);
@@ -1362,9 +1380,44 @@ for (const size of growing)
         const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
         await expect(
             dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
-        ).toHaveText(/^Leave /);
+        ).toHaveText(TIMES);
         await expect.poll(() => visibleStops(page)).toBe(size.stops);
         expect(await widestIssues(page)).toEqual([]);
         expect(await layoutIssues(page, false)).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+
+/**
+ * The short times line (126-17c). Shane, offered "07:00 → 10:28 · back 15:57"
+ * so the times can grow: "your pick". The row shows the arrow; VoiceOver reads
+ * the row's own words for the same times, "Leave 07:00, arrive 10:28, back home
+ * 15:57", never "right arrow". Tromsø too: a place's 24 h clock, not the phone's.
+ */
+for (const [size, mode] of [
+    [AS_DRAWN.shane, 'normal'],
+    [AS_DRAWN.mid, 'tromso'],
+] as const)
+    test(`a stop row shows its times short and reads them in words, at ${size.name}: ${mode}`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=${mode}${size.query}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
+        await expect(stops.first().locator('.today-stop-l2')).toHaveText(/^\d\d:\d\d → \d\d:\d\d · back \d\d:\d\d$/);
+        await expect.poll(() => visibleStops(page)).toBe(3);
+        for (const stop of await stops.all()) {
+            const line = (await stop.locator('.today-stop-l2').textContent()) ?? '';
+            const [leave, arrive, home] = line.match(/\d\d:\d\d/g) ?? [];
+            expect(line).toBe(`${leave} → ${arrive} · back ${home}`);
+            await expect(stop).toHaveAccessibleName(
+                new RegExp(`\\. Leave ${leave}, arrive ${arrive}, back home ${home}\\. `),
+            );
+            expect(await stop.getAttribute('aria-label')).not.toMatch(/→/);
+        }
+        await dialog.getByRole('combobox', { name: 'Stay' }).selectOption('overnight');
+        await expect(stops.first().locator('.today-stop-l2')).toHaveText(
+            /^\d\d:\d\d → \d\d:\d\d · (about )?[\d.]+ NM$/,
+        );
+        await expect(stops.first()).toHaveAccessibleName(
+            /\. Leave \d\d:\d\d, arrive \d\d:\d\d, (about )?[\d.]+ nautical miles\. /,
+        );
         expect(errors).toEqual([]);
     });

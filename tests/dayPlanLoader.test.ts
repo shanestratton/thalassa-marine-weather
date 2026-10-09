@@ -787,7 +787,10 @@ describe("Shane's case through the loader and the engine", () => {
         expect(view.date).toBe('2026-10-08');
         expect(view.top.map((r) => r.id)).toContain(CID_ID);
         expect(view.notToday.find((r) => r.id === NARA_ID)?.reason).toBe('closed 6–15 Oct (Queensland Parks)');
-        for (const row of view.top) expect(row.line2).toMatch(/^Leave \d\d:\d\d · there \d\d:\d\d · home \d\d:\d\d$/);
+        for (const row of view.top) {
+            expect(row.line2).toMatch(/^\d\d:\d\d → \d\d:\d\d · back \d\d:\d\d$/);
+            expect(row.line2Spoken).toMatch(/^Leave \d\d:\d\d, arrive \d\d:\d\d, back home \d\d:\d\d$/);
+        }
         expect(view.facts.text).toMatch(/· HW 10:52 · LW 17:03$/);
     });
 
