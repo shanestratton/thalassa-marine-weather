@@ -77,6 +77,12 @@ export interface TaskWithStatus extends MaintenanceTask {
     hoursRemaining: number | null;
     /** Logged today (local day) and not overdue: the label says so. */
     doneToday?: boolean;
+    /**
+     * An hour task still on a due counted from zero, far behind the reading
+     * (see hoursUnanchored): amber, asking for the last service, with no hours
+     * figure; never overdue, never grey.
+     */
+    hoursUnanchored?: boolean;
 }
 
 /** A bare 'YYYY-MM-DD' names a calendar day, not an instant. */
@@ -151,6 +157,35 @@ function nextDueText(task: MaintenanceTask, daysRemaining: number | null): strin
     return `in ${daysRemaining} days`;
 }
 
+/** How many whole intervals past a from-zero due before it is taken as never counted from the engine. */
+const UNANCHORED_INTERVALS = 5;
+
+/**
+ * Is this hour task still on a due figure counted from zero, not from the
+ * engine? Before 126-B1 the suggested engine service was seeded due at an
+ * absolute `interval_value` hours (100), and a service logged with no reading
+ * set 0 + interval, so the first real reading on an older engine turned it red,
+ * "Overdue by 3412 hrs" (binder audit MAINT-03). Such a row is due exactly one
+ * interval, with the reading more than five whole intervals past that due.
+ *
+ * The row alone cannot tell that apart from a real schedule: a new engine read
+ * at 0 is seeded due at 100 too. So the gap is wide: a new engine run to 201 or
+ * 600 h with nothing logged stays red, overdue, and only past five intervals
+ * with none logged does the task ask for the last service instead. Even then
+ * it is amber and counted, never grey: the warning does not go quiet. Judged,
+ * never rewritten: a write on page load would race across devices.
+ */
+function hoursUnanchored(task: MaintenanceTask, currentEngineHours: number): boolean {
+    const interval = task.interval_value;
+    return (
+        task.trigger_type === 'engine_hours' &&
+        typeof interval === 'number' &&
+        interval > 0 &&
+        task.next_due_hours === interval &&
+        currentEngineHours > task.next_due_hours + UNANCHORED_INTERVALS * interval
+    );
+}
+
 /**
  * Calculate traffic light status for a task given current engine hours.
  */
@@ -164,6 +199,7 @@ export function calculateStatus(
     let daysRemaining: number | null = null;
     let hoursRemaining: number | null = null;
     let doneToday = false;
+    const unanchored = hoursUnanchored(task, currentEngineHours);
 
     // Date-based check, in local calendar days
     if (task.next_due_date) {
@@ -181,8 +217,9 @@ export function calculateStatus(
         }
     }
 
-    // Engine-hours check (can override date status if MORE urgent)
-    if (task.next_due_hours !== null && task.next_due_hours !== undefined) {
+    // Engine-hours check (can override date status if MORE urgent). A due
+    // counted from zero is not judged by hours: it asks for the last service.
+    if (!unanchored && task.next_due_hours !== null && task.next_due_hours !== undefined) {
         hoursRemaining = task.next_due_hours - currentEngineHours;
 
         if (hoursRemaining < 0) {
@@ -205,10 +242,22 @@ export function calculateStatus(
         doneToday = true;
     }
 
-    // No due date or hours → grey (unscheduled)
+    // Hours due counted from zero (see hoursUnanchored): amber, asking for the
+    // service that would schedule it, unless a date already makes it overdue.
+    if (unanchored && status !== 'red') {
+        status = 'yellow';
+        statusLabel = task.last_completed
+            ? 'Log your last service with engine hours'
+            : 'No service logged yet — log your last one';
+        doneToday = false;
+    }
+
+    // No due date or hours → grey (unscheduled). An hour task with a reading
+    // to count from is scheduled by logging a service (logService: reading +
+    // interval); with none, R&M asks for engine hours instead.
     if (!task.next_due_date && (task.next_due_hours === null || task.next_due_hours === undefined)) {
         status = 'grey';
-        statusLabel = 'No schedule set';
+        statusLabel = task.trigger_type === 'engine_hours' ? 'Log a service to schedule' : 'No schedule set';
         doneToday = false;
     }
 
@@ -218,7 +267,7 @@ export function calculateStatus(
         doneToday = false;
     }
 
-    return { ...task, status, statusLabel, daysRemaining, hoursRemaining, doneToday };
+    return { ...task, status, statusLabel, daysRemaining, hoursRemaining, doneToday, hoursUnanchored: unanchored };
 }
 
 /**
@@ -631,8 +680,13 @@ export class MaintenanceService {
     /**
      * Seed the 40 default maintenance tasks for a new user.
      * Only call when the user has zero tasks (first-time setup).
+     *
+     * An hour task is due a whole interval after the engine's reading
+     * (`engineHours`: the caller passes the R&M binder's reading), or unset
+     * with none: never counted from zero (126-B1). Mirrors
+     * LocalMaintenanceService.seedDefaults, which reads the reading itself.
      */
-    static async seedDefaults(): Promise<number> {
+    static async seedDefaults(engineHours: number | null = null): Promise<number> {
         const context = MaintenanceService.requireContext(await MaintenanceService.resolveContext());
         // Defaults belong in the sailor's own binder only, never a skipper's
         // shared one (40 duplicates landed there on 2026-10-01).
@@ -646,7 +700,7 @@ export class MaintenanceService {
             const dueDate = isEngineHours
                 ? null
                 : new Date(now.getTime() + t.interval_value * 86_400_000).toISOString().split('T')[0];
-            const dueHours = isEngineHours ? t.interval_value : null;
+            const dueHours = isEngineHours && engineHours !== null ? engineHours + t.interval_value : null;
 
             return {
                 user_id: context.ownerId,

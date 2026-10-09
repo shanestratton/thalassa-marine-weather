@@ -1,6 +1,6 @@
 /**
  * A small in-memory stand-in for @capacitor/filesystem (Phase 2b, 2026-10-01)
- * — enough of writeFile / readFile / deleteFile / stat / readdir / rename for the water
+ * — enough of writeFile / readFile / deleteFile / stat / readdir / rmdir / rename for the water
  * pack's store, with a log of every call so a test can count the writes that
  * would cross the iOS plugin bridge.
  *
@@ -14,7 +14,7 @@ export interface MemoryFile {
     mtime: number;
 }
 
-type Op = 'writeFile' | 'readFile' | 'deleteFile' | 'stat' | 'readdir' | 'mkdir' | 'rename';
+type Op = 'writeFile' | 'readFile' | 'deleteFile' | 'stat' | 'readdir' | 'mkdir' | 'rmdir' | 'rename';
 
 export interface MemoryFilesystem {
     files: Map<string, MemoryFile>;
@@ -35,6 +35,8 @@ export interface MemoryFilesystem {
         files: { name: string; type: 'file' | 'directory'; size: number; ctime: number; mtime: number; uri: string }[];
     }>;
     mkdir(o: { path: string; directory?: string; recursive?: boolean }): Promise<void>;
+    /** Removes a folder: an empty one, or with `recursive` everything in it. */
+    rmdir(o: { path: string; directory?: string; recursive?: boolean }): Promise<void>;
     /** Moves a file, replacing any at the destination (as iOS's does). */
     rename(o: { from: string; to: string; directory?: string; toDirectory?: string }): Promise<void>;
     getUri(o: { path: string; directory?: string }): Promise<{ uri: string }>;
@@ -97,6 +99,14 @@ export function createMemoryFilesystem(now: () => number = () => Date.now()): Me
         },
         async mkdir({ path }) {
             calls.push({ op: 'mkdir', path });
+        },
+        async rmdir({ path, directory, recursive }) {
+            calls.push({ op: 'rmdir', path });
+            const dir = `${fullPath(directory, path)}/`;
+            const inside = [...files.keys()].filter((k) => k.startsWith(dir));
+            if (inside.length === 0) throw notFound(path);
+            if (!recursive) throw new Error(`Folder is not empty: ${path}`);
+            for (const k of inside) files.delete(k);
         },
         async rename({ from, to, directory, toDirectory }) {
             calls.push({ op: 'rename', path: from });

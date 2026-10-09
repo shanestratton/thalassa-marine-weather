@@ -8,7 +8,7 @@
  * Uses jsPDF for generation + @capacitor/share for native share sheet.
  * Falls back to browser download on web.
  */
-import { MaintenanceService, calculateStatus, sortByUrgency } from './MaintenanceService';
+import { MaintenanceService, calculateStatus, sortByUrgency, type TaskWithStatus } from './MaintenanceService';
 import type { MaintenanceTask, MaintenanceHistory } from '../types';
 
 // ── Shared Helpers ──────────────────────────────────────────────
@@ -24,6 +24,19 @@ function formatCurrency(val: number | null): string {
 }
 
 // ── TEMPLATE A: Engine Room Clipboard ───────────────────────────
+
+/**
+ * The clipboard's Due column: hours for an hour task, else the date. A due
+ * still counted from zero (hoursUnanchored) prints no figure, as the card shows
+ * none: '100 hrs' beside a 3,512 reading would read as the schedule.
+ */
+export function clipboardDueText(task: TaskWithStatus): string {
+    if (task.trigger_type === 'engine_hours') {
+        const hours = task.next_due_hours;
+        return hours === null || hours === undefined || task.hoursUnanchored ? '—' : `${hours.toLocaleString()} hrs`;
+    }
+    return task.next_due_date ? formatDate(task.next_due_date) : '—';
+}
 
 function generateChecklistHtml(tasks: MaintenanceTask[], engineHours: number | null, vesselName: string): string {
     const now = new Date();
@@ -42,12 +55,7 @@ function generateChecklistHtml(tasks: MaintenanceTask[], engineHours: number | n
 
     const rows = sorted
         .map((task) => {
-            const dueCol =
-                task.trigger_type === 'engine_hours'
-                    ? `${task.next_due_hours?.toLocaleString() ?? '—'} hrs`
-                    : task.next_due_date
-                      ? formatDate(task.next_due_date)
-                      : '—';
+            const dueCol = clipboardDueText(task);
 
             const statusDot =
                 task.status === 'red' ? '🔴' : task.status === 'yellow' ? '🟡' : task.status === 'grey' ? '⚪' : '🟢';

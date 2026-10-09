@@ -170,11 +170,17 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                         data-testid="task-due-detail"
                         className={`flex shrink-0 items-center gap-2${task.doneToday ? ' max-[360px]:hidden' : ''}`}
                     >
-                        {task.trigger_type === 'engine_hours' && task.next_due_hours !== null && (
-                            <span className="text-label text-slate-400 tabular-nums">
-                                @ {task.next_due_hours?.toLocaleString()} hrs
-                            </span>
-                        )}
+                        {/* Not a due counted from zero (hoursUnanchored): the label
+                            asks for the last service, and '@ 100 hrs' beside a
+                            3,512 reading would read as the schedule. */}
+                        {task.trigger_type === 'engine_hours' &&
+                            task.next_due_hours !== null &&
+                            task.next_due_hours !== undefined &&
+                            !task.hoursUnanchored && (
+                                <span className="text-label text-slate-400 tabular-nums">
+                                    @ {task.next_due_hours?.toLocaleString()} hrs
+                                </span>
+                            )}
                         {/* The app's one day form, 'Sun 28 Sep 2026': bare
                             toLocaleDateString() gave '28/9/2026' (UX scorecard run 9). */}
                         {task.next_due_date && (

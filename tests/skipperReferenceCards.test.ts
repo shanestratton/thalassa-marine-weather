@@ -39,3 +39,52 @@ describe('SKIPPER_REFERENCE_CARDS', () => {
         expect(new Set(ids).size).toBe(ids.length);
     });
 });
+
+/**
+ * The wording of four rules, pinned (binder audit 2026-10-09, SR-1 and SR-2).
+ * Each was wrong in a card that claimed a fact-check, and a skipper reads them
+ * to decide whether to go. They must hold in both hemispheres.
+ */
+describe('the rules the cards teach', () => {
+    const step = (cardId: string, num: string) => {
+        const card = SKIPPER_REFERENCE_CARDS.find((c) => c.id === cardId);
+        const found = card?.steps.find((s) => s.num === num);
+        if (!found) throw new Error(`${cardId} step ${num} is missing`);
+        return found.bodyHtml.replace(/<[^>]+>/g, '');
+    };
+
+    it('the same isobar spacing blows harder toward the equator, where Coriolis is weaker', () => {
+        // Geostrophic wind is the gradient over (density x f), f = 2 Omega sin(latitude):
+        // 4 hPa over 300 km is about 9.5 m/s at 50 degrees and 21 m/s at 20 degrees.
+        const body = step('synoptic', '1');
+        expect(body).toContain('harder toward the equator');
+        expect(body).not.toContain('nearer the pole');
+        expect(body).toMatch(/wide tropical isobars can still mean a fresh trade/);
+        // f is zero at the equator: there the isobars stop working.
+        expect(body).toMatch(/equator isobars stop working/);
+    });
+
+    it('a southern-hemisphere southerly change backs; a northern cold front veers', () => {
+        // NW -> W -> SW -> S is 315 -> 180 degrees: anticlockwise, which the Met
+        // Office marine glossary calls backing.
+        const body = step('synoptic', '5');
+        expect(body).toContain('backs');
+        expect(body).toMatch(/anticlockwise/);
+        expect(body).not.toContain('clockwise in the SH');
+        expect(body).not.toContain('opposite-handed');
+        expect(body).toMatch(/NH cold fronts mirror this.*veers \(turns clockwise\)/);
+    });
+
+    it("'tending' is a change of direction, not a build", () => {
+        const body = step('forecast-decoder', '4');
+        expect(body).not.toMatch(/Tending\s*\/\s*freshening/);
+        expect(body).toMatch(/Freshening = building/);
+        expect(body).toMatch(/tending.*direction/i);
+    });
+
+    it("a barb's shaft points to where the wind is coming from", () => {
+        const body = step('grib-60s', '3');
+        expect(body).toContain('coming from');
+        expect(body).not.toContain('going from');
+    });
+});

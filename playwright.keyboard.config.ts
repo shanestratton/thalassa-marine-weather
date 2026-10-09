@@ -108,6 +108,10 @@ export default defineConfig({
         // made-up coastlines, no WebGL; its JS heap per open in Chromium
         // (e2e/fixtures/track-map.tsx).
         'track-map-viewer-layout.spec.ts',
+        // The Galley (126-B1, GAL-01): "Open shopping list" and the last saved
+        // recipe scroll clear of the tab bar at 320 × 568, 390 × 844 and 430 × 932
+        // in wide fonts (e2e/fixtures/galley-scroll.tsx).
+        'galley-scroll-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

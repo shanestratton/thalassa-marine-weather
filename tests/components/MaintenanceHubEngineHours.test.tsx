@@ -25,6 +25,7 @@ const db = vi.hoisted(() => {
 const mocks = vi.hoisted(() => ({
     tasks: [] as MaintenanceTask[],
     logService: vi.fn(),
+    schedule: vi.fn(),
     updateLocal: vi.fn(),
     insertLocal: vi.fn(),
     syncListeners: [] as ((result: { pushed: number; pulled: number; errors: string[] }) => void)[],
@@ -47,6 +48,7 @@ vi.mock('../../services/vessel/LocalMaintenanceService', () => ({
         seedDefaults: vi.fn().mockResolvedValue(0),
         getHistory: vi.fn().mockResolvedValue([]),
         logService: mocks.logService,
+        scheduleHourTasksFromFirstReading: mocks.schedule,
         createTask: vi.fn(),
         updateTask: vi.fn(),
         deleteTask: vi.fn(),
@@ -82,6 +84,7 @@ vi.mock('../../utils/system', async (importOriginal) => ({
 vi.mock('../../components/Toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { MaintenanceHub } from '../../components/vessel/MaintenanceHub';
+import { toast } from '../../components/Toast';
 import { reloadSharedBindersFromStorage } from '../../services/vessel/sharedBinders';
 import { ENGINE_HOURS_TABLE, engineHoursRowId } from '../../services/vessel/LocalEngineHoursService';
 
@@ -160,6 +163,7 @@ beforeEach(() => {
     mocks.syncListeners = [];
     mocks.realtime = [];
     mocks.logService.mockReset().mockResolvedValue({ historyId: 'h-1', nextDueDate: null, nextDueHours: 1350 });
+    mocks.schedule.mockReset().mockResolvedValue(1);
     mocks.updateLocal.mockReset().mockImplementation(async (name: string, id: string, updates: object) => {
         const next = { ...db.table(name).get(id), ...updates };
         db.table(name).set(id, next);
@@ -276,5 +280,107 @@ describe('before the table is live on this device', () => {
 
         expect(await screen.findByRole('button', { name: 'Edit engine hours, currently 1,250' })).toBeInTheDocument();
         await waitFor(() => expect(engineHoursChannel()?.enabled).toBe(true));
+    });
+});
+
+/**
+ * Hour tasks are scheduled from the engine's real reading, never from zero
+ * (binder audit 2026-10-09, MAINT-03). Fictional boat 'Kestrel'; readings 3,512.
+ */
+describe('engine hours schedule the hour tasks from the first reading', () => {
+    const seededFromZero: MaintenanceTask = { ...engineService, next_due_hours: 100 };
+
+    async function typeHours(currentLabel: string, value: string) {
+        fireEvent.click(await screen.findByRole('button', { name: currentLabel }));
+        const field = screen.getByRole('textbox', { name: 'Current engine hours' });
+        fireEvent.change(field, { target: { value } });
+        fireEvent.keyDown(field, { key: 'Enter' });
+    }
+
+    it('the first reading schedules them once; a later reading does not', async () => {
+        signIn('skipper-1');
+        mocks.tasks = [{ ...engineService, next_due_hours: null }];
+        render(<MaintenanceHub onBack={vi.fn()} />);
+        await screen.findByText(engineService.title);
+
+        await typeHours('Engine hours not set — enter engine hours', '3,512');
+        await waitFor(() => expect(mocks.schedule).toHaveBeenCalledWith(3512));
+
+        await typeHours('Edit engine hours, currently 3,512', '3,600');
+        await screen.findByRole('button', { name: 'Edit engine hours, currently 3,600' });
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        });
+        expect(mocks.schedule).toHaveBeenCalledTimes(1);
+    });
+
+    it('an engine task waiting for its first reading asks for engine hours', async () => {
+        signIn('skipper-1');
+        mocks.tasks = [{ ...engineService, next_due_hours: null }];
+        render(<MaintenanceHub onBack={vi.fn()} />);
+        await screen.findByText(engineService.title);
+        expect(await screen.findByTestId('maintenance-status-chips')).toHaveTextContent('1 by hours');
+        expect(screen.getByText('Enter engine hours')).toBeInTheDocument();
+    });
+
+    it('a row still on its from-zero seed, far past it, asks for the last service: amber, never overdue', async () => {
+        const skipper = signIn('skipper-1');
+        localStorage.setItem(authScopedStorageKey('thalassa_engine_hours', skipper), '3512');
+        mocks.tasks = [seededFromZero];
+        render(<MaintenanceHub onBack={vi.fn()} />);
+        await screen.findByRole('button', { name: 'Edit engine hours, currently 3,512' });
+
+        // Counted with the tasks that need attention, never as unscheduled or overdue.
+        const chips = await screen.findByTestId('maintenance-status-chips');
+        expect(chips).toHaveTextContent('1 due soon');
+        expect(chips).not.toHaveTextContent('unscheduled');
+        expect(chips).not.toHaveTextContent('overdue');
+        expect(screen.getByText('No service logged yet — log your last one')).toBeInTheDocument();
+        expect(screen.queryByText(/Overdue by/)).not.toBeInTheDocument();
+        // Not the from-zero figure beside it, as if the service were due at 100.
+        expect(screen.queryByText(/@ 100 hrs/)).not.toBeInTheDocument();
+    });
+
+    it('a new engine that has run past its first service with none logged stays overdue', async () => {
+        const skipper = signIn('skipper-1');
+        localStorage.setItem(authScopedStorageKey('thalassa_engine_hours', skipper), '201');
+        mocks.tasks = [seededFromZero];
+        render(<MaintenanceHub onBack={vi.fn()} />);
+        await screen.findByRole('button', { name: 'Edit engine hours, currently 201' });
+
+        expect(await screen.findByTestId('maintenance-status-chips')).toHaveTextContent('1 overdue');
+        expect(screen.getByText('Overdue by 101 hrs')).toBeInTheDocument();
+        expect(screen.getByText(/@ 100 hrs/)).toBeInTheDocument();
+    });
+
+    it('an hour task that arrived with no hours due after the reading says how it gets scheduled', async () => {
+        // Seeded on another device before any reading, synced in after the
+        // first reading was typed here: the first-reading step never saw it.
+        const skipper = signIn('skipper-1');
+        localStorage.setItem(authScopedStorageKey('thalassa_engine_hours', skipper), '3512');
+        mocks.tasks = [{ ...engineService, next_due_hours: null }];
+        render(<MaintenanceHub onBack={vi.fn()} />);
+        await screen.findByRole('button', { name: 'Edit engine hours, currently 3,512' });
+
+        expect(await screen.findByTestId('maintenance-status-chips')).toHaveTextContent('1 unscheduled');
+        expect(screen.getByText('Log a service to schedule')).toBeInTheDocument();
+        expect(screen.queryByText('No schedule set')).not.toBeInTheDocument();
+    });
+
+    it('logging a service with no reading says the next one waits for engine hours', async () => {
+        signIn('skipper-1');
+        mocks.tasks = [{ ...engineService, next_due_hours: null }];
+        mocks.logService.mockResolvedValue({ historyId: 'h-1', nextDueDate: null, nextDueHours: null });
+        render(<MaintenanceHub onBack={vi.fn()} />);
+        await screen.findByText(engineService.title);
+
+        fireEvent.click(screen.getByRole('button', { name: `Options for ${engineService.title}` }));
+        expect(screen.getByText(/the next service is scheduled once you enter engine hours/)).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Log service' }));
+
+        await waitFor(() => expect(mocks.logService).toHaveBeenCalledWith('task-hours', null, null, null));
+        await waitFor(() =>
+            expect(toast.success).toHaveBeenCalledWith('Service logged. Enter engine hours to schedule the next one.'),
+        );
     });
 });

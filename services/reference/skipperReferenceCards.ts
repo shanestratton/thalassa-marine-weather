@@ -4,6 +4,18 @@
  * pack (Go/No-Go) ships as the interactive scorer (components/weatherWindow/WeatherWindowCheck.tsx);
  * these are the four reference cards.
  *
+ * Four rules corrected 2026-10-09 (binder audit SR-1, SR-2; pinned in tests/skipperReferenceCards.test.ts),
+ * each checked to hold in both hemispheres:
+ *   - Isobars: geostrophic wind = gradient / (air density x f), f = 2 Omega sin(latitude), so the same
+ *     spacing blows HARDER toward the equator (4 hPa per 300 km: about 9.5 m/s at 50 deg, 21 m/s at 20 deg),
+ *     and the balance fails near the equator, where f goes to zero (Stull, Practical Meteorology, ch. 10).
+ *   - NW round through SW to S is 315 -> 180 deg: anticlockwise, which the Met Office marine glossary
+ *     defines as BACKING; a northern cold front veers (clockwise) instead.
+ *   - "Tending" names a change of direction ("Southerly 15 to 20 knots tending southeasterly", BOM
+ *     coastal waters forecasts), not a build.
+ *   - A barb's shaft points to where the wind blows FROM (NWS wind-barb guide; Met Office glossary,
+ *     wind direction).
+ *
  * PURE DATA — no React/app imports — so the same content can back Bosun's knowledge scaffolding on
  * the Pi. `bodyHtml` carries light inline markup (<strong>/<em>/<code>/<br>); it is authored, trusted,
  * constant content (NOT user input), so the UI renders it via dangerouslySetInnerHTML.
@@ -51,7 +63,7 @@ export const SKIPPER_REFERENCE_CARDS: ReferenceCard[] = [
             {
                 num: '3',
                 heading: 'READ THE BARB AT A GLANCE',
-                bodyHtml: `Half barb, full barb, pennant — confirm the <strong>knot value each tick carries</strong> for your GRIB before you trust the sum. The shaft points the way the wind is <em>going from</em>. By strict convention barbs sit to the <strong>right</strong> of the shaft in the Southern Hemisphere (left in the Northern) — but <em>many GRIB viewers don't flip for the SH</em>, so never use barb side to read speed or to guess your hemisphere. Speed is in the ticks, full stop.`,
+                bodyHtml: `Half barb, full barb, pennant — confirm the <strong>knot value each tick carries</strong> for your GRIB before you trust the sum. The shaft points to where the wind is <em>coming from</em>. By strict convention barbs sit to the <strong>right</strong> of the shaft in the Southern Hemisphere (left in the Northern) — but <em>many GRIB viewers don't flip for the SH</em>, so never use barb side to read speed or to guess your hemisphere. Speed is in the ticks, full stop.`,
             },
             {
                 num: '4',
@@ -97,7 +109,7 @@ export const SKIPPER_REFERENCE_CARDS: ReferenceCard[] = [
             {
                 num: '1',
                 heading: 'ISOBARS = WIND SPEED',
-                bodyHtml: `Tight isobars mean strong wind, wide spacing means light — the gradient is the speed gauge. <strong>Same spacing blows harder nearer the pole</strong> (Coriolis weakens toward the equator), so don't read a tropical chart like a temperate one. <em>Learn your own chart's spacing-to-knots feel and recalibrate by latitude</em> — then trust your eyes before the model's wind arrows.`,
+                bodyHtml: `Tight isobars mean strong wind, wide spacing means light — the gradient is the speed gauge. <strong>The same spacing blows harder toward the equator</strong>, where Coriolis is weaker, so wide tropical isobars can still mean a fresh trade. <em>Within a few degrees of the equator isobars stop working: use the model's wind.</em> Learn your own chart's spacing-to-knots feel and recalibrate by latitude.`,
             },
             {
                 num: '2',
@@ -117,7 +129,7 @@ export const SKIPPER_REFERENCE_CARDS: ReferenceCard[] = [
             {
                 num: '5',
                 heading: 'FRONTS & THE SOUTHERLY CHANGE',
-                bodyHtml: `On the Australian east/south coast a <strong>cold front brings the "southerly change"</strong> behind it — wind swings hard from the NW round to the S (clockwise in the SH), strengthens sharply, seas build, then ease as the ridge follows. <em>A southerly buster can slam in near-instantly</em> with a wind line and squalls. Reef before it arrives, not after. <strong>NH cold fronts mirror this</strong> — the shift is opposite-handed.`,
+                bodyHtml: `On the Australian east/south coast a <strong>cold front brings the "southerly change"</strong> behind it — wind swings hard from the NW round through the SW to the S — it <strong>backs</strong> (turns anticlockwise) in the SH — strengthens sharply, seas build, then ease as the ridge follows. <em>A southerly buster can slam in near-instantly</em> with a wind line and squalls. Reef before it arrives, not after. <strong>NH cold fronts mirror this</strong>: there the wind veers (turns clockwise) as the front passes.`,
             },
             {
                 num: '6',
@@ -168,7 +180,7 @@ export const SKIPPER_REFERENCE_CARDS: ReferenceCard[] = [
             {
                 num: '4',
                 heading: 'TIMING WORDS ARRIVE AT THE EDGES',
-                bodyHtml: `<strong>Tending / freshening</strong> = building; <strong>easing / abating</strong> = dropping. A change forecast "during the afternoon" usually shows at one <em>edge</em> of that window, rarely the tidy middle — and the front edge is where it catches you out. <br> · Plan for the early arrival and the late departure, not the average. <br> · "Easing" after a blow still leaves a left-over sea running for hours.`,
+                bodyHtml: `<strong>Freshening</strong> = building; <strong>easing / abating</strong> = dropping; <strong>tending</strong> (as in "tending southeasterly") = the direction is shifting toward that quarter. A change forecast "during the afternoon" usually shows at one <em>edge</em> of that window, rarely the tidy middle — and the front edge is where it catches you out. <br> · Plan for the early arrival and the late departure, not the average. <br> · "Easing" after a blow still leaves a left-over sea running for hours.`,
             },
             {
                 num: '5',

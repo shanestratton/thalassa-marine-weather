@@ -28,6 +28,7 @@ import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { SwipeableDocCard, getExpiryStatus } from './documents/SwipeableDocCard';
 import { DocumentForm, CATEGORIES } from './documents/DocumentForm';
+import { docCacheFileName, docFileExtension } from './documents/docFiles';
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import {
@@ -46,43 +47,48 @@ interface DocumentsHubProps {
 // ── File helpers ───────────────────────────────────────────────
 
 /**
- * Get file extension from a data URI or URL
+ * The copies one share sheet hands out, in a Cache folder of their own. Every
+ * open of a paper names its copy the same, so a second open while the first
+ * sheet was still up overwrote that file and, clearing up, deleted it from
+ * under Save to Files or Mail. A folder per sheet keeps them apart; the file
+ * names the sheet shows are unchanged.
  */
-function getFileExtFromUri(uri: string): string {
-    if (uri.startsWith('data:')) {
-        const mimeMatch = uri.match(/^data:([^;]+);/);
-        const mime = mimeMatch?.[1] || '';
-        if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpg';
-        if (mime.includes('png')) return 'png';
-        if (mime.includes('heic')) return 'heic';
-        if (mime.includes('pdf')) return 'pdf';
-        if (mime.includes('word') || mime.includes('docx')) return 'docx';
-        if (mime.includes('msword') || mime.includes('doc')) return 'doc';
-        return 'pdf';
-    }
-    const urlExt = uri.split('.').pop()?.split('?')[0]?.toLowerCase();
-    if (urlExt && ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx', 'heic'].includes(urlExt)) {
-        return urlExt;
-    }
-    return 'pdf';
+interface ShareCopies {
+    folder: string;
+    /** Set once a write has started: only then is there a folder to clear. */
+    used: boolean;
+}
+
+function newShareCopies(): ShareCopies {
+    return { folder: `share-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`, used: false };
 }
 
 /**
- * Write a data URI to the Capacitor cache directory as a real file.
- * Returns the file:// URI that native APIs can use.
+ * Write a document to the Capacitor cache directory as a real file, named and
+ * typed from the document (components/vessel/documents/docFiles.ts): a synced
+ * photo is a .jpg, not a ".pdf", and two papers with one name are two files.
+ * A URL is fetched once; its own content type picks the extension. Returns
+ * the file:// URI native APIs use.
  */
-async function writeUriToCache(dataUri: string, fileName: string): Promise<string> {
+async function writeUriToCache(
+    uri: string,
+    doc: Pick<ShipDocument, 'id' | 'document_name'>,
+    copies: ShareCopies,
+): Promise<string> {
     const { Filesystem, Directory } = await import('@capacitor/filesystem');
-    const ext = getFileExtFromUri(dataUri);
-    const safeName = `${fileName.replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'document'}.${ext}`;
 
     // Data URIs: extract base64 portion. URLs: fetch and convert.
     let base64Data: string;
-    if (dataUri.startsWith('data:')) {
-        base64Data = dataUri.split(',')[1];
+    let ext: string;
+    if (uri.startsWith('data:')) {
+        base64Data = uri.split(',')[1];
+        ext = docFileExtension(uri);
     } else {
-        const res = await fetch(dataUri);
+        const res = await fetch(uri);
+        // A refused or expired link is not a document: never save its error body.
+        if (!res.ok) throw new Error(`document fetch failed (${res.status})`);
         const blob = await res.blob();
+        ext = docFileExtension(uri, blob.type);
         base64Data = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => resolve((reader.result as string).split(',')[1]);
@@ -91,13 +97,38 @@ async function writeUriToCache(dataUri: string, fileName: string): Promise<strin
         });
     }
 
+    copies.used = true;
     const result = await Filesystem.writeFile({
-        path: safeName,
+        path: `${copies.folder}/${docCacheFileName(doc.document_name, doc.id, ext)}`,
         data: base64Data,
         directory: Directory.Cache,
+        recursive: true,
     });
     return result.uri;
 }
+
+/**
+ * Clear a share sheet's copies once it has closed (shared, cancelled or
+ * failed): a passport copy must not sit in Caches. Best effort, as the Diary
+ * does (SwipeableDiaryCard): a folder that will not go is logged.
+ */
+async function clearShareCopies(copies: ShareCopies): Promise<void> {
+    if (!copies.used) return;
+    const { Filesystem, Directory } = await import('@capacitor/filesystem');
+    await Filesystem.rmdir({ path: copies.folder, directory: Directory.Cache, recursive: true }).catch((e) =>
+        log.warn('documents: cache-cleanup-failed', e),
+    );
+}
+
+/**
+ * A share sheet the skipper closed, or one refused because another is already
+ * up ("Can't share while sharing is in progress": a second tap on a slow
+ * link). Neither is a failure to report.
+ */
+const isQuietShareEnd = (e: unknown) => {
+    const message = (e as Error)?.message ?? '';
+    return message.includes('cancel') || message.includes('dismissed') || message.includes('in progress');
+};
 
 /**
  * Present a document file through the native share sheet.
@@ -105,7 +136,7 @@ async function writeUriToCache(dataUri: string, fileName: string): Promise<strin
  * Resolves a fresh download URL (re-signing an expired Supabase link), writes
  * it to the cache, then hands it to Share. Opening, sharing and "Save to
  * Files" were three near-identical copies of this body; on iOS there is no
- * direct download, so saving IS the share sheet.
+ * direct download, so saving IS the share sheet. The copy is cleared after.
  */
 async function presentDocFile(
     uri: string,
@@ -113,10 +144,11 @@ async function presentDocFile(
     isCurrent: () => boolean,
     opts: { text?: string; dialogTitle: string },
 ): Promise<boolean> {
+    const copies = newShareCopies();
     try {
         const freshUri = await DocumentSyncService.getDownloadUrl(uri);
         if (!isCurrent()) return false;
-        const fileUri = await writeUriToCache(freshUri, doc.document_name);
+        const fileUri = await writeUriToCache(freshUri, doc, copies);
         if (!isCurrent()) return false;
         const { Share } = await import('@capacitor/share');
         await Share.share({
@@ -127,9 +159,11 @@ async function presentDocFile(
         });
         return true;
     } catch (e: unknown) {
-        if ((e as Error).message?.includes('cancel') || (e as Error).message?.includes('dismissed')) return true;
+        if (isQuietShareEnd(e)) return true;
         log.warn(' presentDocFile failed:', e);
         return false;
+    } finally {
+        await clearShareCopies(copies);
     }
 }
 
@@ -478,15 +512,15 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         }
         triggerHaptic('medium');
         // Share all files via a single share sheet if possible
+        const copies = newShareCopies();
         try {
             const fileUris: string[] = [];
             for (const doc of selected) {
                 if (doc.file_uri) {
                     const freshUri = await DocumentSyncService.getDownloadUrl(doc.file_uri);
                     if (!currentOperation(scope)) return;
-                    const cachedUri = await writeUriToCache(freshUri, doc.document_name);
+                    fileUris.push(await writeUriToCache(freshUri, doc, copies));
                     if (!currentOperation(scope)) return;
-                    fileUris.push(cachedUri);
                 }
             }
             if (!currentOperation(scope)) return;
@@ -497,9 +531,12 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                 dialogTitle: 'Share Selected Documents',
             });
         } catch (e: unknown) {
-            if (!(e as Error).message?.includes('cancel') && !(e as Error).message?.includes('dismissed')) {
+            if (!isQuietShareEnd(e)) {
+                log.warn('documents: batch-share-failed', e);
                 if (currentOperation(scope)) toast.error('Share failed');
             }
+        } finally {
+            await clearShareCopies(copies);
         }
         if (currentOperation(scope)) setSelectedIds(new Set());
     };

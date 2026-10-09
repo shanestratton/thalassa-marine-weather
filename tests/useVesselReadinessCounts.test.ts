@@ -279,4 +279,44 @@ describe('useVesselReadinessCounts', () => {
         await waitFor(() => expect(result.current.overdueCount).toBe(1));
         localStorage.removeItem(authScopedStorageKey('thalassa_engine_hours', getAuthIdentityScope()));
     });
+
+    it('a never-serviced engine task still on its from-zero seed (100) is not overdue at 3,512 hours', async () => {
+        // Seeded at an absolute 100 before 126-B1; the first real reading on an
+        // older engine lit the badge "Overdue by 3412 hrs" (audit MAINT-03).
+        maintTasks = [
+            {
+                id: 'h-seeded',
+                is_active: true,
+                next_due_date: null,
+                updated_at: PAST,
+                trigger_type: 'engine_hours',
+                interval_value: 100,
+                next_due_hours: 100,
+            },
+        ];
+        cloudTasks = [...maintTasks];
+        const key = authScopedStorageKey('thalassa_engine_hours', getAuthIdentityScope());
+        localStorage.setItem(key, '3512');
+        try {
+            const { result } = renderHook(() => useVesselReadinessCounts());
+            await waitFor(() => expect(cloudGetTasks).toHaveBeenCalled());
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            expect(result.current.overdueCount).toBe(0);
+
+            // A new engine at 150 hours is honestly 50 past its first service.
+            localStorage.setItem(key, '150');
+            act(() => dispatchDataChange(DATA_EVENTS.MAINTENANCE));
+            await waitFor(() => expect(result.current.overdueCount).toBe(1));
+
+            // And still at 201, more overdue: the badge never clears as it gets worse.
+            localStorage.setItem(key, '201');
+            const fetchesBefore = cloudGetTasks.mock.calls.length;
+            act(() => dispatchDataChange(DATA_EVENTS.MAINTENANCE));
+            await waitFor(() => expect(cloudGetTasks.mock.calls.length).toBeGreaterThan(fetchesBefore));
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            expect(result.current.overdueCount).toBe(1);
+        } finally {
+            localStorage.removeItem(key);
+        }
+    });
 });

@@ -281,6 +281,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             pendingDeleteRef.current = item;
             // Schedule actual delete after 5s
             deleteTimerRef.current = setTimeout(async () => {
+                deleteTimerRef.current = null;
                 pendingDeleteRef.current = null;
                 if (!currentOperation(scope)) return;
                 try {
@@ -302,6 +303,10 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         const scope = getAuthIdentityScope();
         if (!currentOperation(scope)) return;
         if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+        // Nothing is pending any more: the next delete must not "flush" the
+        // item just restored (audit EQ-1). 126-B10a replaces this timer.
+        deleteTimerRef.current = null;
+        pendingDeleteRef.current = null;
         if (deletedItem) {
             setItems((prev) => [...prev, deletedItem]);
             toast.success('Equipment restored');

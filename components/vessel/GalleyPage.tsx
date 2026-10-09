@@ -373,8 +373,14 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                 </button>
             </div>
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto">
+            {/* Content. Pads its own bottom clear of the tab bar that floats over
+                it, as its binder siblings do, and fades under the bar: with two
+                meals on a phone "Open shopping list" (the only way into the
+                grocery list) ended under the bar, untappable (audit GAL-01). */}
+            <div
+                className="thalassa-scroll-fade thalassa-scroll-fade--nav flex-1 overflow-y-auto"
+                style={{ paddingBottom: 'calc(var(--thalassa-tabbar-height) + 16px)' }}
+            >
                 {tab === 'active' && (
                     <div
                         id="galley-active-panel"
