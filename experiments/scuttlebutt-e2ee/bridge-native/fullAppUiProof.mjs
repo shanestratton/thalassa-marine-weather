@@ -1,6 +1,6 @@
 /** Owned WK full-root fixture. Synthetic Auth only, no human/production/hosted actors.
  * Node24 fullAppUiProof.mjs CACHE FRAMEWORK_RECEIPT EXCHANGE_RECEIPT WEB_RECEIPT WEB_RECEIPT_SHA256
- * Node24 fullAppUiProof.mjs --resume-unsigned BUILD_RECEIPT BUILD_SHA256 WEB_RECEIPT WEB_SHA256 [REMAINING_WAIT_MS]
+ * Node24 fullAppUiProof.mjs --resume-unsigned BUILD_RECEIPT BUILD_SHA256 WEB_RECEIPT WEB_SHA256 [REMAINING_WAIT_MS] [--runtime EXACT_INSTALLED_ID]
  */
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -29,7 +29,12 @@ import {
     FULL_APP_NATIVE_PHASES,
     FULL_APP_NATIVE_SCENARIO,
 } from './fullAppUiContract.mjs';
-import { inspectFullAppCachedBuild } from './fullAppUiResumeContract.mjs';
+import {
+    inspectFullAppCachedBuild,
+    inspectCachedResumeOptions,
+    inspectCachedRuntimeSelection,
+    inspectFailedLaunchObservation,
+} from './fullAppUiResumeContract.mjs';
 import { inspectSimulatorEntitlementSections } from './machOEntitlementEvidence.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url)),
@@ -68,6 +73,7 @@ console.info('Nonsecret full-root native receipt: ' + receiptPath);
 let simulator, ownedName, web, cache, frameworkReceipt, prior, webReceipt, expectedWebHash;
 let expectedStatusFile, expectedPhaseFile;
 let cachedBuildPath, cachedBuildHash, cachedPlan;
+let requestedRuntimeId = null;
 let waited = 0;
 let waitBudget = 120000;
 function regular(path, limit = 16 * 1024 * 1024) {
@@ -264,11 +270,18 @@ try {
     assert(checkout === '/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather');
     assert(process.platform === 'darwin' && process.arch === 'arm64' && /^v24\./.test(process.version));
     const extra = process.argv.slice(2);
-    assert(extra.length === 5 || extra.length === 6);
     const resume = extra[0] === '--resume-unsigned';
-    if (resume) [cachedBuildPath, cachedBuildHash, webReceipt, expectedWebHash] = extra.slice(1, 5);
-    else [cache, frameworkReceipt, prior, webReceipt, expectedWebHash] = extra;
-    if (extra.length === 6) {
+    if (resume) {
+        assert(extra.length >= 5 && extra.length <= 8);
+        [cachedBuildPath, cachedBuildHash, webReceipt, expectedWebHash] = extra.slice(1, 5);
+        const options = inspectCachedResumeOptions(extra.slice(5));
+        if (options.remainingWaitMs !== null) waitBudget = options.remainingWaitMs;
+        requestedRuntimeId = options.requestedRuntimeId;
+    } else {
+        assert(extra.length === 5 || extra.length === 6);
+        [cache, frameworkReceipt, prior, webReceipt, expectedWebHash] = extra;
+    }
+    if (!resume && extra.length === 6) {
         assert(/^(?:0|[1-9][0-9]{0,5})$/.exec(extra[5])?.[0] === extra[5] && Number(extra[5]) <= 120000);
         waitBudget = Number(extra[5]);
     }
@@ -414,12 +427,17 @@ try {
     assert.deepEqual(treeHashes(build.artifact), build.artifactHashes);
     receipt.unsignedOriginalPreserved = true;
     const runtimes = JSON.parse(quiet('/usr/bin/xcrun', ['simctl', 'list', 'runtimes', '--json'])).runtimes;
+    const selection = resume ? inspectCachedRuntimeSelection(runtimes, requestedRuntimeId) : null;
+    if (selection) receipt.runtimeSelection = selection;
     const runtime = runtimes.find(
-        (r) => r.isAvailable && r.identifier === 'com.apple.CoreSimulator.SimRuntime.iOS-26-5',
+        (r) =>
+            r.isAvailable && r.identifier === (selection?.runtimeId ?? 'com.apple.CoreSimulator.SimRuntime.iOS-26-5'),
     );
     assert(runtime, 'Existing runtime required; no download');
     const type = runtime.supportedDeviceTypes.find(
-        (t) => t.identifier === 'com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation',
+        (t) =>
+            t.identifier ===
+            (selection?.deviceTypeId ?? 'com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation'),
     );
     assert(type);
     ownedName = resume ? 'Thalassa full-root replay ' + attemptID : 'Thalassa full-root ' + runID;
@@ -521,6 +539,50 @@ try {
     receipt.failedOperation = receipt.lastOperation ?? null;
     receipt.failedOperationExitStatus = receipt.lastOperationExitStatus ?? null;
     receipt.failedOperationTimedOut = receipt.lastOperationTimedOut ?? false;
+    if (receipt.failedOperation === 'owned-app-launch' && expectedStatusFile && expectedPhaseFile) {
+        // Read each known owned file once before cleanup. No relaunch, retry,
+        // raw container JSON or error body is retained, and failure stays failure.
+        const nativeFilePresent = existsSync(expectedStatusFile),
+            phaseFilePresent = existsSync(expectedPhaseFile);
+        receipt.launchFailureCapture = {
+            status: 'refused',
+            nativeFilePresent,
+            phaseFilePresent,
+            outerDriverAccepted: false,
+        };
+        try {
+            const phaseRaw = phaseFilePresent
+                ? JSON.parse(readFileSync(regular(expectedPhaseFile, 4096), 'utf8'))
+                : null;
+            const nativeRaw = nativeFilePresent
+                ? JSON.parse(readFileSync(regular(expectedStatusFile, 65536), 'utf8'))
+                : null;
+            const observation = inspectFailedLaunchObservation(
+                {
+                    operation: receipt.failedOperation,
+                    exitStatus: receipt.failedOperationExitStatus,
+                    timedOut: receipt.failedOperationTimedOut,
+                },
+                phaseRaw,
+                nativeRaw,
+                runID,
+                nonce,
+            );
+            const path = join(scratch, 'launch-failure-observations.json');
+            writeFileSync(path, JSON.stringify(observation, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+            receipt.launchFailureObservation = { path, sha256: hash(path) };
+            receipt.launchFailureCapture = {
+                status: observation.captureStatus,
+                nativeFilePresent,
+                phaseFilePresent,
+                outerDriverAccepted: false,
+                observedNativeFinalValidated: observation.observedNativeFinalValidated,
+            };
+            receipt.nativeLaunchPhase = observation.nativeLaunchPhase;
+        } catch {
+            // Only fixed absence/refusal facts survive malformed or unbounded files.
+        }
+    }
     process.exitCode = 1;
     console.error('Full-root native fixture incomplete; bounded owned receipt retained.');
 } finally {
