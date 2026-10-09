@@ -20,13 +20,17 @@ import { describe, expect, it } from 'vitest';
  */
 
 const MIGRATIONS_DIR = 'supabase/migrations';
-const CREW_IDS = '20261010140000_crew_ids_skipper_only.sql';
+const CREW_IDS = '20261010110000_crew_ids_skipper_only.sql';
 const HARDENING = '20260723100000_crew_manifest_hardening.sql';
 const VAULT_CREW_READ = '20261002120000_vessel_vault_crew_read.sql';
 /** The newest migration applied on live when this file was written (2026-10-10). */
 const LIVE_NEWEST = '20261009172000';
-/** The newest migration on b126 (a70fb628) when this file was written: 126-03b. */
-const NEWEST_ON_B126 = '20261010130000_anchor_watch_keeper_heartbeat.sql';
+/**
+ * Stamped before 126-04b (20261010120000) and 126-03b (20261010130000) on purpose:
+ * Shane pushes this one ahead of the 126 release, and the later two then still
+ * sort after live's newest when they go up with 126.
+ */
+const PUSHED_AHEAD_OF = ['20261010120000_pi_alarm_events.sql', '20261010130000_anchor_watch_keeper_heartbeat.sql'];
 
 const read = (relative: string): string => fs.readFileSync(path.join(process.cwd(), relative), 'utf8');
 const sqlOf = (relative: string): string => read(relative).replace(/--.*$/gm, '');
@@ -68,15 +72,15 @@ function finalPolicies(table: keyof typeof TABLES, files: string[] = migrationFi
 /** The record-file tie this file adds to the vault policy's documents branch. */
 const RECORD_FILE_TIE = "and split_part(split_part(objects.name, '/', 3), '.', 1) = d.id::text";
 
-describe('crew IDs stay with the skipper (20261010140000)', () => {
-    it('exists, and sorts after every migration live today and every 126 file before it', () => {
+describe('crew IDs stay with the skipper (20261010110000)', () => {
+    it('exists, sorts after every migration live today, and before the 126 files pushed after it', () => {
         expect(migrationFiles).toContain(CREW_IDS);
         // Relative checks only: later 126 migrations land after this one, and
         // finalPolicies() already reads the whole tree, so a later file that
         // rewrote these policies would fail the checks below.
         expect(CREW_IDS > LIVE_NEWEST).toBe(true);
-        expect(CREW_IDS > NEWEST_ON_B126).toBe(true);
-        expect(migrationFiles.filter((name) => name.startsWith('20261010140000_'))).toEqual([CREW_IDS]);
+        for (const later of PUSHED_AHEAD_OF) expect(CREW_IDS < later).toBe(true);
+        expect(migrationFiles.filter((name) => name.startsWith('20261010110000_'))).toEqual([CREW_IDS]);
     });
 
     it('says in its header that it is not pushed, why, and what old builds see', () => {

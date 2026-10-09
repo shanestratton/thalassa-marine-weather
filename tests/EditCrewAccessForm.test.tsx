@@ -3,7 +3,7 @@
  *
  * Sharing Documents shares the boat's papers, never the crew's passports or
  * IDs, which stay with the skipper (ship_documents read policy,
- * 20261010140000). The Documents toggle says so, and is described by it for
+ * 20261010110000). The Documents toggle says so, and is described by it for
  * VoiceOver. The passage readiness checks are called that, not "Checklist":
  * the Checklists binder itself is never shared.
  *

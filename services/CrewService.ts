@@ -140,7 +140,7 @@ export const REGISTER_LABELS: Record<SharedRegister, string> = {
 /**
  * One short line under a register's tick, where sharing it holds back part
  * of it (126-B4). Documents: the ship_documents read policy keeps 'Crew
- * Visas/IDs' papers for the skipper alone (20261010140000), so crew never see
+ * Visas/IDs' papers for the skipper alone (20261010110000), so crew never see
  * one another's passports. Drawn under the register grid and linked to the
  * tick by aria-describedby, so no chip grows.
  */

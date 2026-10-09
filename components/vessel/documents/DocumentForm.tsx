@@ -62,7 +62,7 @@ export const CATEGORIES: { id: DocumentCategory; label: string; Icon: DocumentCa
 
 /**
  * Crew passports and IDs: the one category the server keeps for the binder's
- * owner (ship_documents read policy, 20261010140000, 126-B4). Crew with
+ * owner (ship_documents read policy, 20261010110000, 126-B4). Crew with
  * Documents shared never read one, so they are never offered it: the outbox
  * writes an edit as UPDATE ... RETURNING, and a paper moved into a category
  * the writer can no longer read is refused with 42501 and retried forever.

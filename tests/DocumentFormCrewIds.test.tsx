@@ -203,7 +203,7 @@ describe("DocumentsHub: the skipper's Documents shared with crew", () => {
     it('a crew member is never offered Crew IDs, adding or editing', async () => {
         setAuthIdentityScope('crew-1');
         shareDocuments();
-        // What the server serves crew after 20261010140000: no ID papers.
+        // What the server serves crew after 20261010110000: no ID papers.
         hoisted.docs = [REGISTO, RADIO];
         render(<DocumentsHub onBack={vi.fn()} />);
 
@@ -229,7 +229,7 @@ describe("DocumentsHub: the skipper's Documents shared with crew", () => {
     it("a crew phone still holding the skipper's crew IDs never lists, counts or opens them", async () => {
         setAuthIdentityScope('crew-1');
         shareDocuments();
-        // Synced before 20261010140000 was pushed (or before it is): the
+        // Synced before 20261010110000 was pushed (or before it is): the
         // passport is still in the local mirror, expired, with a cached scan.
         hoisted.docs = [
             REGISTO,
