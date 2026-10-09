@@ -1188,8 +1188,20 @@ async function uploadFileIfNeeded(
     let bytes: Blob | Uint8Array;
     let contentType = 'application/octet-stream';
     let extension = '';
+    let vault: typeof import('./vaultFiles') | null = null;
 
-    if (localUri.startsWith('data:') || localUri.startsWith('blob:')) {
+    if (localUri.startsWith('local-vault://')) {
+        // A paper this build filed (126-B3a): its file under Library/vault,
+        // read by the WebView, never as base64 through the plugin. A file
+        // that is gone throws 'Local attachment missing'.
+        vault = await import('./vaultFiles');
+        const blob = await vault.readForUpload(localUri);
+        const fromPath = extensionFromUri(localUri);
+        extension = fromPath === 'jpeg' ? 'jpg' : fromPath === 'heif' ? 'heic' : fromPath;
+        contentType = contentTypeForExtension(extension);
+        // Storage files a Blob under the Blob's own type.
+        bytes = blob.type === contentType ? blob : blob.slice(0, blob.size, contentType);
+    } else if (localUri.startsWith('data:') || localUri.startsWith('blob:')) {
         const response = await fetch(localUri);
         if (!response.ok) throw new Error(`Could not read local attachment (${response.status})`);
         const blob = await response.blob();
@@ -1224,6 +1236,8 @@ async function uploadFileIfNeeded(
     });
     if (uploadError) throw new Error(`File upload failed: ${uploadError.message}`);
     row[field] = `${VESSEL_VAULT_URI_PREFIX}${storagePath}`;
+    // Where this phone's copy went (never fails the push).
+    if (vault) await vault.notePushedCopy(recordId, localUri, row[field] as string);
 }
 
 /**

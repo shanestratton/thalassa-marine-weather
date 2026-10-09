@@ -99,6 +99,9 @@ vi.mock('@capacitor/app', () => ({
 // The under-way alarms (126-02a): off route and shoal water, started on idle.
 const underway = vi.hoisted(() => ({ start: vi.fn(), stop: vi.fn() }));
 vi.mock('../services/underway/UnderwayAlarmWatch', () => ({ startUnderwayAlarmWatch: underway.start }));
+// Documents kept inline by older builds move to files (126-B3a), on idle after the sync engine starts.
+const vault = vi.hoisted(() => ({ tidy: vi.fn() }));
+vi.mock('../services/vessel/vaultFiles', () => ({ tidyVaultAfterLaunch: vault.tidy }));
 
 import { useAppBootstrap } from '../hooks/useAppBootstrap';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
@@ -143,6 +146,14 @@ describe('useAppBootstrap', () => {
         expect(underway.stop).not.toHaveBeenCalled();
         unmount();
         expect(underway.stop).toHaveBeenCalledOnce();
+    });
+
+    it('moves inline Documents to files once the sync engine has started, when the app is idle', async () => {
+        vault.tidy.mockResolvedValue(undefined);
+        renderHook(() => useAppBootstrap());
+        await waitFor(() => expect(boot.startSyncEngine).toHaveBeenCalledOnce());
+        expect(vault.tidy).not.toHaveBeenCalled();
+        await waitFor(() => expect(vault.tidy).toHaveBeenCalledOnce(), { timeout: 3_000 });
     });
 
     it('starts app services, routes global events, and cleans up owned callbacks', async () => {

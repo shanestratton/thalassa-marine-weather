@@ -316,6 +316,17 @@ export async function deleteCurrentAccount(confirmation: string): Promise<Accoun
         await purgeNativePreferences(suffix, references);
         // Seabed mapping queues soundings as files (Directory.Data/seabed/<uid>/).
         await purgeSeabedForUser(userId);
+        // Ship's Documents kept on the phone, passport scans among them
+        // (Library/vault/<identity>/, 126-B3a). Lazy, like the sightings
+        // purge; before the binder database goes (it names the papers the
+        // account adopted while signed out), and a failure here never stops
+        // the purges below.
+        try {
+            await (await import('./vessel/vaultFiles')).purgeVaultFilesForUser(userId);
+        } catch (vaultError) {
+            localCleanupComplete = false;
+            log.error('The Documents files of the deleted account could not all be removed:', vaultError);
+        }
         await purgeLegacyNativeValues(userId, references);
         await purgeScopedNativeWeatherCaches(deletionScope);
         const databaseReferences = await purgeLocalDatabaseForUser(userId);

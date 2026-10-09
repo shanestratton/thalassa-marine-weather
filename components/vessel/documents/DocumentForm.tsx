@@ -97,6 +97,11 @@ interface DocumentFormProps {
      * paper opens in it.
      */
     crewView?: boolean;
+    /**
+     * True while a picked file is being read and kept on the phone (126-B3a):
+     * Save waits, so a paper is never filed without its file.
+     */
+    fileBusy?: boolean;
 }
 
 export const DocumentForm: React.FC<DocumentFormProps> = ({
@@ -118,6 +123,7 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
     onSave,
     allowAttach = true,
     crewView = false,
+    fileBusy = false,
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const categories = crewView ? CATEGORIES.filter((cat) => cat.id !== CREW_IDS_CATEGORY) : CATEGORIES;
@@ -181,7 +187,19 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                         onChange={onFileSelect}
                         className="hidden"
                     />
-                    {formFileUri ? (
+                    {fileBusy ? (
+                        // The attach button's own box, so the sheet does not grow.
+                        <div
+                            role="status"
+                            className="w-full flex items-center justify-center gap-2 bg-white/5 border border-dashed border-white/15 rounded-xl px-3 py-3 text-sm text-gray-400"
+                        >
+                            <span
+                                aria-hidden="true"
+                                className="w-4 h-4 shrink-0 rounded-full border-2 border-gray-400 border-t-transparent animate-spin"
+                            />
+                            Preparing file…
+                        </div>
+                    ) : formFileUri ? (
                         <div className="flex items-center gap-2 bg-white/5 border border-emerald-500/20 rounded-xl px-3 py-2.5">
                             <svg
                                 className="w-4 h-4 text-emerald-400 shrink-0"
@@ -260,7 +278,7 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
             <Button
                 variant="primary"
                 onClick={onSave}
-                disabled={!formName.trim()}
+                disabled={!formName.trim() || fileBusy}
                 className="w-full mt-1 disabled:cursor-not-allowed"
             >
                 {isEdit ? 'Save changes' : 'Add document'}
