@@ -441,7 +441,12 @@ describe('judgeLateSet: what else it refuses', () => {
     it('a point that leaves the boat outside its circle', () => {
         const { setAt, trail, boat, alarmAt } = lateSet(phangNga);
         const verdict = judgeLateSet(input({ trail, target: toward(boat, 60, RADIUS + 1), setAt, alarmAt }));
-        expect(verdict).toMatchObject({ ok: false, refusal: 'outside' });
+        // In words for any way the point was given: no bearing field on the Position tab.
+        expect(verdict).toMatchObject({
+            ok: false,
+            refusal: 'outside',
+            error: expect.stringMatching(/Check where you put the anchor\.$/),
+        });
     });
 
     it('a track that leaves the new circle, allowing each half-minute its own accuracy', () => {

@@ -384,7 +384,12 @@ describe('AnchorWatchService.relocateAnchor', () => {
                 ...latLon(toward(before.vesselPosition!, 270, metres)),
             );
 
-            expect(result).toEqual({ ok: false, error: expect.stringMatching(/outside the swing circle/i) });
+            // In words for any way the point was given (distance and bearing,
+            // a typed position or a drag): the Position tab has no bearing field.
+            expect(result).toEqual({
+                ok: false,
+                error: expect.stringMatching(/outside the swing circle.*Check where you put the anchor\.$/i),
+            });
             expect(AnchorWatchService.getSnapshot()).toMatchObject({
                 state: 'watching',
                 anchorPosition: before.anchorPosition,
@@ -431,7 +436,7 @@ describe('AnchorWatchService.relocateAnchor', () => {
             fix(toward(ANCHOR, 0, 10));
             expect(await AnchorWatchService.relocateAnchor(lat, lon)).toEqual({
                 ok: false,
-                error: expect.stringMatching(/not a real position/i),
+                error: expect.stringMatching(/not a real position\. Check where you put the anchor\.$/i),
             });
             expect(AnchorWatchService.getSnapshot().anchorPosition).toMatchObject(ANCHOR);
         });

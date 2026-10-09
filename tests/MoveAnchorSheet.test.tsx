@@ -39,13 +39,28 @@ vi.mock('../services/NmeaStore', () => ({ NmeaStore: { getState: () => nmea.stat
 // The radar itself draws on a canvas jsdom cannot paint; what matters here is
 // WHERE the sheet asks it to put the preview anchor. The offset maths the
 // canvas uses is exported and tested for real below.
+// The drag handlers the sheet hands the radar (126-07b) are kept, so a test
+// can drag as the radar would report it.
+const radar = vi.hoisted(() => ({
+    drag: undefined as
+        | undefined
+        | {
+              move: (lat: number, lon: number, from: { latitude: number; longitude: number }) => void;
+              end: (lat: number, lon: number) => void;
+              cancel: () => void;
+          },
+}));
 vi.mock('../components/anchor-watch/SwingCircleCanvas', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../components/anchor-watch/SwingCircleCanvas')>();
     return {
         ...actual,
-        SwingCircleCanvas: (props: { previewAnchor?: { latitude: number; longitude: number } | null }) => (
-            <div data-testid="swing-preview" data-preview={JSON.stringify(props.previewAnchor ?? null)} />
-        ),
+        SwingCircleCanvas: (props: {
+            previewAnchor?: { latitude: number; longitude: number } | null;
+            onAnchorDrag?: (typeof radar)['drag'];
+        }) => {
+            radar.drag = props.onAnchorDrag;
+            return <div data-testid="swing-preview" data-preview={JSON.stringify(props.previewAnchor ?? null)} />;
+        },
     };
 });
 
@@ -133,6 +148,7 @@ describe('MoveAnchorSheet', () => {
         service.checkMoveFromAlarm.mockReset().mockReturnValue({ ok: true, spreadM: 1, lateM: 33 });
         heading(null, 0);
         setUnits('m');
+        radar.drag = undefined;
     });
 
     afterEach(() => {
@@ -1029,6 +1045,414 @@ describe('MoveAnchorSheet', () => {
             );
             // An ordinary modal, not the alarm's critical layer.
             expect(document.querySelector('[data-overlay-layer="critical"]')).toBeNull();
+        });
+    });
+
+    // 126-07b: the second way to say where the anchor is. A position typed the
+    // way a skipper copies it from the plotter, a guide or a text message, read
+    // back before anything moves, or the anchor dragged on the preview. Either
+    // way the point goes through the same live check and the same service (or
+    // the Pi's keeper) as distance and bearing.
+    describe('Position: type it, or drag the anchor on the preview (126-07b)', () => {
+        const config: AnchorWatchConfig = {
+            rodeLength: 40,
+            waterDepth: 8,
+            scopeRatio: 5,
+            rodeType: 'chain',
+            safetyMargin: 10,
+        };
+        /** Off Horta (fictional): the anchor at 38°31.80′N 028°37.20′W, the boat lying 25 m north of it. */
+        const HORTA_ANCHOR = { latitude: 38.53, longitude: -28.62 };
+        const toward = (from: LatLon, bearingDeg: number, metres: number): LatLon => {
+            const p = destinationPoint(from.latitude, from.longitude, bearingDeg, metres / 1852);
+            return { latitude: p.lat, longitude: p.lon };
+        };
+        const boat = toward(HORTA_ANCHOR, 0, 25);
+
+        const positionTab = () => screen.getByRole('button', { name: 'Position' });
+        const boatTab = () => screen.getByRole('button', { name: 'From the boat' });
+        const positionField = () => screen.getByRole('textbox', { name: /^anchor at/i });
+        const readback = () => screen.queryByTestId('move-anchor-readback');
+
+        it('opens on From the boat; Position is one tap away, with one field and an example', () => {
+            heading(5, 2_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            expect(boatTab()).toHaveAttribute('aria-pressed', 'true');
+            expect(positionTab()).toHaveAttribute('aria-pressed', 'false');
+            expect(distanceField()).toBeInTheDocument();
+
+            fireEvent.click(positionTab());
+            expect(positionTab()).toHaveAttribute('aria-pressed', 'true');
+            expect(screen.queryByRole('textbox', { name: /distance from the boat/i })).toBeNull();
+            const field = positionField();
+            expect(field).toHaveAttribute('inputmode', 'text');
+            expect(field).toHaveAttribute('autocapitalize', 'characters');
+            expect(field).toHaveAttribute('autocomplete', 'off');
+            expect(field).toHaveAttribute('placeholder', '16 46.8 S 179 20.1 E');
+            expect(screen.getAllByRole('textbox')).toHaveLength(1);
+            expect(liveLine()).toHaveTextContent(/type the anchor.s position, or drag the anchor on the preview/i);
+            // A minus is for decimal degrees only: degrees and minutes need their letters.
+            expect(screen.getByTestId('move-anchor-hint')).toHaveTextContent(
+                'degrees, minutes or seconds with N/S and E/W, or decimal degrees with a minus',
+            );
+            expect(moveButton()).toBeDisabled();
+        });
+
+        it('reads a typed Horta position back, says where the boat would be, and moves to that point', async () => {
+            heading(5, 2_000);
+            const onMoved = vi.fn();
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} onMoved={onMoved} />);
+            fireEvent.click(positionTab());
+            type(positionField(), '38 31.80 N 028 37.20 W');
+
+            expect(readback()).toHaveTextContent('Reads as 38°31.800′N 028°37.200′W');
+            expect(liveLine()).toHaveTextContent('The boat would be 25 m from the anchor, inside your 43 m circle.');
+            // How far and which way the anchor moves, from where the watch has it (under the boat).
+            expect(liveLine()).toHaveTextContent('The anchor moves 25 m S.');
+            expect(previewAnchor().latitude).toBeCloseTo(HORTA_ANCHOR.latitude, 9);
+            expect(previewAnchor().longitude).toBeCloseTo(HORTA_ANCHOR.longitude, 9);
+            expect(moveButton()).toBeEnabled();
+
+            await move();
+            const target = expectRelocatedTo({ lat: 38.53, lon: -28.62 });
+            expect(metresBetween(boat, target)).toBeCloseTo(25, 3);
+            expect(onMoved).toHaveBeenCalledTimes(1);
+        });
+
+        it('a wrong hemisphere is caught before anything moves: outside the circle, and the readback says so', async () => {
+            heading(5, 2_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            fireEvent.click(positionTab());
+            type(positionField(), '38 31.80 N 028 37.20 E');
+            expect(readback()).toHaveTextContent('Reads as 38°31.800′N 028°37.200′E');
+            expect(liveLine()).toHaveTextContent(/outside your 43 m circle/);
+            expect(moveButton()).toBeDisabled();
+            await move();
+            expect(service.relocateAnchor).not.toHaveBeenCalled();
+        });
+
+        it('an unreadable entry keeps Move disabled and shows the form it takes', async () => {
+            heading(5, 2_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            fireEvent.click(positionTab());
+            for (const text of ['48,85,2,35', '38 61.0 N 028 37.2 W', 'Berth 2, 153 Marina']) {
+                type(positionField(), text);
+                expect(liveLine()).toHaveTextContent('That isn’t a position I can read: try 16 46.8 S 179 20.1 E');
+                expect(readback()).toBeNull();
+                expect(moveButton()).toBeDisabled();
+            }
+            await move();
+            expect(service.relocateAnchor).not.toHaveBeenCalled();
+        });
+
+        it('takes a decimal comma, apart by a space', async () => {
+            heading(5, 2_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            fireEvent.click(positionTab());
+            type(positionField(), '38,53 -28,62');
+            expect(readback()).toHaveTextContent('Reads as 38°31.800′N 028°37.200′W');
+            await move();
+            expectRelocatedTo({ lat: 38.53, lon: -28.62 });
+        });
+
+        it('decimal-comma minutes with a comma between the halves read as minutes, and that point is what moves', async () => {
+            heading(5, 2_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            fireEvent.click(positionTab());
+            // Read with the comma as a space, ",80" was 80″ and refused; ",02" would be 02″, misread.
+            type(positionField(), '38 31,80 N, 028 37,20 W');
+            expect(readback()).toHaveTextContent('Reads as 38°31.800′N 028°37.200′W');
+            await move();
+            expectRelocatedTo({ lat: 38.53, lon: -28.62 });
+        });
+
+        it('a stale heading matters only to From the boat: a typed position needs none', async () => {
+            heading(5, 11_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            fireEvent.click(positionTab());
+            type(positionField(), '38 31.80 N 028 37.20 W');
+            expect(liveLine()).not.toHaveTextContent(/heading/i);
+            expect(screen.getByTestId('move-anchor-hint')).not.toHaveTextContent(/heading/i);
+            expect(moveButton()).toBeEnabled();
+            await move();
+            expectRelocatedTo({ lat: 38.53, lon: -28.62 });
+        });
+
+        it('switching back keeps what was in each tab', () => {
+            heading(212, 2_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            type(distanceField(), '20');
+            fireEvent.click(positionTab());
+            type(positionField(), '38 31.80 N 028 37.20 W');
+            fireEvent.click(boatTab());
+            expect(distanceField()).toHaveValue('20');
+            expect(bearingField()).toHaveValue('212');
+            fireEvent.click(positionTab());
+            expect(positionField()).toHaveValue('38 31.80 N 028 37.20 W');
+        });
+
+        it('Taveuni astride 180°: a position typed west of 180° stays west, and the check measures across it', async () => {
+            const anchorWest = { latitude: -(16 + 46.8 / 60), longitude: -(179 + 59.99 / 60) };
+            const taveuniBoat = { latitude: anchorWest.latitude, longitude: 179 + 59.99 / 60 };
+            heading(90, 2_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(taveuniBoat, config)} onClose={vi.fn()} />);
+            fireEvent.click(positionTab());
+            type(positionField(), '16°46.80′S 179°59.99′W');
+            expect(readback()).toHaveTextContent('Reads as 16°46.800′S 179°59.990′W');
+            // 0.02′ of longitude at 16.8°S: 35.5 m, not 40 000 km.
+            expect(liveLine()).toHaveTextContent('The boat would be 35 m from the anchor, inside your 43 m circle.');
+            await move();
+            const target = expectRelocatedTo({ lat: anchorWest.latitude, lon: anchorWest.longitude });
+            expect(target.lon).toBeLessThan(-179.99);
+        });
+
+        it('in feet off Grenada: the Position tab speaks feet, and From the boat is unchanged', async () => {
+            setUnits('ft');
+            const grenadaAnchor = { latitude: 12.005, longitude: -61.77 };
+            const grenadaBoat = toward(grenadaAnchor, 90, 20);
+            heading(270, 2_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(grenadaBoat, config)} onClose={vi.fn()} />);
+            // From the boat, as before: 33.3 m = 109 ft.
+            expect(distanceField()).toHaveValue('109');
+            expect(distanceField()).toHaveAccessibleName(/in feet/i);
+            fireEvent.click(positionTab());
+            type(positionField(), '12.005 N 61.77 W');
+            // 20 m = 66 ft, inside the 43.3 m = 142 ft circle.
+            expect(liveLine()).toHaveTextContent('The boat would be 66 ft from the anchor, inside your 142 ft circle.');
+            await move();
+            expectRelocatedTo({ lat: 12.005, lon: -61.77 });
+        });
+
+        describe('dragging the anchor on the preview', () => {
+            it('the live line follows the drag without moving the preview; letting go fills Position, and nothing moves until Move', async () => {
+                heading(180, 2_000);
+                render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+                expect(radar.drag).toBeDefined();
+                const before = previewAnchor();
+                const dragged = toward(boat, 180, 30);
+
+                act(() => radar.drag!.move(dragged.latitude, dragged.longitude, before));
+                expect(liveLine()).toHaveTextContent(
+                    'The boat would be 30 m from the anchor, inside your 43 m circle.',
+                );
+                // The view does not re-centre under the finger.
+                expect(previewAnchor()).toEqual(before);
+                expect(moveButton()).toBeDisabled();
+
+                act(() => radar.drag!.end(dragged.latitude, dragged.longitude));
+                expect(positionTab()).toHaveAttribute('aria-pressed', 'true');
+                const text = (positionField() as HTMLInputElement).value;
+                expect(text).toMatch(/^38°31\.\d{3}′N 028°37\.\d{3}′W$/);
+                expect(readback()).toHaveTextContent(`Reads as ${text}`);
+                // Measured from the point as the field has it, to 0.001′.
+                expect(liveLine()).toHaveTextContent(
+                    /^The boat would be (29|30|31) m from the anchor, inside your 43 m circle\./,
+                );
+                // The preview now centres on the point that will be sent.
+                expect(
+                    metresBetween(dragged, { lat: previewAnchor().latitude, lon: previewAnchor().longitude }),
+                ).toBeLessThan(2);
+                expect(service.relocateAnchor).not.toHaveBeenCalled();
+
+                await move();
+                expect(service.relocateAnchor).toHaveBeenCalledTimes(1);
+                const [lat, lon] = service.relocateAnchor.mock.calls[0];
+                // What is sent is what the field says, to 0.001′: within 2 m of the drag.
+                expect(metresBetween(dragged, { lat, lon })).toBeLessThan(2);
+            });
+
+            it('a drag out of the circle says so live, and a cancelled one puts the line back', () => {
+                heading(180, 2_000);
+                render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+                const typedLine = liveLine().textContent;
+                const far = toward(boat, 180, 60);
+                act(() => radar.drag!.move(far.latitude, far.longitude, previewAnchor()));
+                expect(liveLine()).toHaveTextContent(/60 m from the anchor, outside your 43 m circle/);
+                act(() => radar.drag!.cancel());
+                expect(liveLine().textContent).toBe(typedLine);
+                expect(boatTab()).toHaveAttribute('aria-pressed', 'true');
+                expect(service.relocateAnchor).not.toHaveBeenCalled();
+            });
+
+            it('the preview stays on the centre the drag measures from, though a new fix moves the fields’ point before the finger does', () => {
+                heading(180, 2_000);
+                const { rerender } = render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+                // Where the preview was centred as the finger went down on the anchor.
+                const atTouch = previewAnchor();
+                // Then, before it has moved 3 px, a new fix: the boat 5 m east,
+                // and the point the fields describe with her.
+                const nudged = toward(boat, 90, 5);
+                rerender(
+                    <MoveAnchorSheet
+                        snapshot={snapshotAt(boat, config, {
+                            vesselPosition: { ...nudged, accuracy: 4, heading: 0, speed: 0, timestamp: NOW - 500 },
+                        })}
+                        onClose={vi.fn()}
+                    />,
+                );
+                expect(
+                    metresBetween(atTouch, { lat: previewAnchor().latitude, lon: previewAnchor().longitude }),
+                ).toBeCloseTo(5, 1);
+
+                const dragged = toward(atTouch, 180, 10);
+                act(() => radar.drag!.move(dragged.latitude, dragged.longitude, atTouch));
+                // The anchor is drawn on the view it is measured from: no jump on release.
+                expect(previewAnchor()).toEqual(atTouch);
+                act(() => radar.drag!.end(dragged.latitude, dragged.longitude));
+                expect(
+                    metresBetween(dragged, { lat: previewAnchor().latitude, lon: previewAnchor().longitude }),
+                ).toBeLessThan(2);
+            });
+
+            it('no drag while there is nothing to move', () => {
+                heading(212, 4_000);
+                render(
+                    <MoveAnchorSheet
+                        snapshot={snapshotAt(boat, config, { state: 'alarm', alarmCause: 'drag' })}
+                        onClose={vi.fn()}
+                    />,
+                );
+                expect(radar.drag).toBeUndefined();
+            });
+        });
+
+        describe('from the alarm', () => {
+            const MIN = 60_000;
+            const LIE = Math.sqrt(40 ** 2 - 8 ** 2) * 0.85;
+            const anchor = toward(HORTA_ANCHOR, 0, 0);
+            const setAt = toward(anchor, 32 - 120, LIE);
+            const steps = Math.round((30 * MIN) / 4_000);
+            const history = Array.from({ length: steps + 1 }, (_, i) => {
+                const f = i / steps;
+                return {
+                    ...toward(anchor, f < 14 / 30 ? 272 : 272 + 120 * ((f - 14 / 30) / (16 / 30)), LIE),
+                    accuracy: 4,
+                    heading: 0,
+                    speed: 0,
+                    timestamp: NOW - 1_000 - (steps - i) * 4_000,
+                };
+            });
+            const alarmSnapshot = () =>
+                snapshotAt(setAt, config, {
+                    state: 'alarm',
+                    alarmCause: 'drag',
+                    alarmTriggeredAt: NOW - 60_000,
+                    vesselPosition: { ...history[history.length - 1], timestamp: NOW - 1_000 },
+                    positionHistory: history,
+                    watchStartedAt: history[0].timestamp,
+                });
+            const stopButton = () => screen.getByRole('button', { name: 'Move and stop alarm' });
+
+            it('a typed point is still judged against her track, and moves through the alarm path', async () => {
+                heading(212, 2_000);
+                render(<MoveAnchorSheet mode="alarm" snapshot={alarmSnapshot()} onClose={vi.fn()} />);
+                fireEvent.click(positionTab());
+                type(positionField(), '38°31.80′N 028°37.20′W');
+                const asked = service.checkMoveFromAlarm.mock.calls[service.checkMoveFromAlarm.mock.calls.length - 1];
+                expect(asked[0]).toBeCloseTo(38.53, 9);
+                expect(asked[1]).toBeCloseTo(-28.62, 9);
+                expect(liveLine()).toHaveTextContent(/her track so far fits a swing round it/i);
+                expect(screen.getByTestId('move-anchor-caution')).toBeInTheDocument();
+
+                await act(async () => {
+                    fireEvent.click(stopButton());
+                });
+                expect(service.relocateAnchor).not.toHaveBeenCalled();
+                const [lat, lon] = service.relocateAnchorFromAlarm.mock.calls[0];
+                expect(lat).toBeCloseTo(38.53, 9);
+                expect(lon).toBeCloseTo(-28.62, 9);
+            });
+
+            it('a typed point her track does not back is refused, as a measured one is', async () => {
+                heading(212, 2_000);
+                const lead = 'Her distance from that point has been changing, the way a drag does.';
+                service.checkMoveFromAlarm.mockReturnValue({
+                    ok: false,
+                    refusal: 'moving',
+                    lead,
+                    error: `${lead} If she is dragging, re-anchor.`,
+                });
+                render(<MoveAnchorSheet mode="alarm" snapshot={alarmSnapshot()} onClose={vi.fn()} />);
+                fireEvent.click(positionTab());
+                type(positionField(), '38°31.80′N 028°37.20′W');
+                expect(liveLine()).toHaveTextContent(lead);
+                expect(stopButton()).toBeDisabled();
+                await act(async () => {
+                    fireEvent.click(stopButton());
+                });
+                expect(service.relocateAnchorFromAlarm).not.toHaveBeenCalled();
+            });
+
+            it('the drag works from the alarm too', () => {
+                heading(212, 2_000);
+                render(<MoveAnchorSheet mode="alarm" snapshot={alarmSnapshot()} onClose={vi.fn()} />);
+                expect(radar.drag).toBeDefined();
+                act(() => radar.drag!.end(anchor.latitude, anchor.longitude));
+                expect(positionTab()).toHaveAttribute('aria-pressed', 'true');
+                expect(readback()).toHaveTextContent('Reads as 38°31.800′N 028°37.200′W');
+                expect(service.relocateAnchorFromAlarm).not.toHaveBeenCalled();
+            });
+        });
+
+        describe('the Pi’s watch', () => {
+            function source(overrides: Partial<PiMoveSource> = {}): PiMoveSource {
+                return {
+                    anchor: HORTA_ANCHOR,
+                    boatFix: { ...HORTA_ANCHOR, timestamp: NOW - 4_000 },
+                    swingRadius: 45,
+                    rodeLength: 40,
+                    waterDepth: 8,
+                    centreAtSet: HORTA_ANCHOR,
+                    ashore: false,
+                    alarm: false,
+                    gpsLost: false,
+                    ...overrides,
+                };
+            }
+            const decimal = (p: LatLon) => `${p.latitude.toFixed(7)} ${p.longitude.toFixed(7)}`;
+
+            it('a typed point is still judged by the Pi’s guards, and handed to the keeper', async () => {
+                heading(220, 3_000);
+                const onPiMove = vi.fn().mockResolvedValue({ ok: true, ashore: false });
+                // She lies 30 m out at 220°; 30 m further is 60 m from where
+                // the watch was set, past the rode's reach.
+                const piBoat = toward(HORTA_ANCHOR, 220, 30);
+                render(
+                    <MoveAnchorSheet
+                        mode="pi"
+                        pi={source({ boatFix: { ...piBoat, timestamp: NOW - 4_000 } })}
+                        onPiMove={onPiMove}
+                        onClose={vi.fn()}
+                    />,
+                );
+                fireEvent.click(positionTab());
+                type(positionField(), decimal(toward(HORTA_ANCHOR, 220, 60)));
+                expect(liveLine()).toHaveTextContent(/beyond your rode.s reach from where the watch was set/i);
+                expect(moveButton()).toBeDisabled();
+
+                const near = toward(HORTA_ANCHOR, 220, 10);
+                type(positionField(), decimal(near));
+                expect(liveLine()).toHaveTextContent(/inside your 45 m circle/);
+                await move();
+                expect(onPiMove).toHaveBeenCalledTimes(1);
+                const [lat, lon] = onPiMove.mock.calls[0];
+                expect(lat).toBeCloseTo(near.latitude, 7);
+                expect(lon).toBeCloseTo(near.longitude, 7);
+                expect(service.relocateAnchor).not.toHaveBeenCalled();
+            });
+
+            it('the drag works on the Pi’s watch too', () => {
+                heading(220, 3_000);
+                render(
+                    <MoveAnchorSheet
+                        mode="pi"
+                        pi={source()}
+                        onPiMove={vi.fn().mockResolvedValue({ ok: true, ashore: false })}
+                        onClose={vi.fn()}
+                    />,
+                );
+                expect(radar.drag).toBeDefined();
+            });
         });
     });
 });

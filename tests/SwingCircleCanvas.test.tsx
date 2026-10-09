@@ -11,12 +11,22 @@
  *    world away off the edge of the screen.
  *  - Move anchor's preview: the view centres on the proposed anchor, and the
  *    anchor as it stands now is drawn faint at its offset from it.
+ *  - Move anchor's drag (126-07b): a finger that starts on the anchor moves it,
+ *    and only then; the point it lets go at is the inverse of the offset the
+ *    radar draws with, across 180° too.
  */
 import React from 'react';
-import { render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import type { AnchorWatchSnapshot } from '../services/AnchorWatchService';
-import { radarRose, SwingCircleCanvas, type SwingCanvasModel } from '../components/anchor-watch/SwingCircleCanvas';
+import {
+    offsetFromAnchorM,
+    radarRose,
+    SwingCircleCanvas,
+    type SwingCanvasModel,
+} from '../components/anchor-watch/SwingCircleCanvas';
+import { pointFromOffsetM } from '../components/anchor-watch/anchorDrag';
+import { calculateDistance } from '../utils/navigationCalculations';
 import { destinationPoint } from '../utils/navigationCalculations';
 
 type Call = { name: string; args: unknown[]; alpha: number };
@@ -282,5 +292,234 @@ describe('SwingCircleCanvas, drawn', () => {
             // N at displayRadius + 32 above the centre, as the boat's radar has it.
             expect(letters().N[1]).toBeCloseTo(CENTRE - DISPLAY_RADIUS - 32, 9);
         });
+    });
+});
+
+// 126-07b: the inverse of the offset the radar draws with, so a point dragged
+// on the preview lands where it was drawn. Worldwide: the equator, Lyttelton
+// at 43°S, Longyearbyen at 78°N (a degree of longitude a fifth of the
+// equator's), and Taveuni across 180°.
+describe('pointFromOffsetM: the offset, undone', () => {
+    const metresApart = (a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) =>
+        calculateDistance(a.latitude, a.longitude, b.latitude, b.longitude) * 1852;
+
+    it.each([
+        ['the equator', { latitude: 0, longitude: -160.05 }, { latitude: 0.0003, longitude: -160.0496 }],
+        ['Lyttelton, 43°S', { latitude: -43.6083, longitude: 172.7167 }, { latitude: -43.6086, longitude: 172.7171 }],
+        ['Longyearbyen, 78°N', { latitude: 78.23, longitude: 15.6 }, { latitude: 78.2302, longitude: 15.6015 }],
+        [
+            'Taveuni across 180°',
+            { latitude: -16.78, longitude: 179.9998 },
+            { latitude: -16.7803, longitude: -179.9997 },
+        ],
+    ])('at %s, to within 0.01 m', (_label, anchor, point) => {
+        const { dx, dy } = offsetFromAnchorM(anchor, point);
+        const back = pointFromOffsetM(anchor, dx, dy);
+        expect(metresApart(back, point)).toBeLessThan(0.01);
+        // Wrapped into ±180°, never 180.0003.
+        expect(back.longitude).toBeGreaterThanOrEqual(-180);
+        expect(back.longitude).toBeLessThanOrEqual(180);
+        expect(back.longitude).toBeCloseTo(point.longitude, 9);
+    });
+
+    it('wraps a point pushed east over 180° into the west', () => {
+        const back = pointFromOffsetM({ latitude: -16.78, longitude: 179.9999 }, 30, 0);
+        expect(back.longitude).toBeLessThan(-179.999);
+        expect(back.latitude).toBeCloseTo(-16.78, 9);
+    });
+});
+
+describe('SwingCircleCanvas: dragging the anchor on the preview (126-07b)', () => {
+    const anchor = { latitude: 38.53, longitude: -28.62 };
+    const model: SwingCanvasModel = {
+        state: 'watching',
+        anchorPosition: anchor,
+        vesselPosition: { latitude: 38.5302, longitude: -28.6202 },
+        swingRadius: 40,
+        gpsAccuracy: 0,
+        positionHistory: [],
+    };
+    /** CSS px per metre on a 300 px canvas: the circle is 105 px for 40 m. */
+    const SCALE = DISPLAY_RADIUS / 40;
+
+    beforeEach(() => {
+        calls = [];
+        frames = [];
+        box = { width: SIZE, height: SIZE };
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((() =>
+            recordingContext()) as unknown as HTMLCanvasElement['getContext']);
+        vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockImplementation(
+            () =>
+                ({
+                    x: 0,
+                    y: 0,
+                    top: 0,
+                    left: 0,
+                    right: box.width,
+                    bottom: box.height,
+                    width: box.width,
+                    height: box.height,
+                    toJSON: () => ({}),
+                }) as DOMRect,
+        );
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            frames.push(callback);
+            return frames.length;
+        });
+        vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
+
+    /** jsdom has no PointerEvent: a MouseEvent under a pointer event's name carries the coordinates. */
+    const pointer = (target: Element, type: string, x: number, y: number) =>
+        fireEvent(target, new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+
+    async function draggable(props: { previewAnchor?: { latitude: number; longitude: number } } = {}) {
+        const onAnchorDrag = { move: vi.fn(), end: vi.fn(), cancel: vi.fn() };
+        const { container, rerender } = render(
+            <SwingCircleCanvas model={model} onAnchorDrag={onAnchorDrag} {...props} />,
+        );
+        // One frame drawn, and the drag code (loaded with the sheet) in place.
+        frames.shift()!(0);
+        await act(async () => {
+            await vi.dynamicImportSettled();
+        });
+        /** The sheet re-centres the preview (a new fix, a new heading). */
+        const recentre = (previewAnchor: { latitude: number; longitude: number }) =>
+            rerender(<SwingCircleCanvas model={model} onAnchorDrag={onAnchorDrag} previewAnchor={previewAnchor} />);
+        return { canvas: container.querySelector('canvas')!, onAnchorDrag, recentre };
+    }
+
+    it('a finger that starts on the anchor drags it; letting go gives the point, once', async () => {
+        const { canvas, onAnchorDrag } = await draggable();
+        // Down 10 px east of the centre (on the anchor), then 30 px east and
+        // 20 px up from there: the anchor moves with the finger, not to it.
+        pointer(canvas, 'pointerdown', CENTRE + 10, CENTRE);
+        pointer(canvas, 'pointermove', CENTRE + 25, CENTRE - 10);
+        pointer(canvas, 'pointermove', CENTRE + 40, CENTRE - 20);
+        expect(onAnchorDrag.end).not.toHaveBeenCalled();
+        pointer(canvas, 'pointerup', CENTRE + 40, CENTRE - 20);
+
+        expect(onAnchorDrag.end).toHaveBeenCalledTimes(1);
+        const [lat, lon] = onAnchorDrag.end.mock.calls[0] as [number, number];
+        const expected = pointFromOffsetM(anchor, 30 / SCALE, 20 / SCALE);
+        expect(lat).toBeCloseTo(expected.latitude, 9);
+        expect(lon).toBeCloseTo(expected.longitude, 9);
+        // 11.4 m east and 7.6 m north of the anchor, as the radar draws it.
+        const offset = offsetFromAnchorM(anchor, { latitude: lat, longitude: lon });
+        expect(offset.dx).toBeCloseTo(30 / SCALE, 6);
+        expect(offset.dy).toBeCloseTo(20 / SCALE, 6);
+        expect(onAnchorDrag.cancel).not.toHaveBeenCalled();
+    });
+
+    it('the live point follows at most once a frame, and the dragged anchor is drawn under the finger', async () => {
+        const { canvas, onAnchorDrag } = await draggable();
+        pointer(canvas, 'pointerdown', CENTRE, CENTRE);
+        pointer(canvas, 'pointermove', CENTRE + 12, CENTRE);
+        pointer(canvas, 'pointermove', CENTRE + 21, CENTRE);
+        expect(onAnchorDrag.move).not.toHaveBeenCalled();
+        // The next frame: one move, at the latest point, and the anchor drawn there.
+        calls = [];
+        for (const frame of frames.splice(0)) frame(16);
+        expect(onAnchorDrag.move).toHaveBeenCalledTimes(1);
+        const [lat, lon] = onAnchorDrag.move.mock.calls[0] as [number, number];
+        expect(offsetFromAnchorM(anchor, { latitude: lat, longitude: lon }).dx).toBeCloseTo(21 / SCALE, 6);
+        expect(anchorsDrawn()).toContainEqual({ x: CENTRE + 21, y: CENTRE, alpha: 1 });
+        // Its circle goes with it.
+        expect(
+            calls.some(
+                (call) =>
+                    call.name === 'arc' &&
+                    call.args[0] === CENTRE + 21 &&
+                    call.args[1] === CENTRE &&
+                    call.args[2] === DISPLAY_RADIUS,
+            ),
+        ).toBe(true);
+        pointer(canvas, 'pointerup', CENTRE + 21, CENTRE);
+        expect(onAnchorDrag.end).toHaveBeenCalledTimes(1);
+    });
+
+    it('each move names the centre it is measured from: the view under the finger at touch-down', async () => {
+        const atTouch = { latitude: 38.53, longitude: -28.62 };
+        const { canvas, onAnchorDrag, recentre } = await draggable({ previewAnchor: atTouch });
+        pointer(canvas, 'pointerdown', CENTRE, CENTRE);
+        // Before the finger moves 3 px the sheet re-centres the preview 5 m east.
+        recentre(pointFromOffsetM(atTouch, 5, 0));
+        for (const frame of frames.splice(0)) frame(16);
+        pointer(canvas, 'pointermove', CENTRE + 30, CENTRE);
+        for (const frame of frames.splice(0)) frame(32);
+        expect(onAnchorDrag.move).toHaveBeenCalledTimes(1);
+        const [lat, lon, from] = onAnchorDrag.move.mock.calls[0] as [number, number, unknown];
+        // The sheet keeps the preview there for the rest of the drag.
+        expect(from).toEqual(atTouch);
+        expect(offsetFromAnchorM(atTouch, { latitude: lat, longitude: lon }).dx).toBeCloseTo(30 / SCALE, 6);
+    });
+
+    it('a touch that does not start on the anchor does nothing', async () => {
+        const { canvas, onAnchorDrag } = await draggable();
+        pointer(canvas, 'pointerdown', CENTRE + 40, CENTRE);
+        pointer(canvas, 'pointermove', CENTRE + 80, CENTRE + 10);
+        for (const frame of frames.splice(0)) frame(16);
+        pointer(canvas, 'pointerup', CENTRE + 80, CENTRE + 10);
+        expect(onAnchorDrag.move).not.toHaveBeenCalled();
+        expect(onAnchorDrag.end).not.toHaveBeenCalled();
+        expect(onAnchorDrag.cancel).not.toHaveBeenCalled();
+    });
+
+    it('a cancelled touch moves nothing; one that never moved calls nothing at all', async () => {
+        const { canvas, onAnchorDrag } = await draggable();
+        pointer(canvas, 'pointerdown', CENTRE + 5, CENTRE);
+        pointer(canvas, 'pointercancel', CENTRE + 5, CENTRE);
+        expect(onAnchorDrag.move).not.toHaveBeenCalled();
+        expect(onAnchorDrag.end).not.toHaveBeenCalled();
+        expect(onAnchorDrag.cancel).not.toHaveBeenCalled();
+
+        // iOS takes the touch away mid-drag: the anchor goes back, nothing is set.
+        pointer(canvas, 'pointerdown', CENTRE, CENTRE);
+        pointer(canvas, 'pointermove', CENTRE + 30, CENTRE);
+        pointer(canvas, 'pointercancel', CENTRE + 30, CENTRE);
+        for (const frame of frames.splice(0)) frame(16);
+        expect(onAnchorDrag.end).not.toHaveBeenCalled();
+        expect(onAnchorDrag.cancel).toHaveBeenCalledTimes(1);
+        expect(anchorsDrawn()).not.toContainEqual(expect.objectContaining({ x: CENTRE + 30 }));
+    });
+
+    it('a tap on the anchor is not a drag', async () => {
+        const { canvas, onAnchorDrag } = await draggable();
+        pointer(canvas, 'pointerdown', CENTRE + 2, CENTRE + 1);
+        pointer(canvas, 'pointerup', CENTRE + 3, CENTRE + 1);
+        expect(onAnchorDrag.end).not.toHaveBeenCalled();
+    });
+
+    it('measures from the previewed anchor, at the centre, across 180°', async () => {
+        const preview = { latitude: -16.78, longitude: 179.99995 };
+        const { canvas, onAnchorDrag } = await draggable({ previewAnchor: preview });
+        pointer(canvas, 'pointerdown', CENTRE, CENTRE);
+        pointer(canvas, 'pointermove', CENTRE + 30, CENTRE);
+        pointer(canvas, 'pointerup', CENTRE + 30, CENTRE);
+        const [lat, lon] = onAnchorDrag.end.mock.calls[0] as [number, number];
+        // 11.4 m east of 179.99995°E is west of 180°.
+        expect(lon).toBeLessThan(-179.9999);
+        expect(lat).toBeCloseTo(preview.latitude, 9);
+        expect(offsetFromAnchorM(preview, { latitude: lat, longitude: lon }).dx).toBeCloseTo(30 / SCALE, 6);
+    });
+
+    it('without onAnchorDrag the radar takes no input, as on the watch page', async () => {
+        const { container } = render(<SwingCircleCanvas model={model} />);
+        frames.shift()!(0);
+        await act(async () => {
+            await vi.dynamicImportSettled();
+        });
+        const canvas = container.querySelector('canvas')!;
+        calls = [];
+        pointer(canvas, 'pointerdown', CENTRE, CENTRE);
+        pointer(canvas, 'pointermove', CENTRE + 30, CENTRE);
+        for (const frame of frames.splice(0)) frame(16);
+        expect(anchorsDrawn()).toEqual([{ x: CENTRE, y: CENTRE, alpha: 1 }]);
+        expect(canvas).toHaveAttribute('role', 'img');
     });
 });

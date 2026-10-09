@@ -11,12 +11,18 @@
  * - Optionally, a previewed new anchor (Move anchor): the view centres on it,
  *   so the boat is seen against the circle it would have, and the anchor as
  *   it stands now is drawn faint
+ * - Optionally (Move anchor only, 126-07b), the anchor can be dragged: a
+ *   finger that starts on it moves it and its circle, the view staying put,
+ *   and the point it is let go at is reported. The code for it (anchorDrag.ts)
+ *   loads only when `onAnchorDrag` is given; without it the radar takes no
+ *   input, as on the watch page, Shore Watch and the dashboard.
  *
  * Extracted from AnchorWatchPage.tsx for modularity.
  */
 
 import React, { useRef, useEffect } from 'react';
 import type { AnchorWatchSnapshot } from '../../services/AnchorWatchService';
+import type { AnchorDragGeometry, AnchorDragHandlers } from './anchorDrag';
 
 export interface AisTargetDot {
     mmsi: number;
@@ -96,6 +102,8 @@ interface SwingCircleCanvasProps {
     previewAnchor?: LatLon | null;
     /** Keep N, E, S and W on a small canvas (radarRose's `fit`). */
     fitRose?: boolean;
+    /** Move anchor (126-07b): let the anchor at the centre be dragged, and say where to. */
+    onAnchorDrag?: AnchorDragHandlers;
 }
 
 export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({
@@ -106,14 +114,51 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({
     ariaLabel,
     previewAnchor,
     fitRose = false,
+    onAnchorDrag,
 }) => {
     const snapshot = model ?? snapshotAlias ?? null;
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const previewLat = previewAnchor?.latitude;
     const previewLon = previewAnchor?.longitude;
+    // A drag (126-07b): where the last frame was drawn, which the drag reads
+    // when a touch starts, and where the dragged anchor is (px from the centre).
+    const geometryRef = useRef<AnchorDragGeometry | null>(null);
+    const draggedRef = useRef<{ dx: number; dy: number } | null>(null);
+    const handlersRef = useRef(onAnchorDrag);
+    useEffect(() => {
+        handlersRef.current = onAnchorDrag;
+    });
+    const draggable = !!onAnchorDrag;
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!draggable || !canvas) return;
+        let live = true;
+        let detach: (() => void) | undefined;
+        // Loaded with the sheet that asks for it. If it cannot load, there is
+        // no drag, and the sheet's fields still do everything.
+        import('./anchorDrag').then(
+            ({ attachAnchorDrag }) => {
+                if (!live) return;
+                detach = attachAnchorDrag(
+                    canvas,
+                    () => geometryRef.current,
+                    () => handlersRef.current,
+                    (at) => {
+                        draggedRef.current = at;
+                    },
+                );
+            },
+            () => undefined,
+        );
+        return () => {
+            live = false;
+            detach?.();
+        };
+    }, [draggable]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
+        geometryRef.current = null;
         if (!canvas || !snapshot?.anchorPosition) return;
         const anchorNow = snapshot.anchorPosition;
         const previewing = Number.isFinite(previewLat) && Number.isFinite(previewLon);
@@ -161,6 +206,7 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({
             const rose = radarRose(W, H, fitRose);
             const displayRadius = rose.displayRadius;
             const scale = snapshot.swingRadius > 0 ? displayRadius / snapshot.swingRadius : 1;
+            geometryRef.current = { cx, cy, scale, centre };
 
             // ── Ocean depth background gradient ──
             const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.7);
@@ -433,6 +479,25 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({
                     ctx.fillStyle = daylight ? '#0369a1' : '#7dd3fc';
                     ctx.fillText(`🚢 ${visibleCount}`, badgeX, badgeY);
                 }
+            }
+
+            // ── Dragging the anchor (126-07b): it and its circle under the finger ──
+            const dragged = draggedRef.current;
+            if (dragged) {
+                const ax = cx + dragged.dx;
+                const ay = cy + dragged.dy;
+                ctx.beginPath();
+                ctx.arc(ax, ay, displayRadius, 0, Math.PI * 2);
+                ctx.strokeStyle = daylight ? 'rgba(3, 105, 161, 0.8)' : 'rgba(125, 211, 252, 0.8)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([6, 4]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.font = '18px serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = 'rgba(245, 158, 11, 1)';
+                ctx.fillText('⚓', ax, ay);
             }
 
             // Continue animation loop

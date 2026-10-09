@@ -512,7 +512,11 @@ describe('AnchorWatchService.relocateAnchorFromAlarm', () => {
             const result = await AnchorWatchService.relocateAnchorFromAlarm(
                 ...latLon(toward(boat, heading, RADIUS + 5)),
             );
-            expect(result).toEqual({ ok: false, error: expect.stringMatching(/outside the swing circle/i) });
+            // In words for any way the point was given: no bearing field on the Position tab.
+            expect(result).toEqual({
+                ok: false,
+                error: expect.stringMatching(/outside the swing circle.*Check where you put the anchor\.$/i),
+            });
             expect(snap().state).toBe('alarm');
         });
 

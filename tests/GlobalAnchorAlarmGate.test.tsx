@@ -12,6 +12,9 @@
  *  - build 125 (125-03): a drag alarm offers Move anchor, which opens the
  *    Move anchor sheet in alarm mode over the alarm; never for a GPS-lost
  *    alarm, nor while the boat's Pi keeps the watch
+ *  - build 126 (126-07b): the sheet is loaded while a watch is kept, not with
+ *    the app, so Move anchor appears once it is in (a tick here);
+ *    GlobalAnchorAlarmGateSheetLoad.test.tsx pins when, and a failed load
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -109,6 +112,13 @@ function emitSnapshot(next: AnchorWatchSnapshot) {
     });
 }
 
+/** Let the sheet's load (started when the watch is kept) finish. */
+async function sheetLoaded() {
+    await act(async () => {
+        await vi.dynamicImportSettled();
+    });
+}
+
 beforeEach(() => {
     mocks.listeners.clear();
     mocks.state.snapshot = snap({ state: 'idle', anchorPosition: null });
@@ -195,12 +205,12 @@ describe('GlobalAnchorAlarmGate', () => {
 describe('GlobalAnchorAlarmGate: Move anchor from the alarm (build 125, 125-03)', () => {
     const moveButton = () => screen.queryByRole('button', { name: 'Move anchor' });
 
-    it('a drag alarm offers Move anchor, which opens the sheet in alarm mode over the alarm', () => {
+    it('a drag alarm offers Move anchor, which opens the sheet in alarm mode over the alarm', async () => {
         render(<GlobalAnchorAlarmGate />);
         emitSnapshot(alarmSnap());
         expect(screen.queryByRole('dialog', { name: 'Move anchor' })).not.toBeInTheDocument();
 
-        fireEvent.click(moveButton()!);
+        fireEvent.click(await screen.findByRole('button', { name: 'Move anchor' }));
 
         const sheet = screen.getByRole('dialog', { name: 'Move anchor' });
         expect(sheet).toHaveAttribute('data-mode', 'alarm');
@@ -213,25 +223,27 @@ describe('GlobalAnchorAlarmGate: Move anchor from the alarm (build 125, 125-03)'
         expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     });
 
-    it('never for a GPS-lost alarm: a blind watch cannot judge a move', () => {
+    it('never for a GPS-lost alarm: a blind watch cannot judge a move', async () => {
         render(<GlobalAnchorAlarmGate />);
         emitSnapshot(alarmSnap({ alarmCause: 'gps-lost' }));
+        await sheetLoaded();
         expect(screen.getByRole('alertdialog')).toBeInTheDocument();
         expect(moveButton()).not.toBeInTheDocument();
     });
 
-    it('never while the boat’s Pi keeps the watch', () => {
+    it('never while the boat’s Pi keeps the watch', async () => {
         mocks.piKeeping = true;
         render(<GlobalAnchorAlarmGate />);
         emitSnapshot(alarmSnap());
+        await sheetLoaded();
         expect(screen.getByRole('alertdialog')).toBeInTheDocument();
         expect(moveButton()).not.toBeInTheDocument();
     });
 
-    it('a finished move says so; the alarm stopping closes the sheet, and the next alarm does not reopen it', () => {
+    it('a finished move says so; the alarm stopping closes the sheet, and the next alarm does not reopen it', async () => {
         render(<GlobalAnchorAlarmGate />);
         emitSnapshot(alarmSnap());
-        fireEvent.click(moveButton()!);
+        fireEvent.click(await screen.findByRole('button', { name: 'Move anchor' }));
         fireEvent.click(screen.getByRole('button', { name: 'Finish the move' }));
         expect(mocks.toastSuccess).toHaveBeenCalledWith(expect.stringMatching(/anchor moved/i));
         expect(mocks.toastSuccess.mock.calls[0][0]).toMatch(/drift/i);
@@ -244,10 +256,10 @@ describe('GlobalAnchorAlarmGate: Move anchor from the alarm (build 125, 125-03)'
         expect(screen.queryByRole('dialog', { name: 'Move anchor' })).not.toBeInTheDocument();
     });
 
-    it('a sheet left open closes when the alarm turns GPS-lost under it', () => {
+    it('a sheet left open closes when the alarm turns GPS-lost under it', async () => {
         render(<GlobalAnchorAlarmGate />);
         emitSnapshot(alarmSnap());
-        fireEvent.click(moveButton()!);
+        fireEvent.click(await screen.findByRole('button', { name: 'Move anchor' }));
         emitSnapshot(alarmSnap({ alarmCause: 'gps-lost' }));
         expect(screen.queryByRole('dialog', { name: 'Move anchor' })).not.toBeInTheDocument();
     });
