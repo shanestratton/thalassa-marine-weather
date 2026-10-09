@@ -26,8 +26,11 @@ import {
     WINDOW_RUN_QUERY,
     WINDOW_NONCE_QUERY,
     WINDOW_CSP_CONTROL_PATH,
+    WINDOW_CSP_CONTROL_ELEMENT,
+    WINDOW_CSP_CONTROL_DIRECTIVE,
     WINDOW_PROOF_CSP,
     classifyWindowRequest,
+    describeWindowRefusal,
     inspectWindowBuildReceipt,
     inspectWindowCspControl,
     inspectWindowEvidence,
@@ -78,6 +81,7 @@ const receipt = {
     profile,
     counters,
     observations: {},
+    refusalDiagnostics: [],
     sourceHashes: {},
     actualWindowEntryExecution: false,
     realSdkLogin: false,
@@ -176,21 +180,19 @@ async function domFacts() {
         const metaPolicies = [...document.querySelectorAll('meta[http-equiv]')].filter(
             (node) => node.getAttribute('http-equiv').toLowerCase() === 'content-security-policy',
         );
-        const metaFrameDenied =
+        const metaMediaDenied =
             metaPolicies.length === 1 &&
             metaPolicies.every((node) => {
                 const directives = node
                     .getAttribute('content')
                     .split(';')
                     .map((value) => value.trim());
-                const frames = directives.filter((value) => /^frame-src(?:\s|$)/.test(value));
-                return frames.length === 1
-                    ? frames[0] === "frame-src 'none'"
-                    : frames.length === 0 && directives.filter((value) => value === "default-src 'none'").length === 1;
+                const media = directives.filter((value) => /^media-src(?:\s|$)/.test(value));
+                return media.length === 1 && media[0] === "media-src 'none'";
             });
         return {
             metaCspPolicyCount: metaPolicies.length,
-            metaFrameDenied,
+            metaMediaDenied,
             actualAppNavigation: !!document.querySelector('nav[aria-label="Main"]'),
             unsupportedAccount: document.body.textContent.includes('Account: unsupported'),
             unavailablePrivateView: document.body.textContent.includes(
@@ -401,6 +403,17 @@ try {
                 refused: 'refusedRequests',
             };
             increment(names[category]);
+            if (category === 'refused' && receipt.refusalDiagnostics.length < 4) {
+                receipt.refusalDiagnostics.push(
+                    describeWindowRefusal({
+                        url: request.url(),
+                        resourceType: request.resourceType(),
+                        method: request.method(),
+                        origin,
+                        redirectChain: request.redirectChain().length > 0,
+                    }),
+                );
+            }
             const operation =
                 category === 'refused' || category === 'csp-control'
                     ? request.abort('blockedbyclient')
@@ -414,23 +427,27 @@ try {
     browserPage.on('console', (message) => {
         if (message.type() === 'error') increment('consoleErrors');
     });
-    await browserPage.evaluateOnNewDocument((controlPath) => {
-        let expected = 0,
-            unexpected = 0;
-        const publish = () => {
-            if (document.documentElement) {
-                document.documentElement.dataset.fullAppExpectedCsp = String(expected);
-                document.documentElement.dataset.fullAppUnexpectedCsp = String(unexpected);
-            }
-        };
-        document.addEventListener('securitypolicyviolation', (event) => {
-            if (event.effectiveDirective === 'frame-src' && event.blockedURI === location.origin + controlPath)
-                expected = Math.min(10000, expected + 1);
-            else unexpected = Math.min(10000, unexpected + 1);
-            publish();
-        });
-        document.addEventListener('DOMContentLoaded', publish, { once: true });
-    }, WINDOW_CSP_CONTROL_PATH);
+    await browserPage.evaluateOnNewDocument(
+        (controlPath, directive) => {
+            let expected = 0,
+                unexpected = 0;
+            const publish = () => {
+                if (document.documentElement) {
+                    document.documentElement.dataset.fullAppExpectedCsp = String(expected);
+                    document.documentElement.dataset.fullAppUnexpectedCsp = String(unexpected);
+                }
+            };
+            document.addEventListener('securitypolicyviolation', (event) => {
+                if (event.effectiveDirective === directive && event.blockedURI === location.origin + controlPath)
+                    expected = Math.min(10000, expected + 1);
+                else unexpected = Math.min(10000, unexpected + 1);
+                publish();
+            });
+            document.addEventListener('DOMContentLoaded', publish, { once: true });
+        },
+        WINDOW_CSP_CONTROL_PATH,
+        WINDOW_CSP_CONTROL_DIRECTIVE,
+    );
     // No security-policy bypass, permission grant, browser API replacement or original transport capture.
     receipt.phase = 'actual-entry-root';
     save();
@@ -499,25 +516,32 @@ try {
     receipt.phase = 'expected-csp-resource-control';
     save();
     const policyFacts = await domFacts();
-    assert(policyFacts.metaCspPolicyCount === 1 && policyFacts.metaFrameDenied === true);
+    assert(policyFacts.metaCspPolicyCount === 1 && policyFacts.metaMediaDenied === true);
     receipt.observations.cspPolicies = {
         responseHeaderVerified: true,
         metaPolicyCount: policyFacts.metaCspPolicyCount,
-        metaFrameDenied: policyFacts.metaFrameDenied,
+        metaMediaDenied: policyFacts.metaMediaDenied,
         enforcingPolicyCount: 1 + policyFacts.metaCspPolicyCount,
     };
-    await browserPage.evaluate((path) => {
-        const frame = document.createElement('iframe');
-        frame.title = 'Owned CSP control';
-        frame.hidden = true;
-        frame.src = location.origin + path;
-        document.body.appendChild(frame);
-    }, WINDOW_CSP_CONTROL_PATH);
+    await browserPage.evaluate(
+        (path, element) => {
+            const audio = document.createElement(element);
+            audio.title = 'Owned CSP control';
+            audio.hidden = true;
+            audio.preload = 'auto';
+            audio.src = location.origin + path;
+            document.body.appendChild(audio);
+        },
+        WINDOW_CSP_CONTROL_PATH,
+        WINDOW_CSP_CONTROL_ELEMENT,
+    );
     await waitDom((facts) => facts.expectedCspViolations >= 1);
     await delay(250);
     receipt.observations.final = await waitEvidence(2, 1);
     const cspFacts = await waitDom((facts) => facts.expectedCspViolations >= 1);
     receipt.observations.cspControl = inspectWindowCspControl({
+        element: WINDOW_CSP_CONTROL_ELEMENT,
+        directive: WINDOW_CSP_CONTROL_DIRECTIVE,
         expectedEventCount: cspFacts.expectedCspViolations,
         unexpectedEventCount: cspFacts.unexpectedCspViolations,
         enforcingPolicyCount: receipt.observations.cspPolicies.enforcingPolicyCount,
@@ -538,6 +562,8 @@ try {
     receipt.observations.terminal = await waitEvidence(2, 1, true);
     const terminalFacts = await waitDom((facts) => facts.stoppedNotice);
     receipt.observations.cspControl = inspectWindowCspControl({
+        element: WINDOW_CSP_CONTROL_ELEMENT,
+        directive: WINDOW_CSP_CONTROL_DIRECTIVE,
         expectedEventCount: terminalFacts.expectedCspViolations,
         unexpectedEventCount: terminalFacts.unexpectedCspViolations,
         enforcingPolicyCount: receipt.observations.cspPolicies.enforcingPolicyCount,

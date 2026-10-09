@@ -2,6 +2,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import { createFullAppGraphIsolation } from './graphIsolation.mjs';
+import { createFullAppBrandAssetPlugin } from './brandAsset.mjs';
 const root = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
     root,
@@ -16,7 +17,7 @@ export default defineConfig({
         __COMMIT_SHA__: JSON.stringify('isolated'),
         __BUILD_STAMP__: JSON.stringify('2026-10-09 00:00Z'),
     },
-    plugins: [createFullAppGraphIsolation()],
+    plugins: [createFullAppGraphIsolation(), createFullAppBrandAssetPlugin()],
     worker: {
         format: 'es',
         plugins: () => [createFullAppGraphIsolation()],

@@ -9,7 +9,10 @@ import {
     WINDOW_RUN_QUERY,
     WINDOW_NONCE_QUERY,
     WINDOW_CSP_CONTROL_PATH,
+    WINDOW_CSP_CONTROL_ELEMENT,
+    WINDOW_CSP_CONTROL_DIRECTIVE,
     classifyWindowRequest,
+    describeWindowRefusal,
     inspectWindowBuildReceipt,
     inspectWindowCspControl,
     inspectWindowEvidence,
@@ -54,6 +57,7 @@ function buildReceipt() {
         status: 'passed',
         config: 'experiments/scuttlebutt-e2ee/full-app-pilot/vite.config.mjs',
         publicAssetsCopied: false,
+        automaticPublicDirectoryCopy: false,
         inheritedCanariesAbsent: true,
         inheritedSyntheticCanariesInjected: true,
         moduleSourceHashOmissions: [],
@@ -62,6 +66,28 @@ function buildReceipt() {
             path: checkout + '/' + name,
             sha256: digest,
         })),
+        explicitAssetSourceInputs: [
+            {
+                path: checkout + '/public/thalassa-icon-128.png',
+                sha256: '629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15',
+            },
+        ],
+        explicitAssetEmissions: [
+            {
+                label: 'app-brand-icon-128',
+                input: {
+                    path: checkout + '/public/thalassa-icon-128.png',
+                    sha256: '629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15',
+                },
+                output: {
+                    path: '/owned/built/dist/thalassa-icon-128.png',
+                    sha256: '629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15',
+                },
+                byteLength: 31539,
+                width: 256,
+                height: 256,
+            },
+        ],
         windowProofSourceInputs: WINDOW_REQUIRED_PROOF_SOURCES.map((name: string) => ({
             path: checkout + '/' + name,
             sha256: digest,
@@ -69,8 +95,12 @@ function buildReceipt() {
         outputs: [
             { path: '/owned/built/dist/index.html', sha256: digest },
             { path: '/owned/built/dist/assets/entry.js', sha256: digest },
+            {
+                path: '/owned/built/dist/thalassa-icon-128.png',
+                sha256: '629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15',
+            },
         ],
-        outputCount: 2,
+        outputCount: 3,
         graphPolicyObservations: [false, true, true, true].map((isWorker) => ({
             isWorker,
             closedGraphInstances: 1,
@@ -80,27 +110,32 @@ function buildReceipt() {
 }
 const inspect = (row: ReturnType<typeof evidence>) => inspectWindowEvidence(row, runId);
 const accepted = (row: ReturnType<typeof evidence>) => requireUnsupportedWindowEvidence(inspect(row), 1, 0);
+const control = (expectedEventCount: unknown, unexpectedEventCount = 0, enforcingPolicyCount = 2) => ({
+    element: WINDOW_CSP_CONTROL_ELEMENT,
+    directive: WINDOW_CSP_CONTROL_DIRECTIVE,
+    expectedEventCount,
+    unexpectedEventCount,
+    enforcingPolicyCount,
+});
 describe('bounded CSP positive control — pure fixtures', () => {
-    it.each([1, 2])('retains %s observed frame refusals from two enforcing policies', (expectedEventCount) => {
-        expect(
-            inspectWindowCspControl({ expectedEventCount, unexpectedEventCount: 0, enforcingPolicyCount: 2 }),
-        ).toEqual({ expectedEventCount, unexpectedEventCount: 0, enforcingPolicyCount: 2 });
+    it.each([1, 2])('retains %s observed media refusals from two enforcing policies', (expectedEventCount) => {
+        expect(inspectWindowCspControl(control(expectedEventCount))).toEqual(control(expectedEventCount));
     });
     it.each([0, 3, -1, 1.5, NaN, Infinity, null])(
         'refuses absent or excessive event evidence %s',
         (expectedEventCount) => {
-            expect(() =>
-                inspectWindowCspControl({ expectedEventCount, unexpectedEventCount: 0, enforcingPolicyCount: 2 }),
-            ).toThrow('contract refused');
+            expect(() => inspectWindowCspControl(control(expectedEventCount))).toThrow('contract refused');
         },
     );
     it('refuses an unexpected violation or missing/weakened policy evidence', () => {
-        expect(() =>
-            inspectWindowCspControl({ expectedEventCount: 1, unexpectedEventCount: 1, enforcingPolicyCount: 2 }),
-        ).toThrow('contract refused');
-        expect(() =>
-            inspectWindowCspControl({ expectedEventCount: 1, unexpectedEventCount: 0, enforcingPolicyCount: 1 }),
-        ).toThrow('contract refused');
+        expect(() => inspectWindowCspControl(control(1, 1))).toThrow('contract refused');
+        expect(() => inspectWindowCspControl(control(1, 0, 1))).toThrow('contract refused');
+    });
+    it('requires the fixed audio/media positive control without broadening request admission', () => {
+        expect(() => inspectWindowCspControl({ ...control(1), element: 'iframe' })).toThrow('contract refused');
+        expect(() => inspectWindowCspControl({ ...control(1), directive: 'frame-src' })).toThrow('contract refused');
+        expect(WINDOW_CSP_CONTROL_ELEMENT).toBe('audio');
+        expect(WINDOW_CSP_CONTROL_DIRECTIVE).toBe('media-src');
     });
 });
 describe('bounded actual Window evidence contract — pure fixtures', () => {
@@ -120,6 +155,7 @@ describe('bounded actual Window evidence contract — pure fixtures', () => {
         row.sdk.nativeCalls = 1;
         row.fence.counts.fetch = 1;
         expect(snapshot.sdk.nativeCalls).toBe(0);
+        if (snapshot.fence === null) throw new Error('Fixture fence observation unavailable');
         expect(snapshot.fence.counts.fetch).toBe(0);
         expect(Object.isFrozen(snapshot.fence.counts)).toBe(true);
     });
@@ -238,7 +274,7 @@ describe('passed hashed isolated build contract — pure fixtures', () => {
     it('accepts exact runtime, proof, artifact and single-gate worker inventories', () => {
         const result = inspectWindowBuildReceipt(buildReceipt(), checkout);
         expect(result.dist).toBe('/owned/built/dist');
-        expect(result.artifacts).toHaveLength(2);
+        expect(result.artifacts).toHaveLength(3);
         expect(result.proofSources).toHaveLength(WINDOW_REQUIRED_PROOF_SOURCES.length);
     });
     it('refuses older builds without actual Window instrumentation or proof freeze hashes', () => {
@@ -248,6 +284,20 @@ describe('passed hashed isolated build contract — pure fixtures', () => {
         const noProof = buildReceipt();
         noProof.windowProofSourceInputs = [];
         expect(() => inspectWindowBuildReceipt(noProof, checkout)).toThrow('contract refused');
+    });
+    it('refuses missing or mismatched pinned input/output/explicit emission evidence', () => {
+        const input = buildReceipt();
+        input.explicitAssetSourceInputs[0].sha256 = digest;
+        expect(() => inspectWindowBuildReceipt(input, checkout)).toThrow('contract refused');
+        const missing = buildReceipt();
+        missing.explicitAssetEmissions = [];
+        expect(() => inspectWindowBuildReceipt(missing, checkout)).toThrow('contract refused');
+        const output = buildReceipt();
+        output.explicitAssetEmissions[0].output.sha256 = digest;
+        expect(() => inspectWindowBuildReceipt(output, checkout)).toThrow('contract refused');
+        const copied = buildReceipt();
+        copied.automaticPublicDirectoryCopy = true;
+        expect(() => inspectWindowBuildReceipt(copied, checkout)).toThrow('contract refused');
     });
     it.each([
         'status',
@@ -313,5 +363,63 @@ describe('browser/loopback allowlist — pure fixtures', () => {
         expect(classify(documentUrl, 'POST')).toBe('refused');
         expect(classify(documentUrl.replace(nonce, 'c'.repeat(64)))).toBe('refused');
         expect(classify(documentUrl.replace(runId, '93000000-0000-4000-8000-000000000002'))).toBe('refused');
+    });
+});
+
+describe('bounded refusal diagnostics — pure fixtures only', () => {
+    const origin = 'http://127.0.0.1:54321';
+    it('labels only the audited brand asset and hashes pathname without returning URL or query', () => {
+        const facts = describeWindowRefusal({
+            url: origin + '/thalassa-icon-128.png?credential=diagnostic-canary',
+            resourceType: 'image',
+            method: 'GET',
+            origin,
+            redirectChain: false,
+        });
+        expect(facts).toMatchObject({
+            resourceType: 'image',
+            protocol: 'http',
+            sameLoopbackOrigin: true,
+            method: 'GET',
+            hasQuery: true,
+            hasFragment: false,
+            redirectChain: false,
+            assetLabel: 'app-brand-icon-128',
+        });
+        expect(facts.pathSha256).toMatch(/^[0-9a-f]{64}$/);
+        expect(JSON.stringify(facts)).not.toMatch(/diagnostic-canary|credential|thalassa-icon|127\.0\.0\.1/);
+        expect(Object.isFrozen(facts)).toBe(true);
+    });
+    it('keeps unknown/cross-origin paths and unsupported enums bounded without path or error contents', () => {
+        const local = describeWindowRefusal({
+            url: origin + '/unknown-private-path',
+            resourceType: 'invented',
+            method: 'PATCH',
+            origin,
+            redirectChain: true,
+        });
+        expect(local).toMatchObject({
+            resourceType: 'other',
+            method: 'other',
+            sameLoopbackOrigin: true,
+            redirectChain: true,
+            assetLabel: 'unknown',
+        });
+        const remote = describeWindowRefusal({
+            url: 'https://example.invalid/private?secret=diagnostic-canary#hidden',
+            resourceType: 'fetch',
+            method: 'POST',
+            origin,
+            redirectChain: false,
+        });
+        expect(remote).toMatchObject({
+            protocol: 'https',
+            sameLoopbackOrigin: false,
+            hasQuery: true,
+            hasFragment: true,
+            pathSha256: null,
+            assetLabel: 'unknown',
+        });
+        expect(JSON.stringify(remote)).not.toMatch(/example|private|secret|diagnostic-canary|hidden/);
     });
 });
