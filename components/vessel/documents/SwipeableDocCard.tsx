@@ -8,7 +8,8 @@ import React from 'react';
 import type { ShipDocument, DocumentCategory } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
-import { ClipboardIcon } from '../../icons/UIIcons';
+import { CheckIcon, ClipboardIcon } from '../../icons/UIIcons';
+import { CloudIcon } from '../../icons/WeatherIcons';
 import { CATEGORIES } from './DocumentForm';
 
 // ── Expiry logic ──
@@ -47,6 +48,16 @@ const EXPIRY_COLORS: Record<ExpiryStatus, { dot: string; text: string; border: s
     none: { dot: 'bg-gray-500', text: 'text-gray-400', border: 'border-gray-500/20', label: 'No expiry' },
 };
 
+/**
+ * Where the paper's file is (126-B3b), so the skipper knows before the
+ * customs counter whether it opens with no signal.
+ */
+const FILE_STATE = {
+    local: { Icon: CheckIcon, text: 'text-emerald-400', label: 'On this phone' },
+    cloud: { Icon: CloudIcon, text: 'text-gray-400', label: 'Needs signal to open' },
+    'phone-only': { Icon: CheckIcon, text: 'text-amber-400', label: 'On this phone only (too big to back up)' },
+} as const;
+
 // The form's line icons, one set for the picker, the group headers and the card.
 const categoryIcon = (category: DocumentCategory) => CATEGORIES.find((c) => c.id === category)?.Icon ?? ClipboardIcon;
 
@@ -60,6 +71,8 @@ interface SwipeableDocCardProps {
     onDelete?: () => void;
     selected: boolean;
     onToggleSelect: () => void;
+    /** Where its file is; omitted for a paper with no file. */
+    fileState?: keyof typeof FILE_STATE;
 }
 
 export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
@@ -69,6 +82,7 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
     onDelete,
     selected,
     onToggleSelect,
+    fileState,
 }) => {
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
         onSwipeComplete: () => void triggerHaptic('light'),
@@ -76,6 +90,7 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
     const status = getExpiryStatus(doc.expiry_date);
     const colors = EXPIRY_COLORS[status];
     const CategoryIcon = categoryIcon(doc.category);
+    const file = fileState ? FILE_STATE[fileState] : null;
     const revealed = swipeOffset > 0;
     const confirmDelete = () => {
         resetSwipe();
@@ -155,8 +170,8 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
                 {/* Traffic light bar */}
                 <div className={`w-1.5 shrink-0 ${colors.dot}`} />
 
-                {/* Content */}
-                <div className="flex-1 p-4">
+                {/* Content (min-w-0: a long name truncates instead of pushing Edit off the card) */}
+                <div className="flex-1 min-w-0 p-4">
                     {/* Category badge */}
                     <div className="flex items-center gap-1.5 mb-1.5">
                         <CategoryIcon className="h-3 w-3 shrink-0 text-gray-400" />
@@ -181,6 +196,12 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
                                     </span>
                                 )}
                             </div>
+                            {file && (
+                                <p className={`mt-1 flex items-start gap-1 text-label font-bold ${file.text}`}>
+                                    <file.Icon className="mt-px h-3 w-3 shrink-0" />
+                                    {file.label}
+                                </p>
+                            )}
                         </div>
 
                         {/* Edit button */}

@@ -1,9 +1,15 @@
 /**
  * A small in-memory stand-in for @capacitor/filesystem (Phase 2b, 2026-10-01)
  * — enough of writeFile / appendFile / readFile / deleteFile / stat / readdir /
- * rmdir / rename / copy / getUri for the water pack's store and the Documents
- * vault (126-B3a), with a log of every call so a test can count the writes
- * that would cross the iOS plugin bridge, and how big each one was.
+ * rmdir / rename / copy / getUri / downloadFile for the water pack's store and
+ * the Documents vault (126-B3a, 126-B3b), with a log of every call so a test
+ * can count the writes that would cross the iOS plugin bridge, and how big
+ * each one was.
+ *
+ * downloadFile stands in for the native download: the bytes come from
+ * `serve` (a test's fake Storage), straight into the file, as iOS streams
+ * them, never through JS. A number from `serve` is an HTTP refusal, and the
+ * call rejects as the plugin does.
  *
  * Data is kept as given: base64 for a binary file (appendFile concatenates,
  * which is exact while every chunk but the last is a whole number of 3-byte
@@ -41,7 +47,8 @@ type Op =
     | 'rmdir'
     | 'rename'
     | 'copy'
-    | 'getUri';
+    | 'getUri'
+    | 'downloadFile';
 
 export interface MemoryCall {
     op: Op;
@@ -81,6 +88,10 @@ export interface MemoryFilesystem {
     copy(o: { from: string; to: string; directory?: string; toDirectory?: string }): Promise<{ uri: string }>;
     /** file:///Library/<path> for Directory.Library, as iOS answers. */
     getUri(o: { path: string; directory?: string }): Promise<{ uri: string }>;
+    /** Downloads `url` (answered by `serve`) into a file, replacing any; rejects on a refusal. */
+    downloadFile(o: { url: string; path: string; directory?: string; recursive?: boolean }): Promise<{ path: string }>;
+    /** What a download of `url` is served: its bytes, or an HTTP status that refuses it. Reset to 404s. */
+    serve: (url: string) => Uint8Array | number | Promise<Uint8Array | number>;
     /** The file a getUri (or convertFileSrc of one) URI names, or undefined. */
     fileForUri(uri: string): MemoryFile | undefined;
     /** Calls of one kind whose path starts with the prefix. */
@@ -91,6 +102,8 @@ export interface MemoryFilesystem {
 }
 
 const fullPath = (directory: string | undefined, path: string): string => `${directory ?? 'DATA'}/${path}`;
+
+const refuseEveryDownload = () => 404;
 
 /** Where each Directory sits in a file:/// URI (iOS's Library and Caches; Data kept apart from Documents). */
 const URI_ROOTS: Record<string, string> = {
@@ -190,6 +203,14 @@ export function createMemoryFilesystem(now: () => number = () => Date.now()): Me
             calls.push({ op: 'getUri', path, directory });
             return { uri: `file:///${URI_ROOTS[directory ?? 'DATA'] ?? directory}/${path}` };
         },
+        serve: refuseEveryDownload,
+        async downloadFile({ url, path, directory }) {
+            calls.push({ op: 'downloadFile', path, directory });
+            const body = await fs.serve(url);
+            if (typeof body === 'number') throw new Error(`Error downloading file: ${url} (${body})`);
+            files.set(fullPath(directory, path), { data: Buffer.from(body).toString('base64'), mtime: fs.now() });
+            return { path: `file:///${URI_ROOTS[directory ?? 'DATA'] ?? directory}/${path}` };
+        },
         fileForUri(uri) {
             const match =
                 decodeURI(uri).match(/^.*?file:\/\/\/(.+)$/) ?? decodeURI(uri).match(/_capacitor_file_\/(.+)$/);
@@ -208,6 +229,7 @@ export function createMemoryFilesystem(now: () => number = () => Date.now()): Me
         reset() {
             files.clear();
             calls.length = 0;
+            fs.serve = refuseEveryDownload;
         },
     };
     return fs;

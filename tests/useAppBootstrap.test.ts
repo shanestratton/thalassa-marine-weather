@@ -17,6 +17,9 @@ const boot = vi.hoisted(() => ({
     requestFullReconciliation: vi.fn(),
     watchSharedBinderLoss: vi.fn(),
     stopSharedBinderLoss: vi.fn(),
+    onSyncComplete: vi.fn(),
+    stopSyncListener: vi.fn(),
+    syncListener: null as (() => void) | null,
     pushForegroundToast: vi.fn(),
     clearBadge: vi.fn(),
     appAddListener: vi.fn(),
@@ -77,6 +80,7 @@ vi.mock('../services/vessel', () => ({
     stopSyncEngine: boot.stopSyncEngine,
     requestFullReconciliation: boot.requestFullReconciliation,
     watchSharedBinderLoss: boot.watchSharedBinderLoss,
+    onSyncComplete: boot.onSyncComplete,
 }));
 vi.mock('../stores/authStore', () => ({
     useAuthStore: (selector: (state: { authChecked: boolean; user: { id: string } | null }) => unknown) =>
@@ -102,9 +106,10 @@ vi.mock('../services/underway/UnderwayAlarmWatch', () => ({ startUnderwayAlarmWa
 // The watch check (126-02b): its own lazy chunk, started beside the under-way watch.
 const watchCheck = vi.hoisted(() => ({ start: vi.fn(), stop: vi.fn() }));
 vi.mock('../services/underway/watchCheck', () => ({ startWatchCheck: watchCheck.start }));
-// Documents kept inline by older builds move to files (126-B3a), on idle after the sync engine starts.
-const vault = vi.hoisted(() => ({ tidy: vi.fn() }));
-vi.mock('../services/vessel/vaultFiles', () => ({ tidyVaultAfterLaunch: vault.tidy }));
+// Documents kept inline by older builds move to files (126-B3a), on idle after the sync engine starts;
+// after a sync, the ship's papers come down over Wi-Fi (126-B3b).
+const vault = vi.hoisted(() => ({ tidy: vi.fn(), prefetch: vi.fn() }));
+vi.mock('../services/vessel/vaultFiles', () => ({ tidyVaultAfterLaunch: vault.tidy, prefetchPapers: vault.prefetch }));
 
 import { useAppBootstrap } from '../hooks/useAppBootstrap';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
@@ -125,6 +130,11 @@ beforeEach(() => {
     boot.startInternetProbe.mockImplementation(() => boot.stopInternetProbe);
     boot.initLocalDatabase.mockResolvedValue(undefined);
     boot.watchSharedBinderLoss.mockImplementation(() => boot.stopSharedBinderLoss);
+    boot.syncListener = null;
+    boot.onSyncComplete.mockImplementation((listener: () => void) => {
+        boot.syncListener = listener;
+        return boot.stopSyncListener;
+    });
     underway.start.mockImplementation(() => underway.stop);
     watchCheck.start.mockImplementation(() => watchCheck.stop);
     boot.appAddListener.mockImplementation((_event: string, handler: (state: { isActive: boolean }) => void) => {
@@ -162,6 +172,19 @@ describe('useAppBootstrap', () => {
         await waitFor(() => expect(boot.startSyncEngine).toHaveBeenCalledOnce());
         expect(vault.tidy).not.toHaveBeenCalled();
         await waitFor(() => expect(vault.tidy).toHaveBeenCalledOnce(), { timeout: 3_000 });
+    });
+
+    it("after each sync asks for the Wi-Fi pass over the ship's papers, held to one in 30 minutes", async () => {
+        vault.prefetch.mockResolvedValue(0);
+        const { unmount } = renderHook(() => useAppBootstrap());
+        await waitFor(() => expect(boot.onSyncComplete).toHaveBeenCalledOnce());
+        expect(vault.prefetch).not.toHaveBeenCalled();
+
+        boot.syncListener?.();
+
+        await waitFor(() => expect(vault.prefetch).toHaveBeenCalledWith({ minGapMs: 30 * 60_000 }));
+        unmount();
+        expect(boot.stopSyncListener).toHaveBeenCalledOnce();
     });
 
     it('starts app services, routes global events, and cleans up owned callbacks', async () => {

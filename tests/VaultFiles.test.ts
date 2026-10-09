@@ -34,6 +34,8 @@ vi.mock('@capacitor/core', () => ({
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: h.warn, error: vi.fn() }),
 }));
+// No cloud here: the stored-object look after a push (126-B3b) finds none, and never reaches a network.
+vi.mock('../services/supabase', () => ({ supabase: null }));
 
 type Vault = typeof import('../services/vessel/vaultFiles');
 type Database = typeof import('../services/vessel/LocalDatabase');
