@@ -35,6 +35,7 @@ import { useUndoDelete } from '../../hooks/useUndoDelete';
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
+import { changedFields, countDelta, REMOVED_NOTHING_SAVED } from '../../utils/changedFields';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import {
     authScopedStorageKey,
@@ -270,6 +271,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [editDescription, setEditDescription] = useState('');
     const [editExpiry, setEditExpiry] = useState('');
     const [editBarcode, setEditBarcode] = useState('');
+    // One Save at a time: a count edit is a delta, so a second tap while the
+    // first is still writing would take the count twice.
+    const savingEditRef = useRef(false);
+    const [savingEdit, setSavingEdit] = useState(false);
 
     useEffect(
         () =>
@@ -313,42 +318,71 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     };
 
     const handleSaveEdit = async () => {
-        if (!editItem || !editName.trim()) return;
+        if (!editItem || !editName.trim() || savingEditRef.current) return;
         const { identity, item } = editItem;
         if (!isAuthIdentityScopeCurrent(identity)) return;
         const itemId = item.id;
-        const updates = {
+        // Only what was changed against the item as the sheet opened, so the
+        // crew's ± and the Galley's deductions made meanwhile survive. A count
+        // edit is a delta against that count ("took 2", not "set to 10"), on
+        // the same delta path as ±, so changes made at once add up (STORES-04).
+        const delta = countDelta(item.quantity, editQty);
+        const updates = changedFields(item, {
             item_name: editName,
             category: editCategory,
-            quantity: editQty,
             min_quantity: editMinQty,
             barcode: editBarcode || null,
             location_zone: editZone || null,
             location_specific: editSpecific || null,
             description: editDescription || null,
             expiry_date: editExpiry || null,
-        };
-        try {
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            const updated = await InventoryService.update(itemId, updates);
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            if (updated) {
-                setInventoryData((previous) =>
-                    previous.identity.key === identity.key && previous.identity.generation === identity.generation
-                        ? {
-                              ...previous,
-                              items: previous.items.map((item) => (item.id === itemId ? updated : item)),
-                          }
-                        : previous,
-                );
-            }
+        });
+        const changed = Object.keys(updates).length > 0;
+        if (!delta && !changed) {
             setEditItem(null);
+            return;
+        }
+        const put = (saved: InventoryItem) =>
+            setInventoryData((previous) =>
+                previous.identity.key === identity.key && previous.identity.generation === identity.generation
+                    ? {
+                          ...previous,
+                          items: previous.items.map((row) => (row.id === itemId ? saved : row)),
+                      }
+                    : previous,
+            );
+        savingEditRef.current = true;
+        setSavingEdit(true);
+        try {
+            // Either write returns null when the row was gone (deleted elsewhere).
+            let updated = delta ? await InventoryService.adjustQuantity(itemId, delta) : item;
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            if (updated && delta) {
+                // The count has moved. The sheet now starts from the count it
+                // set, so a retry after the write below fails takes nothing
+                // twice; only the count, so other fields still diff against
+                // the item as it opened.
+                put(updated);
+                setEditItem({ identity, item: { ...item, quantity: editQty } });
+            }
+            if (updated && changed) updated = await InventoryService.update(itemId, updates);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            setEditItem(null);
+            if (!updated) {
+                toast.error(REMOVED_NOTHING_SAVED);
+                reloadInBackground();
+                return;
+            }
+            put(updated);
             triggerHaptic('medium');
             toast.success('Item updated');
             flash();
         } catch (e) {
             log.warn(' edit failed:', e);
             if (isAuthIdentityScopeCurrent(identity)) toast.error('Failed to update item');
+        } finally {
+            savingEditRef.current = false;
+            setSavingEdit(false);
         }
     };
 
@@ -785,7 +819,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         variant="primary"
                         aria-label="Save inventory item changes"
                         onClick={handleSaveEdit}
-                        disabled={!editName.trim()}
+                        disabled={!editName.trim() || savingEdit}
                         className="w-full mt-2 disabled:cursor-not-allowed"
                     >
                         Save changes

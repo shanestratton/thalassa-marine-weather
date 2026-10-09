@@ -39,6 +39,9 @@ import {
 } from './equipment/SwipeableEquipmentCard';
 import { EquipmentDetail } from './equipment/EquipmentDetail';
 import { useBinderSource } from '../../hooks/useBinderSource';
+import { isRowInBinder } from '../../services/vessel/sharedBinders';
+import { getById } from '../../services/vessel/LocalDatabase';
+import { changedFields, REMOVED_ELSEWHERE, REMOVED_NOTHING_SAVED } from '../../utils/changedFields';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import {
     getAuthIdentityScope,
@@ -68,7 +71,9 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     // error read as "nothing logged" — see components/ui/LoadErrorState.
     const [loadError, setLoadError] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedItem, setSelectedItem] = useState<EquipmentItem | null>(null);
+    // The detail page's item by id: it is read from the live list on every
+    // render, so a change from another device shows on the open page (EQ-4).
+    const [selectedId, setSelectedId] = useState<string | null>(null);
 
     // Add form state
     const [showAddForm, setShowAddForm] = useState(false);
@@ -81,8 +86,9 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     const [newWarrantyExpiry, setNewWarrantyExpiry] = useState('');
     const [newNotes, setNewNotes] = useState('');
 
-    // Edit modal state
+    // Edit modal state: the item as the sheet opened, which Save diffs against.
     const [showEditForm, setShowEditForm] = useState(false);
+    const [editBaseline, setEditBaseline] = useState<EquipmentItem | null>(null);
 
     // Context menu bottom sheet state
     const [contextItem, setContextItem] = useState<EquipmentItem | null>(null);
@@ -147,9 +153,10 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             setItems([]);
             setLoading(true);
             setSearchQuery('');
-            setSelectedItem(null);
+            setSelectedId(null);
             setShowAddForm(false);
             setShowEditForm(false);
+            setEditBaseline(null);
             setContextItem(null);
             setMenuOpen(false);
             setNewName('');
@@ -187,6 +194,31 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         () => (hiddenIds.size > 0 ? scopedItems.filter((item) => !hiddenIds.has(item.id)) : scopedItems),
         [scopedItems, hiddenIds],
     );
+    // The open detail page's item, live. When it vanishes the page closes. It
+    // says 'removed on another device' only when the row is gone from this
+    // device (realtime or a sync's sweep) and still belongs to the binder on
+    // screen: a binder changing hands (sharing turned on or off, crew removed)
+    // or this page's own delete (cleared first, and hidden) is no deletion.
+    const selectedItem = useMemo(
+        () => (selectedId ? (visibleItems.find((item) => item.id === selectedId) ?? null) : null),
+        [selectedId, visibleItems],
+    );
+    const lastSelectedRef = useRef<EquipmentItem | null>(null);
+    useEffect(() => {
+        if (selectedItem) lastSelectedRef.current = selectedItem;
+        if (!selectedId || selectedItem || loading) return;
+        const last = lastSelectedRef.current;
+        setSelectedId(null);
+        setShowEditForm(false);
+        if (
+            !hiddenIds.has(selectedId) &&
+            last?.id === selectedId &&
+            isRowInBinder('equipment', last) &&
+            !getById('equipment_register', selectedId)
+        ) {
+            toast.info(REMOVED_ELSEWHERE);
+        }
+    }, [selectedId, selectedItem, loading, hiddenIds]);
     // Whose register this is (shared binders, 2026-10-02): the skipper's while
     // this sailor is crew on a boat that shares Equipment. Crew may edit it
     // (the database has no view-only form), but deletes are the skipper's.
@@ -268,7 +300,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             const item = visibleItems.find((i) => i.id === id);
             if (!item) return;
             triggerHaptic('medium');
-            setSelectedItem(null);
+            setSelectedId(null);
             setContextItem(null);
             removeItem(item);
         },
@@ -292,10 +324,11 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     };
 
     const handleSaveEdit = useCallback(async () => {
-        if (!selectedItem || !newName.trim()) return;
+        if (!editBaseline || !newName.trim()) return;
         const scope = getAuthIdentityScope();
-        const itemId = selectedItem.id;
-        const updates = {
+        // Only what was changed against the item as the sheet opened, so a
+        // field another device changed meanwhile keeps its new value (EQ-4).
+        const updates = changedFields(editBaseline, {
             equipment_name: newName.trim(),
             category: newCategory,
             make: newMake.trim(),
@@ -304,31 +337,32 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             installation_date: newInstallDate || null,
             warranty_expiry: newWarrantyExpiry || null,
             notes: newNotes.trim() || null,
-        };
+        });
+        if (Object.keys(updates).length === 0) {
+            setShowEditForm(false);
+            return;
+        }
         try {
             triggerHaptic('medium');
-            await LocalEquipmentService.update(itemId, updates);
+            const updated = await LocalEquipmentService.update(editBaseline.id, updates);
             if (!currentOperation(scope)) return;
             setShowEditForm(false);
+            if (updated) {
+                toast.success('Equipment updated');
+                flash();
+            } else {
+                // The row was gone (deleted elsewhere) when the write landed.
+                setSelectedId(null);
+                toast.error(REMOVED_NOTHING_SAVED);
+            }
             loadItems();
-            // Update selected item in place
-            setSelectedItem((prev) =>
-                prev
-                    ? {
-                          ...prev,
-                          ...updates,
-                      }
-                    : null,
-            );
-            toast.success('Equipment updated');
-            flash();
         } catch (e) {
             log.error('Failed to update equipment:', e);
             if (currentOperation(scope)) toast.error('Failed to update equipment');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
-        selectedItem,
+        editBaseline,
         newName,
         newCategory,
         newMake,
@@ -341,6 +375,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     ]);
 
     const openEditForm = (item: EquipmentItem) => {
+        setEditBaseline(item);
         setNewName(item.equipment_name);
         setNewCategory(item.category);
         setNewMake(item.make);
@@ -358,7 +393,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             <>
                 <EquipmentDetail
                     item={selectedItem}
-                    onBack={() => setSelectedItem(null)}
+                    onBack={() => setSelectedId(null)}
                     onEdit={() => openEditForm(selectedItem)}
                     onDelete={sharedBinder ? undefined : () => handleDelete(selectedItem.id)}
                 />
@@ -622,7 +657,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                                 item={item}
                                                 onTap={() => {
                                                     triggerHaptic('light');
-                                                    setSelectedItem(item);
+                                                    setSelectedId(item.id);
                                                 }}
                                                 onDelete={sharedBinder ? undefined : () => handleDelete(item.id)}
                                                 onContextMenu={() => {
@@ -731,7 +766,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 <button
                                     aria-label={`View details for ${contextItem.equipment_name}`}
                                     onClick={() => {
-                                        setSelectedItem(contextItem);
+                                        setSelectedId(contextItem.id);
                                         setContextItem(null);
                                     }}
                                     className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors active:scale-[0.98]"
@@ -823,7 +858,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                     aria-label={`Edit ${contextItem.equipment_name}`}
                                     onClick={() => {
                                         openEditForm(contextItem);
-                                        setSelectedItem(contextItem);
+                                        setSelectedId(contextItem.id);
                                         setContextItem(null);
                                     }}
                                     className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl bg-sky-500/10 border border-sky-500/20 hover:bg-sky-500/20 transition-colors active:scale-[0.98]"

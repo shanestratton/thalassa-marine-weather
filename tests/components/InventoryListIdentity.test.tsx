@@ -221,9 +221,11 @@ describe('InventoryList identity isolation', () => {
         render(<InventoryList onBack={vi.fn()} />);
         await screen.findByText('Private A stores');
         fireEvent.click(screen.getByRole('button', { name: 'Edit Private A stores' }));
+        // A real change: a Save with nothing changed writes nothing (126-B9c).
+        fireEvent.change(screen.getByLabelText(/Item name/), { target: { value: 'Renamed A stores' } });
 
         fireEvent.click(screen.getByRole('button', { name: 'Save inventory item changes' }));
-        await waitFor(() => expect(mocks.update).toHaveBeenCalledWith('a-item', expect.any(Object)));
+        await waitFor(() => expect(mocks.update).toHaveBeenCalledWith('a-item', { item_name: 'Renamed A stores' }));
 
         const accountBLoad = deferred<InventoryItem[]>();
         mocks.getAll.mockReturnValueOnce(accountBLoad.promise);
