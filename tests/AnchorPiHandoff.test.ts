@@ -6,8 +6,28 @@
  * handoff must degrade to the phone keeping the watch itself — never to no
  * watch at all — which is why nothing in this module throws.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+
+// Stand-ins for the Pi's pinned transport, the Pi cache's addresses and the
+// cloud session, so the module is CALLED below, not only read. Fictional
+// addresses throughout.
+const pi = vi.hoisted(() => ({ request: vi.fn() }));
+vi.mock('../services/PiPairingService', () => ({ pinnedPiRequest: (o: unknown) => pi.request(o) }));
+vi.mock('../services/supabase', () => ({
+    supabase: { auth: { getSession: async () => ({ data: { session: { access_token: 'fictional-jwt' } } }) } },
+}));
+vi.mock('../services/PiCacheService', () => ({
+    piCache: {
+        getStatus: () => ({ reachable: true, lastCheck: 0, latencyMs: 0, diaryRelayId: 'relay-lyttelton' }),
+        getBaseUrl: () => 'https://192.168.40.2:3001',
+        getRemoteBaseUrl: () => null,
+        ping: async () => ({}),
+    },
+}));
+vi.mock('@capacitor/app', () => ({ App: { addListener: vi.fn(async () => ({ remove: vi.fn() })) } }));
+
+import { assignWatchToPi, type PiWatchAssignment } from '../services/anchorPiHandoff';
 
 const src = readFileSync('services/anchorPiHandoff.ts', 'utf8');
 const relay = readFileSync('supabase/functions/anchor-relay/index.ts', 'utf8');
@@ -75,5 +95,77 @@ describe('transports are chosen deliberately', () => {
         expect(src).toContain('supabase.auth.getSession()');
         expect(src).toContain('Authorization: `Bearer ${token}`');
         expect(relay).toContain('relay.owner_id !== ownerId');
+    });
+});
+
+// 126-07a, D4: pinnedPiRequest RETURNS a 400, 409 or 500; it throws only when
+// the transport fails. Counting any answer as taken meant a Pi saying "409:
+// not paired" was believed to be keeping the watch, at the handoff and at
+// every hourly renewal, and a moved mark would have read "moved" while the Pi
+// kept the old one. Success is a 2xx and nothing else.
+describe('the Pi has taken the watch only when it says so (HTTP 2xx)', () => {
+    // Off Lyttelton, New Zealand (fictional watch).
+    const assignment: PiWatchAssignment = {
+        sessionCode: 'LYTTELTON123',
+        anchorLat: -43.61,
+        anchorLon: 172.72,
+        swingRadius: 38,
+        rodeLength: 35,
+        waterDepth: 6,
+    };
+    const reply = (status: number, body: unknown = { status: status < 300 ? 'ok' : 'error' }) => ({
+        status,
+        headers: {},
+        data: typeof body === 'string' ? body : JSON.stringify(body),
+        peerSpki: '',
+    });
+
+    beforeEach(() => {
+        pi.request.mockReset();
+        vi.stubEnv('VITE_SUPABASE_URL', 'https://fictional-project.supabase.co');
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response('{}', { status: 200 })),
+        );
+    });
+    afterEach(() => {
+        vi.unstubAllEnvs();
+        vi.unstubAllGlobals();
+    });
+
+    it('is true on 200', async () => {
+        pi.request.mockResolvedValue(reply(200));
+        expect(await assignWatchToPi(assignment, 'https://192.168.40.2:3001')).toBe(true);
+        expect(pi.request).toHaveBeenCalledWith(
+            expect.objectContaining({
+                url: 'https://192.168.40.2:3001/api/anchor/watch',
+                method: 'POST',
+                data: assignment,
+            }),
+        );
+    });
+
+    it.each([
+        [400, { status: 'error', error: 'swingRadius must be between 5 and 5000 metres' }],
+        [409, { status: 'error', error: 'This Pi is not paired to an account, so it cannot relay a watch' }],
+        [500, 'Internal Server Error'],
+    ])('is false on %i, without throwing', async (status, body) => {
+        pi.request.mockResolvedValue(reply(status, body));
+        await expect(assignWatchToPi(assignment, 'https://192.168.40.2:3001')).resolves.toBe(false);
+    });
+
+    it('is false when the transport fails', async () => {
+        pi.request.mockRejectedValue(new Error('The request timed out.'));
+        await expect(assignWatchToPi(assignment, 'https://192.168.40.2:3001')).resolves.toBe(false);
+    });
+
+    it('begin() with a 409 returns false: the phone keeps the watch', async () => {
+        pi.request.mockResolvedValue(
+            reply(409, { status: 'error', error: 'This Pi has no Supabase anon key configured' }),
+        );
+        vi.resetModules();
+        const { AnchorPiWatchKeeper } = await import('../services/anchorPiWatchKeeper');
+        expect(await AnchorPiWatchKeeper.begin(assignment)).toBe(false);
+        expect(AnchorPiWatchKeeper.isKeeping()).toBe(false);
     });
 });

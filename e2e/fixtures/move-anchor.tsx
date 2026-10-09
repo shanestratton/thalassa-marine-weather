@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { AnchorWatchSnapshot } from '../../services/AnchorWatchService';
+import type { RemoteFeed } from '../../services/NmeaStore';
 import '../../index.css';
 
 if (!import.meta.env.DEV) throw new Error('The move-anchor fixture is available only through the development server.');
@@ -127,6 +128,27 @@ const watchSnapshot: AnchorWatchSnapshot = {
     setupError: null,
 };
 
+// ?mode=pi: the same boat, her watch kept by the Pi and moved from Shore Watch
+// (build 126, 126-07a). The Pi's report fills the sheet: her fix, the circle,
+// the rode. &ashore=1: the phone reaches the Pi over its VPN, so the sheet adds
+// the caution line and the heading reads "via the cloud". &piAnswer=refused or
+// unknown: the Pi says no, or nothing answers (the longest lines the sheet
+// shows); otherwise it says yes and its next report, a second later, shows the
+// new point.
+const piMode = params.get('mode') === 'pi';
+const ashore = params.has('ashore');
+const piAnswer = params.get('piAnswer');
+if (piMode) {
+    const remote: RemoteFeed = {
+        source: 'pi',
+        via: ashore ? 'cloud' : 'lan',
+        deviceLabel: null,
+        reportedAt: Date.now(),
+        receivedAt: Date.now(),
+    };
+    NmeaStore.getState().remote = remote;
+}
+
 // ?alarm: the same boat with the drag alarm sounding (build 125, 125-03). The
 // watch was armed 33 m off the real anchor; a 120° wind shift over 16 minutes
 // swung her round it and out of that circle. Her trail fits the swing, so the
@@ -199,6 +221,8 @@ service.AnchorWatchService.checkMoveFromAlarm = (lat: number, lon: number) =>
 function Fixture() {
     const [open, setOpen] = useState(false);
     const [outcome, setOutcome] = useState('waiting');
+    // Pi mode: where the Pi says it is watching. Its report follows a yes.
+    const [piAnchor, setPiAnchor] = useState<{ latitude: number; longitude: number }>(boat);
     // The boat's GPS keeps reporting, as it does aboard: the sheet waits for a
     // fix no more than 30 s old.
     const [watch, setWatch] = useState(snapshot);
@@ -241,7 +265,45 @@ function Fixture() {
                     onMoveAnchor={() => setOpen(true)}
                 />
             )}
-            {open && (
+            {open && piMode && (
+                <MoveAnchorSheet
+                    mode="pi"
+                    pi={{
+                        anchor: piAnchor,
+                        boatFix: { ...boat, timestamp: watch.vesselPosition!.timestamp },
+                        swingRadius: watch.swingRadius,
+                        rodeLength: config.rodeLength,
+                        waterDepth: config.waterDepth,
+                        centreAtSet: boat,
+                        ashore,
+                        alarm: false,
+                        gpsLost: false,
+                    }}
+                    onPiMove={async (lat, lon) => {
+                        fixture.moves.push([lat, lon]);
+                        if (piAnswer === 'refused')
+                            return {
+                                ok: false,
+                                outcome: 'refused',
+                                error: 'The Pi is still watching the old point. Nothing was moved.',
+                            };
+                        if (piAnswer === 'unknown')
+                            return {
+                                ok: false,
+                                outcome: 'unknown',
+                                error: 'The Pi didn’t answer. It is watching either the old or the new point; Shore Watch will show which within a minute.',
+                            };
+                        window.setTimeout(() => setPiAnchor({ latitude: lat, longitude: lon }), 1_000);
+                        return { ok: true, ashore };
+                    }}
+                    onClose={() => setOpen(false)}
+                    onMoved={() => {
+                        setOpen(false);
+                        setOutcome('moved');
+                    }}
+                />
+            )}
+            {open && !piMode && (
                 <MoveAnchorSheet
                     mode={alarm ? 'alarm' : 'watch'}
                     snapshot={watch}

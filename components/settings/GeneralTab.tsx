@@ -546,6 +546,30 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 </div>
             </Section>
 
+            {/* Anchor watch (build 126, 126-07a): moving the mark of a watch the
+                boat's Pi keeps, from Shore Watch on the phone that handed it
+                over. A trial, off by default, until Shane's smoke test aboard;
+                the Pi itself needs no update (its watch route replaces a watch
+                in place). */}
+            <Section title="Anchor watch">
+                <Row>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium">
+                            Move the anchor while the Pi keeps watch (trial)
+                        </p>
+                        <p className="text-xs text-gray-400">
+                            Adds Move anchor to Shore Watch on the phone that handed the watch to the Pi. Being checked
+                            aboard. The Pi itself needs no update.
+                        </p>
+                    </div>
+                    <Toggle
+                        label="Move the anchor while the Pi keeps watch (trial)"
+                        checked={settings.anchorPiMoveTrial === true}
+                        onChange={(on) => onSave({ anchorPiMoveTrial: on })}
+                    />
+                </Row>
+            </Section>
+
             {/* Smoke builds only (THALASSA_DEBUG_AIS_INJECTOR=1): null, and folded
                 out, in every release build. */}
             {DebugAisInjectorSection && (

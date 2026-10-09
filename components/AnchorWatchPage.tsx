@@ -33,7 +33,8 @@ import { SoundCheckModal } from './anchor-watch/SoundCheckModal';
 import { ShoreWeighAnchorBar } from './anchor-watch/ShoreWeighAnchorBar';
 import { ShoreWatchModal } from './anchor-watch/ShoreWatchModal';
 import { ShoreWatchReadings } from './anchor-watch/ShoreWatchReadings';
-import { MoveAnchorSheet } from './anchor-watch/MoveAnchorSheet';
+import { MoveAnchorSheet, type PiMoveSource } from './anchor-watch/MoveAnchorSheet';
+import { MoveAnchorChip } from './anchor-watch/MoveAnchorChip';
 import { useAnchorRadarTargets } from './anchor-watch/anchorRadarTargets';
 import { PageHeader } from './ui/PageHeader';
 import { toast } from './Toast';
@@ -46,6 +47,7 @@ import { SignInScreen } from './SignInScreen';
 
 import { getWeatherRecommendation, formatDistance, bearingToCardinal, formatElapsed } from './anchor-watch/anchorUtils';
 import { AnchorPiWatchKeeper, probePiWatchCapability } from '../services/anchorPiWatchKeeper';
+import { piFixIsFresh } from '../services/anchorPiMove';
 import { AnchorPiWatchOfferModal } from './anchor/AnchorPiWatchOfferModal';
 
 const log = createLogger('AnchorWatch');
@@ -151,6 +153,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [piKeepingWatch, setPiKeepingWatch] = useState(false);
     /** The Move anchor sheet (build 123, must-do #3). */
     const [showMoveAnchor, setShowMoveAnchor] = useState(false);
+    /** The same sheet for the watch this phone handed to the Pi (126-07a). */
+    const [showPiMove, setShowPiMove] = useState(false);
     const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(null);
     const [syncState, setSyncState] = useState<SyncState>(() => AnchorWatchSyncService.getState());
     const [shoreData, setShoreData] = useState<PositionBroadcast | null>(() =>
@@ -163,6 +167,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [pushReadiness, setPushReadiness] = useState(() => AnchorWatchSyncService.getPushReadiness());
     /** Shore Watch reads in the viewer's own units, never the boat's (126-03a). */
     const units = useSettingsStore((state) => state.settings.units);
+    /** Moving the Pi's mark is a trial until Shane's smoke aboard (126-07a, D6). */
+    const piMoveTrial = useSettingsStore((state) => state.settings.anchorPiMoveTrial === true);
 
     // Setup form state
     const [rodeLength, setRodeLength] = useState(30);
@@ -1459,6 +1465,52 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             shoreDataAgedOut ||
             (shoreData === null && !!syncState?.peerDisconnectedAt);
 
+        // ── Move the mark of the Pi's watch (126-07a) ──
+        //
+        // Only on the phone that handed its watch to the Pi (a crew phone
+        // cannot), behind the trial switch until Shane's smoke aboard, and only
+        // on a fresh report whose fix is no more than 30 s old (the keeper's
+        // own limit), with no alarm and the GPS seen. The move re-posts
+        // the Pi's assignment through the keeper; it never begins or ends a
+        // watch. The same rule as the boat's own chip: losing any of these
+        // closes the sheet, and it does not spring back open. (Set while
+        // rendering, React's pattern for state that follows what is rendered:
+        // this branch is past the page's hooks.)
+        const canMovePiAnchor =
+            ownPiWatch &&
+            piMoveTrial &&
+            shoreDataFresh &&
+            piFixIsFresh(shoreData?.vessel, Date.now()) &&
+            !shoreStatusIsAlarm &&
+            !shoreGpsLost;
+        if (showPiMove && !canMovePiAnchor) setShowPiMove(false);
+        const handlePiMove = (lat: number, lon: number) =>
+            AnchorPiWatchKeeper.relocate(lat, lon, {
+                boatFix: shoreData?.vessel ?? null,
+                alarm: shoreStatusIsAlarm,
+                gpsLost: shoreGpsLost,
+            });
+        const handlePiMoved = () => {
+            setShowPiMove(false);
+            void triggerHaptic('medium');
+            toast.success('Moved. The Pi is watching the new point.');
+        };
+        // Filled from what the Pi reports: her fix, the circle, the rode.
+        const piMoveSource: PiMoveSource | null =
+            showPiMove && canMovePiAnchor && shoreData
+                ? {
+                      anchor: { latitude: shoreData.anchor.latitude, longitude: shoreData.anchor.longitude },
+                      boatFix: shoreData.vessel,
+                      swingRadius: shoreData.swingRadius,
+                      rodeLength: shoreData.config?.rodeLength,
+                      waterDepth: shoreData.config?.waterDepth,
+                      centreAtSet: AnchorPiWatchKeeper.centreAtSet(),
+                      ashore: AnchorPiWatchKeeper.answersFromAshore(),
+                      alarm: shoreStatusIsAlarm,
+                      gpsLost: shoreGpsLost,
+                  }
+                : null;
+
         return (
             <div
                 className={`h-full min-h-0 ${t.colors.bg.base} flex flex-col overflow-hidden`}
@@ -1598,6 +1650,9 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 speedUnit={units?.speed ?? 'kts'}
                                 distanceUnit={units?.distance}
                                 trail={ShoreSwingTrail.points(syncState?.sessionCode ?? null)}
+                                radarAction={
+                                    canMovePiAnchor ? <MoveAnchorChip onClick={() => setShowPiMove(true)} /> : undefined
+                                }
                                 phoneWatched={
                                     // Only a phone that can take the page locked is promised it.
                                     pushReadiness.status === 'ready' &&
@@ -1615,6 +1670,17 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         {ownPiWatch && <ShoreWeighAnchorBar onWeighAnchor={() => void handleWeighAnchorFromShore()} />}
                     </div>
                 </div>
+
+                {/* Move anchor: the watch this phone handed to the Pi (canMovePiAnchor). */}
+                {piMoveSource && (
+                    <MoveAnchorSheet
+                        mode="pi"
+                        pi={piMoveSource}
+                        onPiMove={handlePiMove}
+                        onClose={() => setShowPiMove(false)}
+                        onMoved={handlePiMoved}
+                    />
+                )}
             </div>
         );
     }
@@ -1865,14 +1931,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         ariaLabel={`Anchor watch radar display. ${monitoringBlocked ? 'Monitoring is blocked; values are retained reference data only' : isHolding ? 'Vessel holding position' : 'Vessel drifting'}. Current distance from anchor: ${snapshot ? formatDistance(snapshot.distanceFromAnchor) : 'unknown'}. Swing radius: ${snapshot ? formatDistance(snapshot.swingRadius) : 'unknown'}.`}
                     />
                     {canMoveAnchor && (
-                        <button
-                            type="button"
+                        <MoveAnchorChip
+                            className="absolute bottom-1.5 left-1.5"
                             onClick={() => setShowMoveAnchor(true)}
-                            className="absolute bottom-1.5 left-1.5 flex min-h-11 items-center gap-1.5 rounded-full border border-amber-400/30 bg-slate-900/80 px-3 text-sm font-bold text-amber-300 transition-all active:scale-[0.97]"
-                        >
-                            <AnchorIcon className="h-4 w-4 shrink-0" />
-                            Move anchor
-                        </button>
+                        />
                     )}
                 </div>
 

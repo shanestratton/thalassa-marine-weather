@@ -379,3 +379,60 @@ test('Shore Watch draws her trail across the antimeridian on the radar (Taveuni)
     const brighter = onTrail.filter((value, i) => value > offTrail[i] + 40).length;
     expect(brighter, `trail ${onTrail} vs none ${offTrail}`).toBeGreaterThanOrEqual(6);
 });
+
+// 126-07a: on this phone's own Pi watch with the trial on (&piMove=1), Shore
+// Watch's radar offers Move anchor at its bottom-left. At least 44 px, inside
+// the radar, clear of the distance, tappable, and Weigh Anchor still in reach.
+for (const size of [
+    { label: 'small phone', width: 320, height: 568 },
+    { label: 'short phone', width: 375, height: 667 },
+    { label: 'compact landscape', width: 844, height: 430 },
+]) {
+    test(`Shore Watch Move anchor chip sits inside the radar on a ${size.label}`, async ({ page }) => {
+        await openFixture(page, size.width, size.height, '?ownPi=true');
+        await expect(page.getByRole('button', { name: 'Move anchor' })).toHaveCount(0);
+
+        await openFixture(page, size.width, size.height, '?ownPi=true&piMove=1');
+        const chip = page.getByRole('button', { name: 'Move anchor' });
+        await chip.scrollIntoViewIfNeeded();
+        await expect(chip).toBeVisible();
+        expect(
+            await chip.evaluate((element) => {
+                const issues: string[] = [];
+                const box = element.getBoundingClientRect();
+                const radar = element
+                    .closest('[data-testid="shore-radar-action"]')!
+                    .parentElement!.getBoundingClientRect();
+                const distance = document
+                    .querySelector('[data-testid="shore-radar-distance"] > div:last-child')!
+                    .getBoundingClientRect();
+                if (box.height < 44) issues.push(`${box.height}px tall`);
+                if (
+                    box.left < radar.left ||
+                    box.right > radar.right ||
+                    box.top < radar.top ||
+                    box.bottom > radar.bottom
+                )
+                    issues.push('outside the radar');
+                const overlaps =
+                    box.left < distance.right &&
+                    box.right > distance.left &&
+                    box.top < distance.bottom &&
+                    box.bottom > distance.top;
+                if (overlaps) issues.push('over the distance');
+                const hit = document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2);
+                if (!(hit === element || element.contains(hit))) issues.push(`covered by ${hit?.tagName}`);
+                return issues;
+            }),
+        ).toEqual([]);
+        await assertInsideReadings(chip);
+        await assertNoHorizontalOverflow(page);
+        await chip.click();
+        await expect(page.getByRole('alert')).toHaveText('Move anchor pressed');
+
+        const weigh = page.getByRole('button', { name: '⏏ Weigh Anchor' });
+        await weigh.scrollIntoViewIfNeeded();
+        await assertInsideReadings(weigh);
+        expect(await weigh.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+    });
+}

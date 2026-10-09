@@ -50,15 +50,38 @@
  * which judges her track again and is the authority. It sits on the critical layer, over the alarm. It never
  * says the app can always tell a late set from a drag.
  *
+ * Pi mode (build 126, 126-07a), opened from Shore Watch on the phone that
+ * handed its watch to the boat's Pi: the same fields, preview and units, filled
+ * from what the Pi reports (her fix, the circle, the rode). The live check is
+ * the Pi's (services/anchorPiMove.ts judgePiMove: a fresh fix, no alarm, the
+ * boat inside the new circle, and the new point within the rode's reach of
+ * where the Pi's watch was first set). Move hands the point to `onPiMove`,
+ * which the page wires to the keeper; then the line says "Sent to the Pi…",
+ * and "Moved. The Pi is watching the new point." only once the Pi's own report
+ * shows it (up to 30 s, then it says it has not shown it yet). A refusal says
+ * the Pi is still watching the old point; no answer says it is watching one or
+ * the other and Shore Watch will show which. From ashore it adds 125-03's "Only
+ * move it if you're sure the anchor hasn't moved".
+ *
  * The Pi keeps its own watch with its own keeper; this sheet never touches it.
+ * In pi mode it is handed a function to call, and never names the keeper.
  */
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
     ANCHOR_RELOCATE_FIX_MAX_AGE_MS,
     AnchorWatchService,
     type AnchorWatchConfig,
     type AnchorWatchSnapshot,
 } from '../../services/AnchorWatchService';
+import {
+    judgePiMove,
+    piAnchorMatches,
+    PI_MOVE_LINES,
+    PI_MOVE_REFUSAL_WORDS,
+    type LatLonPoint,
+    type PiBoatFix,
+    type PiMoveResult,
+} from '../../services/anchorPiMove';
 import { NmeaStore, type NmeaStoreState } from '../../services/NmeaStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { calculateDistance, destinationPoint } from '../../utils/navigationCalculations';
@@ -66,10 +89,18 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { Button } from '../ui/Button';
 import { XIcon } from '../Icons';
-import { SwingCircleCanvas } from './SwingCircleCanvas';
+import { SwingCircleCanvas, type SwingCanvasModel } from './SwingCircleCanvas';
 
 /** A true heading older than this does not prefill the bearing. */
 export const HEADING_PREFILL_MAX_AGE_MS = 10_000;
+/** How long "Sent to the Pi…" waits for the Pi's report to show the new point. */
+const PI_REPORT_WAIT_MS = 30_000;
+/**
+ * The safety margin the app arms a watch with (AnchorWatchService's default),
+ * for the lying distance of a Pi watch: its assignment carries the circle, the
+ * rode and the depth, but not the margin.
+ */
+const ARMING_MARGIN_M = 10;
 const METRES_PER_FOOT = 0.3048;
 const METRES_PER_NM = 1852;
 
@@ -161,14 +192,109 @@ export function planAnchorMove(
     return { target, boatToAnchorM, inside: boatToAnchorM <= swingRadiusM, movesM };
 }
 
-export interface MoveAnchorSheetProps {
-    /** The live watch, as the page holds it. */
-    snapshot: AnchorWatchSnapshot;
+/** The watch the Pi keeps, as Shore Watch hears it from the Pi (126-07a). */
+export interface PiMoveSource {
+    /** Where the Pi is watching now, from its latest report. */
+    anchor: LatLonPoint;
+    /** The boat as the Pi last reported her. */
+    boatFix: PiBoatFix | null;
+    swingRadius: number;
+    /** The skipper's setup numbers, when the Pi was given them (an older app gave none). */
+    rodeLength?: number;
+    waterDepth?: number;
+    /** Where the Pi's watch was first set. */
+    centreAtSet: LatLonPoint | null;
+    /** This phone reaches the Pi off the boat (its tailnet address answered). */
+    ashore: boolean;
+    /** The Pi reports a drag alarm, or has lost the boat's GPS. */
+    alarm: boolean;
+    gpsLost: boolean;
+}
+
+interface SheetCallbacks {
     onClose: () => void;
-    /** The watch accepted the move. */
+    /** The move took: the watch accepted it, or (pi) the Pi's report shows it. */
     onMoved?: () => void;
-    /** 'alarm': opened from the alarm screen, to move the mark and stop the alarm. */
-    mode?: 'watch' | 'alarm';
+}
+
+export type MoveAnchorSheetProps = SheetCallbacks &
+    (
+        | {
+              /** 'alarm': opened from the alarm screen, to move the mark and stop the alarm. */
+              mode?: 'watch' | 'alarm';
+              /** The live watch, as the page holds it. */
+              snapshot: AnchorWatchSnapshot;
+          }
+        | {
+              /** 'pi': the mark of the watch the boat's Pi keeps, from Shore Watch. */
+              mode: 'pi';
+              pi: PiMoveSource;
+              /** Sends the new point to the Pi (the page wires it to the keeper). */
+              onPiMove: (lat: number, lon: number) => Promise<PiMoveResult>;
+          }
+    );
+
+/**
+ * The watch being moved, the same shape whoever keeps it: what the fields,
+ * the check and the preview read.
+ */
+interface MoveSubject {
+    boat: (LatLon & { timestamp: number }) | null;
+    anchor: LatLon | null;
+    swingRadius: number;
+    /** Rode and depth, when known. */
+    rode: Pick<AnchorWatchConfig, 'rodeLength' | 'waterDepth'> | null;
+    /** Where she lies from the anchor as the circle reckons it, or null to leave the distance empty. */
+    lyingM: number | null;
+    /** What the preview radar draws. */
+    model: SwingCanvasModel;
+}
+
+/** Where a move of the Pi's mark stands, after Move. */
+type PiPhase =
+    | { kind: 'idle' }
+    | { kind: 'sent' | 'unknown'; target: LatLon; at: number }
+    | { kind: 'refused' }
+    | { kind: 'moved' };
+const PI_IDLE: PiPhase = { kind: 'idle' };
+
+/** The Pi's watch as the preview radar draws it: no trail (Shore Watch's radar has it). */
+function piCanvasModel(pi: PiMoveSource): SwingCanvasModel {
+    return {
+        state: pi.alarm ? 'alarm' : 'watching',
+        anchorPosition: { latitude: pi.anchor.latitude, longitude: pi.anchor.longitude },
+        vesselPosition: pi.boatFix && { latitude: pi.boatFix.latitude, longitude: pi.boatFix.longitude },
+        swingRadius: pi.swingRadius,
+        gpsAccuracy: pi.boatFix?.accuracy ?? 0,
+        positionHistory: [],
+    };
+}
+
+function piSubject(pi: PiMoveSource, model: SwingCanvasModel | null): MoveSubject {
+    const rode =
+        pi.rodeLength !== undefined && pi.waterDepth !== undefined
+            ? { rodeLength: pi.rodeLength, waterDepth: pi.waterDepth }
+            : null;
+    return {
+        boat: pi.boatFix,
+        anchor: pi.anchor,
+        swingRadius: pi.swingRadius,
+        rode,
+        // No rode, no guess: the distance starts empty.
+        lyingM: rode && lyingDistanceM({ ...rode, safetyMargin: ARMING_MARGIN_M }, pi.swingRadius),
+        model: model ?? piCanvasModel(pi),
+    };
+}
+
+function watchSubject(snapshot: AnchorWatchSnapshot): MoveSubject {
+    return {
+        boat: snapshot.vesselPosition,
+        anchor: snapshot.anchorPosition,
+        swingRadius: snapshot.swingRadius,
+        rode: snapshot.config,
+        lyingM: lyingDistanceM(snapshot.config, snapshot.swingRadius),
+        model: snapshot,
+    };
 }
 
 const FIELD =
@@ -183,9 +309,28 @@ const PREVIEW_ASIDE =
 const FORM =
     "flex flex-none flex-col gap-1.5 px-4 pt-2 pb-4 [html[data-keyboard-open='true']_&]:pt-1 [html[data-keyboard-open='true']_&]:pb-3";
 
-export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onClose, onMoved, mode = 'watch' }) => {
-    const fromAlarm = mode === 'alarm';
+export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = (props) => {
+    const { onClose, onMoved } = props;
+    const fromAlarm = props.mode === 'alarm';
+    const pi = props.mode === 'pi' ? props.pi : null;
+    const snapshot = props.mode === 'pi' ? null : props.snapshot;
     const unit: LengthUnit = useSettingsStore((state) => (state.settings.units?.length === 'ft' ? 'ft' : 'm'));
+    // The page builds `pi` afresh each render; the preview redraws only when
+    // what it draws changes.
+    const piModel = useMemo(
+        () => (pi ? piCanvasModel(pi) : null),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the drawn fields, not the object
+        [
+            pi?.alarm,
+            pi?.anchor.latitude,
+            pi?.anchor.longitude,
+            pi?.boatFix?.latitude,
+            pi?.boatFix?.longitude,
+            pi?.boatFix?.accuracy,
+            pi?.swingRadius,
+        ],
+    );
+    const subject = props.mode === 'pi' ? piSubject(props.pi, piModel) : watchSubject(props.snapshot);
     // The sheet's clock: ages are said as they are NOW, and a heading or a fix
     // that goes stale while the sheet is open stops counting, not just one
     // that was stale when it opened.
@@ -202,7 +347,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
         return () => window.clearInterval(timer);
     }, []);
     const [distanceText, setDistanceText] = useState(() =>
-        String(Math.round(fromMetres(lyingDistanceM(snapshot.config, snapshot.swingRadius), unit))),
+        subject.lyingM === null ? '' : String(Math.round(fromMetres(subject.lyingM, unit))),
     );
     // null until the skipper types a bearing: the prefill follows the heading
     // until then, and what they type is theirs (no heading overwrites it).
@@ -214,6 +359,25 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
     const bearingText = typedBearing ?? (heading ? String(Math.round(heading.deg) % 360).padStart(3, '0') : '');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Pi mode: where the move stands once sent (126-07a).
+    const [piPhase, setPiPhase] = useState<PiPhase>(PI_IDLE);
+    const piLate = piPhase.kind === 'sent' && now - piPhase.at > PI_REPORT_WAIT_MS;
+    const piAwaiting = piPhase.kind === 'sent' && !piLate;
+    // Moved only once the Pi's OWN report shows the new point, after a yes or
+    // after no answer at all (it may have taken it anyway).
+    const piShowsTarget =
+        !!pi && (piPhase.kind === 'sent' || piPhase.kind === 'unknown') && piAnchorMatches(pi.anchor, piPhase.target);
+    useEffect(() => {
+        if (!piShowsTarget) return;
+        setPiPhase({ kind: 'moved' });
+        onMoved?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the report first shows it
+    }, [piShowsTarget]);
+    /** An edit starts again after an answer, but not while a yes awaits the Pi's report. */
+    const edited = () => {
+        setError(null);
+        if (!piAwaiting) setPiPhase(PI_IDLE);
+    };
 
     const titleId = useId();
     const hintId = useId();
@@ -226,24 +390,48 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
     const bearingEntry = parseEntry(bearingText);
     const distanceM = distanceEntry !== null && distanceEntry > 0 ? toMetres(distanceEntry, unit) : null;
     const bearingDeg = bearingEntry !== null && bearingEntry >= 0 && bearingEntry <= 360 ? bearingEntry % 360 : null;
-    const boat = snapshot.vesselPosition;
+    const boat = subject.boat;
     const fixStale =
         !!boat && !(Number.isFinite(boat.timestamp) && now - boat.timestamp <= ANCHOR_RELOCATE_FIX_MAX_AGE_MS);
     const plan =
         boat && distanceM !== null && bearingDeg !== null
-            ? planAnchorMove(boat, snapshot.anchorPosition, distanceM, bearingDeg, snapshot.swingRadius)
+            ? planAnchorMove(boat, subject.anchor, distanceM, bearingDeg, subject.swingRadius)
             : null;
-    const alarm = snapshot.state === 'alarm';
-    const movable = fromAlarm
-        ? alarm && snapshot.alarmCause === 'drag'
-        : snapshot.state === 'watching' || snapshot.state === 'paused';
+    const alarm = snapshot?.state === 'alarm';
+    const movable = pi
+        ? true
+        : fromAlarm
+          ? alarm && snapshot?.alarmCause === 'drag'
+          : snapshot?.state === 'watching' || snapshot?.state === 'paused';
     // From the alarm: does her track back the move? Asked of the watch live,
     // before the tap (it holds her whole track; the snapshot's trail is short).
     const verdict =
         fromAlarm && movable && plan?.inside && boat && !fixStale
             ? AnchorWatchService.checkMoveFromAlarm(plan.target.lat, plan.target.lon)
             : null;
-    const canMove = !!plan && plan.inside && movable && !fixStale && !busy && (!fromAlarm || !!verdict?.ok);
+    // The Pi's watch: the Pi's guards, live (judgePiMove; the keeper asks again).
+    const piVerdict =
+        pi && plan
+            ? judgePiMove({
+                  now,
+                  boatFix: pi.boatFix,
+                  alarm: pi.alarm,
+                  gpsLost: pi.gpsLost,
+                  target: { latitude: plan.target.lat, longitude: plan.target.lon },
+                  swingRadiusM: pi.swingRadius,
+                  centreAtSet: pi.centreAtSet,
+                  rodeLength: pi.rodeLength,
+                  waterDepth: pi.waterDepth,
+              })
+            : null;
+    const canMove =
+        !!plan &&
+        plan.inside &&
+        movable &&
+        !fixStale &&
+        !busy &&
+        (!fromAlarm || !!verdict?.ok) &&
+        (!pi || (!!piVerdict?.ok && !piAwaiting && piPhase.kind !== 'moved'));
     // Too early, or a track this phone did not see: no point would pass, so how
     // the fields were filled is beside the point, and the hint makes room.
     const noPointWouldDo = verdict?.ok === false && (verdict.refusal === 'too-early' || verdict.refusal === 'unseen');
@@ -251,8 +439,21 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
     // `more` is the second sentence, which steps aside while the keyboard is up
     // (the colour, "outside" and the disabled button still say it then).
     let live: { text: string; more?: string; tone: 'ok' | 'warn' | 'quiet' };
-    const [boatWords, circleWords] = plan ? sayPair(plan.boatToAnchorM, snapshot.swingRadius, unit) : ['', ''];
-    if (fromAlarm && !alarm) live = { text: 'The alarm has stopped.', tone: 'quiet' };
+    const lineOf = ([text, more]: readonly [string, string], tone: 'ok' | 'warn' | 'quiet') => ({
+        text,
+        more: more || undefined,
+        tone,
+    });
+    // The page closes the sheet on these; for the moment until it does, they are said.
+    const piBlocked = pi?.gpsLost ? 'gps-lost' : pi?.alarm ? 'alarm' : null;
+    const [boatWords, circleWords] = plan ? sayPair(plan.boatToAnchorM, subject.swingRadius, unit) : ['', ''];
+    if (piPhase.kind === 'moved') live = lineOf(PI_MOVE_LINES.moved, 'ok');
+    else if (piPhase.kind === 'sent')
+        live = piLate ? lineOf(PI_MOVE_LINES.late, 'warn') : lineOf(PI_MOVE_LINES.sent, 'quiet');
+    else if (piPhase.kind === 'refused') live = lineOf(PI_MOVE_LINES.refused, 'warn');
+    else if (piPhase.kind === 'unknown') live = lineOf(PI_MOVE_LINES.unknown, 'warn');
+    else if (piBlocked) live = lineOf(PI_MOVE_REFUSAL_WORDS[piBlocked], 'warn');
+    else if (fromAlarm && !alarm) live = { text: 'The alarm has stopped.', tone: 'quiet' };
     else if (fromAlarm && !movable)
         live = {
             text: 'GPS is lost, so a move cannot be checked. Silence the alarm and check her position.',
@@ -260,8 +461,18 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
         };
     else if (alarm && !fromAlarm) live = { text: 'Silence the alarm before moving the anchor.', tone: 'warn' };
     else if (!movable) live = { text: 'There is no anchor watch on this phone to move.', tone: 'warn' };
-    else if (!boat) live = { text: 'Waiting for a position fix for the boat.', tone: 'quiet' };
-    else if (fixStale) live = { text: 'Waiting for a fresh position fix for the boat.', tone: 'quiet' };
+    else if (!boat)
+        live = {
+            text: pi ? 'Waiting for the Pi to report the boat’s position.' : 'Waiting for a position fix for the boat.',
+            tone: 'quiet',
+        };
+    else if (fixStale)
+        live = {
+            text: pi
+                ? 'Waiting for a fresh position of the boat from the Pi.'
+                : 'Waiting for a fresh position fix for the boat.',
+            tone: 'quiet',
+        };
     else if (headingStale)
         live = {
             text: `The boat’s heading is ${Math.round((headingAgeMs ?? 0) / 1000)} s old, too old to use. Enter the bearing, or wait for a fresh heading.`,
@@ -270,6 +481,8 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
     else if (!plan) live = { text: 'Enter the distance and the bearing from the boat to the anchor.', tone: 'quiet' };
     else if (verdict && !verdict.ok)
         live = { text: verdict.lead, more: verdict.error.slice(verdict.lead.length + 1), tone: 'warn' };
+    else if (plan.inside && piVerdict && !piVerdict.ok)
+        live = { text: piVerdict.lead, more: piVerdict.error.slice(piVerdict.lead.length + 1), tone: 'warn' };
     else if (plan.inside)
         live = {
             text: `The boat would be ${boatWords} from the anchor, inside your ${circleWords} circle.`,
@@ -287,13 +500,32 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
             tone: 'warn',
         };
 
-    const rodeWords = `${say(snapshot.config.rodeLength, unit)} in ${say(snapshot.config.waterDepth, unit)}`;
-    const distanceWords = `Distance from your rode (${rodeWords}), less its sag.`;
+    const distanceWords = subject.rode
+        ? `Distance from your rode (${say(subject.rode.rodeLength, unit)} in ${say(subject.rode.waterDepth, unit)}), less its sag.`
+        : 'The Pi has no rode for this watch: enter the distance.';
     const hint = !following
         ? `${distanceWords} Bearing in °T, true, not magnetic.`
         : heading
           ? `${distanceWords} Bearing from the boat’s heading, ${Math.round((headingAgeMs ?? 0) / 1000)} s ago, ${heading.via}. °T is true, not magnetic.`
           : `${distanceWords} No fresh boat heading: enter the bearing in °T, true, not magnetic.`;
+    // From the alarm, and from ashore on the Pi's watch: 125-03's words.
+    const caution = fromAlarm || !!pi?.ashore;
+
+    /** Pi mode: hand the point to the page, then say what the Pi answered. */
+    const sendToPi = async (onPiMove: (lat: number, lon: number) => Promise<PiMoveResult>, target: LatLon) => {
+        let result: PiMoveResult;
+        try {
+            result = await onPiMove(target.latitude, target.longitude);
+        } catch (caught) {
+            const error =
+                caught instanceof Error && caught.message ? caught.message : 'The move was not sent. Try again.';
+            result = { ok: false, outcome: 'invalid', error };
+        }
+        if (result.ok) setPiPhase({ kind: 'sent', target, at: Date.now() });
+        else if (result.outcome === 'refused') setPiPhase({ kind: 'refused' });
+        else if (result.outcome === 'unknown') setPiPhase({ kind: 'unknown', target, at: Date.now() });
+        else setError(result.error);
+    };
 
     const submit = async (event: React.FormEvent) => {
         event.preventDefault();
@@ -306,6 +538,11 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
         }
         setBusy(true);
         setError(null);
+        if (props.mode === 'pi') {
+            await sendToPi(props.onPiMove, { latitude: plan.target.lat, longitude: plan.target.lon });
+            setBusy(false);
+            return;
+        }
         let failure: string | null = null;
         try {
             const result = fromAlarm
@@ -382,7 +619,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
                     steps aside on short screens while the keyboard is up. */}
                 <div className={`relative mx-3 h-[200px] min-h-0 shrink ${PREVIEW_ASIDE}`}>
                     <SwingCircleCanvas
-                        snapshot={snapshot}
+                        snapshot={subject.model}
                         previewAnchor={plan ? { latitude: plan.target.lat, longitude: plan.target.lon } : null}
                         className="absolute inset-0 h-full w-full"
                         ariaLabel="Preview of the swing circle around the new anchor, with the boat"
@@ -402,7 +639,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
                                 value={distanceText}
                                 onChange={(event) => {
                                     setDistanceText(event.target.value);
-                                    setError(null);
+                                    edited();
                                 }}
                                 className={`${FIELD} w-[4.5rem]`}
                             />
@@ -419,7 +656,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
                                 value={bearingText}
                                 onChange={(event) => {
                                     setTypedBearing(event.target.value);
-                                    setError(null);
+                                    edited();
                                 }}
                                 className={`${FIELD} w-14`}
                             />
@@ -431,7 +668,7 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
                     {/* Under the fields, so they sit where they do in the watch-page
                         sheet (the keyboard guard measures them there); it steps
                         aside with the hint while the keyboard is up. */}
-                    {fromAlarm && (
+                    {caution && (
                         <p
                             data-testid="move-anchor-caution"
                             className={`text-sm leading-snug font-semibold text-amber-200 ${KEYBOARD_ASIDE}`}
@@ -479,10 +716,18 @@ export const MoveAnchorSheet: React.FC<MoveAnchorSheetProps> = ({ snapshot, onCl
                             type="submit"
                             variant="primary"
                             disabled={!canMove}
-                            aria-label={busy ? 'Moving the anchor' : fromAlarm ? undefined : 'Move anchor'}
+                            aria-label={
+                                busy
+                                    ? pi
+                                        ? 'Sending the move to the Pi'
+                                        : 'Moving the anchor'
+                                    : fromAlarm
+                                      ? undefined
+                                      : 'Move anchor'
+                            }
                             className={fromAlarm ? 'px-3! py-2! leading-tight' : undefined}
                         >
-                            {busy ? 'Moving…' : fromAlarm ? 'Move and stop alarm' : 'Move'}
+                            {busy ? (pi ? 'Sending…' : 'Moving…') : fromAlarm ? 'Move and stop alarm' : 'Move'}
                         </Button>
                     </div>
                 </form>

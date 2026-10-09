@@ -84,19 +84,66 @@ export async function authoriseRelay(relayId: string, sessionCode: string): Prom
     }
 }
 
-/** Step 2. Over the pinned boat-LAN channel — the Pi is a local device. */
-export async function assignWatchToPi(assignment: PiWatchAssignment, piBaseUrl: string): Promise<boolean> {
+/**
+ * How the Pi answered an assignment. `status` is null when nothing answered
+ * (the transport failed), which is the one case where the Pi MAY have taken
+ * it: a moved mark then has to wait for the Pi's own report (126-07a).
+ */
+export type PiAssignAnswer = { taken: true } | { taken: false; status: number | null; error: string };
+
+/** The Pi's own short reason (its JSON `{ error }`), for the log. */
+function piErrorText(data: unknown): string {
+    if (typeof data !== 'string' || !data) return '';
     try {
-        await pinnedPiRequest({
+        const body = JSON.parse(data) as { error?: unknown } | null;
+        if (body && typeof body.error === 'string') return body.error.slice(0, 120);
+    } catch {
+        /* not JSON: a proxy's page, or plain text */
+    }
+    return data.replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
+/**
+ * Step 2, saying how it went. Over the pinned boat-LAN channel — the Pi is a
+ * local device.
+ *
+ * SUCCESS IS A 2xx AND NOTHING ELSE (126-07a, D4). pinnedPiRequest RETURNS a
+ * 400, 409 or 500; it throws only when the transport fails. This used to count
+ * any answer as taken, so a Pi saying "409: not paired" was believed to keep
+ * the watch, at the handoff and at every hourly renewal.
+ */
+export async function sendAssignmentToPi(
+    assignment: PiWatchAssignment,
+    piBaseUrl: string,
+    timeouts?: { connectTimeout?: number; readTimeout?: number },
+): Promise<PiAssignAnswer> {
+    let status: number;
+    let data: unknown;
+    try {
+        const res = await pinnedPiRequest({
             url: `${piBaseUrl.replace(/\/$/, '')}/api/anchor/watch`,
             method: 'POST',
             data: assignment,
+            ...timeouts,
         });
-        return true;
+        status = Number(res?.status);
+        data = res?.data;
     } catch (err) {
-        log.warn(`Pi would not take the watch: ${err instanceof Error ? err.message : String(err)}`);
-        return false;
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn(`Pi did not answer the watch assignment at ${piBaseUrl}: ${message}`);
+        return { taken: false, status: null, error: message };
     }
+    if (status >= 200 && status < 300) return { taken: true };
+    const error = piErrorText(data);
+    log.warn(`Pi would not take the watch (HTTP ${status})${error ? `: ${error}` : ''}`);
+    return { taken: false, status: Number.isFinite(status) ? status : 0, error };
+}
+
+/** Step 2: whether the Pi took the assignment (a 2xx). Never throws. */
+export async function assignWatchToPi(assignment: PiWatchAssignment, piBaseUrl: string): Promise<boolean> {
+    const answer = await sendAssignmentToPi(assignment, piBaseUrl);
+    if (!answer.taken) return false;
+    return true;
 }
 
 /** Tell the Pi to stop. Best effort — the authorisation lapsing is the

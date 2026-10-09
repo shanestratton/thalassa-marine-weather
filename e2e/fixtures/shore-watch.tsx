@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ShoreWatchReadings } from '../../components/anchor-watch/ShoreWatchReadings';
 import { ShoreWeighAnchorBar } from '../../components/anchor-watch/ShoreWeighAnchorBar';
+import { MoveAnchorChip } from '../../components/anchor-watch/MoveAnchorChip';
 import { PageHeader } from '../../components/ui/PageHeader';
 import type { PositionBroadcast } from '../../services/AnchorWatchSyncService';
 import type { SpeedUnit } from '../../types/units';
@@ -85,6 +86,7 @@ function Fixture() {
     const [muted, setMuted] = useState(false);
     const [checkingNotifications, setCheckingNotifications] = useState(false);
     const [weighed, setWeighed] = useState(false);
+    const [moveOpened, setMoveOpened] = useState(false);
     return (
         <main className="flex h-dvh w-full flex-col overflow-hidden bg-slate-950 font-sans text-white">
             <header
@@ -183,11 +185,19 @@ function Fixture() {
                                 trail={trail}
                                 now={now}
                                 phoneWatched={params.has('quietWatch')}
+                                // &piMove=1 with ?ownPi=true: the trial is on, so this
+                                // phone's own Pi watch offers Move anchor (126-07a).
+                                radarAction={
+                                    params.has('ownPi') && params.has('piMove') ? (
+                                        <MoveAnchorChip onClick={() => setMoveOpened(true)} />
+                                    ) : undefined
+                                }
                             />
                             {params.has('ownPi') && <ShoreWeighAnchorBar onWeighAnchor={() => setWeighed(true)} />}
                         </div>
                     </div>
                     {weighed && <p role="alert">Weigh anchor pressed</p>}
+                    {moveOpened && <p role="alert">Move anchor pressed</p>}
                 </div>
             </div>
             <nav

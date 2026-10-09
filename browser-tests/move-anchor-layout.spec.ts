@@ -382,3 +382,102 @@ for (const size of alarmSizes.filter((s) => s.width === 320)) {
         expect(errors).toEqual([]);
     });
 }
+
+// 126-07a: the same sheet for the watch the PI keeps (?mode=pi), opened from
+// Shore Watch on the phone that handed the watch over. Filled from the Pi's
+// report (the same Marseille watch: 40 m in 8 m, a 43 m circle), with the same
+// sizes, keyboard up and down. Move hands the point to the Pi; the fixture's
+// Pi says yes and its report shows the new point a second later.
+for (const size of sizes) {
+    test(`Pi watch: Move anchor fits ${size.name}, with the fields above the keyboard`, async ({ page }, info) => {
+        const errors = await open(page, size, ['mode=pi', size.query].filter(Boolean).join('&'));
+        const label = `pi-${size.width}x${size.height}${size.query ? '-large-text' : ''}`;
+        const distance = page.getByRole('textbox', { name: /distance from the boat to the anchor/i });
+        const bearing = page.getByRole('textbox', { name: /bearing from the boat to the anchor/i });
+        await expect(distance).toHaveValue('33');
+        await expect(bearing).toHaveValue('212');
+        await expect(page.getByTestId('move-anchor-hint')).toContainText('via the Pi');
+        await expect(page.getByTestId('move-anchor-caution')).toHaveCount(0);
+        await expect(liveCheck(page)).toContainText('inside your 43 m circle');
+        await screenshot(page, info, `move-anchor-${label}`);
+        await expectLayout(page, 0, size.mayScroll);
+
+        await distance.click();
+        await keyboard(page, size.keyboard);
+        await expect(distance).toBeFocused();
+        await screenshot(page, info, `move-anchor-keyboard-${label}`);
+        await expectLayout(page, size.keyboard, size.mayScroll);
+
+        await distance.fill('60');
+        await expect(liveCheck(page)).toContainText('outside your 43 m circle');
+        await expect(page.getByRole('button', { name: 'Move anchor', exact: true })).toBeDisabled();
+        await expectLayout(page, size.keyboard, size.mayScroll);
+
+        await distance.fill('25');
+        await page.getByRole('button', { name: 'Move anchor', exact: true }).click();
+        await expect(liveCheck(page)).toContainText('Sent to the Pi…');
+        await expectLayout(page, size.keyboard, size.mayScroll);
+        // The Pi's next report shows the new point: moved, and the sheet closes.
+        await expect(page.getByRole('dialog', { name: 'Move anchor' })).toBeHidden();
+        await expect(page.getByTestId('outcome')).toHaveText('moved');
+        expect(
+            await page.evaluate(
+                () =>
+                    (window as unknown as { __moveAnchorFixture: { moves: unknown[] } }).__moveAnchorFixture.moves
+                        .length,
+            ),
+        ).toBe(1);
+        await keyboard(page, 0);
+        expect(errors).toEqual([]);
+    });
+}
+
+// From ashore (&ashore=1) the sheet adds 125-03's caution, and the heading
+// comes via the cloud: it must still fit the smallest phone, keyboard up and down.
+for (const size of sizes.filter((s) => s.width === 320)) {
+    test(`Pi watch from ashore: the caution fits ${size.name}, keyboard up and down`, async ({ page }, info) => {
+        const errors = await open(page, size, ['mode=pi&ashore=1', size.query].filter(Boolean).join('&'));
+        const label = `pi-ashore-${size.width}x${size.height}${size.query ? '-large-text' : ''}`;
+        await expect(page.getByTestId('move-anchor-caution')).toContainText(/sure the anchor hasn.t moved/i);
+        await expect(page.getByTestId('move-anchor-hint')).toContainText('via the cloud');
+        await expect(liveCheck(page)).toContainText('inside your 43 m circle');
+        await screenshot(page, info, `move-anchor-${label}`);
+        await expectLayout(page, 0, size.mayScroll);
+        const distance = page.getByRole('textbox', { name: /distance from the boat to the anchor/i });
+        await distance.click();
+        await keyboard(page, size.keyboard);
+        await screenshot(page, info, `move-anchor-keyboard-${label}`);
+        await expectLayout(page, size.keyboard, size.mayScroll);
+        await keyboard(page, 0);
+        expect(errors).toEqual([]);
+    });
+}
+
+// The longest lines the sheet says after Move: no answer at all, and a refusal.
+for (const answer of ['unknown', 'refused']) {
+    for (const size of sizes.filter((s) => s.width === 320)) {
+        test(`Pi watch: "${answer}" fits ${size.name}, keyboard up and down`, async ({ page }) => {
+            const errors = await open(
+                page,
+                size,
+                [`mode=pi&ashore=1&piAnswer=${answer}`, size.query].filter(Boolean).join('&'),
+            );
+            const distance = page.getByRole('textbox', { name: /distance from the boat to the anchor/i });
+            await distance.click();
+            await keyboard(page, size.keyboard);
+            await page.getByRole('button', { name: 'Move anchor', exact: true }).click();
+            await expect(liveCheck(page)).toContainText(
+                answer === 'unknown' ? /didn.t answer/ : /still watching the old point/,
+            );
+            await expectLayout(page, size.keyboard, size.mayScroll);
+            await keyboard(page, 0);
+            await expect(liveCheck(page)).toContainText(
+                answer === 'unknown' ? /Shore Watch will show which within a minute/ : /Nothing was moved/,
+            );
+            await expectLayout(page, 0, size.mayScroll);
+            // Still open, nothing claimed: the skipper can try again or close it.
+            await expect(page.getByTestId('outcome')).toHaveText('waiting');
+            expect(errors).toEqual([]);
+        });
+    }
+}
