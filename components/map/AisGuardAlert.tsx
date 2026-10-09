@@ -32,6 +32,12 @@
  * internet is the same card, silent, saying so, with its age. A caution (a
  * beacon's MMSI, neither active nor test) is amber and silent. Test beacons
  * are drawn on the chart, not carded.
+ *
+ * Build 126 (126-04a): the Pi keeps the night watch too. An alarm the Pi
+ * raised that this phone has not carded itself (its own watch off, or not yet
+ * seeing her) shows here as a card marked FROM THE PI, from the Pi's LAN word
+ * (services/piNightWatchStatus.ts), silent: its button goes to the Pi, which
+ * settles it for every phone aboard, and the card stands aside at once.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import type { GuardAlert } from '../../services/AisGuardZone';
@@ -54,6 +60,7 @@ import {
     type CollisionWatchNotice,
 } from '../../services/aisGuardAlertStore';
 import { NIGHT_SCRIM_Z_INDEX } from '../ui/OverlayPortal';
+import { PiNightWatchStatus, type PiWatchAlarm } from '../../services/piNightWatchStatus';
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
@@ -120,6 +127,52 @@ function keepUnits(text: string): string {
     return text.replace(/(\d) (NM|kn|s|min)\b/g, '$1\u00a0$2');
 }
 
+const FROM_PI = ' · FROM THE PI';
+const HEARD_BY_PI = 'Heard by the Pi’s radio';
+
+function piSignature(alarms: PiWatchAlarm[]): string {
+    return alarms.map((a) => `${a.key}|${a.cpaNm}|${a.tcpaMin}|${a.rangeNm}|${a.bearingDeg}|${a.lost}`).join(';');
+}
+
+/** A Pi collision alarm (126-04a) as the phone's own card: the same words, marked as the Pi's. */
+function piCollisionCard(a: PiWatchAlarm): CollisionAlertCard {
+    return {
+        mmsi: a.mmsi,
+        name: a.name || `MMSI ${a.mmsi}`,
+        distanceNm: a.rangeNm ?? 0,
+        bearing: a.bearingDeg ?? 0,
+        sog: null,
+        cog: null,
+        shipType: '',
+        timestamp: a.raisedAt,
+        collision: {
+            cpaNm: a.cpaNm ?? 0,
+            tcpaMin: a.tcpaMin ?? 0,
+            closeQuarters: a.kind === 'close-quarters',
+            reportAgeSec: null,
+            source: 'pi',
+            ...(a.lost ? { lost: { reason: a.lost, sinceMs: a.raisedAt, lastCpaAt: a.raisedAt } } : {}),
+        },
+    };
+}
+
+/** A Pi distress alarm (126-04a) as the phone's own beacon card. */
+function piBeacon(a: PiWatchAlarm): DistressBeacon {
+    return {
+        mmsi: a.mmsi,
+        name: a.name,
+        kind: a.distressKind ?? 'sart',
+        state: 'active',
+        source: 'local',
+        sounds: true,
+        lat: a.positionKnown === false ? null : a.lat,
+        lon: a.positionKnown === false ? null : a.lon,
+        heardAt: a.raisedAt,
+        rangeNm: a.rangeNm,
+        bearingDeg: a.bearingDeg,
+    };
+}
+
 /** The IEC 62288 AIS-SART mark, as on the chart. */
 function DistressGlyph() {
     return (
@@ -130,9 +183,11 @@ function DistressGlyph() {
     );
 }
 
-function DistressCard({ beacon, nowMs }: { beacon: DistressBeacon; nowMs: number }) {
+function DistressCard({ beacon, nowMs, fromPi }: { beacon: DistressBeacon; nowMs: number; fromPi?: PiWatchAlarm }) {
     const lines = distressLines(beacon, nowMs);
-    const sounding = AisGuardAlertStore.distressSounding(beacon);
+    // From the Pi (126-04a): its Silence goes to the Pi; no Go to it (the phone does not hear her itself).
+    const sounding = fromPi ? true : AisGuardAlertStore.distressSounding(beacon);
+    const piNote = fromPi ? ' (from the Pi)' : '';
     const caution = beacon.state === 'caution';
     const button: React.CSSProperties = {
         ...ACTION,
@@ -165,10 +220,13 @@ function DistressCard({ beacon, nowMs }: { beacon: DistressBeacon; nowMs: number
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                 <DistressGlyph />
                 <div style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
-                    <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.5 }}>{lines.title}</div>
+                    <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.5 }}>
+                        {lines.title}
+                        {fromPi ? FROM_PI : ''}
+                    </div>
                     <div style={{ fontSize: 14, fontWeight: 800, marginTop: 2 }}>{lines.who}</div>
                     <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>{lines.where}</div>
-                    <div style={{ fontSize: 13, opacity: 0.9 }}>{lines.heard}</div>
+                    <div style={{ fontSize: 13, opacity: 0.9 }}>{fromPi ? HEARD_BY_PI : lines.heard}</div>
                 </div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -176,8 +234,12 @@ function DistressCard({ beacon, nowMs }: { beacon: DistressBeacon; nowMs: number
                     <button
                         type="button"
                         style={button}
-                        aria-label={`Silence the distress alarm for ${lines.who}`}
-                        onClick={() => AisGuardAlertStore.silenceDistress(beacon.mmsi)}
+                        aria-label={`Silence the distress alarm for ${lines.who}${piNote}`}
+                        onClick={() =>
+                            fromPi
+                                ? PiNightWatchStatus.acknowledge(fromPi)
+                                : AisGuardAlertStore.silenceDistress(beacon.mmsi)
+                        }
                     >
                         Silence alarm
                     </button>
@@ -191,7 +253,7 @@ function DistressCard({ beacon, nowMs }: { beacon: DistressBeacon; nowMs: number
                         Dismiss
                     </button>
                 )}
-                {lines.canGoTo && (
+                {lines.canGoTo && !fromPi && (
                     <button
                         type="button"
                         style={button}
@@ -209,9 +271,10 @@ function DistressCard({ beacon, nowMs }: { beacon: DistressBeacon; nowMs: number
     );
 }
 
-function CollisionCard({ alert }: { alert: CollisionAlertCard }) {
+function CollisionCard({ alert, fromPi }: { alert: CollisionAlertCard; fromPi?: PiWatchAlarm }) {
     const c = alert.collision;
     const lines = collisionLines(alert);
+    const piNote = fromPi ? ' (from the Pi)' : '';
     const kind = c.closeQuarters ? 'CLOSE QUARTERS' : 'COLLISION RISK';
     const heading = c.cleared
         ? c.lost
@@ -220,11 +283,12 @@ function CollisionCard({ alert }: { alert: CollisionAlertCard }) {
         : c.lost
           ? `${kind}: CPA UNKNOWN`
           : kind;
-    const label = c.cleared
-        ? `Dismiss collision alert for ${alert.name}`
-        : c.closeQuarters
-          ? `Acknowledge close quarters with ${alert.name}`
-          : `Mute ${alert.name} for 30 minutes`;
+    const label =
+        (c.cleared
+            ? `Dismiss collision alert for ${alert.name}`
+            : c.closeQuarters
+              ? `Acknowledge close quarters with ${alert.name}`
+              : `Mute ${alert.name} for 30 minutes`) + piNote;
     return (
         <div role="alert" style={{ ...CARD, opacity: c.cleared ? 0.8 : 1 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
@@ -232,11 +296,14 @@ function CollisionCard({ alert }: { alert: CollisionAlertCard }) {
                     ⚠️
                 </span>
                 <div style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
-                    <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.5 }}>{heading}</div>
+                    <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.5 }}>
+                        {heading}
+                        {fromPi ? FROM_PI : ''}
+                    </div>
                     <div style={{ fontSize: 14, fontWeight: 800, marginTop: 2 }}>{alert.name}</div>
                     <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>{lines.cpa}</div>
                     <div style={{ fontSize: 13, opacity: 0.9 }}>
-                        {lines.where} · {lines.age}
+                        {lines.where} · {fromPi ? HEARD_BY_PI : lines.age}
                     </div>
                 </div>
             </div>
@@ -244,7 +311,9 @@ function CollisionCard({ alert }: { alert: CollisionAlertCard }) {
                 and the target is easy to hit on a moving boat. */}
             <button
                 type="button"
-                onClick={() => AisGuardAlertStore.muteCollision(alert.mmsi)}
+                onClick={() =>
+                    fromPi ? PiNightWatchStatus.acknowledge(fromPi) : AisGuardAlertStore.muteCollision(alert.mmsi)
+                }
                 aria-label={label}
                 style={{
                     ...ACTION,
@@ -282,6 +351,29 @@ export const AisGuardAlert: React.FC = () => {
             }),
         [],
     );
+    // The Pi's own alarms this phone has not carded (126-04a), as the Pi's word and this phone's cards change.
+    // The Pi answers every 2 s: re-render only when what the cards say has changed.
+    const [piAlarms, setPiAlarms] = useState<PiWatchAlarm[]>(() => PiNightWatchStatus.piCards());
+    const refreshPi = useCallback(() => {
+        const next = PiNightWatchStatus.piCards();
+        setPiAlarms((prev) => (piSignature(prev) === piSignature(next) ? prev : next));
+    }, []);
+    useEffect(() => {
+        const stops = [
+            PiNightWatchStatus.subscribe(refreshPi),
+            AisGuardAlertStore.subscribe(refreshPi),
+            AisGuardAlertStore.subscribeDistress(refreshPi),
+        ];
+        return () => stops.forEach((stop) => stop());
+    }, [refreshPi]);
+    // A Pi gone quiet: its cards age out with its word.
+    const showingPi = piAlarms.length > 0;
+    useEffect(() => {
+        if (!showingPi) return;
+        const timer = setInterval(refreshPi, 5_000);
+        return () => clearInterval(timer);
+    }, [showingPi, refreshPi]);
+
     // A beacon's 'heard 12 s ago' keeps counting while its card shows.
     const showingDistress = distress.length > 0;
     useEffect(() => {
@@ -299,10 +391,13 @@ export const AisGuardAlert: React.FC = () => {
     const shownDistress = view === 'mob' && goTo !== null ? distress.filter((b) => b.mmsi !== goTo) : distress;
 
     const status = notice ? noticeText(notice) : null;
-    if (alerts.length === 0 && !status && shownDistress.length === 0) return null;
+    if (alerts.length === 0 && !status && shownDistress.length === 0 && piAlarms.length === 0) return null;
     const alarming =
+        piAlarms.length > 0 ||
         alerts.some((a) => a.collision && !a.collision.cleared) ||
         shownDistress.some((b) => AisGuardAlertStore.distressSounding(b));
+    const piDistress = piAlarms.filter((a) => a.kind === 'distress');
+    const piCollision = piAlarms.filter((a) => a.kind !== 'distress');
 
     return (
         <div
@@ -328,6 +423,9 @@ export const AisGuardAlert: React.FC = () => {
             {/* Distress first: it outranks every other alarm (125-02). */}
             {shownDistress.map((beacon) => (
                 <DistressCard key={`d-${beacon.mmsi}`} beacon={beacon} nowMs={nowMs} />
+            ))}
+            {piDistress.map((alarm) => (
+                <DistressCard key={`p-${alarm.key}`} beacon={piBeacon(alarm)} nowMs={nowMs} fromPi={alarm} />
             ))}
             {status && (
                 <div
@@ -359,6 +457,9 @@ export const AisGuardAlert: React.FC = () => {
                     )}
                 </div>
             )}
+            {piCollision.map((alarm) => (
+                <CollisionCard key={`p-${alarm.key}`} alert={piCollisionCard(alarm)} fromPi={alarm} />
+            ))}
             {alerts.map((alert) =>
                 alert.collision ? (
                     <CollisionCard key={`c-${alert.mmsi}`} alert={alert as CollisionAlertCard} />

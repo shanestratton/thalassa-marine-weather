@@ -38,6 +38,13 @@ export interface TelemetryPublisherDeps {
     intervalMs?: number;
     now?: () => number;
     supplement?: (snapshot: TelemetrySnapshot | null) => Promise<TelemetrySnapshot | null>;
+    /**
+     * The night watch's three cloud keys (126-04a, aisWatch.ts cloudExtra()),
+     * so a phone ashore can say whether the Pi is watching. They go FIRST in
+     * `extra`: the relay keeps at most 40 keys in insertion order and drops
+     * the rest without a word (supabase/functions/telemetry-relay/parse.ts).
+     */
+    aisWatchExtra?: () => Record<string, number | string> | null;
 }
 
 export type PublishOutcome =
@@ -58,8 +65,17 @@ export interface TelemetryPublisherStatus {
     nextDelayMs: number;
 }
 
-/** The wire shape the Edge Function parses (parse.ts): snake_case, bounded there. */
-export function buildTelemetryBody(snapshot: TelemetrySnapshot, deviceLabel: string): Record<string, unknown> {
+/**
+ * The wire shape the Edge Function parses (parse.ts): snake_case, bounded
+ * there. `leadingExtra` goes first in `extra`, ahead of everything the bus and
+ * the supplements put there: the relay keeps the first 40 keys only.
+ */
+export function buildTelemetryBody(
+    snapshot: TelemetrySnapshot,
+    deviceLabel: string,
+    leadingExtra?: Record<string, number | string> | null,
+): Record<string, unknown> {
+    const extra = leadingExtra ? { ...leadingExtra, ...snapshot.extra } : snapshot.extra;
     return {
         source: 'pi',
         device_label: deviceLabel.slice(0, 60),
@@ -83,7 +99,7 @@ export function buildTelemetryBody(snapshot: TelemetrySnapshot, deviceLabel: str
         rudder_deg: snapshot.rudderDeg,
         rpm: snapshot.rpm,
         voltage_v: snapshot.voltageV,
-        ...(snapshot.extra ? { extra: snapshot.extra } : {}),
+        ...(extra ? { extra } : {}),
     };
 }
 
@@ -185,7 +201,7 @@ export class TelemetryPublisher {
                     'X-Thalassa-Pi-Relay-Id': credential.relayId,
                     'X-Thalassa-Pi-Relay-Token': credential.token,
                 },
-                body: JSON.stringify(buildTelemetryBody(snapshot, this.deps.deviceLabel)),
+                body: JSON.stringify(buildTelemetryBody(snapshot, this.deps.deviceLabel, this.deps.aisWatchExtra?.())),
                 signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
             });
         } catch {

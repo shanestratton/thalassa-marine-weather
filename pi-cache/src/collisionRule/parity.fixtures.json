@@ -1,0 +1,1195 @@
+{
+    "about": "Parity cases for the collision rule (126-04a). tests/CollisionRulePiMirror.test.ts runs them through the app (utils/collisionRule.ts) and pi-cache/src/aisWatch.test.mts through the Pi mirror; both must give these answers. Numbers rounded to 3 decimals. Fictional ships; worldwide waters.",
+    "cases": [
+        {
+            "name": "head-on in the Solent: Nordlicht 2 NM ahead, closing at 18 kn",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 50.78,
+                "lon": -1.2,
+                "sogKn": 8,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 50.78,
+                "lon": -1.147282,
+                "sogKn": 10,
+                "cogDeg": 270,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local",
+                "mmsi": 211000001
+            },
+            "expect": {
+                "risk": "DANGER",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": true,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 2.001,
+                "bearingDeg": 89.98,
+                "cpaNm": 0,
+                "tcpaMin": 6.667,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "crossing in the Hauraki Gulf: Bay Runner from the starboard bow, on a collision course",
+            "fn": "assessCollision",
+            "own": {
+                "lat": -36.75,
+                "lon": 174.95,
+                "sogKn": 6,
+                "cogDeg": 0,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": -36.72643,
+                "lon": 174.979417,
+                "sogKn": 6,
+                "cogDeg": 270,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local",
+                "mmsi": 366000002
+            },
+            "expect": {
+                "risk": "DANGER",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": true,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 2.002,
+                "bearingDeg": 45.014,
+                "cpaNm": 0,
+                "tcpaMin": 14.142,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "overtaken in Chesapeake Bay: a 12 kn ship half a mile astern",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 37.9,
+                "lon": -76.2,
+                "sogKn": 5,
+                "cogDeg": 0,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 37.891667,
+                "lon": -76.2,
+                "sogKn": 12,
+                "cogDeg": 0,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local",
+                "mmsi": 366000002
+            },
+            "expect": {
+                "risk": "DANGER",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": true,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 0.5,
+                "bearingDeg": 180,
+                "cpaNm": 0,
+                "tcpaMin": 4.286,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "diverging: she is ahead and pulling away",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 50.78,
+                "lon": -1.2,
+                "sogKn": 6,
+                "cogDeg": 0,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 50.796667,
+                "lon": -1.2,
+                "sogKn": 10,
+                "cogDeg": 0,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "NONE",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": false,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 1.001,
+                "bearingDeg": 0,
+                "cpaNm": 0,
+                "tcpaMin": -15,
+                "opening": true,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "a passing ship well clear offshore: CPA 0.8 NM is a caution, not an alarm",
+            "fn": "assessCollision",
+            "own": {
+                "lat": -36.75,
+                "lon": 174.95,
+                "sogKn": 7,
+                "cogDeg": 0,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": -36.716667,
+                "lon": 174.966633,
+                "sogKn": 7,
+                "cogDeg": 180,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "CAUTION",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": false,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 2.155,
+                "bearingDeg": 21.802,
+                "cpaNm": 0.8,
+                "tcpaMin": 8.571,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "far ahead: more than an hour out is safe",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 37.9,
+                "lon": -76.2,
+                "sogKn": 4,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 37.9,
+                "lon": -75.946542,
+                "sogKn": 4,
+                "cogDeg": 270,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "SAFE",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": false,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 12.008,
+                "bearingDeg": 89.922,
+                "cpaNm": 0,
+                "tcpaMin": 90,
+                "opening": true,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "inshore pair at 2 kn: a 6 kn launch crossing, CPA inside 0.2 NM within 6 min",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 50.78,
+                "lon": -1.2,
+                "sogKn": 2,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 50.773333,
+                "lon": -1.196046,
+                "sogKn": 6,
+                "cogDeg": 0,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "DANGER",
+                "closeQuarters": false,
+                "pair": "inshore",
+                "alarm": true,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 0.428,
+                "bearingDeg": 159.441,
+                "cpaNm": 0.016,
+                "tcpaMin": 4.05,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "a stopped boat dead ahead at 0.05 NM: close quarters, whatever the berth filter",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 50.78,
+                "lon": -1.2,
+                "sogKn": 2,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 50.78,
+                "lon": -1.198682,
+                "sogKn": 0,
+                "cogDeg": 360,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "DANGER",
+                "closeQuarters": true,
+                "pair": "inshore",
+                "alarm": true,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 0.05,
+                "bearingDeg": 89.999,
+                "cpaNm": 0,
+                "tcpaMin": 1.5,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": true
+            }
+        },
+        {
+            "name": "a stopped boat dead ahead at 0.3 NM, inshore: a berth, never DANGER",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 50.78,
+                "lon": -1.2,
+                "sogKn": 2,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 50.78,
+                "lon": -1.192092,
+                "sogKn": 0,
+                "cogDeg": 360,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "CAUTION",
+                "closeQuarters": false,
+                "pair": "inshore",
+                "alarm": false,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 0.3,
+                "bearingDeg": 89.997,
+                "cpaNm": 0,
+                "tcpaMin": 9,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "status 5 (moored) at 12 kn: a stale claim, still DANGER",
+            "fn": "assessCollision",
+            "own": {
+                "lat": -36.75,
+                "lon": 174.95,
+                "sogKn": 8,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": -36.75,
+                "lon": 174.991601,
+                "sogKn": 12,
+                "cogDeg": 270,
+                "navStatus": 5,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "DANGER",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": true,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 2.001,
+                "bearingDeg": 90.012,
+                "cpaNm": 0,
+                "tcpaMin": 6,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "status 5 (moored) at 0.3 kn: believed",
+            "fn": "assessCollision",
+            "own": {
+                "lat": -36.75,
+                "lon": 174.95,
+                "sogKn": 8,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": -36.75,
+                "lon": 174.970801,
+                "sogKn": 0.3,
+                "cogDeg": 270,
+                "navStatus": 5,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "NONE",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": false,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 1.001,
+                "bearingDeg": 90.006,
+                "cpaNm": 0,
+                "tcpaMin": 7.229,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "both stopped: not a collision course",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 37.9,
+                "lon": -76.2,
+                "sogKn": 0.2,
+                "cogDeg": null,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 37.901179,
+                "lon": -76.198506,
+                "sogKn": 0.1,
+                "cogDeg": null,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "NONE",
+                "closeQuarters": false,
+                "pair": "inshore",
+                "alarm": false,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 0.1,
+                "bearingDeg": 44.997,
+                "cpaNm": 0.1,
+                "tcpaMin": 0,
+                "opening": false,
+                "settled": true,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "at anchor: a 6 kn ship at 0.05 NM, motoring down on us",
+            "fn": "assessCollision",
+            "own": {
+                "lat": -36.75,
+                "lon": 174.95,
+                "sogKn": 0.2,
+                "cogDeg": null,
+                "atAnchor": true
+            },
+            "target": {
+                "lat": -36.749167,
+                "lon": 174.95,
+                "sogKn": 6,
+                "cogDeg": 180,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "DANGER",
+                "closeQuarters": true,
+                "pair": "inshore",
+                "alarm": true,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 0.05,
+                "bearingDeg": 0,
+                "cpaNm": 0,
+                "tcpaMin": 0.5,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": true
+            }
+        },
+        {
+            "name": "the same ship at a berth (no anchor watch): awareness only",
+            "fn": "assessCollision",
+            "own": {
+                "lat": -36.75,
+                "lon": 174.95,
+                "sogKn": 0.2,
+                "cogDeg": null,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": -36.749167,
+                "lon": 174.95,
+                "sogKn": 6,
+                "cogDeg": 180,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "CAUTION",
+                "closeQuarters": false,
+                "pair": "inshore",
+                "alarm": false,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 0.05,
+                "bearingDeg": 0,
+                "cpaNm": 0,
+                "tcpaMin": 0.5,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "at anchor: a 1.5 kn drifter at 0.05 NM is not under way",
+            "fn": "assessCollision",
+            "own": {
+                "lat": -36.75,
+                "lon": 174.95,
+                "sogKn": 0.2,
+                "cogDeg": null,
+                "atAnchor": true
+            },
+            "target": {
+                "lat": -36.749167,
+                "lon": 174.95,
+                "sogKn": 1.5,
+                "cogDeg": 180,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "NONE",
+                "closeQuarters": false,
+                "pair": "inshore",
+                "alarm": false,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 0.05,
+                "bearingDeg": 0,
+                "cpaNm": 0,
+                "tcpaMin": 1.999,
+                "opening": false,
+                "settled": true,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "at anchor, swinging at 1.8 kn: still stopped, and a 7 kn ship at 0.08 NM sounds",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 50.78,
+                "lon": -1.2,
+                "sogKn": 1.8,
+                "cogDeg": 45,
+                "atAnchor": true
+            },
+            "target": {
+                "lat": 50.781333,
+                "lon": -1.2,
+                "sogKn": 7,
+                "cogDeg": 180,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "DANGER",
+                "closeQuarters": true,
+                "pair": "inshore",
+                "alarm": true,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 0.08,
+                "bearingDeg": 0,
+                "cpaNm": 0,
+                "tcpaMin": 0.686,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": true
+            }
+        },
+        {
+            "name": "at anchor but making 3 kn: under way, graded as under way",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 50.78,
+                "lon": -1.2,
+                "sogKn": 3,
+                "cogDeg": 90,
+                "atAnchor": true
+            },
+            "target": {
+                "lat": 50.78,
+                "lon": -1.173641,
+                "sogKn": 6,
+                "cogDeg": 270,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "DANGER",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": true,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 1.001,
+                "bearingDeg": 89.99,
+                "cpaNm": 0,
+                "tcpaMin": 6.667,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "her speed not available (102.3): range only",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 50.78,
+                "lon": -1.2,
+                "sogKn": 8,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 50.78,
+                "lon": -1.173641,
+                "sogKn": 102.3,
+                "cogDeg": 270,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "NONE",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": false,
+                "rangeOnly": true,
+                "reason": "target-motion-unknown",
+                "rangeNm": 1.001,
+                "bearingDeg": 89.99,
+                "cpaNm": null,
+                "tcpaMin": null,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "her course not available (360) at 10 kn: range only",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 50.78,
+                "lon": -1.2,
+                "sogKn": 8,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 50.78,
+                "lon": -1.173641,
+                "sogKn": 10,
+                "cogDeg": 360,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "NONE",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": false,
+                "rangeOnly": true,
+                "reason": "target-motion-unknown",
+                "rangeNm": 1.001,
+                "bearingDeg": 89.99,
+                "cpaNm": null,
+                "tcpaMin": null,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "her speed unknown (null): range only, never 0",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 50.78,
+                "lon": -1.2,
+                "sogKn": 8,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 50.78,
+                "lon": -1.173641,
+                "sogKn": null,
+                "cogDeg": 270,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "NONE",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": false,
+                "rangeOnly": true,
+                "reason": "target-motion-unknown",
+                "rangeNm": 1.001,
+                "bearingDeg": 89.99,
+                "cpaNm": null,
+                "tcpaMin": null,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "our own speed unknown: no CPA",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 37.9,
+                "lon": -76.2,
+                "sogKn": null,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 37.9,
+                "lon": -76.178878,
+                "sogKn": 6,
+                "cogDeg": 270,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "NONE",
+                "closeQuarters": false,
+                "pair": "inshore",
+                "alarm": false,
+                "rangeOnly": true,
+                "reason": "own-motion-unknown",
+                "rangeNm": 1.001,
+                "bearingDeg": 89.994,
+                "cpaNm": null,
+                "tcpaMin": null,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "her report 700 s old: too old for a CPA",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 37.9,
+                "lon": -76.2,
+                "sogKn": 6,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 37.9,
+                "lon": -76.178878,
+                "sogKn": 6,
+                "cogDeg": 270,
+                "navStatus": null,
+                "reportAgeSec": 700,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "NONE",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": false,
+                "rangeOnly": true,
+                "reason": "report-too-old",
+                "rangeNm": 1.001,
+                "bearingDeg": 89.994,
+                "cpaNm": null,
+                "tcpaMin": null,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "Fiji across 180°: head-on 4 NM apart, a caution at 20 min",
+            "fn": "assessCollision",
+            "own": {
+                "lat": -17,
+                "lon": 179.95,
+                "sogKn": 6,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": -17,
+                "lon": -179.98,
+                "sogKn": 6,
+                "cogDeg": 270,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "CAUTION",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": false,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 4.019,
+                "bearingDeg": 90.01,
+                "cpaNm": 0,
+                "tcpaMin": 20.082,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "Fiji across 180°: head-on 2.3 NM apart, DANGER",
+            "fn": "assessCollision",
+            "own": {
+                "lat": -17,
+                "lon": 179.97,
+                "sogKn": 8,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": -17,
+                "lon": -179.99,
+                "sogKn": 8,
+                "cogDeg": 270,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "expect": {
+                "risk": "DANGER",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": true,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 2.297,
+                "bearingDeg": 90.006,
+                "cpaNm": 0,
+                "tcpaMin": 8.607,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "an app-reported position never alarms, however close",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 50.78,
+                "lon": -1.2,
+                "sogKn": 8,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 50.78,
+                "lon": -1.147282,
+                "sogKn": 10,
+                "cogDeg": 270,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "app"
+            },
+            "expect": {
+                "risk": "DANGER",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": false,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 2.001,
+                "bearingDeg": 89.98,
+                "cpaNm": 0,
+                "tcpaMin": 6.667,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "network AIS can alarm",
+            "fn": "assessCollision",
+            "own": {
+                "lat": 50.78,
+                "lon": -1.2,
+                "sogKn": 8,
+                "cogDeg": 90,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": 50.78,
+                "lon": -1.147282,
+                "sogKn": 10,
+                "cogDeg": 270,
+                "navStatus": null,
+                "reportAgeSec": 240,
+                "source": "cloud"
+            },
+            "expect": {
+                "risk": "DANGER",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": true,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 2.001,
+                "bearingDeg": 89.98,
+                "cpaNm": 0,
+                "tcpaMin": 6.667,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "the skipper's own thresholds: 1 NM / 30 min offshore makes a 0.8 NM pass DANGER",
+            "fn": "assessCollision",
+            "own": {
+                "lat": -36.75,
+                "lon": 174.95,
+                "sogKn": 7,
+                "cogDeg": 0,
+                "atAnchor": false
+            },
+            "target": {
+                "lat": -36.716667,
+                "lon": 174.966633,
+                "sogKn": 7,
+                "cogDeg": 180,
+                "navStatus": null,
+                "reportAgeSec": 5,
+                "source": "local"
+            },
+            "prefs": {
+                "offshore": {
+                    "cpaNm": 1,
+                    "tcpaMin": 30
+                },
+                "inshore": {
+                    "cpaNm": 0.2,
+                    "tcpaMin": 6
+                }
+            },
+            "expect": {
+                "risk": "DANGER",
+                "closeQuarters": false,
+                "pair": "offshore",
+                "alarm": true,
+                "rangeOnly": false,
+                "reason": null,
+                "rangeNm": 2.155,
+                "bearingDeg": 21.802,
+                "cpaNm": 0.8,
+                "tcpaMin": 8.571,
+                "opening": false,
+                "settled": false,
+                "soundsMuted": false
+            }
+        },
+        {
+            "name": "a SART active, heard by our own radio",
+            "fn": "classifyDistress",
+            "evidence": {
+                "mmsi": 970000003,
+                "navStatus": 14,
+                "navStatusAt": 1791540000000,
+                "source": "local",
+                "hasPosition": true
+            },
+            "expect": {
+                "kind": "sart",
+                "state": "active",
+                "sounds": true,
+                "relayed": false,
+                "positionKnown": true
+            }
+        },
+        {
+            "name": "a SART active with no position yet: alarms, position not yet received",
+            "fn": "classifyDistress",
+            "evidence": {
+                "mmsi": 970000003,
+                "navStatus": 14,
+                "navStatusAt": 1791540000000,
+                "source": "local",
+                "hasPosition": false
+            },
+            "expect": {
+                "kind": "sart",
+                "state": "active",
+                "sounds": true,
+                "relayed": false,
+                "positionKnown": false
+            }
+        },
+        {
+            "name": "a SART in test (status 15): shown, never an alarm",
+            "fn": "classifyDistress",
+            "evidence": {
+                "mmsi": 970000003,
+                "navStatus": 15,
+                "navStatusAt": 1791540000000,
+                "source": "local",
+                "hasPosition": true
+            },
+            "expect": {
+                "kind": "sart",
+                "state": "test",
+                "sounds": false,
+                "relayed": false,
+                "positionKnown": true
+            }
+        },
+        {
+            "name": "a SART saying SART TEST in its message 14",
+            "fn": "classifyDistress",
+            "evidence": {
+                "mmsi": 970000003,
+                "safetyText": "SART TEST",
+                "safetyTextAt": 1791540000000,
+                "source": "local",
+                "hasPosition": true
+            },
+            "expect": {
+                "kind": "sart",
+                "state": "test",
+                "sounds": false,
+                "relayed": false,
+                "positionKnown": true
+            }
+        },
+        {
+            "name": "an MOB beacon with no status: a caution",
+            "fn": "classifyDistress",
+            "evidence": {
+                "mmsi": 972000004,
+                "navStatus": null,
+                "source": "local",
+                "hasPosition": true
+            },
+            "expect": {
+                "kind": "mob",
+                "state": "caution",
+                "sounds": false,
+                "relayed": false,
+                "positionKnown": true
+            }
+        },
+        {
+            "name": "an EPIRB-AIS saying EPIRB ACTIVE",
+            "fn": "classifyDistress",
+            "evidence": {
+                "mmsi": 974000005,
+                "safetyText": "EPIRB ACTIVE",
+                "safetyTextAt": 1791540000000,
+                "source": "local",
+                "hasPosition": true
+            },
+            "expect": {
+                "kind": "epirb",
+                "state": "active",
+                "sounds": true,
+                "relayed": false,
+                "positionKnown": true
+            }
+        },
+        {
+            "name": "a test beacon switched to active: the later report decides",
+            "fn": "classifyDistress",
+            "evidence": {
+                "mmsi": 970000003,
+                "navStatus": 15,
+                "navStatusAt": 1791540000000,
+                "safetyText": "SART ACTIVE",
+                "safetyTextAt": 1791540030000,
+                "source": "local",
+                "hasPosition": true
+            },
+            "expect": {
+                "kind": "sart",
+                "state": "active",
+                "sounds": true,
+                "relayed": false,
+                "positionKnown": true
+            }
+        },
+        {
+            "name": "an internet-only beacon: red and silent, never an alarm",
+            "fn": "classifyDistress",
+            "evidence": {
+                "mmsi": 974000005,
+                "navStatus": 14,
+                "navStatusAt": 1791540000000,
+                "source": "cloud",
+                "hasPosition": true
+            },
+            "expect": {
+                "kind": "epirb",
+                "state": "active",
+                "sounds": false,
+                "relayed": true,
+                "positionKnown": true
+            }
+        },
+        {
+            "name": "an ordinary ship reporting status 14: carded as a SART",
+            "fn": "classifyDistress",
+            "evidence": {
+                "mmsi": 211000001,
+                "navStatus": 14,
+                "navStatusAt": 1791540000000,
+                "source": "local",
+                "hasPosition": true
+            },
+            "expect": {
+                "kind": "sart",
+                "state": "active",
+                "sounds": true,
+                "relayed": false,
+                "positionKnown": true
+            }
+        },
+        {
+            "name": "an ordinary station's RANGE ACTIVE text is not a beacon",
+            "fn": "classifyDistress",
+            "evidence": {
+                "mmsi": 211000001,
+                "safetyText": "RANGE ACTIVE",
+                "safetyTextAt": 1791540000000,
+                "source": "local",
+                "hasPosition": true
+            },
+            "expect": null
+        },
+        {
+            "name": "speed 102.3 is not available",
+            "fn": "aisSogKn",
+            "value": 102.3,
+            "expect": null
+        },
+        {
+            "name": "course 360 is not available",
+            "fn": "aisCogDeg",
+            "value": 360,
+            "expect": null
+        },
+        {
+            "name": "heading 511 is not available",
+            "fn": "aisHeadingDeg",
+            "value": 511,
+            "expect": null
+        },
+        {
+            "name": "heading 359 is a heading",
+            "fn": "aisHeadingDeg",
+            "value": 359,
+            "expect": 359
+        },
+        {
+            "name": "the pair keeps offshore down to 2.5 kn",
+            "fn": "collisionPairFor",
+            "ownSogKn": 2.8,
+            "previous": "offshore",
+            "expect": "offshore"
+        },
+        {
+            "name": "the pair returns inshore under 2.5 kn",
+            "fn": "collisionPairFor",
+            "ownSogKn": 2.4,
+            "previous": "offshore",
+            "expect": "inshore"
+        },
+        {
+            "name": "unknown speed keeps the last pair",
+            "fn": "collisionPairFor",
+            "ownSogKn": null,
+            "previous": "offshore",
+            "expect": "offshore"
+        },
+        {
+            "name": "a beacon kind from its MMSI",
+            "fn": "distressKindOfMmsi",
+            "value": 972000004,
+            "expect": "mob"
+        },
+        {
+            "name": "not a beacon MMSI",
+            "fn": "distressKindOfMmsi",
+            "value": 235000101,
+            "expect": null
+        }
+    ]
+}

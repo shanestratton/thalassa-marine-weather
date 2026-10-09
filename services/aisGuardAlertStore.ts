@@ -30,6 +30,17 @@
  * beacon it classified; the store keeps the skipper's Silence and Dismiss per
  * activation (a new beacon, or one switched from test to active, starts
  * afresh) and which beacon Go to it is steering to.
+ *
+ * Build 126 (126-04a): the Pi keeps the night watch too, and one alarm per
+ * vessel per encounter holds across every watcher aboard. An acknowledgement
+ * made here is announced (subscribeAcks) so the Pi hears it
+ * (services/piNightWatch.ts); one made on the Pi or another phone arrives
+ * through services/piNightWatchStatus.ts: a DANGER is muted here until 30
+ * minutes after it was muted aboard, close quarters is acknowledged for as
+ * long as the Pi's encounter is open, and a distress is silenced with its
+ * card kept. Those last two are
+ * held apart from this phone's own (setPeerAcks), so they end with the Pi's
+ * encounter or activation and never outlive it.
  */
 import type { CollisionAlertDetail, CollisionLostDetail, CollisionLostReason, GuardAlert } from './AisGuardZone';
 import type { DistressKind, DistressState } from '../utils/collisionRule';
@@ -211,9 +222,9 @@ function signatureOf(list: DistressBeacon[]): string {
         .join(';');
 }
 
-/** Sounding now: active, heard by her own radio, not silenced in this activation. */
+/** Sounding now: active, heard by her own radio, not silenced in this activation (here or aboard). */
 function distressSounding(b: DistressBeacon): boolean {
-    return b.sounds && !distressSilenced.has(b.mmsi);
+    return b.sounds && !distressSilenced.has(b.mmsi) && !peerDistress.has(b.mmsi);
 }
 
 function distressRank(b: DistressBeacon): number {
@@ -232,6 +243,33 @@ const mutes = new Map<number, number>();
 const acks = new Set<number>();
 /** The alarm service hears the card's button at once, not on its next pass. */
 const actionListeners = new Set<(nowMs: number) => void>();
+
+/** What an acknowledgement settles, aboard (126-04a): the key is (kind, MMSI) for the open encounter. */
+export type AlarmAckKind = 'collision' | 'close-quarters' | 'distress';
+export interface AlarmAck {
+    kind: AlarmAckKind;
+    mmsi: number;
+    nowMs: number;
+}
+/** Acknowledgements made on THIS phone, for the Pi (services/piNightWatch.ts). */
+const ackListeners = new Set<(ack: AlarmAck) => void>();
+/** Acknowledgements made on the Pi or another phone, while the Pi's alarm is open (piNightWatchStatus). */
+let peerCloseQuarters = new Set<number>();
+let peerDistress = new Set<number>();
+
+function emitAck(kind: AlarmAckKind, mmsi: number, nowMs: number): void {
+    for (const l of ackListeners) {
+        try {
+            l({ kind, mmsi, nowMs });
+        } catch {
+            /* One listener must not keep the acknowledgement from the others. */
+        }
+    }
+}
+
+function sameSet(a: ReadonlySet<number>, b: ReadonlySet<number>): boolean {
+    return a.size === b.size && [...a].every((x) => b.has(x));
+}
 
 function emit(): void {
     for (const l of listeners) l(alerts);
@@ -296,6 +334,8 @@ export const AisGuardAlertStore = {
         distressDismissed.clear();
         distressGoTo = null;
         distressGoToAt = null;
+        peerCloseQuarters = new Set();
+        peerDistress = new Set();
         emit();
         for (const l of noticeListeners) l(notice);
         emitDistress();
@@ -355,17 +395,22 @@ export const AisGuardAlertStore = {
 
     /** Silence: the sound and the lock-screen reminders stop; the card and the chart symbol stay. */
     silenceDistress(mmsi: number, nowMs = Date.now()): void {
+        const fresh = !distressSilenced.has(mmsi);
         distressSilenced.add(mmsi);
         emitDistress();
         for (const l of actionListeners) l(nowMs);
+        // Silenced here: silenced on the Pi and every phone aboard (126-04a).
+        if (fresh) emitAck('distress', mmsi, nowMs);
     },
 
     /** Dismiss a silent card for this activation; the chart symbol stays. */
     dismissDistress(mmsi: number, nowMs = Date.now()): void {
+        const fresh = !distressSilenced.has(mmsi);
         distressSilenced.add(mmsi);
         distressDismissed.add(mmsi);
         emitDistress();
         for (const l of actionListeners) l(nowMs);
+        if (fresh) emitAck('distress', mmsi, nowMs);
     },
 
     distressSilenced(mmsi: number): boolean {
@@ -460,12 +505,76 @@ export const AisGuardAlertStore = {
      */
     muteCollision(mmsi: number, nowMs = Date.now()): void {
         const card = alerts.find((a) => a.mmsi === mmsi && a.collision);
-        if (card?.collision && !card.collision.cleared) {
-            if (card.collision.closeQuarters) acks.add(mmsi);
+        const live = !!card?.collision && !card.collision.cleared;
+        if (live) {
+            if (card!.collision!.closeQuarters) acks.add(mmsi);
             else mutes.set(mmsi, nowMs + MUTE_MS);
         }
         alerts = alerts.filter((a) => a.mmsi !== mmsi);
         emit();
+        for (const l of actionListeners) l(nowMs);
+        // The same acknowledgement on the Pi and every phone aboard (126-04a).
+        if (live) emitAck(card!.collision!.closeQuarters ? 'close-quarters' : 'collision', mmsi, nowMs);
+    },
+
+    // ── Acknowledgements aboard (126-04a) ──
+
+    /** Acknowledgements made on this phone, for the Pi. */
+    subscribeAcks(listener: (ack: AlarmAck) => void): () => void {
+        ackListeners.add(listener);
+        return () => ackListeners.delete(listener);
+    },
+
+    /**
+     * The button on a card the Pi raised and this phone did not ('from the
+     * Pi'): sent to the Pi, which settles it for every phone aboard. A DANGER
+     * is muted here at once for its 30 minutes (time-bounded, so safe without
+     * an encounter of this phone's own); close quarters and a distress wait
+     * for the Pi's word, which arrives through setPeerAcks.
+     */
+    acknowledgePiAlarm(kind: AlarmAckKind, mmsi: number, nowMs = Date.now()): void {
+        if (kind === 'collision') mutes.set(mmsi, Math.max(mutes.get(mmsi) ?? 0, nowMs + MUTE_MS));
+        for (const l of actionListeners) l(nowMs);
+        emitAck(kind, mmsi, nowMs);
+    },
+
+    /**
+     * A DANGER acknowledged on the Pi or another phone: muted here until
+     * `untilMs` (30 minutes from when it was muted aboard, on this phone's
+     * clock), its card put away. Never shortens a longer mute made here.
+     */
+    applyPeerMute(mmsi: number, untilMs: number, nowMs = Date.now()): void {
+        if (untilMs <= nowMs) return;
+        mutes.set(mmsi, Math.max(mutes.get(mmsi) ?? 0, untilMs));
+        // A mute never covers close quarters: that card stays.
+        const before = alerts.length;
+        alerts = alerts.filter(
+            (a) => !(a.mmsi === mmsi && a.collision && !a.collision.cleared && !a.collision.closeQuarters),
+        );
+        if (alerts.length !== before) emit();
+        for (const l of actionListeners) l(nowMs);
+    },
+
+    /**
+     * The Pi's open alarms that a phone aboard acknowledged, replaced whole on
+     * every word from the Pi: close quarters (which covers the lesser danger
+     * too) and silenced beacons. They last only while the Pi's encounter or
+     * activation is open, and go when the Pi goes quiet.
+     */
+    setPeerAcks(next: { closeQuarters: Iterable<number>; distress: Iterable<number> }, nowMs = Date.now()): void {
+        const closeQuarters = new Set(next.closeQuarters);
+        const distressNext = new Set(next.distress);
+        const cqChanged = !sameSet(closeQuarters, peerCloseQuarters);
+        const distressChanged = !sameSet(distressNext, peerDistress);
+        if (!cqChanged && !distressChanged) return;
+        peerCloseQuarters = closeQuarters;
+        peerDistress = distressNext;
+        if (cqChanged) {
+            const before = alerts.length;
+            alerts = alerts.filter((a) => !(a.collision && !a.collision.cleared && closeQuarters.has(a.mmsi)));
+            if (alerts.length !== before) emit();
+        }
+        if (distressChanged) emitDistress();
         for (const l of actionListeners) l(nowMs);
     },
 
@@ -478,9 +587,13 @@ export const AisGuardAlertStore = {
         return mutes.get(mmsi) ?? null;
     },
 
-    /** Whether the skipper acknowledged close quarters in this encounter (it covers the lesser danger too). */
+    /**
+     * Whether the skipper acknowledged close quarters in this encounter (it
+     * covers the lesser danger too), here or on the Pi or another phone while
+     * the Pi's encounter is open (126-04a).
+     */
     acknowledged(mmsi: number): boolean {
-        return acks.has(mmsi);
+        return acks.has(mmsi) || peerCloseQuarters.has(mmsi);
     },
 
     /** She is no longer alarming: the next approach is a new encounter. */

@@ -7,6 +7,15 @@
  * (?view=check) the sound check the shield opens before arming. The app's CSS
  * and the real stores; the tab bar's real geometry. No network.
  *
+ * Build 126 (126-04a): ?pi=1 adds an alarm the Pi raised that this phone has
+ * not carded (a card 'from the Pi'); ?view=key renders the chart's AIS key
+ * (components/map/AisLegend.tsx, embedded as the layer key embeds it) with the
+ * shield armed and a paired Pi watching too, so the 'who is watching' row
+ * shows under the shield. &key=anchor: at anchor on this phone while the Pi
+ * keeps no anchor watch (the amber row asking for the hand-over);
+ * &key=standdown: this phone's shield off while the Pi watches (the row's
+ * 'Stand the Pi down' for everyone).
+ *
  * Fictional vessels only (MID 123 MMSIs): this repository is public.
  */
 import React from 'react';
@@ -51,14 +60,78 @@ if (params.get('fonts') === 'wide') {
     document.head.append(wide);
 }
 
-const [{ AisGuardAlert }, { SoundCheckModal }, { AisGuardAlertStore }] = await Promise.all([
+const [
+    { AisGuardAlert },
+    { SoundCheckModal },
+    { AisGuardAlertStore },
+    { AisLegend },
+    { AisGuardZone },
+    { PiNightWatchStatus },
+] = await Promise.all([
     import('../../components/map/AisGuardAlert'),
     import('../../components/anchor-watch/SoundCheckModal'),
     import('../../services/aisGuardAlertStore'),
+    import('../../components/map/AisLegend'),
+    import('../../services/AisGuardZone'),
+    import('../../services/piNightWatchStatus'),
 ]);
 
 const now = Date.now();
-if (params.get('view') !== 'check') {
+const view = params.get('view');
+
+/** The Pi's own ais_watch, as its /api/telemetry hands it over (pi-cache/src/aisWatch.ts). */
+function piSays(alarms: unknown[], atAnchor = false) {
+    PiNightWatchStatus.setPaired(true);
+    PiNightWatchStatus.ingestLan(
+        {
+            v: 1,
+            state: 'armed',
+            armed: true,
+            armedAt: now - 3_600_000,
+            lastPassAt: now - 1_000,
+            servedAt: now,
+            atAnchor,
+            own: 'stopped',
+            devices: 1,
+            alarms,
+        },
+        { nowMs: now, answeredVia: 'lan-host' },
+    );
+}
+
+if (view === 'key') {
+    const key = params.get('key');
+    if (key !== 'standdown') AisGuardZone.armAfterSoundCheck();
+    piSays([], key !== 'anchor');
+    // As services/piNightWatch.ts does while it runs.
+    if (key === 'anchor') PiNightWatchStatus.setPhoneAnchorWatch('at-anchor');
+    if (key === 'standdown') {
+        PiNightWatchStatus.setStandDownHandler(() => {
+            document.body.dataset.piStoodDown = 'yes';
+        });
+    }
+}
+
+if (params.get('pi') === '1') {
+    piSays([
+        {
+            key: `close-quarters:123400309:${now - 40_000}`,
+            kind: 'close-quarters',
+            mmsi: 123400309,
+            name: 'FICTIONAL FAST FERRY WITH A LONG NAME',
+            cpaNm: 0.03,
+            tcpaMin: 1.6,
+            rangeNm: 0.42,
+            bearingDeg: 351,
+            lat: null,
+            lon: null,
+            raisedAt: now - 40_000,
+            ackedAt: null,
+        },
+    ]);
+}
+
+if (view !== 'check' && view !== 'key') {
     const notice = (params.get('notice') ?? 'blind') as
         | 'blind'
         | 'unchecked'
@@ -135,8 +208,19 @@ function Fixture() {
     return (
         <main className="min-h-screen bg-slate-950 p-4 text-white">
             <h1 className="text-lg font-bold">Chart</h1>
-            {params.get('view') === 'check' ? (
+            {view === 'check' ? (
                 <SoundCheckModal purpose="collision" onConfirm={() => undefined} onCancel={() => undefined} />
+            ) : view === 'key' ? (
+                // As the chart's layer key embeds it (components/map/ObsLayerKey.tsx), in a panel of its width.
+                <section
+                    aria-label="AIS key"
+                    data-testid="ais-key-panel"
+                    className="mt-4 space-y-2 rounded-2xl border border-white/10 bg-slate-900/90 p-3 text-xs leading-relaxed text-slate-300"
+                    style={{ width: 'calc(100vw - 32px)', maxWidth: 380 }}
+                >
+                    <h3 className="font-bold text-sky-200">AIS</h3>
+                    <AisLegend visible embedded />
+                </section>
             ) : (
                 <AisGuardAlert />
             )}

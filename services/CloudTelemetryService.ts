@@ -19,6 +19,14 @@
  * instruments. Polling, not realtime, for the first cut — five seconds on
  * ordinary internet, a minute on a satellite link — and only while a screen
  * that wants it is mounted.
+ *
+ * Build 126 (126-04a): the Pi's row also says whether its night watch is on
+ * (three `ais_watch*` keys, first in `extra`). The AIS key reads them with
+ * followPiWatch: this account's OWN row only (never a boat it crews on), and
+ * a read that feeds nothing else, so the key never starts the instrument
+ * lane (NmeaStore) and never moves this phone's own position onto the boat.
+ * They go to services/piNightWatchStatus.ts, so ashore the key can say
+ * "Watching: the Pi".
  */
 import { supabase, getCurrentUserId } from './supabase';
 import { NmeaStore, type RemoteInstrumentSnapshot } from './NmeaStore';
@@ -27,11 +35,14 @@ import { snapshotFromWire } from './telemetryWire';
 import { satelliteModeActive } from './networkPolicy';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, subscribeAuthIdentityScope } from './authIdentityScope';
 import { createLogger } from '../utils/createLogger';
+import { PiNightWatchStatus, aisWatchFromCloudExtra, type PiWatchCloudReport } from './piNightWatchStatus';
 
 const log = createLogger('CloudTelemetry');
 
 export const CLOUD_TELEMETRY_POLL_MS = 5_000;
 export const CLOUD_TELEMETRY_SATELLITE_POLL_MS = 60_000;
+/** The AIS key's read of the Pi's watch keys (the Pi publishes every 5 s; the row calls 30 s stale). */
+export const PI_WATCH_CLOUD_POLL_MS = 10_000;
 /** Older than this and the snapshot is history, not the boat. */
 export const CLOUD_TELEMETRY_LIVE_MAX_AGE_MS = 60_000;
 /** The Pi counts as the primary device while its snapshot is this fresh. */
@@ -47,6 +58,8 @@ export interface CloudTelemetry {
     /** Epoch ms when this phone read the row. */
     receivedAt: number;
     snapshot: RemoteInstrumentSnapshot;
+    /** The Pi's night watch, from a Pi on Pi update 2 or later (126-04a). Absent otherwise. */
+    aisWatch?: PiWatchCloudReport;
 }
 
 type Listener = (latest: CloudTelemetry | null) => void;
@@ -58,6 +71,7 @@ export function rowToTelemetry(row: TelemetryRow, receivedAt = Date.now()): Clou
     if (typeof row.owner_id !== 'string') return null;
     const reading = snapshotFromWire(row, 'cloud');
     if (!reading) return null;
+    const aisWatch = reading.source === 'pi' ? aisWatchFromCloudExtra(row.extra) : null;
     return {
         ownerId: row.owner_id,
         boatId: typeof row.boat_id === 'string' ? row.boat_id : null,
@@ -66,6 +80,7 @@ export function rowToTelemetry(row: TelemetryRow, receivedAt = Date.now()): Clou
         reportedAt: reading.reportedAt,
         receivedAt,
         snapshot: reading.snapshot,
+        ...(aisWatch ? { aisWatch } : {}),
     };
 }
 
@@ -96,7 +111,41 @@ class CloudTelemetryServiceClass {
             this.invalidatePending();
             this.setLatest(null);
             NmeaStore.clearRemote('cloud');
+            // The previous account's Pi is not this one's.
+            PiNightWatchStatus.ingestCloud(null);
         });
+    }
+
+    /**
+     * The Pi's night-watch keys off this account's own row, every 10 s (60 s
+     * on a satellite link) until the returned stop is called. Reads only:
+     * nothing reaches NmeaStore, so this phone's own position and the
+     * collision watch it grades are untouched. A read that fails or finds no
+     * row leaves the last word to age out (the row calls it stale at 30 s).
+     */
+    followPiWatch(): () => void {
+        let stopped = false;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const read = async () => {
+            timer = null;
+            try {
+                const own = await this.readOnce('self');
+                if (!stopped && own) PiNightWatchStatus.ingestCloud(own.aisWatch ?? null);
+            } catch {
+                /* The last word ages out on its own. */
+            }
+            if (!stopped) {
+                timer = setTimeout(
+                    () => void read(),
+                    satelliteModeActive() ? CLOUD_TELEMETRY_SATELLITE_POLL_MS : PI_WATCH_CLOUD_POLL_MS,
+                );
+            }
+        };
+        void read();
+        return () => {
+            stopped = true;
+            if (timer) clearTimeout(timer);
+        };
     }
 
     /** A screen wants the boat. The first caller starts polling; the last release stops it. */

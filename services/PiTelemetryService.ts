@@ -27,6 +27,12 @@
  * services/boatLink, by position; this lane only records which saved address
  * answered and, from a newer Pi, the address the Pi saw the request come from
  * and the Pi's own address that took it.
+ *
+ * Build 126 (126-04a): every answer also carries the Pi's night watch
+ * (`ais_watch`: is it watching, and its open alarms with their
+ * acknowledgements), handed to services/piNightWatchStatus.ts; a lane gone
+ * past its live budget tells it so, and acknowledgements made elsewhere
+ * aboard stop holding here.
  */
 import { NmeaStore } from './NmeaStore';
 import { AisStore } from './AisStore';
@@ -35,6 +41,7 @@ import { snapshotFromWire, wireNumber } from './telemetryWire';
 import type { AisTarget } from '../types/navigation';
 import { createLogger } from '../utils/createLogger';
 import { AIS_COG_NOT_AVAILABLE, AIS_SOG_NOT_AVAILABLE, aisTargetIsDistressBeacon } from '../utils/collisionRule';
+import { PiNightWatchStatus } from './piNightWatchStatus';
 
 const log = createLogger('PiTelemetry');
 
@@ -66,6 +73,8 @@ interface LanPayload {
     ais?: unknown;
     /** Newer Pis: the address this request arrived from, and at (pi-cache/src/requestPath.ts). */
     path?: unknown;
+    /** Pi update 2 on: the Pi's night watch (pi-cache/src/aisWatch.ts describe()). */
+    ais_watch?: unknown;
 }
 
 /** Which saved address answered, and what the Pi saw of this phone's request. */
@@ -186,6 +195,7 @@ class PiTelemetryServiceClass {
             this.timer = null;
         }
         NmeaStore.clearRemote('lan');
+        PiNightWatchStatus.lanLost();
         this.lastSeenAtMs = null;
         this.lastLiveAtMs = null;
         this.misses = 0;
@@ -315,6 +325,9 @@ class PiTelemetryServiceClass {
             this.path = { answeredVia, seenFrom: seenFromWire(body.path), seenAt: seenAtWire(body.path), at: now };
             // Traffic first: AIS is worth having even when the bus is quiet.
             this.ingestAis(body.ais);
+            // Then the Pi's watch (126-04a): after the traffic, so a beacon the
+            // phone has just heard is already on its own card.
+            PiNightWatchStatus.ingestLan(body.ais_watch, { nowMs: now, answeredVia });
             const reading =
                 body.available === true && typeof body.telemetry === 'object' && body.telemetry !== null
                     ? snapshotFromWire(body.telemetry as Record<string, unknown>, 'lan')
@@ -351,6 +364,10 @@ class PiTelemetryServiceClass {
         const now = Date.now();
         if (this.lastLiveAtMs === null || now - this.lastLiveAtMs > PI_TELEMETRY_LIVE_MAX_AGE_MS) {
             NmeaStore.clearRemote('lan');
+        }
+        // The Pi gone for the whole live budget: its word on the watch no longer holds here.
+        if (this.lastSeenAtMs === null || now - this.lastSeenAtMs > PI_TELEMETRY_LIVE_MAX_AGE_MS) {
+            PiNightWatchStatus.lanLost(now);
         }
         this.setState(state);
     }

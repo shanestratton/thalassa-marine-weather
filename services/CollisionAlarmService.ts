@@ -69,18 +69,14 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('CollisionAlarm');
 
-const BLIND_AFTER_MS = 60_000;
-/** At anchor: more than three of the 3 min anchored report intervals (header). */
-const AT_ANCHOR_BLIND_AFTER_MS = 10 * 60_000;
-/** An encounter ends only on evidence held this long, over at least this many passes. */
-const CLEAR_AFTER_MS = 30_000;
-const CLEAR_MIN_PASSES = 3;
-/** She is no longer under way (collisionSettled): held a full anchored report cycle. */
-const SETTLED_AFTER_MS = 3 * 60_000;
-/** A contact lost before her CPA keeps sounding until this long after the CPA was due. */
-const LOST_HOLD_AFTER_CPA_MS = 10 * 60_000;
-/** The 'blind' lock-screen notice at most this often (a working receiver can be quiet). */
-const BLIND_NOTICE_EVERY_MS = 30 * 60_000;
+/**
+ * The latch's numbers live in the shared rule (126-04a), so the Pi's night
+ * watch (pi-cache/src/aisWatch.ts) latches encounters exactly as this does:
+ * blind after 60 s (10 min at anchor), clear on evidence held 30 s over 3
+ * passes (a settled vessel 3 min), a lost contact held 10 min past her CPA,
+ * the blind notice at most every 30 min.
+ */
+const LATCH = COLLISION_RULE.latch;
 const LEASE_OWNER = 'collision-watch';
 /** Plain (not Time Sensitive) local notices; ids clear of the anchor's 99001/991xx. */
 const PAUSED_NOTICE_ID = 97_125_01;
@@ -245,7 +241,7 @@ function track(targets: CollisionAlarmCandidate[], own: CollisionOwnState, nowMs
             e.clearPasses = 0;
             e.lost = e.lost?.reason === blind ? e.lost : { reason: blind, since: e.lost?.since ?? nowMs };
             const cpaDueAt = e.latestAt + Math.max(0, e.latest.assessment.tcpaMin ?? 0) * 60_000;
-            if (nowMs > cpaDueAt + LOST_HOLD_AFTER_CPA_MS) ended.set(mmsi, { how: 'lost', lost: lostDetail(e)! });
+            if (nowMs > cpaDueAt + LATCH.lostHoldAfterCpaMs) ended.set(mmsi, { how: 'lost', lost: lostDetail(e)! });
             continue;
         }
         e.lost = null;
@@ -265,8 +261,8 @@ function track(targets: CollisionAlarmCandidate[], own: CollisionOwnState, nowMs
         }
         e.clearSince ??= nowMs;
         e.clearPasses += 1;
-        const holdMs = settled ? SETTLED_AFTER_MS : CLEAR_AFTER_MS;
-        if (nowMs - e.clearSince >= holdMs && e.clearPasses >= CLEAR_MIN_PASSES) {
+        const holdMs = settled ? LATCH.settledAfterMs : LATCH.clearAfterMs;
+        if (nowMs - e.clearSince >= holdMs && e.clearPasses >= LATCH.clearMinPasses) {
             ended.set(mmsi, { how: 'passed' });
         }
     }
@@ -415,13 +411,13 @@ export const CollisionAlarmService = {
             return setNotice(status.anchorWatchElsewhere === true ? 'stopped-elsewhere' : 'stopped', nowMs);
         }
         const silentSince = Math.max(lastAisAt, armedAt!);
-        const blind = nowMs - silentSince >= (atAnchor ? AT_ANCHOR_BLIND_AFTER_MS : BLIND_AFTER_MS);
+        const blind = nowMs - silentSince >= (atAnchor ? LATCH.atAnchorBlindAfterMs : LATCH.blindAfterMs);
         if (
             blind &&
             backgrounded &&
             // Once per silence: nothing heard since the last post, it already went.
             silentSince > lastBlindNoticeAt &&
-            nowMs - lastBlindNoticeAt >= BLIND_NOTICE_EVERY_MS
+            nowMs - lastBlindNoticeAt >= LATCH.blindNoticeEveryMs
         ) {
             lastBlindNoticeAt = nowMs;
             void localNotice(BLIND_NOTICE_ID, atAnchor ? COLLISION_BLIND_AT_ANCHOR_NOTICE : COLLISION_BLIND_NOTICE);
