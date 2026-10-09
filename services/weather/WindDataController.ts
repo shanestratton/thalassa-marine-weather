@@ -388,7 +388,10 @@ async function prefetchLocalFineGrid(map: mapboxgl.Map, model: CachedWindGrid['m
         if (grid) {
             storeCachedGrid({ grid, bounds, res: FINE_GRID_RES_DEG, model, fetchedAt: Date.now() });
             log.info(`[WindController] Fine local grid warmed: ${grid.width}×${grid.height} @ ${FINE_GRID_RES_DEG}°`);
-            if ((map.getZoom?.() ?? 0) > FINE_PREFETCH_MIN_ZOOM) {
+            // A hidden chart (another page) gets nothing published for its
+            // phantom view; the grid waits in the cache, and the moveend of
+            // the chart shown again publishes it.
+            if ((map.getZoom?.() ?? 0) > FINE_PREFETCH_MIN_ZOOM && !chartHidden(map)) {
                 void WindDataController.fetchOnline(map);
             }
         }
@@ -628,6 +631,22 @@ export const __windCacheForTest = {
 
 let moveEndHandler: (() => void) | null = null;
 let moveEndTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * The chart is hidden: another page sets it display:none, or split view folds
+ * it to 0x0, and Mapbox's resize then measures a phantom 400x300 view and
+ * fires moveend for it. Wind fetched for that view is wind nobody is looking
+ * at (Shane 2026-10-09). The chart shown again resizes, and that moveend
+ * fetches for the real view. A map with no container to ask is measured.
+ */
+function chartHidden(map: mapboxgl.Map): boolean {
+    try {
+        const container = map.getContainer?.();
+        return !!container && !(container.clientWidth > 0 && container.clientHeight > 0);
+    } catch {
+        return false;
+    }
+}
 
 function clearMoveListener(map: mapboxgl.Map) {
     if (moveEndHandler) {
@@ -1031,6 +1050,9 @@ export const WindDataController = {
         moveEndHandler = () => {
             if (moveEndTimer) clearTimeout(moveEndTimer);
             moveEndTimer = setTimeout(() => {
+                // Judged when the debounce fires, so a pan settled just before
+                // the page change does not fetch for the hidden chart either.
+                if (chartHidden(map)) return;
                 const { isGlobalMode, model, field } = WindStore.getState();
                 // GFS-wind in global mode is full-earth — no pan refetch. Any
                 // Open-Meteo gridded selection is viewport-bounded, so it must
