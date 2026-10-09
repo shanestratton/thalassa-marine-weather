@@ -12,7 +12,9 @@ import {
     LIVE_SHOW_AGE_MS,
     liveAgeWords,
     readAnchorLiveConditions,
+    type AnchorLiveWire,
 } from '../services/anchorLiveConditions';
+import { readLiveConditions } from '../pi-cache/src/anchorBroadcaster';
 
 const NOW = Date.UTC(2026, 9, 10, 2, 0, 0);
 const NONE = { depth: null, tws: null, twd: null };
@@ -110,5 +112,55 @@ describe('liveAgeWords', () => {
         expect(liveAgeWords(2 * 60_000)).toBeNull();
         expect(liveAgeWords(5 * 60_000)).toBe('5 min ago');
         expect(liveAgeWords(5 * 60_000 + 59_000)).toBe('5 min ago');
+    });
+});
+
+describe("the Pi's own live block reads back through this reader (126-05)", () => {
+    const at = (agoMs: number) => new Date(NOW - agoMs).toISOString();
+    const leaf = (value: unknown, agoMs: number) => ({ value, $source: 'fictional-bus.7', timestamp: at(agoMs) });
+
+    it('every key the Pi writes is a wire key, and every value reads back with its own time', () => {
+        // A fictional boat at anchor in Chesapeake Bay, as Signal K files her (SI units).
+        const doc = {
+            environment: {
+                depth: {
+                    belowTransducer: leaf(3.7, 4_000),
+                    transducerToKeel: leaf(1.1, 4_000),
+                    belowKeel: leaf(2.6, 4_000),
+                },
+                wind: { speedTrue: leaf(5.1, 3_000), directionTrue: leaf(0.7854, 9_000) },
+            },
+        };
+        const live = readLiveConditions(doc, NOW);
+        expect(live).toBeDefined();
+        // The Pi's shape is the phone's wire shape (a compile-time check as well).
+        const wire: AnchorLiveWire = live!;
+        expect(Object.keys(wire).sort()).toEqual([...ANCHOR_LIVE_KEYS].sort());
+        const read = readAnchorLiveConditions(wire, NOW);
+        expect(read.depth).toEqual({ value: 2.6, at: NOW - 4_000, ageMs: 4_000, reference: 'below-keel' });
+        expect(read.tws).toEqual({ value: 9.9, at: NOW - 3_000, ageMs: 3_000 }); // 5.1 m/s
+        expect(read.twd).toEqual({ value: 45, at: NOW - 9_000, ageMs: 9_000 });
+    });
+
+    it("the Pi's below-the-waterline depth reads ashore as below the surface", () => {
+        const live = readLiveConditions({ environment: { depth: { belowSurface: leaf(11.2, 2_000) } } }, NOW);
+        expect(readAnchorLiveConditions(live, NOW).depth).toEqual({
+            value: 11.2,
+            at: NOW - 2_000,
+            ageMs: 2_000,
+            reference: 'below-surface',
+        });
+    });
+
+    it('nothing fresh on the Pi is nothing known ashore, never a zero', () => {
+        const stale = {
+            environment: {
+                depth: { belowKeel: leaf(2.6, 30_000) },
+                wind: { speedTrue: leaf(5.1, 25_000), directionTrue: leaf(0.7854, 90_000) },
+            },
+        };
+        const live = readLiveConditions(stale, NOW);
+        expect(live).toBeUndefined();
+        expect(readAnchorLiveConditions(live, NOW)).toEqual(NONE);
     });
 });

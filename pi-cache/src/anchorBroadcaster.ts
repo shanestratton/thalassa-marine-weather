@@ -39,6 +39,10 @@
 
 import { createHash } from 'node:crypto';
 import type { AnchorWatchStore } from './anchorWatchStore.js';
+// trackSignalk imports fetchSelfDocument from here, so these two modules import
+// each other. Safe because neither touches the other's bindings at load time:
+// keep every use of these inside a function.
+import { DEPTH_MAX_AGE_MS, degrees, knots, num, readDepth, timestampAt, type DepthReference } from './trackSignalk.js';
 
 /** Signal K's own discovery document tells us the API base; do not hardcode. */
 const SIGNALK_DISCOVERY_PATH = '/signalk';
@@ -257,8 +261,18 @@ export function nextDragState(
  *
  * `alarm` is passed in rather than derived here: confirming a drag needs the
  * memory of previous fixes, and this function deliberately has none.
+ *
+ * `live` (126-05) is the boat's own depth and true wind, read off the same
+ * Signal K document as the fix (readLiveConditions). It is a key of its own
+ * and only there when something is fresh, so a shore app from before it
+ * reads exactly the keys it always read.
  */
-export function buildPositionPayload(assignment: AnchorWatchAssignment, fix: VesselFix, alarm?: boolean) {
+export function buildPositionPayload(
+    assignment: AnchorWatchAssignment,
+    fix: VesselFix,
+    alarm?: boolean,
+    live?: AnchorLiveConditions,
+) {
     const distance = distanceMetres(assignment.anchorLat, assignment.anchorLon, fix.latitude, fix.longitude);
     return {
         vessel: { latitude: fix.latitude, longitude: fix.longitude, timestamp: fix.timestamp },
@@ -277,7 +291,127 @@ export function buildPositionPayload(assignment: AnchorWatchAssignment, fix: Ves
         source: 'pi',
         gpsAvailable: true,
         gpsTimestamp: fix.timestamp,
+        ...(live ? { live } : {}),
     };
+}
+
+/* ── The boat's live depth and wind, for the watcher ashore (126-05) ───────── */
+
+/**
+ * The live block of a position report: the boat's own depth and true wind,
+ * each value with the time of the reading it came from (epoch ms), and each
+ * only while it is fresh. Every key is optional; the block is left out of the
+ * report altogether when none is fresh. The shore phone ages and bounds it
+ * again (services/anchorLiveConditions.ts), because its own copy of a report
+ * can grow old while the boat's link is down.
+ *
+ * The skipper's typed `config` (rode out, depth when anchoring) is a separate
+ * thing and stays as it is: this is what the boat measures now.
+ */
+export interface AnchorLiveConditions {
+    /** Metres, measured from depthReference. Below the keel may dip under zero (the keel on the mud). */
+    depthM?: number;
+    depthReference?: DepthReference;
+    depthAt?: number;
+    /** True wind speed, knots. */
+    twsKn?: number;
+    twsAt?: number;
+    /** True wind direction, degrees true, 0 to under 360. */
+    twdDeg?: number;
+    twdAt?: number;
+}
+
+/** The true wind speed's freshness limit: the cloud snapshot's (wind_tws_at_ms). */
+export const LIVE_TWS_MAX_AGE_MS = 20_000;
+/**
+ * The true wind direction's, by its own leaf time. Wider than the speed's: on
+ * Serene Summer it comes off a different, slower sentence (the gateway's MDA,
+ * which needs a heading), and a minute-old direction is still the wind's.
+ */
+export const LIVE_TWD_MAX_AGE_MS = 60_000;
+/** A reading stamped this far ahead of the Pi's clock still counts (as readDepth's). */
+const LIVE_FUTURE_SKEW_MS = 5_000;
+/** Above this a true wind speed is a fault, not a wind (the snapshot's bound). */
+const LIVE_TWS_MAX_KN = 150;
+
+function freshWithin(at: number | null, nowMs: number, maxAgeMs: number): at is number {
+    return at !== null && at > 0 && at <= nowMs + LIVE_FUTURE_SKEW_MS && nowMs - at <= maxAgeMs;
+}
+
+const round = (value: number, places: number): number => {
+    const scale = 10 ** places;
+    // `+ 0` turns a rounded -0 (a keel figure a hair under zero) into 0.
+    return Math.round(value * scale) / scale + 0;
+};
+
+/**
+ * The time of the reading readDepth's figure came from: the leaf it read, or
+ * for a keel figure it worked out from the raw reading, the raw reading's.
+ * Null when that reading carries no time of its own; it cannot be aged.
+ */
+function depthReadingAt(
+    selfDocument: unknown,
+    depthM: number,
+    reference: DepthReference,
+    nowMs: number,
+): number | null {
+    const at = (leaf: string) => timestampAt(selfDocument, `environment.depth.${leaf}`, false);
+    if (reference === 'below-transducer') return at('belowTransducer');
+    if (reference === 'below-waterline') return at('belowSurface');
+    // Below the keel: Signal K's own keel figure first, as readDepth takes it…
+    const keelAt = at('belowKeel');
+    if (num(selfDocument, 'environment.depth.belowKeel') === depthM && freshWithin(keelAt, nowMs, DEPTH_MAX_AGE_MS)) {
+        return keelAt;
+    }
+    // …else the raw reading less the sounder's keel offset.
+    const raw = num(selfDocument, 'environment.depth.belowTransducer');
+    const toKeel = num(selfDocument, 'environment.depth.transducerToKeel');
+    if (raw !== null && toKeel !== null && Math.abs(raw - toKeel - depthM) < 0.0005) return at('belowTransducer');
+    return null;
+}
+
+/**
+ * Read the live block off a Signal K self document (SI units: metres, m/s,
+ * radians). Undefined when nothing is fresh.
+ *
+ *   depth  readDepth's figure and reference (below the keel first, the
+ *          boat's own display), dated by the reading it came from, within
+ *          DEPTH_MAX_AGE_MS (20 s).
+ *   TWS    within LIVE_TWS_MAX_AGE_MS (20 s), 0 to 150 kn.
+ *   TWD    by its own leaf time, within LIVE_TWD_MAX_AGE_MS (60 s).
+ *
+ * A reading with no time of its own is left out: ashore it could never be
+ * told from a stale one. A real zero (a flat calm, the keel on the mud) is a
+ * reading and goes.
+ */
+export function readLiveConditions(selfDocument: unknown, nowMs: number): AnchorLiveConditions | undefined {
+    const live: AnchorLiveConditions = {};
+
+    const depth = readDepth(selfDocument, nowMs);
+    if (depth.depthM !== null && depth.reference !== null) {
+        const depthAt = depthReadingAt(selfDocument, depth.depthM, depth.reference, nowMs);
+        if (freshWithin(depthAt, nowMs, DEPTH_MAX_AGE_MS)) {
+            live.depthM = round(depth.depthM, 2);
+            live.depthReference = depth.reference;
+            live.depthAt = depthAt;
+        }
+    }
+
+    const twsAt = timestampAt(selfDocument, 'environment.wind.speedTrue', false);
+    const twsKn = knots(num(selfDocument, 'environment.wind.speedTrue'));
+    if (twsKn !== null && twsKn >= 0 && twsKn <= LIVE_TWS_MAX_KN && freshWithin(twsAt, nowMs, LIVE_TWS_MAX_AGE_MS)) {
+        live.twsKn = round(twsKn, 1);
+        live.twsAt = twsAt;
+    }
+
+    const twdAt = timestampAt(selfDocument, 'environment.wind.directionTrue', false);
+    const twdDeg = degrees(num(selfDocument, 'environment.wind.directionTrue'));
+    if (twdDeg !== null && freshWithin(twdAt, nowMs, LIVE_TWD_MAX_AGE_MS)) {
+        live.twdDeg = round(twdDeg, 1) % 360;
+        live.twdAt = twdAt;
+    }
+
+    return Object.keys(live).length > 0 ? live : undefined;
 }
 
 export interface BroadcastDeps {
@@ -345,11 +479,20 @@ export async function fetchSignalkDocument(deps: BroadcastDeps, path: string): P
     }
 }
 
+/**
+ * Ask Signal K where the boat is, and keep the document the answer came from:
+ * the position report reads her live depth and wind off that same document
+ * (126-05), so they are never from a different moment than the fix.
+ */
+export async function currentReading(deps: BroadcastDeps): Promise<{ fix: VesselFix | null; document: unknown }> {
+    const document = await fetchSelfDocument(deps);
+    const now = deps.now?.() ?? Date.now();
+    return { fix: document === null ? null : readFix(document, now), document };
+}
+
 /** Ask Signal K where the boat is. Null on anything that is not a usable fix. */
 export async function currentFix(deps: BroadcastDeps): Promise<VesselFix | null> {
-    const doc = await fetchSelfDocument(deps);
-    const now = deps.now?.() ?? Date.now();
-    return doc === null ? null : readFix(doc, now);
+    return (await currentReading(deps)).fix;
 }
 
 /**
@@ -368,7 +511,7 @@ export async function broadcastOnce(
     deps: BroadcastDeps,
     drag?: DragConfirmState,
 ): Promise<BroadcastOutcome> {
-    const fix = await currentFix(deps);
+    const { fix, document } = await currentReading(deps);
     const now = deps.now?.() ?? Date.now();
     if (deps.signal?.aborted || deps.isCurrent?.() === false) return 'unreachable';
     const unavailable = !fix ? 'no-fix' : !fixIsCurrent(fix, now) ? 'stale-fix' : null;
@@ -388,6 +531,7 @@ export async function broadcastOnce(
         alarm = next.alarm;
     }
     if (drag && unavailable) drag.outsideCount = 0;
+    // The status report stays as it was: no live block without a position.
     const payload = unavailable
         ? {
               type: 'status',
@@ -399,7 +543,7 @@ export async function broadcastOnce(
               anchor: { latitude: assignment.anchorLat, longitude: assignment.anchorLon },
               swingRadius: assignment.swingRadius,
           }
-        : buildPositionPayload(assignment, fix!, alarm);
+        : buildPositionPayload(assignment, fix!, alarm, readLiveConditions(document, now));
 
     let response: Awaited<ReturnType<FetchLike>>;
     try {

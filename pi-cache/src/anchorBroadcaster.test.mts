@@ -624,3 +624,219 @@ test('assignment file is private, atomic and validates malformed recovery data',
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
+
+/* ── The boat's live depth and wind, for the watcher ashore (126-05) ────────
+ *
+ * Crew ashore watching the anchor get the boat's depth under the keel and her
+ * true wind, each with its own time. Each value goes only while it is fresh:
+ * the depth by readDepth's rule (20 s), the true wind speed by the cloud
+ * snapshot's (20 s), the true wind direction by its own leaf time (60 s). A
+ * stale sounder figure sent as "now" is the false reassurance this whole file
+ * exists to prevent. The skipper's typed `config` is untouched.
+ *
+ * A fictional boat at anchor in Cowes Roads, the Solent; no real vessel.
+ */
+
+const LIVE_NOW = Date.parse('2026-10-10T02:00:00.000Z');
+const liveIso = (agoMs: number) => new Date(LIVE_NOW - agoMs).toISOString();
+const liveLeaf = (value: unknown, agoMs: number | null) => ({
+    value,
+    $source: 'fictional-bus.42',
+    ...(agoMs === null ? {} : { timestamp: liveIso(agoMs) }),
+});
+const SOLENT = {
+    sessionCode: 'SOLENT0FICT1',
+    anchorLat: 50.7706,
+    anchorLon: -1.2996,
+    swingRadius: 45,
+    rodeLength: 35,
+    waterDepth: 6,
+};
+/** Ages in ms; null = a leaf with no timestamp of its own. */
+const solentDoc = (ages: { depth?: number | null; tws?: number | null; twd?: number | null } = {}) => ({
+    navigation: {
+        position: {
+            value: { latitude: 50.7705, longitude: -1.2995 },
+            $source: 'fictional-bus.42',
+            timestamp: liveIso(1_000),
+        },
+    },
+    environment: {
+        depth: {
+            belowTransducer: liveLeaf(6.15, ages.depth === undefined ? 1_500 : ages.depth),
+            transducerToKeel: liveLeaf(1.8, ages.depth === undefined ? 1_500 : ages.depth),
+            belowKeel: liveLeaf(4.35, ages.depth === undefined ? 1_500 : ages.depth),
+        },
+        wind: {
+            speedTrue: liveLeaf(7.2, ages.tws === undefined ? 2_000 : ages.tws), // m/s: 14.0 kn
+            directionTrue: liveLeaf(3.84, ages.twd === undefined ? 3_000 : ages.twd), // rad: 220.0°T
+        },
+    },
+});
+/** The position report as the relay receives it: the posted JSON, parsed. */
+const sentReport = async (doc: unknown, assignment: typeof ASSIGNMENT = SOLENT) => {
+    const { impl, calls } = fetcherFor(doc);
+    const outcome = await broadcastOnce(assignment, CREDENTIAL, {
+        fetchImpl: impl,
+        signalkOrigin: 'http://127.0.0.1:3000',
+        now: () => LIVE_NOW,
+    });
+    const body = String(calls.find((c) => c.url === CREDENTIAL.url)?.init?.body);
+    return { outcome, body, payload: JSON.parse(body).payload as Record<string, unknown> };
+};
+/** Every key a shore app read before 126-05, with config present. */
+const CLASSIC_POSITION_KEYS = [
+    'anchor',
+    'config',
+    'distance',
+    'gpsAvailable',
+    'gpsTimestamp',
+    'isAlarm',
+    'source',
+    'swingRadius',
+    'vessel',
+];
+
+test('the position report carries her live depth and true wind, each with its own time', async () => {
+    const { outcome, payload } = await sentReport(solentDoc());
+    assert.equal(outcome, 'sent');
+    assert.deepEqual(payload.live, {
+        depthM: 4.35,
+        depthReference: 'below-keel',
+        depthAt: LIVE_NOW - 1_500,
+        twsKn: 14,
+        twsAt: LIVE_NOW - 2_000,
+        twdDeg: 220,
+        twdAt: LIVE_NOW - 3_000,
+    });
+    // The skipper's typed setup numbers stay exactly as they were.
+    assert.deepEqual(payload.config, { rodeLength: 35, waterDepth: 6 });
+});
+
+test('a 30 s-old depth and a 25 s-old wind speed are left out; a 30 s-old wind direction still goes', async () => {
+    const { payload } = await sentReport(solentDoc({ depth: 30_000, tws: 25_000, twd: 30_000 }));
+    assert.deepEqual(payload.live, { twdDeg: 220, twdAt: LIVE_NOW - 30_000 });
+});
+
+test('a true wind direction dated 90 s ago is left out, the fresh depth and speed still go', async () => {
+    const { payload } = await sentReport(solentDoc({ twd: 90_000 }));
+    const live = payload.live as Record<string, unknown>;
+    assert.equal(live.twdDeg, undefined);
+    assert.equal(live.twdAt, undefined);
+    assert.equal(live.depthM, 4.35);
+    assert.equal(live.twsKn, 14);
+});
+
+test('nothing fresh: no live block at all, and the report is the one a shore app always read', async () => {
+    const { payload } = await sentReport(solentDoc({ depth: 30_000, tws: 25_000, twd: 90_000 }));
+    assert.equal('live' in payload, false);
+    assert.deepEqual(Object.keys(payload).sort(), CLASSIC_POSITION_KEYS);
+});
+
+test('an older shore app that ignores live still reads every key it read, unchanged', async () => {
+    const fresh = await sentReport(solentDoc());
+    const stale = await sentReport(solentDoc({ depth: 30_000, tws: 25_000, twd: 90_000 }));
+    assert.deepEqual(Object.keys(fresh.payload).sort(), [...CLASSIC_POSITION_KEYS, 'live'].sort());
+    for (const key of CLASSIC_POSITION_KEYS) assert.deepEqual(fresh.payload[key], stale.payload[key], key);
+});
+
+test('the status report is unchanged: the same keys as before, and never a live block', async () => {
+    // Her GPS has gone quiet (two minutes old) while the sounder and the wind carry on.
+    const doc = solentDoc();
+    doc.navigation.position.timestamp = liveIso(120_000);
+    const { outcome, payload } = await sentReport(doc);
+    assert.equal(outcome, 'stale-fix');
+    assert.deepEqual(Object.keys(payload).sort(), [
+        'anchor',
+        'gpsAvailable',
+        'gpsTimestamp',
+        'reason',
+        'source',
+        'swingRadius',
+        'timestamp',
+        'type',
+    ]);
+    const noFix = await sentReport({ environment: solentDoc().environment });
+    assert.equal(noFix.outcome, 'no-fix');
+    assert.equal('live' in noFix.payload, false);
+});
+
+test("the whole report stays far under the anchor relay's 8 KiB cap", async () => {
+    const { body, payload } = await sentReport(solentDoc());
+    assert.ok(payload.live, 'the live block is in this report');
+    // The longest relay id the relay accepts, and a full live block.
+    const longest = body.replace(CREDENTIAL.relayId, 'r'.repeat(128));
+    assert.ok(Buffer.byteLength(longest, 'utf8') < 8 * 1024, `${Buffer.byteLength(longest, 'utf8')} bytes`);
+    assert.ok(Buffer.byteLength(JSON.stringify(payload.live), 'utf8') < 256);
+});
+
+test('a reading with no time of its own is left out: it cannot be aged ashore', async () => {
+    const { payload } = await sentReport(solentDoc({ depth: null, tws: null, twd: null }));
+    assert.equal('live' in payload, false);
+});
+
+test('the depth goes with what it is measured from, and the time of the reading it came from', async () => {
+    // A sounder with no keel setting: the raw reading, below the transducer.
+    const raw = solentDoc();
+    raw.environment.depth = { belowTransducer: liveLeaf(6.15, 1_200) } as typeof raw.environment.depth;
+    const below = (await sentReport(raw)).payload.live as Record<string, unknown>;
+    assert.deepEqual([below.depthM, below.depthReference, below.depthAt], [6.15, 'below-transducer', LIVE_NOW - 1_200]);
+    // A sounder that only reports below the waterline.
+    const surface = solentDoc();
+    surface.environment.depth = { belowSurface: liveLeaf(7.9, 2_500) } as unknown as typeof surface.environment.depth;
+    const waterline = (await sentReport(surface)).payload.live as Record<string, unknown>;
+    assert.deepEqual(
+        [waterline.depthM, waterline.depthReference, waterline.depthAt],
+        [7.9, 'below-waterline', LIVE_NOW - 2_500],
+    );
+});
+
+test("a keel figure worked out from the raw reading carries the raw reading's time", async () => {
+    // Signal K's own keel figure stopped 40 s ago (a DPT gap); the raw reading carries on.
+    const doc = solentDoc();
+    doc.environment.depth = {
+        belowTransducer: liveLeaf(6.05, 1_000),
+        transducerToKeel: liveLeaf(1.8, 40_000),
+        belowKeel: liveLeaf(4.35, 40_000),
+    };
+    const live = (await sentReport(doc)).payload.live as Record<string, unknown>;
+    assert.deepEqual([live.depthM, live.depthReference, live.depthAt], [4.25, 'below-keel', LIVE_NOW - 1_000]);
+});
+
+test('junk wind is left out, never sent as a calm or a direction', async () => {
+    const doc = solentDoc();
+    doc.environment.wind = {
+        speedTrue: liveLeaf(90, 2_000), // 175 kn: a fault, not a wind
+        directionTrue: liveLeaf('north', 2_000),
+    };
+    const live = (await sentReport(doc)).payload.live as Record<string, unknown>;
+    assert.deepEqual(Object.keys(live).sort(), ['depthAt', 'depthM', 'depthReference']);
+    doc.environment.wind = { speedTrue: liveLeaf(-1, 2_000), directionTrue: liveLeaf(Number.NaN, 2_000) };
+    assert.deepEqual(Object.keys((await sentReport(doc)).payload.live as object).sort(), [
+        'depthAt',
+        'depthM',
+        'depthReference',
+    ]);
+});
+
+test("a reading stamped a minute ahead of the Pi's clock is left out", async () => {
+    const doc = solentDoc();
+    doc.environment.wind.speedTrue = liveLeaf(7.2, -60_000);
+    const live = (await sentReport(doc)).payload.live as Record<string, unknown>;
+    assert.equal(live.twsKn, undefined);
+    assert.equal(live.twdDeg, 220);
+});
+
+test('a real zero is sent: a flat calm and a keel on the mud are readings, not gaps', async () => {
+    // Fictional, the Hauraki Gulf: the same rules south of the line.
+    const doc = solentDoc();
+    doc.navigation.position.value = { latitude: -36.835, longitude: 174.81 };
+    doc.environment.depth.belowKeel = liveLeaf(0, 1_500);
+    doc.environment.depth.belowTransducer = liveLeaf(1.8, 1_500);
+    doc.environment.wind.speedTrue = liveLeaf(0, 2_000);
+    const live = (
+        await sentReport(doc, { ...SOLENT, sessionCode: 'HAURAKIFICT1', anchorLat: -36.8351, anchorLon: 174.8101 })
+    ).payload.live as Record<string, unknown>;
+    assert.equal(live.depthM, 0);
+    assert.equal(live.twsKn, 0);
+});

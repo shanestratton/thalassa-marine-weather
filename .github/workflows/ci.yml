@@ -88,6 +88,19 @@ jobs:
             - name: Formatting contract
               run: npm run format:check
 
+            # The Pi runs copies of the phone's router engine and collision
+            # rule (pi-cache/src/routerEngine, pi-cache/src/collisionRule), and
+            # each sync script's --check fails when its copy has drifted. The
+            # router's needs the root prettier, which the pi-cache job does not
+            # install, so until 126-05 it ran nowhere and the Pi's router lagged
+            # the phone's by a whole engine. On a failure, run the script it
+            # names (no --check) and commit the result.
+            - name: Pi router engine mirror in sync
+              run: node pi-cache/scripts/sync-router-engine.mjs --check
+
+            - name: Pi collision rule mirror in sync
+              run: node pi-cache/scripts/sync-collision-rule.mjs --check
+
             - name: TypeScript type check
               run: npx tsc --noEmit
 
