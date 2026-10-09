@@ -21,7 +21,6 @@ import { describe, expect, it } from 'vitest';
  * legacy-secret gateway check. The rationale names the guard.
  */
 const FUNCTION_GUARDED_OFF = {
-    'autorouting-trial': 'requireAuthenticatedQuota plus server-only UUID allowlist, kill switch and hard expiry',
     'elevenlabs-tts': 'requireAuthenticatedQuota verifies the signed-in session',
     'fetch-wind-grid': 'per-client public quota; app and Pi-cache callers',
     'fetch-wind-velocity': 'per-client public quota; no client caller remains',
@@ -69,9 +68,7 @@ const CREDENTIALLESS_ALLOWLIST = {
     'founding-skipper-application': 'public application form with HMAC per-client quota and service-role-only RPC',
     'moderate-chat-message':
         'chat_messages trigger / retry sweep over pg_net with the service key; exact service-role POST checked',
-    'proxy-himawari-ir': 'map raster source that cannot attach Authorization',
     'proxy-rainbow': 'credentialless Pi passthrough with a per-client public quota',
-    'satellite-tile': 'map raster source that cannot attach Authorization; per-client public quota inside',
     'send-anchor-alarm': 'database trigger over pg_net with the service key; exact service-role POST checked',
     'send-push': 'database trigger / retry sweep over pg_net with the service key; exact service-role POST checked',
     'telemetry-relay':
@@ -165,6 +162,9 @@ describe('Supabase Edge gateway JWT policy', () => {
         const buckets: Record<string, readonly string[]> = {
             functionGuarded: Object.keys(FUNCTION_GUARDED_OFF),
             credentialless: Object.keys(CREDENTIALLESS_ALLOWLIST),
+            // Deleted on 2026-10-09 with proxy-himawari-ir and autorouting-trial:
+            // no build since 121 called them (scratchpad delete plan, ops125).
+            deleted: ['satellite-tile'],
         };
         for (const name of DRIFTED_ON_2026_09_05) {
             const hits = Object.entries(buckets).filter(([, names]) => names.includes(name));
@@ -174,15 +174,18 @@ describe('Supabase Edge gateway JWT policy', () => {
             ).toHaveLength(1);
         }
         expect(DRIFTED_ON_2026_09_05).toHaveLength(22);
-        // 16 original function-guarded drifts + the new authenticated trial.
-        expect(Object.keys(FUNCTION_GUARDED_OFF)).toHaveLength(17);
+        // 16 original function-guarded drifts; the authenticated SevenCs trial
+        // that made it 17 was deleted on 2026-10-09.
+        expect(Object.keys(FUNCTION_GUARDED_OFF)).toHaveLength(16);
         // The six credentialless drifts, the eight already allowlisted,
         // moderate-chat-message (new 2026-09-05, same pg_net shape as send-push),
         // and telemetry-relay (new 2026-09-06, the Pi's relay-token pairing).
         // Guest diary comments (2026-09-20) are public but always moderated.
         // seabed-relay (2026-10-05) is telemetry-relay's shape: the Pi's relay
         // token, or a user JWT checked inside the function.
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(18);
+        // satellite-tile and proxy-himawari-ir (map raster proxies) were deleted
+        // on 2026-10-09, 18 → 16.
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(16);
     });
 
     it('every declared function has a comment explaining its policy', () => {

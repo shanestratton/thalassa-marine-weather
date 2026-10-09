@@ -1300,6 +1300,8 @@ Reviewed the same night. Each fix is tested first (it fails on the G2 build):
 
 ### Left for Shane (server side, not done here)
 
+> **Done 2026-10-09** (Shane: "get rid of sevenC's"): the code commit removed `supabase/functions/autorouting-trial/`, `_shared/autorouting-trial.ts`, the config block and the trial's edge test (keeping `_shared/autorouting-provider-check.ts` and `_shared/autorouting-vessel.ts`, which the client imports); the deployed function was deleted with satellite-tile and proxy-himawari-ir, and the SEVENCS\_\* secrets were unset.
+
 The edge function, its `_shared` modules and its secrets are still deployed and
 in the repo; nothing in the client calls them. When ready:
 
