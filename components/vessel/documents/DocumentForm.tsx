@@ -60,6 +60,15 @@ export const CATEGORIES: { id: DocumentCategory; label: string; Icon: DocumentCa
     { id: 'User Manuals', label: 'Manuals', Icon: BookIcon },
 ];
 
+/**
+ * Crew passports and IDs: the one category the server keeps for the binder's
+ * owner (ship_documents read policy, 20261010140000, 126-B4). Crew with
+ * Documents shared never read one, so they are never offered it: the outbox
+ * writes an edit as UPDATE ... RETURNING, and a paper moved into a category
+ * the writer can no longer read is refused with 42501 and retried forever.
+ */
+export const CREW_IDS_CATEGORY: DocumentCategory = 'Crew Visas/IDs';
+
 interface DocumentFormProps {
     isEdit: boolean;
     formName: string;
@@ -82,6 +91,12 @@ interface DocumentFormProps {
      * the file from) a skipper's record, whose vault folder is theirs alone.
      */
     allowAttach?: boolean;
+    /**
+     * True on a skipper's shared Documents: Crew IDs is not offered (see
+     * CREW_IDS_CATEGORY). DocumentsHub lists no crew IDs there either, so no
+     * paper opens in it.
+     */
+    crewView?: boolean;
 }
 
 export const DocumentForm: React.FC<DocumentFormProps> = ({
@@ -102,8 +117,10 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
     onRemoveFile,
     onSave,
     allowAttach = true,
+    crewView = false,
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const categories = crewView ? CATEGORIES.filter((cat) => cat.id !== CREW_IDS_CATEGORY) : CATEGORIES;
 
     return (
         <>
@@ -113,7 +130,7 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                     Category
                 </label>
                 <div className="grid grid-cols-3 gap-1.5">
-                    {CATEGORIES.map((cat) => (
+                    {categories.map((cat) => (
                         <button
                             aria-label={`${cat.label} category`}
                             aria-pressed={formCategory === cat.id}
@@ -127,6 +144,11 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                         </button>
                     ))}
                 </div>
+                {!crewView && formCategory === CREW_IDS_CATEGORY && (
+                    <p className="text-micro text-gray-400 mt-1.5 ml-1">
+                        Only you see crew IDs, even when you share Documents with crew.
+                    </p>
+                )}
             </div>
 
             {/* Document Name */}

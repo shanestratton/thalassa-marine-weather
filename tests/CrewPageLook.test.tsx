@@ -56,11 +56,12 @@ vi.mock('../services/CrewService', () => ({
     ALWAYS_SHARED_REGISTERS: ['passage_chat'],
     PASSAGE_REGISTERS: ['passage_meals', 'passage_chat', 'passage_route', 'passage_checklist'],
     REGISTER_ICONS: {},
+    REGISTER_NOTES: { documents: 'Crew IDs stay with you' },
     REGISTER_LABELS: {
         stores: "Ship's Stores",
         equipment: 'Equipment',
         passage_chat: 'Group Chat',
-        passage_checklist: 'Checklist',
+        passage_checklist: 'Passage readiness',
         instruments: 'Instrument Panel',
     },
     inviteCrew: vi.fn(),

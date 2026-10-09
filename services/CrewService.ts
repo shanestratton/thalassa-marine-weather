@@ -129,7 +129,23 @@ export const REGISTER_LABELS: Record<SharedRegister, string> = {
     passage_meals: 'Meal Planner',
     passage_chat: 'Group Chat',
     passage_route: 'Passage Route',
-    passage_checklist: 'Checklist',
+    // The passage readiness checks (watch briefed, customs cleared, nav
+    // acknowledged), not the Checklists binder, which is never shared
+    // (126-B4). 'Passage readiness', not the Crew page's 'Readiness checks':
+    // the crew-code caution reads "On a code, <label> covers every one of
+    // your passages".
+    passage_checklist: 'Passage readiness',
+};
+
+/**
+ * One short line under a register's tick, where sharing it holds back part
+ * of it (126-B4). Documents: the ship_documents read policy keeps 'Crew
+ * Visas/IDs' papers for the skipper alone (20261010140000), so crew never see
+ * one another's passports. Drawn under the register grid and linked to the
+ * tick by aria-describedby, so no chip grows.
+ */
+export const REGISTER_NOTES: Partial<Record<SharedRegister, string>> = {
+    documents: 'Crew IDs stay with you',
 };
 
 export const REGISTER_ICONS: Record<SharedRegister, string> = {
