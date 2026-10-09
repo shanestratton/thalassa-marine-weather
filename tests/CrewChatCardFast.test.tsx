@@ -223,6 +223,7 @@ import { NO_PASSAGE_ACCESS, getPassageStatus, setActivePassage } from '../servic
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { useAuthStore } from '../stores/authStore';
 import { toast } from '../components/Toast';
+import { pickCrewChatRoom } from '../services/crew/crewChatGate';
 
 // ── Fixtures ──────────────────────────────────────────────────
 
@@ -618,6 +619,56 @@ describe('A remembered card follows the live answer', () => {
         });
         expect(paints.every((paint) => paint.card)).toBe(true);
         expect(remembered('skipper-1')).toMatchObject({ hasOwnedCrew: true });
+    });
+});
+
+// ── Skipper and crew meet in one room (build 125) ─────────────
+
+describe("The crew card opens the skipper's OLDEST room, the one the skipper's card opens (Shane 2026-10-09)", () => {
+    /** An old 'Crew Chat' and a newer passage-named copy that sorts first by name. */
+    const oldest = { ...groupOf('skipper-1'), id: 'crew-chat-oldest', created_at: '2026-10-01T02:00:00.000Z' };
+    const newer = {
+        ...groupOf('skipper-1'),
+        id: 'crew-chat-akaroa',
+        name: 'Akaroa - Lyttelton (2nd Leg)',
+        created_at: '2026-10-07T01:00:00.000Z',
+    };
+
+    it('two confirmed rooms of one skipper: the oldest wins, not the first by name', async () => {
+        signIn('crew-a');
+        // The chat service lists by name: the newer copy comes first.
+        vi.mocked(ChatService.getChannels).mockResolvedValue([general, newer, oldest]);
+        answer({
+            memberships: [{ owner_id: 'skipper-1', crew_user_id: 'crew-a', status: 'accepted' }],
+            channelMembers: ['crew-chat-akaroa', 'crew-chat-oldest'],
+        });
+
+        render(<ChatPage />);
+
+        await waitFor(() => expect(list()).toHaveAttribute('data-channel', 'crew-chat-oldest'));
+        expect(pickCrewChatRoom([newer, oldest], 'skipper-1')?.id).toBe('crew-chat-oldest');
+        await waitFor(() => expect(remembered('crew-a')?.channel?.id).toBe('crew-chat-oldest'));
+    });
+
+    it('the remembered room still paints first, then the oldest confirmed room takes over', async () => {
+        signIn('crew-a');
+        remember('crew-a', { memberOwnerIds: ['skipper-1'], channel: newer });
+        vi.mocked(ChatService.getChannels).mockResolvedValue([general, newer, oldest]);
+        const live = held();
+        answer(
+            {
+                memberships: [{ owner_id: 'skipper-1', crew_user_id: 'crew-a', status: 'accepted' }],
+                channelMembers: ['crew-chat-akaroa', 'crew-chat-oldest'],
+            },
+            live.delay,
+        );
+
+        render(<ChatPage />);
+
+        await screen.findByTestId('channel-list');
+        expect(firstPaint()).toMatchObject({ card: true, channel: 'crew-chat-akaroa' });
+        await act(async () => live.release());
+        await waitFor(() => expect(list()).toHaveAttribute('data-channel', 'crew-chat-oldest'));
     });
 });
 

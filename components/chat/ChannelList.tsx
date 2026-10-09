@@ -3,7 +3,7 @@
  * Parent channels expand/collapse to show nested sub-channels.
  * Sub-channel cards are indented and smaller.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import type { ChatChannel } from '../../services/ChatService';
 import { ChannelProposalModal } from './ChannelProposalModal';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
@@ -11,6 +11,10 @@ import { ChannelGlyph, getChannelName } from './channelIcons';
 import { ChatIcon, LockIcon, StarIcon, UsersIcon } from '../Icons';
 import { EmptyState } from '../ui/EmptyState';
 import { SightingsEntryCard } from '../sightings/SightingsEntryCard';
+import { toast } from '../Toast';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('CrewChat');
 
 // Channels hidden from the directory. 'Lonely Hearts' is a legacy alias, and
 // 'Chandlery'/'Marketplace' are retired features whose channels may still
@@ -80,8 +84,9 @@ interface ChannelListProps {
  * Who the Crew Chat card says can read the group. A crew member's card opens
  * the skipper's group, so it names the skipper's vessel and never the crew
  * member's own (Shane 2026-10-02: "it is the correct group, but it is just
- * saying the wrong vessel"). Without that name it falls back to the group's
- * own name, then to "the vessel". A skipper's card is unchanged.
+ * saying the wrong vessel"). Without that name it says "the vessel": a crew
+ * room is the skipper's one Crew Chat, never a passage, so the name an old
+ * build stored on it is not shown (build 125). A skipper's card is unchanged.
  */
 function crewChatAudience(
     crewChatChannel: ChatChannel | null,
@@ -89,11 +94,7 @@ function crewChatAudience(
     vesselName: string | undefined,
 ): string {
     if (!crewChatChannel) return `on the ${vesselName || 'vessel'}`;
-    const connectedVessel = crewChatVesselName?.trim();
-    if (connectedVessel) return `on the ${connectedVessel}`;
-    const groupName = (getChannelName(crewChatChannel) || '').trim();
-    if (groupName && groupName.toLowerCase() !== 'crew chat') return `in ${groupName}`;
-    return 'on the vessel';
+    return `on the ${crewChatVesselName?.trim() || 'vessel'}`;
 }
 
 const ChannelListInner: React.FC<ChannelListProps> = ({
@@ -124,6 +125,44 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
     crewChatVesselName,
 }) => {
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
+    // A skipper's tap is out: the card is busy and further taps are ignored.
+    const [openingCrewChat, setOpeningCrewChat] = useState(false);
+    const crewChatTap = useRef(false);
+
+    /**
+     * The Crew Chat card. Crew open the skipper's group they are already in.
+     * A skipper opens their one Crew Chat (services/crew/crewChatRoom), with
+     * no passage needed and an honest word for every failure (Shane
+     * 2026-10-09: "ok i get sign in to use crew chat", while signed in).
+     */
+    const openCrewChat = async () => {
+        if (crewChatChannel) {
+            onOpenChannel(crewChatChannel);
+            return;
+        }
+        if (crewChatTap.current) return;
+        crewChatTap.current = true;
+        setOpeningCrewChat(true);
+        // Retry the chat service's own sign-in if it lagged at boot, so sending
+        // works this visit. Opening never waits on it.
+        void import('../../services/ChatService').then(({ ChatService }) => ChatService.initialize()).catch(() => {});
+        try {
+            const { openOwnCrewChat, crewChatFailureMessage } = await import('../../services/crew/crewChatRoom');
+            const result = await openOwnCrewChat();
+            if (result.ok) {
+                onOpenChannel(result.channel);
+            } else {
+                const message = crewChatFailureMessage(result);
+                if (message) toast.error(message);
+            }
+        } catch {
+            log.warn('crew-chat: failed-tap');
+            toast.error("Crew Chat didn't open. Try again.");
+        } finally {
+            crewChatTap.current = false;
+            setOpeningCrewChat(false);
+        }
+    };
 
     const toggleExpand = (parentId: string, e: React.MouseEvent) => {
         e.stopPropagation();
@@ -315,46 +354,9 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
             {hasCrewInvited && (
                 <button
                     aria-label="Crew Chat (Private Group)"
-                    onClick={async () => {
-                        // Crew: open the skipper's Crew Chat they are already in.
-                        if (crewChatChannel) {
-                            onOpenChannel(crewChatChannel);
-                            return;
-                        }
-                        try {
-                            const { getActivePassageId } = await import('../../services/PassagePlanService');
-                            const { getDraftVoyages } = await import('../../services/VoyageService');
-                            const { ChatService } = await import('../../services/ChatService');
-
-                            const passageId = getActivePassageId();
-                            if (!passageId) {
-                                const { toast } = await import('../Toast');
-                                toast.error('Select a passage in Passage Planning first');
-                                return;
-                            }
-
-                            const drafts = await getDraftVoyages();
-                            const voyage = drafts.find((v) => v.id === passageId);
-                            // Operator-precedence note: keep voyage_name preferred; fall back to
-                            // a port pair only when no name is set.
-                            const voyageName =
-                                voyage?.voyage_name ||
-                                (voyage?.departure_port && voyage?.destination_port
-                                    ? `${voyage.departure_port} → ${voyage.destination_port}`
-                                    : 'Crew Chat');
-
-                            const channel = await ChatService.createVoyageChannel(passageId, voyageName);
-                            if (channel) {
-                                onOpenChannel(channel);
-                            } else {
-                                const { toast } = await import('../Toast');
-                                toast.error('Sign in to use Crew Chat');
-                            }
-                        } catch (e) {
-                            console.error('Crew chat error:', e);
-                        }
-                    }}
-                    className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-linear-to-r from-emerald-500/6 to-teal-500/3 hover:from-emerald-500/12 hover:to-teal-500/6 border border-emerald-500/15 hover:border-emerald-500/30 transition-all duration-200 active:scale-[0.98] mb-3"
+                    aria-busy={openingCrewChat || undefined}
+                    onClick={openCrewChat}
+                    className={`w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-linear-to-r from-emerald-500/6 to-teal-500/3 hover:from-emerald-500/12 hover:to-teal-500/6 border border-emerald-500/15 hover:border-emerald-500/30 transition-all duration-200 active:scale-[0.98] mb-3${openingCrewChat ? ' opacity-70' : ''}`}
                 >
                     <div
                         aria-hidden="true"
@@ -371,14 +373,26 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                                 PRIVATE GROUP
                             </span>
                         </div>
+                        {/* A skipper's tap can take seconds on a slow link: the
+                            card says so, and the arrow turns (review, build 125). */}
                         <p className="text-sm text-white/60 truncate mt-0.5">
-                            Only visible to crew {crewChatAudience(crewChatChannel, crewChatVesselName, vesselName)}
+                            {openingCrewChat
+                                ? 'Opening Crew Chat…'
+                                : `Only visible to crew ${crewChatAudience(crewChatChannel, crewChatVesselName, vesselName)}`}
                         </p>
                     </div>
                     <div className="w-6 h-6 rounded-full bg-emerald-500/10 group-hover:bg-emerald-500/20 flex items-center justify-center transition-all group-hover:translate-x-0.5">
-                        <span className="text-emerald-400/30 group-hover:text-emerald-400/70 text-xs transition-colors">
-                            ›
-                        </span>
+                        {openingCrewChat ? (
+                            <span
+                                aria-hidden="true"
+                                data-testid="crew-chat-opening"
+                                className="h-3 w-3 rounded-full border-2 border-emerald-400/30 border-t-emerald-300 motion-safe:animate-spin"
+                            />
+                        ) : (
+                            <span className="text-emerald-400/30 group-hover:text-emerald-400/70 text-xs transition-colors">
+                                ›
+                            </span>
+                        )}
                     </div>
                 </button>
             )}

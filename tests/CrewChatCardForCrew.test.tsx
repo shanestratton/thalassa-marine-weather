@@ -102,8 +102,13 @@ describe('Crew Chat card names the vessel whose group it opens (2026-10-02)', ()
         expect(card()).not.toHaveTextContent('Albatross');
     });
 
-    it("falls back to the group's own name, never the crew member's vessel", () => {
-        const passageChat = { ...crewChat, name: 'Newport to Airlie' } as ChatChannel;
+    // Build 125 (Shane 2026-10-09: "it say mackay - whitsundays at the top"):
+    // a crew room is the skipper's one Crew Chat, never a passage, so a room
+    // still stored under a passage name no longer names that passage. Without
+    // the skipper's boat the card says "the vessel". This pinned "in Newport
+    // to Airlie" until 125; changed on purpose.
+    it("never names a passage the group was once called, nor the crew member's vessel", () => {
+        const passageChat = { ...crewChat, name: 'Lyttelton - Akaroa (2nd Leg)' } as ChatChannel;
         render(
             <ChannelList
                 {...props({
@@ -114,7 +119,8 @@ describe('Crew Chat card names the vessel whose group it opens (2026-10-02)', ()
                 })}
             />,
         );
-        expect(card()).toHaveTextContent('Only visible to crew in Newport to Airlie');
+        expect(card()).toHaveTextContent('Only visible to crew on the vessel');
+        expect(card()).not.toHaveTextContent('Akaroa');
         expect(card()).not.toHaveTextContent('Kestrel');
     });
 
