@@ -18,7 +18,11 @@ import { TRACE_ROUTE_USE_BLOCK_PREFIX, TRACE_CHECK_STORAGE_FULL, type FollowProm
 const log = createLogger('LogPage');
 
 export const FollowRoutePromptSheet: React.FC<{
+    /** "Just recording" — and, after cast-off only, a tap on the backdrop. */
     dismissFollowPrompt: () => void;
+    /** The X (and Escape, which the caller binds): leave, back to the Log page.
+     *  Before cast-off it cancels the start; after it, it closes the sheet. */
+    closeFollowPrompt: () => void;
     followPromptDialogRef: React.RefObject<HTMLDivElement>;
     followPromptDismissRef: React.RefObject<HTMLButtonElement>;
     followNotice: string | null;
@@ -47,6 +51,7 @@ export const FollowRoutePromptSheet: React.FC<{
     applyFollowPick: (s: VoyageSummary, promptVid: string | null) => Promise<void>;
 }> = ({
     dismissFollowPrompt,
+    closeFollowPrompt,
     followPromptDialogRef,
     followPromptDismissRef,
     followNotice,
@@ -90,7 +95,10 @@ export const FollowRoutePromptSheet: React.FC<{
             role="presentation"
             data-follow-sheet-overlay
             className="fixed inset-0 z-10055 flex items-center justify-center bg-black/60 px-3 pt-[max(1rem,env(safe-area-inset-top))] pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)]"
-            onClick={dismissFollowPrompt}
+            // Before cast-off a stray tap outside the card does nothing: it
+            // must neither start the track the slide asked for nor cancel it.
+            // Only the X, "Just recording" or a route act (125-15).
+            onClick={preStartSheetOpen ? undefined : dismissFollowPrompt}
         >
             <div
                 ref={followPromptDialogRef}
@@ -101,16 +109,43 @@ export const FollowRoutePromptSheet: React.FC<{
                 className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
             >
-                <div className="shrink-0 border-b border-white/10 px-5 py-4">
-                    <div
-                        id="follow-route-prompt-title"
-                        className="text-sm font-black uppercase tracking-widest text-emerald-300"
+                <div className="flex shrink-0 items-start gap-2 border-b border-white/10 px-5 py-4">
+                    <div className="min-w-0 flex-1">
+                        <div
+                            id="follow-route-prompt-title"
+                            className="text-sm font-black uppercase tracking-widest text-emerald-300"
+                        >
+                            Following a route?
+                        </div>
+                        <div id="follow-route-prompt-description" className="mt-0.5 text-[12px] text-gray-400">
+                            Pick one to show on your public page — or just record the track.
+                        </div>
+                    </div>
+                    {/* The X (Shane 2026-10-09: "that modal form needs an X in
+                        the top right hand corner ... it should take us back to
+                        the log page"). ModalSheet's close, button for button;
+                        in the flow rather than absolute, so wide fonts wrap the
+                        title beside it and never under it. The negative
+                        margins put it ModalSheet's 8 px from the card's edges.
+                        Held, like Just recording, while a route loads. */}
+                    <button
+                        type="button"
+                        onClick={closeFollowPrompt}
+                        disabled={followPromptLoadingId !== null}
+                        className="-mr-3 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/5 transition-colors hover:bg-white/10 disabled:cursor-wait disabled:opacity-50"
+                        aria-label="Close"
                     >
-                        Following a route?
-                    </div>
-                    <div id="follow-route-prompt-description" className="mt-0.5 text-[12px] text-gray-400">
-                        Pick one to show on your public page — or just record the track.
-                    </div>
+                        <svg
+                            aria-hidden="true"
+                            className="h-5 w-5 text-gray-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
                 </div>
                 {followNotice && (
                     <div
