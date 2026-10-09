@@ -55,6 +55,11 @@ interface Props {
     buoy?: NearestBuoyResult | 'checking' | null;
     /** The user's wave-height and distance units, for the buoy line. */
     units?: BuoyLineUnits;
+    /**
+     * Open the Sounding sheet for this point (build 125, SND): ECMWF's upper
+     * air as a skew-T. An explicit tap, so nothing is fetched until asked.
+     */
+    onOpenSounding?: () => void;
 }
 
 // ── Direction helpers ──
@@ -234,7 +239,17 @@ const SaveRow: React.FC<{ save: InspectSaveProps }> = ({ save }) => {
 
 // ── Main component ──
 
-export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onRetry, onClose, save, buoy, units }) => {
+export const WeatherInspectPopup: React.FC<Props> = ({
+    data,
+    loading,
+    error,
+    onRetry,
+    onClose,
+    save,
+    buoy,
+    units,
+    onOpenSounding,
+}) => {
     const hasMarine = data && data.waveHeightM != null && data.waveHeightM > 0;
     /**
      * The sea half is still in the air. The atmospherics now paint as soon as
@@ -243,6 +258,28 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
      * read as "coming", not as "this is dry land".
      */
     const marinePending = data?.marineStatus === 'pending';
+
+    /**
+     * The way into the upper air over this point (build 125, SND): a pill on
+     * a line the bubble already has, never a row of its own. The bubble
+     * cannot scroll, and on a 568 px screen every line pushes the Save row
+     * toward the tab bar. The sounding is its own fetch, so it is there
+     * whether or not the point forecast loaded: beside the coordinates once
+     * they show, at the foot while the forecast loads or after it failed.
+     */
+    const soundingPill = onOpenSounding ? (
+        <button
+            type="button"
+            onClick={onOpenSounding}
+            aria-label="Sounding: the upper air over this point"
+            className="hit-target-44 inline-flex min-h-7 shrink-0 items-center gap-1 rounded-full bg-sky-400/10 px-2.5 text-[12px] font-bold text-sky-300 transition-colors hover:bg-sky-400/20 hover:text-sky-200"
+        >
+            Sounding
+            <svg width="8" height="10" viewBox="0 0 8 10" aria-hidden="true" className="shrink-0">
+                <path d="M2 1l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+        </button>
+    ) : null;
 
     return (
         <div style={{ minWidth: 240, maxWidth: 280 }}>
@@ -351,13 +388,16 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                             animation: 'fadeInUp 0.3s ease-out',
                         }}
                     >
-                        {/* Coordinate header */}
-                        <div className="flex items-center gap-1.5 mb-2 pr-6">
+                        {/* Coordinate header; the Sounding pill keeps clear of the close button. */}
+                        <div
+                            className={`flex flex-wrap items-center gap-x-2 gap-y-1 mb-2 ${soundingPill ? 'pr-10' : 'pr-6'}`}
+                        >
                             <span className="text-xs text-sky-400/70 font-mono font-bold">
                                 {data
                                     ? `${Math.abs(data.lat).toFixed(2)}°${data.lat >= 0 ? 'N' : 'S'} ${Math.abs(data.lon).toFixed(2)}°${data.lon >= 0 ? 'E' : 'W'}`
                                     : '…'}
                             </span>
+                            {soundingPill}
                         </div>
 
                         {/* Atmospheric section */}
@@ -524,6 +564,9 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                         )}
                     </div>
                 )}
+
+                {/* No coordinates to sit beside yet (loading) or at all (failed): the pill waits at the foot. */}
+                {soundingPill && !data && <div className="mt-2 flex border-t border-white/6 pt-2">{soundingPill}</div>}
 
                 {/* Outside the data block on purpose: the spot is worth
                     saving whether or not its weather loaded (offshore on a

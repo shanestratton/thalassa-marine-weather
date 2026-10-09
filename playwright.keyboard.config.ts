@@ -92,6 +92,10 @@ export default defineConfig({
         // notice's in-place takeover, its confirm and the Vessel card with the Pi primary
         // fit 320 × 568 in wide fonts under the app's header (e2e/fixtures/skipper-takeover.tsx).
         'skipper-takeover-layout.spec.ts',
+        // The Sounding sheet (build 125, SND): ECMWF's upper air as a skew-T, the hour
+        // picker, six readings and the credit fit 320 × 568 in wide fonts, centred
+        // above the tab bar, in every palette (e2e/fixtures/sounding-sheet.tsx).
+        'sounding-sheet-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
