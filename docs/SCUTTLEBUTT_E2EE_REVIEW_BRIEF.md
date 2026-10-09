@@ -253,27 +253,31 @@ storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gate
 before treating this routing seam as startup integration. No ordinary activation,
 shared dependency write, primary sync, master or production change is included.
 
-The [9 October Window execution](../experiments/scuttlebutt-e2ee/review/full-app-window-execution-2026-10-09.json)
-observed actual unsupported entry/Root startup, unavailable Chat selection,
-synthetic closure and whole-root remount in fresh owned Chrome 151. Auth stayed
-anonymous with no main-App User; two runtime constructions succeeded, with zero
-SDK constructions and wrapped Research native calls. The fence installed without
-patch failures; closed-leaf/storage counters honestly retain nonzero attempts.
-The latest instrumented build passed with 1,989 module inputs, one separately
-pinned PNG input, three ES workers and 256 outputs. Automatic public-directory
-copying is disabled; the sole explicit brand asset has exact input/output provenance.
+The [9 October accepted Window evidence](../experiments/scuttlebutt-e2ee/review/full-app-window-accepted-2026-10-09.json)
+passes the complete unsupported-browser fixture in fresh owned Chrome 151:
+actual entry/Root startup, unavailable Chat selection, synthetic closure,
+whole-root remount, blocked audio CSP control and final terminal closure.
+Auth remained anonymous with no main-App User or legacy permit. Two runtime
+constructions succeeded; SDK constructions and wrapped Research native calls
+were zero. Terminal state was inactive, with two mounts, one remount and six
+render invocations. Cleanup closed the browser/server and removed the owned profile.
 
-Complete browser acceptance failed at the iframe CSP control: two expected events
-and two refused unknown data-image requests were recorded. Chrome error-frame
-images are only a timing-based hypothesis. Cleanup succeeded, but final terminal
-closure was not reached. The repaired audio/media control retains the same CSP,
-request gates and fence, with no play/load or data allowance. Its changed 11-case
-fixture, final test types and actual execution remain queued-unrun after the
-preserved two-minute shared-slot budget expired. A fresh proof-only receipt verifies
-the original compiled sources/outputs and explicitly rebinds three uncompiled
-proof/test hashes; it is not a recompile. Final named lint/format pass. Earlier
-mock, jsdom, types and overlapping contract/asset checks remain separate pinned
-results, not a pass for the later audio-test bytes.
+The 11 queued audio CSP cases and final scoped proof-test types passed; 51 other
+cases were skipped, and earlier suites were not rerun. The run verified the
+preserved proof-only rebound receipt, original passed build, all 1,990 compiled
+inputs/256 outputs and six current proof hashes. No new compilation occurred.
+The bundle retains 1,989 module inputs, one separately pinned PNG input and three
+compiled ES workers. Automatic public-directory copying is disabled; the exact
+brand icon is the sole explicit asset emission.
+
+Two expected `media-src` events and zero unexpected events came from the unchanged
+header/meta policies. Each page/server counter recorded one document, 39 hashed
+assets and one favicon control, with zero refusals, CSP escapes, gate failures
+or page errors. Six console errors remain recorded. Fence patch failures were
+zero, while three unpatchable location properties and nonzero closed-leaf/storage
+attempts remain visible. Earlier missing-icon and iframe/data-image failures stay
+in the immutable [partial execution evidence](../experiments/scuttlebutt-e2ee/review/full-app-window-execution-2026-10-09.json);
+the data-image origin remains unknown, not proved to be a Chrome error frame.
 
 Successful construction counts, render invocations and Research-seam calls do not
 prove native authority or revocation. Fence storage counts omit the pre-existing
@@ -282,8 +286,13 @@ page/CDP gates are not a malicious same-origin sandbox or whole browser-process
 network measurement. Only Node/Chrome executables and selected Puppeteer files
 are hashed, not complete toolchain provenance. The earlier
 [136-case preparation](../experiments/scuttlebutt-e2ee/review/full-app-window-2026-10-09.json)
-is historical. Native startup/protected exchange remains unimplemented and must
+is historical. Private native HTTP/JS drafts are hashed but uncompiled, unexecuted
+and unadopted. Native startup/protected exchange remains unimplemented and must
 retain separate SDK/provider, physical, hosted and independent-assessment gates.
+Master `058ba16e` was observed as an external shared-ref advancement without writes
+or reconciliation; the `8c28d08e` proof does not cover a combined candidate.
+Future reconciliation must preserve published integration history without a
+rewrite or force-push. Unsupported-browser acceptance is not merge/release readiness.
 
 The [9 October full App build evidence](../experiments/scuttlebutt-e2ee/review/full-app-build-2026-10-09.json)
 adds successful isolated compilation on `37aa3dec` plus the exact unavailable
@@ -301,9 +310,10 @@ Framer Motion directive and large-chunk warnings remain. Inputs and Git state
 were unchanged during compilation; hashes identify this run, not independent
 dependency or binary provenance.
 
-The earlier queued build gate is now completed only for compilation. Actual
-Window/entry/I/O-fence behavior, SDK/native Root admission, protected navigation,
-provider exchange, physical acceptance and independent assessment remain open.
+The build gate establishes compilation only. The later unsupported Window result
+above adds measured entry/fence behavior in owned Chrome. SDK/native Root
+admission, protected navigation, provider exchange, physical acceptance and
+independent assessment remain open.
 Current release, lifecycle/recovery/prekey, concurrency and dependency obligations
 are unchanged. No human/hosted state, primary sync, master or production changed.
 
@@ -323,16 +333,17 @@ The jsdom root import bypasses the entry and real Window I/O-fence installation;
 its fixed spies do not measure every browser/native operation. Strict types
 precede only the last worker-config/test addition, with checked runtime sources
 unchanged. At that preparation checkpoint the repaired build was queued-unrun
-after its bounded shared slot window. The later build above adds compilation;
-actual Window/native Root, supported SDK admission, encryption exchange and
-visual acceptance remain unestablished.
+after its bounded shared slot window. Later compilation and unsupported Window
+acceptance above do not establish native Root, supported SDK admission, encryption
+exchange or visual acceptance.
 
 Retain the earlier SDK-import, background-enum and worker-format build failures
 and separate wrapper receipt collision. Review the trusted build graph, private
 Auth-fetch capability and actual Window/native backstop as separate boundaries.
-The queued compile is now recorded above; actual full-root startup/lifecycle
-checks remain next. Device/prekey/recovery/retention, provenance/licence, independent
-concurrency, current physical acceptance and independent security assessment
+The queued compile and unsupported Window scenario are now recorded above; native
+full-root startup/lifecycle checks remain next. Device/prekey/recovery/retention,
+provenance/licence, independent concurrency, current physical acceptance and
+independent security assessment
 remain open. No ordinary activation, human/hosted state, primary sync, master,
 reviewer contact or purchase changed.
 
