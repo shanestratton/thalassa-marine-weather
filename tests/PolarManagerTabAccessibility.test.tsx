@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../components/settings/PolarChart', () => ({
@@ -24,12 +24,23 @@ vi.mock('../services/NmeaStore', () => ({
     },
 }));
 
+const learner = vi.hoisted(() => ({
+    feed: 'none' as 'pi' | 'gateway' | 'cloud' | 'quiet' | 'none',
+    statusListener: null as null | ((s: unknown) => void),
+}));
 vi.mock('../services/SmartPolarService', () => ({
     SmartPolarService: {
-        onStatusChange: vi.fn(() => () => undefined),
+        onStatusChange: vi.fn((cb: (s: unknown) => void) => {
+            learner.statusListener = cb;
+            return () => undefined;
+        }),
         start: vi.fn(),
         stop: vi.fn(),
     },
+}));
+vi.mock('../services/smartPolarFeed', () => ({
+    learnerFeedState: () => learner.feed,
+    subscribeLearnerFeedState: () => () => undefined,
 }));
 
 vi.mock('../services/SmartPolarStore', () => ({
@@ -57,6 +68,8 @@ const settings = {
 describe('PolarManagerTab advanced input accessibility', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        learner.feed = 'none';
+        learner.statusListener = null;
     });
 
     it('opens a labelled modal, focuses its close action, and restores focus after Escape', async () => {
@@ -102,5 +115,111 @@ describe('PolarManagerTab advanced input accessibility', () => {
                 name: 'Boat speed at 45 degrees true wind angle and 6 knots true wind speed',
             }),
         ).toBeDefined();
+    });
+});
+
+/**
+ * Build 126, package 126-B6a (polars-01): the Smart Polars card says where the
+ * learner hears the boat from — the Pi, the gateway, the cloud only, or
+ * nothing — instead of this phone's gateway socket, which never opens on a Pi
+ * boat and read "NMEA: Disconnected" on Serene Summer while the Pi fed every
+ * instrument. Fictional boat; the feed state is the learner's own
+ * (services/smartPolarFeed).
+ */
+describe('PolarManagerTab Smart Polars card: where the instruments come from', () => {
+    const on = { ...settings, smartPolarsEnabled: true };
+    const off = { ...settings, smartPolarsEnabled: false };
+    const gates = (engineOff: 'pass' | 'fail' | 'unavailable') => ({
+        engineOff,
+        stableHeading: 'pass',
+        steadyWind: 'pass',
+        minimumSpeed: 'pass',
+        steadyState: 'unavailable',
+        recording: false,
+        totalAccepted: 0,
+        totalRejected: 0,
+    });
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        learner.feed = 'none';
+        learner.statusListener = null;
+    });
+
+    it('on a Pi boat: "Instruments: via the Pi", and none of the socket\'s words', async () => {
+        learner.feed = 'pi';
+        for (const page of [on, off]) {
+            const { container } = render(<PolarManagerTab settings={page} />);
+            await act(async () => {
+                await Promise.resolve();
+            });
+            expect(screen.getByText('Instruments: via the Pi')).toBeDefined();
+            const text = container.textContent ?? '';
+            expect(text).not.toContain('NMEA 2000 backbone');
+            expect(text).not.toContain('Not connected');
+            expect(text).not.toContain('NMEA: Disconnected');
+            cleanup();
+        }
+    });
+
+    it('says where the learner hears the boat from, in each of its five states', async () => {
+        const words = {
+            pi: 'Instruments: via the Pi',
+            gateway: 'Instruments: via the NMEA gateway',
+            cloud: 'Seen through the cloud only: learning needs a direct link to the Pi or the gateway',
+            quiet: 'The Pi is on; her instruments are quiet',
+            none: 'Not reaching the boat',
+        } as const;
+        for (const [feed, said] of Object.entries(words) as Array<[keyof typeof words, string]>) {
+            learner.feed = feed;
+            render(<PolarManagerTab settings={on} />);
+            await act(async () => {
+                await Promise.resolve();
+            });
+            expect(screen.getByText(said)).toBeDefined();
+            cleanup();
+        }
+    });
+
+    it('explains itself in terms of the boat, not the backbone', async () => {
+        learner.feed = 'none';
+        const { container } = render(<PolarManagerTab settings={off} onNavigateToNmea={vi.fn()} />);
+        await act(async () => {
+            await Promise.resolve();
+        });
+        expect(container.textContent).toContain(
+            "Smart Polars learns your boat's real speeds from her instruments (the Pi or an NMEA gateway).",
+        );
+        expect(screen.getByText('Not reaching the boat')).toBeDefined();
+    });
+
+    it('offers "Set up instruments" only when nothing reaches the boat — not to a quiet Pi or the cloud', async () => {
+        for (const [feed, link] of [
+            ['none', true],
+            ['quiet', false],
+            ['cloud', false],
+        ] as const) {
+            learner.feed = feed;
+            render(<PolarManagerTab settings={off} onNavigateToNmea={vi.fn()} />);
+            await act(async () => {
+                await Promise.resolve();
+            });
+            expect(screen.queryByRole('button', { name: /Set up instruments/ }) !== null).toBe(link);
+            cleanup();
+        }
+    });
+
+    it('"No engine data" only when neither RPM nor alternator voltage reaches the learner', async () => {
+        learner.feed = 'pi';
+        render(<PolarManagerTab settings={on} />);
+        await act(async () => {
+            await Promise.resolve();
+        });
+        expect(screen.queryByText(/No RPM data/)).toBeNull();
+        expect(screen.queryByText(/No engine data/)).toBeNull();
+        act(() => learner.statusListener?.(gates('unavailable')));
+        expect(screen.getByText('No engine data: the engine-off check is skipped')).toBeDefined();
+        act(() => learner.statusListener?.(gates('pass')));
+        expect(screen.queryByText(/No engine data/)).toBeNull();
     });
 });

@@ -7,7 +7,7 @@
  * - Smart Polars state, with a link to its switch in Settings → Preferences
  *   (moved there, UX scorecard run 8; see SmartPolarsSetting)
  * - Factory vs Smart polar data for routing
- * - NMEA connection status
+ * - Where the learner hears the boat from (services/smartPolarFeed)
  * - Smart Polars stats & filter gate status
  * - PolarChart with overlay
  *
@@ -18,8 +18,8 @@ import type { PolarData } from '../../types';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { PolarChart } from './PolarChart';
 import { parsePolarFile, validatePolarData, createEmptyPolar } from '../../utils/polarParser';
-import { NmeaListenerService, type NmeaConnectionStatus } from '../../services/NmeaListenerService';
 import { SmartPolarService, type FilterStatus } from '../../services/SmartPolarService';
+import { learnerFeedState, subscribeLearnerFeedState, type LearnerFeedState } from '../../services/smartPolarFeed';
 import { SmartPolarStore } from '../../services/SmartPolarStore';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { OverlayPortal } from '../ui/OverlayPortal';
@@ -107,7 +107,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
 
     // Smart Polars state
     const [smartPolarData, setSmartPolarData] = useState<PolarData | null>(null);
-    const [nmeaStatus, setNmeaStatus] = useState<NmeaConnectionStatus>('disconnected');
+    const [feed, setFeed] = useState<LearnerFeedState>(learnerFeedState);
     const [filterStatus, setFilterStatus] = useState<FilterStatus | null>(null);
     const [smartStats, setSmartStats] = useState<{
         totalSamples: number;
@@ -171,11 +171,11 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
         void loadSmartPolarData();
     }, [loadSmartPolarData]);
 
-    // Subscribe to NMEA + Smart Polar status
+    // Subscribe to the learner's feed + Smart Polar status
     useEffect(() => {
-        const unsub1 = NmeaListenerService.onStatusChange(setNmeaStatus);
+        const unsub1 = subscribeLearnerFeedState(setFeed);
         const unsub2 = SmartPolarService.onStatusChange(setFilterStatus);
-        setNmeaStatus(NmeaListenerService.getStatus());
+        setFeed(learnerFeedState());
 
         // Refresh smart polar data periodically
         const refreshInterval = setInterval(() => void loadSmartPolarData(), 15000);
@@ -242,10 +242,9 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                 <SmartPolarsCard
                     smartEnabled={smartEnabled}
                     polarSource={polarSource}
-                    nmeaStatus={nmeaStatus}
+                    feed={feed}
                     filterStatus={filterStatus}
                     smartStats={smartStats}
-                    hasRpmData={NmeaListenerService.getHasRpmData()}
                     onOpenPreferences={onOpenPreferences}
                     onToggleSource={togglePolarSource}
                     onReset={() => setShowResetConfirm(true)}
@@ -426,13 +425,29 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
 // SMART POLARS CARD
 // ═══════════════════════════════════════════
 
+/**
+ * Where the learner hears the boat from (build 126, 126-B6a). Not this phone's
+ * socket: that never opens on a Pi boat, and read "NMEA: Disconnected" there
+ * while the Pi fed every instrument.
+ */
+const FEED_WORDS: Record<LearnerFeedState, { color: string; label: string }> = {
+    pi: { color: 'bg-emerald-400', label: 'Instruments: via the Pi' },
+    gateway: { color: 'bg-emerald-400', label: 'Instruments: via the NMEA gateway' },
+    // By lane, not by place: a lane says nothing about where the phone is.
+    cloud: {
+        color: 'bg-amber-400',
+        label: 'Seen through the cloud only: learning needs a direct link to the Pi or the gateway',
+    },
+    quiet: { color: 'bg-gray-500', label: 'The Pi is on; her instruments are quiet' },
+    none: { color: 'bg-gray-500', label: 'Not reaching the boat' },
+};
+
 const SmartPolarsCard: React.FC<{
     smartEnabled: boolean;
     polarSource: 'factory' | 'smart';
-    nmeaStatus: NmeaConnectionStatus;
+    feed: LearnerFeedState;
     filterStatus: FilterStatus | null;
     smartStats: { totalSamples: number; filledBuckets: number; totalBuckets: number } | null;
-    hasRpmData: boolean;
     onOpenPreferences?: () => void;
     onToggleSource: (src: 'factory' | 'smart') => void;
     onReset: () => void;
@@ -440,33 +455,23 @@ const SmartPolarsCard: React.FC<{
 }> = ({
     smartEnabled,
     polarSource,
-    nmeaStatus,
+    feed,
     filterStatus,
     smartStats,
-    hasRpmData,
     onOpenPreferences,
     onToggleSource,
     onReset,
     onNavigateToNmea,
 }) => {
-    // Status dot color (the unused icon field used to be 🟢🟡⚪🔴; removed
-    // since nothing rendered them — the `color` background dot conveys
-    // the state already).
-    const nmeaStatusConfig = {
-        connected: { color: 'bg-emerald-400', label: 'Connected' },
-        connecting: { color: 'bg-amber-400 animate-pulse', label: 'Connecting…' },
-        disconnected: { color: 'bg-gray-500', label: 'Disconnected' },
-        error: { color: 'bg-red-400', label: 'Error' },
-    };
-
-    const status = nmeaStatusConfig[nmeaStatus];
-    const isDisconnected = nmeaStatus === 'disconnected';
+    const status = FEED_WORDS[feed];
+    // The Pi or a gateway: something to learn from.
+    const reaching = feed === 'pi' || feed === 'gateway';
     const fillPercent = smartStats ? Math.round((smartStats.filledBuckets / smartStats.totalBuckets) * 100) : 0;
 
     return (
         <div
             className={`rounded-2xl p-4 transition-all ${
-                isDisconnected
+                !reaching
                     ? // Dim the chrome only: opacity-70 on the card put its daylight
                       // text at 3.45–4.3:1 (UX scorecard run 6).
                       'bg-white/2 border border-white/6'
@@ -481,10 +486,11 @@ const SmartPolarsCard: React.FC<{
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-4">
                 <div className="flex flex-wrap items-center gap-2">
                     <h2 className={CARD_HEADING_CLASS}>Smart Polars</h2>
-                    {!hasRpmData && smartEnabled && (
+                    {/* Neither RPM nor alternator voltage reaches the learner. */}
+                    {smartEnabled && filterStatus?.engineOff === 'unavailable' && (
                         <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg font-bold inline-flex items-center gap-1">
                             <AlertTriangleIcon className="w-3 h-3" />
-                            <span>No RPM data</span>
+                            <span>No engine data: the engine-off check is skipped</span>
                         </span>
                     )}
                 </div>
@@ -524,42 +530,44 @@ const SmartPolarsCard: React.FC<{
                     {/* Emphasis in white, not link blue: only the real link below
                         is blue (UX scorecard run 7). */}
                     <p className="text-xs text-gray-400 leading-relaxed">
-                        Smart Polars learns your boat's <span className="text-white font-bold">real performance</span>{' '}
-                        by recording speed data from your onboard instruments via the{' '}
-                        <span className="text-white font-bold">NMEA 2000 backbone</span>.
+                        Smart Polars learns your boat's <span className="text-white font-bold">real speeds</span> from
+                        her instruments (the Pi or an NMEA gateway).
                     </p>
                     <p className="text-xs text-gray-400 mt-2">
-                        {nmeaStatus === 'disconnected' ? (
+                        {reaching ? (
+                            <>
+                                <span className="text-emerald-400 inline-flex items-center gap-1">
+                                    <CheckCircleIcon className="w-3 h-3" />
+                                    <span>{status.label}</span>
+                                </span>{' '}
+                                — turn it on in Preferences.
+                            </>
+                        ) : (
                             <>
                                 {/* Amber on the glyph only: amber text measured under AA
                                     on this box in daylight (UX scorecard run 6). */}
                                 <span className="text-gray-200 font-bold inline-flex items-center gap-1">
                                     <AlertTriangleIcon className="w-3 h-3 text-amber-400" />
-                                    <span>Not connected</span>
-                                </span>{' '}
-                                —{' '}
+                                    <span>{status.label}</span>
+                                </span>
                                 {/* The page's one off-page link look; its hit area
                                     reaches past the line instead of a 44 px box
-                                    that doubled the line's height. */}
-                                {onNavigateToNmea ? (
-                                    <button
-                                        type="button"
-                                        onClick={onNavigateToNmea}
-                                        className={`${OFF_PAGE_LINK_CLASS} ${HIT_AREA_44_CLASS}`}
-                                    >
-                                        <OffPageLinkText>Set up NMEA gateway</OffPageLinkText>
-                                    </button>
-                                ) : (
-                                    'configure your NMEA gateway first.'
+                                    that doubled the line's height. Through the
+                                    cloud, or a Pi with her instruments quiet,
+                                    there is nothing to set up. */}
+                                {feed === 'none' && onNavigateToNmea && (
+                                    <>
+                                        {' '}
+                                        —{' '}
+                                        <button
+                                            type="button"
+                                            onClick={onNavigateToNmea}
+                                            className={`${OFF_PAGE_LINK_CLASS} ${HIT_AREA_44_CLASS}`}
+                                        >
+                                            <OffPageLinkText>Set up instruments</OffPageLinkText>
+                                        </button>
+                                    </>
                                 )}
-                            </>
-                        ) : (
-                            <>
-                                <span className="text-emerald-400 inline-flex items-center gap-1">
-                                    <CheckCircleIcon className="w-3 h-3" />
-                                    <span>NMEA connected</span>
-                                </span>{' '}
-                                — turn it on in Preferences.
                             </>
                         )}
                     </p>
@@ -568,12 +576,10 @@ const SmartPolarsCard: React.FC<{
 
             {smartEnabled && (
                 <>
-                    {/* NMEA Connection Status */}
+                    {/* Where the instruments come from: a sentence, so sentence case. */}
                     <div className="flex items-center gap-2 mb-3 p-2 bg-black/20 rounded-xl">
-                        <div className={`w-2 h-2 rounded-full ${status.color}`} />
-                        <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">
-                            NMEA: {status.label}
-                        </span>
+                        <div className={`w-2 h-2 shrink-0 rounded-full ${status.color}`} />
+                        <span className="text-xs font-bold text-gray-300">{status.label}</span>
                     </div>
 
                     {/* Filter Gate Status */}

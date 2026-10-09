@@ -10,8 +10,9 @@
  * settings have loaded — not the defaults painted first — and, when it is on,
  * starts the learner. It starts ONLY the learner: which link the instruments
  * come through (the Pi, or a gateway socket, and never a socket ashore) stays
- * InstrumentSourcePolicy's call at boot. The learner records whatever samples
- * that feed brings. Off, it loads nothing at all.
+ * InstrumentSourcePolicy's call at boot. The learner hears that feed through
+ * services/smartPolarFeed: the socket's samples, or the Pi over the boat link
+ * (build 126, 126-B6a; never the cloud row). Off, it loads nothing at all.
  */
 import { awaitSettingsLoaded, useSettingsStore } from '../stores/settingsStore';
 
