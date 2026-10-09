@@ -7,7 +7,9 @@ import { describe, expect, it } from 'vitest';
 // with 126, NOT pushed: the push waits until 126 is on Shane's phone and iPad,
 // so the drain has already kept any over-cap inline file on the phone.
 const FILE = '20261010160000_vessel_vault_limits.sql';
-const directory = join(process.cwd(), 'supabase/migrations');
+// Held out of supabase/migrations so the 126 release push cannot apply it.
+const directory = join(process.cwd(), 'supabase/held-migrations');
+const releaseDirectory = join(process.cwd(), 'supabase/migrations');
 const migration = readFileSync(join(directory, FILE), 'utf8');
 const sql = migration
     .split('\n')
@@ -29,6 +31,12 @@ describe('vessel_vault limits migration', () => {
         const files = readdirSync(directory).filter((name) => name.endsWith('.sql'));
         expect(FILE > '20261010150000_recipes_is_custom_repair.sql').toBe(true);
         expect(files.filter((name) => name.startsWith('20261010160000_'))).toEqual([FILE]);
+    });
+
+    it('is held out of supabase/migrations, so the 126 release push cannot apply it', () => {
+        const release = readdirSync(releaseDirectory);
+        expect(release.filter((name) => name.includes('vessel_vault_limits'))).toEqual([]);
+        expect(release.filter((name) => name.startsWith('20261010160000_'))).toEqual([]);
     });
 
     it('is one UPDATE of the vessel_vault bucket: 25 MiB and exactly the seven types the form takes', () => {

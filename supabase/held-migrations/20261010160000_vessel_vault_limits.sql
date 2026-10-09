@@ -3,6 +3,11 @@
 -- (126-B3a, binder audit 2026-10-09, DOC-2)
 -- ═══════════════════════════════════════════════════════════════════
 --
+-- HELD OUT of supabase/migrations on purpose: `supabase db push` applies every
+-- pending file there, and the 126 release push must not carry this one. To
+-- release it, move it into supabase/migrations under a stamp newer than the
+-- newest applied migration, and update tests/VesselVaultLimitsMigration.test.ts.
+--
 -- Not pushed: Shane says yes first, and only AFTER build 126 is on his phone
 -- and iPad. 126 drains every attachment an older build kept inline (base64 in
 -- the binder table and its outbox) to a file on the phone; one over 25 MiB is
