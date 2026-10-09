@@ -1,0 +1,1043 @@
+{
+    "schemaVersion": 1,
+    "createdAt": "2026-10-09T06:34:21.138Z",
+    "checkpointDate": "2026-10-09",
+    "timezone": "Australia/Brisbane",
+    "stage": "unsupported-browser-full-root-window-fixture-accepted-not-release",
+    "researchOnly": true,
+    "sourceBase": "8c28d08e44b2889b851e3a466586c54457ab0377",
+    "branch": "codex/scuttlebutt-e2ee-integration-2026-10-06",
+    "masterObservedNow": "058ba16ef7018795bd50396000e5d6d6a2246577",
+    "foundationReference": "3c30f47c8c50b7bc36307f827f152586f4b1f8aa",
+    "scope": "Complete actual entry/Root unsupported-browser scenario on fresh owned Chrome. No supported SDK Auth, full-App native execution, encrypted exchange, OS/BFCache acceptance or release readiness.",
+    "sourceState": "Runtime/build/proof/test bytes unchanged from the clean 8c28d08e candidate during execution. Only checkpoint/review brief and this new accepted manifest are now proposed; no stage/commit/push by validation.",
+    "currentSourceHashes": {
+        ".gitignore": "8fc6505fbab3653745fac4906f6685b71f22b763097d51b12e7de1da7fa129c9",
+        "App.tsx": "a1ba182bded8592093c4a6002183ee91064877d54e971c1e1a3f8962d58512ae",
+        "components/ChatPage.tsx": "53226bf670af117510e7eb32d11a17f1fbf7d8c2382cc151abe24499b226d45e",
+        "components/LegacyChatPage.tsx": "13cac8a0063a10c08b0375ffb23f8f3df8f77344ccf44145751c457f0754f04e",
+        "context/ThalassaContext.tsx": "d4a9cf8c8712507ae3a0e16a1a707a3ed6ee75f4c4fb02ccf46649fd3efbd42e",
+        "contexts/CrewCountContext.tsx": "a71ea12599c9c16ad6ec880141499fd938b5a50a922edcea463658e630014076",
+        "docs/SCUTTLEBUTT_E2EE_CHECKPOINT.md": "9a2b3fecb0f0c3777822d079e672c83d0193b8102abf95abedf58f0ee58a69c7",
+        "docs/SCUTTLEBUTT_E2EE_REVIEW_BRIEF.md": "54d2181bb996d268c3a2b2f999249bedcc0e6de21f7230d7329091a07384ad33",
+        "env.d.ts": "c6ae6dd4d5d750d9c517ae8905e381d6218ed5b82f3cd933150398f11aaf9c18",
+        "experiments/scuttlebutt-e2ee/app-pilot/PrivateMessageResearchApp.tsx": "2614a3a2e76a330766bb52e66859da8d9373b6f35c3f6705ba43406bd3faf574",
+        "experiments/scuttlebutt-e2ee/app-pilot/runtime.ts": "31ba62ac837237d325ac795b5e57d49e3157a5689bc2bb2c0d72f3cea726e64b",
+        "experiments/scuttlebutt-e2ee/bridge-web/auth.ts": "6bf86f1e00a8c76cf15550aa70b430b16bf8ab8fa19854f529a61e48c5e07d6c",
+        "experiments/scuttlebutt-e2ee/bridge-web/privateAdmissionSource.ts": "42528c2cccf75484a3a51f548c4e603fd4ec31ce7c7a3360dd12683d140d3f58",
+        "experiments/scuttlebutt-e2ee/bridge-web/privateMessagePort.ts": "718e4d7ee54f6f41681d7d7285624dbf5bf9480b58481a2f5a5815a04ffc2a2c",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/FullAppResearchRoot.tsx": "ebb5016e0dd772381985edec7a0ab58859dc8289f4b8076da93a00cad5825735",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/authProjection.ts": "c0f69d1fd52cf305b8a99ac2a9f4c4c93d392a48e1d4d9769426deca4ca303b5",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/authStore.ts": "50ee4c3b6064de2d61684466fded0881b709abefd271b46209d5be88fe2d6ec3",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/boundaries.ts": "9c9cd705f7561f99957d739ba2d4e26dce8cd9f665705ac0b65db6789a44e44d",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/boundaryMemory.ts": "966e807664188b2b36a53b2b638df9372946d06fb0476c4aa7c63ebd89c7cfab",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/brandAsset.mjs": "b8a5b5c4cad84d24810a838e4db3fbb1f3b743d10671d6a66ea468d3bef8b8ad",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/closedBackend.ts": "8ca77fb51f56874ec80749e94ad6ddabad7e95aeab1615d577b5cfc4d7eb8d93",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/core.ts": "7b45729a77bb06e68c71948eb67d27a2ddac80180a9ed511e4eca94b2dfebcd1",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/entry.ts": "942636a21415d41c6c24613e3404bac742647d60d6284d26205252d4a09473b3",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/fixtureSetup.ts": "6c600cba180f0a392530d926234b3463fed973467415856182a821f8e2442827",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/graphIsolation.mjs": "c1e744d5bdafa99bc914d1f7e6256209612eeca1060c296a652df404370f8fb3",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/index.html": "5efeb3f7227567a5f6bf41ff76ed62235eba4585c3e781be154ae1ac1445b6cc",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/ioFence.ts": "1f8520a564d59d97c459712788f94f38f0281fe096a71632168464bafc0a7f65",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/main.tsx": "e822911377c31fba7808c3c6ec9dabeffee54986ffdb5a6b5167b9cb06d85248",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeLeaves.ts": "9fea29db4fbb0549dec40867393583266950e9ae9ab5624e94b8af4b727aa82b",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/sdk.ts": "5a4de5fcc0806e83af5753984a408048b3f47b3a035de128238d96de39616e8d",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/vite.config.mjs": "4ed99cf3a55f96c462bca48314c9948bd3b375fa9e89d1db796a8641e4b7cc63",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/vitest.config.mjs": "0d102632dffa6152c0a4915458ba275dfbe0a55728e9bbede170b648e494a15f",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/windowEvidence.ts": "d9abf4126ca05ba8a32dd894b4f897668508a1e63af16b5df06ff60e8fc3baab",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/windowProof.mjs": "8a18ed89ddd2c0c75962c0ff04211ccc0ff3bb08f2a467903b6a841970dc3ba0",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/windowProofContract.mjs": "c66c8a5fdbb80b4508360c3b29f4f9b13356df88ab23692d9e0e31dbe518661f",
+        "experiments/scuttlebutt-e2ee/pilot/tsconfig.json": "53e93e3230d3db27e604c85a74e85eb7d419e84c61a6c0dc3ffc39a944c2d07f",
+        "experiments/scuttlebutt-e2ee/pilot/vitest.config.mjs": "39856748d477144a279f29f44680b55ccc05ed7e21826a4b656e97a9e7529b4d",
+        "experiments/scuttlebutt-e2ee/review/full-app-2026-10-09.json": "49a3dee4a5937699d1d35f319125c36040739860d43bd75c68e6a5bdba16e1b4",
+        "experiments/scuttlebutt-e2ee/review/full-app-build-2026-10-09.json": "ef41e595516b4a61e3ff79885dbd0dbfb1e4cf1c4c026999d8b25a8337e09ad3",
+        "experiments/scuttlebutt-e2ee/review/full-app-window-2026-10-09.json": "5356c7da50ad3e1c126805ae2c16d1b46289e27c73f2a05c99ebeb7f9fc17015",
+        "hooks/useAppBootstrap.ts": "413ce91c640e0f9b847e064691ccb7f7a272abffd2a77ad3646a746a78f58e2b",
+        "index.tsx": "9561dc89d77b04ea209b4ed842cb8f42f3776d266e335f213793e2ece219bf5a",
+        "package-lock.json": "230cf218a5a6f7c6eb368a2ca8b6019e1d9b16338fa4017d821af8665cf32932",
+        "package.json": "14bed644ea682828e92c3922370879a1e05531bbadb3ffcbc3161c7f6711ec07",
+        "public/thalassa-icon-128.png": "629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15",
+        "services/BgGeoManager.ts": "1eee1203f77e637b2f9dbe9b2467bec0df54a5acb4be7dd668648c48ed4b165c",
+        "services/ChatService.ts": "812c863bf98f1cd4908ca0812652c1e428ec800c354c8abc99c8f450fe44a7bb",
+        "services/GuardianService.ts": "c4f119b838e850a1848c5904785606d9e540d497d347f3f616e80cc619ba4619",
+        "services/chat/e2ee/appPrivateMessageSelection.ts": "69db118f4c0ae1a27049787879fb8b2fcbb707d4cacc03f777157eaf78f9d738",
+        "services/chat/e2ee/nativePrivateMessagePilot.ts": "49ab02fa11a03f2059e940e09667b24ef3a01c305b81c0e1819a0f08a169ef2f",
+        "services/chat/e2ee/privateMessageCutover.ts": "2216a6459be8afe06856271839073deb44171d48d66ca1f907bc73c622a1ca85",
+        "services/supabase.ts": "11af672ceff105c7db68c9024542da70ce0555a8f9b4a431c265c2187bca47d4",
+        "src/components/leaflet-velocity-ts.d.ts": "55d1bec7c291903a672f4ecf577cc6844db9198d33731c7ac7283e890c559a4c",
+        "stores/authStore.ts": "6b46b9de630789b164fdb341bb22efa50a4c700247fb68e4147e6d3c2d8e5b32",
+        "stores/uiStore.ts": "76321029cdd340bf1105e06b41a59a89aed37355ec8965273b7321df486ba6c9",
+        "tests/E2eeFullAppAuthProjection.test.ts": "4e0d40caf91b26cbbadef5b4b73f700c6c5de94feb53f24d2cce647bea33a995",
+        "tests/E2eeFullAppBoundaries.test.ts": "3cef457db146423cfcb4233d60ae8d616ba739930a8c5beb749d90f7f08c4b5a",
+        "tests/E2eeFullAppBrandAsset.test.ts": "8312486251be91dfbcd7886ed0168fb24266b5c4a23d7749e46ed14414b1c87f",
+        "tests/E2eeFullAppGraphIsolation.test.ts": "2f602ffc2e9c5ad69bba252e82fcba1ffcc8bd915d0d2ea966be827547afbcb8",
+        "tests/E2eeFullAppIoFence.test.ts": "5eb9980f2b07992ae199f63a2ba613028111ca3518f0013d21e00dda89f1361b",
+        "tests/E2eeFullAppMount.test.tsx": "bcf9d87262bdb01f6577ed662a9ff307d1c24617106fa59ec0bee637df4e211b",
+        "tests/E2eeFullAppWindowEvidence.test.ts": "d8f71ff648588a5aadf6f7ac53d9b19f904774044659a276d5411d9ebdff8fcf",
+        "tests/E2eeFullAppWindowProof.test.ts": "6f9f2aa0e82cc047edf3c79905f5885dca9a8120be209b5fb0bc82b6b41f773f",
+        "tests/PrivateMessageResearchApp.test.tsx": "672ab85a373850b6290d639d0cdcfa0adad881db44ccff006efceea093c1fd35",
+        "tests/setup.ts": "7074c31a369ddd3bc9d2049c062846bad130bd27ffa0e663f6741a648e966b35",
+        "tsconfig.json": "1c73098595b885739b2b55d535084f53a2ef1a8b423c1ad180b5dde6182c4ac3",
+        "viewRegistry.tsx": "103a55c49edb5646809979db8b146d89a8f23f08e832f5328010230b5db48898"
+    },
+    "executionSourceHashSnapshot": {
+        "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/frozen-source-hashes.json",
+        "sha256": "aee1a06bf71c1b4d05e6c22de4fae4cfe360971f2b6d7983de08a42e4b58a3e7"
+    },
+    "immutableHistory": {
+        "preparation": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/review/full-app-window-2026-10-09.json",
+            "sha256": "5356c7da50ad3e1c126805ae2c16d1b46289e27c73f2a05c99ebeb7f9fc17015"
+        },
+        "partialExecution": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/review/full-app-window-execution-2026-10-09.json",
+            "sha256": "8c62a6f03a7b7dbdfbf05c7300f6fe13f8a9f78be6d655d7287dbfd21f178fc1"
+        },
+        "retainedFailures": "All earlier missing-icon/iframe/data-image/type/lint receipts remain immutable and linked by partialExecution; the earlier unknown data-image origin is still unknown, not proved to be a Chrome error frame."
+    },
+    "executedChecks": {
+        "audioCspFixtures": {
+            "status": "passed",
+            "executedCases": 11,
+            "skippedCases": 51,
+            "failedCases": 0,
+            "totalCasesInFile": 62,
+            "receipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/focused-receipt.json",
+                "sha256": "f1fae7e61c70b30162589c2235ed3f77e84493f00bfb0b7d251ca3ed7142bdb9"
+            },
+            "report": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/focused-report.json",
+                "sha256": "f890063b7351c72ac87515d73d0d3c096bcd9d54ac47b7d165230898196c16ad"
+            },
+            "config": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/focused-vitest.config.mjs",
+                "sha256": "a3ad8d7530be86548ecfeed028fb973c3d0563161c059e7d9d46f25c2ca0405e"
+            },
+            "scope": "Only bounded CSP positive-control pure fixtures; not a rerun of 136/97/103 or the 51 unrelated cases."
+        },
+        "finalScopedTypes": {
+            "status": "passed",
+            "receipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/types-receipt.json",
+                "sha256": "82ea734359a64fc023ef6d7e2e7270bab04438f29b127fdef46195185b116694"
+            },
+            "config": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/tsconfig.json",
+                "sha256": "af5687b4f4b5d2d85d5f062688cef4edba52c488fd40040932f7eca92aedaa65"
+            },
+            "scope": "Final Window proof test and its imported pure contract declarations only; unchanged runtime retained prior strict-type result."
+        },
+        "ownedChrome": {
+            "status": "passed",
+            "guardReceipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/browser-receipt.json",
+                "sha256": "08f19c3c5b5913de3ef5d4ca2e03f6e88ac6519372a190f26b090906543893cb"
+            },
+            "windowReceipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-window-1KY7ik/window-receipt.json",
+                "sha256": "11fe7ce42f6505fd6088d2bbbd3a431f59a515fad2d7dd63fcd365b436d00e4f"
+            },
+            "scenario": "fresh-unsupported-full-app-window",
+            "phase": "complete",
+            "allPhasesSuccessFlag": true,
+            "observedMilestones": ["cold", "chat", "closed", "remounted", "cspControl", "terminal"],
+            "syntheticPagehide": true,
+            "realOsLifecycleOrBfCacheProved": false,
+            "cspControl": {
+                "element": "audio",
+                "directive": "media-src",
+                "expectedEventCount": 2,
+                "unexpectedEventCount": 0,
+                "enforcingPolicyCount": 2
+            },
+            "cspPolicies": {
+                "responseHeaderVerified": true,
+                "metaPolicyCount": 1,
+                "metaMediaDenied": true,
+                "enforcingPolicyCount": 2
+            },
+            "counters": {
+                "documents": 1,
+                "assets": 39,
+                "faviconControls": 1,
+                "cspControls": 0,
+                "refusedRequests": 0,
+                "serverDocuments": 1,
+                "serverAssets": 39,
+                "serverFaviconControls": 1,
+                "serverCspEscapes": 0,
+                "serverRefusals": 0,
+                "requestGateFailures": 0,
+                "pageErrors": 0,
+                "consoleErrors": 6,
+                "expectedCspViolations": 2,
+                "unexpectedCspViolations": 0
+            },
+            "refusalDiagnostics": [],
+            "terminal": {
+                "fence": {
+                    "version": 1,
+                    "status": "installed",
+                    "counts": {
+                        "fetch": 0,
+                        "xhr": 0,
+                        "webSocket": 0,
+                        "eventSource": 0,
+                        "beacon": 0,
+                        "preservedFetch": 0,
+                        "preservedXhr": 0,
+                        "worker": 0,
+                        "sharedWorker": 0,
+                        "serviceWorker": 0,
+                        "caches": 0,
+                        "indexedDB": 0,
+                        "geolocation": 0,
+                        "media": 0,
+                        "clipboard": 0,
+                        "audio": 0,
+                        "navigation": 0,
+                        "permissions": 0,
+                        "otherNetwork": 0,
+                        "localStorageReads": 73,
+                        "localStorageWrites": 20,
+                        "sessionStorageReads": 0,
+                        "sessionStorageWrites": 0,
+                        "storageRefused": 0,
+                        "storageManager": 0,
+                        "patchFailures": 0,
+                        "locationPatchUnavailable": 3,
+                        "authRequests": 0,
+                        "authResponses": 0,
+                        "authRefused": 0
+                    }
+                },
+                "sdk": {
+                    "runtimeCreations": 2,
+                    "sdkConstructions": 0,
+                    "nativeCalls": 0
+                },
+                "root": {
+                    "mounts": 2,
+                    "remounts": 1,
+                    "closedRenders": 6
+                },
+                "auth": {
+                    "status": "inactive",
+                    "userPresent": false,
+                    "authChecked": true
+                },
+                "authScope": {
+                    "originalUserPresent": false,
+                    "originalAnonymous": true,
+                    "originalGeneration": 0,
+                    "currentUserPresent": false,
+                    "currentAnonymous": true,
+                    "currentGeneration": 0
+                },
+                "privateSelection": "native-unavailable",
+                "legacyPermitAvailable": false,
+                "core": {
+                    "registrationAttempts": 20,
+                    "methodAttempts": 4,
+                    "platform": "web"
+                },
+                "boundaries": {
+                    "instrumentRequests": 2,
+                    "gpsRequests": 4,
+                    "internetRequests": 2,
+                    "aisRequests": 2,
+                    "appleRequests": 2,
+                    "anchorRequests": 2,
+                    "anchorSyncRequests": 2,
+                    "anchorPiRequests": 4,
+                    "shiplogRequests": 0,
+                    "vesselRequests": 5,
+                    "piRequests": 0,
+                    "nativeRequests": 0,
+                    "observations": 45,
+                    "subscriptions": 18,
+                    "cleanups": 10
+                },
+                "memory": {
+                    "preferenceReads": 3,
+                    "preferenceWrites": 0,
+                    "preferenceRemovals": 0,
+                    "preferenceClears": 0,
+                    "preferenceKeys": 0,
+                    "cacheReads": 23,
+                    "cacheWrites": 1,
+                    "cacheRemovals": 6,
+                    "cacheFlushes": 0,
+                    "versionReads": 1,
+                    "versionWrites": 1,
+                    "refusals": 0
+                },
+                "lifecycle": {
+                    "stopped": true
+                }
+            },
+            "cleanup": {
+                "browserClosed": true,
+                "serverClosed": true,
+                "ownedProfileRemoved": true
+            },
+            "tools": {
+                "nodeVersion": "v24.19.0",
+                "puppeteerCoreVersion": "25.4.0",
+                "pinnedChromeVersion": "151.0.7922.47",
+                "inputs": [
+                    {
+                        "path": "/opt/homebrew/Cellar/node@24/24.19.0/bin/node",
+                        "sha256": "c8eedc7651a438fb7d2ceb36fd70032676c855586a36c950ba5a662f0b7853bd"
+                    },
+                    {
+                        "path": "/Users/shanestratton/.cache/puppeteer/chrome/mac_arm-151.0.7922.47/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+                        "sha256": "e9e1c766953cf2ff5ea38c6cb63fa32b443a958c3fda7dcc3b60dd9b20436855"
+                    },
+                    {
+                        "path": "/Users/shanestratton/Projects/thalassa-marine-weather/node_modules/puppeteer-core/package.json",
+                        "sha256": "bf298e29cf7ca4b16e310f02dac644a51d4c22429de41cc279f456b10461c869"
+                    },
+                    {
+                        "path": "/Users/shanestratton/Projects/thalassa-marine-weather/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js",
+                        "sha256": "059b251260c5499581d308029e4a207102624d35f1390b6b0fdad6563f5d186d"
+                    },
+                    {
+                        "path": "/Users/shanestratton/Projects/thalassa-marine-weather/node_modules/puppeteer-core/lib/puppeteer/revisions.js",
+                        "sha256": "ef542bcbbe445a4d3fa151bee63831989f4eff532f2a2e9c2d3c07b2143210ad"
+                    }
+                ],
+                "noConfigDiscovery": true,
+                "noDownloads": true,
+                "observedChromeVersion": "Chrome/151.0.7922.47"
+            },
+            "requestMeasurementScope": "owned page/CDP, exact loopback server and entry fence only",
+            "browserProcessNetworkingMeasured": false
+        },
+        "sharedSlotBudget": {
+            "limitMs": 120000,
+            "spentMs": 0
+        },
+        "allExecutionSourcesUnchanged": true,
+        "masterObservedDuringExecution": {
+            "focusedBefore": "058ba16ef7018795bd50396000e5d6d6a2246577",
+            "focusedAfter": "058ba16ef7018795bd50396000e5d6d6a2246577",
+            "typesBefore": "058ba16ef7018795bd50396000e5d6d6a2246577",
+            "typesAfter": "058ba16ef7018795bd50396000e5d6d6a2246577",
+            "browserBefore": "058ba16ef7018795bd50396000e5d6d6a2246577",
+            "browserAfter": "058ba16ef7018795bd50396000e5d6d6a2246577"
+        },
+        "noApplicationOrBoundaryRepairInThisContinuation": true
+    },
+    "preservedCompilation": {
+        "newCompileOccurred": false,
+        "originalPassedBuildReceipt": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/build-receipt.json",
+            "sha256": "9237e75e4809708368692fc28d6efdbecc1aeccfbbc8a392b3e971dd290d6467"
+        },
+        "preservedProofOnlyReboundReceipt": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/proof-rebound-receipt.json",
+            "sha256": "e5020328e43b7c17c094ba8ea90f897fa011bf77020c3c6ed6c90792d912ddba"
+        },
+        "proofRebindingKind": "proof-only-rebinding-no-recompile",
+        "uncompiledReboundProofSources": [
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/full-app-pilot/windowProof.mjs",
+                "sha256": "8a18ed89ddd2c0c75962c0ff04211ccc0ff3bb08f2a467903b6a841970dc3ba0"
+            },
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/full-app-pilot/windowProofContract.mjs",
+                "sha256": "c66c8a5fdbb80b4508360c3b29f4f9b13356df88ab23692d9e0e31dbe518661f"
+            },
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/tests/E2eeFullAppWindowProof.test.ts",
+                "sha256": "6f9f2aa0e82cc047edf3c79905f5885dca9a8120be209b5fb0bc82b6b41f773f"
+            }
+        ],
+        "currentWindowProofSourceInputs": [
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/full-app-pilot/vite.config.mjs",
+                "sha256": "4ed99cf3a55f96c462bca48314c9948bd3b375fa9e89d1db796a8641e4b7cc63"
+            },
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/full-app-pilot/graphIsolation.mjs",
+                "sha256": "c1e744d5bdafa99bc914d1f7e6256209612eeca1060c296a652df404370f8fb3"
+            },
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/full-app-pilot/brandAsset.mjs",
+                "sha256": "b8a5b5c4cad84d24810a838e4db3fbb1f3b743d10671d6a66ea468d3bef8b8ad"
+            },
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/full-app-pilot/windowProof.mjs",
+                "sha256": "8a18ed89ddd2c0c75962c0ff04211ccc0ff3bb08f2a467903b6a841970dc3ba0"
+            },
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/full-app-pilot/windowProofContract.mjs",
+                "sha256": "c66c8a5fdbb80b4508360c3b29f4f9b13356df88ab23692d9e0e31dbe518661f"
+            },
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/tests/E2eeFullAppWindowProof.test.ts",
+                "sha256": "6f9f2aa0e82cc047edf3c79905f5885dca9a8120be209b5fb0bc82b6b41f773f"
+            }
+        ],
+        "moduleSourceInputCount": 1989,
+        "explicitAssetSourceInputCount": 1,
+        "combinedCompiledSourceInputCount": 1990,
+        "outputCount": 256,
+        "compiledWorkerGraphCount": 3,
+        "workerExecutionProved": false,
+        "graphPolicyObservations": [
+            {
+                "isWorker": false,
+                "closedGraphInstances": 1,
+                "workerFormat": "es"
+            },
+            {
+                "isWorker": true,
+                "closedGraphInstances": 1,
+                "workerFormat": "es"
+            },
+            {
+                "isWorker": true,
+                "closedGraphInstances": 1,
+                "workerFormat": "es"
+            },
+            {
+                "isWorker": true,
+                "closedGraphInstances": 1,
+                "workerFormat": "es"
+            }
+        ],
+        "moduleSourceHashOmissions": [],
+        "inheritedSyntheticCanariesInjected": true,
+        "inheritedCanariesAbsent": true,
+        "automaticPublicDirectoryCopy": false,
+        "legacyPublicAssetsCopiedMeaning": "false means no automatic public-directory copying; exactly one separately pinned PNG was explicitly emitted",
+        "explicitAssetSourceInputs": [
+            {
+                "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/public/thalassa-icon-128.png",
+                "sha256": "629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15"
+            }
+        ],
+        "explicitAssetEmissions": [
+            {
+                "label": "app-brand-icon-128",
+                "input": {
+                    "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/public/thalassa-icon-128.png",
+                    "sha256": "629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15"
+                },
+                "output": {
+                    "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/dist/thalassa-icon-128.png",
+                    "sha256": "629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15"
+                },
+                "byteLength": 31539,
+                "width": 256,
+                "height": 256
+            }
+        ],
+        "allCompiledSourceOutputAndCurrentProofHashesVerified": true
+    },
+    "privateNativeDraftHints": [
+        {
+            "kind": "simulator-only-HTTP-backstop-draft",
+            "path": "/private/tmp/thalassa-full-app-http-draft.VgHjEe/ResearchFullAppHttpFence.swift",
+            "sha256": "d6577627a419113e00bbd43638ab8b805478f59e1acb6ffcc17f12e5d4d45301",
+            "compiled": false,
+            "executed": false,
+            "adopted": false,
+            "scope": "Draft covers standard CapacitorHttp and observed CAPHttpPlugin dynamic-class route; not a general native/OS sandbox."
+        },
+        {
+            "kind": "HTTP-registration-build-proposal",
+            "path": "/private/tmp/thalassa-full-app-http-draft.VgHjEe/registration-and-build-proposal.md",
+            "sha256": "9fd883d9eb03f21b48f60d03051aff164eaea9d86e1ed3741a364491ee2c573e",
+            "compiled": false,
+            "executed": false,
+            "adopted": false
+        },
+        {
+            "kind": "native-UI-fixture-draft",
+            "path": "/private/tmp/thalassa-full-app-native-draft-hG1W2R/nativeUiFixture.js",
+            "sha256": "c340fc9981868d67cf656e9c16737a6d4539c1306f26026f3a962f7ca4bfb618",
+            "compiled": false,
+            "executed": false,
+            "adopted": false
+        }
+    ],
+    "limits": [
+        "Execution used the 8c28d08e candidate, not a combined candidate with externally observed unreconciled master 058ba16e. Future reconciliation must preserve published integration history without rewrite or force-push.",
+        "Passing means the unsupported-browser fixture completed, not E2EE/native/product/release acceptance.",
+        "SDK/runtime construction counts measure successful returns, not attempts; wrapped nativeCalls covers only the Research seam.",
+        "Render counts are invocations, not React commits; synthetic inactive/pagehide closure is not native revocation or OS/BFCache lifecycle proof.",
+        "Fence storage counters omit the pre-existing Auth identity-scope boot storage read before fence installation; closed leaf/storage attempts are nonzero.",
+        "Zero measured fence network/Auth API counters and request refusals apply only within the stated scope, not all browser/native operations.",
+        "Six console errors are retained; no warning-free or whole-app-clean claim.",
+        "Page/CDP and exact loopback server measures do not cover browser-process networking or malicious same-origin sandboxing.",
+        "Tool hashes cover Node/Chrome executables and selected Puppeteer package/entry/revisions, not full transitive toolchain provenance.",
+        "Diagnostic digests are fingerprints, not anonymization; prior unknown data-image origin remains unproved.",
+        "Private native HTTP/JS drafts remain uncompiled, unexecuted and unadopted. No ordinary activation or production/human state changed."
+    ],
+    "nextMilestone": "Read/review private native startup drafts, then separately implement and prove actual entry/Root in a fresh owned WKWebView simulator with configurable synthetic fetch/CapacitorWebFetch and a simulator-only HTTP denial backstop registered before load. Protected exchange follows separately; no unchanged browser sweep is required.",
+    "readiness": {
+        "mergeReady": false,
+        "shipReady": false,
+        "supportedSdkAuthAccepted": false,
+        "fullAppNativeStartupAccepted": false,
+        "fullAppProtectedExchangeAccepted": false,
+        "fullNativeLifecyclePrekeyRecoveryAccepted": false,
+        "physicalAcceptanceCurrent": false,
+        "dependencyLicenceAndBinaryProvenanceAccepted": false,
+        "independentSecurityAssessmentAccepted": false,
+        "productionCutoverAccepted": false
+    },
+    "authority": {
+        "masterWritten": false,
+        "masterReconciled": false,
+        "foundationWritten": false,
+        "primaryWrittenOrSynced": false,
+        "hostedChanged": false,
+        "humanAccountsDevicesOrBrowserChanged": false,
+        "externalReviewerContacted": false,
+        "purchases": false,
+        "sharedDependenciesWritten": false
+    },
+    "artifacts": [
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-window-1KY7ik/window-receipt.json",
+            "sha256": "11fe7ce42f6505fd6088d2bbbd3a431f59a515fad2d7dd63fcd365b436d00e4f"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-window-fSjeT8/window-receipt.json",
+            "sha256": "06ea9aad9cd7c02c1aa0b8bbaec7b12193dc6647e717ef1f2eedd7599f8debd5"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-window-sP7D77/window-receipt.json",
+            "sha256": "b00cd6b47b7a6234412e59518b5e6c164245072ec6c51bc6ff37ce156ec0770a"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-window-UbsQuC/window-receipt.json",
+            "sha256": "575dc39886e3d5e5f06b0ce54b7a1c04ee157d383b9809d184e3d02fdd53a983"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/browser-queued.json",
+            "sha256": "2a35c798cf4f09d55cedb9fed0edb25a704bfac8742e26f96b156f14f0efba5a"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/focused-queued.json",
+            "sha256": "f1a2bed6dab0058faed58514003f95edbcfc70d37b7c06045652478fccfc2ae5"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/focused-vitest.config.mjs",
+            "sha256": "60a30445f5ba20630701407ea8d428a4ed7596a5d5a9bf04923c6086d45fd941"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/format-receipt.json",
+            "sha256": "2edcd3528862afee17d07b50a6b01e5df186144706db5c483051fee7e6c00f8e"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/format.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/format.stdout.log",
+            "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/frozen-source-hashes.json",
+            "sha256": "ff06434d3323836549808fdf22e18fc0266f0ea6a1fc71425675a38d282b817b"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/lint-receipt.json",
+            "sha256": "bf56c34941b35252394a7460def7aa4bcbcf00154b66bf59b8c70466eb4b07df"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/lint.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/lint.stdout.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/proof-rebound-receipt.json",
+            "sha256": "e5020328e43b7c17c094ba8ea90f897fa011bf77020c3c6ed6c90792d912ddba"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/rebind-proof.mjs",
+            "sha256": "d3378d0f1e6c9916024a806608c50eb5aee54148dd135e85f0f8c2c5f44863a7"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/record-dependent-queue.mjs",
+            "sha256": "3541695138a583b152da5059fb124d2808d0cfa25b07b0a0c9715524af0f14d6"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/shared-slot-budget.json",
+            "sha256": "8b88192f0117e70384707680adc8392f4e01a9e0554284b51932b8056f3a25fa"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/types-queued.json",
+            "sha256": "3f23d9a16f06ca109a27647703fb5b7f11db3169901477dce593f1d5fd9a1a20"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/validate.mjs",
+            "sha256": "43eea03ad95095fe37216f3e134bfb948c86c91d5161bccf5ba6231378fc799a"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-audio-o3AC41/write-execution-manifest.mjs",
+            "sha256": "85d94f5318162f7f3c888a3e0dc93c6a1d6b112140cc6da34cdd802bee7808c8"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/browser-receipt.json",
+            "sha256": "08f19c3c5b5913de3ef5d4ca2e03f6e88ac6519372a190f26b090906543893cb"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/browser.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/browser.stdout.log",
+            "sha256": "961e734c36037cf9a4ebe530b9eeea5f265c959196dfcecd3d6ff891b201a12f"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/focused-receipt.json",
+            "sha256": "f1fae7e61c70b30162589c2235ed3f77e84493f00bfb0b7d251ca3ed7142bdb9"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/focused-report.json",
+            "sha256": "f890063b7351c72ac87515d73d0d3c096bcd9d54ac47b7d165230898196c16ad"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/focused-vitest.config.mjs",
+            "sha256": "a3ad8d7530be86548ecfeed028fb973c3d0563161c059e7d9d46f25c2ca0405e"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/focused.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/focused.stdout.log",
+            "sha256": "73bb831681ce32799893a09c46e7cccfdeea22583e61f174d8de283ca435d350"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/frozen-source-hashes.json",
+            "sha256": "aee1a06bf71c1b4d05e6c22de4fae4cfe360971f2b6d7983de08a42e4b58a3e7"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/prepare-accepted-manifest.mjs",
+            "sha256": "5cc6416ac251bacebd027ed19417159724971992147d14f253a10dbe11de44f0"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/shared-slot-budget.json",
+            "sha256": "e7327ff71c226168574ccae64c61407bb7a2ca773c51103ee7ab164d10a101a3"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/tsconfig.json",
+            "sha256": "af5687b4f4b5d2d85d5f062688cef4edba52c488fd40040932f7eca92aedaa65"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/types-receipt.json",
+            "sha256": "82ea734359a64fc023ef6d7e2e7270bab04438f29b127fdef46195185b116694"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/types.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/types.stdout.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-resume-eBq8co/validate.mjs",
+            "sha256": "8dd7cfb22552fbc2defc77dfdf749d3da477be2c04c1af9a41a0147ec8248669"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/browser-receipt.json",
+            "sha256": "60802836a0298412578096c1138c7d10b484af0698fd716b3ce6ebd830339b3e"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/browser.stderr.log",
+            "sha256": "39e1be58bd235dde57c42250b45d06fd1e13a7510095bf32906d9f5a712d9a6f"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/browser.stdout.log",
+            "sha256": "9ccfcc1d42d5f81cebc467eb7b716c3b2648121ea10c0638474d9feefc25affa"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/build-guard-receipt.json",
+            "sha256": "80a92cf9ecf5be26c21d6fd84ddfe17c628517c493a56307361fe18eb3981c66"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/build-proof.mjs",
+            "sha256": "ed4364727d0c020e0671c7eb00d2e16220ecbdc59c5b6fb891f298abcec1b121"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/build-receipt.json",
+            "sha256": "9237e75e4809708368692fc28d6efdbecc1aeccfbbc8a392b3e971dd290d6467"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/build.stderr.log",
+            "sha256": "bfbfcf4dcb0ba3f026d6a44df12f480deaf92279ae5fdb4ebec9c6336b70b921"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/build.stdout.log",
+            "sha256": "4aef36454c2e6afa67998a5b869a5ea7a7d77c5711ca4d7cacba60bb8f6405a6"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/focused-receipt.json",
+            "sha256": "b4e7ed2943ed6f1aad332f5f3812a1cba8c8862db757e78465e81d0b6fd72d49"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/focused-report.json",
+            "sha256": "3a486afd5c93ce3f82d7052832e0b51575dbf865e7a36c0d4be325147d4dbf7f"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/focused-vitest.config.mjs",
+            "sha256": "a14055002b6625d2690cc8ef2a8e5d6b44e7e0fd64ce328cfeca1ac6eab2fad4"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/focused.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/focused.stdout.log",
+            "sha256": "4c5e7f647e7552908d4272113b1114c9fd6fc2262b958e1676a16a6107aa7f53"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/format-receipt.json",
+            "sha256": "cbeb44c131fc2dabdd6e737c42e5133d10389b0f02029a673c09bb7305957647"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/format.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/format.stdout.log",
+            "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/frozen-source-hashes.json",
+            "sha256": "7fb5b8e7b83be78073165d1160455472c00fcd97af1febc047fa5d221779c021"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/lint-receipt.json",
+            "sha256": "cd4ffef671e87f836464073d11da540fbab08b8527721c5e10467962b3dbb8bb"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/lint.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/lint.stdout.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/shared-slot-budget.json",
+            "sha256": "0b18f6d72074a9c778eb3a0c1d9262d0d7e61d5d3db21dd3893ea70663bd18c6"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-final-0cXT8W/validate.mjs",
+            "sha256": "192e54323956c32426b86b15d9aa4eb9180340fd0964436179e6f0e99e6b41ad"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/build-proof.mjs",
+            "sha256": "ed4364727d0c020e0671c7eb00d2e16220ecbdc59c5b6fb891f298abcec1b121"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/focused-receipt.json",
+            "sha256": "73074c648b9ff9280374b848fe18c800009bafe9dca6d7ad122fa67131d1ee1e"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/focused-report.json",
+            "sha256": "1303d86cb88c5e7eea9a72aa271c1c35e1e3476bbe339421fd387c6ee6ee425d"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/focused-vitest.config.mjs",
+            "sha256": "201b27aa9bf80f1e6a3bc89a8a5ea211030ad2e3d27a03e7cf440f2c327d3a7c"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/focused.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/focused.stdout.log",
+            "sha256": "6cbf6dd234ab4b8bb14d46619d3b4ce39fc85044c3c4f25fb18970c70eb59871"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/format-receipt.json",
+            "sha256": "64f5090406d5dfd81ab37f585ca4d42afb5080e1214ea2619132224e7a0747c7"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/format.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/format.stdout.log",
+            "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/frozen-source-hashes.json",
+            "sha256": "a117fdea5dca37be8dd855b74ea2ccaf73b3b2735b828ca4f4f6f363b753e6fa"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/lint-receipt.json",
+            "sha256": "de2dbaa0d811afe77cdfe6026a6020c68a22fd28fdfd859fa4f6a71897c13a31"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/lint.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/lint.stdout.log",
+            "sha256": "5aa1c3781e31b2c6ca542394ae9722ca58aa4caa87470aad6ce8b0bf17980913"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/shared-slot-budget.json",
+            "sha256": "0b18f6d72074a9c778eb3a0c1d9262d0d7e61d5d3db21dd3893ea70663bd18c6"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-brand-mqiI9g/validate.mjs",
+            "sha256": "192e54323956c32426b86b15d9aa4eb9180340fd0964436179e6f0e99e6b41ad"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/browser-receipt.json",
+            "sha256": "7bc44d1cffcc906d1948bc9fb66038adc79fe42a191f64790a4f0a367783065f"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/browser.stderr.log",
+            "sha256": "39e1be58bd235dde57c42250b45d06fd1e13a7510095bf32906d9f5a712d9a6f"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/browser.stdout.log",
+            "sha256": "83511b4ac5ac80023197760b7a9655d207c8311cb4745d8e763ea6eecbc954f0"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/build-guard-receipt.json",
+            "sha256": "1d12cd624e8ad467199d85e0bdca7c8bbfde550a754393ed7eecb85b955ef398"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/build-proof.mjs",
+            "sha256": "71587770e0f3fb9a714121fcb51a99ca34ac7d2f8635027b78edc898445cd606"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/build-receipt.json",
+            "sha256": "302be42ae11e747f370b48b8e32e514c62c894484db89c9f158940b89738750e"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/build.stderr.log",
+            "sha256": "0c145faee23f57a00d0328327eb3701455f349c3ece48cfb8cfa24e2666e5bb0"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/build.stdout.log",
+            "sha256": "26675277ffb4a9dd5b9ae1a6750db47c75fcf85998bd455a3c4f4f923d896bfa"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/focused-receipt.json",
+            "sha256": "11485f8b8565ad8537ff228de20bb6cca428cc3ab0aa8e408430e6023016d011"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/focused-report.json",
+            "sha256": "2fb893d20e45598c5ad78beb3f470fdccc7170841625481bb619c23f1bf28fa7"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/focused-vitest.config.mjs",
+            "sha256": "8dbef9edaefd96e46a7435a91454a0c3d11e5bd8ab41c40d1e14236a84711b0d"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/focused.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/focused.stdout.log",
+            "sha256": "b7df8b01a5a20cf786190ef60a3f6e21530b84efc0c9da776d11c3a4c0f20b39"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/frozen-source-hashes.json",
+            "sha256": "bcf495cd8942dc1ad2c0d239f8586ce15657d2caee959ac61e2dd8d39f35ea9b"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/shared-slot-budget.json",
+            "sha256": "0b18f6d72074a9c778eb3a0c1d9262d0d7e61d5d3db21dd3893ea70663bd18c6"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-diagnostic-IB5zBE/validate.mjs",
+            "sha256": "3485d021211f2fa034f868cdea3ba9839c475e8a945441ec33efa1ec1b4aadb9"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-run-sHw03Z/build-proof.mjs",
+            "sha256": "71587770e0f3fb9a714121fcb51a99ca34ac7d2f8635027b78edc898445cd606"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-run-sHw03Z/frozen-source-hashes.json",
+            "sha256": "c03cb82dec16528b82b75c6cf661f8738c1892ba3e8b5d6d71c9ca37c4995f0b"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-run-sHw03Z/mount-receipt.json",
+            "sha256": "4fa466763dbcfe6c40300d9edfe6de96ac8f8ac67894b1d82f4369cff898f22b"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-run-sHw03Z/mount-report.json",
+            "sha256": "11dca13d116e595472c34f55acb4af1bb2b84c9c4d26a43a5fea333058f9d4cb"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-run-sHw03Z/mount-vitest.config.mjs",
+            "sha256": "a81e0fa348b4b4d7eec8290ef0830f9c0bbe08c8f02ccef8545aa9c08ebd136b"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-run-sHw03Z/mount.stderr.log",
+            "sha256": "a561f71fb300005c406a080bcb5b6add7881810d5c60cb547eb8e2535cf8a1d1"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-run-sHw03Z/mount.stdout.log",
+            "sha256": "b6e6135ad12acd760acca9a95a5c282d7d7b9b7481d55325363a32e84fc64531"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-run-sHw03Z/shared-slot-budget.json",
+            "sha256": "e7327ff71c226168574ccae64c61407bb7a2ca773c51103ee7ab164d10a101a3"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-run-sHw03Z/tsconfig.json",
+            "sha256": "c9b08eaad9402cab56c73c8ea02942e2db2c0691293b9914eaf715d92e88fd35"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-run-sHw03Z/types-receipt.json",
+            "sha256": "9056154698716dc7d0bc88349f2da41423fd51a36aec09675d7db11cbc33f317"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-run-sHw03Z/types.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-run-sHw03Z/types.stdout.log",
+            "sha256": "cc218287c326a7ce12ca29b61c9295abd63521c01e82d35b99970c0a41e1a49f"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-run-sHw03Z/validate.mjs",
+            "sha256": "ea82964934c77d4786bd40bdef74e99ac5212570b216dc7623feac25c8e52cb9"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/browser-receipt.json",
+            "sha256": "d61737668e357c9e1276bc57722982098580a831720b22a3992996d793cba3c6"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/browser.stderr.log",
+            "sha256": "39e1be58bd235dde57c42250b45d06fd1e13a7510095bf32906d9f5a712d9a6f"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/browser.stdout.log",
+            "sha256": "ff6d1dab281c9e37d68fc90e0d3140fdc2fdf0b488131652808879020914f2d0"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/build-guard-receipt.json",
+            "sha256": "c45509a4c79259de766acd13ad5f0dec7e6e9e7c11cc9cbc793a8af857617fd6"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/build-proof.mjs",
+            "sha256": "71587770e0f3fb9a714121fcb51a99ca34ac7d2f8635027b78edc898445cd606"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/build-receipt.json",
+            "sha256": "15bd1a7f7a7f9f79fcfa208e1f644f1f41569a63dc335260c8d366b43d242ecc"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/build.stderr.log",
+            "sha256": "ee8039465963d109935d397484fb090eb3c7fa3329899fa0c05572baf930dc17"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/build.stdout.log",
+            "sha256": "35a0c8b702c45e33d987aae6b48bed3f50382b484cbbb68af5efc163236078cc"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/focused-receipt.json",
+            "sha256": "4a55e22305a19aef74963eadb1c7d4e19400be3910505032f7497ed1975d051b"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/focused-report.json",
+            "sha256": "af14e8960c17493a12b2fbb1d69d1abf7e2e2dac501098b2c45049bf4bb5378c"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/focused-vitest.config.mjs",
+            "sha256": "07ab2c20f61663b08d46aa03d0b6b8badc04e52f0b6a377c73ee222bb7a58ce6"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/focused.stderr.log",
+            "sha256": "76dface8198e444bad0a3101de377c0769b9cb7fc0fb114f0c256e1893a9e2db"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/focused.stdout.log",
+            "sha256": "c67c417d9a8ba18b492781723cd9c67f5000324f8b3453912ae7af0c4f284ac0"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/format-receipt.json",
+            "sha256": "4c54e24f56ab57aa792eb9ba5bd329db7edd37bff149f5bf9902c81c837e64f2"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/format.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/format.stdout.log",
+            "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/frozen-source-hashes.json",
+            "sha256": "7a23eb08bf284b210776e647e873e9ffb58c45831cb636eaef41a8da87e268ed"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/lint-receipt.json",
+            "sha256": "5c98c37890290f77c71c50ec5202ff09cfd98dc4643413ff4195060a623d3cdd"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/lint.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/lint.stdout.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/mount-receipt.json",
+            "sha256": "e28f6ad3ceef45b822229215e848d62fc2d58fd22fabe60a6f4e9d9fd746f73e"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/mount-report.json",
+            "sha256": "b8bb867ddf1008e660a66e3043ec894cd3b8191af847653e96f1d4e9d17f3666"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/mount-vitest.config.mjs",
+            "sha256": "b15129c8838df0d27d1a7c99794c78bf96736d4c1e17e8c5d3fc3e2541d6428c"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/mount.stderr.log",
+            "sha256": "a561f71fb300005c406a080bcb5b6add7881810d5c60cb547eb8e2535cf8a1d1"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/mount.stdout.log",
+            "sha256": "f3574f523cc15590004b5add086e4dde2028e714f500be5244e95083a48330f5"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/shared-slot-budget.json",
+            "sha256": "e7327ff71c226168574ccae64c61407bb7a2ca773c51103ee7ab164d10a101a3"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/tsconfig.json",
+            "sha256": "c9b08eaad9402cab56c73c8ea02942e2db2c0691293b9914eaf715d92e88fd35"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/types-receipt.json",
+            "sha256": "49a5d7f7cb6c0df0fa452124397468fae630d80545af54c9cedb425db2d37f2b"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/types.stderr.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/types.stdout.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-window-types-repair-MA5yUS/validate.mjs",
+            "sha256": "361a27dd8a42fd9497b076cb265b099796c80054249c1755ee249cb0ad0f6adf"
+        }
+    ]
+}
