@@ -1,3 +1,11 @@
+/**
+ * The shared root shelf promotes a reference cell only through verified bytes.
+ *
+ * NOAA-shaped ids since 126-20: the root shelf serves public-domain NOAA
+ * cells only (the server's read policy since 20261009070000, and a client
+ * belt in cloudCellSync), so a licensed-style id never reaches these paths.
+ * The last case pins that belt for a reference cell. Fictional ids only.
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EncCell, EncConversionResult } from '../services/enc/types';
 
@@ -5,7 +13,7 @@ const state = vi.hoisted(() => ({
     configured: false,
     manifestVersion: 12,
     manifestBBox: [167, -17, 169, -15] as [number, number, number, number],
-    payloadCellId: 'VU5PORT1',
+    payloadCellId: 'US5XX01M',
     records: [] as EncCell[],
     download: vi.fn(),
     putCell: vi.fn(),
@@ -49,10 +57,10 @@ vi.mock('../services/enc/EncHazardService', () => ({
     retireCloudCell: state.retireCloudCell,
 }));
 
-function referenceCell(id = 'VU5PORT1'): EncCell {
+function referenceCell(id = 'US5XX01M'): EncCell {
     return {
         id,
-        sourceHO: 'VU',
+        sourceHO: 'US',
         edition: 9999,
         issued: '2026-08-01',
         importedAt: '2026-08-05T00:00:00.000Z',
@@ -63,7 +71,7 @@ function referenceCell(id = 'VU5PORT1'): EncCell {
     };
 }
 
-function cloudNavigationCell(id = 'VU5PORT1', manifestVersion = 11): EncCell {
+function cloudNavigationCell(id = 'US5XX01M', manifestVersion = 11): EncCell {
     return {
         ...referenceCell(id),
         edition: 5,
@@ -75,7 +83,7 @@ function cloudNavigationCell(id = 'VU5PORT1', manifestVersion = 11): EncCell {
 function conversion(id: string): EncConversionResult {
     return {
         cellId: id,
-        sourceHO: 'VU',
+        sourceHO: 'US',
         edition: 5,
         issued: '2026-08-02',
         bbox: [167, -17, 169, -15],
@@ -111,7 +119,7 @@ describe('cloud ENC registration cannot promote unsigned reference bytes', () =>
         state.configured = false;
         state.manifestVersion = 12;
         state.manifestBBox = [167, -17, 169, -15];
-        state.payloadCellId = 'VU5PORT1';
+        state.payloadCellId = 'US5XX01M';
         state.records = [referenceCell()];
         state.download.mockReset();
         state.putCell.mockReset();
@@ -170,7 +178,7 @@ describe('cloud ENC registration cannot promote unsigned reference bytes', () =>
             if (path === 'manifest.json') {
                 const text = JSON.stringify({
                     version: state.manifestVersion,
-                    cells: [{ cellId: 'VU5PORT1', bbox: state.manifestBBox }],
+                    cells: [{ cellId: 'US5XX01M', bbox: state.manifestBBox }],
                 });
                 return {
                     data: { size: new TextEncoder().encode(text).byteLength, text: async () => text },
@@ -189,7 +197,7 @@ describe('cloud ENC registration cannot promote unsigned reference bytes', () =>
         const { registerCloudCells } = await import('../services/enc/cloudCellSync');
 
         await expect(registerCloudCells()).resolves.toBe(0);
-        expect(state.records[0]).toMatchObject({ id: 'VU5PORT1', usage: 'reference', edition: 9999 });
+        expect(state.records[0]).toMatchObject({ id: 'US5XX01M', usage: 'reference', edition: 9999 });
         expect(state.download).not.toHaveBeenCalled();
 
         state.configured = true;
@@ -197,12 +205,12 @@ describe('cloud ENC registration cannot promote unsigned reference bytes', () =>
 
         expect(state.putCell).not.toHaveBeenCalled();
         expect(state.saveCellGeoJSON).not.toHaveBeenCalled();
-        expect(state.importCell).toHaveBeenCalledWith(expect.objectContaining({ cellId: 'VU5PORT1', edition: 5 }), {
+        expect(state.importCell).toHaveBeenCalledWith(expect.objectContaining({ cellId: 'US5XX01M', edition: 5 }), {
             usage: 'navigation',
             cloudManifestVersion: 12,
         });
         expect(state.records).toEqual([
-            expect.objectContaining({ id: 'VU5PORT1', usage: 'navigation', edition: 5, cloudManifestVersion: 12 }),
+            expect.objectContaining({ id: 'US5XX01M', usage: 'navigation', edition: 5, cloudManifestVersion: 12 }),
         ]);
     });
 
@@ -214,21 +222,21 @@ describe('cloud ENC registration cannot promote unsigned reference bytes', () =>
         await expect(registerCloudCells()).resolves.toBe(1);
 
         expect(state.records).toEqual([
-            expect.objectContaining({ id: 'VU5PORT1', usage: 'pending', hazardCount: 0, cloudManifestVersion: 12 }),
+            expect.objectContaining({ id: 'US5XX01M', usage: 'pending', hazardCount: 0, cloudManifestVersion: 12 }),
         ]);
         expect(state.importCell).not.toHaveBeenCalled();
     });
 
     it('keeps the reference quarantined when the bucket payload does not match the manifest cell ID', async () => {
         state.configured = true;
-        state.payloadCellId = 'VU5OTHER';
+        state.payloadCellId = 'US5XX02M';
         const { registerCloudCells } = await import('../services/enc/cloudCellSync');
 
         await expect(registerCloudCells()).resolves.toBe(0);
 
         expect(state.importCell).not.toHaveBeenCalled();
         expect(state.saveCellGeoJSON).not.toHaveBeenCalled();
-        expect(state.records).toEqual([expect.objectContaining({ id: 'VU5PORT1', usage: 'reference', edition: 9999 })]);
+        expect(state.records).toEqual([expect.objectContaining({ id: 'US5XX01M', usage: 'reference', edition: 9999 })]);
     });
 
     it('rejects a matching cell whose payload bbox differs from the active manifest', async () => {
@@ -248,11 +256,11 @@ describe('cloud ENC registration cannot promote unsigned reference bytes', () =>
             if (path === 'manifest.json') {
                 const text = JSON.stringify({
                     version: 12,
-                    cells: [{ cellId: 'VU5PORT1', bbox: [167, -17, 169, -15] }],
+                    cells: [{ cellId: 'US5XX01M', bbox: [167, -17, 169, -15] }],
                 });
                 return { data: { size: text.length, text: async () => text }, error: null };
             }
-            const text = JSON.stringify({ cells: [conversion('VU5PORT1'), conversion('VU5OTHER')] });
+            const text = JSON.stringify({ cells: [conversion('US5XX01M'), conversion('US5XX02M')] });
             return { data: { size: text.length, text: async () => text }, error: null };
         });
         const { registerCloudCells } = await import('../services/enc/cloudCellSync');
@@ -279,7 +287,7 @@ describe('cloud ENC registration cannot promote unsigned reference bytes', () =>
 
     it('retires cloud-managed cells removed by a newer manifest', async () => {
         state.configured = true;
-        state.records = [cloudNavigationCell('VU5PORT1', 12)];
+        state.records = [cloudNavigationCell('US5XX01M', 12)];
         const { registerCloudCells } = await import('../services/enc/cloudCellSync');
         await expect(registerCloudCells()).resolves.toBe(0);
 
@@ -291,8 +299,27 @@ describe('cloud ENC registration cannot promote unsigned reference bytes', () =>
         });
         await expect(registerCloudCells()).resolves.toBe(0);
 
-        expect(state.retireCloudCell).toHaveBeenCalledWith('VU5PORT1');
+        expect(state.retireCloudCell).toHaveBeenCalledWith('US5XX01M');
         expect(state.records).toEqual([]);
+    });
+
+    it('never promotes a licensed reference cell from the shared shelf, even one the manifest lists (126-20)', async () => {
+        state.configured = true;
+        state.records = [{ ...referenceCell('ZZ5TEST1'), sourceHO: 'ZZ' }];
+        state.download.mockImplementation(async (path: string) => {
+            if (path !== 'manifest.json') throw new Error(`unexpected ${path}`);
+            const text = JSON.stringify({ version: 12, cells: [{ cellId: 'ZZ5TEST1', bbox: [167, -17, 169, -15] }] });
+            return { data: { size: text.length, text: async () => text }, error: null };
+        });
+        const { downloadCloudCell, registerCloudCells } = await import('../services/enc/cloudCellSync');
+
+        await expect(registerCloudCells()).resolves.toBe(0);
+        await expect(downloadCloudCell('ZZ5TEST1')).resolves.toBe(false);
+
+        expect(state.download.mock.calls.map(([path]) => path)).toEqual(['manifest.json']);
+        expect(state.importCell).not.toHaveBeenCalled();
+        expect(state.putCell).not.toHaveBeenCalled();
+        expect(state.records).toEqual([expect.objectContaining({ id: 'ZZ5TEST1', usage: 'reference', edition: 9999 })]);
     });
 
     it('discards a blob begun under stored manifest v11 after registration advances to v12', async () => {
@@ -308,7 +335,7 @@ describe('cloud ENC registration cannot promote unsigned reference bytes', () =>
             if (path === 'manifest.json') {
                 const text = JSON.stringify({
                     version: state.manifestVersion,
-                    cells: [{ cellId: 'VU5PORT1', bbox: [167, -17, 169, -15] }],
+                    cells: [{ cellId: 'US5XX01M', bbox: [167, -17, 169, -15] }],
                 });
                 return {
                     data: { size: new TextEncoder().encode(text).byteLength, text: async () => text },
@@ -320,12 +347,12 @@ describe('cloud ENC registration cannot promote unsigned reference bytes', () =>
         const { downloadCloudCell, registerCloudCells } = await import('../services/enc/cloudCellSync');
 
         await expect(registerCloudCells()).resolves.toBe(0);
-        const staleDownload = downloadCloudCell('VU5PORT1');
-        await vi.waitFor(() => expect(state.download).toHaveBeenCalledWith('VU5PORT1.json'));
+        const staleDownload = downloadCloudCell('US5XX01M');
+        await vi.waitFor(() => expect(state.download).toHaveBeenCalledWith('US5XX01M.json'));
         state.manifestVersion = 12;
         await expect(registerCloudCells()).resolves.toBe(0);
 
-        const staleText = JSON.stringify(conversion('VU5PORT1'));
+        const staleText = JSON.stringify(conversion('US5XX01M'));
         releaseBlob({
             data: { size: new TextEncoder().encode(staleText).byteLength, text: async () => staleText },
             error: null,

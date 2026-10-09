@@ -305,10 +305,17 @@ describe('calculateThalassaProposal', () => {
         expect(m.fill).toHaveBeenCalledTimes(1);
         expect(m.tryInshoreRoute).toHaveBeenCalledTimes(2);
 
+        // Licensed charts come only from the boat's Pi since 126-20, so a gap
+        // the cloud cannot fill points there, not at sign-in or the connection.
         m.fill.mockReset().mockResolvedValue({ downloaded: 0, needed: 2, bucketAvailable: false });
-        await expect(calculateThalassaProposal(request())).rejects.toThrow(/chart cloud isn't reachable/);
+        await expect(calculateThalassaProposal(request())).rejects.toThrow(
+            "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: sync them aboard, then try again. Nothing changed.",
+        );
+        // The shared shelf holds public NOAA charts only: no "licensed" bucket.
         m.fill.mockReset().mockResolvedValue({ downloaded: 0, needed: 2, bucketAvailable: true });
-        await expect(calculateThalassaProposal(request())).rejects.toThrow(/not signed in/);
+        await expect(calculateThalassaProposal(request())).rejects.toThrow(
+            "The missing charts wouldn't download. You're probably not signed in: sign in and try again. Nothing changed.",
+        );
     });
 
     it('refuses a route the satellite land check finds over land, and says when it could not check', async () => {

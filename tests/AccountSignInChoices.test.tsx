@@ -35,7 +35,8 @@ vi.mock('../services/weather/keys', () => ({
     isStormglassKeyPresent: () => true,
 }));
 vi.mock('../services/geminiService', () => ({ isGeminiConfigured: () => true }));
-vi.mock('../components/vessel/EncPersonalCloudPanel', () => ({ EncPersonalCloudPanel: () => null }));
+// The charts line in Cloud Data is a plain sentence since 126-20 (no cloud
+// read), so the real panel renders here: no stand-in needed.
 vi.mock('../utils/system', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../utils/system')>()),
     triggerHaptic: vi.fn(),

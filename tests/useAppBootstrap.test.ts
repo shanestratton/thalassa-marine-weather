@@ -166,6 +166,17 @@ describe('useAppBootstrap', () => {
         expect(watchCheck.stop).toHaveBeenCalledOnce();
     });
 
+    it('clears the retired chart Auto-publish flag at launch, so no build can read it as a yes (126-20)', () => {
+        // Licensed charts never go to the cloud: the per-device flag that sent
+        // them after every Pi sync must not survive to switch uploads back on.
+        localStorage.setItem('thalassa_enc_auto_publish', '1');
+        localStorage.setItem('thalassa_unrelated_setting', '1');
+        renderHook(() => useAppBootstrap());
+        expect(localStorage.getItem('thalassa_enc_auto_publish')).toBeNull();
+        expect(localStorage.getItem('thalassa_unrelated_setting')).toBe('1');
+        localStorage.removeItem('thalassa_unrelated_setting');
+    });
+
     it('moves inline Documents to files once the sync engine has started, when the app is idle', async () => {
         vault.tidy.mockResolvedValue(undefined);
         renderHook(() => useAppBootstrap());

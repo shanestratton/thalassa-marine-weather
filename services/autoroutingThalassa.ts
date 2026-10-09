@@ -77,10 +77,12 @@ const PAINT_YIELD_MS = 80;
 const AUTH_REQUIRED = 'Sign in to use Auto routing.';
 const NO_ROUTE = 'Thalassa could not route this passage. Nothing changed.';
 const WATCHDOG = 'Routing took longer than this phone allows (85 s). Try a shorter passage. Nothing changed.';
+// Licensed charts never come from the cloud since 126-20: a gap the cloud
+// can't fill is one only the boat's Pi can, and the shared shelf is NOAA only.
 const BUCKET_UNREACHABLE =
-    "This passage needs charts this phone doesn't have, and the chart cloud isn't reachable. Check your connection and that you're signed in (the charts are licensed). Nothing changed.";
+    "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: sync them aboard, then try again. Nothing changed.";
 const NOT_SIGNED_IN_FILL =
-    "The missing charts wouldn't download — you're probably not signed in (the chart bucket is licensed-access). Sign in and try again. Nothing changed.";
+    "The missing charts wouldn't download. You're probably not signed in: sign in and try again. Nothing changed.";
 
 /**
  * Whether Auto is offered, worked out on the phone: a signed-in identity and

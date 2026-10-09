@@ -9,14 +9,52 @@ const codeOf = (relative: string): string =>
         .replace(/^\s*\/\/.*$/gm, '');
 
 /**
- * The personal ENC store lets a skipper's OWN charts reach their OWN browser.
- * Two properties make that legitimate rather than redistribution, and both are
- * structural — no behavioural test would catch either regressing, because in
- * both cases the feature keeps working and only the boundary moves.
+ * The personal ENC store let a skipper's OWN charts reach their OWN browser,
+ * by copying decrypted cells to enc-cells/u/<uid>/. It is CLOSED since build
+ * 126 (126-20): o-charts says unencrypted chart data must never be stored in
+ * the cloud. The client switch (PERSONAL_CHART_CLOUD_ENABLED) makes every path
+ * that touches the bucket a no-op, and 20261010115000 drops the owner read,
+ * insert and update policies; tests/ChartCloudOff.test.ts proves the switch
+ * against the real supabase-js client.
+ *
+ * The code itself stays until build 127 deletes it, so the structural pins
+ * below stay too: they are what keeps it safe if anyone ever reads it as a
+ * pattern, and the owner-scoped delete still guards the folder.
  */
 describe('personal ENC cell store', () => {
     const migration = read('supabase/migrations/20260807093000_personal_enc_cells.sql');
     const service = codeOf('services/enc/personalCellSync.ts');
+
+    describe('closed: no licensed chart goes to, or comes from, the cloud (126-20)', () => {
+        it('is switched off in one constant', () => {
+            expect(service).toContain('export const PERSONAL_CHART_CLOUD_ENABLED = false;');
+        });
+
+        it.each([
+            'export async function syncPersonalCells',
+            'export async function downloadPersonalCell(',
+            'export async function getPublishPlan',
+            'export async function publishPersonalCells',
+            'export async function downloadPersonalCellsForBBox',
+            'export async function publishNewCellsIfEnabled',
+        ])('%s returns before anything else runs', (signature) => {
+            const start = service.indexOf(signature);
+            expect(start, `${signature} missing`).toBeGreaterThan(-1);
+            const fn = service.slice(start);
+            const guard = fn.search(/\n\s+if \(!PERSONAL_CHART_CLOUD_ENABLED\) return\b/);
+            expect(guard, `${signature} has no switch`).toBeGreaterThan(-1);
+            // The first statement of the body IS the switch: no await, no read, no call before it.
+            expect(fn.search(/\n\s+(?:const|let|await|if|return|for|try|void)\b/)).toBe(guard);
+        });
+
+        it('the server agrees: the closing migration drops the owner read, insert and update', () => {
+            const closed = read('supabase/migrations/20261010115000_enc_cells_personal_shelf_closed.sql');
+            for (const verb of ['read', 'insert', 'update']) {
+                expect(closed).toContain(`drop policy if exists "enc cells owner ${verb}" on storage.objects;`);
+            }
+            expect(closed).not.toContain('drop policy if exists "enc cells owner delete"');
+        });
+    });
 
     describe('licensing boundary', () => {
         it('no longer lets any authenticated user read the whole bucket', () => {
@@ -139,7 +177,7 @@ describe('personal ENC cell store', () => {
         });
     });
 
-    it('serves the browser as the last hydration rung', () => {
+    it('keeps the personal rung last on the hydration ladder (a no-op while the shelf is closed)', () => {
         // Anchor on the CALL, not the bare identifier: `downloadPersonalCell`
         // also appears in the `await import(...)` destructure one line above,
         // so matching the name alone still passed with the rung deleted.
@@ -197,10 +235,15 @@ describe('personal ENC cell store', () => {
         });
     });
 
-    it('does not auto-publish before the skipper has opted in', () => {
+    it('does not auto-publish before the skipper has opted in, and not at all while the shelf is closed', () => {
         // Run one is ~400 MB and there is no Wi-Fi/cellular signal available
-        // in this app, so it must never fire on its own.
+        // in this app, so it must never fire on its own. Since 126-20 the
+        // switch comes first: an old "on" flag on a device sends nothing.
         const auto = service.slice(service.indexOf('export async function publishNewCellsIfEnabled'));
+        const closed = auto.indexOf('if (!PERSONAL_CHART_CLOUD_ENABLED) return;');
+        const optIn = auto.indexOf('if (!isAutoPublishEnabled()) return;');
+        expect(closed).toBeGreaterThan(-1);
+        expect(optIn).toBeGreaterThan(closed);
         expect(auto.slice(0, 200)).toContain('if (!isAutoPublishEnabled()) return;');
     });
 });

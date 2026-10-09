@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
     fetchVerifiedFromPi: vi.fn(),
     getCoverage: vi.fn(),
     importCell: vi.fn(),
-    publishNewCellsIfEnabled: vi.fn(),
+    storageFrom: vi.fn(),
 }));
 
 vi.mock('../services/PiCacheService', () => ({
@@ -37,8 +37,12 @@ vi.mock('../services/enc/EncHazardService', () => ({
 vi.mock('../services/enc/EncCellStore', () => ({
     parseJsonOffThread: async (text: string) => JSON.parse(text) as unknown,
 }));
-vi.mock('../services/enc/personalCellSync', () => ({
-    publishNewCellsIfEnabled: mocks.publishNewCellsIfEnabled,
+// The REAL personal chart shelf runs after a Pi sync, behind a storage spy:
+// since 126-20 it must send nothing, whatever the device's old flag says.
+vi.mock('../services/supabase', () => ({
+    isSupabaseConfigured: () => true,
+    getCurrentUserId: async () => 'user-zz',
+    supabase: { storage: { from: mocks.storageFrom } },
 }));
 
 import {
@@ -342,6 +346,28 @@ describe('o-charts Pi installation and phone-copy receipts', () => {
             expect.objectContaining({ cellId, sourceHO: 'FR', sourceCellId: 'FR471680' }),
             expect.objectContaining({ contentSha256: CONTENT_HASH, assertAuthority: expect.any(Function) }),
         );
+    });
+
+    it('a Pi sync sends nothing to the cloud, even with the old Auto-publish flag on (126-20)', async () => {
+        // Before 126 the end of every Pi sync uploaded the new cells to the
+        // skipper's cloud folder once Auto-publish was on. Licensed charts
+        // never go to the cloud now: the hook finds the shelf switched off.
+        const cellId = 'ZZ5TEST1';
+        localStorage.setItem('thalassa_enc_auto_publish', '1');
+        try {
+            mocks.fetchVerifiedFromPi
+                .mockResolvedValueOnce({ cells: [installed(cellId)] })
+                .mockResolvedValueOnce({ cells: [conversion(cellId)] });
+            const result = await syncEncFromPi(undefined, { cellIds: [cellId] });
+            expect(result.cells.map((cell) => cell.id)).toEqual([cellId]);
+
+            // The hook is fire-and-forget behind a dynamic import: let it run out.
+            await vi.dynamicImportSettled();
+            for (let turn = 0; turn < 50; turn++) await Promise.resolve();
+            expect(mocks.storageFrom).not.toHaveBeenCalled();
+        } finally {
+            localStorage.removeItem('thalassa_enc_auto_publish');
+        }
     });
 
     it.each(['account', 'Pi key', 'Pi address'])(

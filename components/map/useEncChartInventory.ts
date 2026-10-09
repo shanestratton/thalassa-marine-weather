@@ -166,9 +166,10 @@ export function useEncChartInventory(
         void import('../../services/enc/cloudCellSync')
             .then(({ registerCloudCells }) => registerCloudCells())
             .catch(() => {});
-        // And the skipper's OWN published cells, which the curated bucket will
-        // never hold: Shane's S-63 Nouméa and Port Vila titles are licensed to
-        // him, so they can only ever reach this browser from his own folder.
+        // And the skipper's OWN published cells. Closed since 126-20: licensed
+        // charts never come from the cloud, so this registers nothing and makes
+        // no request (personalCellSync PERSONAL_CHART_CLOUD_ENABLED); build
+        // 127 removes the call with the module.
         void import('../../services/enc/personalCellSync')
             .then(({ syncPersonalCells }) => syncPersonalCells())
             .catch(() => {});

@@ -1,7 +1,8 @@
 /**
  * putCell must be a TRUE upsert — kill #41 (2026-08-12, /plan, 15.6 h
- * session). The sync passes (personalCellSync + cloudCellSync) re-assert
- * every cell's metadata on each lap. putCell wrote and notify()'d
+ * session). The sync passes (personalCellSync + cloudCellSync) re-asserted
+ * every cell's metadata on each lap (since 126-20 the personal pass is
+ * switched off; the shared NOAA pass still does). putCell wrote and notify()'d
  * unconditionally; notify() bumps the registry version; the version is baked
  * into the merge cache key — so every no-op lap invalidated EVERY cached
  * merge, and the fatal trail shows the same 3-cell/8.1 MB window re-merged

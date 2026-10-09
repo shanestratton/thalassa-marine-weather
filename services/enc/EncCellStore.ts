@@ -492,7 +492,10 @@ export async function hasCellGeoJSON(cellId: string): Promise<boolean> {
  * is missing or malformed. A missing blob climbs the remote ladder ONCE:
  *   1. the boat's Pi (LAN — fast, free, works fully offline; unreachable
  *      from the HTTPS web page, where downloadPiCell fails instantly), then
- *   2. the cloud bucket (desktop builder, Phase 5 — hydrates on demand).
+ *   2. the cloud bucket (desktop builder, Phase 5 — hydrates on demand), for
+ *      public-domain NOAA cells only since 126-20: licensed charts never
+ *      come from the cloud, so a licensed cell missing here stays missing
+ *      until the Pi has it.
  * `remoteFallback=false` marks the post-download retry so a bad blob can't
  * loop the ladder forever.
  */
@@ -513,15 +516,15 @@ export async function loadCellGeoJSON(cellId: string, remoteFallback = true): Pr
         // the Pi probe says unreachable (off the boat / HTTPS web).
         const { downloadPiCell } = await import('./piCellSync');
         if (await downloadPiCell(cellId)) return loadCellGeoJSON(cellId, false);
-        // Rung 2: the cloud bucket.
+        // Rung 2: the cloud bucket (NOAA cells only; refuses others before
+        // any request).
         const { downloadCloudCell } = await import('./cloudCellSync');
         if (await downloadCloudCell(cellId)) return loadCellGeoJSON(cellId, false);
-        // Rung 3: the skipper's OWN published cells. Last because it is the
-        // narrowest — it only ever has what this account uploaded — and
-        // because the curated copy of a shared cell is the cheaper fetch.
-        // This is the rung that serves a browser off the boat: no Pi on the
-        // LAN, nothing curated for Nouméa or Port Vila, but the owner's cells
-        // are one signed-in download away.
+        // Rung 3: the skipper's OWN published cells. CLOSED since 126-20
+        // (personalCellSync PERSONAL_CHART_CLOUD_ENABLED): it answers false
+        // without a request, and build 127 removes the rung with the module.
+        // It served a browser off the boat from the owner's cloud folder,
+        // which o-charts' licence terms do not allow.
         const { downloadPersonalCell } = await import('./personalCellSync');
         if (await downloadPersonalCell(cellId)) return loadCellGeoJSON(cellId, false);
     }

@@ -69,7 +69,7 @@ export const BuilderDeepLink: React.FC = () => {
     return (
         <SignInScreen
             isOpen
-            prompt="Sign in to open your passage builder — your charts, tides and saved routes live on your account."
+            prompt="Sign in to open your passage builder — your tides and saved routes live on your account."
         />
     );
 };
