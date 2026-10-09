@@ -112,7 +112,9 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                         {engineHours === null ? (
                             <>
                                 <p className="text-xl font-black text-gray-400">—</p>
-                                <p className="text-xs text-gray-400">Not entered — logged without hours</p>
+                                <p className="text-xs text-gray-400">
+                                    Not entered — the next service is scheduled once you enter engine hours
+                                </p>
                             </>
                         ) : (
                             <p className="text-xl font-black text-white">{engineHours.toLocaleString()} hrs</p>

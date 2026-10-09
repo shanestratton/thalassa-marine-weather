@@ -18,6 +18,8 @@ import {
     type RunItemStatus,
 } from '../../services/vessel/LocalChecklistService';
 import { LocalMaintenanceService } from '../../services/vessel/LocalMaintenanceService';
+import { SharedBinderReadOnlyError } from '../../services/vessel/sharedBinders';
+import { toLocalDateString } from '../../utils/localDate';
 import { triggerHaptic } from '../../utils/system';
 import { TapToAction } from '../ui/TapToAction';
 import { PageHeader } from '../ui/PageHeader';
@@ -45,6 +47,25 @@ interface ChecklistsPageProps {
 }
 
 // SwipeableItemCard now in ./checklists/SwipeableItemCard.tsx
+
+/** Why a flagged repair did not reach Maintenance, for the log: a reason, never the item's name. */
+function repairFailureReason(e: unknown): 'read-only' | 'local-db' | 'other' {
+    if (e instanceof SharedBinderReadOnlyError) return 'read-only';
+    if (e instanceof Error && e.message.includes('[LocalDB]')) return 'local-db';
+    return 'other';
+}
+
+/**
+ * The toast for repairs that did not reach Maintenance. Complete closes the
+ * run and no screen lists past runs yet (126-B16), so it names them (on screen
+ * only; the log keeps a reason) and says to add them in Maintenance by hand.
+ */
+function repairsNotAddedMessage(names: string[]): string {
+    if (names.length === 1) return `Couldn't add “${names[0]}” to Maintenance — add it there by hand`;
+    const shown = names.slice(0, 3).join(', ');
+    const more = names.length > 3 ? ` and ${names.length - 3} more` : '';
+    return `Couldn't add ${names.length} repairs to Maintenance (${shown}${more}) — add them there by hand`;
+}
 
 // ── Status colors for run mode ─────────────────────────────────
 
@@ -98,6 +119,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     const pageActionsButtonRef = useRef<HTMLButtonElement>(null);
     const runCloseButtonRef = useRef<HTMLButtonElement>(null);
     const mountedRef = useRef(true);
+    /** A Complete in flight: a double tap saved the run, and every repair, twice. */
+    const completingRef = useRef(false);
     const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const currentOperation = useCallback(
         (scope: AuthIdentityScope) =>
@@ -367,7 +390,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         [currentOperation],
     );
 
-    const completeRun = useCallback(async () => {
+    const finishRun = useCallback(async () => {
         const scope = getAuthIdentityScope();
         if (!currentOperation(scope)) return;
         triggerHaptic('heavy');
@@ -380,8 +403,12 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         await LocalChecklistService.saveRun(run);
         if (!currentOperation(scope)) return;
 
-        // Create R&M tasks for flagged items
+        // Create R&M tasks for flagged items, counting what actually landed:
+        // the toast used to count the flags, so a repair that failed to save
+        // still read as added (binder audit CHK-02).
         const flagged = runItems.filter((i) => i.flagged_rm);
+        let added = 0;
+        const notAdded: string[] = [];
         for (const item of flagged) {
             try {
                 await LocalMaintenanceService.createTask({
@@ -390,14 +417,17 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     category: 'Repair',
                     trigger_type: 'monthly',
                     interval_value: 30,
-                    next_due_date: new Date().toISOString(),
+                    // Today on the skipper's own calendar, not the UTC day.
+                    next_due_date: toLocalDateString(),
                     next_due_hours: null,
                     last_completed: null,
                     is_active: true,
                 });
+                added++;
                 if (!currentOperation(scope)) return;
             } catch (e) {
-                log.warn('Failed to create R&M task for:', item.text, e);
+                notAdded.push(item.text);
+                log.warn(`checklists: repair-not-added (${repairFailureReason(e)})`);
             }
         }
 
@@ -416,10 +446,24 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
             toast.success(`Checklist complete — ${passCount}/${total} checked`);
         }
 
-        if (flagged.length > 0) {
-            toast.info(`${flagged.length} repair${flagged.length > 1 ? 's' : ''} added to Maintenance`);
+        if (added > 0) {
+            toast.info(`${added} repair${added > 1 ? 's' : ''} added to Maintenance`);
         }
+        // Held twice the usual 4 s: it names what to add by hand.
+        if (notAdded.length > 0) toast.error(repairsNotAddedMessage(notAdded), 8000);
     }, [currentOperation, runItems, runId]);
+
+    // One Complete at a time (the Complete half of CHK-06, pulled forward from
+    // 126-B16): a double tap doubled the very repair count above.
+    const completeRun = useCallback(async () => {
+        if (completingRef.current) return;
+        completingRef.current = true;
+        try {
+            await finishRun();
+        } finally {
+            completingRef.current = false;
+        }
+    }, [finishRun]);
 
     // Run progress
     const runPassCount = runItems.filter((i) => i.status === 'pass').length;

@@ -341,8 +341,20 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         const parsed = parseInt(engineHoursInput.replace(/[,\s]/g, ''), 10);
         // Anything else keeps the figure on show, as before.
         if (!Number.isInteger(parsed) || parsed < 0 || parsed > MAX_ENGINE_HOURS || parsed === engineHours) return;
+        // The first reading schedules the hour tasks waiting for one (126-B1):
+        // never a later one, which would move due points already set.
+        const firstReading = engineHours === null;
         setEngineHoursReading((reading) => ({ ...reading, hours: parsed }));
         void LocalEngineHoursService.setReading(parsed, identity)
+            .then(async () => {
+                if (!firstReading || !isAuthIdentityScopeCurrent(identity)) return;
+                try {
+                    const scheduled = await MaintenanceService.scheduleHourTasksFromFirstReading(parsed);
+                    if (scheduled > 0 && isAuthIdentityScopeCurrent(identity)) void loadTasks(identity, true);
+                } catch (e) {
+                    log.warn('maintenance: first-reading-schedule-failed', e);
+                }
+            })
             .catch((e) => {
                 log.warn('Failed to save engine hours:', e);
                 if (isAuthIdentityScopeCurrent(identity)) {
@@ -354,7 +366,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     setEngineHoursReading(LocalEngineHoursService.getReading(identity));
                 }
             });
-    }, [engineHoursInput, engineHours, engineHoursEditIdentity]);
+    }, [engineHoursInput, engineHours, engineHoursEditIdentity, loadTasks]);
 
     const startEditingHours = useCallback(() => {
         const identity = getAuthIdentityScope();
@@ -370,11 +382,14 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
     const tasksWithStatus = useMemo(() => {
         const withStatus = tasks.map((t) => {
-            if (engineHours !== null || t.next_due_hours === null || t.next_due_hours === undefined) {
+            const hasHours = t.next_due_hours !== null && t.next_due_hours !== undefined;
+            if (engineHours !== null || (!hasHours && t.trigger_type !== 'engine_hours')) {
                 return calculateStatus(t, engineHours ?? 0);
             }
             // Engine hours not entered yet: judge the task on its date alone
-            // rather than counting hours from an invented zero.
+            // rather than counting hours from an invented zero. An hour task
+            // with no hours due yet (the suggested engine service is seeded so
+            // since 126-B1) waits for the same first reading.
             const byDate = calculateStatus({ ...t, next_due_hours: null }, 0);
             return {
                 ...byDate,
@@ -420,15 +435,22 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         () =>
             tasksWithStatus.reduce(
                 (acc, t) => {
+                    // A due still counted from zero is amber (calculateStatus), so
+                    // it counts with the tasks that need attention.
                     if (t.status !== 'grey') acc[t.status]++;
                     else if (!t.is_active) acc.paused++;
-                    else if (t.next_due_hours !== null && t.next_due_hours !== undefined) acc.needsHours++;
+                    else if (
+                        engineHours === null &&
+                        ((t.next_due_hours !== null && t.next_due_hours !== undefined) ||
+                            t.trigger_type === 'engine_hours')
+                    )
+                        acc.needsHours++;
                     else acc.unscheduled++;
                     return acc;
                 },
                 { red: 0, yellow: 0, green: 0, needsHours: 0, paused: 0, unscheduled: 0 },
             ),
-        [tasksWithStatus],
+        [tasksWithStatus, engineHours],
     );
 
     // The chips read to VoiceOver as one run ('3 due 36 ok 1 needs hours'), so
@@ -469,7 +491,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             setSheetNotes('');
             await loadTasks(identity); // Refresh list
             if (!isAuthIdentityScopeCurrent(identity)) return;
-            toast.success('Service logged');
+            // Hours due are counted from a real reading only (126-B1): with none
+            // entered, say how the next service gets scheduled.
+            toast.success(
+                task.trigger_type === 'engine_hours' && hoursSnapshot === null
+                    ? 'Service logged. Enter engine hours to schedule the next one.'
+                    : 'Service logged',
+            );
             flash();
         } catch (e) {
             log.error('Failed to log service:', e);

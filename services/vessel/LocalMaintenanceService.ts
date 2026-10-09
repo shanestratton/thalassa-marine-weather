@@ -17,6 +17,7 @@ import {
 } from './sharedBinders';
 import { getAuthIdentityScope } from '../authIdentityScope';
 import { calculateStatus, sortByUrgency, type TaskWithStatus } from '../MaintenanceService';
+import { LocalEngineHoursService } from './LocalEngineHoursService';
 import { DATA_EVENTS, dispatchDataChange } from '../../utils/dataChangeEvents';
 import type { MaintenanceTask, MaintenanceHistory, MaintenanceCategory } from '../../types';
 
@@ -25,6 +26,11 @@ const HISTORY_TABLE = 'maintenance_history';
 // The skipper's R&M while the sailor is crew on a boat that shares it,
 // otherwise the sailor's own (sharedBinders.ts). Tasks and history share it.
 const REGISTER = 'maintenance' as const;
+
+/** A real engine-hours figure (0 included); null means "not entered". */
+function hasReading(hours: number | null | undefined): hours is number {
+    return typeof hours === 'number' && Number.isFinite(hours) && hours >= 0;
+}
 
 /** The task to change, refusing (before anything is queued) an edit the share forbids. */
 function writableTask(id: string): MaintenanceTask | null {
@@ -132,7 +138,10 @@ export class LocalMaintenanceService {
         switch (task.trigger_type) {
             case 'engine_hours': {
                 const interval = task.interval_value || 200;
-                nextDueHours = (engineHours || 0) + interval;
+                // From the real reading, never from an invented zero (126-B1,
+                // audit MAINT-03): logged with no engine hours entered, the
+                // next service waits for the first reading to schedule it.
+                nextDueHours = hasReading(engineHours) ? engineHours + interval : null;
                 break;
             }
             case 'daily':
@@ -182,6 +191,46 @@ export class LocalMaintenanceService {
             nextDueDate,
             nextDueHours,
         };
+    }
+
+    /**
+     * The first engine-hours reading schedules the hour tasks that waited for
+     * one: every active hour task in the binder on show, that this sailor may
+     * change, whose hours due are unset, or still the figure counted from zero
+     * (exactly its interval, and below the reading). Each becomes reading +
+     * interval. A figure the skipper typed, ahead of the reading or not the
+     * seed's, is left alone, and so is a seeded 100 on a new engine at 20.
+     * Called by R&M only when the reading goes from none to a number, so a
+     * later reading never moves a due point; and an anchored task no longer
+     * matches, so a stray second call moves nothing either. Returns how many.
+     */
+    static async scheduleHourTasksFromFirstReading(reading: number): Promise<number> {
+        if (!hasReading(reading)) return 0;
+        const inBinder = binderRowFilter(REGISTER);
+        const waiting = query<MaintenanceTask>(
+            TASKS_TABLE,
+            (t) =>
+                inBinder(t) &&
+                t.is_active &&
+                t.trigger_type === 'engine_hours' &&
+                (t.next_due_hours === null ||
+                    t.next_due_hours === undefined ||
+                    (t.next_due_hours === t.interval_value && t.next_due_hours < reading)),
+        );
+        let scheduled = 0;
+        for (const t of waiting) {
+            try {
+                writableTask(t.id);
+            } catch {
+                continue; // a share that forbids the edit: leave it as it is
+            }
+            await updateLocal<MaintenanceTask>(TASKS_TABLE, t.id, {
+                next_due_hours: reading + (t.interval_value || 200),
+            } as Partial<MaintenanceTask>);
+            scheduled++;
+        }
+        if (scheduled > 0) dispatchDataChange(DATA_EVENTS.MAINTENANCE);
+        return scheduled;
     }
 
     // ── HISTORY (READ) ──
@@ -235,6 +284,9 @@ export class LocalMaintenanceService {
         if (!canSeedOwnBinder(REGISTER)) return 0;
         const owner = binderInsertOwner(REGISTER);
         const { DEFAULT_MAINTENANCE_TASKS } = await import('../../components/vessel/maintenance/defaultTasks');
+        // An hour task is due a whole interval after the engine's reading, or
+        // unset until there is one: never counted from zero (126-B1).
+        const reading = LocalEngineHoursService.getReading().hours;
 
         const now = new Date();
         for (const t of DEFAULT_MAINTENANCE_TASKS) {
@@ -242,7 +294,7 @@ export class LocalMaintenanceService {
             const dueDate = isEngineHours
                 ? null
                 : new Date(now.getTime() + t.interval_value * 86_400_000).toISOString().split('T')[0];
-            const dueHours = isEngineHours ? t.interval_value : null;
+            const dueHours = isEngineHours && reading !== null ? reading + t.interval_value : null;
 
             const record: MaintenanceTask = {
                 id: generateUUID(),
