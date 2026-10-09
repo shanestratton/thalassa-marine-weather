@@ -1,6 +1,6 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 9 October 2026. Active branch:
+Updated: 10 October 2026, Australia/Brisbane. Active branch:
 `codex/scuttlebutt-e2ee-integration-2026-10-06`.
 The published foundation branch remains at `3c30f47c`; it was not rewritten.
 On 6 October the integration branch was rebased onto master `7e0b27a4`, retaining the then-newer
@@ -107,7 +107,9 @@ and passed the complete unsupported-browser scenario in a fresh owned Chrome
 Window: startup, Chat selection, synthetic closure, whole-root remount, blocked
 audio CSP control and final synthetic terminal closure. A separate simulator-only
 native full-App startup fixture now compiles, but native startup and supported
-SDK login acceptance remain unproved. The ordinary
+SDK login acceptance remain unproved.
+Cached-only replay is now prepared and schema-checked, but its invocation remains
+queued; no new simulator or artifact signing occurred on 10 October. The ordinary
 app/router still has no experimental startup admission. Production
 cutover is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
@@ -142,6 +144,40 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 10 October cached native replay prepared
+
+The [cached resume manifest](../experiments/scuttlebutt-e2ee/review/full-app-native-resume-2026-10-10.json)
+records **14 new pure cached-plan cases, narrow types and named lint/format
+passing**. The cached app invocation is **queued-unrun** after one shared two-minute
+opportunity expired behind competing heavy work. No driver preflight, copying,
+signing, simulator creation or native/web compilation/execution occurred in this
+continuation. The old 46/nine cases and browser suites were not rerun. Native
+startup and every release gate remain unproved.
+
+The explicit `--resume-unsigned` mode targets only the exact second passed native
+artifact: 304 files, 20 Swift sources, three bindings, 19/22 framework files and
+256 web assets. Its planned preflight checks current source/resource/config/CSP
+hashes, unchanged unsigned bytes and both measured entitlement sections before
+creating a new signed copy and simulator. The packaged fixture binding stays
+unchanged; a separate attempt ID identifies ownership. Original compile proof
+and current uncompiled resume-tool hashes remain distinct. Swift, fixture JS,
+builder, transport/fence rules and report admission are unchanged; this is not
+general future-cache admission or an independent provenance review.
+
+A limited read-only inventory found no matching app crash reports in the checked
+host diagnostic location; that absence does not establish no crash or the first
+failure's cause. One VM page snapshot recorded 111 MiB free, 2,030 MiB wired and
+1,401 MiB compressed pages. These are not an available-memory estimate or proof
+of an OOM/boot cause. No process/service was killed or restarted and no existing
+simulator, human installation or keys were reset.
+
+Next invoke only the verified cached runner when the shared slot is free, using
+fresh explicit simulator ownership and strict copied diagnostics; do not rebuild
+the unchanged runtime or repeat passed suites. The prior unknown app-stage cause
+and later boot-status infrastructure timeout remain separate retained failures.
+Master `196bcb0e` is externally advanced and unreconciled; foundation `3c30f47c`
+is unchanged. No production, hosted/human, primary or master mutation occurred.
 
 ### 9 October native full Root startup compilation
 
