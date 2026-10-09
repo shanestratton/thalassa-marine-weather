@@ -13,6 +13,11 @@ import { startCooking, completeMeal, saveLeftovers, skipMeal, type MealPlan } fr
 import { getMealSteps } from '../../services/GalleyRecipeService';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { createLogger, getErrorMessage } from '../../utils/createLogger';
+
+// A device-log trace for each failure Cooking Mode shows (GAL-13): a reason
+// and the error message, never the meal's title.
+const log = createLogger('Galley');
 
 interface GalleyCookingModeProps {
     meal: MealPlan;
@@ -88,7 +93,8 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                 }
                 setDirectionsSource('checklist');
             })
-            .catch(() => {
+            .catch((error) => {
+                log.warn('galley: cook-directions', getErrorMessage(error));
                 if (active) setDirectionsSource('checklist');
             });
 
@@ -115,7 +121,8 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                 return;
             }
             setIsCooking(true);
-        } catch {
+        } catch (error) {
+            log.warn('galley: cook-start', getErrorMessage(error));
             if (mountedRef.current) setActionError('Cooking mode could not be started. Please try again.');
         } finally {
             if (actionLockRef.current === 'start') actionLockRef.current = null;
@@ -169,14 +176,16 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                 const remaining = meal.servings_planned - servingsConsumed;
                 try {
                     await saveLeftovers(meal.id, remaining);
-                } catch {
+                } catch (error) {
                     // The meal is already completed and stores have already been
                     // subtracted. Do not offer a retry that could subtract twice.
+                    log.warn('galley: leftovers', getErrorMessage(error));
                 }
             }
 
             if (mountedRef.current) onComplete();
-        } catch {
+        } catch (error) {
+            log.warn('galley: cook-complete', getErrorMessage(error));
             if (mountedRef.current) {
                 setActionError("The meal could not be completed, so Ship's Stores were not updated.");
             }
@@ -200,7 +209,8 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
             }
             triggerHaptic('light');
             onClose();
-        } catch {
+        } catch (error) {
+            log.warn('galley: cook-skip', getErrorMessage(error));
             if (mountedRef.current) setActionError('The meal could not be skipped. Please try again.');
         } finally {
             if (actionLockRef.current === 'skip') actionLockRef.current = null;

@@ -677,12 +677,23 @@ export function initLocalDatabase(userId: string | null = null): Promise<void> {
         try {
             const shoppingService = await import('../ShoppingListService');
             if (typeof shoppingService.reconcileGroceryInventoryMirror === 'function') {
-                await shoppingService.reconcileGroceryInventoryMirror();
+                const failed = (await shoppingService.reconcileGroceryInventoryMirror())?.errors?.length ?? 0;
+                // A count only: the item errors name rows (GAL-13).
+                if (failed > 0) log.warn(`[LocalDB] Grocery mirror repair: ${failed} items failed`);
             }
         } catch (error) {
             // Mirror repair is best effort; its canonical shopping mutation
             // remains durable and the sync engine must still be allowed to run.
             log.warn('[LocalDB] Grocery inventory mirror reconciliation failed:', error);
+        }
+        // Galley rows an older build fenced in the outbox (126-B2b): repaired
+        // once per load, before the sync engine's first push. Lazy, and never
+        // in the way of the database being ready.
+        try {
+            const { repairGalleyOutbox } = await import('../galley/galleyOutboxRepair');
+            await repairGalleyOutbox();
+        } catch (error) {
+            log.warn('[LocalDB] Galley repair failed:', error instanceof Error ? error.message : error);
         }
     });
     const wrappedRun = readyRun.finally(() => {
@@ -1732,6 +1743,108 @@ export async function rewriteQueuedInsert(
         }
         syncQueueCache = nextQueue;
         return { ...rewritten };
+    });
+}
+
+/**
+ * Rewrite, in place, every queued INSERT and UPDATE of one record, and set
+ * `rowChanges` on its local row: a one-off repair of payloads the server
+ * refuses (126-B2b; 126-B3a reuses it). Each rewritten item keeps its id,
+ * FIFO place and owner; one that had failed is pending again. DELTA and
+ * DELETE items are never touched, nor is a payload that does not parse. No
+ * new queue item and no outbox signal: bookkeeping, like rewriteQueuedInsert,
+ * with the same crash order (outbox first, then the table). Nothing changed
+ * means nothing written. Refused (throws) while the record is being pushed:
+ * that push carries the old payload, and its success would drop the rewrite.
+ */
+export async function rewriteQueuedRecord(
+    tableName: string,
+    recordId: string,
+    rewrite: (payload: Record<string, unknown>, item: Readonly<SyncQueueItem>) => Record<string, unknown>,
+    rowChanges?: Record<string, unknown> | null,
+): Promise<{ items: number; row: boolean }> {
+    const session = getLocalDatabaseSession();
+    return serializeMutation(async () => {
+        const outcome = { items: 0, row: false };
+        if (!isLocalDatabaseSessionCurrent(session)) return outcome;
+        const previousQueue = syncQueueCache || [];
+        const ofRecord = (item: SyncQueueItem) => item.table_name === tableName && item.record_id === recordId;
+        if (previousQueue.some((item) => ofRecord(item) && item.status === 'syncing')) {
+            throw new Error('[LocalDB] Record is being pushed');
+        }
+        const nextQueue = previousQueue.map((item) => {
+            if (!ofRecord(item) || (item.mutation_type !== 'INSERT' && item.mutation_type !== 'UPDATE')) return item;
+            try {
+                const payload = JSON.parse(item.payload) as Record<string, unknown>;
+                if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return item;
+                const before = JSON.stringify(payload);
+                const after = JSON.stringify(rewrite(payload, { ...item }));
+                if (after === before) return item;
+                outcome.items += 1;
+                return {
+                    ...item,
+                    payload: after,
+                    ...(item.status === 'failed' ? { status: 'pending' as const, error_message: undefined } : {}),
+                };
+            } catch {
+                return item;
+            }
+        });
+        const previousTable = cache[tableName] || {};
+        const row = previousTable[recordId] as Record<string, unknown> | undefined;
+        // Only the changed fields are compared: a row can be large (DOC-2).
+        outcome.row =
+            !!row &&
+            !!rowChanges &&
+            Object.keys(rowChanges).some((key) => JSON.stringify(row[key]) !== JSON.stringify(rowChanges[key]));
+        if (!outcome.items && !outcome.row) return outcome;
+        const nextTable = outcome.row ? { ...previousTable, [recordId]: { ...row, ...rowChanges } } : previousTable;
+        await persistTableAndQueue(tableName, nextTable, nextQueue, previousTable, previousQueue);
+        cache[tableName] = nextTable;
+        syncQueueCache = nextQueue;
+        return outcome;
+    });
+}
+
+/**
+ * Remove a record the server provably never took: its local row and every
+ * queue item (126-B2b). A first queued INSERT is NOT proof on its own: an
+ * INSERT can commit in Postgres and then time out before the phone hears
+ * back, and it stays first in the queue, marked failed (SyncService). Its
+ * row and the edits queued behind it would then be lost. So the caller
+ * proves it: `provesUnsent` is asked about that first INSERT, and must say
+ * why the server cannot have it (the Galley repair: it still carries a value
+ * Postgres refuses). Refused (false) unless the record's history starts with
+ * its INSERT, the proof holds, and nothing of it is being pushed. No outbox
+ * signal.
+ */
+export async function discardUnsentRecord(
+    tableName: string,
+    recordId: string,
+    provesUnsent: (insert: Readonly<SyncQueueItem>) => boolean,
+): Promise<boolean> {
+    const session = getLocalDatabaseSession();
+    return serializeMutation(async () => {
+        if (!isLocalDatabaseSessionCurrent(session)) return false;
+        const previousQueue = syncQueueCache || [];
+        const ofRecord = (item: SyncQueueItem) => item.table_name === tableName && item.record_id === recordId;
+        const history = previousQueue.filter(ofRecord);
+        if (history[0]?.mutation_type !== 'INSERT' || history.some((item) => item.status === 'syncing')) return false;
+        let proven = false;
+        try {
+            proven = typeof provesUnsent === 'function' && provesUnsent({ ...history[0] }) === true;
+        } catch {
+            proven = false;
+        }
+        if (!proven) return false;
+        const nextQueue = previousQueue.filter((item) => !ofRecord(item));
+        const previousTable = cache[tableName] || {};
+        const nextTable = { ...previousTable };
+        delete nextTable[recordId];
+        await persistTableAndQueue(tableName, nextTable, nextQueue, previousTable, previousQueue);
+        cache[tableName] = nextTable;
+        syncQueueCache = nextQueue;
+        return true;
     });
 }
 

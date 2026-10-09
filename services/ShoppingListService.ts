@@ -26,6 +26,16 @@ import { getCachedActiveVoyage } from './VoyageService';
 import { triggerHaptic } from '../utils/system';
 import { convertQuantity, toPurchasable } from './PurchaseUnits';
 import { binderWriteGranted, galleyShareOwner } from './vessel/sharedBinders';
+import { createLogger, getErrorMessage } from '../utils/createLogger';
+
+const log = createLogger('Galley');
+
+/**
+ * A device-log trace for a swallowed failure (GAL-13): one reason per catch,
+ * and the error message, never an id, a name or a title. warn is the only
+ * level a production build keeps.
+ */
+const traced = (reason: string) => (error: unknown) => log.warn(reason, getErrorMessage(error));
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -350,6 +360,8 @@ function readPurchaseReceipt(notes: string | null): PurchaseReceipt | null {
         }
         return parsed as PurchaseReceipt;
     } catch {
+        // Reason only: a JSON error can quote the notes (retailer, item id).
+        log.warn('galley: receipt-parse');
         return null;
     }
 }
@@ -550,7 +562,8 @@ async function reverseInventoryReceipt(item: ShoppingItem, receipt: PurchaseRece
 
 function serializeItemMutation(shoppingItemId: string, mutation: () => Promise<void>): Promise<void> {
     const previous = itemMutationQueues.get(shoppingItemId) ?? Promise.resolve();
-    const queued = previous.catch(() => undefined).then(mutation);
+    // The earlier change's caller already has its error; this leaves the trace.
+    const queued = previous.catch(traced('galley: item-lock')).then(mutation);
     itemMutationQueues.set(shoppingItemId, queued);
 
     return queued.finally(() => {
@@ -732,11 +745,10 @@ export async function bulkAddToShoppingList(
         count++;
     }
 
-    // Immediate sync so crew sees updates
+    // Immediate sync so crew sees updates. Offline, syncNow resolves: a
+    // rejection is a real failure.
     triggerHaptic('medium');
-    syncNow().catch(() => {
-        /* offline */
-    });
+    syncNow().catch(traced('galley: bulk-add'));
 
     return count;
 }
@@ -836,14 +848,13 @@ export function markPurchased(
             try {
                 await ensureInventoryReceipt(updatedItem, purchase, receipt);
             } catch (error) {
+                traced('galley: purchase-mirror')(error);
                 mirrorError = error;
             }
         }
 
         triggerHaptic('medium');
-        syncNow().catch(() => {
-            /* offline — will sync later */
-        });
+        syncNow().catch(traced('galley: purchase-sync'));
         if (!storesSkipped) notifyStoresChanged();
         if (mirrorError) throw mirrorError;
     }).then(() => outcome);
@@ -907,9 +918,7 @@ export async function addManualItem(opts: {
                 : existing[0].notes,
         } as Partial<ShoppingItem>);
         triggerHaptic('medium');
-        syncNow().catch(() => {
-            /* offline */
-        });
+        syncNow().catch(traced('galley: add-manual'));
         return updated;
     }
 
@@ -938,9 +947,7 @@ export async function addManualItem(opts: {
     };
     await insertLocal(TABLE, item);
     triggerHaptic('medium');
-    syncNow().catch(() => {
-        /* offline */
-    });
+    syncNow().catch(traced('galley: add-manual'));
     return item;
 }
 
@@ -1012,14 +1019,13 @@ export function unmarkPurchased(
             try {
                 await reverseInventoryReceipt(scopedItem, receipt);
             } catch (error) {
+                traced('galley: purchase-mirror')(error);
                 mirrorError = error;
             }
         }
 
         triggerHaptic('light');
-        syncNow().catch(() => {
-            /* offline */
-        });
+        syncNow().catch(traced('galley: purchase-sync'));
         if (!storesSkipped) notifyStoresChanged();
         if (mirrorError) throw mirrorError;
     }).then(() => outcome);
@@ -1064,6 +1070,7 @@ export async function reconcileGroceryInventoryMirror(): Promise<{ repaired: num
                 if (JSON.stringify(before) !== JSON.stringify(after)) repaired += 1;
             });
         } catch (error) {
+            traced('galley: reconcile-item')(error);
             errors.push(`${item.id}: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
@@ -1082,9 +1089,7 @@ export async function removeUnpurchasedProvisionItems(): Promise<number> {
         await deleteLocal(TABLE, item.id);
     }
     if (items.length > 0) {
-        syncNow().catch(() => {
-            /* offline */
-        });
+        syncNow().catch(traced('galley: provisions-cleanup'));
     }
     return items.length;
 }

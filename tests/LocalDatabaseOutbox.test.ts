@@ -920,3 +920,225 @@ describe('LocalDatabase durable outbox', () => {
         expect([...disk.keys()].some((path) => path.includes('user_6163636f756e742d62'))).toBe(true);
     });
 });
+
+/**
+ * The queue rewrite primitives of 126-B2b (binder audit GAL-02 repair; 126-B3a
+ * reuses rewriteQueuedRecord). A Galley row the old build queued with a fake
+ * spoonacular_id was refused by Postgres on every push, and nothing could fix
+ * the queued payloads in place. Fictional data only: 'Feijoada', '親子丼'.
+ */
+describe('LocalDatabase queue rewrite primitives (126-B2b)', () => {
+    const FAKE = 1791234567890.42;
+    let disk: Map<string, string>;
+
+    function installDisk(): void {
+        vi.mocked(Filesystem.readdir).mockImplementation(async () => ({
+            files: Array.from(disk.keys()).map((name) => ({
+                name,
+                type: 'file' as const,
+                size: disk.get(name)?.length ?? 0,
+                ctime: 0,
+                mtime: 0,
+                uri: `mock://${name}`,
+            })),
+        }));
+        vi.mocked(Filesystem.readFile).mockImplementation(async ({ path }) => ({ data: disk.get(path) ?? '' }));
+        vi.mocked(Filesystem.writeFile).mockImplementation(async ({ path, data }) => {
+            disk.set(path, String(data));
+            return { uri: `mock://${path}` };
+        });
+        vi.mocked(Filesystem.deleteFile).mockImplementation(async ({ path }) => {
+            disk.delete(path);
+        });
+        vi.mocked(Filesystem.rename).mockImplementation(async ({ from, to }) => {
+            const contents = disk.get(from);
+            if (contents === undefined) throw new Error(`Missing ${from}`);
+            disk.set(to, contents);
+            disk.delete(from);
+        });
+    }
+
+    type RecipeRow = { id: string; updated_at?: string; spoonacular_id?: number; servings?: number; title?: string };
+    const nullFake = (payload: Record<string, unknown>) =>
+        'spoonacular_id' in payload ? { ...payload, spoonacular_id: null } : payload;
+    /** The caller's proof the server never took the record: its INSERT still carries the refused id. */
+    const carriesFake = (insert: { payload: string }) =>
+        (JSON.parse(insert.payload) as { spoonacular_id?: unknown }).spoonacular_id === FAKE;
+
+    beforeEach(() => {
+        vi.resetModules();
+        vi.clearAllMocks();
+        localStorage.clear();
+        localStorage.setItem('thalassa_localdb_moved_to_library', '1');
+        disk = new Map();
+        installDisk();
+    });
+
+    async function seedFeijoada(database: LocalDatabaseModule) {
+        await database.insertLocal('recipes', {
+            id: 'recipe-feijoada',
+            spoonacular_id: FAKE,
+            title: 'Feijoada',
+            servings: 4,
+        });
+        // Whole-row UPDATEs, as getRecipeInstructions queued them.
+        await database.updateLocal<RecipeRow>('recipes', 'recipe-feijoada', { spoonacular_id: FAKE, servings: 6 });
+        await database.deltaLocal('recipes', 'recipe-feijoada', 'servings', 1);
+        await database.updateLocal<RecipeRow>('recipes', 'recipe-feijoada', {
+            spoonacular_id: FAKE,
+            title: 'Feijoada completa',
+        });
+        await database.insertLocal('recipes', { id: 'recipe-oyakodon', spoonacular_id: FAKE, title: '親子丼' });
+        const queue = database.getFullQueue();
+        await database.markFailed([queue[0].id], 'value "1791234567890.42" is out of range for type integer');
+        return database.getFullQueue();
+    }
+
+    it('rewrites the INSERT and both UPDATEs of one record in place, and nothing else', async () => {
+        const database = await loadDatabase('skipper-1');
+        const before = await seedFeijoada(database);
+        expect(before.map((item) => [item.record_id, item.mutation_type, item.status])).toEqual([
+            ['recipe-feijoada', 'INSERT', 'failed'],
+            ['recipe-feijoada', 'UPDATE', 'pending'],
+            ['recipe-feijoada', 'DELTA', 'pending'],
+            ['recipe-feijoada', 'UPDATE', 'pending'],
+            ['recipe-oyakodon', 'INSERT', 'pending'],
+        ]);
+        const heard: string[] = [];
+        const stop = database.onOutboxAppended((table) => heard.push(table));
+
+        const outcome = await database.rewriteQueuedRecord('recipes', 'recipe-feijoada', nullFake, {
+            spoonacular_id: null,
+        });
+        stop();
+
+        expect(outcome).toEqual({ items: 3, row: true });
+        const after = database.getFullQueue();
+        // Same ids, same FIFO order, same owner: the record's history is intact.
+        expect(after.map((item) => [item.id, item.owner_user_id])).toEqual(
+            before.map((item) => [item.id, item.owner_user_id]),
+        );
+        expect(after[0]).toMatchObject({ status: 'pending', retry_count: 1 });
+        expect(after[0].error_message).toBeUndefined();
+        for (const index of [0, 1, 3]) {
+            expect(JSON.parse(after[index].payload)).toMatchObject({ spoonacular_id: null });
+        }
+        expect(JSON.parse(after[3].payload)).toMatchObject({ title: 'Feijoada completa' });
+        // The DELTA and the other record are byte-for-byte untouched.
+        expect(after[2].payload).toBe(before[2].payload);
+        expect(after[4]).toEqual(before[4]);
+        expect(database.getById('recipes', 'recipe-feijoada')).toMatchObject({
+            spoonacular_id: null,
+            title: 'Feijoada completa',
+            servings: 7,
+        });
+        expect(database.getById('recipes', 'recipe-oyakodon')).toMatchObject({ spoonacular_id: FAKE });
+        // Bookkeeping, not a new edit: no prompt push is owed for it.
+        expect(heard).toEqual([]);
+
+        // A second pass has nothing to change and writes nothing.
+        const writes = vi.mocked(Filesystem.writeFile).mock.calls.length;
+        await expect(
+            database.rewriteQueuedRecord('recipes', 'recipe-feijoada', nullFake, { spoonacular_id: null }),
+        ).resolves.toEqual({ items: 0, row: false });
+        expect(vi.mocked(Filesystem.writeFile).mock.calls.length).toBe(writes);
+    });
+
+    it('crash order: a persisted rewritten queue over the old table file is repaired by the init replay', async () => {
+        let database = await loadDatabase('skipper-1');
+        await seedFeijoada(database);
+        const tableFile = scopedFile('skipper-1', 'vessel_recipes.json');
+        const oldTable = disk.get(tableFile);
+        expect(oldTable).toContain('1791234567890.42');
+
+        await database.rewriteQueuedRecord('recipes', 'recipe-feijoada', nullFake, { spoonacular_id: null });
+        // The process died after the outbox write, before the table write.
+        disk.set(tableFile, oldTable as string);
+
+        vi.resetModules();
+        database = await loadDatabase('skipper-1');
+        expect(database.getById('recipes', 'recipe-feijoada')).toMatchObject({
+            spoonacular_id: null,
+            title: 'Feijoada completa',
+        });
+        expect(database.getFullQueue()).toHaveLength(5);
+    });
+
+    it('refuses to rewrite a record while its push is in flight', async () => {
+        const database = await loadDatabase('skipper-1');
+        const queue = await seedFeijoada(database);
+        await database.markSyncing([queue[1].id]);
+
+        await expect(
+            database.rewriteQueuedRecord('recipes', 'recipe-feijoada', nullFake, { spoonacular_id: null }),
+        ).rejects.toThrow(/being pushed/);
+        expect(database.getFullQueue().map((item) => item.payload)).toEqual(queue.map((item) => item.payload));
+        expect(database.getById('recipes', 'recipe-feijoada')).toMatchObject({ spoonacular_id: FAKE });
+    });
+
+    it('discardUnsentRecord removes a record whose first queued item is its INSERT, row and items', async () => {
+        let database = await loadDatabase('skipper-1');
+        await seedFeijoada(database);
+        const heard: string[] = [];
+        const stop = database.onOutboxAppended((table) => heard.push(table));
+
+        await expect(database.discardUnsentRecord('recipes', 'recipe-feijoada', carriesFake)).resolves.toBe(true);
+        stop();
+
+        expect(database.getById('recipes', 'recipe-feijoada')).toBeNull();
+        expect(database.getFullQueue().map((item) => item.record_id)).toEqual(['recipe-oyakodon']);
+        expect(database.getById('recipes', 'recipe-oyakodon')).not.toBeNull();
+        expect(heard).toEqual([]);
+
+        vi.resetModules();
+        database = await loadDatabase('skipper-1');
+        expect(database.getById('recipes', 'recipe-feijoada')).toBeNull();
+        expect(database.getFullQueue().map((item) => item.record_id)).toEqual(['recipe-oyakodon']);
+    });
+
+    it('discardUnsentRecord refuses a record that reached the server, has nothing queued, or is being pushed', async () => {
+        const database = await loadDatabase('skipper-1');
+        // Pulled from the server, then edited: its first queued item is an UPDATE.
+        await database.mergePulledRecords('recipes', [{ id: 'recipe-on-server', title: 'Ψαρόσουπα' }]);
+        await database.updateLocal<RecipeRow>('recipes', 'recipe-on-server', { title: 'Ψαρόσουπα (fish soup)' });
+        await database.insertLocal('recipes', { id: 'recipe-pushing', title: 'Feijoada' });
+        await database.markSyncing([database.getFullQueue()[1].id]);
+
+        const always = () => true;
+        await expect(database.discardUnsentRecord('recipes', 'recipe-on-server', always)).resolves.toBe(false);
+        await expect(database.discardUnsentRecord('recipes', 'recipe-nothing-queued', always)).resolves.toBe(false);
+        await expect(database.discardUnsentRecord('recipes', 'recipe-pushing', always)).resolves.toBe(false);
+
+        expect(database.getById('recipes', 'recipe-on-server')).toMatchObject({ title: 'Ψαρόσουπα (fish soup)' });
+        expect(database.getById('recipes', 'recipe-pushing')).not.toBeNull();
+        expect(database.getFullQueue()).toHaveLength(2);
+    });
+    it('discardUnsentRecord never takes a first INSERT as proof: one that timed out after committing stays', async () => {
+        const database = await loadDatabase('skipper-1');
+        // A valid INSERT the server may have committed before the phone heard
+        // back: marked failed, still first in the queue, with an edit behind it.
+        await database.insertLocal('recipes', { id: 'recipe-timed-out', title: 'Ψαρόσουπα', servings: 4 });
+        await database.updateLocal<RecipeRow>('recipes', 'recipe-timed-out', { title: 'Ψαρόσουπα (fish soup)' });
+        const [insert] = database.getFullQueue();
+        await database.markFailed([insert.id], 'Request timed out');
+        const before = database.getFullQueue();
+
+        // No proof, a proof that does not hold, or one that throws: refused.
+        await expect(
+            database.discardUnsentRecord(
+                'recipes',
+                'recipe-timed-out',
+                undefined as unknown as Parameters<typeof database.discardUnsentRecord>[2],
+            ),
+        ).resolves.toBe(false);
+        await expect(database.discardUnsentRecord('recipes', 'recipe-timed-out', carriesFake)).resolves.toBe(false);
+        await expect(
+            database.discardUnsentRecord('recipes', 'recipe-timed-out', () => {
+                throw new Error('unreadable payload');
+            }),
+        ).resolves.toBe(false);
+
+        expect(database.getById('recipes', 'recipe-timed-out')).toMatchObject({ title: 'Ψαρόσουπα (fish soup)' });
+        expect(database.getFullQueue()).toEqual(before);
+    });
+});

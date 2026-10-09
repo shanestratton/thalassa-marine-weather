@@ -47,6 +47,10 @@ import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { isGalleyShareLive } from '../../services/vessel/sharedBinders';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
+import { createLogger, getErrorMessage } from '../../utils/createLogger';
+
+// A device-log trace (GAL-13): a reason and the error message, never an id.
+const log = createLogger('Galley');
 
 interface GalleyPageProps {
     onBack: () => void;
@@ -165,7 +169,8 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                     else if (!verifiedOfflineOwner) setPassageStatus(NO_PASSAGE_ACCESS);
                     setPassageAccessLoaded(true);
                 })
-                .catch(() => {
+                .catch((error) => {
+                    log.warn('galley: passage-status', getErrorMessage(error));
                     if (!active || requestGeneration !== scopeGeneration || !isAuthIdentityScopeCurrent(operationScope))
                         return;
                     if (!verifiedOfflineOwner) setPassageStatus(NO_PASSAGE_ACCESS);

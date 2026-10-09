@@ -37,6 +37,11 @@ import { ZONE_EMOJI } from '../chat/galleyTokens';
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { SharedBinderLine, SKIPPER_BOAT_FALLBACK } from './SharedBinderLine';
 import { CartIcon, CheckCircleIcon, CheckIcon, ClipboardIcon, ClockIcon } from '../Icons';
+import { createLogger, getErrorMessage } from '../../utils/createLogger';
+
+// A device-log trace for each failure the page shows (GAL-13): a reason and
+// the error message, never an item name or id.
+const log = createLogger('Galley');
 
 interface GroceryListPageProps {
     onBack: () => void;
@@ -176,7 +181,8 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
             }
             setPageError(null);
             setLoadedDataScopeKey(operationDataScopeKey);
-        } catch {
+        } catch (error) {
+            log.warn('galley: load-list', getErrorMessage(error));
             if (operationIsCurrent(operationScope, operationDataScopeKey)) {
                 setPageError('The shopping list could not be loaded. Please try again.');
                 setLoadedDataScopeKey(operationDataScopeKey);
@@ -367,7 +373,8 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
             resetPriceDialog();
             loadList();
             setFocusRequest((request) => request + 1);
-        } catch {
+        } catch (error) {
+            log.warn('galley: purchase-confirm', getErrorMessage(error));
             if (operationIsCurrent(operationScope, operationDataScopeKey)) {
                 setPriceError(`${purchasedItem.ingredient_name} could not be marked as purchased. Please try again.`);
             }
@@ -420,7 +427,8 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
             resetPriceDialog();
             loadList();
             setFocusRequest((request) => request + 1);
-        } catch {
+        } catch (error) {
+            log.warn('galley: purchase-skip-price', getErrorMessage(error));
             if (operationIsCurrent(operationScope, operationDataScopeKey)) {
                 setPriceError(`${purchasedItem.ingredient_name} could not be marked as purchased. Please try again.`);
             }
@@ -469,7 +477,8 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                 focusListAfterMutationRef.current = filter === 'purchased';
                 loadList();
                 setFocusRequest((request) => request + 1);
-            } catch {
+            } catch (error) {
+                log.warn('galley: purchase-untick', getErrorMessage(error));
                 if (operationIsCurrent(operationScope, operationDataScopeKey)) {
                     setPageError(
                         `${item.ingredient_name} could not be returned to the shopping list. Please try again.`,
@@ -524,7 +533,8 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
             if (!operationIsCurrent(operationScope, operationDataScopeKey)) return;
             resetAddDialog();
             loadList();
-        } catch {
+        } catch (error) {
+            log.warn('galley: add-item', getErrorMessage(error));
             if (operationIsCurrent(operationScope, operationDataScopeKey)) {
                 setAddError(`${itemName} could not be added. Please try again.`);
             }
