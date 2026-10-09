@@ -93,7 +93,6 @@ import { usePinViewMode, readCurrentPinView, type PinViewHandoff } from './usePi
 // Manual route editing happens through the route planner instead.
 import { useAisLayer } from './useAisLayer';
 import { useAisStreamLayer } from './useAisStreamLayer';
-import { useChokepointLayer } from './useChokepointLayer';
 import { useCycloneLayer } from './useCycloneLayer';
 import { useSquallMap } from './useSquallMap';
 import { useVesselTracker } from './useVesselTracker';
@@ -2146,7 +2145,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         cyclonePickerPendingRef,
         handleSelectStorm,
         browseAisVisible,
-        browseChokepointVisible,
         browseCycloneVisible,
         browseSquallVisible,
         browseSeamarkVisible,
@@ -3268,9 +3266,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── AIS Vessel Target Layer ──
     useAisLayer(mapRef, mapReady, browseAisVisible);
     useAisStreamLayer(mapReady ? mapRef.current : null, browseAisVisible);
-
-    // ── Chokepoint Tracker ──
-    useChokepointLayer(mapReady ? mapRef.current : null, browseChokepointVisible);
 
     // ── Signal K Nautical Charts ──
     const skCharts = useAvNavCharts(mapRef, mapReady, planningSurface ? noChartIds : skChartIds, skChartOpacity);

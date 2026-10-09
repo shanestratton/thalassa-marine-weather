@@ -166,7 +166,8 @@ export function toDbFormat(entry: Partial<ShipLogEntry>): Record<string, any> {
         archived: 'archived',
         linkedPlanId: 'linked_plan_id',
         savedRouteId: 'saved_route_id',
-        legNumber: 'leg_number',
+        // No legNumber: ship_logs has never had a leg_number column, and one
+        // unknown key makes PostgREST refuse the whole batch (PGRST204).
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -1087,9 +1087,13 @@ class LonelyHeartsServiceClass {
         const ownerId = await this.getAuthenticatedOwner(scope);
         const target = this.normalizeTargetId(targetId);
         if (!ownerId || !target || target === ownerId || !isAuthIdentityScopeCurrent(scope)) return false;
+        // dm_blocks has no UPDATE policy: blocking twice must be a no-op, not a 42501.
         const { error } = await supabase
             .from(CREW_LIST_BLOCKS_TABLE)
-            .upsert({ blocker_id: ownerId, blocked_id: target }, { onConflict: 'blocker_id,blocked_id' });
+            .upsert(
+                { blocker_id: ownerId, blocked_id: target },
+                { onConflict: 'blocker_id,blocked_id', ignoreDuplicates: true },
+            );
         return !error && isAuthIdentityScopeCurrent(scope);
     }
 

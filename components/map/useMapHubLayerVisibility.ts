@@ -84,7 +84,6 @@ export function useMapHubLayerVisibility({
     );
 
     const browseAisVisible = aisVisible && !planningSurface;
-    const browseChokepointVisible = chokepointVisible && !planningSurface;
     const browseCycloneVisible = cycloneVisible && !planningSurface;
     const browseSquallVisible = squallVisible && !planningSurface;
     const browseSeamarkVisible = seamarkVisible && !planningSurface;
@@ -125,7 +124,6 @@ export function useMapHubLayerVisibility({
         cyclonePickerPendingRef,
         handleSelectStorm,
         browseAisVisible,
-        browseChokepointVisible,
         browseCycloneVisible,
         browseSquallVisible,
         browseSeamarkVisible,
