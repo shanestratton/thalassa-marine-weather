@@ -4,8 +4,8 @@
  * Shane 2026-09-30: "sevenc's has never been connected properly, it does not
  * work, it can go at your leisure". Auto routes on the phone with Thalassa's
  * own router (services/autoroutingThalassa), and Plan My Day with it. The
- * deployed edge function, its _shared modules and secrets stay until Shane
- * deletes them (docs/AUTOROUTING_TRIAL.md), so this pins only the client:
+ * edge function, its _shared trial module and the SEVENCS_* secrets were
+ * deleted on 2026-10-09 (Shane: "get rid of sevenC's"), so this pins the client:
  * nothing under these paths names the provider, invokes the function or
  * imports its server modules — except the legacy evidence normaliser, which
  * must still read rows saved before today.
