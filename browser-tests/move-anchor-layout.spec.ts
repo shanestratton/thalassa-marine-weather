@@ -31,6 +31,21 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test';
  * Build 126 (126-07c): a watch marked by the boat's own GPS with its antenna
  * 12 m aft of the bow (&antenna): a longer prefill and one more clause in the
  * hint, at 320 x 568, ordinary and large text.
+ *
+ * Build 126 (126-07d): one more line under the live check, from the real
+ * chart-area check. With no chart cell (every case below, the network off) it
+ * says "No chart areas loaded here…" where there is room (not on a short
+ * portrait screen), so the From the boat, Position and Pi cases are measured
+ * with it; from the alarm it says nothing. &area=cable charts
+ * a fictional cable area at the point: "That point is inside a submarine cable
+ * area (official chart).", shown with the keyboard down, stepped aside with it
+ * up, and Move still moves. &area=worst is the longest line the sheet can say
+ * (the short form: "a submarine cable area: anchoring prohibited (official
+ * chart). And 1 more."), and &area=park the atlas path with a name and clause
+ * as long as any shipped, which the sheet leaves to the page's note ("a
+ * no-anchoring area (GBRMPA, CC BY)"): each fits 320 x 568 and 844 x 390
+ * landscape outright at ordinary text (126-07d review: the full wording did
+ * not).
  */
 
 const sizes = [
@@ -65,6 +80,9 @@ async function open(page: Page, size: { width: number; height: number }, query: 
     await page.evaluate(() => document.fonts.ready);
     await page.getByRole('button', { name: 'Open Move anchor' }).click();
     await expect(page.getByRole('dialog', { name: 'Move anchor' })).toBeVisible();
+    // 126-07d: the chart-area line lands once the point has settled (400 ms and
+    // the check): every case is measured with it there.
+    await expect(page.getByTestId('move-anchor-area')).toBeAttached();
     return errors;
 }
 
@@ -144,6 +162,15 @@ function layoutIssues(page: Page, keyboardHeight: number, mayScroll = false, fie
             const statusBox = reach(status);
             if (statusBox.top < box.top - 0.5 || statusBox.bottom > Math.min(floor, box.bottom) + 0.5)
                 issues.push('the live check is not fully visible');
+            // 126-07d: the chart-area line, where it is shown, is read whole.
+            const area = card.querySelector<HTMLElement>('[data-testid="move-anchor-area"]');
+            if (area && area.getClientRects().length > 0 && getComputedStyle(area).visibility !== 'hidden') {
+                const areaBox = reach(area);
+                if (areaBox.top < box.top - 0.5 || areaBox.bottom > Math.min(floor, box.bottom) + 0.5)
+                    issues.push('the chart-area line is not fully visible');
+                if (areaBox.left < box.left - 0.5 || areaBox.right > box.right + 0.5)
+                    issues.push('the chart-area line runs out of the card');
+            }
             // 126-07b: a typed position's readback is read with the field, keyboard up or down.
             const readback = card.querySelector<HTMLElement>('[data-testid="move-anchor-readback"]');
             if (readback) {
@@ -216,6 +243,12 @@ for (const size of sizes) {
         await expect(distance).toHaveValue('33');
         await expect(bearing).toHaveValue('212');
         await expect(liveCheck(page)).toContainText('inside your 43 m circle');
+        // No chart cell here (126-07d): said, so a silence is never read as clear,
+        // where there is room; a short portrait screen (320 x 568) has none.
+        const coverage = page.getByTestId('move-anchor-area');
+        await expect(coverage).toHaveText('No chart areas loaded here to check the point against.');
+        if (size.height > 600 || size.width > size.height) await expect(coverage).toBeVisible();
+        else await expect(coverage).toBeHidden();
         await screenshot(page, info, `move-anchor-${label}`);
         await expectLayout(page, 0, size.mayScroll);
 
@@ -266,6 +299,49 @@ for (const size of sizes.filter((entry) => entry.width === 320)) {
         await keyboard(page, 0);
         expect(errors).toEqual([]);
     });
+}
+
+// 126-07d: a charted area at the new point (a synthetic cell, or the atlas's
+// files stood in for, on the fixture page, through the real check, store and
+// index). One line under the live check, the sheet still fits 320 x 568 and
+// 844 x 390 landscape (outright at ordinary text), the line steps aside while
+// the keyboard is up and comes back with it down, and Move still moves: it is
+// said, never a block.
+const areaLines = {
+    cable: 'That point is inside a submarine cable area (official chart).',
+    worst: 'That point is inside a submarine cable area: anchoring prohibited (official chart). And 1 more.',
+    park: 'That point is inside a no-anchoring area (GBRMPA, CC BY).',
+} as const;
+for (const size of sizes.filter((entry) => entry.width === 320 || entry.height === 390)) {
+    for (const [area, words] of Object.entries(areaLines)) {
+        test(`A ${area} area at the point: one line, and the sheet fits ${size.name}, keyboard up and down`, async ({
+            page,
+        }, info) => {
+            const errors = await open(page, size, [`area=${area}`, size.query].filter(Boolean).join('&'));
+            const label = `${area}-${size.width}x${size.height}${size.query ? '-large-text' : ''}`;
+            const line = page.getByTestId('move-anchor-area');
+            await expect(line).toHaveText(words);
+            await expect(line).toBeVisible();
+            const move = page.getByRole('button', { name: 'Move anchor', exact: true });
+            await expect(move).toBeEnabled();
+            await screenshot(page, info, `move-anchor-area-${label}`);
+            await expectLayout(page, 0, size.mayScroll);
+
+            const distance = page.getByRole('textbox', { name: /distance from the boat to the anchor/i });
+            await distance.click();
+            await keyboard(page, size.keyboard);
+            await expect(line).toBeHidden();
+            await screenshot(page, info, `move-anchor-area-keyboard-${label}`);
+            await expectLayout(page, size.keyboard, size.mayScroll);
+
+            await keyboard(page, 0);
+            await expect(line).toBeVisible();
+            await expectLayout(page, 0, size.mayScroll);
+            await move.click();
+            await expect(page.getByTestId('outcome')).toHaveText('moved');
+            expect(errors).toEqual([]);
+        });
+    }
 }
 
 test('feet skippers see feet, and Escape closes without moving anything', async ({ page }) => {
@@ -638,6 +714,40 @@ for (const size of alarmSizes.filter((s) => s.width === 320)) {
         await screenshot(page, info, `move-anchor-keyboard-${label}`);
         await expectLayout(page, size.keyboard, size.mayScroll, 1);
         await keyboard(page, 0);
+        await expectLayout(page, 0, size.mayScroll, 1);
+        expect(await movesMade(page)).toHaveLength(0);
+        expect(errors).toEqual([]);
+    });
+}
+
+// 126-07d: the longest area line where the sheet is fullest: from the alarm
+// (its caution and longer button), From the boat and then on the Position tab,
+// at 320 x 568 and in a short landscape band, where the hint gives the warning
+// its place (from the alarm at 320 x 568 the sheet had none to spare).
+for (const size of alarmSizes.filter((s) => !s.query)) {
+    test(`The longest area line fits ${size.name} from the alarm, From the boat and on Position`, async ({
+        page,
+    }, info) => {
+        const errors = await openFromAlarm(page, size, 'area=worst');
+        const label = `${size.width}x${size.height}`;
+        const line = page.getByTestId('move-anchor-area');
+        await expect(line).toHaveText(areaLines.worst);
+        await expect(line).toBeVisible();
+        await expect(page.getByTestId('move-anchor-caution')).toBeVisible();
+        await screenshot(page, info, `move-anchor-area-alarm-${label}`);
+        await expectLayout(page, 0, size.mayScroll);
+
+        await positionTab(page).click();
+        await positionField(page).click();
+        await keyboard(page, size.keyboard);
+        await positionField(page).fill(ANCHOR_HERE);
+        await expect(page.getByTestId('move-anchor-readback')).toHaveText('Reads as 43°17.685′N 005°21.587′E');
+        await expect(line).toBeHidden();
+        await expectLayout(page, size.keyboard, size.mayScroll, 1);
+        await keyboard(page, 0);
+        await expect(line).toHaveText(areaLines.worst);
+        await expect(line).toBeVisible();
+        await screenshot(page, info, `move-anchor-area-alarm-position-${label}`);
         await expectLayout(page, 0, size.mayScroll, 1);
         expect(await movesMade(page)).toHaveLength(0);
         expect(errors).toEqual([]);

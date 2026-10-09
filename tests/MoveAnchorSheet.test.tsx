@@ -37,6 +37,16 @@ const nmea = vi.hoisted(() => ({
 }));
 vi.mock('../services/NmeaStore', () => ({ NmeaStore: { getState: () => nmea.state } }));
 
+// 126-07d: the lazily loaded chart-area check the sheet runs on its point,
+// 400 ms after the point settles. Nothing found unless a test says so.
+const areaCheck = vi.hoisted(() => ({
+    checkAnchorAreas: vi.fn(async (_lat: number, _lon: number) => ({
+        warnings: [] as unknown[],
+        charts: 'checked' as 'checked' | 'none' | 'unchecked',
+    })),
+}));
+vi.mock('../services/anchorAreaCheck', () => areaCheck);
+
 // The radar itself draws on a canvas jsdom cannot paint; what matters here is
 // WHERE the sheet asks it to put the preview anchor. The offset maths the
 // canvas uses is exported and tested for real below.
@@ -1613,6 +1623,280 @@ describe('MoveAnchorSheet', () => {
                 );
                 expect(radar.drag).toBeDefined();
             });
+        });
+    });
+
+    // 126-07d: is the new point inside a charted area where anchoring is a
+    // problem? One line under the live check, in every mode. Said, never a
+    // block: Move still works. Fictional areas, worldwide.
+    describe('a charted area at the new point (126-07d)', () => {
+        const config: AnchorWatchConfig = {
+            rodeLength: 40,
+            waterDepth: 8,
+            scopeRatio: 5,
+            rodeType: 'chain',
+            safetyMargin: 10,
+        };
+        // Off Lyttelton, New Zealand (fictional pipeline area).
+        const boat = { latitude: -43.61, longitude: 172.72 };
+        const PIPELINE = {
+            kind: 'pipeline',
+            source: 'ENC',
+            area: 'a pipeline area',
+            credit: 'official chart',
+            words: 'Inside a pipeline area (official chart). Anchoring here can damage the pipeline and your anchor.',
+            brief: 'a pipeline area (official chart)',
+        };
+        const CABLE = {
+            ...PIPELINE,
+            kind: 'cable',
+            area: 'a submarine cable area',
+            brief: 'a submarine cable area (official chart)',
+        };
+        const areaLine = () => screen.queryByTestId('move-anchor-area');
+        /** Real setTimeout from here on, faked: the debounce is 400 ms. */
+        function fakeTimeouts() {
+            vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+            vi.setSystemTime(NOW);
+        }
+        async function settle(ms = 400) {
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(ms);
+            });
+        }
+
+        beforeEach(() => {
+            areaCheck.checkAnchorAreas.mockReset().mockResolvedValue({ warnings: [PIPELINE], charts: 'checked' });
+        });
+
+        it('says the point is inside a pipeline area, and Move still moves it', async () => {
+            fakeTimeouts();
+            heading(212, 4_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            expect(areaLine()).toBeNull();
+            await settle();
+            const expected = destinationPoint(boat.latitude, boat.longitude, 212, 33 / 1852);
+            expect(areaCheck.checkAnchorAreas).toHaveBeenCalledTimes(1);
+            const [lat, lon] = areaCheck.checkAnchorAreas.mock.calls[0];
+            expect(lat).toBeCloseTo(expected.lat, 9);
+            expect(lon).toBeCloseTo(expected.lon, 9);
+            expect(areaLine()).toHaveTextContent('That point is inside a pipeline area (official chart).');
+            // One line, under the live check, and it steps aside while the keyboard is up.
+            expect(areaLine()!.className).toContain("[html[data-keyboard-open='true']_&]:hidden");
+            expect(areaLine()).not.toHaveAttribute('role', 'status');
+            expect(moveButton()).toBeEnabled();
+            await move();
+            expectRelocatedTo(expected);
+        });
+
+        it('asks once the point settles, not on every key; a point it was not about is not said', async () => {
+            fakeTimeouts();
+            heading(212, 4_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            await settle();
+            expect(areaLine()).toBeVisible();
+            areaCheck.checkAnchorAreas.mockClear().mockResolvedValue({ warnings: [], charts: 'checked' });
+            type(distanceField(), '1');
+            type(distanceField(), '10');
+            // 23 m from the point it was about: the old answer keeps its place, unread.
+            expect(areaLine()).toHaveClass('invisible');
+            expect(areaLine()).toHaveAttribute('aria-hidden', 'true');
+            await settle(399);
+            expect(areaCheck.checkAnchorAreas).not.toHaveBeenCalled();
+            await settle(1);
+            expect(areaCheck.checkAnchorAreas).toHaveBeenCalledTimes(1);
+            const expected = destinationPoint(boat.latitude, boat.longitude, 212, 10 / 1852);
+            expect(areaCheck.checkAnchorAreas.mock.calls[0][0]).toBeCloseTo(expected.lat, 9);
+            expect(areaCheck.checkAnchorAreas.mock.calls[0][1]).toBeCloseTo(expected.lon, 9);
+            // Nothing found there: nothing said, and no all-clear.
+            expect(areaLine()).toBeNull();
+        });
+
+        it('a fix’s jitter (a few metres) neither asks again nor blanks the line', async () => {
+            fakeTimeouts();
+            heading(212, 4_000);
+            const { rerender } = render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            await settle();
+            expect(areaCheck.checkAnchorAreas).toHaveBeenCalledTimes(1);
+            // The boat's next fix, 4 m east: the From the boat point moves with her.
+            const jittered = {
+                latitude: boat.latitude,
+                longitude: boat.longitude + 4 / (1852 * 60 * Math.cos((boat.latitude * Math.PI) / 180)),
+            };
+            expect(
+                calculateDistance(boat.latitude, boat.longitude, jittered.latitude, jittered.longitude) * 1852,
+            ).toBeCloseTo(4, 1);
+            rerender(<MoveAnchorSheet snapshot={snapshotAt(jittered, config)} onClose={vi.fn()} />);
+            await settle(1_000);
+            expect(areaCheck.checkAnchorAreas).toHaveBeenCalledTimes(1);
+            expect(areaLine()).not.toHaveClass('invisible');
+            expect(areaLine()).toHaveTextContent('That point is inside a pipeline area (official chart).');
+        });
+
+        it('a slow answer for the old point never stands in for the new one', async () => {
+            fakeTimeouts();
+            heading(212, 4_000);
+            let answerOld: (value: { warnings: unknown[]; charts: 'checked' | 'none' | 'unchecked' }) => void = () =>
+                undefined;
+            areaCheck.checkAnchorAreas
+                .mockImplementationOnce(() => new Promise((resolve) => (answerOld = resolve)))
+                .mockResolvedValueOnce({ warnings: [], charts: 'checked' });
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            await settle();
+            // The old point's answer is still out when the point moves 23 m.
+            type(distanceField(), '10');
+            await settle();
+            expect(areaCheck.checkAnchorAreas).toHaveBeenCalledTimes(2);
+            expect(areaLine()).toBeNull();
+            // Now the old answer lands: it was about a point the sheet no longer has.
+            await act(async () => answerOld({ warnings: [PIPELINE], charts: 'checked' }));
+            expect(areaLine()).toBeNull();
+        });
+
+        it('more than one: the most serious, and how many more', async () => {
+            fakeTimeouts();
+            areaCheck.checkAnchorAreas.mockResolvedValue({ warnings: [PIPELINE, CABLE], charts: 'checked' });
+            heading(212, 4_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            await settle();
+            expect(areaLine()).toHaveTextContent('That point is inside a pipeline area (official chart). And 1 more.');
+        });
+
+        it('no chart areas loaded here: says so, quietly, rather than nothing that could read as clear', async () => {
+            fakeTimeouts();
+            areaCheck.checkAnchorAreas.mockResolvedValue({ warnings: [], charts: 'none' });
+            heading(212, 4_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            await settle();
+            expect(areaLine()).toHaveTextContent('No chart areas loaded here to check the point against.');
+            expect(moveButton()).toBeEnabled();
+        });
+
+        it('the sheet says the short form: a park area credited, its name and clause left to the page', async () => {
+            fakeTimeouts();
+            areaCheck.checkAnchorAreas.mockResolvedValue({
+                warnings: [
+                    {
+                        kind: 'anchoring',
+                        source: 'GBRMPA',
+                        name: 'Fixture Haven Bay North',
+                        legal: 'Fixture Plan of Management — Schedule 9, clause 99',
+                        area: 'Fixture Haven Bay North no-anchoring area',
+                        credit: 'GBRMPA, Fixture Plan of Management — Schedule 9, clause 99, CC BY',
+                        words: 'Inside Fixture Haven Bay North no-anchoring area (GBRMPA, Fixture Plan of Management — Schedule 9, clause 99, CC BY).',
+                        brief: 'a no-anchoring area (GBRMPA, CC BY)',
+                    },
+                ],
+                charts: 'none',
+            });
+            heading(212, 4_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            await settle();
+            expect(areaLine()).toHaveTextContent(/^That point is inside a no-anchoring area \(GBRMPA, CC BY\)\.$/);
+        });
+
+        it('a chart that did not answer in time: asked once more, never "no chart areas"', async () => {
+            fakeTimeouts();
+            areaCheck.checkAnchorAreas
+                .mockResolvedValueOnce({ warnings: [], charts: 'unchecked' })
+                .mockResolvedValueOnce({ warnings: [PIPELINE], charts: 'checked' });
+            heading(212, 4_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            await settle();
+            // The index the first ask was building is cached by now: the second answers.
+            expect(areaCheck.checkAnchorAreas).toHaveBeenCalledTimes(2);
+            expect(areaLine()).toHaveTextContent('That point is inside a pipeline area (official chart).');
+        });
+
+        it('a chart that still could not be checked says so, and that answer does not stand', async () => {
+            fakeTimeouts();
+            areaCheck.checkAnchorAreas.mockResolvedValue({ warnings: [], charts: 'unchecked' });
+            heading(212, 4_000);
+            const { rerender } = render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            await settle();
+            expect(areaCheck.checkAnchorAreas).toHaveBeenCalledTimes(2);
+            expect(areaLine()).toHaveTextContent(/^The chart here could not be checked\.$/);
+            expect(areaLine()).not.toHaveTextContent('No chart areas loaded');
+            // The boat's next fix, 4 m east: within the 10 m an answer stands for, yet it asks again.
+            const jittered = {
+                latitude: boat.latitude,
+                longitude: boat.longitude + 4 / (1852 * 60 * Math.cos((boat.latitude * Math.PI) / 180)),
+            };
+            areaCheck.checkAnchorAreas.mockClear().mockResolvedValue({ warnings: [CABLE], charts: 'checked' });
+            rerender(<MoveAnchorSheet snapshot={snapshotAt(jittered, config)} onClose={vi.fn()} />);
+            await settle();
+            expect(areaCheck.checkAnchorAreas).toHaveBeenCalledTimes(1);
+            expect(areaLine()).toHaveTextContent('That point is inside a submarine cable area (official chart).');
+            expect(moveButton()).toBeEnabled();
+        });
+
+        it('a failed check says nothing, and Move still works', async () => {
+            fakeTimeouts();
+            areaCheck.checkAnchorAreas.mockRejectedValue(new Error('chunk failed to load'));
+            heading(212, 4_000);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            await settle();
+            expect(areaCheck.checkAnchorAreas).toHaveBeenCalledTimes(1);
+            expect(areaLine()).toBeNull();
+            await move();
+            expect(service.relocateAnchor).toHaveBeenCalledTimes(1);
+        });
+
+        it('no point yet (no distance): nothing asked', async () => {
+            fakeTimeouts();
+            heading(null, 0);
+            render(<MoveAnchorSheet snapshot={snapshotAt(boat, config)} onClose={vi.fn()} />);
+            await settle(1_000);
+            expect(areaCheck.checkAnchorAreas).not.toHaveBeenCalled();
+            expect(areaLine()).toBeNull();
+        });
+
+        it('from the alarm: the area, but not the coverage note (the alarm is no time for it)', async () => {
+            fakeTimeouts();
+            heading(212, 4_000);
+            const alarm = snapshotAt(boat, config, {
+                state: 'alarm',
+                alarmCause: 'drag',
+                alarmTriggeredAt: NOW - 60_000,
+            });
+            const { unmount } = render(<MoveAnchorSheet mode="alarm" snapshot={alarm} onClose={vi.fn()} />);
+            await settle();
+            expect(areaLine()).toHaveTextContent('That point is inside a pipeline area (official chart).');
+            unmount();
+
+            areaCheck.checkAnchorAreas.mockResolvedValue({ warnings: [], charts: 'none' });
+            render(<MoveAnchorSheet mode="alarm" snapshot={alarm} onClose={vi.fn()} />);
+            await settle();
+            expect(areaCheck.checkAnchorAreas).toHaveBeenCalledTimes(2);
+            expect(areaLine()).toBeNull();
+        });
+
+        it('on the Pi’s watch too: the phone checks the point before it sends it', async () => {
+            fakeTimeouts();
+            heading(220, 3_000, { source: 'pi', via: 'lan' });
+            const onPiMove = vi.fn().mockResolvedValue({ ok: true, ashore: false });
+            render(
+                <MoveAnchorSheet
+                    mode="pi"
+                    pi={{
+                        anchor: boat,
+                        boatFix: { ...boat, timestamp: NOW - 4_000 },
+                        swingRadius: 45,
+                        rodeLength: 40,
+                        waterDepth: 8,
+                        centreAtSet: boat,
+                        ashore: false,
+                        alarm: false,
+                        gpsLost: false,
+                    }}
+                    onPiMove={onPiMove}
+                    onClose={vi.fn()}
+                />,
+            );
+            await settle();
+            expect(areaLine()).toHaveTextContent('That point is inside a pipeline area (official chart).');
+            await move();
+            expect(onPiMove).toHaveBeenCalledTimes(1);
         });
     });
 });

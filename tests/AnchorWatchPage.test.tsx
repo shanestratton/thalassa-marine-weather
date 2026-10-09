@@ -132,6 +132,16 @@ vi.mock('../components/SignInScreen', () => ({
     SignInScreen: ({ isOpen, prompt }: { isOpen?: boolean; prompt?: string }) =>
         isOpen ? <div role="dialog">{prompt}</div> : null,
 }));
+// 126-07d: the lazily loaded chart-area check the page runs after arming (and
+// the Move anchor sheet runs on its point). Nothing found unless a test says so.
+const areaCheck = vi.hoisted(() => ({
+    ANCHOR_AREA_AFTER_ARM_MS: 15_000,
+    checkAnchorAreas: vi.fn(async (_lat: number, _lon: number, _waitMs?: number) => ({
+        warnings: [] as unknown[],
+        charts: 'checked' as 'checked' | 'none' | 'unchecked',
+    })),
+}));
+vi.mock('../services/anchorAreaCheck', () => areaCheck);
 
 import { AnchorWatchPage, SHORE_DATA_STALE_MS } from '../components/AnchorWatchPage';
 import { AlarmAudioService } from '../services/AlarmAudioService';
@@ -576,6 +586,265 @@ describe('AnchorWatchPage', () => {
             showWatch({ ...markedAtGps(), markedAtGps: false });
             expect(await screen.findByRole('button', { name: 'Move anchor' })).toBeInTheDocument();
             expect(screen.queryByText(/Marked at the GPS/)).not.toBeInTheDocument();
+        });
+    });
+
+    // 126-07d: the anchor is down inside a charted area where anchoring is a
+    // problem. The page says so, under the radar, after the watch is armed. It
+    // never stops, delays or undoes the arming. A fictional cable area off
+    // Horta, in the Azores.
+    describe('a charted area where anchoring is a problem (126-07d)', () => {
+        const CABLE = {
+            kind: 'cable',
+            source: 'ENC',
+            area: 'a submarine cable area',
+            credit: 'official chart',
+            words: 'Inside a submarine cable area (official chart). Anchoring here can damage the cable and your anchor.',
+        };
+        const ENTRY = {
+            kind: 'entry',
+            source: 'ENC',
+            area: 'a restricted area: entry prohibited',
+            credit: 'official chart',
+            words: 'Inside a restricted area: entry prohibited (official chart).',
+        };
+        const PIPELINE = {
+            kind: 'pipeline',
+            source: 'ENC',
+            area: 'a pipeline area',
+            credit: 'official chart',
+            words: 'Inside a pipeline area (official chart). Anchoring here can damage the pipeline and your anchor.',
+        };
+        let listener: ((snapshot: AnchorWatchSnapshot) => void) | null = null;
+        let current: AnchorWatchSnapshot | null = null;
+        const order: string[] = [];
+
+        function anchorAt(timestamp: number, latitude = 38.53): AnchorWatchSnapshot {
+            return {
+                ...makePausedSnapshot(),
+                state: 'watching',
+                setupError: null,
+                anchorPosition: { latitude, longitude: -28.62, timestamp },
+                vesselPosition: {
+                    latitude: 38.5302,
+                    longitude: -28.6198,
+                    accuracy: 4,
+                    heading: 0,
+                    speed: 0,
+                    timestamp,
+                },
+            };
+        }
+        /** The service arms, and the watch it reports is down at `timestamp`. */
+        function armsAt(timestamp: number) {
+            vi.mocked(AnchorWatchService.setAnchor).mockImplementationOnce(async () => {
+                current = anchorAt(timestamp);
+                listener?.(current);
+                order.push('armed');
+                return true;
+            });
+        }
+        async function arm() {
+            fireEvent.keyDown(screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' }), {
+                key: 'Enter',
+            });
+            fireEvent.click(await screen.findByRole('button', { name: 'Play test alarm' }));
+            fireEvent.click(await screen.findByRole('button', { name: 'Stop test alarm' }));
+            fireEvent.click(await screen.findByRole('button', { name: 'Confirm alarm was audible' }));
+            fireEvent.click(await screen.findByRole('button', { name: 'Confirm selection' }));
+        }
+        const note = () => screen.queryByTestId('anchor-area-note');
+
+        beforeEach(() => {
+            listener = null;
+            current = null;
+            order.length = 0;
+            vi.mocked(AnchorWatchService.restoreWatchState).mockResolvedValue(false);
+            vi.mocked(AnchorWatchService.getSnapshot).mockImplementation(() => current as never);
+            vi.mocked(AnchorWatchService.subscribe).mockImplementation((next) => {
+                listener = next;
+                return vi.fn();
+            });
+            areaCheck.checkAnchorAreas.mockReset().mockImplementation(async () => {
+                order.push('checked');
+                return { warnings: [CABLE], charts: 'checked' };
+            });
+        });
+
+        it('after the watch is armed (never before), says which area, what it is and where that comes from', async () => {
+            let armed: (value: boolean) => void = () => undefined;
+            vi.mocked(AnchorWatchService.setAnchor).mockImplementationOnce(
+                () =>
+                    new Promise<boolean>((resolve) => {
+                        armed = (value) => {
+                            current = anchorAt(1_000);
+                            listener?.(current);
+                            order.push('armed');
+                            resolve(value);
+                        };
+                    }),
+            );
+            render(<AnchorWatchPage {...defaultProps} />);
+            await arm();
+            await waitFor(() => expect(AnchorWatchService.setAnchor).toHaveBeenCalledTimes(1));
+            // Arming is in flight: nothing has looked at the chart yet.
+            expect(areaCheck.checkAnchorAreas).not.toHaveBeenCalled();
+
+            await act(async () => armed(true));
+
+            const shown = await screen.findByTestId('anchor-area-note');
+            expect(order).toEqual(['armed', 'checked']);
+            // Nothing waits on it after arming: the first ask in a new place gets the time to build the chart's index.
+            expect(areaCheck.checkAnchorAreas).toHaveBeenCalledWith(38.53, -28.62, 15_000);
+            expect(shown).toHaveAttribute('role', 'status');
+            expect(shown).toHaveTextContent(
+                'Inside a submarine cable area (official chart). Anchoring here can damage the cable and your anchor.',
+            );
+            expect(shown).toHaveTextContent('Your anchor watch is on.');
+            // A note, not a gate: the watch is up and its controls are there.
+            expect(screen.getByRole('button', { name: 'Stop Watch' })).toBeInTheDocument();
+            expect(AnchorWatchService.stopWatch).not.toHaveBeenCalled();
+        });
+
+        it('dismisses for this anchor; the next anchor is checked, and said, again', async () => {
+            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(undefined);
+            try {
+                armsAt(1_000);
+                render(<AnchorWatchPage {...defaultProps} />);
+                await arm();
+                const shown = await screen.findByTestId('anchor-area-note');
+                const dismiss = within(shown).getByRole('button', { name: 'Dismiss the chart area note' });
+                fireEvent.click(dismiss);
+                expect(note()).toBeNull();
+
+                // Weigh anchor, and drop it again: a new anchor, a new look.
+                fireEvent.click(screen.getByRole('button', { name: 'Stop Watch' }));
+                await screen.findByRole('button', { name: 'Drop anchor and arm Anchor Watch' });
+                armsAt(2_000);
+                await arm();
+                expect(await screen.findByTestId('anchor-area-note')).toHaveTextContent('submarine cable area');
+                expect(areaCheck.checkAnchorAreas).toHaveBeenCalledTimes(2);
+            } finally {
+                end.mockRestore();
+            }
+        });
+
+        it('the check failing says nothing, and the watch stays armed', async () => {
+            areaCheck.checkAnchorAreas.mockReset().mockRejectedValue(new Error('chunk failed to load'));
+            armsAt(1_000);
+            render(<AnchorWatchPage {...defaultProps} />);
+            await arm();
+            await waitFor(() => expect(areaCheck.checkAnchorAreas).toHaveBeenCalledTimes(1));
+            expect(await screen.findByText('Anchor Deployed')).toBeInTheDocument();
+            await act(async () => undefined);
+            expect(note()).toBeNull();
+            expect(screen.getByRole('button', { name: 'Stop Watch' })).toBeInTheDocument();
+            expect(AnchorWatchService.stopWatch).not.toHaveBeenCalled();
+        });
+
+        it('nothing found: nothing said (no all-clear)', async () => {
+            areaCheck.checkAnchorAreas.mockReset().mockResolvedValue({ warnings: [], charts: 'checked' });
+            armsAt(1_000);
+            render(<AnchorWatchPage {...defaultProps} />);
+            await arm();
+            await waitFor(() => expect(areaCheck.checkAnchorAreas).toHaveBeenCalledTimes(1));
+            await act(async () => undefined);
+            expect(note()).toBeNull();
+            expect(screen.queryByText(/clear of|no restricted/i)).toBeNull();
+        });
+
+        it('two at most, the most serious first; "+1 more" shows the rest in place', async () => {
+            areaCheck.checkAnchorAreas
+                .mockReset()
+                .mockResolvedValue({ warnings: [ENTRY, CABLE, PIPELINE], charts: 'checked' });
+            armsAt(1_000);
+            render(<AnchorWatchPage {...defaultProps} />);
+            await arm();
+            const shown = await screen.findByTestId('anchor-area-note');
+            expect(shown).toHaveTextContent('entry prohibited');
+            expect(shown).toHaveTextContent('submarine cable area');
+            expect(shown).not.toHaveTextContent('pipeline area');
+            fireEvent.click(within(shown).getByRole('button', { name: '+1 more' }));
+            expect(shown).toHaveTextContent('Inside a pipeline area (official chart).');
+        });
+
+        it('no chart cell covers the anchor: said quietly (never a silence that reads as clear), then gone', async () => {
+            vi.useFakeTimers({ shouldAdvanceTime: true });
+            try {
+                areaCheck.checkAnchorAreas.mockReset().mockResolvedValue({ warnings: [], charts: 'none' });
+                armsAt(1_000);
+                render(<AnchorWatchPage {...defaultProps} />);
+                await arm();
+                const shown = await screen.findByTestId('anchor-area-note');
+                expect(shown).toHaveAttribute('role', 'status');
+                expect(shown).toHaveTextContent(/^No chart areas loaded here to check the anchor against\.$/);
+                expect(within(shown).getByRole('button', { name: 'Dismiss the chart area note' })).toBeInTheDocument();
+                await act(async () => {
+                    await vi.advanceTimersByTimeAsync(10_000);
+                });
+                expect(note()).toBeNull();
+                // A quiet line leaves no chip behind.
+                expect(screen.queryByTestId('anchor-area-chip')).toBeNull();
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('the chart could not be checked: says that, not "no charts"', async () => {
+            areaCheck.checkAnchorAreas.mockReset().mockResolvedValue({ warnings: [], charts: 'unchecked' });
+            armsAt(1_000);
+            render(<AnchorWatchPage {...defaultProps} />);
+            await arm();
+            const shown = await screen.findByTestId('anchor-area-note');
+            expect(shown).toHaveTextContent(/^The chart here could not be checked\.$/);
+        });
+
+        it('once read, the note folds to a chip on the radar, giving the readout back; the chip opens it again', async () => {
+            vi.useFakeTimers({ shouldAdvanceTime: true });
+            try {
+                armsAt(1_000);
+                render(<AnchorWatchPage {...defaultProps} />);
+                await arm();
+                await screen.findByTestId('anchor-area-note');
+                expect(screen.queryByTestId('anchor-area-chip')).toBeNull();
+                // About ten seconds' read (the clock also runs on its own here, so not to the millisecond).
+                await act(async () => {
+                    await vi.advanceTimersByTimeAsync(9_000);
+                });
+                expect(note()).not.toBeNull();
+                await act(async () => {
+                    await vi.advanceTimersByTimeAsync(1_000);
+                });
+                expect(note()).toBeNull();
+                const chip = screen.getByTestId('anchor-area-chip');
+                expect(chip).toHaveTextContent('a submarine cable area');
+                expect(chip).toHaveAccessibleName('Chart area note: a submarine cable area');
+                // On the radar, beside Move anchor: not over the stats or the readout.
+                expect(screen.getByLabelText(/^Anchor watch radar display/).parentElement).toContainElement(chip);
+
+                fireEvent.click(chip);
+                expect(note()).toHaveTextContent('Inside a submarine cable area (official chart).');
+                expect(screen.queryByTestId('anchor-area-chip')).toBeNull();
+                // Read again, folded again; Dismiss takes it away for good.
+                await act(async () => {
+                    await vi.advanceTimersByTimeAsync(10_000);
+                });
+                fireEvent.click(screen.getByTestId('anchor-area-chip'));
+                fireEvent.click(within(note()!).getByRole('button', { name: 'Dismiss the chart area note' }));
+                expect(note()).toBeNull();
+                expect(screen.queryByTestId('anchor-area-chip')).toBeNull();
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('goes once the anchor is moved off the point it was about', async () => {
+            armsAt(1_000);
+            render(<AnchorWatchPage {...defaultProps} />);
+            await arm();
+            await screen.findByTestId('anchor-area-note');
+            act(() => listener!(anchorAt(1_000, 38.5306)));
+            expect(note()).toBeNull();
         });
     });
 
