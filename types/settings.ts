@@ -252,6 +252,20 @@ export interface UserSettings {
         inshore?: { cpaNm?: number; tcpaMin?: number };
     };
     /**
+     * Settings → Preferences → Under-way alarms (build 126, 126-02a). Off
+     * route sounds while a route is followed and she is more than the inshore
+     * limit off the line (0.25 NM by default), or the offshore one (1 NM) more
+     * than 5 NM from the coast. Shoal water sounds under way when the boat's
+     * sounder leaves less than the margin under the keel. Both ON by default,
+     * for every account; a switch is off only when set to exactly false, and
+     * the limits are clamped on read (services/underway/underwayRule.ts
+     * sanitiseUnderwayPrefs).
+     */
+    underwayAlarms?: {
+        offRoute?: { enabled?: boolean; inshoreNm?: number; offshoreNm?: number };
+        shoal?: { enabled?: boolean };
+    };
+    /**
      * Settings → Preferences → Routing: "Auto route (trial)" (2026-10-01).
      * Auto routing and Plan Your Day run Thalassa's own router only while
      * this is on (services/autorouteTrialSwitch.ts). Off by default: Pro is

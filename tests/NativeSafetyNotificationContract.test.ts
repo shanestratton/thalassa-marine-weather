@@ -92,6 +92,33 @@ describe('the shared safety path', () => {
         expect(remove).not.toContain('cleanupIdentifiers');
     });
 
+    // Build 126 (126-02a): off route and shoal water ride the same path, each
+    // with its own three ids. The anchor's, the collision watch's and the
+    // distress alarm's are unchanged byte for byte.
+    it('has its own ids for off route and shoal water, and the earlier kinds are unchanged', () => {
+        const kinds = block(plugin, 'private static let safetyAlertKinds: [String: String] = [', '\n    ]');
+        expect(kinds.split('\n').slice(1)).toEqual([
+            '        "collision": "thalassa.collision-watch",',
+            '        "distress": "thalassa.distress-watch",',
+            '        "off-route": "thalassa.off-route-watch",',
+            '        "shoal": "thalassa.shoal-watch"',
+        ]);
+        expect(plugin).not.toMatch(/"(off-route|shoal)": "thalassa\.anchor/);
+        expect(service).toContain("export type SafetyAlertKind = 'collision' | 'distress' | 'off-route' | 'shoal'");
+        // Still three requests per kind; the 21-slot anchor reserve check is the same.
+        expect(plugin).toContain('private let safetyAlertRequestCount = 3');
+        expect(service).toContain('SAFETY_ALERT_REQUEST_COUNT = 3');
+    });
+
+    it('names the off-route and shoal alarms in iOS readiness messages, not Anchor Watch', () => {
+        const names = block(service, 'const SAFETY_ALERT_NAMES', 'const NativeAnchorNotifications');
+        expect(names).toContain('const watch = SAFETY_ALERT_NAMES[kind];');
+        expect(names).toContain("'the off-route alarm'");
+        expect(names).toContain("'the shoal alarm'");
+        expect(names).toContain("'the collision watch'");
+        expect(names).toContain("'the distress alarm'");
+    });
+
     it('is exposed to JS with a kind and the same verification as the anchor', () => {
         expect(service).toContain("export type SafetyAlertKind = 'collision' | 'distress'");
         expect(service).toContain('SAFETY_ALERT_REQUEST_COUNT = 3');

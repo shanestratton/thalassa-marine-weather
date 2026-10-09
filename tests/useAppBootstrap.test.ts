@@ -96,6 +96,9 @@ vi.mock('@capacitor/app', () => ({
         addListener: boot.appAddListener,
     },
 }));
+// The under-way alarms (126-02a): off route and shoal water, started on idle.
+const underway = vi.hoisted(() => ({ start: vi.fn(), stop: vi.fn() }));
+vi.mock('../services/underway/UnderwayAlarmWatch', () => ({ startUnderwayAlarmWatch: underway.start }));
 
 import { useAppBootstrap } from '../hooks/useAppBootstrap';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
@@ -116,6 +119,7 @@ beforeEach(() => {
     boot.startInternetProbe.mockImplementation(() => boot.stopInternetProbe);
     boot.initLocalDatabase.mockResolvedValue(undefined);
     boot.watchSharedBinderLoss.mockImplementation(() => boot.stopSharedBinderLoss);
+    underway.start.mockImplementation(() => underway.stop);
     boot.appAddListener.mockImplementation((_event: string, handler: (state: { isActive: boolean }) => void) => {
         // Keep the FIRST registration. Two things listen for appStateChange
         // now — the bootstrap itself and webContentKill's session watch — and
@@ -131,6 +135,16 @@ afterEach(() => {
 });
 
 describe('useAppBootstrap', () => {
+    it('starts the under-way alarm watch once the first screen is drawn, and stops it on unmount', async () => {
+        const { unmount } = renderHook(() => useAppBootstrap());
+        // On idle, or a second after the first paint where there is no requestIdleCallback (WKWebView, jsdom).
+        expect(underway.start).not.toHaveBeenCalled();
+        await waitFor(() => expect(underway.start).toHaveBeenCalledOnce(), { timeout: 3_000 });
+        expect(underway.stop).not.toHaveBeenCalled();
+        unmount();
+        expect(underway.stop).toHaveBeenCalledOnce();
+    });
+
     it('starts app services, routes global events, and cleans up owned callbacks', async () => {
         const { result, rerender, unmount } = renderHook(() => useAppBootstrap());
 

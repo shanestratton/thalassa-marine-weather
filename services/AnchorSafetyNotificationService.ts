@@ -12,12 +12,12 @@ export interface AnchorNotificationReadiness {
 
 /**
  * The shared safety-notification path (build 125, 125-01): the anchor's
- * plugin also carries the collision alarm and (125-02) the distress alarm,
- * each with its own fixed ids, Time Sensitive, behind the same
- * verified-enabled check. The anchor's ids and behaviour are unchanged
- * (tests/NativeSafetyNotificationContract.test.ts).
+ * plugin also carries the collision alarm, (125-02) the distress alarm and
+ * (126-02a) the under-way off-route and shoal alarms, each with its own fixed
+ * ids, Time Sensitive, behind the same verified-enabled check. The anchor's
+ * ids and behaviour are unchanged (tests/NativeSafetyNotificationContract.test.ts).
  */
-export type SafetyAlertKind = 'collision' | 'distress';
+export type SafetyAlertKind = 'collision' | 'distress' | 'off-route' | 'shoal';
 /** A primary and two reminders, 30 s apart; the anchor keeps its 21 slots. */
 export const SAFETY_ALERT_REQUEST_COUNT = 3;
 
@@ -35,9 +35,16 @@ interface AnchorSafetyNotificationsPlugin {
     cancelSafetyAlert(options: { kind: SafetyAlertKind }): Promise<{ cancelled: boolean }>;
 }
 
+const SAFETY_ALERT_NAMES: Record<SafetyAlertKind, string> = {
+    collision: 'the collision watch',
+    distress: 'the distress alarm',
+    'off-route': 'the off-route alarm',
+    shoal: 'the shoal alarm',
+};
+
 /** The plugin's readiness messages name the anchor; say the feature that asked. */
 function forKind(error: Error, kind: SafetyAlertKind): Error {
-    const watch = kind === 'collision' ? 'the collision watch' : 'the distress alarm';
+    const watch = SAFETY_ALERT_NAMES[kind];
     return new Error(
         error.message
             .replace(/before (dropping anchor|using Anchor Watch|arming)/g, `before starting ${watch}`)

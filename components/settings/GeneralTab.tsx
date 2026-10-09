@@ -27,6 +27,14 @@ import { OFFSHORE_MODELS } from '../../services/weather/forecastModels';
 import { offshoreModelHelper } from '../dashboard/ModelPickerSheet';
 import { runWithConfirmedDraft } from '../../stores/draftConfirmStore';
 import { sanitiseCollisionPrefs, type CollisionPair, type CollisionPrefs } from '../../utils/collisionRule';
+import {
+    sanitiseUnderwayPrefs,
+    XTE_INSHORE_CHOICES_NM,
+    XTE_OFFSHORE_CHOICES_NM,
+    type UnderwayPrefs,
+} from '../../services/underway/underwayRule';
+import { underKeelClearanceM } from '../../services/underway/underKeelClearance';
+import { vesselDraftIsAssumed, vesselDraftMetres } from '../../services/units';
 import { DebugAisInjectorSection } from './debugAisInjectorGate';
 
 /** The Settings menu row's icon tile (SettingsModal's MENU_ICON_TILE): the soft
@@ -52,6 +60,12 @@ const COLLISION_FIELDS: { pair: keyof CollisionPrefs; field: keyof CollisionPair
     { pair: 'offshore', field: 'tcpaMin', label: 'Offshore TCPA' },
     { pair: 'inshore', field: 'cpaNm', label: 'Inshore CPA' },
     { pair: 'inshore', field: 'tcpaMin', label: 'Inshore TCPA' },
+];
+
+/** Under-way alarms: the off-route limits (a saved value outside them is kept as an extra option). */
+const XTE_FIELDS: { field: 'inshoreNm' | 'offshoreNm'; label: string; choices: readonly number[] }[] = [
+    { field: 'inshoreNm', label: 'Off route inshore', choices: XTE_INSHORE_CHOICES_NM },
+    { field: 'offshoreNm', label: 'Off route offshore', choices: XTE_OFFSHORE_CHOICES_NM },
 ];
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -85,6 +99,8 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
         onSave({ units: { ...settings.units, [type]: value } });
     };
     const followsYou = settings.defaultLocation === FOLLOWS_YOU;
+    const underway = sanitiseUnderwayPrefs(settings.underwayAlarms);
+    const saveUnderway = (next: UnderwayPrefs) => onSave({ underwayAlarms: next });
     const satellite = !!settings.satelliteMode;
     // 'Pin here' asks for a fix that can take up to 15 s and can fail: it used
     // to show nothing while it looked, and nothing when no fix came back (UX
@@ -542,6 +558,91 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         it running under way, an anchor watch kept on this phone at anchor) and reaches the lock screen
                         only if Time Sensitive notifications are allowed for Thalassa. Focus lets them through only if
                         you allow it.
+                    </p>
+                </div>
+            </Section>
+
+            {/* Under-way alarms (build 126, 126-02a; our recommended defaults on
+                Shane's standing order): off route while a route is followed, a
+                quarter mile inshore and a mile offshore; shoal water under way,
+                off the boat's own sounder, with the margin fixed at 0.5 m until
+                126-06 makes it a control. ON for every account: safety is never
+                paywalled. The locked-phone lines say what iOS delivers and no
+                more: a suspended app watches nothing. */}
+            <Section title="Under-way alarms">
+                <Row>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium">Off-route alarm</p>
+                        <p className="text-xs text-gray-400">
+                            While you follow a route, it sounds when you are more than the limit off the line, the
+                            offshore one more than 5 NM from the coast. It arms once you are on the route.
+                        </p>
+                    </div>
+                    <Toggle
+                        label="Off-route alarm"
+                        checked={underway.offRoute.enabled}
+                        onChange={(on) =>
+                            saveUnderway({ ...underway, offRoute: { ...underway.offRoute, enabled: on } })
+                        }
+                    />
+                </Row>
+                <div className="p-4 border-b border-white/5 grid grid-cols-2 gap-3">
+                    {XTE_FIELDS.map(({ field, label, choices }) => {
+                        const value = underway.offRoute[field];
+                        const options = [...new Set([...choices, value])].sort((a, b) => a - b);
+                        const id = `settings-underway-${field}`;
+                        return (
+                            <div key={id}>
+                                <label htmlFor={id} className={FIELD_LABEL_CLASS}>
+                                    {label}
+                                </label>
+                                <select
+                                    id={id}
+                                    value={String(value)}
+                                    onChange={(e) =>
+                                        saveUnderway({
+                                            ...underway,
+                                            offRoute: { ...underway.offRoute, [field]: Number(e.target.value) },
+                                        })
+                                    }
+                                    className={SELECT_CLASS}
+                                >
+                                    {options.map((option) => (
+                                        <option key={option} value={String(option)}>
+                                            {`${option} NM`}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        );
+                    })}
+                </div>
+                <Row>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium">Shoal alarm</p>
+                        <p className="text-xs text-gray-400">
+                            Under way, it sounds when the boat's sounder shows less water under the keel than the
+                            margin. It needs the boat's own sounder: an NMEA gateway, or the Pi on the boat's network.
+                        </p>
+                    </div>
+                    <Toggle
+                        label="Shoal alarm"
+                        checked={underway.shoal.enabled}
+                        onChange={(on) => saveUnderway({ ...underway, shoal: { enabled: on } })}
+                    />
+                </Row>
+                <div className="p-4 space-y-2">
+                    <p className="text-sm text-white">Margin under the keel: {underKeelClearanceM(settings)} m</p>
+                    {vesselDraftIsAssumed(settings.vessel) && (
+                        <p className="text-xs text-amber-300">
+                            Draft not set: set it in Vessel. Until then the shoal alarm takes{' '}
+                            {vesselDraftMetres(settings.vessel).toFixed(1)} m off a depth not measured from the keel.
+                        </p>
+                    )}
+                    <p className="text-xs text-gray-400">
+                        These alarms work only while Thalassa is running. A voyage track keeps it running under way.
+                        With the phone locked they reach the lock screen only if Time Sensitive notifications are
+                        allowed for Thalassa. Focus lets them through only if you allow it.
                     </p>
                 </div>
             </Section>

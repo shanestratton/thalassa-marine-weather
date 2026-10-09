@@ -72,7 +72,9 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
     // Shared safety alerts: one fixed identifier set per kind, never the anchor's.
     private static let safetyAlertKinds: [String: String] = [
         "collision": "thalassa.collision-watch",
-        "distress": "thalassa.distress-watch"
+        "distress": "thalassa.distress-watch",
+        "off-route": "thalassa.off-route-watch",
+        "shoal": "thalassa.shoal-watch"
     ]
     private let safetyAlertRequestCount = 3
 

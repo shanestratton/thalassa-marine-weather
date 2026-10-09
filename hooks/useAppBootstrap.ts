@@ -127,6 +127,32 @@ export function useAppBootstrap() {
         };
     }, []);
 
+    // ── Under-way alarms (build 126, 126-02a) ──────────────────────
+    // Off route and shoal water, app-wide like the collision guard: they must
+    // outlive the chart and the passage HUD. Loaded once the first screen is
+    // drawn (on idle), so the watch, its rule and its cards stay out of the
+    // eager shell.
+    useEffect(() => {
+        let disposed = false;
+        let stop: (() => void) | undefined;
+        const load = () => {
+            import('../services/underway/UnderwayAlarmWatch')
+                .then(({ startUnderwayAlarmWatch }) => {
+                    if (!disposed) stop = startUnderwayAlarmWatch();
+                })
+                .catch((err) => console.error('[Boot] under-way alarms failed to start:', err?.message || err));
+        };
+        // WKWebView has no requestIdleCallback: a second after the first paint there.
+        const idle = typeof window.requestIdleCallback === 'function';
+        const handle = idle ? window.requestIdleCallback(load, { timeout: 5_000 }) : window.setTimeout(load, 1_000);
+        return () => {
+            disposed = true;
+            if (idle) window.cancelIdleCallback(handle);
+            else window.clearTimeout(handle);
+            stop?.();
+        };
+    }, []);
+
     // ── Global unhandled rejection → Sentry ────────────────────────
     useEffect(() => {
         const handler = (event: PromiseRejectionEvent) => {
