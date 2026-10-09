@@ -21,6 +21,13 @@ const BINDER_TABLES = [
     'equipment_register',
     'ship_documents',
 ];
+/**
+ * The two owner-only checklist tables (126-B9a): not a shared register, but
+ * swept for rows deleted on the sailor's other device, inside the same rails.
+ */
+const CHECKLIST_TABLES = ['checklists', 'checklist_runs'];
+/** What a catch-up lists before the galley migration, in sweep order. */
+const SWEPT_TABLES = [...BINDER_TABLES, ...CHECKLIST_TABLES];
 
 function base64Url(value: unknown): string {
     return btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -33,6 +40,12 @@ const h = vi.hoisted(() => {
         userToken: '',
         /** table → ids the server lists for the signed-in user */
         serverIds: new Map<string, string[]>(),
+        /** table → the rows a full read (select=*) returns for the signed-in user */
+        serverRows: new Map<string, { id: string; updated_at: string }[]>(),
+        /** table → the clean local row ids (a table here is pruned for real, through allowPrune) */
+        localRows: new Map<string, string[]>(),
+        /** every prune that had local rows to judge: what it would remove, and whether the guard let it */
+        pruneDecisions: [] as { table: string; removing: number; allowed: boolean }[],
         /** the next watermark RPC moves the clock this far (the cycle took a while) */
         clockJumpOnWatermark: 0,
         /** the token endpoint is down (retryable 503) */
@@ -96,7 +109,7 @@ const h = vi.hoisted(() => {
                     200,
                     (state.serverIds.get(table) ?? []).map((id) => ({ id })),
                 );
-            return json(200, []);
+            return json(200, state.serverRows.get(table) ?? []);
         }
         return json(404, { message: `unexpected ${url.pathname}` });
     });
@@ -176,10 +189,29 @@ vi.mock('../services/vessel/LocalDatabase', () => ({
         Object.assign(h.state.meta, updates);
     }),
     mergePulledRecords: vi.fn(async (_table: string, rows: unknown[]) => rows.length),
-    prunePulledTable: vi.fn(async (table: string, ids: ReadonlySet<string>) => {
-        h.state.prunes.push({ table, ids: [...ids].sort() });
-        return 0;
-    }),
+    prunePulledTable: vi.fn(
+        async (
+            table: string,
+            ids: ReadonlySet<string>,
+            options?: { allowPrune?: (plan: { visible: number; eligible: number; removing: number }) => boolean },
+        ) => {
+            h.state.prunes.push({ table, ids: [...ids].sort() });
+            // LocalDatabase's prune, for a table given clean local rows: the
+            // ones the listing lacks go, unless the guard holds them back.
+            const local = h.state.localRows.get(table);
+            if (!local) return 0;
+            const removing = local.filter((id) => !ids.has(id));
+            const allowed =
+                options?.allowPrune?.({ visible: ids.size, eligible: local.length, removing: removing.length }) ?? true;
+            h.state.pruneDecisions.push({ table, removing: removing.length, allowed });
+            if (!allowed) return 0;
+            h.state.localRows.set(
+                table,
+                local.filter((id) => ids.has(id)),
+            );
+            return removing.length;
+        },
+    ),
     getLocalDatabaseSession: () => ({ identity: 'user-1', generation: 1 }),
     isLocalDatabaseSessionCurrent: () => true,
     getById: () => null,
@@ -244,6 +276,9 @@ beforeEach(async () => {
     Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
     h.state.storage.clear();
     h.state.serverIds.clear();
+    h.state.serverRows.clear();
+    h.state.localRows.clear();
+    h.state.pruneDecisions = [];
     h.state.clockJumpOnWatermark = 0;
     h.state.tokenEndpointDown = false;
     h.state.rejectUserToken = false;
@@ -309,7 +344,7 @@ describe('the binder sweep never reads the server as anon', () => {
         sync.requestCatchUpSync();
         await untilCycles(3);
 
-        expect(binderListings().map((entry) => entry.table)).toEqual(BINDER_TABLES);
+        expect(binderListings().map((entry) => entry.table)).toEqual(SWEPT_TABLES);
         expect(binderListings().every((entry) => entry.bearer === 'USER')).toBe(true);
         expect(h.state.prunes).toContainEqual({ table: 'inventory_items', ids: ['stores-1'] });
     });
@@ -324,7 +359,7 @@ describe('the binder sweep never reads the server as anon', () => {
         sync.requestCatchUpSync();
         await untilCycles(2);
 
-        expect(binderListings().map((entry) => entry.table)).toEqual(BINDER_TABLES);
+        expect(binderListings().map((entry) => entry.table)).toEqual(SWEPT_TABLES);
         expect(h.state.restLog.every((entry) => entry.bearer === 'USER')).toBe(true);
         expect(h.state.prunes).toContainEqual({ table: 'maintenance_tasks', ids: ['task-a', 'task-b'] });
         expect(completions[1].errors).toEqual([]);
@@ -345,7 +380,7 @@ describe('the binder sweep never reads the server as anon', () => {
 });
 
 describe('the galley tables (2026-10-03) join the sweep only once the server can share a galley', () => {
-    it('before the galley migration is pushed, a catch-up lists exactly the binder tables it always did', async () => {
+    it('before the galley migration is pushed, a catch-up lists no galley table', async () => {
         storeSession(3600);
         sync.startSyncEngine();
         await untilCycles(1);
@@ -354,7 +389,10 @@ describe('the galley tables (2026-10-03) join the sweep only once the server can
         sync.requestCatchUpSync();
         await untilCycles(2);
 
-        expect(binderListings().map((entry) => entry.table)).toEqual(BINDER_TABLES);
+        // The binder tables it always listed, and (126-B9a, on purpose) the
+        // two owner-only checklist tables; still no recipe, meal plan or
+        // grocery list.
+        expect(binderListings().map((entry) => entry.table)).toEqual(SWEPT_TABLES);
         expect(completions[1].errors).toEqual([]);
     });
 
@@ -374,9 +412,114 @@ describe('the galley tables (2026-10-03) join the sweep only once the server can
             'recipes',
             'meal_plans',
             'shopping_list',
+            ...CHECKLIST_TABLES,
         ]);
         expect(binderListings().every((entry) => entry.bearer === 'USER')).toBe(true);
         expect(h.state.prunes).toContainEqual({ table: 'shopping_list', ids: ['grocery-1'] });
         expect(completions[1].errors).toEqual([]);
+    });
+});
+
+/**
+ * Checklists (126-B9a, CHK-01): owner-only, so not a shared register, but a
+ * list item deleted on the sailor's phone lingered on the iPad until the
+ * six-hourly full reconciliation, and editing that ghost stuck the sync in
+ * error. They join the id-only sweep inside the same rails: the pinned bearer
+ * and the collapse guard. Fictional ids only.
+ */
+describe('the checklist tables are swept inside the same rails', () => {
+    it('a healthy catch-up lists both with the user token and prunes a row the server no longer lists', async () => {
+        storeSession(3600);
+        h.state.localRows.set('checklists', ['chk-pre', 'chk-bilge', 'chk-seacocks']);
+        h.state.localRows.set('checklist_runs', ['run-1']);
+        sync.startSyncEngine();
+        await untilCycles(1);
+        // 'Close seacocks' was deleted on the phone.
+        h.state.serverIds.set('checklists', ['chk-pre', 'chk-bilge']);
+        h.state.serverIds.set('checklist_runs', ['run-1']);
+        h.state.restLog = [];
+
+        sync.requestCatchUpSync();
+        await untilCycles(2);
+
+        const listed = binderListings().filter((entry) => CHECKLIST_TABLES.includes(entry.table));
+        expect(listed.map((entry) => entry.table)).toEqual(CHECKLIST_TABLES);
+        expect(listed.every((entry) => entry.bearer === 'USER')).toBe(true);
+        expect(h.state.localRows.get('checklists')).toEqual(['chk-pre', 'chk-bilge']);
+        expect(h.state.localRows.get('checklist_runs')).toEqual(['run-1']);
+        expect(completions[1].pruned).toBe(1);
+        expect(completions[1].errors).toEqual([]);
+    });
+
+    it('a token refresh failing mid-cycle prunes neither, sends nothing as anon, and the next healthy cycle sweeps them', async () => {
+        h.state.localRows.set('checklists', ['chk-pre', 'chk-bilge']);
+        h.state.localRows.set('checklist_runs', ['run-1', 'run-2']);
+        sync.startSyncEngine();
+        await untilCycles(1);
+        h.state.serverIds.set('checklists', ['chk-pre']);
+        h.state.serverIds.set('checklist_runs', ['run-1']);
+
+        h.state.tokenEndpointDown = true;
+        h.state.clockJumpOnWatermark = 15_000;
+        h.state.restLog = [];
+        sync.requestCatchUpSync();
+        await untilCycles(2);
+
+        expect(h.state.restLog.filter((entry) => entry.bearer !== 'USER')).toEqual([]);
+        expect(h.state.prunes.filter((prune) => CHECKLIST_TABLES.includes(prune.table))).toEqual([]);
+        expect(h.state.localRows.get('checklists')).toEqual(['chk-pre', 'chk-bilge']);
+        expect(h.state.localRows.get('checklist_runs')).toEqual(['run-1', 'run-2']);
+
+        // Signed in again with a fresh token: the sweep it owed runs now.
+        storeSession(3600);
+        h.state.tokenEndpointDown = false;
+        h.state.restLog = [];
+        sync.requestCatchUpSync();
+        await untilCycles(3);
+
+        expect(binderListings().every((entry) => entry.bearer === 'USER')).toBe(true);
+        expect(h.state.localRows.get('checklists')).toEqual(['chk-pre']);
+        expect(h.state.localRows.get('checklist_runs')).toEqual(['run-1']);
+    });
+
+    it('a listing that would empty the checklists is held until a second read agrees', async () => {
+        storeSession(3600);
+        const five = ['chk-1', 'chk-2', 'chk-3', 'chk-4', 'chk-5'];
+        h.state.localRows.set('checklists', [...five]);
+        sync.startSyncEngine();
+        await untilCycles(1);
+        h.state.serverIds.set('checklists', []);
+
+        // The catch-up lists none: held, and a full reconciliation reads again.
+        sync.requestCatchUpSync();
+        await untilCycles(3);
+
+        expect(h.state.pruneDecisions.filter((decision) => decision.table === 'checklists')).toEqual([
+            { table: 'checklists', removing: 5, allowed: false },
+            { table: 'checklists', removing: 5, allowed: true },
+        ]);
+        expect(h.state.localRows.get('checklists')).toEqual([]);
+    });
+
+    it('a second read that lists them again removes nothing', async () => {
+        storeSession(3600);
+        const five = ['chk-1', 'chk-2', 'chk-3', 'chk-4', 'chk-5'];
+        h.state.localRows.set('checklists', [...five]);
+        sync.startSyncEngine();
+        await untilCycles(1);
+        h.state.serverIds.set('checklists', []);
+        h.state.serverRows.set(
+            'checklists',
+            five.map((id) => ({ id, updated_at: LAST_PULL })),
+        );
+
+        sync.requestCatchUpSync();
+        await untilCycles(3);
+
+        expect(h.state.pruneDecisions.filter((decision) => decision.table === 'checklists')).toEqual([
+            { table: 'checklists', removing: 5, allowed: false },
+            { table: 'checklists', removing: 0, allowed: true },
+        ]);
+        expect(h.state.localRows.get('checklists')).toEqual(five);
     });
 });

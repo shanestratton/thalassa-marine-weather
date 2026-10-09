@@ -113,6 +113,9 @@ import { InventoryList } from '../components/vessel/InventoryList';
 import { EquipmentList } from '../components/vessel/EquipmentList';
 import { MaintenanceHub } from '../components/vessel/MaintenanceHub';
 import { DocumentsHub } from '../components/vessel/DocumentsHub';
+import { ChecklistsPage } from '../components/vessel/ChecklistsPage';
+import { LocalChecklistService } from '../services/vessel/LocalChecklistService';
+import { toast } from '../components/Toast';
 
 const NOW = '2026-10-02T01:00:00.000Z';
 let accountCounter = 0;
@@ -195,6 +198,20 @@ function shipDocument(id: string, owner: string, name: string): ShipDocument {
         expiry_date: null,
         file_uri: null,
         notes: null,
+        created_at: NOW,
+        updated_at: NOW,
+    };
+}
+
+/** A checklist (heading) or one of its items (detail), as the server row. */
+function checklistRow(id: string, owner: string, text: string, headingId: string | null, order: number) {
+    return {
+        id,
+        user_id: owner,
+        type: headingId ? 'detail' : 'heading',
+        text,
+        heading_id: headingId,
+        order,
         created_at: NOW,
         updated_at: NOW,
     };
@@ -481,6 +498,173 @@ describe('opening a binder fetches what changed while it was closed', () => {
         // and everything before it comes in with the catch-up.
         act(() => rt.statusCallbacks.get(rt.channelNames[0])?.('SUBSCRIBED'));
         await waitFor(() => expect(sync.requestCatchUpSync).toHaveBeenCalledOnce());
+    });
+});
+
+/**
+ * Checklists (126-B9a, CHK-01): the page read the device only when it opened,
+ * so a list changed on the phone stayed stale on the iPad until it was opened
+ * again. Fictional lists: 'Pre-departure' and 'Heavy weather'.
+ */
+describe('Checklists follow changes made on another device', () => {
+    async function openChecklists(rows: ReturnType<typeof checklistRow>[]): Promise<void> {
+        await mergePulledRecords('checklists', rows);
+        render(<ChecklistsPage onBack={vi.fn()} />);
+        await screen.findByText(rows[rows.length - 1].text);
+    }
+
+    it('INSERT appears, UPDATE changes it, DELETE removes it, with no shimmer', async () => {
+        const me = `user-${accountCounter}`;
+        await signIn(me);
+        await openChecklists([
+            checklistRow('c-pre', me, 'Pre-departure', null, 1),
+            checklistRow('c-bilge', me, 'Check bilge pump', 'c-pre', 2),
+        ]);
+        const shimmerMountsAfterFirstLoad = shimmer.mounts;
+
+        await deliver('checklists', 'INSERT', checklistRow('c-seacocks', me, 'Close seacocks', 'c-pre', 3));
+        expect(await screen.findByText('Close seacocks')).toBeInTheDocument();
+
+        await deliver('checklists', 'UPDATE', checklistRow('c-seacocks', me, 'Close every seacock', 'c-pre', 3));
+        expect(await screen.findByText('Close every seacock')).toBeInTheDocument();
+        expect(screen.queryByText('Close seacocks')).not.toBeInTheDocument();
+
+        await deliver('checklists', 'DELETE', { id: 'c-seacocks' });
+        await waitFor(() => expect(screen.queryByText('Close every seacock')).not.toBeInTheDocument());
+
+        // A background change never collapses the list into the shimmer.
+        expect(shimmer.mounts).toBe(shimmerMountsAfterFirstLoad);
+        expect(screen.getByText('Check bilge pump')).toBeInTheDocument();
+    });
+
+    it('listens to checklists AND their runs on one channel, and reloads after a sync that pulled or pruned', async () => {
+        const me = `user-${accountCounter}`;
+        await signIn(me);
+        await openChecklists([
+            checklistRow('c-pre', me, 'Pre-departure', null, 1),
+            checklistRow('c-bilge', me, 'Check bilge pump', 'c-pre', 2),
+            checklistRow('c-heavy', me, 'Heavy weather', null, 3),
+        ]);
+        await channelFor('checklist_runs');
+        expect(rt.bindings.has('checklists')).toBe(true);
+        expect(rt.channelNames).toHaveLength(1);
+
+        // The socket was down: a pull brings the other device's add.
+        await mergePulledRecords('checklists', [checklistRow('c-jacklines', me, 'Rig jacklines', 'c-heavy', 4)]);
+        act(() => sync.completeListeners.forEach((listener) => listener({ pushed: 0, pulled: 1, errors: [] })));
+        expect(await screen.findByText('Rig jacklines')).toBeInTheDocument();
+
+        // ...and the sweep finds the bilge item was deleted there: nothing pulled.
+        await prunePulledTable('checklists', new Set(['c-pre', 'c-heavy', 'c-jacklines']));
+        act(() =>
+            sync.completeListeners.forEach((listener) => listener({ pushed: 0, pulled: 0, pruned: 1, errors: [] })),
+        );
+        await waitFor(() => expect(screen.queryByText('Check bilge pump')).not.toBeInTheDocument());
+        expect(screen.getByText('Rig jacklines')).toBeInTheDocument();
+    });
+
+    it('an item being edited that is deleted on another device closes its form and says so', async () => {
+        const me = `user-${accountCounter}`;
+        await signIn(me);
+        await openChecklists([
+            checklistRow('c-pre', me, 'Pre-departure', null, 1),
+            checklistRow('c-bilge', me, 'Check bilge pump', 'c-pre', 2),
+            checklistRow('c-seacocks', me, 'Close seacocks', 'c-pre', 3),
+        ]);
+        await channelFor('checklists');
+        vi.mocked(toast.info).mockClear();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Edit checklist item: Close seacocks' }));
+        expect(await screen.findByRole('heading', { name: 'Edit item' })).toBeInTheDocument();
+
+        await deliver('checklists', 'DELETE', { id: 'c-seacocks' });
+        await waitFor(() => expect(screen.queryByRole('heading', { name: 'Edit item' })).not.toBeInTheDocument());
+        expect(toast.info).toHaveBeenCalledWith('Removed on another device');
+        // Nothing was saved into the deleted row.
+        expect(getFullQueue().filter((item) => item.table_name === 'checklists')).toEqual([]);
+
+        // The page's own delete, from the form, is no deletion elsewhere.
+        fireEvent.click(screen.getByRole('button', { name: 'Edit checklist item: Check bilge pump' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Delete item' }));
+        await waitFor(() => expect(screen.queryByText('Check bilge pump')).not.toBeInTheDocument());
+        expect(toast.info).toHaveBeenCalledTimes(1);
+    });
+
+    /** The checklists outbox: each mutation and its payload, oldest first. */
+    const checklistQueue = () =>
+        getFullQueue()
+            .filter((item) => item.table_name === 'checklists')
+            .map((item) => ({ type: item.mutation_type, id: item.record_id, payload: JSON.parse(item.payload) }));
+
+    it('a checklist picked in the add form and deleted elsewhere: the item goes under one still there, and with none left the form closes', async () => {
+        const me = `user-${accountCounter}`;
+        await signIn(me);
+        await openChecklists([
+            checklistRow('c-pre', me, 'Pre-departure', null, 1),
+            checklistRow('c-bilge', me, 'Check bilge pump', 'c-pre', 2),
+            checklistRow('c-heavy', me, 'Heavy weather', null, 3),
+        ]);
+        await channelFor('checklists');
+        vi.mocked(toast.info).mockClear();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Add checklist or item' }));
+        fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'c-heavy' } });
+        await deliver('checklists', 'DELETE', { id: 'c-heavy' });
+        await waitFor(() => expect(screen.queryByRole('option', { name: 'Heavy weather' })).not.toBeInTheDocument());
+
+        fireEvent.change(screen.getByLabelText(/Check item/), { target: { value: 'Rig jacklines' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Add item' }));
+        // Under the checklist the picker shows, never the deleted one.
+        await waitFor(() => expect(checklistQueue().filter((item) => item.type === 'INSERT')).toHaveLength(1));
+        expect(checklistQueue()[0].payload).toMatchObject({ text: 'Rig jacklines', heading_id: 'c-pre' });
+        expect(await screen.findByText('Rig jacklines')).toBeInTheDocument();
+        expect(toast.info).not.toHaveBeenCalled();
+
+        // The last checklist goes too: an item has nowhere to go.
+        await deliver('checklists', 'DELETE', { id: 'c-pre' });
+        await waitFor(() =>
+            expect(screen.queryByRole('heading', { name: 'Add to checklists' })).not.toBeInTheDocument(),
+        );
+        expect(toast.info).toHaveBeenCalledWith('Removed on another device');
+        expect(screen.queryByRole('button', { name: 'Add item' })).not.toBeInTheDocument();
+    });
+
+    it('an edit saves only what was changed here, so a move made on the other device stands', async () => {
+        const me = `user-${accountCounter}`;
+        await signIn(me);
+        await openChecklists([
+            checklistRow('c-pre', me, 'Pre-departure', null, 1),
+            checklistRow('c-seacocks', me, 'Close seacocks', 'c-pre', 2),
+            checklistRow('c-heavy', me, 'Heavy weather', null, 3),
+        ]);
+        await channelFor('checklists');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Edit checklist item: Close seacocks' }));
+        expect(await screen.findByRole('heading', { name: 'Edit item' })).toBeInTheDocument();
+        // The phone moves it under Heavy weather while the form is open here.
+        await deliver('checklists', 'UPDATE', checklistRow('c-seacocks', me, 'Close seacocks', 'c-heavy', 2));
+        await waitFor(() =>
+            expect(LocalChecklistService.getAll().find((e) => e.id === 'c-seacocks')?.heading_id).toBe('c-heavy'),
+        );
+
+        fireEvent.change(screen.getByLabelText(/Check item/), { target: { value: 'Close every seacock' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+        await waitFor(() => expect(checklistQueue()).toHaveLength(1));
+        expect(checklistQueue()[0]).toEqual({
+            type: 'UPDATE',
+            id: 'c-seacocks',
+            payload: { text: 'Close every seacock', updated_at: expect.any(String) },
+        });
+        expect(LocalChecklistService.getAll().find((e) => e.id === 'c-seacocks')).toMatchObject({
+            text: 'Close every seacock',
+            heading_id: 'c-heavy',
+        });
+
+        // A Save with nothing changed writes nothing.
+        fireEvent.click(await screen.findByRole('button', { name: 'Edit checklist item: Heavy weather' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Save changes' }));
+        await waitFor(() => expect(screen.queryByRole('heading', { name: 'Edit checklist' })).not.toBeInTheDocument());
+        expect(checklistQueue()).toHaveLength(1);
     });
 });
 

@@ -1401,6 +1401,16 @@ function collapseGuard(
     return { allowPrune, held: () => held };
 }
 
+/**
+ * Owner-only tables the deletion sweep lists too (126-B9a): RLS shows each
+ * sailor only their own checklists, so they are no shared register and stay
+ * out of TABLE_REGISTER (share, orphan and galley logic are untouched). A list
+ * item deleted on the phone used to linger on the iPad until the six-hourly
+ * full reconciliation. Swept by the same function: same pinned bearer, same
+ * collapse guard.
+ */
+const SWEPT_OWNER_TABLES: ReadonlySet<string> = new Set(['checklists', 'checklist_runs']);
+
 async function pullUpdates(
     forceFull: boolean,
     databaseSession: LocalDatabaseSession,
@@ -1480,14 +1490,15 @@ async function pullUpdates(
     }
 
     // A full snapshot already pruned every table. Otherwise, when asked, list
-    // just the ids of the binder tables and drop clean local rows the server
-    // no longer has: a row deleted on another device while this one was not
-    // listening. Best effort: a failure is retried by the next cycle and never
-    // fails this one, whose incremental pull stands on its own.
+    // just the ids of the binder tables (and the owner-only checklists) and
+    // drop clean local rows the server no longer has: a row deleted on
+    // another device while this one was not listening. Best effort: a failure
+    // is retried by the next cycle and never fails this one, whose
+    // incremental pull stands on its own.
     if (sweepDeletions && !reconcileSnapshot) {
         const galleyLive = isGalleyShareLive();
         for (const table of SYNCABLE_TABLES) {
-            if (!TABLE_REGISTER[table] || missingOptionalTables.has(table)) continue;
+            if (!(TABLE_REGISTER[table] || SWEPT_OWNER_TABLES.has(table)) || missingOptionalTables.has(table)) continue;
             // The galley tables join the sweep once the server can share a
             // galley; before that this cycle reads exactly what it always did.
             if (TABLE_REGISTER[table] === 'galley' && !galleyLive) continue;
