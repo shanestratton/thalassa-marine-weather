@@ -28,6 +28,7 @@ import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { OfflineBadge } from '../ui/OfflineBadge';
 import { FormField } from '../ui/FormField';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
+import { useUndoDelete } from '../../hooks/useUndoDelete';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import {
@@ -93,10 +94,20 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
     // 3-dot menu state
     const [menuOpen, setMenuOpen] = useState(false);
-    const [deletedItem, setDeletedItem] = useState<EquipmentItem | null>(null);
-    const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    /** The item whose delete is pending in deleteTimerRef, so a newer delete can flush it. */
-    const pendingDeleteRef = useRef<(typeof visibleItems)[number] | null>(null);
+    // Soft delete with undo (126-B10a), from the list, its ⋮ sheet and the
+    // detail page alike: the item stays in state, hidden, until its delete is
+    // committed; that replaces 126-B1's hand-built timer (EQ-1).
+    const undoDelete = useUndoDelete<EquipmentItem>({
+        rows: items,
+        commit: (item) => LocalEquipmentService.delete(item.id),
+        // Declared below; called only once a delete has landed.
+        onCommitted: () => loadItems(),
+        onCommitFailed: () => toast.error('Failed to delete equipment'),
+        onRestored: () => toast.success('Equipment restored'),
+        describe: (item) => `"${item.equipment_name}" deleted`,
+    });
+    const { hiddenIds } = undoDelete;
+    const { key: undoToastKey, ...undoToastProps } = undoDelete.toastProps;
     const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const mountedRef = useRef(true);
 
@@ -131,9 +142,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         mountedRef.current = true;
         loadItems();
         const unsubscribe = subscribeAuthIdentityScope((next) => {
-            if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
             if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
-            deleteTimerRef.current = null;
             setDataScopeKey(next.key);
             setItems([]);
             setLoading(true);
@@ -143,7 +152,6 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             setShowEditForm(false);
             setContextItem(null);
             setMenuOpen(false);
-            setDeletedItem(null);
             setNewName('');
             setNewCategory('Propulsion');
             setNewMake('');
@@ -158,9 +166,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         });
         return () => {
             mountedRef.current = false;
-            if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
             if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
-            deleteTimerRef.current = null;
             reloadTimerRef.current = null;
             unsubscribe();
         };
@@ -172,16 +178,21 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     const { ref: listRef, flash } = useSuccessFlash();
 
     // ── Filtered + grouped items ──
-    const visibleItems = useMemo(
+    const scopedItems = useMemo(
         () => (dataScopeKey === getAuthIdentityScope().key ? items : []),
         [dataScopeKey, items],
+    );
+    // What is on screen and counted: an item waiting out its undo is hidden.
+    const visibleItems = useMemo(
+        () => (hiddenIds.size > 0 ? scopedItems.filter((item) => !hiddenIds.has(item.id)) : scopedItems),
+        [scopedItems, hiddenIds],
     );
     // Whose register this is (shared binders, 2026-10-02): the skipper's while
     // this sailor is crew on a boat that shares Equipment. Crew may edit it
     // (the database has no view-only form), but deletes are the skipper's.
     const { source: binder, fetchingSkipperBinder } = useBinderSource('equipment', {
         reload: loadItems,
-        rowCount: visibleItems.length,
+        rowCount: scopedItems.length,
     });
     const sharedBinder = binder.mode === 'shared';
     // Memoised on the two inputs that matter — this used to re-filter, re-sort
@@ -251,68 +262,18 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [newName, newCategory, newMake, newModel, newSerial, newInstallDate, newWarrantyExpiry, newNotes, loadItems]);
 
+    const { remove: removeItem } = undoDelete;
     const handleDelete = useCallback(
         (id: string) => {
-            const scope = getAuthIdentityScope();
             const item = visibleItems.find((i) => i.id === id);
             if (!item) return;
             triggerHaptic('medium');
-            // Remove from UI immediately
-            setItems((prev) => prev.filter((i) => i.id !== id));
             setSelectedItem(null);
             setContextItem(null);
-            setDeletedItem(item);
-
-            // A second delete inside the window used to CANCEL the first item's
-            // timer, so that item silently survived in storage while gone from
-            // the list (audit 2026-09-02). Flush the pending delete now instead.
-            if (deleteTimerRef.current) {
-                clearTimeout(deleteTimerRef.current);
-                deleteTimerRef.current = null;
-                const previous = pendingDeleteRef.current;
-                if (previous) {
-                    pendingDeleteRef.current = null;
-                    void LocalEquipmentService.delete(previous.id).catch((e) => {
-                        log.warn(' delete failed:', e);
-                        if (currentOperation(scope)) toast.error('Failed to delete equipment');
-                    });
-                }
-            }
-            pendingDeleteRef.current = item;
-            // Schedule actual delete after 5s
-            deleteTimerRef.current = setTimeout(async () => {
-                deleteTimerRef.current = null;
-                pendingDeleteRef.current = null;
-                if (!currentOperation(scope)) return;
-                try {
-                    await LocalEquipmentService.delete(id);
-                } catch (e) {
-                    log.warn(' delete failed:', e);
-                    if (currentOperation(scope)) {
-                        toast.error('Failed to delete equipment');
-                        setItems((prev) => [...prev, item]);
-                    }
-                }
-                if (currentOperation(scope)) setDeletedItem(null);
-            }, 5000);
+            removeItem(item);
         },
-        [currentOperation, visibleItems],
+        [removeItem, visibleItems],
     );
-
-    const handleUndoDelete = useCallback(() => {
-        const scope = getAuthIdentityScope();
-        if (!currentOperation(scope)) return;
-        if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-        // Nothing is pending any more: the next delete must not "flush" the
-        // item just restored (audit EQ-1). 126-B10a replaces this timer.
-        deleteTimerRef.current = null;
-        pendingDeleteRef.current = null;
-        if (deletedItem) {
-            setItems((prev) => [...prev, deletedItem]);
-            toast.success('Equipment restored');
-        }
-        setDeletedItem(null);
-    }, [currentOperation, deletedItem]);
 
     const handleCopySerial = (serial: string) => {
         const scope = getAuthIdentityScope();
@@ -932,12 +893,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                 </ModalSheet>
             )}
 
-            <UndoToast
-                isOpen={!!deletedItem}
-                message={`"${deletedItem?.equipment_name}" deleted`}
-                onUndo={handleUndoDelete}
-                onDismiss={() => setDeletedItem(null)}
-            />
+            <UndoToast key={undoToastKey} {...undoToastProps} />
         </div>
     );
 };

@@ -3,18 +3,37 @@
  *
  * Automatically dismisses after `duration` ms unless user clicks Undo.
  * Renders as a fixed bottom bar so it doesn't block the UI.
+ *
+ * With a `deadline`, a toast mounted part-way through its window (its page
+ * hid it behind a detail view, then showed it again) waits only the time left
+ * and its bar starts part-drained, instead of offering a fresh five seconds
+ * the delete no longer has.
  */
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface UndoToastProps {
     message: string;
     isOpen: boolean;
     duration?: number;
+    /** Date.now() when the window closes, if it opened before this toast mounted. */
+    deadline?: number;
     onUndo: () => void;
     onDismiss: () => void;
 }
 
-export const UndoToast: React.FC<UndoToastProps> = ({ message, isOpen, duration = 5000, onUndo, onDismiss }) => {
+export const UndoToast: React.FC<UndoToastProps> = ({
+    message,
+    isOpen,
+    duration = 5000,
+    deadline,
+    onUndo,
+    onDismiss,
+}) => {
+    // How much of the window had gone when this toast mounted.
+    const [elapsed] = useState(() =>
+        deadline === undefined ? 0 : Math.min(duration, Math.max(0, duration - (deadline - Date.now()))),
+    );
+    const remaining = duration - elapsed;
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const onDismissRef = useRef(onDismiss);
     onDismissRef.current = onDismiss;
@@ -23,12 +42,12 @@ export const UndoToast: React.FC<UndoToastProps> = ({ message, isOpen, duration 
 
     useEffect(() => {
         if (!isOpen) return;
-        timerRef.current = setTimeout(() => onDismissRef.current(), duration);
+        timerRef.current = setTimeout(() => onDismissRef.current(), remaining);
 
         return () => {
             if (timerRef.current) clearTimeout(timerRef.current);
         };
-    }, [isOpen, duration]);
+    }, [isOpen, remaining]);
 
     if (!isOpen) return null;
 
@@ -70,7 +89,12 @@ export const UndoToast: React.FC<UndoToastProps> = ({ message, isOpen, duration 
                 <div className="mt-2 h-0.5 bg-white/5 rounded-full overflow-hidden">
                     <div
                         className="h-full bg-amber-500/40 rounded-full"
-                        style={{ animation: `undoProgress ${duration}ms linear forwards` }}
+                        style={{
+                            animation:
+                                elapsed > 0
+                                    ? `undoProgress ${duration}ms linear -${elapsed}ms forwards`
+                                    : `undoProgress ${duration}ms linear forwards`,
+                        }}
                     />
                 </div>
             </div>

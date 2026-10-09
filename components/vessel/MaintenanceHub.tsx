@@ -35,6 +35,7 @@ import { UndoToast } from '../ui/UndoToast';
 import { ModalSheet } from '../ui/ModalSheet';
 import { useMaintenanceForm } from '../../hooks/useMaintenanceForm';
 import { useRealtimeSyncMulti } from '../../hooks/useRealtimeSync';
+import { useUndoDelete } from '../../hooks/useUndoDelete';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { CATEGORIES } from './maintenance/constants';
 import { ServiceLogSheet } from './maintenance/ServiceLogSheet';
@@ -114,6 +115,25 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     }));
     const taskDataIsCurrent = isAuthIdentityScopeCurrent(taskData.identity);
     const tasks = useMemo(() => (taskDataIsCurrent ? taskData.tasks : []), [taskData.tasks, taskDataIsCurrent]);
+    // Soft delete with undo (126-B10a): a deleted task stays in state, hidden,
+    // until its delete is committed (on Back too: this view has no keep-alive),
+    // so no reload brings it back and Undo returns it once, in its place. The
+    // seed guard below reads the service's rows, never this filtered list.
+    const undoDelete = useUndoDelete<MaintenanceTask>({
+        rows: taskData.tasks,
+        commit: (task) => MaintenanceService.deleteTask(task.id),
+        // Declared below; called only once a delete has landed.
+        onCommitted: () => void loadTasks(getAuthIdentityScope(), true),
+        onCommitFailed: () => toast.error('Failed to delete task'),
+        onRestored: () => toast.success('Task restored'),
+        describe: (task) => `"${task.title}" deleted`,
+    });
+    const { hiddenIds } = undoDelete;
+    const { key: undoToastKey, ...undoToastProps } = undoDelete.toastProps;
+    const visibleTasks = useMemo(
+        () => (hiddenIds.size > 0 ? tasks.filter((task) => !hiddenIds.has(task.id)) : tasks),
+        [tasks, hiddenIds],
+    );
     // null until the skipper has entered a figure — a bold "0" read as a
     // real reading and hour-based tasks counted from it. The R&M binder's
     // shared reading (LocalEngineHoursService): the skipper's while crewing
@@ -381,7 +401,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     }, [engineHours, engineHoursCanEdit]);
 
     const tasksWithStatus = useMemo(() => {
-        const withStatus = tasks.map((t) => {
+        const withStatus = visibleTasks.map((t) => {
             const hasHours = t.next_due_hours !== null && t.next_due_hours !== undefined;
             if (engineHours !== null || (!hasHours && t.trigger_type !== 'engine_hours')) {
                 return calculateStatus(t, engineHours ?? 0);
@@ -404,7 +424,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             if (catA !== catB) return catA - catB;
             return a.title.localeCompare(b.title);
         });
-    }, [tasks, engineHours]);
+    }, [visibleTasks, engineHours]);
 
     // Group tasks by category for rendering
     const groupedTasks = useMemo(() => {
@@ -420,13 +440,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // they were added. Until the skipper logs a service, say so, rather than
     // letting "Due in 1 day" read like confirmed work.
     const showSuggestedNote = useMemo(() => {
-        if (!taskDataIsCurrent || tasks.length === 0 || tasks.some((t) => t.last_completed)) return false;
+        if (!taskDataIsCurrent || visibleTasks.length === 0 || visibleTasks.some((t) => t.last_completed)) return false;
         try {
             return !!localStorage.getItem(authScopedStorageKey('thalassa_maintenance_seeded', taskData.identity));
         } catch {
             return false;
         }
-    }, [tasks, taskData.identity, taskDataIsCurrent]);
+    }, [visibleTasks, taskData.identity, taskDataIsCurrent]);
 
     // Status counts for the header. Grey tasks are counted too, by reason, so
     // the chips add up to the task list (UX scorecard run 6: '3 due · 36 ok'
@@ -605,11 +625,6 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         [engineHours, vesselName],
     );
 
-    const [deletedTask, setDeletedTask] = useState<{
-        identity: AuthIdentityScope;
-        task: MaintenanceTask;
-    } | null>(null);
-
     useEffect(
         () =>
             subscribeAuthIdentityScope((next) => {
@@ -633,76 +648,24 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 setShowExportModal(false);
                 setMenuOpen(false);
                 setExporting(false);
-                setDeletedTask(null);
 
                 void loadTasks(next);
             }),
         [loadTasks, resetForm],
     );
 
-    // ── Soft-delete with undo ──
+    // ── Soft-delete with undo (useUndoDelete above) ──
+    const { remove: removeTask } = undoDelete;
     const handleDeleteTask = useCallback(
         (taskId: string, identity: AuthIdentityScope = getAuthIdentityScope()) => {
-            const task = tasks.find((t) => t.id === taskId);
+            const task = visibleTasks.find((t) => t.id === taskId);
             if (!task || !isAuthIdentityScopeCurrent(identity)) return;
             triggerHaptic('medium');
-            // Remove from UI immediately
-            setTaskData((previous) =>
-                previous.identity.key === identity.key && previous.identity.generation === identity.generation
-                    ? { ...previous, tasks: previous.tasks.filter((candidate) => candidate.id !== taskId) }
-                    : previous,
-            );
             setSheetTask(null);
-            // The undo slot holds ONE task. Replacing it used to orphan the
-            // previous one: gone from the list, never deleted from storage,
-            // back on the next load (audit 2026-09-02). Commit the pending
-            // delete now, then take the slot.
-            setDeletedTask((pending) => {
-                if (pending && isAuthIdentityScopeCurrent(pending.identity)) {
-                    void MaintenanceService.deleteTask(pending.task.id).catch((e) => {
-                        log.warn(' delete failed:', e);
-                        if (isAuthIdentityScopeCurrent(pending.identity)) toast.error('Failed to delete task');
-                    });
-                }
-                return { identity, task };
-            });
+            removeTask(task);
         },
-        [tasks],
+        [removeTask, visibleTasks],
     );
-
-    // Called by UndoToast after 5s — performs the actual API delete
-    const handleDismissDelete = useCallback(async () => {
-        if (!deletedTask) return;
-        const { identity, task } = deletedTask;
-        setDeletedTask(null);
-        if (!isAuthIdentityScopeCurrent(identity)) return;
-        try {
-            await MaintenanceService.deleteTask(task.id);
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-        } catch (e) {
-            log.warn(' delete failed:', e);
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            toast.error('Failed to delete task');
-            setTaskData((previous) =>
-                previous.identity.key === identity.key && previous.identity.generation === identity.generation
-                    ? { ...previous, tasks: [...previous.tasks, task] }
-                    : previous,
-            );
-        }
-    }, [deletedTask]);
-
-    const handleUndoDelete = useCallback(() => {
-        if (deletedTask && isAuthIdentityScopeCurrent(deletedTask.identity)) {
-            const { identity, task } = deletedTask;
-            setTaskData((previous) =>
-                previous.identity.key === identity.key && previous.identity.generation === identity.generation
-                    ? { ...previous, tasks: [...previous.tasks, task] }
-                    : previous,
-            );
-            toast.success('Task restored');
-        }
-        setDeletedTask(null);
-    }, [deletedTask]);
 
     // ── Edit Task ──
     const openEditForm = useCallback(
@@ -1415,12 +1378,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 )}
             </div>
 
-            <UndoToast
-                isOpen={!!deletedTask}
-                message={`"${deletedTask?.task.title}" deleted`}
-                onUndo={handleUndoDelete}
-                onDismiss={handleDismissDelete}
-            />
+            <UndoToast key={undoToastKey} {...undoToastProps} />
         </div>
     );
 };

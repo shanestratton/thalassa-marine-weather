@@ -25,6 +25,7 @@ import { OfflineBadge } from '../ui/OfflineBadge';
 import { AlertTriangleIcon, CheckIcon, ClockIcon } from '../icons/UIIcons';
 import { CloudIcon } from '../icons/WeatherIcons';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
+import { useUndoDelete } from '../../hooks/useUndoDelete';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { SwipeableDocCard, getExpiryStatus } from './documents/SwipeableDocCard';
 import { DocumentForm, CATEGORIES } from './documents/DocumentForm';
@@ -193,7 +194,24 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     const [formNotes, setFormNotes] = useState('');
     const [formFileUri, setFormFileUri] = useState<string | null>(null);
     const [formFileName, setFormFileName] = useState<string | null>(null);
-    const [deletedDoc, setDeletedDoc] = useState<ShipDocument | null>(null);
+    // Soft delete with undo (126-B10a): the document stays in state, hidden,
+    // until its delete is committed. The commit is fenced on the account, not
+    // on the page being open, so a delete flushed by Back or by the phone
+    // locking still marks the cloud copy deleted.
+    const undoDelete = useUndoDelete<ShipDocument>({
+        rows: documents,
+        // Declared below; called only once a delete has landed.
+        onCommitted: () => loadDocs(),
+        commit: async (doc, scope) => {
+            await LocalDocumentService.delete(doc.id);
+            if (isAuthIdentityScopeCurrent(scope)) DocumentSyncService.markDeleted(doc.id);
+        },
+        onCommitFailed: () => toast.error('Failed to delete document'),
+        onRestored: () => toast.success('Document restored'),
+        describe: (doc) => `"${doc.document_name}" deleted`,
+    });
+    const { hiddenIds } = undoDelete;
+    const { key: undoToastKey, ...undoToastProps } = undoDelete.toastProps;
     const mountedRef = React.useRef(true);
     const fileReadVersionRef = React.useRef(0);
     const reloadTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -245,7 +263,6 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             setFormNotes('');
             setFormFileUri(null);
             setFormFileName(null);
-            setDeletedDoc(null);
             reloadTimerRef.current = setTimeout(() => {
                 if (isAuthIdentityScopeCurrent(next)) loadDocs();
             }, 0);
@@ -286,10 +303,11 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     }, [currentOperation, loadDocs]);
 
     // ── Filtered ──
-    const visibleDocuments = useMemo(
-        () => (dataScopeKey === getAuthIdentityScope().key ? documents : []),
-        [dataScopeKey, documents],
-    );
+    // On screen, counted and selectable: a document waiting out its undo is hidden.
+    const visibleDocuments = useMemo(() => {
+        if (dataScopeKey !== getAuthIdentityScope().key) return [];
+        return hiddenIds.size > 0 ? documents.filter((doc) => !hiddenIds.has(doc.id)) : documents;
+    }, [dataScopeKey, documents, hiddenIds]);
     // Memoised: this ran a toLowerCase() per document per render, and the
     // search box re-renders the hub on every keystroke.
     const filtered = useMemo(() => {
@@ -394,63 +412,23 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editDoc, formName, formCategory, formIssueDate, formExpiryDate, formNotes, formFileUri, loadDocs]);
 
+    const { remove: removeDoc } = undoDelete;
     const handleDelete = useCallback(
         (id: string) => {
             const doc = visibleDocuments.find((d) => d.id === id);
             if (!doc) return;
             triggerHaptic('medium');
-            // Remove from UI immediately
-            setDocuments((prev) => prev.filter((d) => d.id !== id));
-            // One undo slot: commit whatever is already pending before taking
-            // it, or the earlier document is never deleted locally nor marked
-            // deleted for cloud sync (audit 2026-09-02).
-            setDeletedDoc((pending) => {
-                if (pending) {
-                    const scope = getAuthIdentityScope();
-                    void LocalDocumentService.delete(pending.id)
-                        .then(() => {
-                            if (currentOperation(scope)) DocumentSyncService.markDeleted(pending.id);
-                        })
-                        .catch((e) => {
-                            log.warn(' delete failed:', e);
-                            if (currentOperation(scope)) toast.error('Failed to delete document');
-                        });
-                }
-                return doc;
+            // A deleted document leaves the batch selection too.
+            setSelectedIds((previous) => {
+                if (!previous.has(id)) return previous;
+                const next = new Set(previous);
+                next.delete(id);
+                return next;
             });
+            removeDoc(doc);
         },
-        [currentOperation, visibleDocuments],
+        [removeDoc, visibleDocuments],
     );
-
-    // Called by UndoToast after 5s — performs the actual delete
-    const handleDismissDelete = useCallback(async () => {
-        if (!deletedDoc) return;
-        const scope = getAuthIdentityScope();
-        if (!currentOperation(scope)) return;
-        const doc = deletedDoc;
-        setDeletedDoc(null);
-        try {
-            await LocalDocumentService.delete(doc.id);
-            if (!currentOperation(scope)) return;
-            DocumentSyncService.markDeleted(doc.id);
-        } catch (e) {
-            log.warn(' delete failed:', e);
-            if (currentOperation(scope)) {
-                toast.error('Failed to delete document');
-                setDocuments((prev) => [...prev, doc]);
-            }
-        }
-    }, [currentOperation, deletedDoc]);
-
-    const handleUndoDelete = useCallback(() => {
-        const scope = getAuthIdentityScope();
-        if (!currentOperation(scope)) return;
-        if (deletedDoc) {
-            setDocuments((prev) => [...prev, deletedDoc]);
-            toast.success('Document restored');
-        }
-        setDeletedDoc(null);
-    }, [currentOperation, deletedDoc]);
 
     const handleOpenDoc = async (doc: ShipDocument) => {
         const scope = getAuthIdentityScope();
@@ -844,12 +822,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     </ModalSheet>
                 )}
             </div>
-            <UndoToast
-                isOpen={!!deletedDoc}
-                message={`"${deletedDoc?.document_name}" deleted`}
-                onUndo={handleUndoDelete}
-                onDismiss={handleDismissDelete}
-            />
+            <UndoToast key={undoToastKey} {...undoToastProps} />
         </div>
     );
 };

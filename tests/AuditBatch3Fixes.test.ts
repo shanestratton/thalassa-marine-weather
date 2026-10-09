@@ -71,13 +71,22 @@ describe('source-pinned fixes', () => {
         for (const tab of src.match(/tab: '([^']+)'/g)!.map((m) => m.slice(6, -1)))
             expect(app).toContain(`label="${tab.toLowerCase()}"`);
     });
-    it('the four undo slots commit the pending delete before being replaced', () => {
-        expect(read('components/vessel/MaintenanceHub.tsx')).toMatch(/setDeletedTask\(\(pending\) =>/);
-        expect(read('components/vessel/InventoryList.tsx')).toMatch(/setDeletedItem\(\(pending\) =>/);
-        expect(read('components/vessel/DocumentsHub.tsx')).toMatch(/setDeletedDoc\(\(pending\) =>/);
-        const eq = read('components/vessel/EquipmentList.tsx');
-        expect(eq).toMatch(/pendingDeleteRef\.current = item;/);
-        expect(eq).toMatch(/LocalEquipmentService\.delete\(previous\.id\)/);
+    it('the four binders share one undo slot, with no commit inside a state updater (126-B10a)', () => {
+        // The behaviour (commit on a newer delete, on unmount, on background;
+        // a fresh five seconds each) is in tests/BinderUndoDelete.test.tsx.
+        for (const page of [
+            'components/vessel/MaintenanceHub.tsx',
+            'components/vessel/InventoryList.tsx',
+            'components/vessel/DocumentsHub.tsx',
+            'components/vessel/EquipmentList.tsx',
+        ]) {
+            const src = read(page);
+            expect(src).toMatch(/import \{ useUndoDelete \} from '\.\.\/\.\.\/hooks\/useUndoDelete';/);
+            expect(src).not.toMatch(/setDeletedTask\(\(pending\) =>/);
+            expect(src).not.toMatch(/setDeletedItem\(\(pending\) =>/);
+            expect(src).not.toMatch(/setDeletedDoc\(\(pending\) =>/);
+            expect(src).not.toMatch(/deleteTimerRef/);
+        }
     });
     it('NMEA connect refuses an empty host or an out-of-range port with a message', () => {
         const src = read('components/vessel/NmeaPage.tsx');
