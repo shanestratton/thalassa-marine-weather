@@ -78,7 +78,12 @@ const pane = params.get('pane') === 'true';
 const light = params.get('display') === 'light';
 document.documentElement.classList.toggle('display-light', light);
 // Large text: the root size the draft and Move-anchor fixtures use for the same check.
-document.documentElement.style.fontSize = params.has('largeText') ? '24px' : '16px';
+// root=app: the app's own fluid root on a phone (index.css), 13 px on a 320 SE, 15 on a 375, 17 on a Pro Max.
+document.documentElement.style.fontSize = params.has('largeText')
+    ? '24px'
+    : params.get('root') === 'app'
+      ? 'clamp(13px, 4vw, 17px)'
+      : '16px';
 if (params.get('fonts') === 'wide') {
     const wide = document.createElement('style');
     wide.textContent = ":root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; }";

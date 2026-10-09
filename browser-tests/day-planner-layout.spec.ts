@@ -29,16 +29,45 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
 // The phone's clock, deliberately not the place's.
 test.use({ timezoneId: 'Europe/London' });
 
-const sizes = [
+/**
+ * Phones as the app draws them. The fixture's root is a fixed 16 px; the app's
+ * is fluid on a phone (index.css: clamp(13px, 4vw, 17px), so 13 px on a 320
+ * SE, 15 on a 375, 17 on a Pro Max), and a browser draws the status bar and
+ * home bar as 0. So each height here has taken off what the phone's own insets
+ * add to the overlay's padding (the house approach, sign-in-layout.spec.ts): a
+ * 320 x 568 SE's 20 pt status bar adds 7 over its 1rem, a 375 x 667 SE's adds
+ * 5, and Shane's 430 x 932 adds 42 above and 34 below. Each sheet then gets the
+ * room it gets on the phone: 483, 572 and 754 px.
+ */
+type Size = {
+    name: string;
+    width: number;
+    height: number;
+    query: string;
+    stops: number;
+    mayScroll: boolean;
+    landscape?: boolean;
+};
+const AS_DRAWN: Record<'se' | 'se2' | 'shane', Size> = {
+    se: { name: '320x568 as drawn', width: 320, height: 561, query: '&root=app', stops: 2, mayScroll: false },
+    se2: { name: '375x667 as drawn', width: 375, height: 662, query: '&root=app', stops: 3, mayScroll: false },
+    shane: { name: '430x932 as drawn', width: 430, height: 856, query: '&root=app', stops: 3, mayScroll: false },
+};
+
+const sizes: Size[] = [
     { name: '320x568', width: 320, height: 568, query: '', stops: 2, mayScroll: false },
     { name: '375x667', width: 375, height: 667, query: '', stops: 3, mayScroll: false },
     { name: '390x844', width: 390, height: 844, query: '', stops: 3, mayScroll: false },
+    // Shane's own phone (2026-10-09, Port of Airlie Marina): the sheet's spacing at its most.
+    { name: '430x932', width: 430, height: 932, query: '', stops: 3, mayScroll: false },
     { name: '844x390 landscape', width: 844, height: 390, query: '', stops: 2, mayScroll: false, landscape: true },
     { name: '926x428 landscape', width: 926, height: 428, query: '', stops: 2, mayScroll: false, landscape: true },
     { name: '932x430 landscape', width: 932, height: 430, query: '', stops: 2, mayScroll: false, landscape: true },
     { name: '1024x768 split pane', width: 1024, height: 768, query: '&pane=true', stops: 3, mayScroll: false },
     { name: 'large text 320x568', width: 320, height: 568, query: '&largeText', stops: 2, mayScroll: true },
     { name: 'large text 390x844', width: 390, height: 844, query: '&largeText', stops: 3, mayScroll: true },
+    // His phone again, as the app draws it: its bigger root type and its spacing at the most, in less room.
+    AS_DRAWN.shane,
 ];
 const modes = [
     'normal',
@@ -193,10 +222,16 @@ function layoutIssues(page: Page, mayScroll: boolean) {
                 issues.push(`"${control.textContent?.trim()}" leaves its ${last[0].data[last[1]]} alone on a line`);
         }
         // The stop's name is what she is looking for: the shelter word gives way, never the name.
+        // Measured to the fraction of a pixel: a name 0.05 px short already draws its ellipsis,
+        // and scrollWidth rounds that away.
         if (!mayScroll)
-            for (const name of card.querySelectorAll<HTMLElement>('.today-stop-name'))
-                if (name.getClientRects().length && name.scrollWidth > name.clientWidth + 1)
+            for (const name of card.querySelectorAll<HTMLElement>('.today-stop-name')) {
+                if (!name.getClientRects().length) continue;
+                const text = document.createRange();
+                text.selectNodeContents(name);
+                if (text.getBoundingClientRect().width > name.getBoundingClientRect().width + 0.02)
                     issues.push(`the stop name "${name.textContent}" is cut`);
+            }
         if (document.documentElement.scrollWidth > innerWidth) issues.push('the page scrolls sideways');
         if (card.scrollWidth > card.clientWidth + 1) issues.push('the card overflows sideways');
         return issues;
@@ -343,9 +378,9 @@ for (const size of sizes.filter((s) => !s.mayScroll)) {
     });
 }
 
-for (const size of [sizes[0], sizes[2]]) {
+for (const size of [sizes[0], sizes[2], sizes[3], AS_DRAWN.shane]) {
     test(`an overnight stay fits ${size.name}, and so does its stop's detail`, async ({ page }) => {
-        const errors = await open(page, size, '&mode=normal');
+        const errors = await open(page, size, `&mode=normal${size.query}`);
         const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
         await dialog.getByRole('combobox', { name: 'Stay' }).selectOption('overnight');
         await expect(dialog.locator('.today-stay')).toContainText('Overnight');
@@ -382,3 +417,198 @@ test('Plot on chart hands the chart straight pins there and back, and closes the
     expect(plotted[0].kind).toBe('plot-day');
     expect(plotted[0].points).toHaveLength(3);
 });
+
+/**
+ * Room to breathe (build 125, 125-16). Shane 2026-10-09, sending Plan Your Day
+ * on his 430 x 932 phone at a marina: "can we tidy up the Plan you day layout
+ * as well. it is a bit cramped for no reason". Build 124 packed screen 1 at
+ * 3-4 px so it fits an SE, and every bigger phone kept the SE's spacing. The
+ * spacing now grows with the room the sheet is given (its overlay, between the
+ * status bar and the tab bar): an SE and phone landscape keep build 124's to
+ * the pixel, on the fixture's root and on the app's own (AS_DRAWN); a tall
+ * phone gets 10 px and more between the day chips, the tiles, the headline and
+ * the stop rows, Shane's own as drawn too. Same content, same order, nothing
+ * scrolls that did not, every target 44 pt, the card clear of the status bar
+ * and the tab bar, and the type steps up a little with its order kept:
+ * headline, stop name, details, credit.
+ */
+const BUILD_124 = {
+    gaps: {
+        'header → day': 3,
+        'day → tiles': 3,
+        'tiles → headline': 3,
+        'headline → light': 3,
+        'light → stops': 3,
+        'stop → stop': 3,
+        'stops → footer': 0,
+    } as Record<string, number>,
+    // A 320 pt phone's card is 6 px in from its edges (the 359 px rule); every other phone's 8.
+    cardPad: (width: number) => (width < 360 ? 6 : 8),
+    tilePad: [2, 6],
+    tileFromRule: 6,
+    stopPad: [3, 6],
+    // At the fixture's 16 px root; the type is in rem, so it scales with the app's root.
+    type: { headline: 14, stopName: 13, details: 11, light: 11, credit: 11 },
+};
+
+/** The gaps between screen 1's blocks and the sizes that set them, measured in the page. */
+function breathing(page: Page) {
+    return page.evaluate(() => {
+        const card = document.querySelector<HTMLElement>('.today-main')!;
+        const box = (selector: string) => card.querySelector(selector)!.getBoundingClientRect();
+        const rows = [...card.querySelectorAll<HTMLElement>('.today-stops > li')]
+            .filter((li) => getComputedStyle(li).display !== 'none')
+            .map((li) => li.getBoundingClientRect());
+        const between = (a: DOMRect, b: DOMRect) => Math.round((b.top - a.bottom) * 10) / 10;
+        // Phone landscape puts the light and the stops in the right-hand column.
+        const portrait = box('.today-col-b').top >= box('.today-col-a').bottom - 0.5;
+        const gaps: Record<string, number> = {
+            'header → day': between(box('.today-head'), box('.today-controls')),
+            'day → tiles': between(box('.today-controls'), box('.today-verdict')),
+            'tiles → headline': between(box('.today-verdict'), box('.today-headline')),
+            'light → stops': between(box('.today-facts'), box('.today-stops')),
+            'stop → stop': between(rows[0], rows[1]),
+        };
+        if (portrait) {
+            gaps['headline → light'] = between(box('.today-headline'), box('.today-facts'));
+            gaps['stops → footer'] = between(rows[rows.length - 1], box('.today-foot'));
+        }
+        const px = (el: Element | null, property: string) =>
+            el ? parseFloat(getComputedStyle(el).getPropertyValue(property)) : NaN;
+        const cell = card.querySelector('.today-cell')!;
+        const stop = card.querySelector('.today-stop')!;
+        const label = card.querySelector('.today-cell-label')!.getBoundingClientRect();
+        const cellBox = cell.getBoundingClientRect();
+        // The header row: the place button, ⓘ and ✕, measured as drawn.
+        const place = box('.today-place');
+        const [info, close] = [...card.querySelectorAll('.today-head > .today-icon')].map((b) =>
+            b.getBoundingClientRect(),
+        );
+        const centre = (r: DOMRect) => r.top + r.height / 2;
+        // The day chips and Stay: one row, none cut, none overlapping.
+        const chips = [...card.querySelectorAll<HTMLElement>('.today-controls .today-chip')];
+        const chipBoxes = chips.map((c) => c.getBoundingClientRect());
+        return {
+            root: px(document.documentElement, 'font-size'),
+            portrait,
+            gaps,
+            cardPad: [px(card, 'padding-left'), px(card, 'padding-right'), px(card, 'padding-bottom')],
+            tilePad: [px(cell, 'padding-top'), px(cell, 'padding-left')],
+            tileFromRule: Math.round((label.left - cellBox.left - px(cell, 'border-left-width')) * 10) / 10,
+            stopPad: [px(stop, 'padding-top'), px(stop, 'padding-left')],
+            type: {
+                headline: px(card.querySelector('.today-headline'), 'font-size'),
+                stopName: px(card.querySelector('.today-stop-name'), 'font-size'),
+                details: px(card.querySelector('.today-stop-l2'), 'font-size'),
+                light: px(card.querySelector('.today-facts'), 'font-size'),
+                credit: px(card.querySelector('.today-credit'), 'font-size'),
+            },
+            header: {
+                infoOffCentre: Math.abs(centre(info) - centre(place)),
+                closeOffCentre: Math.abs(centre(close) - centre(place)),
+                placeToInfo: Math.round((info.left - place.right) * 10) / 10,
+                infoToClose: Math.round((close.left - info.right) * 10) / 10,
+                cardToClose: Math.round((card.getBoundingClientRect().right - close.right) * 10) / 10,
+            },
+            chips: {
+                oneRow: chipBoxes.every((r) => Math.abs(r.top - chipBoxes[0].top) < 1),
+                overlapping: chipBoxes.some((r, i) => i > 0 && r.left < chipBoxes[i - 1].right - 0.5),
+                // Its words, not the invisible Stay menu laid over it, inside the chip's border.
+                cut: chips
+                    .filter((c) => {
+                        const words = [...c.childNodes].filter((n) => n.nodeName !== 'SELECT');
+                        const range = document.createRange();
+                        range.setStartBefore(words[0]);
+                        range.setEndAfter(words[words.length - 1]);
+                        const text = range.getBoundingClientRect();
+                        const chip = c.getBoundingClientRect();
+                        return text.left < chip.left + 0.5 || text.right > chip.right - 0.5;
+                    })
+                    .map((c) => c.textContent),
+            },
+            // The stop's details keep their one line: leave, there, home.
+            detailsWrapped: [...card.querySelectorAll<HTMLElement>('.today-stop-l2')]
+                .filter((l) => l.getClientRects().length)
+                .some(
+                    (l) =>
+                        l.getClientRects().length > 1 || l.getBoundingClientRect().height > px(l, 'line-height') * 1.5,
+                ),
+            card: {
+                above: Math.round(card.getBoundingClientRect().top - card.parentElement!.getBoundingClientRect().top),
+                height: Math.round(card.getBoundingClientRect().height),
+            },
+        };
+    });
+}
+
+const roomSizes = [
+    { ...sizes[0], room: 'an SE' },
+    { ...sizes[2], room: 'a tall phone' },
+    { ...sizes[3], room: 'the tallest phone' },
+    { ...sizes[4], room: 'phone landscape' },
+    { ...AS_DRAWN.se, room: 'an SE' },
+    { ...AS_DRAWN.se2, room: 'an SE' },
+    { ...AS_DRAWN.shane, room: 'the tallest phone' },
+] as const;
+
+for (const size of roomSizes) {
+    test(`room to breathe at ${size.name} (${size.room})`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=normal${size.query}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
+        await expect(stops.first().locator('.today-stop-l2')).toHaveText(/^Leave /);
+        await expect.poll(() => visibleStops(page)).toBe(size.stops);
+        const m = await breathing(page);
+        // Build 124's type on this root (16 px in the fixture, 13-17 px as the app draws it).
+        const type124 = Object.fromEntries(
+            Object.entries(BUILD_124.type).map(([key, value]) => [key, (value * m.root) / 16]),
+        ) as typeof BUILD_124.type;
+        const grows = size.room === 'a tall phone' || size.room === 'the tallest phone';
+        if (!grows) {
+            // An SE and phone landscape: build 124's spacing and type, to the pixel.
+            const today = Object.fromEntries(Object.keys(m.gaps).map((key) => [key, BUILD_124.gaps[key]]));
+            expect(m.gaps).toEqual(today);
+            const pad = BUILD_124.cardPad(size.width);
+            expect(m.cardPad).toEqual([pad, pad, pad]);
+            expect(m.tilePad).toEqual(BUILD_124.tilePad);
+            expect(m.tileFromRule).toBe(BUILD_124.tileFromRule);
+            expect(m.stopPad).toEqual(BUILD_124.stopPad);
+            expect(m.type).toEqual(type124);
+        } else {
+            // Every gap grows; the ones she reads down the sheet by are 10 px and more on his phone.
+            for (const [key, gap] of Object.entries(m.gaps))
+                expect(gap, `${key} grows`).toBeGreaterThan(BUILD_124.gaps[key]);
+            if (size.room === 'the tallest phone')
+                for (const key of ['day → tiles', 'tiles → headline', 'stop → stop', 'header → day'])
+                    expect(m.gaps[key], key).toBeGreaterThanOrEqual(10);
+            expect(m.cardPad[0]).toBeGreaterThan(BUILD_124.cardPad(size.width));
+            // The tile's words stand clear of its coloured rule; the stop rows open up.
+            expect(m.tilePad[0]).toBeGreaterThan(BUILD_124.tilePad[0]);
+            expect(m.tileFromRule).toBeGreaterThanOrEqual(8);
+            expect(m.stopPad[0]).toBeGreaterThanOrEqual(6);
+            // Type steps up a little, never below build 124's, the order kept, and
+            // under the menus' row titles (17-19 px on a Pro Max, 125-14).
+            for (const [key, value] of Object.entries(m.type))
+                expect(value, key).toBeGreaterThanOrEqual(type124[key as keyof typeof BUILD_124.type]);
+            expect(m.type.headline).toBeGreaterThan(m.type.stopName);
+            expect(m.type.stopName).toBeGreaterThan(m.type.details);
+            expect(m.type.details).toBeGreaterThanOrEqual(m.type.credit);
+            // The headline never passes the root's own size, nor the menus' 17 px.
+            expect(m.type.headline).toBeLessThanOrEqual(m.root);
+            expect(m.type.headline).toBeLessThan(17);
+        }
+        // ⓘ and ✕ sit on the place button's centre line, evenly spaced, and ✕ is
+        // never hard against the card's edge.
+        expect(m.header.infoOffCentre).toBeLessThanOrEqual(1);
+        expect(m.header.closeOffCentre).toBeLessThanOrEqual(1);
+        expect(Math.abs(m.header.placeToInfo - m.header.infoToClose)).toBeLessThanOrEqual(1);
+        expect(m.header.cardToClose).toBeGreaterThanOrEqual(BUILD_124.cardPad(size.width) + 1);
+        // Stay never squeezes the day chips: one row, whole, apart.
+        expect(m.chips).toEqual({ oneRow: true, overlapping: false, cut: [] });
+        expect(m.detailsWrapped).toBe(false);
+        // Clear of the status bar (the overlay's top inset) and, in layoutIssues, the tab bar.
+        expect(m.card.above).toBeGreaterThanOrEqual(16);
+        expect(await layoutIssues(page, false)).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+}

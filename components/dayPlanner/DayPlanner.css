@@ -2,8 +2,24 @@
    sheet, never by the Plan page itself. One card language for the day, the
    stop, the place picker, All places and Sources: centred, clear of the tab
    bar (the house modal rule), 44 px targets, level words carried by a glyph
-   as well as a colour. Screen 1 fits 468 px tall at 320 × 568. */
+   as well as a colour. Screen 1 fits 468 px tall at 320 × 568.
+
+   Room to breathe (build 125, 125-16; Shane 2026-10-09 on his 430 × 932
+   phone: "it is a bit cramped for no reason"). The overlay is a size
+   container whose content box is the room the card is given, between the
+   status bar and the tab bar. --today-room is how far that room is past
+   576 px, a little more than the most an SE gives it (483 px on a 320 × 568,
+   572 on a 375 × 667, at the app's fluid 13-15 px root and under their status
+   bars); every spacing and the reading type below is clamp(build 124's
+   value, …, its most). So an SE and phone landscape keep build 124's to the
+   pixel, on the phone as well as in the fixture, and a value reaches its most
+   about 175-180 px further on: Shane's 430 × 932 gives the sheet 754 px. In
+   px, not rem, because the app's root grows with the phone (17 px on a Pro
+   Max) while the room does not; the 33.5rem only takes over past a 17 px
+   root, so large text (804 px at 24 px) keeps build 124's too. Same content,
+   same order; the card grows into the room and stays centred. */
 .today-overlay {
+    container: today-room / size;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -20,7 +36,17 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    padding: 0 8px 8px;
+    --today-room: calc(100cqh - max(576px, 33.5rem));
+    /* Between the sheet's blocks: the header, the day chips, the tiles, the headline, the stops. */
+    --today-gap: clamp(3px, 3px + 0.05 * var(--today-room), 12px);
+    /* Between the stop rows. */
+    --today-gap-row: clamp(3px, 3px + 0.04 * var(--today-room), 10px);
+    /* Side by side: the day chips, the tiles. */
+    --today-gap-chip: clamp(4px, 4px + 0.022 * var(--today-room), 8px);
+    /* The card's own edge, and the header row's space between its buttons. */
+    --today-pad: clamp(8px, 8px + 0.033 * var(--today-room), 14px);
+    --today-gap-head: clamp(0px, 0.033 * var(--today-room), 6px);
+    padding: 0 var(--today-pad) var(--today-pad);
     border: 1px solid #67e8f933;
     border-radius: 20px;
     background: #0d1425;
@@ -28,16 +54,18 @@
     font-size: 0.8125rem;
     line-height: 1.3;
 }
-.today-head { display: flex; flex-shrink: 0; align-items: center; min-height: 44px; }
+.today-head { display: flex; flex-shrink: 0; align-items: center; column-gap: var(--today-gap-head); min-height: 44px; padding-top: var(--today-gap-head); }
 .today-title { flex: 1; min-width: 0; padding-left: 4px; }
 .today-title h2 { margin: 0; font-size: 1.0625rem; line-height: 1.235; font-weight: 750; }
 .today-sub { margin: 0; color: #94a3b8; font-size: 0.75rem; line-height: 1.25; }
 .today-icon { display: grid; flex-shrink: 0; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: #cbd5e1; font-size: 1.125rem; }
 .today-body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .today-col-a,
-.today-col-b { display: flex; flex-direction: column; gap: 3px; min-width: 0; margin-top: 3px; }
+.today-col-b { display: flex; flex-direction: column; gap: var(--today-gap); min-width: 0; margin-top: var(--today-gap); }
+/* The light and tide belong to the headline: closer to it than the blocks are to each other. */
+.today-main .today-col-b { margin-top: clamp(3px, 3px + 0.028 * var(--today-room), 8px); }
 .today-ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.today-main .today-head { align-items: flex-end; padding-top: 4px; }
+.today-main .today-head { align-items: flex-end; padding-top: clamp(4px, 4px + 0.033 * var(--today-room), 10px); }
 .today-main .today-title { padding-left: 0; }
 .today-main .today-title h2 { margin-left: 10px; color: #a5f3fc; font-size: 0.6875rem; letter-spacing: 0.08em; line-height: 1.27; text-transform: uppercase; }
 .today-place {
@@ -54,8 +82,8 @@
     text-align: left;
 }
 .today-place .today-ellipsis { flex: 1; }
-.today-controls { display: flex; flex-wrap: wrap; gap: 4px; }
-.today-days { display: flex; flex: 1 1 auto; gap: 4px; min-width: 0; }
+.today-controls { display: flex; flex-wrap: wrap; gap: var(--today-gap-chip); }
+.today-days { display: flex; flex: 1 1 auto; gap: var(--today-gap-chip); min-width: 0; }
 .today-chip {
     position: relative;
     display: inline-flex;
@@ -78,7 +106,7 @@
 .today-stay { flex: 0 0 auto; margin-left: auto; }
 .today-stay select { position: absolute; inset: -1px; opacity: 0; font-size: 1rem; }
 .today-glyph { flex-shrink: 0; width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
-.today-verdict { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 0; padding: 0; list-style: none; }
+.today-verdict { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--today-gap-chip); margin: 0; padding: 0; list-style: none; }
 [data-level='inside'] { --level: #4ade80; }
 [data-level='near'] { --level: #fbbf24; }
 [data-level='over'] { --level: #f87171; }
@@ -86,41 +114,46 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
+    /* The label, the wind and the word a line apart; the words clear of the coloured rule. */
+    gap: clamp(0px, 0.011 * var(--today-room), 2px);
     min-width: 0;
     min-height: 48px;
-    padding: 2px 6px;
+    padding: clamp(2px, 2px + 0.022 * var(--today-room), 6px) clamp(6px, 6px + 0.022 * var(--today-room), 10px);
     border-left: 3px solid var(--level, #64748b);
     border-radius: 10px;
     background: #ffffff08;
 }
 .today-cell-label,
-.today-cell-word { color: #94a3b8; font-size: 0.6875rem; line-height: 1.273; }
+.today-cell-word { color: #94a3b8; font-size: clamp(0.6875rem, 0.6875rem + 0.0056 * var(--today-room), 0.75rem); line-height: 1.273; }
 .today-cell-word { color: var(--level, #94a3b8); font-weight: 700; }
-.today-cell-wind { font-size: 0.8125rem; font-weight: 750; line-height: 1.385; }
-.today-headline { margin: 0; font-size: 0.875rem; font-weight: 600; line-height: 1.286; }
+.today-cell-wind { font-size: clamp(0.8125rem, 0.8125rem + 0.0056 * var(--today-room), 0.875rem); font-weight: 750; line-height: 1.385; }
+/* Type steps up a little with the room, its order kept: headline, stop name, details, credit. */
+.today-headline { margin: 0; font-size: clamp(0.875rem, 0.875rem + 0.011 * var(--today-room), 1rem); font-weight: 600; line-height: 1.286; }
 .today-inline-link { color: #67e8f9; font-weight: 700; text-decoration: underline; }
-.today-facts { margin: 0; color: #cbd5e1; font-size: 0.6875rem; line-height: 1.455; }
-.today-notice { margin: 0; color: #fcd34d; font-size: 0.6875rem; line-height: 1.364; text-align: left; }
+.today-facts { margin: 0; color: #cbd5e1; font-size: clamp(0.6875rem, 0.6875rem + 0.0056 * var(--today-room), 0.75rem); line-height: 1.455; }
+.today-notice { margin: 0; color: #fcd34d; font-size: clamp(0.6875rem, 0.6875rem + 0.0056 * var(--today-room), 0.75rem); line-height: 1.364; text-align: left; }
 .today-notice-button { display: flex; align-items: center; width: 100%; min-height: 44px; padding: 0 4px; border-radius: 10px; background: #f59e0b14; }
-.today-stops { display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.today-stops { display: flex; flex-direction: column; gap: var(--today-gap-row); margin: 0; padding: 0; list-style: none; }
 .today-stop {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: clamp(6px, 6px + 0.011 * var(--today-room), 8px);
     width: 100%;
     min-height: 48px;
-    padding: 3px 6px;
+    padding: clamp(3px, 3px + 0.033 * var(--today-room), 9px) clamp(6px, 6px + 0.022 * var(--today-room), 10px);
     border-radius: 12px;
     background: #ffffff08;
     text-align: left;
 }
 .today-stop-glyph { width: 1.1em; flex-shrink: 0; color: var(--level, #94a3b8); font-weight: 800; text-align: center; }
 .today-stop-text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
-.today-stop-l1 { display: flex; align-items: baseline; min-width: 0; font-size: 0.8125rem; line-height: 1.385; white-space: nowrap; }
+.today-stop-l1 { display: flex; align-items: baseline; min-width: 0; font-size: clamp(0.8125rem, 0.8125rem + 0.0083 * var(--today-room), 0.90625rem); line-height: 1.385; white-space: nowrap; }
 .today-stop-name { flex: 0 1 auto; min-width: 0; overflow: hidden; font-weight: 700; text-overflow: ellipsis; }
-/* The shelter word gives way first: the name is what she is looking for. */
-.today-stop-shelter { flex: 0 100 auto; min-width: 0; overflow: hidden; color: #cbd5e1; font-size: 0.75rem; text-overflow: ellipsis; }
-.today-stop-l2 { color: #cbd5e1; font-size: 0.6875rem; line-height: 1.4; }
+/* The shelter word gives way first: the name is what she is looking for. All
+   of it first: shrink is shared by weight, and a name a twentieth of a pixel
+   short already draws its ellipsis ("Maureen's Co…", 390 px in wide fonts). */
+.today-stop-shelter { flex: 0 100000 auto; min-width: 0; overflow: hidden; color: #cbd5e1; font-size: clamp(0.75rem, 0.75rem + 0.0056 * var(--today-room), 0.8125rem); text-overflow: ellipsis; }
+.today-stop-l2 { color: #cbd5e1; font-size: clamp(0.6875rem, 0.6875rem + 0.0056 * var(--today-room), 0.75rem); line-height: 1.4; }
 .today-chevron { color: #64748b; font-size: 1.125rem; }
 .today-tag { flex-shrink: 0; margin-left: 6px; padding: 0 5px; border-radius: 6px; background: #34d39926; color: #6ee7b7; font-size: 0.625rem; font-weight: 800; line-height: 1.5; }
 /* Height tiers: two stops under 640 px tall, three above. */
@@ -128,7 +161,7 @@
 @media (min-height: 640px) {
     .today-main .today-col-b .today-stops > li:nth-child(3) { display: block; }
 }
-.today-foot { flex-shrink: 0; border-top: 1px solid #ffffff14; }
+.today-foot { flex-shrink: 0; margin-top: clamp(0px, 0.067 * var(--today-room), 12px); border-top: 1px solid #ffffff14; }
 .today-foot-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
 .today-link { min-height: 44px; padding: 0 4px; color: #67e8f9; font-size: 0.8125rem; font-weight: 650; line-height: 1.2; }
 /* All places keeps its line (it wraps only at large text); a long warnings
@@ -141,22 +174,22 @@
 .today-credit { margin: 0; color: #94a3b8; font-size: 0.6875rem; line-height: 1.273; }
 .today-button { min-height: 44px; padding: 0 14px; border-radius: 12px; background: #ffffff12; font-weight: 650; }
 .today-primary { background: #0891b2; color: #fff; }
-.today-actions { display: flex; flex-shrink: 0; gap: 8px; padding-top: 4px; }
+.today-actions { display: flex; flex-shrink: 0; gap: 8px; padding-top: clamp(4px, 4px + 0.022 * var(--today-room), 8px); }
 .today-actions .today-button { flex: 1; }
 .today-where { display: flex; flex-direction: column; gap: 6px; }
 .today-h3 { margin: 10px 0 4px; color: #a5f3fc; font-size: 0.8125rem; font-weight: 750; }
-.today-list-card .today-body { gap: 4px; padding: 0 4px; }
+.today-list-card .today-body { gap: clamp(4px, 4px + 0.017 * var(--today-room), 7px); padding: 0 4px; }
 .today-list-card .today-body p,
 .today-credits,
 .today-place-line { margin: 0; font-size: 0.8125rem; line-height: 1.308; }
 .today-credits { padding-left: 16px; list-style: disc; }
-.today-place-line { padding: 3px 0; border-bottom: 1px solid #ffffff0d; list-style: none; }
+.today-place-line { padding: clamp(3px, 3px + 0.017 * var(--today-room), 6px) 0; border-bottom: 1px solid #ffffff0d; list-style: none; }
 .today-rows { margin: 0; padding: 0 4px; list-style: none; }
-.today-rows li { padding: 2px 0; border-bottom: 1px solid #ffffff0d; font-size: 0.75rem; line-height: 1.25; }
+.today-rows li { padding: clamp(2px, 2px + 0.017 * var(--today-room), 5px) 0; border-bottom: 1px solid #ffffff0d; font-size: 0.75rem; line-height: 1.25; }
 .today-rows li[data-parks] { color: #fcd34d; }
-.today-leave { margin-top: 4px; }
-.today-footnote { margin: 4px 4px 0; color: #94a3b8; font-size: 0.6875rem; line-height: 1.273; }
-.today-options { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.today-leave { margin-top: clamp(4px, 4px + 0.022 * var(--today-room), 8px); }
+.today-footnote { margin: clamp(4px, 4px + 0.022 * var(--today-room), 8px) 4px 0; color: #94a3b8; font-size: 0.6875rem; line-height: 1.273; }
+.today-options { display: flex; flex-direction: column; gap: var(--today-gap-chip); margin: 0; padding: 0; list-style: none; }
 .today-option { width: 100%; min-height: 44px; padding: 0 10px; border-radius: 12px; background: #ffffff0d; font-weight: 650; text-align: left; }
 .today-option:disabled { opacity: 0.5; }
 .today-option-note { margin: 2px 10px 0; color: #94a3b8; font-size: 0.75rem; }
