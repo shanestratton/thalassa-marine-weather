@@ -108,9 +108,11 @@ Window: startup, Chat selection, synthetic closure, whole-root remount, blocked
 audio CSP control and final synthetic terminal closure. A separate simulator-only
 native full-App startup fixture now compiles, but native startup and supported
 SDK login acceptance remain unproved.
-Cached-only replay passed strict preflight without recompilation, then timed out
-at owned-simulator boot before app installation/launch. Its exact simulator was
-removed; native acceptance remains unproved. The ordinary
+Cached-only replay passed strict preflight without recompilation. After the
+earlier boot timeout, two fresh iOS 27.0 attempts booted and installed the same
+app, but each launch call timed out. The second attempt captured absence of both
+expected diagnostic files before cleanup; that does not prove no app code ran.
+All exact simulators were removed; native acceptance remains unproved. The ordinary
 app/router still has no experimental startup admission. Production
 cutover is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
@@ -146,6 +148,45 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 10 October iOS 27 native boot and installation passed
+
+The [runtime selection and launch evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-runtime27-2026-10-10.json)
+records an explicit cached-only iOS 27.0 option, with the observed installed
+runtime `24A434` and supported iPhone SE third-generation model. Default iOS 26.5
+and compile-mode behaviour are unchanged. Fourteen new pure selection cases
+passed with the fourteen prior cases skipped. A null-only TypeScript inference
+failure is retained; its JSDoc repair changed no runtime behaviour. Eight later
+sanitized-capture cases passed with those 28 earlier cases skipped, followed by
+final scoped types and named lint/format. These are separate source snapshots,
+not a combined final-byte suite or native execution acceptance.
+
+Two distinct owned attempts passed boot and app installation, then each launch
+call reached its 30-second timeout with null exit status and no returned PID.
+The first driver had no catch-time capture. The second read each known bounded
+status/phase file once before cleanup and found both absent, retaining a fixed
+validated absence observation. The outer driver remained failed, with native
+startup acceptance false. Missing files and PID do not establish that no app
+code ran; no native phase, SDK, HTTP-fence or full-root lifecycle result was
+observed. A limited checked host crash inventory had no matching report, which
+does not establish no crash or explain the launch failure.
+
+Both attempts retained the original fixture binding under separate ownership
+attempt IDs. Strict preflight checked the unchanged unsigned 304-file app,
+20 Swift sources, fixture JS/resource, provider, three bindings, 19/22 framework
+files, configs, private CSP copy, 256 web assets and remeasured entitlement
+sections. Only fresh owned copies were signed; both exact simulators were
+removed. No native/web recompilation, runtime/builder change, human reset or
+shared-service reset occurred. Normal-turn shared waiting totalled
+**10,003/120,000 ms**, without a budget reset; no further attempt ran.
+
+Next isolate launch infrastructure with a bounded control-app probe on a new
+owned simulator before launching Research again. This is a proposal, not
+implemented, executed or authorization for another attempt now. Preserve the
+cached app and diagnose the harness instead of repeating unchanged compilation.
+The earlier iOS 26.5 boot cause remains unknown. Native startup, protected
+exchange and every release gate remain unproved; master `196bcb0e` is observed
+but unreconciled and foundation `3c30f47c` unchanged.
+
 ### 10 October cached native invocation reached boot gate
 
 The [cached invocation manifest](../experiments/scuttlebutt-e2ee/review/full-app-native-cached-invocation-2026-10-10.json)
@@ -169,8 +210,9 @@ A later read-only runtime inventory found installed iOS 26.5 (`23F77`) and iOS
 27.0 (`24A434`); the cached build used Xcode/SDK 27.0. A future explicit, recorded
 driver option could select the already installed 27.0 runtime for one new owned
 diagnostic environment, with no download or shared-service/human-simulator reset.
-That option is **proposed only**, neither implemented nor executed, and the
-inventory does not establish a boot cause. Native startup, protected exchange
+At that checkpoint the option was **proposed only**; the later runtime-selection
+evidence above records its implementation and attempts. The inventory does not
+establish a boot cause. Native startup, protected exchange
 and all release gates remain false; master `196bcb0e` remains unreconciled and
 foundation `3c30f47c` unchanged.
 

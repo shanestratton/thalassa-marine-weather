@@ -1,6 +1,6 @@
 # Scuttlebutt private message E2EE review brief
 
-Updated 9 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
+Updated 10 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
 
 The installed isolated Research candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c` on `codex/scuttlebutt-e2ee-foundation`. It passed 1,069 tests across 15 isolated suites, focused strict TypeScript, named lint, formatting and separate web/unsigned physical-iOS builds before local signing and in-place installation on both devices. Research entitlements match the previous candidate, and identical 11-file metadata inventories were retained across each update. Normal Thalassa's compared bundle/version/build metadata is unchanged. Launch requests succeeded; the owner subsequently reported signing into both. These are fixture/build/update checks and an owner report; the later bounded new-candidate message observations below are separate, not a full acceptance pass or an audit.
 
@@ -253,7 +253,30 @@ storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gate
 before treating this routing seam as startup integration. No ordinary activation,
 shared dependency write, primary sync, master or production change is included.
 
-The [10 October cached invocation](../experiments/scuttlebutt-e2ee/review/full-app-native-cached-invocation-2026-10-10.json)
+The [10 October iOS 27 launch evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-runtime27-2026-10-10.json)
+adds an explicit cached-only runtime option with observed installed version/build
+and supported model, preserving default 26.5 and compile-mode behaviour. Fourteen
+new pure selection cases passed with fourteen prior cases skipped before a
+JSDoc-only repair to a retained null-inference type failure. Eight later capture
+cases passed with 28 skipped, followed by final scoped types and named lint/format;
+these counts are separate snapshots, not one final-byte suite.
+
+Both fresh iOS 27.0/build 24A434 attempts booted and installed the same pinned app,
+then launch timed out at 30 seconds with null exit and no returned PID. The second
+driver captured absence of both bounded known diagnostic files before cleanup;
+the first had no catch-time capture. Outer acceptance stayed false. This does
+not prove no app code ran, and no native phase/SDK/full-root acceptance was
+observed. Both exact simulators were removed. Sources, original unsigned 304-file
+app, 20 Swift sources, fixture resource/JS, provider/bindings/frameworks, configs,
+CSP copy and measured entitlement sections remained unchanged; no compile or
+runtime/builder change occurred. Only fresh owned copies were signed. Shared
+waiting was 10,003/120,000 ms without reset. Next propose a bounded control-app
+launch on a new owned simulator to distinguish infrastructure before another
+Research attempt; that probe is not implemented or executed. Native startup,
+protected exchange and release gates remain unproved; no boot/launch cause is
+inferred from runtime availability or the limited absence of host crash reports.
+
+The historical [10 October cached invocation](../experiments/scuttlebutt-e2ee/review/full-app-native-cached-invocation-2026-10-10.json)
 passed strict unsigned/artifact/source/resource/provider/binding/framework/config/
 CSP preflight and remeasured entitlement sections, with no native/web compile.
 It retained the original fixture binding and unsigned bytes, signing only a new
@@ -265,9 +288,9 @@ opportunity; no unchanged tests or further attempt ran. Native startup is still
 unproved, not an app regression inferred from a boot timeout.
 
 Read-only inventory shows installed iOS 26.5/build 23F77 and 27.0/build 24A434, while
-the cached compile used Xcode/SDK 27.0. Selecting 27.0 via a future explicit recorded
-option is a proposal for a new owned diagnostic environment, not implemented or
-executed and not proof of a cause. No downloads, service resets or human-simulator
+the cached compile used Xcode/SDK 27.0. The option was proposed only at that
+checkpoint; the later evidence above records its implementation and attempts,
+not proof of a cause. No downloads, service resets or human-simulator
 changes are authorized by that proposal. All native/release gates remain open.
 
 The historical [10 October cached native resume](../experiments/scuttlebutt-e2ee/review/full-app-native-resume-2026-10-10.json)
