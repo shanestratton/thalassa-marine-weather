@@ -7,7 +7,7 @@
  * the setters and the identity guard are passed straight through so the
  * scope checks run exactly when they ran before.
  */
-import React from 'react';
+import React, { useId } from 'react';
 import {
     ALL_REGISTERS,
     ALWAYS_SHARED_REGISTERS,
@@ -17,6 +17,7 @@ import {
 } from '../../services/CrewService';
 import { type AuthIdentityScope } from '../../services/authIdentityScope';
 import { RegisterGlyph, TrashGlyph } from '../crew/crewGlyphs';
+import { RegisterNotes, registerNoteId } from '../crew/RegisterButton';
 
 interface EditCrewAccessFormProps {
     editBoatMemberLoaded: boolean;
@@ -61,6 +62,8 @@ export const EditCrewAccessForm: React.FC<EditCrewAccessFormProps> = ({
     scopeStillOwnsPage,
     renderScope,
 }) => {
+    const registerNotesId = useId();
+    const registers = ALL_REGISTERS.filter((reg) => !ALWAYS_SHARED_REGISTERS.includes(reg));
     return (
         <div className="p-6 space-y-5">
             {/* Byline parts — shown only once the crew member has
@@ -140,11 +143,12 @@ export const EditCrewAccessForm: React.FC<EditCrewAccessFormProps> = ({
                     Shared Registers
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                    {ALL_REGISTERS.filter((reg) => !ALWAYS_SHARED_REGISTERS.includes(reg)).map((reg) => {
+                    {registers.map((reg) => {
                         const selected = editRegisters.includes(reg);
                         return (
                             <button
                                 aria-pressed={selected}
+                                aria-describedby={registerNoteId(registerNotesId, reg)}
                                 key={reg}
                                 type="button"
                                 onClick={() => {
@@ -187,6 +191,7 @@ export const EditCrewAccessForm: React.FC<EditCrewAccessFormProps> = ({
                         );
                     })}
                 </div>
+                <RegisterNotes registers={registers} baseId={registerNotesId} />
             </div>
 
             <button

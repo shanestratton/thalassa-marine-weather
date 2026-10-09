@@ -518,10 +518,28 @@ describe('InviteCrewModal role picker (2026-09-08)', () => {
 
     it('says a passage register on a code covers every passage, not one', async () => {
         const modal = await openInviteModal();
-        fireEvent.click(within(modal).getByRole('button', { name: 'Share Checklist' }));
+        // 'Passage readiness', not 'Checklist' (126-B4): the register shares the
+        // passage readiness checks, never the Checklists binder.
+        fireEvent.click(within(modal).getByRole('button', { name: 'Share Passage readiness' }));
         expect(within(modal).getByTestId('crew-code-caution')).toHaveTextContent(
-            'On a code, Checklist covers every one of your passages, not just the one selected.',
+            'On a code, Passage readiness covers every one of your passages, not just the one selected.',
         );
+        expect(within(modal).queryByRole('button', { name: 'Share Checklist' })).toBeNull();
+    });
+
+    it("says sharing Documents keeps the crew's IDs with the skipper, and describes the chip with it", async () => {
+        // 126-B4: the ship_documents read policy keeps 'Crew Visas/IDs' papers
+        // for the owner, so the invite says so beside the Documents tick.
+        const modal = await openInviteModal();
+        const documents = within(modal).getByRole('button', { name: 'Share Documents' });
+        expect(within(modal).getByText('Crew IDs stay with you')).toBeInTheDocument();
+        expect(documents).toHaveAccessibleDescription('Crew IDs stay with you');
+        fireEvent.click(documents);
+        expect(documents).toHaveAttribute('aria-pressed', 'true');
+        expect(documents).toHaveAccessibleDescription('Crew IDs stay with you');
+        // No other chip carries a note.
+        expect(within(modal).getByRole('button', { name: 'Share Equipment' })).not.toHaveAccessibleDescription();
+        expect(within(modal).getAllByText('Crew IDs stay with you')).toHaveLength(1);
     });
 
     it('never claims the code grants the same access as the email invite', async () => {

@@ -76,9 +76,10 @@ vi.mock('../services/CrewService', () => ({
     ALL_REGISTERS: ['stores', 'passage_checklist', 'passage_chat'],
     PASSAGE_REGISTERS: ['passage_meals', 'passage_chat', 'passage_route', 'passage_checklist'],
     REGISTER_ICONS: { stores: '📦', passage_checklist: '✅', passage_chat: '💬', equipment: '⚙️' },
+    REGISTER_NOTES: { documents: 'Crew IDs stay with you' },
     REGISTER_LABELS: {
         stores: "Ship's Stores",
-        passage_checklist: 'Checklist',
+        passage_checklist: 'Passage readiness',
         passage_chat: 'Group Chat',
         equipment: 'Equipment',
     },
@@ -434,7 +435,7 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         // Your own role, the most senior across your rows; the chips are their union.
         expect(within(panel).getByText('Your role: Co-skipper')).toBeInTheDocument();
         expect(within(panel).getByText(/Ship's Stores/)).toBeInTheDocument();
-        expect(within(panel).getByText(/Checklist/)).toBeInTheDocument();
+        expect(within(panel).getByText(/Passage readiness/)).toBeInTheDocument();
         expect(within(panel).getByText(/Group Chat/)).toBeInTheDocument();
 
         const aboard = within(panel).getByRole('list', { name: 'Crew aboard Wandering Albatross' });

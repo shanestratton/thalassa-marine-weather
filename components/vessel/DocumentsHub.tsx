@@ -28,7 +28,7 @@ import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useUndoDelete } from '../../hooks/useUndoDelete';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { SwipeableDocCard, getExpiryStatus } from './documents/SwipeableDocCard';
-import { DocumentForm, CATEGORIES } from './documents/DocumentForm';
+import { DocumentForm, CATEGORIES, CREW_IDS_CATEGORY } from './documents/DocumentForm';
 import { docCacheFileName, docFileExtension } from './documents/docFiles';
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
@@ -303,11 +303,17 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     }, [currentOperation, loadDocs]);
 
     // ── Filtered ──
-    // On screen, counted and selectable: a document waiting out its undo is hidden.
+    // On screen, counted and selectable: a document waiting out its undo is
+    // hidden, and so, in a skipper's shared binder, are crew IDs (126-B4): the
+    // server stops serving them to crew, but a phone may still hold some it
+    // synced before, and an edit to one could never land.
     const visibleDocuments = useMemo(() => {
         if (dataScopeKey !== getAuthIdentityScope().key) return [];
-        return hiddenIds.size > 0 ? documents.filter((doc) => !hiddenIds.has(doc.id)) : documents;
-    }, [dataScopeKey, documents, hiddenIds]);
+        if (hiddenIds.size === 0 && !sharedBinder) return documents;
+        return documents.filter(
+            (doc) => !hiddenIds.has(doc.id) && !(sharedBinder && doc.category === CREW_IDS_CATEGORY),
+        );
+    }, [dataScopeKey, documents, hiddenIds, sharedBinder]);
     // Memoised: this ran a toLowerCase() per document per render, and the
     // search box re-renders the hub on every keystroke.
     const filtered = useMemo(() => {
@@ -740,6 +746,8 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                     <group.Icon className="h-4 w-4 shrink-0 text-gray-400" />
                                     <span className="text-label font-black text-gray-400 uppercase tracking-widest">
                                         {group.label}
+                                        {/* The server keeps these for the owner (126-B4). */}
+                                        {!sharedBinder && group.id === CREW_IDS_CATEGORY && ' · only you'}
                                     </span>
                                     <span className="text-label text-gray-400 font-bold">({group.docs.length})</span>
                                 </div>
@@ -818,6 +826,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             }}
                             onSave={handleSave}
                             allowAttach={!sharedBinder}
+                            crewView={sharedBinder}
                         />
                     </ModalSheet>
                 )}

@@ -11,7 +11,7 @@
  * role picker here, and the manifest code (createManifestInvite) surfaced for
  * the first time — until now no UI created one, only JoinVessel redeemed it.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { t } from '../../theme';
 import {
     type CrewPermissions,
@@ -25,7 +25,7 @@ import {
 } from '../../services/CrewService';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
-import { RegisterButton } from './RegisterButton';
+import { RegisterButton, RegisterNotes } from './RegisterButton';
 
 /**
  * Roles offered at invite time, in display order. Deckhand first because it
@@ -177,6 +177,7 @@ export const InviteCrewModal: React.FC<InviteCrewModalProps> = ({
     const [copyState, setCopyState] = useState<CopyState>('idle');
     const codeRequestVersion = useRef(0);
     const codeRef = useRef<HTMLParagraphElement>(null);
+    const registerNotesId = useId();
 
     // Swapping the form for the code panel unmounts the button that had
     // focus, and the ModalSheet's focus trap only places focus when the sheet
@@ -408,9 +409,11 @@ export const InviteCrewModal: React.FC<InviteCrewModalProps> = ({
                                 reg={reg}
                                 selected={inviteRegisters.includes(reg)}
                                 onToggle={() => onToggleRegister(reg)}
+                                noteBaseId={registerNotesId}
                             />
                         ))}
                     </div>
+                    <RegisterNotes registers={INVITE_REGISTERS} baseId={registerNotesId} />
                 </div>
             </div>
 

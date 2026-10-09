@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CrewMember, SharedRegister } from '../services/CrewService';
 import type { AuthorizedSharedVoyagesResult, PassageStatus } from '../services/PassagePlanService';
@@ -68,7 +68,8 @@ vi.mock('../services/CrewService', () => ({
     ALL_REGISTERS: ['stores', 'passage_checklist'],
     PASSAGE_REGISTERS: ['passage_meals', 'passage_chat', 'passage_route', 'passage_checklist'],
     REGISTER_ICONS: { stores: '📦', passage_checklist: '✅' },
-    REGISTER_LABELS: { stores: "Ship's Stores", passage_checklist: 'Checklist' },
+    REGISTER_NOTES: { documents: 'Crew IDs stay with you' },
+    REGISTER_LABELS: { stores: "Ship's Stores", passage_checklist: 'Passage readiness' },
     inviteCrew: mocks.inviteCrew,
     getMyCrew: mocks.getMyCrew,
     removeCrew: mocks.removeCrew,

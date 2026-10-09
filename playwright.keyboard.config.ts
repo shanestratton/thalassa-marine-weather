@@ -112,6 +112,10 @@ export default defineConfig({
         // recipe scroll clear of the tab bar at 320 × 568, 390 × 844 and 430 × 932
         // in wide fonts (e2e/fixtures/galley-scroll.tsx).
         'galley-scroll-layout.spec.ts',
+        // Crew IDs stay with you (126-B4): "Passage readiness" and the Documents
+        // note fit the invite and Edit Access sheets at 320 × 568 to the iPad
+        // pane in wide fonts, chips unchanged, above the tab bar (e2e/fixtures/crew-invite.tsx).
+        'crew-invite-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

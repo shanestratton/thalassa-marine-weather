@@ -4,20 +4,57 @@
  * Shows a register glyph + label with a checkmark indicator: the Crew & Float
  * Plan page's line glyphs in its one accent (2026-10-06), not emoji.
  * Used in InviteCrewModal.
+ *
+ * RegisterNotes draws a register's note (REGISTER_NOTES: "Crew IDs stay with
+ * you" for Documents, 126-B4) as one line under the grid, and the tick points
+ * at it with aria-describedby. Under the grid, not in the chip: at 320 pt in
+ * wide fonts the chip has about 60 px beside its tick box, so a note there
+ * would wrap to three lines and make the chip's row taller.
  */
 import React from 'react';
-import { type SharedRegister, REGISTER_LABELS } from '../../services/CrewService';
+import { type SharedRegister, REGISTER_LABELS, REGISTER_NOTES } from '../../services/CrewService';
 import { RegisterGlyph } from './crewGlyphs';
+
+/** The id of a register's note line, under a grid whose notes share `baseId`. */
+export function registerNoteId(baseId: string, reg: SharedRegister): string | undefined {
+    return REGISTER_NOTES[reg] ? `${baseId}-${reg}-note` : undefined;
+}
+
+/** One line per noted register in the grid, glyph first like the chip it describes. */
+export const RegisterNotes: React.FC<{ registers: ReadonlyArray<SharedRegister>; baseId: string }> = ({
+    registers,
+    baseId,
+}) => {
+    const noted = registers.filter((reg) => REGISTER_NOTES[reg]);
+    if (noted.length === 0) return null;
+    return (
+        <div className="mt-2 ml-1 space-y-1">
+            {noted.map((reg) => (
+                <p
+                    key={reg}
+                    id={registerNoteId(baseId, reg)}
+                    className="flex items-center gap-1.5 text-xs text-gray-400"
+                >
+                    <RegisterGlyph register={reg} className="crew-accent h-3.5 w-3.5 shrink-0" />
+                    {REGISTER_NOTES[reg]}
+                </p>
+            ))}
+        </div>
+    );
+};
 
 interface RegisterButtonProps {
     reg: SharedRegister;
     selected: boolean;
     onToggle: () => void;
+    /** The grid's RegisterNotes baseId: a noted register's tick is described by its note. */
+    noteBaseId?: string;
 }
 
-export const RegisterButton: React.FC<RegisterButtonProps> = ({ reg, selected, onToggle }) => (
+export const RegisterButton: React.FC<RegisterButtonProps> = ({ reg, selected, onToggle, noteBaseId }) => (
     <button
         aria-label={`Share ${REGISTER_LABELS[reg]}`}
+        aria-describedby={noteBaseId ? registerNoteId(noteBaseId, reg) : undefined}
         aria-pressed={selected}
         type="button"
         onClick={onToggle}
