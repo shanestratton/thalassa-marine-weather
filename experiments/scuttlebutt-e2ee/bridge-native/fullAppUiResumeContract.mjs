@@ -141,26 +141,94 @@ export const FULL_APP_CACHED_RUNTIME_IDS = Object.freeze([
     'com.apple.CoreSimulator.SimRuntime.iOS-27-0',
 ]);
 const cachedDeviceTypeId = 'com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation';
+export const FULL_APP_CONTROL_BUNDLE = 'com.apple.Preferences';
 
-/** Cached-mode tail only: optional remaining wait, then one exact runtime flag. */
+/** Cached-mode tail only: optional wait/runtime, then one fixed control probe. */
 export function inspectCachedResumeOptions(raw) {
     try {
         require(Array.isArray(raw));
         const length = data(raw, 'length');
-        require(Number.isSafeInteger(length) && length >= 0 && length <= 3);
+        require(Number.isSafeInteger(length) && length >= 0 && length <= 4);
         const tail = Array.from({ length }, (_, index) => data(raw, String(index)));
         require(Reflect.ownKeys(raw).length === tail.length + 1 && tail.every((value) => typeof value === 'string'));
         let remainingWaitMs = null,
             requestedRuntimeId = null;
-        if (tail.length && tail[0] !== '--runtime') {
+        let controlLaunchProbe = false;
+        if (tail.length && !['--runtime', '--control-launch-probe'].includes(tail[0])) {
             require(/^(?:0|[1-9][0-9]{0,5})$/.exec(tail[0])?.[0] === tail[0] && Number(tail[0]) <= 120000);
             remainingWaitMs = Number(tail.shift());
         }
-        if (tail.length) {
-            require(tail.length === 2 && tail[0] === '--runtime' && FULL_APP_CACHED_RUNTIME_IDS.includes(tail[1]));
-            requestedRuntimeId = tail[1];
+        if (tail[0] === '--runtime') {
+            require(tail.length >= 2 && FULL_APP_CACHED_RUNTIME_IDS.includes(tail[1]));
+            requestedRuntimeId = tail.splice(0, 2)[1];
         }
-        return Object.freeze({ remainingWaitMs, requestedRuntimeId });
+        if (tail.length) {
+            require(
+                tail.length === 1 &&
+                    tail[0] === '--control-launch-probe' &&
+                    requestedRuntimeId === FULL_APP_CACHED_RUNTIME_IDS[1],
+            );
+            controlLaunchProbe = true;
+        }
+        return Object.freeze({
+            remainingWaitMs,
+            requestedRuntimeId,
+            ...(controlLaunchProbe ? { controlLaunchProbe: true } : {}),
+        });
+    } catch {
+        return refusal();
+    }
+}
+
+/** Only fixed built-in Settings facts leave the fresh owned app inventory.
+ * This is launch-path evidence, not a control-binary provenance claim.
+ * @param {unknown} raw Parsed bounded installed-application inventory.
+ */
+export function inspectControlLaunchMetadata(raw) {
+    try {
+        require(raw && typeof raw === 'object' && !Array.isArray(raw));
+        require(Reflect.ownKeys(raw).length > 0 && Reflect.ownKeys(raw).length <= 500);
+        const app = data(raw, FULL_APP_CONTROL_BUNDLE);
+        require(app && typeof app === 'object' && !Array.isArray(app));
+        require(data(app, 'ApplicationType') === 'System');
+        if (Object.getOwnPropertyDescriptor(app, 'CFBundleIdentifier'))
+            require(data(app, 'CFBundleIdentifier') === FULL_APP_CONTROL_BUNDLE);
+        return Object.freeze({
+            version: 1,
+            bundleIdentifier: FULL_APP_CONTROL_BUNDLE,
+            applicationType: 'System',
+            installedSystemMetadataVerified: true,
+            controlBinaryProvenanceProved: false,
+        });
+    } catch {
+        return refusal();
+    }
+}
+
+/** Fixed syscall facts; stdout is only used for one exact bundle/PID pattern.
+ * No body/error/options or arbitrary process identity leaves this inspector.
+ * @param {unknown} raw Fixed exitStatus/timedOut/stdout observation.
+ */
+export function inspectControlLaunchObservation(raw) {
+    try {
+        const row = exact(raw, ['exitStatus', 'timedOut', 'stdout']);
+        require(
+            typeof row.timedOut === 'boolean' &&
+                (row.exitStatus === null ||
+                    (Number.isSafeInteger(row.exitStatus) && row.exitStatus >= 0 && row.exitStatus <= 255)) &&
+                typeof row.stdout === 'string' &&
+                row.stdout.length <= 4096,
+        );
+        const found = /^com\.apple\.Preferences: ([1-9][0-9]{0,8})\s*$/.exec(row.stdout);
+        const returnedPID = found ? Number(found[1]) : null;
+        return Object.freeze({
+            version: 1,
+            exitStatus: row.exitStatus,
+            timedOut: row.timedOut,
+            returnedPID,
+            launchCallAccepted: row.exitStatus === 0 && row.timedOut === false && returnedPID !== null,
+            nativeResearchAcceptanceProved: false,
+        });
     } catch {
         return refusal();
     }
