@@ -21,6 +21,10 @@
  */
 .vessel-hub-surface {
     container: vessel-hub / size;
+    /* How far the page is past 580 px: what its menu's words may grow into
+       (see "Bigger words" below). Read where it is used, so 100cqh is this
+       page's own height. */
+    --menu-room: calc(100cqh - 580px);
 }
 
 /* The menu box fades in; the cards above it still rise. The port's stagger-in
@@ -83,6 +87,132 @@
 .vessel-hub-home .vessel-hub-menu .hub-row-icon {
     background: var(--vessel-row-chip-bg, rgba(125, 211, 252, 0.1)) !important;
     box-shadow: inset 0 0 0 1px var(--vessel-row-chip-border, rgba(125, 211, 252, 0.14));
+}
+
+/*
+ * The Boat Binder FILLS its screen too, the Vessel page's way (Shane
+ * 2026-10-09, with a screenshot of the Binder on his phone, its two cards
+ * ending two-thirds of the way down: "i think the words can be bigger also and
+ * take up the whole screen claude. same goes for the settings main page").
+ * The port is a flex column; the two cards share the height left under them
+ * by their row counts, so all nine rows get the same share; the sub-labels and
+ * the header keep their height. It ends where the Vessel page's menu box ends,
+ * 0.5rem and the root's 8 px above the tab bar. Nothing shrinks: a page with no
+ * height to spare scrolls as before. Phone landscape keeps its two columns
+ * (below), which takes the port's display.
+ */
+.vessel-binder-port {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 0.5rem;
+}
+.vessel-binder-port > * {
+    flex-shrink: 0;
+}
+.vessel-binder-port > .vessel-hub-menu {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 auto;
+}
+.vessel-binder-port .vessel-hub-menu > .hub-row {
+    flex: 1 0 auto;
+}
+/* A card (or a Settings section, below) grows by its row count: the extra
+   height is shared per row, not per card. */
+:is(.vessel-binder-port > .vessel-hub-menu, .settings-menu-fill > .settings-menu-group):has(button:nth-of-type(2)) {
+    flex-grow: 2;
+}
+:is(.vessel-binder-port > .vessel-hub-menu, .settings-menu-fill > .settings-menu-group):has(button:nth-of-type(3)) {
+    flex-grow: 3;
+}
+:is(.vessel-binder-port > .vessel-hub-menu, .settings-menu-fill > .settings-menu-group):has(button:nth-of-type(4)) {
+    flex-grow: 4;
+}
+:is(.vessel-binder-port > .vessel-hub-menu, .settings-menu-fill > .settings-menu-group):has(button:nth-of-type(5)) {
+    flex-grow: 5;
+}
+:is(.vessel-binder-port > .vessel-hub-menu, .settings-menu-fill > .settings-menu-group):has(button:nth-of-type(6)) {
+    flex-grow: 6;
+}
+
+/*
+ * BIGGER WORDS WHERE THERE IS ROOM (Shane 2026-10-09, above). The Vessel
+ * page's menu box, the Boat Binder and the Settings menu (further down) grow
+ * their rows' words with the height the page has, the same way, so the three
+ * read alike as you go Vessel -> Boat Binder -> Settings:
+ *
+ *   --menu-room is how far the page is past 580 px, where today's rows just
+ *     fit with ~40 px to spare: zero or less on an SE, which is unchanged;
+ *     ~35 on a 6.1-inch iPhone's ~615 px page or an iPad pane; ~105 on a Pro
+ *     Max's ~690.
+ *   The title grows 0.04 px per px of room, from today's 13 px (Settings:
+ *     text-sm) to 19 px; the subtitle and a badge half that, from today's
+ *     text-xs to 15 px; the icon about a third, to the Settings tile's
+ *     2.25rem, and the chevron in step. A live value beside the title ("Not
+ *     connected", "Needs sign-in") keeps its size: the title needs the width.
+ *   --menu-title-wide caps the title by the page's width, measured in Verdana,
+ *     the widest face the fit tests use, so a title never wraps or crowds
+ *     its value: on the Vessel page "NMEA Gateway" beside "Not connected"
+ *     holds it to ~17 px on a 430 pt phone and ~15 at 390.
+ *
+ * Every hub row keeps the short-screen tier's 44 pt rhythm at every height:
+ * once a page fills, a row's share of the height is its spacing, so the
+ * taller tiers' padding only took room from the words. Past 580 px a Binder or
+ * Settings subtitle may take two lines again, and a Settings row's live state
+ * may drop under its title rather than be cut, still set right with its
+ * siblings' states; the room covers them. The Vessel page shares its room with
+ * the Diary pair, so its subtitle is capped by its width instead and keeps its
+ * one line. A page that already scrolls (a fresh install's setup card) gives
+ * its rows no share of the height, so their words keep today's size there.
+ */
+.vessel-hub-binder {
+    /* "Skipper's Reference" (11.7 px wide per px of type), in a row whose
+       insets, icon and chevron take 9.3rem of the page's width at their
+       biggest, and 8 px to spare. */
+    --menu-title-wide: calc((100cqw - 9.3rem - 8px) / 11.7);
+}
+.vessel-hub-home {
+    /* "NMEA Gateway" (8.77 px per px of type), then 0.5rem and "Not
+       connected" at text-xs (8.1 per px) on the same line, 8 px to spare. */
+    --menu-title-wide: calc((100cqw - 9.8rem - 8px - 8.1 * max(0.75rem, var(--text-micro))) / 8.77);
+    /* And "Boat computer, charts & devices" (18.3 px per px) on one line:
+       this page has the least room, and a second line here takes it from the
+       Diary pair, which must stay tall enough to stack its cards. */
+    --menu-subtitle-wide: calc((100cqw - 9.3rem - 4px) / 18.3);
+}
+/* A fresh install's "Set up your vessel" card (and its sign-in line) already
+   makes this page scroll on a big phone, so its rows get no share of the
+   height: grown words would only make it scroll further (review 2026-10-09:
+   +37 px at 430x856). Today's words until the boat has a name. */
+.vessel-hub-home:has(.vessel-hub-setup) {
+    --menu-room: 0px;
+}
+.vessel-hub-menu .hub-row {
+    min-height: 44px;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+}
+.vessel-hub-menu .hub-row-icon {
+    padding: clamp(var(--hub-icon-pad, 0.375rem), 0.25rem + 0.023 * var(--menu-room), 0.45rem);
+}
+.vessel-hub-menu .hub-row-icon svg {
+    width: clamp(1rem, 1rem + 0.04 * var(--menu-room), 1.35rem);
+    height: clamp(1rem, 1rem + 0.04 * var(--menu-room), 1.35rem);
+}
+.vessel-hub-menu .hub-row-label {
+    font-size: clamp(13px, min(13px + 0.04 * var(--menu-room), var(--menu-title-wide)), 19px);
+}
+.vessel-hub-menu .hub-row-badge,
+.vessel-hub-menu .hub-row-status {
+    font-size: clamp(
+        max(0.75rem, var(--text-micro)),
+        min(max(0.75rem, var(--text-micro)) + 0.02 * var(--menu-room), var(--menu-subtitle-wide, 15px)),
+        15px
+    );
+}
+.vessel-hub-menu .hub-row-chevron svg {
+    width: clamp(0.875rem, 0.875rem + 0.03 * var(--menu-room), 1.18rem);
+    height: clamp(0.875rem, 0.875rem + 0.03 * var(--menu-room), 1.18rem);
 }
 
 /* The Diary and Scuttlebutt cards (components/vesselHub/JournalCard.tsx). One
@@ -196,13 +326,10 @@
     .skipper-device-action {
         height: 44px;
     }
-    .vessel-hub-menu .hub-row {
-        min-height: 44px;
-        padding-top: 0.25rem;
-        padding-bottom: 0.25rem;
-    }
+    /* The menu rows are 44 pt at every height (above); here their icon tile
+       starts from a smaller inset. */
     .vessel-hub-menu .hub-row-icon {
-        padding: 0.25rem;
+        --hub-icon-pad: 0.25rem;
     }
     .vessel-hub-menu .hub-row-status {
         margin-top: 0;
@@ -296,6 +423,19 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+}
+
+/* Past 580 px the words grow (see "Bigger words" above), and a Binder
+   subtitle may take its second line again rather than be cut: the room covers
+   it. The Vessel page keeps its tiers' rule; its room is shared with the
+   Diary pair. */
+@container vessel-hub (min-height: 580px) {
+    .vessel-hub-binder .hub-row-status {
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+        text-wrap: pretty;
     }
 }
 
@@ -401,6 +541,54 @@
    pane. */
 .settings-menu-screen {
     container: settings-menu / size;
+    /* The Vessel page's measure of room (see "Bigger words" above). */
+    --menu-room: calc(100cqh - 580px);
+    /* "Public Voyage Page" (11.43 px wide per px of type) in a row whose
+       insets, icon and chevron take 8.8rem of the screen's width. Its live
+       state may drop under it (below), so the title alone is measured. */
+    --menu-title-wide: calc((100cqw - 8.8rem) / 11.43);
+}
+
+/* The full menu FILLS its screen (Shane 2026-10-09, see the Boat Binder
+   above): the list is a flex column at least the screen's height, each
+   section grows by its row count (the rule shared with the Binder's cards)
+   and its rows share that, 44 pt and up, so the last row ends 1rem above the
+   tab bar. The 80 px run-off for the now-playing pill goes, as it does on a
+   short screen: the pill drags off a row. A search is not the full menu
+   (SettingsModal drops the class): its few rows keep their own height. */
+.settings-menu-fill {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    padding-bottom: 1rem;
+}
+.settings-menu-fill > * {
+    flex-shrink: 0;
+}
+.settings-menu-fill > .settings-menu-group {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 auto;
+}
+.settings-menu-group > div {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+}
+.settings-menu-fill .settings-menu-row {
+    flex: 1 0 auto;
+    min-height: 44px;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+}
+/* Its words grow as the hub rows' do, from its own text-sm title. Its icon
+   tile is already the 2.25rem the hub rows grow to, and the live state beside
+   the title keeps its size. */
+.settings-menu-row .settings-menu-title {
+    font-size: clamp(0.875rem, min(13px + 0.04 * var(--menu-room), var(--menu-title-wide)), 19px);
+}
+.settings-menu-row .settings-menu-desc {
+    font-size: clamp(max(0.75rem, var(--text-micro)), max(0.75rem, var(--text-micro)) + 0.02 * var(--menu-room), 15px);
 }
 
 /* The run-off goes first, and higher up: a 16 Pro Max's menu (~715-740 px)
@@ -438,6 +626,31 @@
     .settings-menu-list {
         padding-top: 0.5rem;
         padding-bottom: 0.5rem;
+    }
+}
+
+/* Past 580 px, as on the Boat Binder: a description may take its second line
+   again (no lone last word: "... see your / voyage"), and a live state that no
+   longer fits beside its grown title drops under it, whole, rather than being
+   cut to "Ne...". It stays set right, in the column its siblings' states sit
+   in: dropped to the left, grey over the grey description, it read as one long
+   subtitle (review 2026-10-09). In the phone's own face every short state
+   ("Needs sign-in") stays beside its title on a Pro Max's page (430x856); a
+   long home port or boat name drops, and so do the sign-in states in the
+   widest face the fit tests use. */
+@container settings-menu (min-height: 580px) {
+    .settings-menu-row .settings-menu-desc {
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+        text-wrap: pretty;
+    }
+    .settings-menu-row .settings-menu-line {
+        flex-wrap: wrap;
+        row-gap: 0;
+    }
+    .settings-menu-line .settings-menu-state {
+        margin-left: auto;
     }
 }
 
