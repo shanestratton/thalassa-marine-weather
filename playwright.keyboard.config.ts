@@ -98,6 +98,10 @@ export default defineConfig({
         // internet, a plain sea with no style; its JS heap in Chromium
         // (e2e/fixtures/log-mini-map.tsx).
         'log-mini-map-layout.spec.ts',
+        // The Sounding sheet (build 125, SND): ECMWF's upper air as a skew-T, the hour
+        // picker, six readings and the credit fit 320 × 568 in wide fonts, centred
+        // above the tab bar, in every palette (e2e/fixtures/sounding-sheet.tsx).
+        'sounding-sheet-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

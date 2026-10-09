@@ -69,10 +69,14 @@ describe('Open-Meteo commercial secret boundary', () => {
     });
 
     it('pins hosts and enforces the edge request/response safety contract', () => {
-        const edge = fs.readFileSync(
-            path.join(process.cwd(), 'supabase', 'functions', 'proxy-openmeteo', 'index.ts'),
-            'utf8',
-        );
+        // The request vocabulary lives in validation.ts since build 125 (SND), so
+        // its allowlist has a deno test; the contract reads the function whole.
+        const edge = ['index.ts', 'validation.ts']
+            .map((file) =>
+                fs.readFileSync(path.join(process.cwd(), 'supabase', 'functions', 'proxy-openmeteo', file), 'utf8'),
+            )
+            .join('\n');
+        expect(edge).toContain("import { validateRequest } from './validation.ts'");
 
         expect(edge).toContain("forecast: 'https://customer-api.open-meteo.com/v1/forecast'");
         expect(edge).toContain("marine: 'https://customer-marine-api.open-meteo.com/v1/marine'");
