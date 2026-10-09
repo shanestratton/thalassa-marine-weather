@@ -178,7 +178,7 @@ function configuration(search: string): { runId: string; nonce: string } | null 
 
 // All readers and the nonce stay in this module. They are not returned to the
 // browser proof caller, even while the explicit fixture is installed.
-let fixture: {
+type FixtureState = {
     runId: string;
     nonce: string;
     original: ScopeFacts;
@@ -196,7 +196,8 @@ let fixture: {
     observation: symbol | null;
     privateSelection: FullAppWindowEvidence['privateSelection'];
     stopped: boolean;
-} | null = null;
+};
+let fixture: FixtureState | null = null;
 
 function snapshot(): FullAppWindowEvidence {
     const owned = fixture!;
@@ -283,7 +284,7 @@ function snapshot(): FullAppWindowEvidence {
 export function installFullAppWindowEvidence(host: object, search: string, originalScope: unknown): void {
     const config = configuration(search);
     if (!config || fixture) return;
-    const owned: NonNullable<typeof fixture> = {
+    const owned: FixtureState = {
         ...config,
         original: scopeFacts(originalScope),
         phase: 'starting',

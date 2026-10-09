@@ -97,10 +97,11 @@ fixture principals in one disposable simulator. A dedicated Research entry now
 installs private legacy denial before loading the real Thalassa message page;
 an optional App/registry native-selection seam is now prepared. A separate
 full-App Research composition now has closed startup/authority leaves and an
-actual unsupported jsdom App/remount check. Its preceding separate web bundle
-compiled; the latest Window instrumentation/driver is prepared but fresh
-mount/types/build/Chrome checks remain queued. It has not run in an actual
-Window/native host. The ordinary
+actual unsupported jsdom App/remount check. Its instrumented web bundle compiled
+and ran in a fresh owned Chrome Window through unsupported startup, Chat selection,
+synthetic closure and whole-root remount. The complete browser scenario failed
+at its iframe CSP control; the repaired audio control remains queued. No full-App
+native host or supported SDK login ran. The ordinary
 app/router still has no experimental startup admission. Production
 cutover is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
@@ -136,48 +137,70 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
-### 9 October full Root Window proof preparation
+### 9 October partial full Root Window execution
 
-The new opt-in evidence module and owned Chrome driver are prepared for the
-actual full Root unsupported-browser path. Exact run/nonce parameters install
-an immutable fixed-fact getter and one-shot whole-root remount control; ordinary
-windows expose neither. The existing Research factory keeps one stable native
-wrapper/Auth dependency identity across remounts. Counters record successful
-runtime/SDK construction returns and Research-seam method invocations only;
-they never expose credentials, errors, native handles or transport functions.
+The [execution manifest](../experiments/scuttlebutt-e2ee/review/full-app-window-execution-2026-10-09.json)
+records actual entry/Root execution in fresh owned Chrome 151, not complete
+browser acceptance. The latest run observed unsupported cold startup, the
+unavailable Chat view, synthetic pagehide closure and one whole-root remount.
+Auth remained anonymous with no main-App User; two runtime constructions
+succeeded, with zero SDK constructions and zero wrapped Research native calls.
+The entry fence installed without patch failures. Denied core/leaf and bounded
+storage counters were nonzero; these are attempts at closed seams, not native I/O.
 
-**136 targeted cases in four suites passed**: 18 fake-host/native-mock evidence
-cases, 58 pure receipt/request/evidence/CSP contracts, 39 graph cases and 21
-existing Research component fixtures. Named lint and formatting passed with no
-lint diagnostics. These overlap prior results and establish no actual Window,
-SDK login, native bridge or encryption execution. The fresh jsdom mount's
-bounded shared-Mac slot window expired behind healthy competing work. Mount,
-strict types, isolated instrumented build and Chrome proof are **queued-unrun**;
-later dependent jobs were not given another wait window. No current instrumented
-bundle or real Window success is claimed.
+The instrumented build passed with **1,989 module source inputs, one separately
+pinned PNG input, three ES workers and 256 outputs**. All four graphs retained
+one closed graph gate, with no source omissions or injected environment canaries
+in outputs. Automatic public-directory copying remains disabled. Only the tracked
+brand icon was explicitly emitted after validating its exact bytes/hash and
+256-by-256 PNG header. Earlier 255-output builds and missing-icon failures remain
+separate receipts; production App/image bytes and request/CSP/fence decisions
+were not changed.
 
-The prepared driver requires a newly passed, hashed instrumented build, pinned
-cached Chrome 151, a fresh 0700 owned profile, exact loopback document/assets and
-strict response CSP. Its positive frame control permits one or two measured
-events from two enforcing policies, with no unexpected violations. Future
-synthetic pagehide/remount evidence is not OS/BFCache or native revocation.
-Diagnostic render counts are invocations, not React commits. Pre-existing Auth
-scope boot can read localStorage before fence installation; fence storage
-counts omit that read. The fresh owned profile is expected anonymous. Fixed
-diagnostics and page/CDP gates are not a malicious same-origin sandbox or whole
-browser-process networking/provenance audit.
+The complete latest Window run failed at the iframe positive control: two
+expected `frame-src` events were observed, but two unknown data-image requests
+were refused. Their origin is unproved; Chrome error-frame resources are only a
+timing-based hypothesis. Final terminal closure was not reached. Every owned
+browser/server was closed and its fresh profile removed. The driver success flag
+stayed false; it does not erase the valid partial entry/Root observations.
 
-The [Window preparation manifest](../experiments/scuttlebutt-e2ee/review/full-app-window-2026-10-09.json)
-retains source/check/queued hashes and continuation inputs. Resume with a fresh
-artifact directory and unchanged source pins, then complete mount/types/build
-and owned Chrome proof without repeating passed suites. The next native plan is
+The control alone is now a hidden audio element with `preload="auto"` at the same
+loopback path, expecting `media-src` refusal from both unchanged enforcing
+policies. No `play`/`load` call or data-image allowance was added. A fresh receipt
+verified all 1,990 compiled source inputs and 256 outputs unchanged, retained the
+original passed build path/hash, and explicitly rebound only three uncompiled
+proof-tool/test hashes. This is **not a new compilation**. The changed 11-case
+CSP fixture, final proof-test types and repaired Chrome scenario are
+**queued-unrun** after the preserved two-minute shared-slot budget expired behind
+competing work; no additional wait window was opened. Final named lint/format pass.
+
+After the narrow native-wrapper/type repairs, 97 affected mock/pure/component
+cases, one jsdom mount/remount and focused strict types passed. Diagnostic-only
+contracts passed 60 cases; the asset/proof/graph run passed 103 before an explicit
+`node:buffer` import, followed by the final three asset cases. These overlapping
+counts are not additive and do not cover the later audio-control test bytes.
+The [earlier preparation manifest](../experiments/scuttlebutt-e2ee/review/full-app-window-2026-10-09.json)
+retains its historical 136-case result and queued checks.
+
+Synthetic pagehide/inactive state is lifecycle presentation closure, not
+OS/BFCache handling or native revocation. Render counts are invocations, not
+React commits; wrapped native counts cover only the Research seam. Fence storage
+counts omit the pre-existing Auth-scope boot read before installation. Page/CDP
+and exact loopback measurements do not cover browser-process networking or a
+malicious same-origin sandbox. Tool hashes cover the Node/Chrome executables and
+selected Puppeteer files, not complete transitive binary provenance. No SDK login,
+full-App native execution, encrypted exchange, physical acceptance or independent
+assessment is claimed.
+
+Resume only the queued CSP fixture, final test types and repaired owned Chrome
+scenario against the verified source/output pins. The next native plan is
 separate `full-app-native-startup` in a fresh WKWebView simulator: configurable
 synthetic fetch/CapacitorWebFetch and a simulator-only CapacitorHttp denial
 backstop registered before loading the entry/Root. That is planning only, followed
 by a separate protected-exchange proof. Native/physical/hosted acceptance,
 device/prekey/recovery/retention, licence/provenance and independent security
 assessment remain distinct gates. No master, primary, hosted/human or external
-reviewer change accompanies this preparation.
+reviewer change accompanies this slice.
 
 ### 9 October isolated full App bundle
 

@@ -253,22 +253,36 @@ storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gate
 before treating this routing seam as startup integration. No ordinary activation,
 shared dependency write, primary sync, master or production change is included.
 
-The [9 October actual Window preparation](../experiments/scuttlebutt-e2ee/review/full-app-window-2026-10-09.json)
-adds opt-in fixed observations and a nonce-bound one-shot whole-root remount
-through the same existing Research factory/native wrapper. Successful creation
-counts, render invocations and Research-seam calls are limited diagnostics,
-not native authority, revocation or a malicious same-origin sandbox. The 136
-targeted fake-host/pure-contract/Research-component cases pass with named
-lint/format. The shared-Mac mount window expired; fresh mount, types, instrumented
-build and cached Chrome execution remain queued-unrun. No actual Window or new
-compiled artifact evidence has been added by this preparation.
+The [9 October Window execution](../experiments/scuttlebutt-e2ee/review/full-app-window-execution-2026-10-09.json)
+observed actual unsupported entry/Root startup, unavailable Chat selection,
+synthetic closure and whole-root remount in fresh owned Chrome 151. Auth stayed
+anonymous with no main-App User; two runtime constructions succeeded, with zero
+SDK constructions and wrapped Research native calls. The fence installed without
+patch failures; closed-leaf/storage counters honestly retain nonzero attempts.
+The latest instrumented build passed with 1,989 module inputs, one separately
+pinned PNG input, three ES workers and 256 outputs. Automatic public-directory
+copying is disabled; the sole explicit brand asset has exact input/output provenance.
 
-The browser plan uses a fresh owned profile, pinned observed Chrome 151 and exact
-loopback/CSP gates. Only Node/Chrome executables and selected Puppeteer files are
-hashed, not the entire transitive toolchain. Fence storage counters omit the
-pre-existing Auth-scope boot read before installation. Synthetic pagehide and
-diagnostic inactive state do not prove OS/BFCache handling or native revocation.
-The next native startup/protected-exchange plans remain unimplemented and must
+Complete browser acceptance failed at the iframe CSP control: two expected events
+and two refused unknown data-image requests were recorded. Chrome error-frame
+images are only a timing-based hypothesis. Cleanup succeeded, but final terminal
+closure was not reached. The repaired audio/media control retains the same CSP,
+request gates and fence, with no play/load or data allowance. Its changed 11-case
+fixture, final test types and actual execution remain queued-unrun after the
+preserved two-minute shared-slot budget expired. A fresh proof-only receipt verifies
+the original compiled sources/outputs and explicitly rebinds three uncompiled
+proof/test hashes; it is not a recompile. Final named lint/format pass. Earlier
+mock, jsdom, types and overlapping contract/asset checks remain separate pinned
+results, not a pass for the later audio-test bytes.
+
+Successful construction counts, render invocations and Research-seam calls do not
+prove native authority or revocation. Fence storage counts omit the pre-existing
+Auth-scope boot read. Synthetic pagehide/inactive state is not OS/BFCache acceptance;
+page/CDP gates are not a malicious same-origin sandbox or whole browser-process
+network measurement. Only Node/Chrome executables and selected Puppeteer files
+are hashed, not complete toolchain provenance. The earlier
+[136-case preparation](../experiments/scuttlebutt-e2ee/review/full-app-window-2026-10-09.json)
+is historical. Native startup/protected exchange remains unimplemented and must
 retain separate SDK/provider, physical, hosted and independent-assessment gates.
 
 The [9 October full App build evidence](../experiments/scuttlebutt-e2ee/review/full-app-build-2026-10-09.json)

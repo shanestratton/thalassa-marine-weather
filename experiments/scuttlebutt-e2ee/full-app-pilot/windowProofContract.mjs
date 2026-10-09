@@ -1,11 +1,14 @@
 /** Pure receipt/request contracts. Fixtures do not launch a browser or grant authority. */
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { createHash } from 'node:crypto';
 
 export const WINDOW_EVIDENCE_GLOBAL = '__THALASSA_FULL_APP_WINDOW_EVIDENCE__';
 export const WINDOW_REMOUNT_GLOBAL = '__THALASSA_FULL_APP_WINDOW_REMOUNT__';
 export const WINDOW_RUN_QUERY = 'fullAppWindowProofRun';
 export const WINDOW_NONCE_QUERY = 'fullAppWindowProofNonce';
 export const WINDOW_CSP_CONTROL_PATH = '/__thalassa_full_app_csp_probe__';
+export const WINDOW_CSP_CONTROL_ELEMENT = 'audio';
+export const WINDOW_CSP_CONTROL_DIRECTIVE = 'media-src';
 export const WINDOW_PROOF_CSP =
     "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; worker-src 'none'; frame-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 export const WINDOW_FENCE_COUNTERS = Object.freeze([
@@ -94,7 +97,7 @@ export const WINDOW_REQUIRED_BUILD_SOURCES = Object.freeze([
     ].map((name) => 'experiments/scuttlebutt-e2ee/full-app-pilot/' + name),
 ]);
 export const WINDOW_REQUIRED_PROOF_SOURCES = Object.freeze([
-    ...['vite.config.mjs', 'graphIsolation.mjs', 'windowProof.mjs', 'windowProofContract.mjs'].map(
+    ...['vite.config.mjs', 'graphIsolation.mjs', 'brandAsset.mjs', 'windowProof.mjs', 'windowProofContract.mjs'].map(
         (name) => 'experiments/scuttlebutt-e2ee/full-app-pilot/' + name,
     ),
     'tests/E2eeFullAppWindowProof.test.ts',
@@ -140,7 +143,14 @@ export const isWindowProofHash = (value) => typeof value === 'string' && value.l
 
 /** Header and meta CSP can each report the same blocked resource. Neither policy is removed. */
 export function inspectWindowCspControl(raw) {
-    const row = exact(raw, ['expectedEventCount', 'unexpectedEventCount', 'enforcingPolicyCount']);
+    const row = exact(raw, [
+        'element',
+        'directive',
+        'expectedEventCount',
+        'unexpectedEventCount',
+        'enforcingPolicyCount',
+    ]);
+    demand(row.element === WINDOW_CSP_CONTROL_ELEMENT && row.directive === WINDOW_CSP_CONTROL_DIRECTIVE);
     demand(count(row.enforcingPolicyCount, 2) === 2);
     demand(count(row.expectedEventCount, 2) >= 1 && count(row.unexpectedEventCount) === 0);
     return Object.freeze(row);
@@ -277,6 +287,7 @@ export function inspectWindowBuildReceipt(raw, checkout) {
             value('status') === 'passed' &&
             value('config') === 'experiments/scuttlebutt-e2ee/full-app-pilot/vite.config.mjs' &&
             value('publicAssetsCopied') === false &&
+            value('automaticPublicDirectoryCopy') === false &&
             value('inheritedCanariesAbsent') === true &&
             value('inheritedSyntheticCanariesInjected') === true,
     );
@@ -302,6 +313,13 @@ export function inspectWindowBuildReceipt(raw, checkout) {
     }
     const sourceInputs = rows(inputs, 10000),
         artifacts = rows(outputs, 2000);
+    const assetInputs = rows(value('explicitAssetSourceInputs'), 1);
+    const expectedAssetHash = '629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15';
+    demand(
+        assetInputs.length === 1 &&
+            assetInputs[0].path === resolve(checkout, 'public/thalassa-icon-128.png') &&
+            assetInputs[0].sha256 === expectedAssetHash,
+    );
     const proofSources = rows(value('windowProofSourceInputs'), 100);
     for (const name of WINDOW_REQUIRED_PROOF_SOURCES)
         demand(proofSources.some((row) => row.path === resolve(checkout, name)));
@@ -312,6 +330,23 @@ export function inspectWindowBuildReceipt(raw, checkout) {
     const html = artifacts.filter((row) => row.path.endsWith(sep + 'index.html'));
     demand(html.length === 1);
     const dist = dirname(html[0].path);
+    const emissions = value('explicitAssetEmissions');
+    demand(Array.isArray(emissions) && emissions.length === 1);
+    const emission = exact(emissions[0], ['label', 'input', 'output', 'byteLength', 'width', 'height']);
+    const input = exact(emission.input, ['path', 'sha256']),
+        output = exact(emission.output, ['path', 'sha256']);
+    demand(
+        emission.label === 'app-brand-icon-128' &&
+            emission.byteLength === 31539 &&
+            emission.width === 256 &&
+            emission.height === 256,
+    );
+    demand(input.path === assetInputs[0].path && input.sha256 === expectedAssetHash);
+    demand(
+        output.path === resolve(dist, 'thalassa-icon-128.png') &&
+            output.sha256 === expectedAssetHash &&
+            artifacts.some((row) => row.path === output.path && row.sha256 === output.sha256),
+    );
     demand(
         artifacts.every((row) => {
             const name = relative(dist, row.path);
@@ -326,7 +361,7 @@ export function inspectWindowBuildReceipt(raw, checkout) {
     }
     demand(graphs.filter((row) => row.isWorker).length === 3);
     return Object.freeze({
-        sourceInputs: Object.freeze(sourceInputs),
+        sourceInputs: Object.freeze([...sourceInputs, ...assetInputs]),
         proofSources: Object.freeze(proofSources),
         artifacts: Object.freeze(artifacts),
         dist,
@@ -355,4 +390,40 @@ export function classifyWindowRequest({ url, method, origin, runId, nonce, asset
     } catch {
         return 'refused';
     }
+}
+
+/** Diagnostic only. Never decides whether a request may proceed, and never
+ * exports a URL/path/query/header/body. The one semantic label is audited from
+ * the ordinary App's static brand-image literal; all other paths stay unknown.
+ */
+export function describeWindowRefusal({ url, resourceType, method, origin, redirectChain }) {
+    const resourceTypes = new Set([
+        'document',
+        'stylesheet',
+        'image',
+        'media',
+        'font',
+        'script',
+        'texttrack',
+        'xhr',
+        'fetch',
+        'eventsource',
+        'websocket',
+        'manifest',
+        'other',
+    ]);
+    const target = new URL(url);
+    const sameLoopbackOrigin = target.origin === origin;
+    return Object.freeze({
+        resourceType: resourceTypes.has(resourceType) ? resourceType : 'other',
+        protocol: { 'http:': 'http', 'https:': 'https', 'data:': 'data', 'blob:': 'blob' }[target.protocol] ?? 'other',
+        sameLoopbackOrigin,
+        method: method === 'GET' || method === 'POST' ? method : 'other',
+        hasQuery: target.search !== '',
+        hasFragment: target.hash !== '',
+        redirectChain: redirectChain === true,
+        pathSha256: sameLoopbackOrigin ? createHash('sha256').update(target.pathname).digest('hex') : null,
+        assetLabel:
+            sameLoopbackOrigin && target.pathname === '/thalassa-icon-128.png' ? 'app-brand-icon-128' : 'unknown',
+    });
 }
