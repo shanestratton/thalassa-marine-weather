@@ -33,6 +33,17 @@ import {
     type PairInfo,
 } from '../../services/PiPairingService';
 import { canAccess } from '../../services/SubscriptionService';
+import {
+    chartCodeOf,
+    enrolChartDevice,
+    loadChartAccess,
+    mintChartCode,
+    normaliseChartCode,
+    removeChartDevice,
+    thisDeviceKind,
+    type ChartAccess,
+} from '../../services/enc/piChartDevice';
+import { chartAccessWords } from '../../services/enc/piChartAccessWords';
 import { LocationStore } from '../../stores/LocationStore';
 import {
     PiProvisionService,
@@ -583,6 +594,7 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                                         </div>
                                     </div>
                                 )}
+                                <ChartsFromBoat key={pairing.deviceId} boatName={pairing.boatName} />
                                 <button
                                     onClick={handleTest}
                                     disabled={visibleTesting}
@@ -981,6 +993,188 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
 /** Production builds expose the beta hold notice, never setup controls. */
 export const PiCacheTab: React.FC<SettingsTabProps> = (props) =>
     PI_INTEGRATION_ENABLED ? <PiCacheTabDevelopment {...props} /> : <PiPublicBetaUnavailable />;
+
+/**
+ * "Charts from <boat>" (127-C-d): this phone's place in the boat Pi's chart
+ * vault. Set up once with a code the Pi printed (or one from a phone already
+ * set up), then a short list of up to five devices. Remove takes a second tap
+ * in place, never a modal. Every refusal reads as a sentence from
+ * piChartAccessWords; the quiet ones (off the boat's Wi-Fi, a Pi one update
+ * behind) are muted, not warnings.
+ */
+const ChartsFromBoat: React.FC<{ boatName: string }> = ({ boatName }) => {
+    const [access, setAccess] = useState<ChartAccess | null>(null);
+    const [code, setCode] = useState('');
+    /** A words code to show under the row; undefined is "couldn't answer", null is nothing. */
+    const [note, setNote] = useState<string | undefined | null>(null);
+    const [busy, setBusy] = useState(false);
+    const [minted, setMinted] = useState('');
+    const [armed, setArmed] = useState('');
+    const boat = boatName.trim() || 'your boat';
+
+    // loadChartAccess never throws. State set after unmount is ignored.
+    const reload = useCallback(() => loadChartAccess().then(setAccess), []);
+    useEffect(() => void reload(), [reload]);
+
+    // An armed Remove disarms itself: a second tap must follow the first.
+    useEffect(() => {
+        const timer = armed ? setTimeout(() => setArmed(''), 4000) : undefined;
+        return () => clearTimeout(timer);
+    }, [armed]);
+
+    /** Run one action against the Pi; it may hand back a words code to show. */
+    const run = (action: () => Promise<string | void>) => {
+        setBusy(true);
+        setNote(null);
+        setMinted('');
+        action()
+            .then(
+                (said) => {
+                    if (said) setNote(said);
+                    return reload();
+                },
+                (error: unknown) => setNote(chartCodeOf(error)),
+            )
+            .finally(() => setBusy(false));
+    };
+
+    const small = 'text-[11px] leading-relaxed ';
+    const said = (refusal: string | undefined, quiet?: boolean) => {
+        const words = chartAccessWords(refusal, boat);
+        return <p className={small + (quiet || words.quiet ? 'text-gray-400' : 'text-amber-300')}>{words.text}</p>;
+    };
+    const button =
+        'min-h-[44px] shrink-0 rounded-lg border px-3 text-[11px] font-bold uppercase tracking-wider transition-all disabled:opacity-40 ';
+    const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+    let body: React.ReactNode;
+    if (!access) {
+        body = <p className={small + 'text-gray-400'}>Asking the Pi…</p>;
+    } else if (access.kind === 'said') {
+        body = said(access.code);
+    } else if (access.kind === 'not-set-up') {
+        body = (
+            <>
+                {said(access.removed ? 'chart-device-removed' : 'chart-device-not-enrolled', !access.removed)}
+                <form
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        const normal = normaliseChartCode(code);
+                        if (!normal) return setNote('chart-code-invalid');
+                        triggerHaptic('light');
+                        run(async () => {
+                            const kept = await enrolChartDevice(normal);
+                            setCode('');
+                            if (!kept) return 'chart-device-not-kept';
+                        });
+                    }}
+                    className="flex gap-2"
+                >
+                    <input
+                        value={code}
+                        onChange={(event) => setCode(event.target.value)}
+                        aria-label="Chart code"
+                        placeholder="10-letter code"
+                        autoCapitalize="characters"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        disabled={busy}
+                        className="min-h-[44px] min-w-0 flex-1 rounded-lg border border-white/10 bg-black/40 px-3 font-mono text-sm uppercase text-white placeholder:normal-case disabled:opacity-50"
+                    />
+                    <button
+                        type="submit"
+                        disabled={busy || !code.trim()}
+                        className={button + 'border-sky-500/40 bg-sky-500/20 text-sky-200'}
+                    >
+                        Set up
+                    </button>
+                </form>
+            </>
+        );
+    } else {
+        const { devices } = access;
+        body = (
+            <>
+                <p className={small + 'text-emerald-300'}>
+                    This {thisDeviceKind()} is set up · {access.cells?.toLocaleString()} charts on {boat}, opened in the
+                    Pi&apos;s memory only
+                </p>
+                {access.vault && said(access.vault)}
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                    {devices.length} of {access.max} devices
+                </p>
+                <ul className="space-y-1">
+                    {devices.map((device) => {
+                        const confirm = armed === device.id;
+                        return (
+                            <li key={device.id} className="flex items-center gap-2">
+                                <div className="min-w-0 flex-1 text-[10px] text-gray-500">
+                                    <p className="truncate">
+                                        <span className="text-xs text-white">{device.label}</span>
+                                        {device.self && ' · this one'}
+                                    </p>
+                                    {/* Each date whole: they wrap apart at 320 px rather than clip. */}
+                                    <p className="flex flex-wrap gap-x-2">
+                                        {device.addedAt && <span>Added {day(device.addedAt)}</span>}
+                                        {device.seenAt && <span>Seen {day(device.seenAt)}</span>}
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    aria-label={`${confirm ? 'Tap again to remove' : 'Remove'} ${device.label}`}
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        setArmed(confirm ? '' : device.id);
+                                        if (confirm) run(() => removeChartDevice(device.id));
+                                    }}
+                                    className={
+                                        button +
+                                        (confirm
+                                            ? 'border-red-500/40 bg-red-500/15 text-red-300'
+                                            : 'border-white/10 bg-white/5 text-white/60')
+                                    }
+                                >
+                                    {confirm ? 'Tap again' : 'Remove'}
+                                </button>
+                            </li>
+                        );
+                    })}
+                </ul>
+                {minted ? (
+                    <div className="rounded-lg border border-white/10 bg-black/30 p-2">
+                        <p className="select-all font-mono text-base font-bold tracking-widest text-white">
+                            {minted.slice(0, 5)} {minted.slice(5)}
+                        </p>
+                        <p className={small + 'text-gray-400'}>
+                            Type it on the other phone or tablet within 15 minutes.
+                        </p>
+                    </div>
+                ) : (
+                    devices.length < access.max && (
+                        <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => run(async () => setMinted(await mintChartCode()))}
+                            className={button + 'w-full border-white/10 bg-white/5 text-white/70'}
+                        >
+                            Code for another phone or tablet
+                        </button>
+                    )
+                )}
+            </>
+        );
+    }
+
+    return (
+        <div className="space-y-2 rounded-xl border border-white/5 bg-white/3 p-3" data-testid="charts-from-boat">
+            <p className="text-sm font-bold text-white">Charts from {boat}</p>
+            {body}
+            {note !== null && <div aria-live="polite">{said(note)}</div>}
+        </div>
+    );
+};
 
 const StatCard = ({ label, value, sub }: { label: string; value: number; sub: string }) => (
     <div className="p-3 bg-white/3 rounded-xl border border-white/5 text-center">
