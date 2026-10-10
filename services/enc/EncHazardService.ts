@@ -68,7 +68,8 @@ import {
     encCellStorageIdentity,
     S57_CELL_NAME_PATTERN,
 } from './types';
-import type { EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
+import type { ChartLicence, EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
+import { chartLicenceOf } from './chartLicence';
 import { crumb } from '../../utils/flightRecorder';
 import { awaitHeapHeadroom, heapTag } from '../../utils/heapGauge';
 import { createSerialQueue } from '../../utils/serialQueue';
@@ -516,6 +517,8 @@ async function importCellSerialized(
         contentSha256?: string;
         /** The size the Pi's index reported for this revision (see EncCell.piSizeBytes). */
         piSizeBytes?: number;
+        /** The source's licence stamp (127-C-b): it can only make a cell stricter. */
+        licence?: ChartLicence;
         /**
          * A route-time Pi pull (piCellSync downloadPiCell) has no index row to
          * hand in contentSha256 / piSizeBytes. When the bytes it wrote are the
@@ -737,6 +740,13 @@ async function importCellSerialized(
         usage: requestedUsage,
         catzocRange,
         sizeBytes,
+        // A held record's 'protected' (the Pi said so) survives a re-import
+        // that carries no stamp, such as a route-time pull.
+        licence: chartLicenceOf({
+            id: canonicalId,
+            sourceHO: normalizedBlob.sourceHO,
+            licence: options.licence ?? installedDisplayCell?.licence,
+        }),
         ...(piSizeBytes !== undefined ? { piSizeBytes } : {}),
         ...(Number.isInteger(options.cloudManifestVersion)
             ? { cloudManifestVersion: options.cloudManifestVersion }
@@ -768,6 +778,7 @@ export function importCell(
         personalManifestVersion?: number;
         contentSha256?: string;
         piSizeBytes?: number;
+        licence?: ChartLicence;
         keepPiRevisionWhenUnchanged?: boolean;
         assertAuthority?: () => void;
     } = {},

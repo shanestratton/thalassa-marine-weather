@@ -534,7 +534,8 @@ const RUNTIME_TILE_CACHE = 'thalassa-v199-runtime-tiles';
 // the service worker: doing so would silently punch holes in an offline area.
 const OFFLINE_TILE_CACHE = 'thalassa-v195-tiles';
 const DATA_CACHE = 'thalassa-v196-data';
-const LAN_TILE_CACHE = 'thalassa-v58-lan-tiles';
+// 127-C-b: no cache of AvNav/Pi chart tiles (pictures of licensed charts stay
+// on the boat); activate deletes the old LAN tile cache, not in its keep-list.
 
 const RUNTIME_TILE_LIMIT = 2000;
 const RUNTIME_TILE_PRUNE_EVERY = 64;
@@ -569,9 +570,7 @@ self.addEventListener('activate', (event) => {
         caches.keys().then((keys) =>
             Promise.all(
                 keys.map((key) => {
-                    if (
-                        ![CACHE_NAME, RUNTIME_TILE_CACHE, OFFLINE_TILE_CACHE, DATA_CACHE, LAN_TILE_CACHE].includes(key)
-                    ) {
+                    if (![CACHE_NAME, RUNTIME_TILE_CACHE, OFFLINE_TILE_CACHE, DATA_CACHE].includes(key)) {
                         return caches.delete(key);
                     }
                 }),
@@ -595,67 +594,6 @@ self.addEventListener('fetch', (event) => {
     // Without this, the stale SW cache serves old module files, blocking hot reload.
     if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
         return; // Don't call event.respondWith — browser fetches normally
-    }
-
-    // 0. LAN CHART TILES — Cache-first for AvNav/Pi chart tiles over local network.
-    // These are o-charts, NOAA MBTiles, etc. served by AvNav on the Pi.
-    // Cache-first gives instant rendering; stale-while-revalidate keeps tiles fresh.
-    // Matches: 192.168.x.x, 10.x.x.x, 172.16-31.x.x, *.local hostnames.
-    const isLanTile =
-        (url.hostname.match(/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/) ||
-            url.hostname.endsWith('.local') ||
-            url.hostname === 'openplotter.local') &&
-        url.pathname.match(/\/\d+\/\d+\/\d+/); // Tile URL pattern: /{z}/{x}/{y}
-
-    if (isLanTile) {
-        event.respondWith(
-            caches.open(LAN_TILE_CACHE).then((cache) => {
-                return cache.match(event.request).then((cachedResponse) => {
-                    // Stale-while-revalidate: return cache immediately, refresh in background
-                    const fetchPromise = fetch(event.request)
-                        .then((networkResponse) => {
-                            // Only cache real images: a 200-status error page
-                            // cached here is replayed to the image decoder on
-                            // every future request for that tile, forever.
-                            const contentType = networkResponse.headers.get('content-type') || '';
-                            if (networkResponse.ok && contentType.startsWith('image/')) {
-                                event.waitUntil(
-                                    cache
-                                        .put(event.request, networkResponse.clone())
-                                        .catch((error) => console.warn('[SW] LAN tile cache write failed', error)),
-                                );
-                            }
-                            return networkResponse;
-                        })
-                        .catch(() => cachedResponse || new Response('', { status: 404 }));
-
-                    // If cached, return instantly (huge speed win for chart panning)
-                    if (cachedResponse) {
-                        return cachedResponse;
-                    }
-                    // No cache — wait for network
-                    return fetchPromise;
-                });
-            }),
-        );
-        // Prune LAN tile cache every ~100 requests (max 2000 tiles ≈ 50–100 MB)
-        if (Math.random() < 0.01) {
-            event.waitUntil(
-                caches
-                    .open(LAN_TILE_CACHE)
-                    .then(async (cache) => {
-                        const keys = await cache.keys();
-                        if (keys.length > 2000) {
-                            const excess = keys.length - 2000;
-                            await Promise.all(keys.slice(0, excess).map((key) => cache.delete(key)));
-                        }
-                    })
-                    .catch((error) => {
-                        console.warn('[SW] LAN tile cache prune failed', error);
-                    }),
-            );
-        }
-        return;
     }
 
     // 1. CHART TILES — CACHE FIRST

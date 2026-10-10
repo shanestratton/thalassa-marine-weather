@@ -15,8 +15,27 @@ import { CapacitorHttp } from '@capacitor/core';
 import { resolveHostnameIpv4 } from '../utils/resolveHostnameIpv4';
 import { redactSensitiveDiagnostic } from '../utils/redactSensitiveDiagnostic';
 import { authScopedStorageKey, getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
+import { isLocalNetworkHostname } from '../utils/safeUrl';
 
 const log = createLogger('AvNav');
+
+/**
+ * AvNav's o-charts pictures on the phone (127-C-b decision 11): OFF. Mapbox
+ * fetches those tiles with a plain fetch() and the WebView keeps a GET 200 on
+ * its disk unless the provider says no-store, which nothing here can force;
+ * o-charts' terms forbid licensed chart data "on any medium". While false,
+ * DRM charts never enter the chart list, the provider's token script is never
+ * loaded and nothing is encrypted. Back on (128+) only with o-charts' written
+ * OK and no-store proven on an encrypted tile, and then boat LAN only
+ * (ochartsTileHostAllowed). Open AvNav charts (mbtiles, gemf) are unchanged.
+ */
+export const AVNAV_OCHARTS_ON_PHONE = false;
+
+/** An o-charts tile host the phone may ever ask: the boat's own LAN host,
+ *  never the WAN host or the tailnet (vision §4.2 F6). */
+export function ochartsTileHostAllowed(host: string, lanHost: string): boolean {
+    return !!host && host === lanHost && isLocalNetworkHostname(host);
+}
 
 /** Write a diagnostic log entry via Capacitor Preferences bridge.
  *  Does set + get so the value appears in Xcode as '⚡️  TO JS {"value":"..."}'. */
@@ -229,7 +248,7 @@ function resetOchartsDrmRuntime(): void {
  * The script auto-initializes via heartBeat using document.currentScript.src.
  */
 function bootstrapOchartsDrm(tokenUrl: string, trustedHosts: readonly string[]): void {
-    if (_ochartsBootstrapped || IS_DEV) return;
+    if (!AVNAV_OCHARTS_ON_PHONE || _ochartsBootstrapped || IS_DEV) return;
     const validatedTokenUrl = validateOchartsTokenUrl(tokenUrl, trustedHosts);
     if (!validatedTokenUrl) {
         void nativeLogAsync('DRM: rejected an untrusted token module URL');
@@ -559,6 +578,7 @@ export function getLastEncryptDiag(): string {
 }
 
 export function encryptOchartsUrl(url: string): string | null {
+    if (!AVNAV_OCHARTS_ON_PHONE) return null;
     const provider = getOchartsProvider();
     if (!provider) {
         _lastEncryptDiag = _cachedOchartsProvider
@@ -1325,6 +1345,13 @@ class AvNavServiceClass {
         // rewrite them to the actual Pi host we connected to.
         const piHost = this.activeHost || this.host;
         const rewriteLocal = (u: string): string => u.replace(/\/\/(localhost|127\.0\.0\.1)(:\d+)/g, `//${piHost}$2`);
+        const hostOf = (u: string): string => {
+            try {
+                return new URL(u).hostname;
+            } catch {
+                return '';
+            }
+        };
 
         for (const item of items) {
             if (!item || typeof item !== 'object') continue;
@@ -1352,6 +1379,8 @@ class AvNavServiceClass {
 
             let tilesUrl = '';
 
+            // o-charts pictures stay on the Pi (decision 11), and only ever from the boat LAN.
+            if (hasToken && (!AVNAV_OCHARTS_ON_PHONE || !ochartsTileHostAllowed(hostOf(chartUrl), this.host))) continue;
             if (hasToken && chartUrl.startsWith('http')) {
                 // ocharts DRM chart — only works on native (Capacitor).
                 // heartBeat needs document.currentScript.src to resolve to the real

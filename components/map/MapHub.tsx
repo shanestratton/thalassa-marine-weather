@@ -189,6 +189,7 @@ import {
     type TracerContext,
     type SavedTrace,
 } from '../../services/routeTracer';
+import { tideCurveBucket } from '../../services/TideHeightService';
 import {
     consumeTracerOpenRequest,
     consumeTracerAction,
@@ -737,6 +738,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [frameBusy, setFrameBusy] = useState(false);
     /** Route report (Phase 3): review → Fix/Acknowledge → sail. */
     const [showReport, setShowReport] = useState(false);
+    /** useTracerGrading's stub re-check (127-C-b), for Save, defined above the hook. */
+    const regradeStubLegsRef = useRef<() => void>(() => {});
     const [ackedLegs, setAckedLegs] = useState<Set<number>>(new Set());
     const [fixBusyLeg, setFixBusyLeg] = useState<number | null>(null);
     // PERSISTENT auto-route diagnostic — the flash vanishes in 1.8 s and I
@@ -1349,6 +1352,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (capturedCoords.length < 2) return;
         const release = getTraceReleaseGate();
         if (!release.allowed || !release.verification) {
+            regradeStubLegsRef.current();
             triggerHaptic('heavy');
             flashTraceFeedback(release.reason || 'Check the route again before saving');
             if (traceHealth(legVerdicts).danger > 0) setShowReport(true);
@@ -1676,6 +1680,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (capturedCoords.length < 2 || sailBusyRef.current) return;
         const release = getTraceReleaseGate();
         if (!release.allowed || !release.verification) {
+            regradeStubLegsRef.current();
             triggerHaptic('heavy');
             flashTraceFeedback(release.reason || 'Check the route again before sailing');
             if (traceHealth(legVerdicts).danger > 0) setShowReport(true);
@@ -1846,12 +1851,17 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, [capturedCoords, settings.vessel]);
 
     // Where the tide panel reads from. The shallowest charted point on the
-    // route is the one that decides whether you get across, so anchor there
-    // when the tracer found one; otherwise the destination, which is what a
-    // skipper checking "can I get in tonight" actually means.
+    // route is the one that decides whether you get across, so anchor near
+    // it when the tracer found one: at its 0.25° tide bucket's centre, so no
+    // charted position leaves the device (127-C-b). Otherwise the
+    // destination, which is what a skipper checking "can I get in tonight"
+    // actually means.
     const tideAnchor = useMemo(() => {
         const shallow = legVerdicts.find((v) => v?.needsTide && v.minAt)?.minAt;
-        if (shallow) return { lat: shallow.lat, lon: shallow.lon };
+        if (shallow) {
+            const [lat, lon] = tideCurveBucket(shallow.lat, shallow.lon).split(',').map(Number);
+            return { lat, lon };
+        }
         const last = capturedCoords[capturedCoords.length - 1];
         return last ? { lat: last.lat, lon: last.lon } : null;
     }, [legVerdicts, capturedCoords]);
@@ -2041,7 +2051,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Route Tracer validation ──
     // Context build + per-leg grading + sub-keel tide windows, all in
     // components/map/useTracerGrading.ts. Touches no map layer or marker.
-    useTracerGrading({
+    const { regradeStubLegs } = useTracerGrading({
         capturedCoords,
         coordCaptureMode,
         vessel: settings.vessel,
@@ -2060,6 +2070,12 @@ export const MapHub: React.FC<MapHubProps> = ({
         setSailArmed,
         setShareArmed,
     });
+    // Grade stubs (127-C-b) are checked again on her charts when she opens the
+    // Route report; her tap on a stub row and a refused Save do the same.
+    useEffect(() => {
+        regradeStubLegsRef.current = regradeStubLegs;
+        if (showReport) regradeStubLegs();
+    }, [showReport, regradeStubLegs]);
 
     const [isoProgress, setIsoProgress] = useState<{
         step: number;
@@ -4695,6 +4711,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             departureLabel={departureLabel}
                                             mapRef={mapRef}
                                             pulseMarkHalo={pulseMarkHalo}
+                                            onRegradeStub={regradeStubLegs}
                                         />
                                         <div className="flex gap-1.5 border-t border-white/10 px-3 py-2">
                                             <button
@@ -4845,7 +4862,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             <div className="flex gap-1.5">
                                                 <button
                                                     onClick={saveCurrentTrace}
-                                                    disabled={capturedCoords.length < 2 || !traceReleaseGate.allowed}
+                                                    disabled={
+                                                        capturedCoords.length < 2 ||
+                                                        (!traceReleaseGate.allowed && !traceReleaseGate.recheck)
+                                                    }
                                                     title={
                                                         traceReleaseGate.allowed
                                                             ? 'Save this checked route'

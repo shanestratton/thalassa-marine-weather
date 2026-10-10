@@ -46,6 +46,36 @@ describe('MapHub (B5 + the tracer-active flag)', () => {
     });
 });
 
+/**
+ * Grade stubs (127-C-b): after a relaunch, legs over licensed charts come back
+ * as their grade alone, and only her own tap checks them again on her charts.
+ * The refusal must leave that tap reachable, and the tide panel must never ask
+ * for tides at the charted sounding.
+ */
+describe('MapHub: her taps re-check grade stubs; no charted spot off the device', () => {
+    const map = read('components/map/MapHub.tsx');
+    const after = (from: string, to: string) => {
+        const start = map.indexOf(from);
+        return map.slice(start, map.indexOf(to, start));
+    };
+
+    it('Save stays tappable when the only refusal is stubs, and its tap checks them again', () => {
+        const button = after('onClick={saveCurrentTrace}', "'Save this checked route'");
+        expect(button).toMatch(/!traceReleaseGate\.allowed && !traceReleaseGate\.recheck/);
+        expect(after('const saveCurrentTrace', 'triggerHaptic(')).toContain('regradeStubLegsRef.current()');
+    });
+
+    it('a refused Sail checks them again too', () => {
+        expect(after('const sailTrace', 'triggerHaptic(')).toContain('regradeStubLegsRef.current()');
+    });
+
+    it('the tide panel reads at the shallow spot’s 0.25° bucket centre', () => {
+        const anchor = after('const tideAnchor', '[legVerdicts, capturedCoords]');
+        expect(anchor).toContain('tideCurveBucket(shallow.lat, shallow.lon)');
+        expect(anchor).not.toContain('return { lat: shallow.lat, lon: shallow.lon }');
+    });
+});
+
 describe('App.tsx recovers checks after the boot sync', () => {
     it('runs recovery only after syncSavedRoutes resolves, lazily', () => {
         const app = read('App.tsx');

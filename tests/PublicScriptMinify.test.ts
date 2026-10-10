@@ -48,11 +48,24 @@ describe('public scripts ship without comments, unchanged in behaviour', () => {
             'RUNTIME_TILE_CACHE',
             'OFFLINE_TILE_CACHE',
             'DATA_CACHE',
-            'LAN_TILE_CACHE',
         ]);
         for (const [, name, value] of caches) {
             expect(stripped).toMatch(new RegExp(`\\b${name}=["']${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`));
         }
+    });
+
+    it('keeps no cache of AvNav or Pi chart tiles: pictures of licensed charts stay on the boat (127-C-b)', () => {
+        const source = readPublic('sw.js');
+        expect(source).not.toMatch(/LAN_TILE_CACHE|lan-tiles|isLanTile/);
+        // The activate step deletes every cache not in its keep-list, so the
+        // old LAN tile cache leaves every browser that still has one.
+        const keep = /!\[([^\]]+)\]\.includes\(key\)/.exec(source)?.[1] ?? '';
+        expect(keep.split(',').map((name) => name.trim())).toEqual([
+            'CACHE_NAME',
+            'RUNTIME_TILE_CACHE',
+            'OFFLINE_TILE_CACHE',
+            'DATA_CACHE',
+        ]);
     });
 
     it('notices a change to the program, not just to its spelling', () => {

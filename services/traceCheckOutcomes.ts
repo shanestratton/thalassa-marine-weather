@@ -12,7 +12,9 @@
  * check that), and it is cleared when a newer envelope is banked.
  */
 import { authScopedStorageKey, getAuthIdentityScope, type AuthIdentityScope } from './authIdentityScope';
+import { chartFreeOutcomeLegs } from './chartFacts';
 
+/** chartFacts purgeChartFactsOnDisk rewrites records under this prefix at launch. */
 const KEY = 'thalassa_trace_check_outcomes_v1';
 /** Twice the route-library cap: plenty, and bounded. */
 const MAX_RECORDS = 100;
@@ -96,7 +98,9 @@ export function recordTraceCheckOutcome(
     scope: AuthIdentityScope = getAuthIdentityScope(),
 ): boolean {
     if (!valid(record)) return false;
-    return writeAll({ ...readAll(scope), [traceId]: record }, scope);
+    // Over licensed charts a danger leg keeps only the land words (127-C-b).
+    const legs = record.legs && chartFreeOutcomeLegs(record.legs, record.encFingerprint);
+    return writeAll({ ...readAll(scope), [traceId]: legs === record.legs ? record : { ...record, legs } }, scope);
 }
 
 /** Drop a trace's record — only one no newer than `notAfter`, when given, so

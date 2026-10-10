@@ -255,3 +255,16 @@ test('converter provenance must agree with the licensed key XML before any publi
     );
     assert.equal((await readChartIndex(f.chartStoreDir)).cells.length, 0);
 });
+
+test('o-charts installs record every cell as protected in the index, whatever its id looks like (127-C-b)', async (t) => {
+    const f = await fixture(t);
+    await f.source('set', ['ZZ5TEST1', 'US5XX01M']);
+    await installOChartsDelivery(f.options);
+    const written = JSON.parse(await fs.readFile(path.join(f.chartStoreDir, 'index.json'), 'utf8')) as {
+        cells: Array<{ cellId: string; source: string; licence?: string }>;
+    };
+    assert.deepEqual(written.cells.map((cell) => [cell.cellId, cell.source, cell.licence]).sort(), [
+        ['US5XX01M', 'pi-decrypt', 'protected'],
+        ['ZZ5TEST1', 'pi-decrypt', 'protected'],
+    ]);
+});

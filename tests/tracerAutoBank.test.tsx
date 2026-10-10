@@ -21,6 +21,8 @@ const h = vi.hoisted(() => ({
     needsTide: false,
     events: [] as string[],
     banks: [] as Array<{ id: string; draftM: number }>,
+    /** Use the REAL v5 bank (persist + hydrate) instead of the no-op stubs. */
+    realBank: false,
 }));
 
 vi.mock('../services/routeTracer', async (importOriginal) => {
@@ -41,8 +43,12 @@ vi.mock('../services/routeTracer', async (importOriginal) => {
                 nudgeTo: null,
             };
         }),
-        hydrateLegVerdicts: vi.fn(() => null),
-        persistLegVerdicts: vi.fn(),
+        hydrateLegVerdicts: vi.fn((...args: Parameters<typeof real.hydrateLegVerdicts>) =>
+            h.realBank ? real.hydrateLegVerdicts(...args) : null,
+        ),
+        persistLegVerdicts: vi.fn((...args: Parameters<typeof real.persistLegVerdicts>) => {
+            if (h.realBank) real.persistLegVerdicts(...args);
+        }),
         tideWindowLabelFor: vi.fn(async () => null),
         bankTraceVerification: vi.fn((...args: Parameters<typeof real.bankTraceVerification>) => {
             h.events.push('bank');
@@ -52,9 +58,23 @@ vi.mock('../services/routeTracer', async (importOriginal) => {
     };
 });
 
+// A fictional licensed chart over every route here (127-C-b: legs over it are
+// banked as grade stubs).
+const LICENSED = {
+    id: 'FR5TEST',
+    sourceHO: 'FR',
+    edition: 1,
+    issued: '2026-01-01',
+    importedAt: '2026-01-02T00:00:00.000Z',
+    bbox: [-180, -85, 180, 85] as [number, number, number, number],
+    geojsonPath: 'enc/FR5TEST.json',
+    hazardCount: 1,
+};
 vi.mock('../services/enc/EncCellMetadata', () => ({
     getVersion: () => 1,
     getRegistryFingerprint: () => 'FR5TEST@1',
+    listRegisteredCells: () => [LICENSED],
+    getRegisteredCell: (id: string) => (id === LICENSED.id ? LICENSED : null),
 }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
@@ -69,6 +89,7 @@ import { evaluateTraceRelease } from '../services/traceVerification';
 import { vesselDraftIsAssumed, vesselDraftMetres } from '../services/units';
 import { useTracerGrading, type TracerStatus } from '../components/map/useTracerGrading';
 import { useTracerAutoBank, type TideLabelFor } from '../components/map/useTracerAutoBank';
+import { legCacheKey } from '../components/map/mapHubHelpers';
 
 const FT = 3.28084;
 const DEPART = Date.parse('2026-10-10T07:00:00Z');
@@ -98,6 +119,7 @@ function Harness(props: {
     labelForRef?: { current: TideLabelFor | null };
     onVerdicts?: (v: ReadonlyArray<TraceLegVerdict | null>) => void;
     legAnchor?: { tripId: string; ordinal: number } | null;
+    onGrading?: (api: { regradeStubLegs: (keys?: readonly string[]) => void }) => void;
 }) {
     const { coords, vessel, capture, tideLabel = '', onVerdicts } = props;
     const [legVerdicts, setLegVerdicts] = useState<Array<TraceLegVerdict | null>>([]);
@@ -136,7 +158,7 @@ function Harness(props: {
         setSavedTraces,
         legAnchor: props.legAnchor ?? null,
     });
-    useTracerGrading({
+    const grading = useTracerGrading({
         capturedCoords: coords,
         coordCaptureMode: capture,
         vessel,
@@ -155,6 +177,7 @@ function Harness(props: {
         setSailArmed: noop,
         setShareArmed: noop,
     });
+    props.onGrading?.(grading);
     return null;
 }
 
@@ -340,5 +363,76 @@ describe('useTracerAutoBank — a slot-locked draft banks onto its own slot only
         render(<Harness coords={pLeg3} vessel={keel(1.8)} capture legAnchor={{ tripId: p1, ordinal: 3 }} />);
         await waitFor(() => expect(stored(p3)?.verification?.draftM).toBeCloseTo(1.8, 2));
         expect(h.banks.map((bank) => bank.id)).toEqual([p3]);
+    });
+});
+
+/**
+ * The crash-loop guard under the v5 bank (127-C-b). Legs over licensed charts
+ * are banked as grade stubs, not dropped: a relaunch still marks them decided
+ * and grades nothing (the 2026-08-04 / 08-10 loop: every lap did the exact
+ * work that killed it). A stub is display only: it never banks a check, and
+ * the skipper's own tap re-checks exactly that leg. Fictional route, France.
+ */
+describe('useTracerGrading — grade stubs keep a relaunch from grading anything', () => {
+    const lerins: TracePoint[] = [
+        { lat: 43.585, lon: 7.13 },
+        { lat: 43.53, lon: 7.06 },
+        { lat: 43.545, lon: 7.015 },
+    ];
+
+    beforeEach(() => {
+        localStorage.clear();
+        h.gradeByLat.clear();
+        h.needsTide = false;
+        h.events.length = 0;
+        h.banks.length = 0;
+        h.realBank = true;
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('autobank-owner');
+    });
+    afterEach(() => {
+        h.realBank = false;
+        setAuthIdentityScope(null);
+    });
+
+    it('with stubs banked, a remount grades zero legs and banks nothing; a stub tap regrades exactly that leg', async () => {
+        h.gradeByLat.set(lerins[0].lat, 'caution');
+        h.gradeByLat.set(lerins[1].lat, 'caution');
+        const vessel = keel(1.8);
+        const first = render(<Harness coords={lerins} vessel={vessel} capture />);
+        await waitFor(() => expect(h.events.filter((e) => e.startsWith('grade:'))).toHaveLength(2));
+        await settle();
+        first.unmount();
+
+        h.events.length = 0;
+        let latest: ReadonlyArray<TraceLegVerdict | null> = [];
+        let api: { regradeStubLegs: (keys?: readonly string[]) => void } | null = null;
+        render(
+            <Harness
+                coords={lerins}
+                vessel={vessel}
+                capture
+                onVerdicts={(v) => {
+                    latest = v;
+                }}
+                onGrading={(g) => {
+                    api = g;
+                }}
+            />,
+        );
+        await waitFor(() => expect(latest).toHaveLength(2));
+        await settle();
+        expect(h.events).toEqual([]);
+        expect(latest.every((v) => v?.stub === true && v.grade === 'caution' && v.minDepthM === null)).toBe(true);
+
+        // Tap the second leg's row: only that leg is checked again.
+        const second = legCacheKey(lerins[1], lerins[2], true);
+        act(() => api!.regradeStubLegs([second]));
+        await waitFor(() => expect(h.events).toEqual(['grade:caution']));
+        await waitFor(() => expect(latest[1]?.stub).toBeUndefined());
+        expect(latest[1]?.minDepthM).toBe(2.2);
+        expect(latest[0]?.stub).toBe(true);
+        await settle();
+        expect(h.events).toEqual(['grade:caution']);
     });
 });

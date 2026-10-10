@@ -67,6 +67,7 @@ import {
     type PackageSummary,
 } from '../encChartStore.js';
 import { installOChartsDelivery, verifyArchiveSha256 } from '../oChartsInstaller.js';
+import { piChartLicence } from '../chartLicence.js';
 import { getSourceReconvertStatus } from '../encSourceReconvert.js';
 import { listEncJobReceipts, restoredEncJobReceipt, saveEncJobReceipt, type EncJobReceipt } from '../encJobJournal.js';
 import { pollChartworldOnce } from '../chartworldSync.js';
@@ -359,6 +360,8 @@ async function persistCell(
         installedAt: new Date().toISOString(),
         source,
         sourceUrl,
+        // 127-C-b: the same rule as every other writer (NOAA open, else protected).
+        licence: piChartLicence({ cellId: cell.cellId, sourceHO: cell.sourceHO, source }),
     };
 
     const stageDir = await fs.mkdtemp(path.join(os.tmpdir(), 'thalassa-enc-persist-'));

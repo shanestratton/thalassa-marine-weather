@@ -238,3 +238,30 @@ describe('compact explicit proposal save control', () => {
         expect(screen.queryByRole('button', { name: 'Open Saved Routes' })).toBeNull();
     });
 });
+
+/**
+ * The Save card says what is kept (127-C-b). Over licensed charts the line and
+ * each leg's grade are kept and the chart notes are not; an all-NOAA route
+ * keeps its review evidence as before. Fictional cells: OC-99-SYN001
+ * protected, US5XX01M open.
+ */
+describe('the Save card says what a route over licensed charts keeps', () => {
+    it('says the line and grades are kept and the chart notes are not', async () => {
+        const { CHART_NOTES_ABOARD } = await import('../services/chartFacts');
+        render(<AutoroutingProposalSaveCard {...props()} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Save as planned route' }));
+        expect(screen.getByText(/route points and each leg's grade are kept/)).toBeInTheDocument();
+        expect(screen.getByText(new RegExp(CHART_NOTES_ABOARD.slice(0, 40)))).toBeInTheDocument();
+        expect(screen.queryByText(/bounded review evidence are retained/)).toBeNull();
+    });
+
+    it('keeps the evidence wording for an all-NOAA route', () => {
+        mock.registry = 'US5XX01M@1';
+        const p = props();
+        p.route.engine!.cellsUsed = ['US5XX01M'];
+        p.review!.basis!.registryFingerprint = 'US5XX01M@1';
+        render(<AutoroutingProposalSaveCard {...p} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Save as planned route' }));
+        expect(screen.getByText(/detailed route points and bounded review evidence are retained/)).toBeInTheDocument();
+    });
+});

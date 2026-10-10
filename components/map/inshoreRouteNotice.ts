@@ -567,8 +567,13 @@ export function savedInshoreRouteCaveats(
 ): string[] {
     if (!plan) return [];
     const props = plan.routeGeoJSON?.properties;
+    const saved = plan.__inshoreRouting;
     if (props && typeof props === 'object' && (props as { source?: unknown }).source === 'inshore-router') {
         const p = props as Record<string, unknown>;
+        // A plan whose chart facts stayed aboard (services/chartFacts, 127-C-b)
+        // says the number-free lines it was saved with.
+        if (p.chartFacts === 'aboard-only' && saved?.status === 'success' && Array.isArray(saved.caveats))
+            return saved.caveats.filter((c): c is string => typeof c === 'string');
         const strings = (v: unknown): string[] | undefined =>
             Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined;
         const off = p.pinOffWater as { origin?: unknown; destination?: unknown } | undefined;
@@ -600,7 +605,6 @@ export function savedInshoreRouteCaveats(
             ...(nowMs !== undefined ? { nowMs } : {}),
         });
     }
-    const saved = plan.__inshoreRouting;
     // A final refusal is what the plan must say instead of a route (fix-up,
     // 2026-10-01): whole — the spot, its depth, the tide and the need. So is
     // a refusal for water no tide clears saved by build 124 or earlier

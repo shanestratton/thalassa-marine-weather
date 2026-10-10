@@ -32,6 +32,7 @@ import {
 import { useSettingsStore } from '../stores/settingsStore';
 import { vesselDraftIsAssumed, vesselDraftMetres } from './units';
 import { AUTOROUTING_PROPOSAL_MAX_POINTS, normaliseAutoroutingProposalEvidence } from './autoroutingProposalEvidence';
+import { chartFreeEvidence } from './chartFacts';
 
 const log = createLogger('savedRoutesSync');
 
@@ -310,9 +311,11 @@ export async function pushSavedRoute(
     trace: SavedTrace,
     scope: AuthIdentityScope = getAuthIdentityScope(),
 ): Promise<PushResult> {
-    // Freeze the write material before the asynchronous session lookup.
-    const proposalEvidence = normaliseAutoroutingProposalEvidence(trace.proposalEvidence, trace.points);
-    if (trace.proposalEvidence !== undefined && !proposalEvidence) return 'error';
+    // Freeze the write material before the asynchronous session lookup. Chart
+    // facts from licensed charts never reach the account (127-C-b).
+    const normalised = normaliseAutoroutingProposalEvidence(trace.proposalEvidence, trace.points);
+    if (trace.proposalEvidence !== undefined && !normalised) return 'error';
+    const proposalEvidence = normalised && chartFreeEvidence(normalised);
     const snapshot = {
         ...trace,
         points: trace.points.map(({ lat, lon }) => ({ lat, lon })),
@@ -453,6 +456,8 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
         const deletedIds = new Set(rows.filter((r) => r.deleted).map((r) => r.id as string));
         const allDeletedIds = new Set([...deletedIds, ...Object.keys(freshTombstones)]);
         const checksToSend: Array<{ id: string; verification: TraceVerification; revision: string }> = [];
+        /** Account rows whose evidence still carried chart facts: stripped here, sent back once. */
+        const evidenceToStrip = new Set<string>();
         const context = deviceCheckContext();
         const remote: SavedTrace[] = rows
             .filter((r) => !r.deleted && !allDeletedIds.has(r.id as string) && Array.isArray(r.points))
@@ -476,8 +481,10 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
                     return null;
                 const points = (rawPoints as [number, number][]).map(([lat, lon]) => ({ lat, lon }) as TracePoint);
                 const evidenceValue = r.proposal_evidence ?? localById.get(r.id as string)?.proposalEvidence;
-                const proposalEvidence = normaliseAutoroutingProposalEvidence(evidenceValue, points);
-                if (evidenceValue !== undefined && evidenceValue !== null && !proposalEvidence) return null;
+                const normalised = normaliseAutoroutingProposalEvidence(evidenceValue, points);
+                if (evidenceValue !== undefined && evidenceValue !== null && !normalised) return null;
+                const proposalEvidence = normalised && chartFreeEvidence(normalised);
+                if (r.proposal_evidence && proposalEvidence !== normalised) evidenceToStrip.add(r.id as string);
                 // A check counts only while it proves the returned
                 // coordinates — this device's copy across its own round-trip
                 // (124), or the account's (125-07, once the column exists).
@@ -564,6 +571,13 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
         // check for the very pins the account has (a check banked offline, or
         // before the column existed). A full re-push above already carries it.
         const fullyPushed = new Set([...localWins, ...repaired.changed.map((trace) => trace.id)]);
+        // Purge on contact (127-C-b): the account's copy is replaced by the stripped one.
+        for (const trace of repaired.traces) {
+            if (evidenceToStrip.has(trace.id) && !fullyPushed.has(trace.id)) {
+                fullyPushed.add(trace.id);
+                void pushSavedRoute(trace, scope);
+            }
+        }
         for (const check of checksToSend) {
             if (!fullyPushed.has(check.id))
                 void pushSavedRouteVerification(check.id, check.verification, check.revision, scope);

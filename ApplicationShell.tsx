@@ -11,6 +11,11 @@ if (Capacitor.isNativePlatform()) {
     void import('./services/boxLinks').then((links) => links.installBoxLinks()).catch(() => undefined);
 }
 
+// Charts stay on the boat (127-C-b): once per launch, older chart facts left
+// on this device (leg-verdict banks, route-check findings) are removed or made
+// number-free, for every account.
+void import('./services/chartFacts').then((facts) => facts.purgeChartFactsOnDisk()).catch(() => undefined);
+
 /**
  * Heavy application providers live behind the legal gate so a first-time
  * visitor can read the navigation disclaimer without downloading weather,

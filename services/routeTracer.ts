@@ -63,7 +63,7 @@ import {
 } from './routing/overheadClearance';
 import { vesselAirDraftMetres } from './units';
 import { tideFieldFromCurve } from './routing/env/EnvFields';
-import { fetchTideCurve } from './TideHeightService';
+import { fetchTideCurve, TIDE_CURVE_MAX_DAYS } from './TideHeightService';
 import type { VoyagePlan } from '../types/navigation';
 import { createLogger } from '../utils/createLogger';
 import { crumb } from '../utils/flightRecorder';
@@ -88,6 +88,7 @@ import {
     normaliseAutoroutingProposalEvidence,
     type SavedAutoroutingProposalEvidence,
 } from './autoroutingProposalEvidence';
+import { chartFreeEvidence, chartFreeLegEntries, TRACE_LAND_CROSSING_MESSAGE } from './chartFacts';
 
 const log = createLogger('routeTracer');
 
@@ -140,6 +141,10 @@ export interface TraceLegVerdict {
      *  device could check the leg, so it is drawn as a grey "sketch, not
      *  checked" (127-DESKMAP C3). The grade stays 'caution' for every consumer. */
     unchecked?: true;
+    /** A leg over licensed charts as the bank keeps it (127-C-b): its grade,
+     *  needs-tide and the land words only. Display only: it never releases a
+     *  route, and her tap, the Route report or Save checks it again. */
+    stub?: true;
 }
 
 export interface GatePair {
@@ -691,14 +696,9 @@ export function tracerGridBytes(ctx: TracerContext): number {
  */
 export const TRACER_LRU_BYTE_BUDGET = 48 * 1024 * 1024;
 
-/**
- * The one danger wording that can NEVER be acknowledged away (Shane
- * 2026-08-10: accepted issues are good to go — "just not ones that cross
- * land though"). evaluateTraceRelease matches on this exact string to refuse
- * saving a land-crossing route, so it is a shared constant rather than a
- * literal: rewording the verdict must not silently disarm the refusal.
- */
-export const TRACE_LAND_CROSSING_MESSAGE = 'crosses charted land';
+/** The land words that can never be acknowledged away; defined beside the
+ *  chart-facts rules, which keep them on every stored record (127-C-b). */
+export { TRACE_LAND_CROSSING_MESSAGE };
 
 /**
  * Hold `ctx` at the front of the LRU, evicting from the tail — first past
@@ -1673,7 +1673,9 @@ export async function tideWindowLabelFor(
 ): Promise<string | null> {
     try {
         const untilMs = fromMs + 24 * 3600_000;
-        const curve = await fetchTideCurve(at.lat, at.lon, fromMs, untilMs);
+        // A whole-span curve at its 0.25° bucket centre: the charted shallow
+        // spot itself never leaves the device (127-C-b).
+        const curve = await fetchTideCurve(at.lat, at.lon, fromMs, untilMs, { days: TIDE_CURVE_MAX_DAYS });
         if (!curve) return null;
         const res = computeTidalWindows({ minDepthM, draftM, tide: tideFieldFromCurve(curve), fromMs, untilMs });
         // alwaysOpen with a real required rise = the tide never drops low
@@ -2032,8 +2034,12 @@ export function notifySavedRoutesChanged(scope: AuthIdentityScope = getAuthIdent
  * v4 (2026-09-30): legs are graded against bridges and overhead lines for the
  * mast's air draft (TracerContext.clearanceBars), and the stamp carries that
  * air draft — a v3 verdict never checked a single bridge.
+ * v5 (2026-10-10, 127-C-b): legs over licensed charts are banked as grade
+ * stubs (services/chartFacts) — no charted depth, position or reason on the
+ * disk — so a relaunch still grades nothing. Older banks are removed at
+ * launch (purgeChartFactsOnDisk).
  */
-export const LEG_VERDICTS_KEY = 'thalassa_leg_verdicts_v4';
+export const LEG_VERDICTS_KEY = 'thalassa_leg_verdicts_v5';
 /** A working route is tens of legs; 500 covers several routes' churn
  *  without letting localStorage bloat. Insertion order ≈ age — the tail
  *  (newest) survives the cap. */
@@ -2065,7 +2071,7 @@ export function persistLegVerdicts(
     airDraftM: number | null = null,
 ): void {
     try {
-        const entries = Array.from(cache.entries()).slice(-LEG_VERDICTS_CAP);
+        const entries = chartFreeLegEntries(Array.from(cache.entries()).slice(-LEG_VERDICTS_CAP), encFingerprint);
         const payload: PersistedLegVerdicts = { draftM, draftAssumed, encFingerprint, airDraftM, entries };
         localStorage.setItem(authScopedStorageKey(LEG_VERDICTS_KEY), JSON.stringify(payload));
     } catch {
@@ -2621,8 +2627,28 @@ export function loadSavedTraces(scope: AuthIdentityScope = getAuthIdentityScope(
         // to sign in next would turn an offline cache into a privacy leak.
         const raw = localStorage.getItem(tracesStorageKey(scope));
         if (!raw) return [];
-        const arr = JSON.parse(raw) as SavedTrace[];
-        if (!Array.isArray(arr)) return [];
+        const read = JSON.parse(raw) as SavedTrace[];
+        if (!Array.isArray(read)) return [];
+        // 127-C-b: an older copy's chart facts are stripped as it is read and
+        // the library is written back once (purge on contact).
+        let stripped = false;
+        const arr = read.map((trace) => {
+            try {
+                const kept = trace?.proposalEvidence && chartFreeEvidence(trace.proposalEvidence);
+                if (!kept || kept === trace.proposalEvidence) return trace;
+                stripped = true;
+                return { ...trace, proposalEvidence: kept };
+            } catch {
+                return trace; // malformed evidence is refused below
+            }
+        });
+        if (stripped) {
+            try {
+                writeSavedTraces(arr, scope);
+            } catch {
+                /* storage refused: the stripped copy is still what is shown */
+            }
+        }
         const tombstones = getSavedTraceTombstones(scope);
         const visible = arr
             .filter(
@@ -2873,12 +2899,13 @@ export function saveTrace(
     // A moved waypoint silently drops it; MapHub supplies the freshly-earned
     // envelope after the replacement line has finished grading.
     const verification = normaliseTraceVerification(opts.verification ?? existing?.verification, points);
-    const proposalEvidence = normaliseAutoroutingProposalEvidence(
+    const normalised = normaliseAutoroutingProposalEvidence(
         opts.proposalEvidence ?? existing?.proposalEvidence,
         points,
     );
-    if (opts.proposalEvidence !== undefined && !proposalEvidence)
+    if (opts.proposalEvidence !== undefined && !normalised)
         throw new Error('Proposal evidence is incomplete or does not match these waypoints. Nothing was saved.');
+    const proposalEvidence = normalised && chartFreeEvidence(normalised);
     const trace: SavedTrace = {
         // Random suffix: two saves in the same millisecond used to mint the
         // SAME id, and the by-id dedupe silently swallowed the first route
@@ -2953,9 +2980,10 @@ export function saveTraceTrip(
         const name = input.name.trim();
         if (!name || name.length > 120) throw new Error('Enter route names between 1 and 120 characters.');
         const points = input.points.map(({ lat, lon }) => ({ lat, lon }));
-        const proposalEvidence = normaliseAutoroutingProposalEvidence(input.proposalEvidence, points);
-        if (!proposalEvidence)
+        const normalised = normaliseAutoroutingProposalEvidence(input.proposalEvidence, points);
+        if (!normalised)
             throw new Error('Proposal evidence is incomplete or does not match these waypoints. Nothing was saved.');
+        const proposalEvidence = chartFreeEvidence(normalised);
         const destName = input.destName?.trim();
         if (destName !== undefined && (!destName || destName.length > 120))
             throw new Error('The route destination label is invalid. Nothing was saved.');
@@ -3562,7 +3590,7 @@ export async function commonDepartureWindowLabel(
         const dt = opts.etaOffsetsMs?.[i] ?? 0;
         const fromMs = departMs + dt;
         const untilMs = fromMs + 24 * 3600_000;
-        const curve = await fetchTideCurve(v.minAt!.lat, v.minAt!.lon, fromMs, untilMs);
+        const curve = await fetchTideCurve(v.minAt!.lat, v.minAt!.lon, fromMs, untilMs, { days: TIDE_CURVE_MAX_DAYS });
         if (!curve) return null; // offline — the per-leg red rows still stand
         const res = computeTidalWindows({
             minDepthM: v.minDepthM!,

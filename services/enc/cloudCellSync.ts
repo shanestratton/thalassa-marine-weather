@@ -40,6 +40,7 @@ import {
     type EncConversionResult,
     utf8ByteLength,
 } from './types';
+import { isOpenChartCell } from './chartLicence';
 import { createLogger } from '../../utils/createLogger';
 import { withTimeout } from '../../utils/deadline';
 
@@ -89,11 +90,10 @@ const inflightCells = new Map<string, InflightCellDownload>();
 let activeManifest: ActiveManifest | null = null;
 
 /** A NOAA ENC cell name, exactly as the server's root read policy matches its
- *  file (20261009070000: `^US[0-9][A-Z0-9]{5}\.json$`). */
-const NOAA_CELL_ID = /^US[0-9][A-Z0-9]{5}$/;
-
+ *  file (20261009070000: `^US[0-9][A-Z0-9]{5}\.json$`): the licence rule's
+ *  only open charts (services/enc/chartLicence, 127-C-b). */
 export function isNoaaEncCellId(cellId: string): boolean {
-    return NOAA_CELL_ID.test(canonicalEncCellId(cellId));
+    return isOpenChartCell({ id: cellId });
 }
 
 const CLOUD_MANIFEST_MAX_BYTES = 512 * 1024;

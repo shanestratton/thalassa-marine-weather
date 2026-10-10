@@ -20,6 +20,9 @@ import {
     type TraceVerification,
 } from '../traceVerification';
 
+import { chartFreeVoyagePlan } from '../chartFacts';
+import type { VoyagePlan } from '../../types';
+
 const log = createLogger('PassagePlanSave');
 
 /**
@@ -179,9 +182,13 @@ export const ROUTE_GEOMETRY_NOTES_PREFIX = '__route_geometry__::';
  */
 export const ROUTE_CAVEAT_LINE_PREFIX = '⚠ ';
 
-/** The caveat lines a plan's notes carry (none: ''). */
-export function routeCaveatNotes(plan: { __inshoreRouting?: { caveats?: unknown } | null }): string {
-    const raw = plan.__inshoreRouting?.caveats;
+/** The caveat lines a plan's notes carry (none: ''): over licensed charts,
+ *  the number-free lines it keeps on the disk (services/chartFacts, 127-C-b). */
+export function routeCaveatNotes(plan: {
+    routeGeoJSON?: unknown;
+    __inshoreRouting?: { caveats?: unknown; cellsUsed?: unknown } | null;
+}): string {
+    const raw: unknown = chartFreeVoyagePlan(plan as VoyagePlan).__inshoreRouting?.caveats;
     if (!Array.isArray(raw)) return '';
     const lines = raw
         .filter((c): c is string => typeof c === 'string')

@@ -19,6 +19,7 @@ import {
 } from '../services/authIdentityScope';
 import { sanitizeRouteCoordinates, type RouteCoordinate } from '../utils/routeCoordinates';
 import { calculateDistance } from '../utils/navigationCalculations';
+import { chartFreeVoyagePlan } from '../services/chartFacts';
 
 const log = createLogger('FollowRoute');
 
@@ -173,6 +174,8 @@ function saveToStorage(state: FollowRouteState, scope: AuthIdentityScope = getAu
     if (!isAuthIdentityScopeCurrent(scope)) return;
     try {
         const { isRefreshing, ...persist } = state;
+        // The followed plan keeps no chart facts from licensed charts on the disk (127-C-b).
+        if (persist.voyagePlan) persist.voyagePlan = chartFreeVoyagePlan(persist.voyagePlan);
         localStorage.setItem(storageKey(scope), JSON.stringify(persist));
     } catch {
         /* quota */

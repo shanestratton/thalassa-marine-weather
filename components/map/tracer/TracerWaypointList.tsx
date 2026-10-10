@@ -31,7 +31,7 @@ import React from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { triggerHaptic } from '../../../utils/system';
 import { TracerTidePanel } from '../TracerTidePanel';
-import { tracerFlyTo } from '../mapHubHelpers';
+import { legCacheKey, tracerFlyTo } from '../mapHubHelpers';
 import type { TraceLegVerdict } from '../../../services/routeTracer';
 
 export interface TracerWaypointListProps {
@@ -47,6 +47,8 @@ export interface TracerWaypointListProps {
     /** The ref OBJECT — passing .current strands the fly-to on a null map. */
     mapRef: React.RefObject<mapboxgl.Map | null>;
     pulseMarkHalo: (p: { lat: number; lon: number }) => void;
+    /** Check a grade stub again on her charts (useTracerGrading, 127-C-b). */
+    onRegradeStub?: (keys: readonly string[]) => void;
 }
 
 export const TracerWaypointList: React.FC<TracerWaypointListProps> = ({
@@ -58,6 +60,7 @@ export const TracerWaypointList: React.FC<TracerWaypointListProps> = ({
     departureLabel,
     mapRef,
     pulseMarkHalo,
+    onRegradeStub,
 }) => {
     return (
         <>
@@ -123,15 +126,19 @@ export const TracerWaypointList: React.FC<TracerWaypointListProps> = ({
                         // port — correct side heading in") takes its place
                         // so a right mark-pass shows its confirmation.
                         const infoNote = v?.issues.find((iss) => iss.severity === 'info');
+                        // A grade stub (127-C-b): the reason stays aboard until
+                        // she taps the row and her charts work it out again.
                         const msg = !v
                             ? 'checking…'
-                            : v.grade === 'clear'
-                              ? infoNote
-                                  ? infoNote.message
-                                  : v.minDepthM !== null
-                                    ? `clear — ${v.minDepthM.toFixed(1)} m least`
-                                    : 'clear'
-                              : (v.issues.find((iss) => iss.severity !== 'info')?.message ?? v.grade);
+                            : v.stub && v.grade !== 'clear' && v.issues.length === 0
+                              ? `${v.needsTide ? 'needs tide' : v.grade === 'danger' ? 'no-go' : 'caution'} · tap for ${v.needsTide ? 'the window' : 'why'}`
+                              : v.grade === 'clear'
+                                ? infoNote
+                                    ? infoNote.message
+                                    : v.minDepthM !== null
+                                      ? `clear — ${v.minDepthM.toFixed(1)} m least`
+                                      : 'clear'
+                                : (v.issues.find((iss) => iss.severity !== 'info')?.message ?? v.grade);
                         // Tap a leg row → fly to the MARK it's
                         // about (haloed) when there is one, else
                         // the problem spot / leg midpoint.
@@ -146,6 +153,10 @@ export const TracerWaypointList: React.FC<TracerWaypointListProps> = ({
                             <div
                                 key={i}
                                 onClick={() => {
+                                    if (v?.stub)
+                                        onRegradeStub?.([
+                                            legCacheKey(capturedCoords[i - 1], c, i === capturedCoords.length - 1),
+                                        ]);
                                     const m = mapRef.current;
                                     if (!m) return;
                                     triggerHaptic('light');

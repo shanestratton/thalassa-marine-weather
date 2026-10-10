@@ -39,7 +39,7 @@
  * mid-session. `toolarge` verdicts are durable because they are pure geometry.
  */
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import {
     tideWindowLabelFor,
@@ -126,7 +126,17 @@ export interface TracerGradingDeps {
     setShareArmed: (v: boolean) => void;
 }
 
-export function useTracerGrading(deps: TracerGradingDeps): void {
+export interface TracerGrading {
+    /**
+     * Check grade stubs again on her charts (127-C-b): `keys` (legCacheKey),
+     * else every stub on the line. Called only from her own taps — a stub row,
+     * the Route report, Save — so a re-check that dies is never a launch loop.
+     * A stub the charts cannot check right now stays banked as it was.
+     */
+    regradeStubLegs: (keys?: readonly string[]) => void;
+}
+
+export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
     const {
         capturedCoords,
         coordCaptureMode,
@@ -171,6 +181,25 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
     /** Tide-window labels cached by SPOT (leg indices shift on insert/
      *  delete; the shallow patch itself doesn't move). */
     const tideSpotCacheRef = useRef<Map<string, string>>(new Map());
+    /** Stubs taken out for a re-check (127-C-b), banked as they were until a
+     *  durable verdict replaces them. */
+    const stubHoldRef = useRef<Map<string, TraceLegVerdict>>(new Map());
+    const legKeysRef = useRef<string[]>([]);
+    /** The line the last pass was run for: a re-check alone keeps her acks. */
+    const lastLineRef = useRef<readonly unknown[]>([]);
+    const [regradeTick, setRegradeTick] = useState(0);
+    const regradeStubLegs = useCallback((keys?: readonly string[]) => {
+        const cache = legCacheRef.current;
+        let hit = false;
+        for (const key of keys ?? legKeysRef.current) {
+            const v = cache.get(key);
+            if (!v?.stub) continue;
+            stubHoldRef.current.set(key, v);
+            cache.delete(key);
+            hit = true;
+        }
+        if (hit) setRegradeTick((n) => n + 1);
+    }, []);
     // ── Route Tracer validation ──
     // Build/refresh the tracer context, then grade every leg. Rebuilds when a
     // pin lands outside the current grid's padded bbox OR the vessel draft
@@ -178,12 +207,17 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
     // adversarial-audit critical #1: edit draft 1.9→2.6 m and a green bar
     // crossing stayed green).
     useEffect(() => {
-        setSailArmed(false); // a changed line always re-earns its "Sail anyway"
-        // Ack indices die with the old leg list — but IDENTITY-PRESERVING:
-        // an unconditional new Set() forced a full 7k-line MapHub render on
-        // EVERY pin edit even when no acks existed (jank audit #4).
-        setAckedLegs((s) => (s.size === 0 ? s : new Set()));
-        setShareArmed(false); // consent never outlives the line it was given for
+        const line = [capturedCoords, coordCaptureMode, vessel];
+        const recheckOnly = line.every((part, i) => part === lastLineRef.current[i]);
+        lastLineRef.current = line;
+        if (!recheckOnly) {
+            setSailArmed(false); // a changed line always re-earns its "Sail anyway"
+            // Ack indices die with the old leg list — but IDENTITY-PRESERVING:
+            // an unconditional new Set() forced a full 7k-line MapHub render on
+            // EVERY pin edit even when no acks existed (jank audit #4).
+            setAckedLegs((s) => (s.size === 0 ? s : new Set()));
+            setShareArmed(false); // consent never outlives the line it was given for
+        }
         if (!coordCaptureMode || capturedCoords.length === 0) {
             // Kill any in-flight grading pass — un-superseded, it would
             // resurrect the old trace's verdicts/status over Clear/Done.
@@ -192,6 +226,7 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                 setLegVerdicts([]);
                 legCacheRef.current.clear();
                 failVerdictsRef.current.clear();
+                stubHoldRef.current.clear();
             }
             return;
         }
@@ -217,6 +252,7 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
             tracerCtxRef.current = null;
             tracerCtxLruRef.current = []; // grids were built FOR the old keel
             legCacheRef.current.clear();
+            stubHoldRef.current.clear();
             tideSpotCacheRef.current.clear();
             setTideLabels({});
             tideReqRef.current.clear();
@@ -259,6 +295,20 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                 key: legCacheKey(capturedCoords[i - 1], capturedCoords[i], i === capturedCoords.length - 1),
             });
         }
+        legKeysRef.current = legs.map((l) => l.key);
+        // Held stubs off this line are dropped; those on it are graded below,
+        // and banked as they were until a durable verdict replaces them.
+        const hold = stubHoldRef.current;
+        for (const key of Array.from(hold.keys())) if (!legKeysRef.current.includes(key)) hold.delete(key);
+        for (const key of hold.keys()) cache.delete(key);
+        const bank = (): void =>
+            persistLegVerdicts(
+                hold.size ? new Map([...hold, ...cache]) : cache,
+                draftNow,
+                draftAssumed,
+                getRegistryFingerprint(),
+                airNow,
+            );
         const passFor: TracerGradedFor = {
             geometryKey: traceGeometryKey(capturedCoords),
             draftM: draftNow,
@@ -307,7 +357,12 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                 isDecided: (key) => cache.has(key) || failMap.has(key),
                 onStatus: (status) => setTracerStatus(status),
                 onLeg: (key, verdict, isVolatile) => {
-                    if (isVolatile) {
+                    const held = hold.get(key);
+                    hold.delete(key);
+                    if (isVolatile && held) {
+                        // The charts could not check it now: keep the stub.
+                        cache.set(key, held);
+                    } else if (isVolatile) {
                         failMap.set(key, verdict);
                         const prev = volatileRetrySchedule.get(key);
                         const attempts = (prev?.attempts ?? 0) + 1;
@@ -332,7 +387,7 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                     // again and died again: a crash loop whose every lap does
                     // the exact work that kills. Banking incrementally means
                     // each attempt KEEPS its progress.
-                    persistLegVerdicts(cache, draftNow, draftAssumed, getRegistryFingerprint(), airNow);
+                    bank();
                 },
             });
             if (result.superseded || seq !== tracerSeqRef.current) return;
@@ -343,7 +398,7 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
             setTracerStatus(result.status);
             // The pass is the unit of new knowledge — bank it so the NEXT mount
             // (reload, deploy, tab-bounce) re-grades nothing.
-            persistLegVerdicts(cache, draftNow, draftAssumed, getRegistryFingerprint(), airNow);
+            bank();
         })();
         // The stable identities below (five refs and the setters) are named
         // only to satisfy exhaustive-deps, which can no longer see they are
@@ -355,6 +410,7 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
         capturedCoords,
         coordCaptureMode,
         vessel,
+        regradeTick,
         tracerCtxFromLru,
         tracerCtxHold,
         tracerCtxRef,
@@ -419,4 +475,5 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
             return next;
         });
     }, [legVerdicts, coordCaptureMode, vessel, departureMs, legEtaOffsetsMs, setTideLabels]);
+    return { regradeStubLegs };
 }

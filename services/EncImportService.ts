@@ -35,7 +35,7 @@ import { fetchVerifiedFromPi, getPairing, pinnedPiRequest } from './PiPairingSer
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
 import * as EncHazardService from './enc/EncHazardService';
 import { canonicalEncCellId, ENC_CELL_BLOB_MAX_BYTES, ENC_CELL_ID_PATTERN, encCellStorageIdentity } from './enc/types';
-import type { EncCell, EncConversionBatch, EncConversionResult } from './enc/types';
+import type { ChartLicence, EncCell, EncConversionBatch, EncConversionResult } from './enc/types';
 import {
     forgetPiCellWithoutDepthAreas,
     isEncMissingDepthAreaError,
@@ -340,6 +340,10 @@ export interface PiInstalledCell {
      */
     source: 'phone-upload' | 'url' | 'pi-decrypt';
     sourceUrl?: string;
+    /** The Pi's licence stamp (127-C-b). Never a reason to reject an index:
+     *  any value but 'open' reads as 'protected', and the Pi's own decrypts
+     *  are protected whatever it says. Absent: classified on the phone. */
+    licence?: ChartLicence;
 }
 
 const PI_INSTALLED_INDEX_MAX_CELLS = 5_000;
@@ -415,7 +419,11 @@ function validatePiInstalledCells(value: unknown): PiInstalledCell[] {
             throw new Error(`Pi chart index entry ${index + 1} failed identity/extent/size validation`);
         }
         identities.add(identity);
-        return { ...candidate, cellId, sourceHO, bbox } as PiInstalledCell;
+        const licence =
+            candidate.source === 'pi-decrypt' || (candidate.licence !== undefined && candidate.licence !== 'open')
+                ? 'protected'
+                : candidate.licence;
+        return { ...candidate, cellId, sourceHO, bbox, licence } as PiInstalledCell;
     });
 }
 
@@ -723,6 +731,7 @@ export async function syncEncFromPi(
                     // The Pi's own size for this revision: a legacy row with no
                     // contentSha256 is matched on it (see piSyncPlan).
                     piSizeBytes: remote.sizeBytes,
+                    licence: remote.licence,
                     assertAuthority,
                 }),
             );
