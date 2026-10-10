@@ -1,0 +1,24 @@
+{
+    "fieldsSha256": "330898e2460b19db3dc8caf8f18aaee940b63a848f13ae391adef61cae82fa5a",
+    "transferred": [
+        "cells",
+        "centreFactor",
+        "clearanceBarred",
+        "confined",
+        "injectedCanal",
+        "landBlocked",
+        "markDiscBlocked",
+        "markGoverned",
+        "obstnBlocked",
+        "preferred",
+        "shallowDepthM",
+        "unvouched",
+        "wetConflict"
+    ],
+    "summary": {
+        "width": 1151,
+        "height": 372,
+        "blocked": 0,
+        "typedArrays": 13
+    }
+}

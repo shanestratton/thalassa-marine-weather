@@ -292,6 +292,63 @@ describe('calculateThalassaProposal', () => {
         expect(opts.departureMs).toBeGreaterThanOrEqual(now - 1000);
     });
 
+    // 127-PYD-2: Plan Your Day routes the stop she opens for the leave she chose
+    // (the tide changes when, never which way). Auto's own calls are unchanged.
+    describe('a departure time from the caller (127-PYD-2)', () => {
+        const H = 3_600_000;
+
+        it('is honoured: passed to the engine and stamped on the route', async () => {
+            m.tryInshoreRoute.mockResolvedValue(engineResult());
+            const departureMs = Math.round((Date.now() + 5 * H) / 1000) * 1000;
+            const route = await calculateThalassaProposal(request({ departureMs }));
+            expect(m.tryInshoreRoute.mock.calls[0][5].departureMs).toBe(departureMs);
+            expect(route.departureMs).toBe(departureMs);
+        });
+
+        it('omitted, the engine routes for now and the route carries no stamp (Auto unchanged)', async () => {
+            m.tryInshoreRoute.mockResolvedValue(engineResult());
+            const before = Date.now();
+            const route = await calculateThalassaProposal(request());
+            const asked = m.tryInshoreRoute.mock.calls[0][5].departureMs;
+            expect(asked).toBeGreaterThanOrEqual(before);
+            expect(asked).toBeLessThanOrEqual(Date.now());
+            expect(route).not.toHaveProperty('departureMs');
+        });
+
+        it.each([
+            ['two hours ago', -2 * H],
+            ['nine days out', 9 * 24 * H],
+            ['not a number', Number.NaN],
+            ['infinite', Number.POSITIVE_INFINITY],
+        ])('refuses a departure %s before any work', async (_label, offset) => {
+            m.tryInshoreRoute.mockResolvedValue(engineResult());
+            await expect(calculateThalassaProposal(request({ departureMs: Date.now() + offset }))).rejects.toThrow(
+                'Choose a departure within the next 8 days.',
+            );
+            expect(m.tryInshoreRoute).not.toHaveBeenCalled();
+        });
+
+        it('takes the hour just past and a week out', async () => {
+            m.tryInshoreRoute.mockResolvedValue(engineResult());
+            for (const offset of [-0.5 * H, 7 * 24 * H]) {
+                const departureMs = Date.now() + offset;
+                await expect(calculateThalassaProposal(request({ departureMs }))).resolves.toMatchObject({
+                    departureMs,
+                });
+            }
+        });
+
+        it('the disclosure keys are unchanged: the stamp is on the route, never in the engine block', async () => {
+            m.tryInshoreRoute.mockResolvedValue(engineResult());
+            const plain = await calculateThalassaProposal(request());
+            m.tryInshoreRoute.mockResolvedValue(engineResult());
+            const timed = await calculateThalassaProposal(request({ departureMs: Date.now() + H }));
+            expect(Object.keys(timed.engine!).sort()).toEqual(Object.keys(plain.engine!).sort());
+            expect(Object.keys(timed.engine!)).not.toContain('departureMs');
+            expect(Object.keys(timed).sort()).toEqual([...Object.keys(plain), 'departureMs'].sort());
+        });
+    });
+
     it('passes a null air draft when it is not set, so every structure blocks (D5)', async () => {
         m.tryInshoreRoute.mockResolvedValue(engineResult());
         const route = await calculateThalassaProposal(

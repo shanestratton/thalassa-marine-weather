@@ -208,6 +208,9 @@
 .today-rows { margin: 0; padding: 0 4px; list-style: none; }
 .today-rows li { padding: clamp(2px, 2px + 0.017 * var(--today-room), 5px) 0; border-bottom: 1px solid #ffffff0d; font-size: 0.75rem; line-height: 1.25; }
 .today-rows li[data-parks] { color: #fcd34d; }
+/* 127-PYD-2: the owner's routing time under the route row (on a no-route's estimate line), and the route mark on a routed stop's times. */
+.today-rows .today-route-time { color: #94a3b8; font-size: 0.6875rem; }
+.today-route-mark { color: #67e8f9; }
 /* The stop page's verdict, first, in its level's colour (127-PYD-1). */
 .today-rows li[data-level] { color: var(--level); font-weight: 700; }
 .today-leave { margin-top: clamp(4px, 4px + 0.022 * var(--today-room), 8px); }
@@ -463,5 +466,7 @@
 .display-light .today-pick { border-color: #0e7490; color: #0e7490; }
 .display-light .today-chip[aria-pressed='true'] { border-color: #0e7490; background: #cffafe; }
 .display-light :is(.today-notice, .today-rows li[data-parks]) { color: #92400e; }
+.display-light .today-rows .today-route-time { color: #475569; }
+.display-light .today-route-mark { color: #0e7490; }
 .display-light .today-primary { background: #0e7490; color: #fff; }
 .display-light .today-main .today-col-b > .today-stops::after { background: linear-gradient(#fff0, #fff); }

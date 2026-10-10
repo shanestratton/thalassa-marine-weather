@@ -1,5 +1,12 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1';
-import { FORECAST_HOURLY, PRESSURE_LEVEL_HOURLY, validateRequest } from './validation.ts';
+import {
+    FORECAST_HOURLY,
+    isOperation,
+    OPERATIONS,
+    PRESSURE_LEVEL_HOURLY,
+    UPSTREAMS,
+    validateRequest,
+} from './validation.ts';
 
 /**
  * The sounding sheet's pressure levels (build 125, SND): ECMWF's seven synced
@@ -87,4 +94,73 @@ Deno.test('the requests the app already sends are unchanged', () => {
     assert(point);
     assertEquals(point.hourly, 'temperature_2m,wind_speed_10m,wind_gusts_10m,pressure_msl');
     assertEquals(validateRequest('forecast', sounding(['not_a_variable'])), null);
+});
+
+/**
+ * 127-H: Calypso's place-name lookup moves off the free geocoder onto the
+ * commercial customer endpoint, through this same boundary. The `geocode`
+ * operation takes exactly four names and no coordinates; the upstream host and
+ * the key stay server-owned.
+ */
+const WHITEHAVEN = { name: 'Whitehaven Beach', count: 1, language: 'en', format: 'json' };
+
+Deno.test('geocode accepts the request Calypso sends, anywhere in the world', () => {
+    assertEquals(validateRequest('geocode', WHITEHAVEN), {
+        name: 'Whitehaven Beach',
+        count: '1',
+        language: 'en',
+        format: 'json',
+    });
+    assertEquals(
+        validateRequest('geocode', { ...WHITEHAVEN, name: 'Ponta Delgada', language: 'pt' })?.name,
+        'Ponta Delgada',
+    );
+    assertEquals(validateRequest('geocode', { ...WHITEHAVEN, name: 'Île d’Exemple', count: 10 })?.count, '10');
+    assertEquals(validateRequest('geocode', { name: 'Porto Ficticio' }), { name: 'Porto Ficticio' });
+    assertEquals(validateRequest('geocode', { ...WHITEHAVEN, name: 'x'.repeat(100) })?.name.length, 100);
+});
+
+Deno.test('geocode refuses everything else', () => {
+    const refused: Array<[string, Record<string, unknown>]> = [
+        ['no name', { count: 1, language: 'en', format: 'json' }],
+        ['an empty name', { ...WHITEHAVEN, name: '' }],
+        ['a blank name', { ...WHITEHAVEN, name: '   ' }],
+        ['101 characters', { ...WHITEHAVEN, name: 'x'.repeat(101) }],
+        ['a control character', { ...WHITEHAVEN, name: 'Whitehaven\u0000Beach' }],
+        ['a newline', { ...WHITEHAVEN, name: 'Whitehaven\nBeach' }],
+        ['a name that is not text', { ...WHITEHAVEN, name: 42 }],
+        ['count 0', { ...WHITEHAVEN, count: 0 }],
+        ['count 11', { ...WHITEHAVEN, count: 11 }],
+        ['count 1.5', { ...WHITEHAVEN, count: 1.5 }],
+        ["language 'english'", { ...WHITEHAVEN, language: 'english' }],
+        ["language 'EN'", { ...WHITEHAVEN, language: 'EN' }],
+        ["format 'protobuf'", { ...WHITEHAVEN, format: 'protobuf' }],
+        ['latitude', { ...WHITEHAVEN, latitude: -20.28 }],
+        ['apikey', { ...WHITEHAVEN, apikey: 'fictional' }],
+        ['models', { ...WHITEHAVEN, models: 'ecmwf_ifs025' }],
+        ['countryCode', { ...WHITEHAVEN, countryCode: 'AU' }],
+    ];
+    for (const [label, params] of refused) assertEquals(validateRequest('geocode', params), null, label);
+});
+
+Deno.test('forecast and marine never take a geocode request, and geocode never takes theirs', () => {
+    assertEquals(validateRequest('forecast', WHITEHAVEN), null);
+    assertEquals(validateRequest('marine', WHITEHAVEN), null);
+    assertEquals(
+        validateRequest('geocode', { latitude: '38.5', longitude: '-28.6', current: 'temperature_2m' }),
+        null,
+    );
+});
+
+Deno.test('the upstreams are three fixed customer hosts', () => {
+    assertEquals(UPSTREAMS, {
+        forecast: 'https://customer-api.open-meteo.com/v1/forecast',
+        marine: 'https://customer-marine-api.open-meteo.com/v1/marine',
+        geocode: 'https://customer-geocoding-api.open-meteo.com/v1/search',
+    });
+    assertEquals(OPERATIONS, ['forecast', 'marine', 'geocode']);
+    for (const operation of OPERATIONS) assert(isOperation(operation), operation);
+    for (const operation of ['search', 'archive', 'Forecast', '', 'constructor', 'toString']) {
+        assert(!isOperation(operation), operation);
+    }
 });
