@@ -219,6 +219,23 @@ async function armHere(page: Page) {
     await expect(page.getByRole('button', { name: 'Stop Watch' })).toBeVisible();
 }
 
+// The Sound Check puts focus on its Cancel. Opened on the key's press, a held
+// Enter's repeat landed there and closed the check at once (reproduced in
+// Chromium and WebKit). It opens on the release, and stays open.
+test('the Sound Check opened from a keyboard stays open while Enter is held', async ({ page }) => {
+    await open(page, { width: 320, height: 568 }, 'plain&area=none');
+    const play = page.getByRole('button', { name: 'Play test alarm' });
+    await page.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' }).focus();
+    await page.keyboard.down('Enter');
+    await expect(play).toHaveCount(0);
+    await page.keyboard.down('Enter'); // held: the key's repeat
+    await page.keyboard.up('Enter');
+    await expect(play).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cancel this action' })).toBeFocused();
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    await expect(play).toBeVisible();
+});
+
 /** The watching view, with the note if any: the radar, the card, its badge, Weigh Anchor and the note. */
 function measureNote(page: Page) {
     return page.evaluate(() => {

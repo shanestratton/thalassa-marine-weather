@@ -129,11 +129,14 @@ export function ShoreWatchReadings({
                 landscape, a square canvas with the column, beside the readings. */}
             <div className="relative flex min-h-32 w-full max-h-64 flex-1 overflow-hidden rounded-2xl bg-slate-900/40 [@media(max-height:500px)]:h-[clamp(8rem,40dvh,16rem)] [@media(max-height:500px)]:max-h-none [@media(max-height:500px)]:w-auto [@media(max-height:500px)]:flex-none">
                 {/* The distance stays big, labelled above like the readings below.
-                    The radar's own label says it all for a screen reader. */}
+                    The radar's own label says it all for a screen reader. Never
+                    narrower than its longest word: at 320 px in wide fonts 40%
+                    left "ANCHOR" 4 px wider than the column (min-width wins over
+                    max-width), so the canvas gives up those 4 px instead. */}
                 <div
                     data-testid="shore-radar-distance"
                     aria-hidden="true"
-                    className="pointer-events-none max-w-[40%] shrink-0 py-2 pl-2.5 pr-1 [@media(max-height:500px)]:max-w-[7rem]"
+                    className="pointer-events-none min-w-min max-w-[40%] shrink-0 py-2 pl-2.5 pr-1 [@media(max-height:500px)]:max-w-[7rem]"
                 >
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
                         {fresh ? 'from anchor' : 'last-known from anchor'}

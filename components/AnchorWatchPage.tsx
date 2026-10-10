@@ -887,6 +887,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     }, [authedUser, sessionCode]);
     // Slide-to-confirm state (must be before any early returns — React Rules of Hooks)
     const slideTrackRef = useRef<HTMLDivElement>(null);
+    /** The Enter or Space that went down on the slide track, until its release opens the Sound Check. */
+    const armKeyRef = useRef<string | null>(null);
     const [slideX, setSlideX] = useState(0);
     const [isDragging, setIsDragging] = useState(false);
     const [slideCommitted, setSlideCommitted] = useState(false);
@@ -1371,10 +1373,23 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     tabIndex={0}
                                     aria-label="Drop anchor and arm Anchor Watch"
                                     aria-describedby={armWaitHint ? `${armWaitHintId} ${armTapHintId}` : armTapHintId}
+                                    // Opened on the key's release, from a press that began
+                                    // here: the Sound Check puts focus on its Cancel, and a
+                                    // held Enter's repeat landed there and closed it at once.
                                     onKeyDown={(event) => {
                                         if (event.key !== 'Enter' && event.key !== ' ') return;
                                         event.preventDefault();
+                                        armKeyRef.current = event.key;
+                                    }}
+                                    onKeyUp={(event) => {
+                                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                                        event.preventDefault();
+                                        if (armKeyRef.current !== event.key) return;
+                                        armKeyRef.current = null;
                                         setShowSoundCheck(true);
+                                    }}
+                                    onBlur={() => {
+                                        armKeyRef.current = null;
                                     }}
                                     // VoiceOver's double-tap and Switch Control send a
                                     // click with no pointer travel (detail 0), which the

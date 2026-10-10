@@ -447,6 +447,24 @@ test.describe('Plan front door keeps every item', () => {
     }
 });
 
+/**
+ * An iPad draws at 2x, so a test at an iPad's width runs at 2x. The WebKit
+ * project is an iPhone 13 (3x), and CI's Linux WebKit renders with no GPU: a
+ * 1024 x 768 split at 3x is 7.1 Mpx a frame, and with the Trip sheet open over
+ * the split it drew about one frame a second (run 38029604897's trace). Every
+ * wait on a frame (Playwright's "stable" before a click, settle()) crawled,
+ * and the test ran past its 30 s: 35 s, where 430 x 856 at 3x (3.3 Mpx) took
+ * 12 s. Only a project drawing above 2x comes down: Chromium keeps its own
+ * 1x. Call inside a describe.
+ */
+function atIpadScale(width: number) {
+    if (width < 1024) return;
+    // The project's own scale, never above 2.
+    test.use({
+        deviceScaleFactor: async ({ deviceScaleFactor }, provide) => provide(Math.min(deviceScaleFactor ?? 1, 2)),
+    });
+}
+
 test.describe('Trip · Legs keeps the way home within reach', () => {
     for (const size of [
         { name: '320x568', width: 320, height: 568 },
@@ -454,77 +472,81 @@ test.describe('Trip · Legs keeps the way home within reach', () => {
         { name: '390x844', width: 390, height: 844 },
         { name: '1024x768 split', width: 1024, height: 768 },
     ]) {
-        test(`the legs, their ⇄ and the return trip fit at ${size.name}`, async ({ page, baseURL }) => {
-            await open(page, baseURL, size.width, size.height, 'planning');
-            await page.getByRole('button', { name: 'Trip · Legs', exact: true }).click();
-            await page
-                .getByRole('dialog', { name: 'Your trips' })
-                .getByRole('button', { name: /^Harbour - Sandy Cove/ })
-                .click();
-            const dialog = page.getByRole('dialog', { name: /Harbour - Sandy Cove/ });
-            await expect(dialog).toBeVisible();
-            // The cyclone-season card (W1-12) loads below the legs: measure with it in place.
-            const season = dialog.getByRole('list', { name: 'Tropical cyclones near this route by month' });
-            await expect(season).toBeAttached({ timeout: 15_000 });
-            await dialog.getByRole('button', { name: /^⇄ Plan the return trip/ }).scrollIntoViewIfNeeded();
-            const m = await dialog.evaluate((box) => {
-                const frame = box.getBoundingClientRect();
-                const targets = [...box.querySelectorAll<HTMLElement>('button')].map((button) => {
-                    const r = button.getBoundingClientRect();
-                    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        test.describe(() => {
+            atIpadScale(size.width);
+            test(`the legs, their ⇄ and the return trip fit at ${size.name}`, async ({ page, baseURL }) => {
+                await open(page, baseURL, size.width, size.height, 'planning');
+                await page.getByRole('button', { name: 'Trip · Legs', exact: true }).click();
+                await page
+                    .getByRole('dialog', { name: 'Your trips' })
+                    .getByRole('button', { name: /^Harbour - Sandy Cove/ })
+                    .click();
+                const dialog = page.getByRole('dialog', { name: /Harbour - Sandy Cove/ });
+                await expect(dialog).toBeVisible();
+                // The cyclone-season card (W1-12) loads below the legs: measure with it in place.
+                const season = dialog.getByRole('list', { name: 'Tropical cyclones near this route by month' });
+                await expect(season).toBeAttached({ timeout: 15_000 });
+                await dialog.getByRole('button', { name: /^⇄ Plan the return trip/ }).scrollIntoViewIfNeeded();
+                const m = await dialog.evaluate((box) => {
+                    const frame = box.getBoundingClientRect();
+                    const targets = [...box.querySelectorAll<HTMLElement>('button')].map((button) => {
+                        const r = button.getBoundingClientRect();
+                        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                        return {
+                            name: button.getAttribute('aria-label') ?? button.textContent?.trim().slice(0, 30),
+                            width: r.width,
+                            height: r.height,
+                            inside: r.left >= frame.left - 0.5 && r.right <= frame.right + 0.5,
+                            hit: !!hit && (hit === button || button.contains(hit)),
+                            // A leg name truncates rather than wrapping the row.
+                            clipped: [...button.querySelectorAll<HTMLElement>('span')].some(
+                                (span) =>
+                                    !span.classList.contains('truncate') && span.scrollWidth > span.clientWidth + 1,
+                            ),
+                        };
+                    });
+                    const scroller = box.querySelector<HTMLElement>('.overflow-y-auto')!;
                     return {
-                        name: button.getAttribute('aria-label') ?? button.textContent?.trim().slice(0, 30),
-                        width: r.width,
-                        height: r.height,
-                        inside: r.left >= frame.left - 0.5 && r.right <= frame.right + 0.5,
-                        hit: !!hit && (hit === button || button.contains(hit)),
-                        // A leg name truncates rather than wrapping the row.
-                        clipped: [...button.querySelectorAll<HTMLElement>('span')].some(
-                            (span) => !span.classList.contains('truncate') && span.scrollWidth > span.clientWidth + 1,
-                        ),
+                        overflowX: box.scrollWidth - box.clientWidth,
+                        scrollerX: scroller.scrollWidth - scroller.clientWidth,
+                        withinViewport: frame.top >= 0 && frame.bottom <= window.innerHeight,
+                        targets,
                     };
                 });
-                const scroller = box.querySelector<HTMLElement>('.overflow-y-auto')!;
-                return {
-                    overflowX: box.scrollWidth - box.clientWidth,
-                    scrollerX: scroller.scrollWidth - scroller.clientWidth,
-                    withinViewport: frame.top >= 0 && frame.bottom <= window.innerHeight,
-                    targets,
-                };
-            });
-            expect(m.overflowX, 'the dialog never scrolls sideways').toBeLessThanOrEqual(0);
-            expect(m.scrollerX, 'the legs list never scrolls sideways').toBeLessThanOrEqual(0);
-            expect(m.withinViewport, 'the dialog sits inside the screen').toBe(true);
-            const chips = m.targets.filter((t) => t.name?.startsWith('Return from'));
-            expect(chips).toHaveLength(2);
-            for (const target of m.targets) {
-                expect(target.height, `${target.name} is a 44 pt target`).toBeGreaterThanOrEqual(44 - 0.5);
-                expect(target.inside, `${target.name} stays inside the dialog`).toBe(true);
-                expect(target.clipped, `${target.name} is not clipped`).toBe(false);
-            }
-            for (const chip of chips) {
-                expect(chip.width, `${chip.name} is 44 pt wide`).toBeGreaterThanOrEqual(44 - 0.5);
-                expect(chip.hit, `${chip.name} is not covered`).toBe(true);
-            }
-            const returnRow = m.targets.find((t) => t.name?.startsWith('⇄ Plan the return trip'));
-            expect(returnRow?.hit, 'the return-trip row is not covered').toBe(true);
+                expect(m.overflowX, 'the dialog never scrolls sideways').toBeLessThanOrEqual(0);
+                expect(m.scrollerX, 'the legs list never scrolls sideways').toBeLessThanOrEqual(0);
+                expect(m.withinViewport, 'the dialog sits inside the screen').toBe(true);
+                const chips = m.targets.filter((t) => t.name?.startsWith('Return from'));
+                expect(chips).toHaveLength(2);
+                for (const target of m.targets) {
+                    expect(target.height, `${target.name} is a 44 pt target`).toBeGreaterThanOrEqual(44 - 0.5);
+                    expect(target.inside, `${target.name} stays inside the dialog`).toBe(true);
+                    expect(target.clipped, `${target.name} is not clipped`).toBe(false);
+                }
+                for (const chip of chips) {
+                    expect(chip.width, `${chip.name} is 44 pt wide`).toBeGreaterThanOrEqual(44 - 0.5);
+                    expect(chip.hit, `${chip.name} is not covered`).toBe(true);
+                }
+                const returnRow = m.targets.find((t) => t.name?.startsWith('⇄ Plan the return trip'));
+                expect(returnRow?.hit, 'the return-trip row is not covered').toBe(true);
 
-            // Scrolled to, the season strip sits inside the dialog with every month's count in its cell.
-            await season.scrollIntoViewIfNeeded();
-            await expect(season).toBeVisible();
-            const strip = await season.evaluate((list) => {
-                const frame = list.closest('[role="dialog"]')!.getBoundingClientRect();
-                const r = list.getBoundingClientRect();
-                const cells = [...list.querySelectorAll<HTMLElement>('li')];
-                return {
-                    cells: cells.length,
-                    inside: r.left >= frame.left - 0.5 && r.right <= frame.right + 0.5,
-                    clipped: cells.some((li) => li.scrollWidth > li.clientWidth + 1),
-                };
+                // Scrolled to, the season strip sits inside the dialog with every month's count in its cell.
+                await season.scrollIntoViewIfNeeded();
+                await expect(season).toBeVisible();
+                const strip = await season.evaluate((list) => {
+                    const frame = list.closest('[role="dialog"]')!.getBoundingClientRect();
+                    const r = list.getBoundingClientRect();
+                    const cells = [...list.querySelectorAll<HTMLElement>('li')];
+                    return {
+                        cells: cells.length,
+                        inside: r.left >= frame.left - 0.5 && r.right <= frame.right + 0.5,
+                        clipped: cells.some((li) => li.scrollWidth > li.clientWidth + 1),
+                    };
+                });
+                expect(strip.cells, 'twelve months').toBe(12);
+                expect(strip.inside, 'the season strip stays inside the dialog').toBe(true);
+                expect(strip.clipped, 'no month cell is clipped').toBe(false);
             });
-            expect(strip.cells, 'twelve months').toBe(12);
-            expect(strip.inside, 'the season strip stays inside the dialog').toBe(true);
-            expect(strip.clipped, 'no month cell is clipped').toBe(false);
         });
     }
 });
@@ -704,81 +726,85 @@ const SHEET_SIZES = [
 
 test.describe('Trip sheet fits one screen', () => {
     for (const size of SHEET_SIZES) {
-        test(`your trips, a four-leg trip and the next leg at ${size.name}`, async ({ page, baseURL }, info) => {
-            await open(page, baseURL, size.width, size.height, 'planning', size.width >= 1024, {
-                traces: sheetLibrary(),
+        test.describe(() => {
+            atIpadScale(size.width);
+            test(`your trips, a four-leg trip and the next leg at ${size.name}`, async ({ page, baseURL }, info) => {
+                await open(page, baseURL, size.width, size.height, 'planning', size.width >= 1024, {
+                    traces: sheetLibrary(),
+                });
+                const limit = await floor(page);
+                // trip-sheet-430-trip.png, trip-sheet-430-add.png, trip-sheet-320-trip.png… to LOOK at.
+                const shot = (name: string) =>
+                    page.screenshot({ path: info.outputPath(`${name}.png`), animations: 'disabled' });
+
+                // (a) Your trips: thirteen, newest first.
+                await page.getByRole('button', { name: 'Trip · Legs', exact: true }).click();
+                const sheet = page.locator('[role="dialog"][data-trip-sheet]');
+                await expect(sheet.getByRole('heading', { name: 'Your trips' })).toBeVisible();
+                await expect(sheet.getByRole('list', { name: 'Trips' }).getByRole('button')).toHaveCount(13);
+                await expect(sheet.getByRole('list', { name: 'Trips' }).getByRole('button').first()).toHaveText(
+                    /^Opua - Whangaroa.*4 legs/,
+                );
+                await settle(page);
+                expect(await sheetIssues(page, limit)).toEqual([]);
+                await shot(`trip-sheet-${size.width}-trips`);
+
+                // (b) The four-leg trip.
+                await sheet.getByRole('button', { name: /^Opua - Whangaroa/ }).click();
+                await expect(sheet.getByRole('heading', { name: 'Opua - Whangaroa' })).toBeVisible();
+                await expect(sheet.getByText("starts 0.9 NM from leg 2's end")).toBeVisible();
+                await expect(sheet.getByText('⛓ joined')).toHaveCount(2);
+                const cta = sheet.getByRole('button', { name: '+ Add the 5th leg from Whangaroa' });
+                await expect(cta).toBeVisible();
+                await settle(page);
+                expect(await sheetIssues(page, limit)).toEqual([]);
+                const fit = await sheet.evaluate((card) => {
+                    const scroller = card.querySelector<HTMLElement>(':scope > .overflow-y-auto')!;
+                    const list = scroller.getBoundingClientRect();
+                    const cards = [...card.querySelectorAll<HTMLElement>('[aria-label^="Leg "]')];
+                    const footer = card.querySelector('footer')!.getBoundingClientRect();
+                    const label = card.querySelector('footer button span')!;
+                    const line = parseFloat(getComputedStyle(label).lineHeight) || 18;
+                    return {
+                        scrollTop: scroller.scrollTop,
+                        cardsInView: cards.filter((c) => c.getBoundingClientRect().bottom <= list.bottom + 0.5).length,
+                        footerInView:
+                            footer.top >= list.bottom - 0.5 &&
+                            footer.bottom <= card.getBoundingClientRect().bottom + 0.5,
+                        ctaOneLine:
+                            label.scrollWidth <= label.clientWidth + 1 &&
+                            label.getBoundingClientRect().height <= line * 1.5,
+                    };
+                });
+                expect(fit.scrollTop).toBe(0);
+                expect(fit.footerInView, 'the footer is in view').toBe(true);
+                // Four cards and the footer with no scroll, even on the smallest phone.
+                expect(fit.cardsInView, 'leg cards in view before any scroll').toBe(4);
+                if (size.width >= 430) expect(fit.ctaOneLine, 'the footer CTA is on one line').toBe(true);
+                await shot(`trip-sheet-${size.width}-trip`);
+
+                // (c) The 5th leg from Whangaroa: all three sections.
+                await cta.click();
+                await expect(sheet.getByRole('heading', { name: '5th leg from Whangaroa' })).toBeVisible();
+                await expect(
+                    sheet
+                        .getByRole('list', { name: 'Starts at Whangaroa' })
+                        .getByRole('button', { name: /^Whangaroa - Mangonui/ }),
+                ).toBeVisible();
+                await expect(
+                    sheet
+                        .getByRole('list', { name: 'Ends at Whangaroa — sail it the other way' })
+                        .getByRole('button', { name: /^Mangonui - Whangaroa.*0\.6 NM joining run/ }),
+                ).toBeVisible();
+                await settle(page);
+                expect(await sheetIssues(page, limit)).toEqual([]);
+                await shot(`trip-sheet-${size.width}-add`);
+                await sheet.getByRole('button', { name: /^Show \d+ more$/ }).click();
+                const further = sheet.getByRole('list', { name: 'Further away' });
+                await expect(further.getByRole('button').first()).toBeDisabled();
+                await further.getByRole('button').last().scrollIntoViewIfNeeded();
+                expect(await sheetIssues(page, limit)).toEqual([]);
             });
-            const limit = await floor(page);
-            // trip-sheet-430-trip.png, trip-sheet-430-add.png, trip-sheet-320-trip.png… to LOOK at.
-            const shot = (name: string) =>
-                page.screenshot({ path: info.outputPath(`${name}.png`), animations: 'disabled' });
-
-            // (a) Your trips: thirteen, newest first.
-            await page.getByRole('button', { name: 'Trip · Legs', exact: true }).click();
-            const sheet = page.locator('[role="dialog"][data-trip-sheet]');
-            await expect(sheet.getByRole('heading', { name: 'Your trips' })).toBeVisible();
-            await expect(sheet.getByRole('list', { name: 'Trips' }).getByRole('button')).toHaveCount(13);
-            await expect(sheet.getByRole('list', { name: 'Trips' }).getByRole('button').first()).toHaveText(
-                /^Opua - Whangaroa.*4 legs/,
-            );
-            await settle(page);
-            expect(await sheetIssues(page, limit)).toEqual([]);
-            await shot(`trip-sheet-${size.width}-trips`);
-
-            // (b) The four-leg trip.
-            await sheet.getByRole('button', { name: /^Opua - Whangaroa/ }).click();
-            await expect(sheet.getByRole('heading', { name: 'Opua - Whangaroa' })).toBeVisible();
-            await expect(sheet.getByText("starts 0.9 NM from leg 2's end")).toBeVisible();
-            await expect(sheet.getByText('⛓ joined')).toHaveCount(2);
-            const cta = sheet.getByRole('button', { name: '+ Add the 5th leg from Whangaroa' });
-            await expect(cta).toBeVisible();
-            await settle(page);
-            expect(await sheetIssues(page, limit)).toEqual([]);
-            const fit = await sheet.evaluate((card) => {
-                const scroller = card.querySelector<HTMLElement>(':scope > .overflow-y-auto')!;
-                const list = scroller.getBoundingClientRect();
-                const cards = [...card.querySelectorAll<HTMLElement>('[aria-label^="Leg "]')];
-                const footer = card.querySelector('footer')!.getBoundingClientRect();
-                const label = card.querySelector('footer button span')!;
-                const line = parseFloat(getComputedStyle(label).lineHeight) || 18;
-                return {
-                    scrollTop: scroller.scrollTop,
-                    cardsInView: cards.filter((c) => c.getBoundingClientRect().bottom <= list.bottom + 0.5).length,
-                    footerInView:
-                        footer.top >= list.bottom - 0.5 && footer.bottom <= card.getBoundingClientRect().bottom + 0.5,
-                    ctaOneLine:
-                        label.scrollWidth <= label.clientWidth + 1 &&
-                        label.getBoundingClientRect().height <= line * 1.5,
-                };
-            });
-            expect(fit.scrollTop).toBe(0);
-            expect(fit.footerInView, 'the footer is in view').toBe(true);
-            // Four cards and the footer with no scroll, even on the smallest phone.
-            expect(fit.cardsInView, 'leg cards in view before any scroll').toBe(4);
-            if (size.width >= 430) expect(fit.ctaOneLine, 'the footer CTA is on one line').toBe(true);
-            await shot(`trip-sheet-${size.width}-trip`);
-
-            // (c) The 5th leg from Whangaroa: all three sections.
-            await cta.click();
-            await expect(sheet.getByRole('heading', { name: '5th leg from Whangaroa' })).toBeVisible();
-            await expect(
-                sheet
-                    .getByRole('list', { name: 'Starts at Whangaroa' })
-                    .getByRole('button', { name: /^Whangaroa - Mangonui/ }),
-            ).toBeVisible();
-            await expect(
-                sheet
-                    .getByRole('list', { name: 'Ends at Whangaroa — sail it the other way' })
-                    .getByRole('button', { name: /^Mangonui - Whangaroa.*0\.6 NM joining run/ }),
-            ).toBeVisible();
-            await settle(page);
-            expect(await sheetIssues(page, limit)).toEqual([]);
-            await shot(`trip-sheet-${size.width}-add`);
-            await sheet.getByRole('button', { name: /^Show \d+ more$/ }).click();
-            const further = sheet.getByRole('list', { name: 'Further away' });
-            await expect(further.getByRole('button').first()).toBeDisabled();
-            await further.getByRole('button').last().scrollIntoViewIfNeeded();
-            expect(await sheetIssues(page, limit)).toEqual([]);
         });
     }
 

@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
 
 async function openFixture(page: Page, width: number, height: number, query = '') {
     // The configured server's own origin (4199 in the layout config).
@@ -12,10 +13,18 @@ async function openFixture(page: Page, width: number, height: number, query = ''
             : route.abort();
     });
     await page.routeWebSocket('**/*', (socket) => socket.close());
+    // "In wide fonts" is the house fit rule's (e2e/helpers/wideFonts.ts): large
+    // text in Verdana on a Mac, DejaVu Sans on the Linux runner, so a Mac run
+    // wraps no narrower than CI. Large text alone laid these cases out in the
+    // Mac's narrow face, and they overflowed on CI only (run 38029604897).
+    const wide = query.includes('largeText');
+    if (wide) await applyWideFonts(page);
     await page.setViewportSize({ width, height });
     await page.goto(`/e2e/fixtures/shore-watch.html${query}`);
-    await expect(page.getByRole('region', { name: 'Vessel anchor readings' })).toBeVisible();
+    const readings = page.getByRole('region', { name: 'Vessel anchor readings' });
+    await expect(readings).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
+    if (wide) await expectWideFaceDrawn(readings.getByRole('status'));
 }
 
 async function assertNoHorizontalOverflow(page: Page) {
@@ -30,7 +39,10 @@ async function assertNoHorizontalOverflow(page: Page) {
                 ...document.querySelectorAll('[aria-label="Vessel anchor readings"] *'),
             ]) {
                 if (element.scrollWidth > element.clientWidth + 1)
-                    errors.push(`${element.tagName}: ${element.scrollWidth} > ${element.clientWidth}`);
+                    errors.push(
+                        `${element.tagName} "${(element.textContent ?? '').trim().slice(0, 40)}": ` +
+                            `${element.scrollWidth} > ${element.clientWidth}`,
+                    );
             }
             if (window.scrollY !== 0) errors.push('Document scrolled instead of the readings region');
             return errors;
@@ -343,39 +355,76 @@ test('Shore Watch draws her trail across the antimeridian on the radar (Taveuni)
     );
     await expect(page.getByText(`Trail since ${since}`, { exact: true })).toBeVisible();
     const radar = page.getByRole('img', { name: /Shore Watch radar/ });
-    // Two frames, so the draw loop has painted.
+    // The draw loop has sized its buffer to the canvas (it had not even once
+    // when CI's two-frame wait began, run 38029604897), then two more frames.
+    await expect
+        .poll(() =>
+            radar.evaluate((element) => {
+                const canvas = element as HTMLCanvasElement;
+                return canvas.width === Math.round(canvas.getBoundingClientRect().width * devicePixelRatio);
+            }),
+        )
+        .toBe(true);
     await radar.evaluate(
         () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(null)))),
     );
-    const { onTrail, offTrail } = await radar.evaluate((element) => {
-        const canvas = element as HTMLCanvasElement;
-        const ctx = canvas.getContext('2d')!;
-        const ratio = canvas.width / canvas.clientWidth;
-        const w = canvas.clientWidth;
-        const h = canvas.clientHeight;
+    // Read the radar as it is on screen, not the canvas's own buffer: Linux
+    // WebKit read its accelerated canvas back wrong (run 38029604897: the trail
+    // plain in the failure screenshot, while the samples read darker than the
+    // empty side), so a pixel read from it said nothing about what she sees.
+    // The screenshot is decoded into a plain CPU-backed canvas.
+    const shot = (await radar.screenshot({ animations: 'disabled' })).toString('base64');
+    const { onTrail, offTrail, north } = await radar.evaluate(async (element, base64) => {
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+        const image = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+        const copy = document.createElement('canvas');
+        copy.width = image.width;
+        copy.height = image.height;
+        const ctx = copy.getContext('2d', { willReadFrequently: true })!;
+        ctx.drawImage(image, 0, 0);
+        const box = element.getBoundingClientRect();
+        const sx = image.width / box.width;
+        const sy = image.height / box.height;
+        const w = box.width;
+        const h = box.height;
         // The shore radar's fitted rose (SwingCircleCanvas radarRose): 35% of the
         // short side, pulled in only where the letters would leave the canvas.
         const short = Math.min(w, h);
-        const radius = short / 2 - short * 0.35 >= 40 ? short * 0.35 : Math.min(short * 0.35, short / 2 - 26);
+        const roomy = short / 2 - short * 0.35 >= 40;
+        const radius = roomy ? short * 0.35 : Math.min(short * 0.35, short / 2 - 26);
         const scale = radius / 60; // swing radius 60 m in the fixture
-        const brightness = (x: number, y: number) => {
-            let best = 0;
-            const data = ctx.getImageData(Math.round(x * ratio) - 2, Math.round(y * ratio) - 2, 5, 5).data;
-            for (let i = 0; i < data.length; i += 4) best = Math.max(best, data[i] + data[i + 1] + data[i + 2]);
-            return best;
+        /** The brightest and the reddest pixel within a CSS pixel of (x, y). */
+        const sample = (x: number, y: number) => {
+            const reach = Math.max(2, Math.ceil(sx));
+            const data = ctx.getImageData(
+                Math.round(x * sx) - reach,
+                Math.round(y * sy) - reach,
+                2 * reach + 1,
+                2 * reach + 1,
+            ).data;
+            let bright = 0;
+            let red = -255;
+            for (let i = 0; i < data.length; i += 4) {
+                bright = Math.max(bright, data[i] + data[i + 1] + data[i + 2]);
+                red = Math.max(red, data[i] - Math.max(data[i + 1], data[i + 2]));
+            }
+            return { bright, red };
         };
-        const at = (bearing: number) => {
+        const at = (bearing: number, metres = 42) => {
             const rad = (bearing * Math.PI) / 180;
             // The fixture's trail runs 42 m from the anchor, WNW through N to E.
-            return [w / 2 + Math.sin(rad) * 42 * scale, h / 2 - Math.cos(rad) * 42 * scale] as const;
+            return [w / 2 + Math.sin(rad) * metres * scale, h / 2 - Math.cos(rad) * metres * scale] as const;
         };
         const bearings = [320, 330, 340, 350, 0, 10, 20, 30, 40];
         return {
-            onTrail: bearings.map((b) => brightness(...at(b))),
+            onTrail: bearings.map((b) => sample(...at(b)).bright),
             // The same distance south of the anchor: the same rings, no trail.
-            offTrail: bearings.map((b) => brightness(...at(180 + b))),
+            offTrail: bearings.map((b) => sample(...at(180 + b)).bright),
+            // The red N, at its own place above the circle: the read is the right way up.
+            north: sample(w / 2, h / 2 - radius - (roomy ? 32 : 18)).red,
         };
-    });
+    }, shot);
+    expect(north, 'the red N is read above the circle').toBeGreaterThan(60);
     const brighter = onTrail.filter((value, i) => value > offTrail[i] + 40).length;
     expect(brighter, `trail ${onTrail} vs none ${offTrail}`).toBeGreaterThanOrEqual(6);
 });

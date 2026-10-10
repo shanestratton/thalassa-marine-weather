@@ -308,7 +308,17 @@ describe('readForUpload', () => {
 
         const blob = await vault.readForUpload(saved.uri);
 
-        expect(await bytesOfBlob(blob)).toEqual(original);
+        // Every byte, compared natively: toEqual walks a 3 MiB array one
+        // element at a time (~5 s here, past the 20 s ceiling on CI's runner
+        // under coverage, run 38029604897). Still 3 MiB + 17: it crosses the
+        // ~2 MiB chunk boundary and ends part-way through a 3-byte group.
+        const read = Buffer.from(await bytesOfBlob(blob));
+        const want = Buffer.from(original);
+        const firstDifference = read.equals(want) ? -1 : read.findIndex((byte, i) => byte !== want[i]);
+        expect({ bytes: read.length, firstDifference }).toEqual({
+            bytes: want.length,
+            firstDifference: -1,
+        });
         expect(String(fetch.mock.calls[0][0])).toMatch(/^capacitor:\/\/localhost\/_capacitor_file_\/Library\/vault\//);
         expect(mem.calls.slice(mark).some((c) => c.op === 'readFile')).toBe(false);
     });

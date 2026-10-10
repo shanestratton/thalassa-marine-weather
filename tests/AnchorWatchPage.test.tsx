@@ -356,10 +356,40 @@ describe('AnchorWatchPage', () => {
         expect(await screen.findByRole('button', { name: 'Play test alarm' })).toBeInTheDocument();
     });
 
+    it('opens the Sound Check from a keyboard when the key is released, so the rest of that key never lands on Cancel', async () => {
+        render(<AnchorWatchPage {...defaultProps} />);
+        const arm = screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' });
+        const soundCheck = () => screen.queryByRole('button', { name: 'Play test alarm' });
+
+        // Down, and held (its repeat): nothing yet. The Sound Check puts focus
+        // on its Cancel, and a held Enter's repeat there closed it at once.
+        fireEvent.keyDown(arm, { key: 'Enter' });
+        fireEvent.keyDown(arm, { key: 'Enter', repeat: true });
+        expect(soundCheck()).not.toBeInTheDocument();
+        fireEvent.keyUp(arm, { key: 'Enter' });
+        expect(await screen.findByRole('button', { name: 'Play test alarm' })).toBeInTheDocument();
+    });
+
+    it('never opens the Sound Check for a key that went down somewhere else', () => {
+        render(<AnchorWatchPage {...defaultProps} />);
+        const arm = screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' });
+        // Focus arrived mid-key (a press elsewhere moved it here): its release is not a press.
+        fireEvent.keyUp(arm, { key: 'Enter' });
+        fireEvent.keyUp(arm, { key: ' ' });
+        expect(screen.queryByRole('button', { name: 'Play test alarm' })).not.toBeInTheDocument();
+        // A press that left the control before its release is not one either.
+        fireEvent.keyDown(arm, { key: ' ' });
+        fireEvent.blur(arm);
+        fireEvent.keyUp(arm, { key: ' ' });
+        expect(screen.queryByRole('button', { name: 'Play test alarm' })).not.toBeInTheDocument();
+    });
+
     it('surfaces the exact actionable setup failure returned by the safety service', async () => {
         render(<AnchorWatchPage {...defaultProps} />);
 
-        fireEvent.keyDown(screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' }), { key: 'Enter' });
+        const arm = screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' });
+        fireEvent.keyDown(arm, { key: 'Enter' });
+        fireEvent.keyUp(arm, { key: 'Enter' });
         fireEvent.click(await screen.findByRole('button', { name: 'Play test alarm' }));
         fireEvent.click(await screen.findByRole('button', { name: 'Stop test alarm' }));
         fireEvent.click(await screen.findByRole('button', { name: 'Confirm alarm was audible' }));
@@ -525,9 +555,9 @@ describe('AnchorWatchPage', () => {
 
         async function arm() {
             render(<AnchorWatchPage {...defaultProps} />);
-            fireEvent.keyDown(screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' }), {
-                key: 'Enter',
-            });
+            const control = screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' });
+            fireEvent.keyDown(control, { key: 'Enter' });
+            fireEvent.keyUp(control, { key: 'Enter' });
             fireEvent.click(await screen.findByRole('button', { name: 'Play test alarm' }));
             fireEvent.click(await screen.findByRole('button', { name: 'Stop test alarm' }));
             fireEvent.click(await screen.findByRole('button', { name: 'Confirm alarm was audible' }));
@@ -645,9 +675,9 @@ describe('AnchorWatchPage', () => {
             });
         }
         async function arm() {
-            fireEvent.keyDown(screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' }), {
-                key: 'Enter',
-            });
+            const control = screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' });
+            fireEvent.keyDown(control, { key: 'Enter' });
+            fireEvent.keyUp(control, { key: 'Enter' });
             fireEvent.click(await screen.findByRole('button', { name: 'Play test alarm' }));
             fireEvent.click(await screen.findByRole('button', { name: 'Stop test alarm' }));
             fireEvent.click(await screen.findByRole('button', { name: 'Confirm alarm was audible' }));
