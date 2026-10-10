@@ -11,90 +11,94 @@ import { describe, it, expect } from 'vitest';
 import type { Feature } from 'geojson';
 import { parseLateralMarks, groupChannels, corridorCenterline, distM, type LateralMark } from '../../services/fairlead';
 import { encLayer } from '../helpers/encCells';
+import { REAL_AU_CHART_FIXTURES_RETIRED } from '../helpers/retiredChartFixtures';
 
 /** Both lateral-mark layers for one cell, from the committed fixture. */
 function loadMarks(id: string): Feature[] {
     return [...encLayer(id, 'BOYLAT'), ...encLayer(id, 'BCNLAT')];
 }
 
-describe('Newport marks — fairlead reconstruction diagnostic', () => {
-    it('reports why the Newport-exit channel does/does not reconstruct', () => {
-        const feats = [...loadMarks('OC-61-10ENB5'), ...loadMarks('OC-61-10RCS5')];
-        const marks = parseLateralMarks(feats as never);
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'Newport marks — fairlead reconstruction diagnostic (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        it('reports why the Newport-exit channel does/does not reconstruct', () => {
+            const feats = [...loadMarks('OC-61-10ENB5'), ...loadMarks('OC-61-10RCS5')];
+            const marks = parseLateralMarks(feats as never);
 
-        // Newport-exit marks: lat -27.214..-27.16, lon 153.085..153.11.
-        const exit = marks.filter((m) => m.lat > -27.214 && m.lat < -27.16 && m.lon > 153.085 && m.lon < 153.11);
-        const port = exit.filter((m) => m.side === 'port');
-        const stbd = exit.filter((m) => m.side === 'stbd');
-
-        console.log(
-            `\nPARSED marks total=${marks.length}  exit-area=${exit.length} (port=${port.length} stbd=${stbd.length})`,
-        );
-
-        console.log(
-            'exit keys:',
-            JSON.stringify([...new Set(exit.map((m) => `${m.key}:${m.seq}:${m.side[0]}`))].slice(0, 30)),
-        );
-
-        const channels = groupChannels(marks);
-
-        console.log(`\ngroupChannels → ${channels.length} channels:`);
-        for (const ch of channels) {
-            const p = ch.filter((m) => m.side === 'port').length;
-            const s = ch.filter((m) => m.side === 'stbd').length;
-            const lats = ch.map((m) => m.lat);
-            const inExit = ch.some((m) => m.lat > -27.214 && m.lat < -27.16 && m.lon > 153.085 && m.lon < 153.11);
+            // Newport-exit marks: lat -27.214..-27.16, lon 153.085..153.11.
+            const exit = marks.filter((m) => m.lat > -27.214 && m.lat < -27.16 && m.lon > 153.085 && m.lon < 153.11);
+            const port = exit.filter((m) => m.side === 'port');
+            const stbd = exit.filter((m) => m.side === 'stbd');
 
             console.log(
-                `  key=${ch[0].key} n=${ch.length} (p=${p}/s=${s}) latRange=[${Math.min(...lats).toFixed(3)},${Math.max(
-                    ...lats,
-                ).toFixed(3)}]${inExit ? '  <== NEWPORT EXIT' : ''}`,
+                `\nPARSED marks total=${marks.length}  exit-area=${exit.length} (port=${port.length} stbd=${stbd.length})`,
             );
-        }
 
-        // For each channel that includes the exit, build the centreline + measure wander.
-        for (const ch of channels) {
-            const inExit = ch.some((m) => m.lat > -27.214 && m.lat < -27.16 && m.lon > 153.085 && m.lon < 153.11);
-            if (!inExit) continue;
-            const centre = corridorCenterline(ch, 140);
-            // wander = max step-to-step turn; a clean channel centreline is monotone.
-            let maxTurnDeg = 0;
-            for (let i = 1; i + 1 < centre.length; i++) {
-                const a = centre[i - 1];
-                const b = centre[i];
-                const c = centre[i + 1];
-                const b1 = Math.atan2(b.lat - a.lat, b.lon - a.lon);
-                const b2 = Math.atan2(c.lat - b.lat, c.lon - b.lon);
-                let d = Math.abs((b2 - b1) * (180 / Math.PI));
-                if (d > 180) d = 360 - d;
-                maxTurnDeg = Math.max(maxTurnDeg, d);
+            console.log(
+                'exit keys:',
+                JSON.stringify([...new Set(exit.map((m) => `${m.key}:${m.seq}:${m.side[0]}`))].slice(0, 30)),
+            );
+
+            const channels = groupChannels(marks);
+
+            console.log(`\ngroupChannels → ${channels.length} channels:`);
+            for (const ch of channels) {
+                const p = ch.filter((m) => m.side === 'port').length;
+                const s = ch.filter((m) => m.side === 'stbd').length;
+                const lats = ch.map((m) => m.lat);
+                const inExit = ch.some((m) => m.lat > -27.214 && m.lat < -27.16 && m.lon > 153.085 && m.lon < 153.11);
+
+                console.log(
+                    `  key=${ch[0].key} n=${ch.length} (p=${p}/s=${s}) latRange=[${Math.min(...lats).toFixed(3)},${Math.max(
+                        ...lats,
+                    ).toFixed(3)}]${inExit ? '  <== NEWPORT EXIT' : ''}`,
+                );
             }
-            const valid = centre.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)).length;
 
-            console.log(
-                `\ncorridorCenterline(key=${ch[0].key}) → ${centre.length} pts, ${valid} finite, maxTurn=${maxTurnDeg.toFixed(
-                    0,
-                )}°`,
-            );
-        }
-
-        // Manual nearest-gate pairing (mirrors followChannelGates, grid-free part).
-        const MAX_GATE_M = 500;
-        let gateCount = 0;
-        for (const p of port) {
-            let bd = MAX_GATE_M;
-            let best: LateralMark | null = null;
-            for (const s of stbd) {
-                const d = distM(p, s);
-                if (d < bd) {
-                    bd = d;
-                    best = s;
+            // For each channel that includes the exit, build the centreline + measure wander.
+            for (const ch of channels) {
+                const inExit = ch.some((m) => m.lat > -27.214 && m.lat < -27.16 && m.lon > 153.085 && m.lon < 153.11);
+                if (!inExit) continue;
+                const centre = corridorCenterline(ch, 140);
+                // wander = max step-to-step turn; a clean channel centreline is monotone.
+                let maxTurnDeg = 0;
+                for (let i = 1; i + 1 < centre.length; i++) {
+                    const a = centre[i - 1];
+                    const b = centre[i];
+                    const c = centre[i + 1];
+                    const b1 = Math.atan2(b.lat - a.lat, b.lon - a.lon);
+                    const b2 = Math.atan2(c.lat - b.lat, c.lon - b.lon);
+                    let d = Math.abs((b2 - b1) * (180 / Math.PI));
+                    if (d > 180) d = 360 - d;
+                    maxTurnDeg = Math.max(maxTurnDeg, d);
                 }
-            }
-            if (best) gateCount++;
-        }
+                const valid = centre.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon)).length;
 
-        console.log(`\nnearest-gate pairing (≤${MAX_GATE_M}m): ${gateCount} gates from ${port.length} port marks`);
-        expect(marks.length).toBeGreaterThan(0);
-    });
-});
+                console.log(
+                    `\ncorridorCenterline(key=${ch[0].key}) → ${centre.length} pts, ${valid} finite, maxTurn=${maxTurnDeg.toFixed(
+                        0,
+                    )}°`,
+                );
+            }
+
+            // Manual nearest-gate pairing (mirrors followChannelGates, grid-free part).
+            const MAX_GATE_M = 500;
+            let gateCount = 0;
+            for (const p of port) {
+                let bd = MAX_GATE_M;
+                let best: LateralMark | null = null;
+                for (const s of stbd) {
+                    const d = distM(p, s);
+                    if (d < bd) {
+                        bd = d;
+                        best = s;
+                    }
+                }
+                if (best) gateCount++;
+            }
+
+            console.log(`\nnearest-gate pairing (≤${MAX_GATE_M}m): ${gateCount} gates from ${port.length} port marks`);
+            expect(marks.length).toBeGreaterThan(0);
+        });
+    },
+);

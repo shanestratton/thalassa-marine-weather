@@ -1,40 +1,23 @@
 /**
- * Newport-corridor SENC layers, from a committed fixture instead of the Pi.
+ * Newport-corridor SENC layers, formerly from a committed fixture.
  *
- * The land-crossing repro suites — the highest-consequence assertions in the
- * product, since a false pass here means a route over land — were all gated
- * behind `describe.skipIf(!PI_UP)`, where PI_UP was a `curl` to
- * calypso.local:3001. On a CI runner that host does not resolve, so every one
- * of them silently reported PASSED while executing nothing. They had not run in
- * CI since they were written.
+ * tests/fixtures/newport-enc-cells.json.gz held two o-charts cells
+ * (OC-61-10ENB5 and OC-61-10RCS5). It was a derived extract of licensed AU
+ * chart data and was retired on 2026-10-10 under the o-charts ruling (127-C-a;
+ * see ./retiredChartFixtures.ts), so encLayer, encCell and encCellIds now
+ * throw: every suite that read them is gated and counted in
+ * tests/retiredChartFixtures.ledger.test.ts until it is ported.
  *
- * tests/fixtures/newport-enc-cells.json.gz holds the two cells they read
- * (OC-61-10ENB5 and OC-61-10RCS5) with ALL their layers — 25 and 14
- * respectively, 3.6 MB of JSON, 735 KB gzipped. An earlier draft of this
- * comment claimed a five-layer trim at 1.65 MB / 370 KB; that was the plan,
- * not the artefact. Do NOT trim it to five layers: newportPinkenba.repro reads
- * RECTRC, NAVLNE and FAIRWY, and newportMedialAxis reads more again, so a trim
- * would leave those suites asserting over empty layers — silently green,
- * exactly the failure the fixtures were added to end.
- *
- * The fixture keeps the exact shape of the live
- * `/api/enc/installed/<id>/data` response, so refreshing it is a straight
- * re-capture with no reshaping. To refresh (needs the Pi on the LAN):
- *
- *   curl -s http://calypso.local:3001/api/enc/installed/OC-61-10ENB5/data -o /tmp/enb5.json
- *   curl -s http://calypso.local:3001/api/enc/installed/OC-61-10RCS5/data -o /tmp/rcs5.json
- *   # then wrap both, UNTRIMMED, as {cells:[{cellId,layers},…]} and gzip to
- *   # tests/fixtures/newport-enc-cells.json.gz
- *
- * These are DERIVED extracts of licensed AU chart data, consistent with the
- * corridor fixtures already in this directory. If the licence terms ever
- * require otherwise, the fix is to synthesise equivalent geometry — not to
- * re-gate the tests on a host CI cannot reach.
+ * Never re-capture a cell into tests/fixtures: build the geometry with the
+ * synthetic harbour kit (tests/helpers/syntheticHarbour.ts, 127-C-a Phase 1)
+ * or use a NOAA cell. The OSM overlay and nav-marker readers below are not
+ * chart data and still work.
  */
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import type { Feature } from 'geojson';
+import { assertNotRetiredChartFixture } from './retiredChartFixtures';
 
 interface EncCellFixture {
     cells: { cellId: string; layers: Record<string, { features: Feature[] }> }[];
@@ -44,6 +27,7 @@ let cached: EncCellFixture | null = null;
 
 function fixture(): EncCellFixture {
     if (!cached) {
+        assertNotRetiredChartFixture('newport-enc-cells.json.gz');
         const path = join(__dirname, '..', 'fixtures', 'newport-enc-cells.json.gz');
         cached = JSON.parse(gunzipSync(readFileSync(path)).toString()) as EncCellFixture;
     }

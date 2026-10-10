@@ -127,6 +127,7 @@ import {
 } from '../../services/engine/geometry';
 import { usageBandOfRank } from '../../services/enc/scaleShadow';
 import { loadFixture } from '../helpers/corridorFixture';
+import { REAL_AU_CHART_FIXTURES_RETIRED } from '../helpers/retiredChartFixtures';
 import { CAUTION_WHY, type InshoreLayers, type NavGrid } from '../../services/engine/types';
 import type { MultiPolygon, Polygon } from 'geojson';
 
@@ -402,29 +403,32 @@ describe.skipIf(!HAVE_DATA)('decision 12 on the real Whitsunday cells (local onl
     );
 });
 
-describe.skipIf(!HAVE_BNE)('decision 1 stays between two detailed charts: the Brisbane River (local only)', () => {
-    it(
-        'Newport → Rivergate: what stays "charts disagree" is a detailed chart’s land only (the Newport canal)',
-        { timeout: 900_000 },
-        async () => {
-            h.cells = [];
-            h.blobs.clear();
-            const loaded = loadRealCells(BNE_DIR);
-            const fx = loadFixture('newport-rivergate.corridor.json.gz');
-            h.osm = { berths: { type: 'FeatureCollection', features: [] }, ...fx.osm };
-            const r = await measure(
-                'BNE Newport→Rivergate',
-                { lat: fx.request.fromLat, lon: fx.request.fromLon },
-                { lat: fx.request.toLat, lon: fx.request.toLon },
-            );
-            const line = `cells ${loaded.join(',')}\n${r.line}`;
-            if (process.env.THALASSA_REAL_REPORT) appendFileSync(process.env.THALASSA_REAL_REPORT, `${line}\n`);
-            else console.log(line);
-            // The detailed charts' disagreement keeps its red; nothing of it is an
-            // overview or general cell's land paint any more.
-            expect(r.disagreeM).toBeGreaterThan(0);
-            for (const band of Object.keys(r.disagreeLandBands))
-                expect(['band3', 'band4', 'band5', 'band6']).toContain(band);
-        },
-    );
-});
+describe.skipIf(!HAVE_BNE || REAL_AU_CHART_FIXTURES_RETIRED)(
+    'decision 1 stays between two detailed charts: the Brisbane River (local only) (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        it(
+            'Newport → Rivergate: what stays "charts disagree" is a detailed chart’s land only (the Newport canal)',
+            { timeout: 900_000 },
+            async () => {
+                h.cells = [];
+                h.blobs.clear();
+                const loaded = loadRealCells(BNE_DIR);
+                const fx = loadFixture('newport-rivergate.corridor.json.gz');
+                h.osm = { berths: { type: 'FeatureCollection', features: [] }, ...fx.osm };
+                const r = await measure(
+                    'BNE Newport→Rivergate',
+                    { lat: fx.request.fromLat, lon: fx.request.fromLon },
+                    { lat: fx.request.toLat, lon: fx.request.toLon },
+                );
+                const line = `cells ${loaded.join(',')}\n${r.line}`;
+                if (process.env.THALASSA_REAL_REPORT) appendFileSync(process.env.THALASSA_REAL_REPORT, `${line}\n`);
+                else console.log(line);
+                // The detailed charts' disagreement keeps its red; nothing of it is an
+                // overview or general cell's land paint any more.
+                expect(r.disagreeM).toBeGreaterThan(0);
+                for (const band of Object.keys(r.disagreeLandBands))
+                    expect(['band3', 'band4', 'band5', 'band6']).toContain(band);
+            },
+        );
+    },
+);

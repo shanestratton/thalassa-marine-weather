@@ -27,13 +27,18 @@ const LEGACY_NORMALISER = 'services/autoroutingProposalEvidence.ts';
 const LEGACY_ORIGIN_FILES = [LEGACY_NORMALISER, 'services/savedRoutesSync.ts'];
 /**
  * Retired with SevenCs, no production importers since 2026-10-01, and still
- * on disk — guarded by the Phase 0 real-clock test until their deletion (a
- * follow-up: automaticCanalExit, verifyCanalExitChart, newportCanalExitProfile
- * and these three). They name SevenCs in comments and in one retirement
- * record's fallback text. Take each off this list when it is deleted.
+ * on disk until its deletion (a follow-up). It names SevenCs in comments.
+ * Take it off this list when it is deleted. The Newport canal-exit chain
+ * (automaticCanalExit, verifyCanalExitChart, newportCanalExitProfile,
+ * channelTrackGuidance, newportChannelTrackPolicy) was deleted on 2026-10-10
+ * (127-C-a) and is pinned gone below.
  */
-const RETIRED_UNTIL_DELETED = [
-    'services/canalDepartureGeometry.ts',
+const RETIRED_UNTIL_DELETED = ['services/canalDepartureGeometry.ts'];
+/** The retired Newport canal-exit chain, deleted on 2026-10-10 (127-C-a). */
+const NEWPORT_CANAL_EXIT_CHAIN = [
+    'services/automaticCanalExit.ts',
+    'services/verifyCanalExitChart.ts',
+    'services/newportCanalExitProfile.ts',
     'services/channelTrackGuidance.ts',
     'services/newportChannelTrackPolicy.ts',
 ];
@@ -75,12 +80,9 @@ describe('no SevenCs client code', () => {
     });
 
     it('nothing in production imports a module retired with SevenCs', () => {
-        const retired = [
-            ...RETIRED_UNTIL_DELETED,
-            'services/automaticCanalExit.ts',
-            'services/verifyCanalExitChart.ts',
-            'services/newportCanalExitProfile.ts',
-        ].map((file) => path.basename(file, '.ts'));
+        const retired = [...RETIRED_UNTIL_DELETED, ...NEWPORT_CANAL_EXIT_CHAIN].map((file) =>
+            path.basename(file, '.ts'),
+        );
         const importing = files.filter((file) => {
             const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
             return retired.some(
@@ -109,8 +111,9 @@ describe('no SevenCs client code', () => {
         expect(importing).toEqual([]);
     });
 
-    it('the SevenCs client modules are gone', () => {
+    it('the SevenCs client modules and the retired Newport canal-exit chain are gone', () => {
         for (const file of [
+            ...NEWPORT_CANAL_EXIT_CHAIN,
             'services/autoroutingTrial.ts',
             'services/chartGuidedAutorouting.ts',
             'services/autoroutingCanalDeparture.ts',

@@ -42,7 +42,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const cloud = vi.hoisted(() => ({ invoke: vi.fn() }));
 
@@ -66,7 +66,8 @@ vi.mock('../../services/supabase', async () => {
 
 import { memoryFs } from '../helpers/memoryFilesystem';
 import { savedIndex } from '../helpers/waterPackIndex';
-import { assembleLayers, loadFixture } from '../helpers/corridorFixture';
+import { assembleLayers, loadFixture, type CorridorFixture } from '../helpers/corridorFixture';
+import { REAL_AU_CHART_FIXTURES_RETIRED } from '../helpers/retiredChartFixtures';
 import { haversineM } from '../../services/engine/geometry';
 import { auditUnvouchedHardLand } from '../../services/engine/safetyAudit';
 import { routeInshore } from '../../services/inshoreRouterEngine';
@@ -83,7 +84,8 @@ import { waterPackRefusal, waterPackUseFor } from '../../services/waterPack/wate
 import { chartedLandFinding } from '../../services/routing/landBackstopWords';
 import type { Bbox } from '../../services/waterPack/waterPackTiles';
 
-const fx = loadFixture('newport-shane.corridor.json.gz');
+// Set by the gated block's beforeAll: the newport-shane capture is retired.
+let fx: CorridorFixture;
 const canal = JSON.parse(
     gunzipSync(readFileSync(join(__dirname, '..', 'fixtures', 'newport-canal-osm.json.gz'))).toString(),
 ) as OsmRouteOverlay;
@@ -92,8 +94,8 @@ const CAPTURE: Bbox = [153.03, -27.27, 153.17, -27.13];
 /** When the capture was committed (a2220720) — the tiles' OSM date. */
 const CAPTURED_AT = Date.UTC(2026, 6, 30, 18);
 
-const ORIGIN = { lat: fx.request.fromLat, lon: fx.request.fromLon };
-const DESTINATION = { lat: fx.request.toLat, lon: fx.request.toLon };
+let ORIGIN: { lat: number; lon: number };
+let DESTINATION: { lat: number; lon: number };
 
 /** The chartLeads recipe: assembleLayers + the chart's CATNAV 3 leads, as
  *  InshoreRouter merges them. */
@@ -130,113 +132,123 @@ afterEach(() => {
  * first): the same suite-local ceiling as chartLeads, for the 8 GB Mac and
  * CI's runners with coverage on. A time limit is not an assertion.
  */
-describe('offline Newport canal with the water pack (owner decision 2)', { timeout: 90_000 }, () => {
-    it('the pack holds the canal: the offline route leaves the canal pin and crosses no unvouched land', async () => {
-        expect(fx.request.fromLat).toBe(-27.2127);
-        await pack.fillFromOverlay(canal, CAPTURE, { source: 'pi', verified: true, fetchedAt: CAPTURED_AT });
-        const saved = await savedIndex(pack, memoryFs);
-        expect([...saved.keys()].sort()).toEqual(['3061_-544', '3061_-545', '3062_-544', '3062_-545']);
-
-        const overlay = await getOsmRouteOverlay(inshoreOverlayBbox(ORIGIN, DESTINATION));
-        expect(overlay.provenance).toMatchObject({ source: 'pack', coverage: 'partial', dataAsOf: CAPTURED_AT });
-        // Every canal feature came back: all of them lie inside the saved tiles.
-        expect(overlay.water.features).toHaveLength(canal.water.features.length);
-        expect(overlay.canalLines.features).toHaveLength(canal.canalLines.features.length);
-        expect(overlay.berths.features).toHaveLength(canal.berths.features.length);
-        expect(waterPackUseFor(overlay.provenance, ORIGIN, DESTINATION)).toEqual({
-            source: 'pack',
-            dataAsOf: CAPTURED_AT,
-            missing: ['destination'],
-            offline: true,
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'offline Newport canal with the water pack (owner decision 2) (real AU chart fixture retired; port: 127-C-a)',
+    { timeout: 90_000 },
+    () => {
+        beforeAll(() => {
+            fx = loadFixture('newport-shane.corridor.json.gz');
+            ORIGIN = { lat: fx.request.fromLat, lon: fx.request.fromLon };
+            DESTINATION = { lat: fx.request.toLat, lon: fx.request.toLon };
         });
 
-        const layers = productionLayers(overlay);
-        const r = routeInshore(layers, { ...fx.request, unchartedPolicy: 'strict' });
-        expect('error' in r ? r : null).toBeNull();
-        if ('error' in r) return;
-        // RE-PIN 23.52 → 23.04 NM (package 125-06, the same-tide pull; own
-        // process): out of the Newport entrance over the 2–5 m band charted
-        // 2.0 m on the line it is going, not north-east to 5 m water first
-        // (engine/stringPull sameTideNoWorse). No land, as before.
-        within(r.distanceNM, 23.04, 0.02);
-        expect(auditUnvouchedHardLand(layers, r.polyline).maxRunM).toBe(0);
-        const [startLon, startLat] = r.polyline[0];
-        expect(haversineM(ORIGIN.lat, ORIGIN.lon, startLat, startLon)).toBeLessThanOrEqual(50);
-    });
+        it('the pack holds the canal: the offline route leaves the canal pin and crosses no unvouched land', async () => {
+            expect(fx.request.fromLat).toBe(-27.2127);
+            await pack.fillFromOverlay(canal, CAPTURE, { source: 'pi', verified: true, fetchedAt: CAPTURED_AT });
+            const saved = await savedIndex(pack, memoryFs);
+            expect([...saved.keys()].sort()).toEqual(['3061_-544', '3061_-545', '3062_-544', '3062_-545']);
 
-    // RE-PIN (D12 fix-up, 2026-10-03; owner decision 12, Shane: "Trust the
-    // detailed chart"; measured in its own process): the engine no longer
-    // refuses this itself (hard-land-crossing, 922 m). Decision 12 no longer
-    // disputes the overview's land over the harbour cell's charted 0 m water
-    // at the canal mouth, so the strict route's relaxed rescue reaches that
-    // water over 135 m of the canal's charted bank — under the engine's 500 m
-    // veto. The pin is still decision-1 water under AU428153's land (no charted
-    // pin, decision 2), and the route's 210 m of charted land away from the
-    // pin's edge is what every caller refuses on: Auto says so through the
-    // same water-pack words (autoroutingThalassa: chartedLandFinding, then
-    // waterPackRefusal with the missing ends). Still no route; still the
-    // harbour water not on this phone, first.
-    it('an empty pack: still no route — and the refusal says the harbour water is not on this phone yet', async () => {
-        const overlay = await getOsmRouteOverlay(inshoreOverlayBbox(ORIGIN, DESTINATION));
-        expect(overlay.provenance).toEqual({ source: 'none', coverage: 'none', presentTiles: [], offline: true });
-        const use = waterPackUseFor(overlay.provenance, ORIGIN, DESTINATION);
-        expect(use).toEqual({ source: 'none', missing: ['departure', 'destination'], offline: true });
+            const overlay = await getOsmRouteOverlay(inshoreOverlayBbox(ORIGIN, DESTINATION));
+            expect(overlay.provenance).toMatchObject({ source: 'pack', coverage: 'partial', dataAsOf: CAPTURED_AT });
+            // Every canal feature came back: all of them lie inside the saved tiles.
+            expect(overlay.water.features).toHaveLength(canal.water.features.length);
+            expect(overlay.canalLines.features).toHaveLength(canal.canalLines.features.length);
+            expect(overlay.berths.features).toHaveLength(canal.berths.features.length);
+            expect(waterPackUseFor(overlay.provenance, ORIGIN, DESTINATION)).toEqual({
+                source: 'pack',
+                dataAsOf: CAPTURED_AT,
+                missing: ['destination'],
+                offline: true,
+            });
 
-        const r = routeInshore(productionLayers(overlay), { ...fx.request, unchartedPolicy: 'strict' });
-        expect('error' in r).toBe(false);
-        if ('error' in r) return;
-        expect(r.debug?.originChartedPin).toBeUndefined();
-        const finding = chartedLandFinding({
-            totalM: r.debug?.hardLandTotalM,
-            awayM: r.debug?.hardLandAwayM,
-            awayAt: r.debug?.hardLandAwayAt,
+            const layers = productionLayers(overlay);
+            const r = routeInshore(layers, { ...fx.request, unchartedPolicy: 'strict' });
+            expect('error' in r ? r : null).toBeNull();
+            if ('error' in r) return;
+            // RE-PIN 23.52 → 23.04 NM (package 125-06, the same-tide pull; own
+            // process): out of the Newport entrance over the 2–5 m band charted
+            // 2.0 m on the line it is going, not north-east to 5 m water first
+            // (engine/stringPull sameTideNoWorse). No land, as before.
+            within(r.distanceNM, 23.04, 0.02);
+            expect(auditUnvouchedHardLand(layers, r.polyline).maxRunM).toBe(0);
+            const [startLon, startLat] = r.polyline[0];
+            expect(haversineM(ORIGIN.lat, ORIGIN.lon, startLat, startLon)).toBeLessThanOrEqual(50);
         });
-        expect(finding, JSON.stringify(r.debug?.hardLandAwayM)).not.toBeNull();
-        const said = waterPackRefusal(`${finding} No route. Nothing changed.`, use);
-        expect(
-            said.startsWith(
-                "No route: the harbour water for the departure and the destination isn't on this phone yet",
-            ),
-        ).toBe(true);
-        expect(said).toContain(finding!);
-        expect(cloud.invoke).not.toHaveBeenCalled();
-    });
 
-    it('a passage routed online routes the same offline, from the pack its own fetch filled', async () => {
-        const rivergate = loadFixture('newport-rivergate.corridor.json.gz');
-        const online = { ...(rivergate.osm as unknown as Record<string, unknown>) };
-        online.berths = { type: 'FeatureCollection', features: [] };
-        const bbox = inshoreOverlayBbox(ORIGIN, DESTINATION);
+        // RE-PIN (D12 fix-up, 2026-10-03; owner decision 12, Shane: "Trust the
+        // detailed chart"; measured in its own process): the engine no longer
+        // refuses this itself (hard-land-crossing, 922 m). Decision 12 no longer
+        // disputes the overview's land over the harbour cell's charted 0 m water
+        // at the canal mouth, so the strict route's relaxed rescue reaches that
+        // water over 135 m of the canal's charted bank — under the engine's 500 m
+        // veto. The pin is still decision-1 water under AU428153's land (no charted
+        // pin, decision 2), and the route's 210 m of charted land away from the
+        // pin's edge is what every caller refuses on: Auto says so through the
+        // same water-pack words (autoroutingThalassa: chartedLandFinding, then
+        // waterPackRefusal with the missing ends). Still no route; still the
+        // harbour water not on this phone, first.
+        it('an empty pack: still no route — and the refusal says the harbour water is not on this phone yet', async () => {
+            const overlay = await getOsmRouteOverlay(inshoreOverlayBbox(ORIGIN, DESTINATION));
+            expect(overlay.provenance).toEqual({ source: 'none', coverage: 'none', presentTiles: [], offline: true });
+            const use = waterPackUseFor(overlay.provenance, ORIGIN, DESTINATION);
+            expect(use).toEqual({ source: 'none', missing: ['departure', 'destination'], offline: true });
 
-        onLine.mockReturnValue(true);
-        cloud.invoke.mockResolvedValueOnce({ data: online, error: null });
-        const live = await getOsmRouteOverlay(bbox);
-        expect(live.provenance?.source).toBe('cloud');
-        await pack.whenIdle();
+            const r = routeInshore(productionLayers(overlay), { ...fx.request, unchartedPolicy: 'strict' });
+            expect('error' in r).toBe(false);
+            if ('error' in r) return;
+            expect(r.debug?.originChartedPin).toBeUndefined();
+            const finding = chartedLandFinding({
+                totalM: r.debug?.hardLandTotalM,
+                awayM: r.debug?.hardLandAwayM,
+                awayAt: r.debug?.hardLandAwayAt,
+            });
+            expect(finding, JSON.stringify(r.debug?.hardLandAwayM)).not.toBeNull();
+            const said = waterPackRefusal(`${finding} No route. Nothing changed.`, use);
+            expect(
+                said.startsWith(
+                    "No route: the harbour water for the departure and the destination isn't on this phone yet",
+                ),
+            ).toBe(true);
+            expect(said).toContain(finding!);
+            expect(cloud.invoke).not.toHaveBeenCalled();
+        });
 
-        onLine.mockReturnValue(false);
-        __resetOsmRouteOverlayForTests();
-        const saved = await getOsmRouteOverlay(bbox);
-        expect(saved.provenance).toMatchObject({ source: 'pack', coverage: 'full' });
-        expect(waterPackUseFor(saved.provenance, ORIGIN, DESTINATION)?.missing).toEqual([]);
-        for (const k of [
-            'water',
-            'reef',
-            'coastline',
-            'marina',
-            'breakwater',
-            'aeroway',
-            'canalLines',
-            'navLines',
-        ] as const)
-            expect(saved[k].features.length, k).toBe(live[k].features.length);
+        it('a passage routed online routes the same offline, from the pack its own fetch filled', async () => {
+            const rivergate = loadFixture('newport-rivergate.corridor.json.gz');
+            const online = { ...(rivergate.osm as unknown as Record<string, unknown>) };
+            online.berths = { type: 'FeatureCollection', features: [] };
+            const bbox = inshoreOverlayBbox(ORIGIN, DESTINATION);
 
-        const a = routeInshore(productionLayers(live), { ...fx.request, unchartedPolicy: 'strict' });
-        const b = routeInshore(productionLayers(saved), { ...fx.request, unchartedPolicy: 'strict' });
-        expect('error' in a ? a : null).toBeNull();
-        expect('error' in b ? b : null).toBeNull();
-        if ('error' in a || 'error' in b) return;
-        expect(b.distanceNM).toBe(a.distanceNM);
-        expect(b.polyline).toEqual(a.polyline);
-    });
-});
+            onLine.mockReturnValue(true);
+            cloud.invoke.mockResolvedValueOnce({ data: online, error: null });
+            const live = await getOsmRouteOverlay(bbox);
+            expect(live.provenance?.source).toBe('cloud');
+            await pack.whenIdle();
+
+            onLine.mockReturnValue(false);
+            __resetOsmRouteOverlayForTests();
+            const saved = await getOsmRouteOverlay(bbox);
+            expect(saved.provenance).toMatchObject({ source: 'pack', coverage: 'full' });
+            expect(waterPackUseFor(saved.provenance, ORIGIN, DESTINATION)?.missing).toEqual([]);
+            for (const k of [
+                'water',
+                'reef',
+                'coastline',
+                'marina',
+                'breakwater',
+                'aeroway',
+                'canalLines',
+                'navLines',
+            ] as const)
+                expect(saved[k].features.length, k).toBe(live[k].features.length);
+
+            const a = routeInshore(productionLayers(live), { ...fx.request, unchartedPolicy: 'strict' });
+            const b = routeInshore(productionLayers(saved), { ...fx.request, unchartedPolicy: 'strict' });
+            expect('error' in a ? a : null).toBeNull();
+            expect('error' in b ? b : null).toBeNull();
+            if ('error' in a || 'error' in b) return;
+            expect(b.distanceNM).toBe(a.distanceNM);
+            expect(b.polyline).toEqual(a.polyline);
+        });
+    },
+);

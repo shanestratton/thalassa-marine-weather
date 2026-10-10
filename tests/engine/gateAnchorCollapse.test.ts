@@ -11,16 +11,19 @@
  * the mechanism: the gate-anchor mask, and the collapse keeping every pinned
  * vertex while still merging the scaffold around it.
  *
- * Coordinates are the real Newport exit-gate centres (7/8, 5/6, 3/4).
+ * Coordinates are fictional and synthetic (Gulf of Mexico, 27.2° N, so the
+ * metres-per-degree scale matches the mid-latitude case that failed): a
+ * straight ~1.4 km channel whose middle gate sits 1.2 m off the end-to-end
+ * chord. No chart position is used.
  */
 import { describe, expect, it } from 'vitest';
 import { collapseStateRuns, mPerDegLon, perpendicularDistanceDeg } from '../../services/engine/geometry';
 import { gateAnchorMask } from '../../services/engine/tierPipeline';
 
 const TOL_DEG = 2.5 / 110_000; // the engine's SCAFFOLD_TOLERANCE_DEG
-const G78: [number, number] = [***REMOVED***, -***REMOVED***];
-const G56: [number, number] = [153.0934, -***REMOVED***];
-const G34: [number, number] = [***REMOVED***, -27.19034];
+const G78: [number, number] = [-82.7, 27.2];
+const G56: [number, number] = [-82.6996379, 27.2063995]; // 1.2 m east of the G78 → G34 chord's midpoint
+const G34: [number, number] = [-82.6993, 27.2128];
 
 /** Evenly spaced scaffold points strictly between a and b, on the chord. */
 function scaffold(a: [number, number], b: [number, number], n: number): [number, number][] {
@@ -39,7 +42,7 @@ function offChordM(p: [number, number], a: [number, number], b: [number, number]
 }
 
 describe('gate anchors survive the scaffold collapse', () => {
-    // The Newport channel: 7/8 → scaffold → 5/6 → scaffold → 3/4, one state.
+    // A gated channel: 7/8 → scaffold → 5/6 → scaffold → 3/4, one state.
     const poly: [number, number][] = [G78, ...scaffold(G78, G56, 3), G56, ...scaffold(G56, G34, 3), G34];
     const keys = poly.slice(1).map(() => 'Y#c||0.00||');
     const pinIdx = 4; // G56

@@ -18,6 +18,7 @@ import { withNavLineLeadsOnly } from '../services/inshoreRouterEngine';
 import { isChartNavLine, isNavLineLead, navLineLeads } from '../services/leadingLine';
 import { tracerContextFromLayers } from '../services/routeTracer';
 import { encLayer } from './helpers/encCells';
+import { REAL_AU_CHART_FIXTURES_RETIRED } from './helpers/retiredChartFixtures';
 
 // Distinct longitude so no grid built here can share a cache fingerprint with
 // another suite (the counts-as-fingerprint trap in the masterplan).
@@ -136,17 +137,20 @@ describe('lead categories — which navigation lines may lead', () => {
         expect(navLineLeads([chartNav(1), chartNav(3), chartNav(2)]).map((f) => f.properties?.CATNAV)).toEqual([3]);
     });
 
-    it('on the real Newport cells keeps every CATNAV 3 leading line and none of the clearing or transit lines', () => {
-        const enb5 = encLayer('OC-61-10ENB5', 'NAVLNE');
-        const rcs5 = encLayer('OC-61-10RCS5', 'NAVLNE');
-        const kept = [...navLineLeads(enb5, 'NAVLNE'), ...navLineLeads(rcs5, 'NAVLNE')];
-        const rcid = (f: Feature) => f.properties?.rcid as number;
-        const byCat = (c: number) => [...enb5, ...rcs5].filter((f) => f.properties?.CATNAV === c).map(rcid);
-        expect(byCat(1).sort()).toEqual([2366, 2367, 2368, 2369, 2370]);
-        expect(byCat(2).sort()).toEqual([2383, 3454]);
-        expect(kept.map(rcid).sort()).toEqual(byCat(3).sort());
-        expect(kept).toHaveLength(14);
-    });
+    it.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+        'on the real Newport cells keeps every CATNAV 3 leading line and none of the clearing or transit lines (real AU chart fixture retired; port: 127-C-a)',
+        () => {
+            const enb5 = encLayer('OC-61-10ENB5', 'NAVLNE');
+            const rcs5 = encLayer('OC-61-10RCS5', 'NAVLNE');
+            const kept = [...navLineLeads(enb5, 'NAVLNE'), ...navLineLeads(rcs5, 'NAVLNE')];
+            const rcid = (f: Feature) => f.properties?.rcid as number;
+            const byCat = (c: number) => [...enb5, ...rcs5].filter((f) => f.properties?.CATNAV === c).map(rcid);
+            expect(byCat(1).sort()).toEqual([2366, 2367, 2368, 2369, 2370]);
+            expect(byCat(2).sort()).toEqual([2383, 3454]);
+            expect(kept.map(rcid).sort()).toEqual(byCat(3).sort());
+            expect(kept).toHaveLength(14);
+        },
+    );
 });
 
 describe('navGrid Pass 5b — clearing and transit lines neither attract nor rescue', () => {

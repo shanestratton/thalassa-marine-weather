@@ -17,6 +17,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { assembleLayers, loadFixture } from './helpers/corridorFixture';
+import { lazy, REAL_AU_CHART_FIXTURES_RETIRED } from './helpers/retiredChartFixtures';
 import { routeInshore } from '../services/inshoreRouterEngine';
 import type { TideCeiling } from '../services/engine/types';
 import { noTideClearsRuns, noTideTotalM, tideCeilingLookup } from '../services/engine/tideCeiling';
@@ -86,39 +87,47 @@ for (const [name, nudge, ks] of [
     ['tangalooma', 'east', [7, 8, 9, 10, 11]],
     ['rivergate', 'south', [3, 5, 10]],
 ] as const) {
-    describe(`decision 11 — Newport → ${name}, destination nudged ${nudge}`, { timeout: 300_000 }, () => {
-        const fx = loadFixture(`newport-${name}.corridor.json.gz`);
-        const layers = assembleLayers(fx);
-        for (const k of ks) {
-            const cutOff = CUT_OFF[name].includes(k);
-            it(`k = ${k}: ${cutOff ? 'cut off — refused, never routed over water no tide clears' : 'a route, over no more than a clip of water no tide clears'}`, () => {
-                const base = { ...fx.request, draftM: 2.4, safetyM: 0.5 };
-                const req =
-                    nudge === 'east'
-                        ? { ...base, toLon: base.toLon + k * STEP_DEG }
-                        : { ...base, toLat: base.toLat - k * STEP_DEG };
-                const today = routeInshore(layers, req);
-                expect('error' in today ? today.error : 'routed').toBe('routed');
-                const r = routeInshore(layers, { ...req, tideCeilings: ceilings });
-                if (cutOff) {
-                    expect('error' in r ? r.code : 'routed').toBe('no-tide-clears');
-                    return;
-                }
-                expect('error' in r ? `${r.code}: ${r.error}` : 'routed').toBe('routed');
-                if ('error' in r || 'error' in today) return;
-                // Without the ceilings it crossed at most a few runs of it (not
-                // Tangalooma k = 7: its permissive bridge crosses 519 m, see the
-                // header; with the ceilings it is clean)…
-                if (name === 'rivergate') {
-                    const todayM = noTideTotalM(noTideClearsRuns(layers, today.polyline, lookup, 2.9));
-                    expect(todayM).toBeLessThan(200);
-                }
-                // …and with them, at most clips (each within 30 m between its
-                // first and last proved samples — 50 m out to the band edges).
-                for (const run of noTideClearsRuns(layers, r.polyline, lookup, 2.9))
-                    expect(run.lengthM).toBeLessThanOrEqual(30);
-                expect(auditUnvouchedHardLand(layers, r.polyline).maxRunM).toBeLessThanOrEqual(MAX_LAND_RUN_M[name]);
-            });
-        }
-    });
+    describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+        `decision 11 — Newport → ${name}, destination nudged ${nudge} (real AU chart fixture retired; port: 127-C-a)`,
+        { timeout: 300_000 },
+        () => {
+            const fxOf = lazy(() => loadFixture(`newport-${name}.corridor.json.gz`));
+            const layersOf = lazy(() => assembleLayers(fxOf()));
+            for (const k of ks) {
+                const cutOff = CUT_OFF[name].includes(k);
+                it(`k = ${k}: ${cutOff ? 'cut off — refused, never routed over water no tide clears' : 'a route, over no more than a clip of water no tide clears'}`, () => {
+                    const fx = fxOf();
+                    const layers = layersOf();
+                    const base = { ...fx.request, draftM: 2.4, safetyM: 0.5 };
+                    const req =
+                        nudge === 'east'
+                            ? { ...base, toLon: base.toLon + k * STEP_DEG }
+                            : { ...base, toLat: base.toLat - k * STEP_DEG };
+                    const today = routeInshore(layers, req);
+                    expect('error' in today ? today.error : 'routed').toBe('routed');
+                    const r = routeInshore(layers, { ...req, tideCeilings: ceilings });
+                    if (cutOff) {
+                        expect('error' in r ? r.code : 'routed').toBe('no-tide-clears');
+                        return;
+                    }
+                    expect('error' in r ? `${r.code}: ${r.error}` : 'routed').toBe('routed');
+                    if ('error' in r || 'error' in today) return;
+                    // Without the ceilings it crossed at most a few runs of it (not
+                    // Tangalooma k = 7: its permissive bridge crosses 519 m, see the
+                    // header; with the ceilings it is clean)…
+                    if (name === 'rivergate') {
+                        const todayM = noTideTotalM(noTideClearsRuns(layers, today.polyline, lookup, 2.9));
+                        expect(todayM).toBeLessThan(200);
+                    }
+                    // …and with them, at most clips (each within 30 m between its
+                    // first and last proved samples — 50 m out to the band edges).
+                    for (const run of noTideClearsRuns(layers, r.polyline, lookup, 2.9))
+                        expect(run.lengthM).toBeLessThanOrEqual(30);
+                    expect(auditUnvouchedHardLand(layers, r.polyline).maxRunM).toBeLessThanOrEqual(
+                        MAX_LAND_RUN_M[name],
+                    );
+                });
+            }
+        },
+    );
 }

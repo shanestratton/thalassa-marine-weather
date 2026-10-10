@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { routeInshore, type RouteResult } from '../services/inshoreRouterEngine';
 import { loadFixture, assembleLayers } from './helpers/corridorFixture';
+import { REAL_AU_CHART_FIXTURES_RETIRED } from './helpers/retiredChartFixtures';
 import { scoreRoute, type RouteScore } from './helpers/routeScorecard';
 
 const BASELINE_PATH = join(__dirname, 'fixtures', 'scorecard-baseline.json');
@@ -119,53 +120,61 @@ function liveScore(fixtureName: string): BaselineEntry {
 // The caution added is that band's own water, never shallower than 2.0 m.
 const FIXTURES = ['newport-rivergate.corridor.json.gz', 'newport-tangalooma.corridor.json.gz'];
 
-describe('scorecard baseline (golden fixtures)', () => {
-    if (REGEN) {
-        it('REGENERATES the committed baseline from live behaviour', () => {
-            const baseline: Baseline = {};
-            for (const f of FIXTURES) baseline[f] = liveScore(f);
-            writeFileSync(BASELINE_PATH, JSON.stringify(baseline, null, 2) + '\n');
+// Both golden captures and their baseline were retired on 2026-10-10 (the
+// o-charts ruling); Phase 1 of 127-C-a re-measures a baseline on a NOAA
+// corridor and the synthetic harbour, committed with its _meta.licence.
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'scorecard baseline (golden fixtures) (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        if (REGEN) {
+            it('REGENERATES the committed baseline from live behaviour', () => {
+                const baseline: Baseline = {};
+                for (const f of FIXTURES) baseline[f] = liveScore(f);
+                writeFileSync(BASELINE_PATH, JSON.stringify(baseline, null, 2) + '\n');
 
-            console.error(`[scorecard-baseline] regenerated → ${BASELINE_PATH}\n${JSON.stringify(baseline, null, 2)}`);
-            expect(existsSync(BASELINE_PATH)).toBe(true);
+                console.error(
+                    `[scorecard-baseline] regenerated → ${BASELINE_PATH}\n${JSON.stringify(baseline, null, 2)}`,
+                );
+                expect(existsSync(BASELINE_PATH)).toBe(true);
+            });
+            return;
+        }
+
+        it('committed baseline exists (run with REGEN_SCORECARD_BASELINE=1 once to create)', () => {
+            expect(existsSync(BASELINE_PATH), 'missing tests/fixtures/scorecard-baseline.json').toBe(true);
         });
-        return;
-    }
 
-    it('committed baseline exists (run with REGEN_SCORECARD_BASELINE=1 once to create)', () => {
-        expect(existsSync(BASELINE_PATH), 'missing tests/fixtures/scorecard-baseline.json').toBe(true);
-    });
+        if (!existsSync(BASELINE_PATH)) return;
+        const baseline: Baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
 
-    if (!existsSync(BASELINE_PATH)) return;
-    const baseline: Baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
+        for (const f of FIXTURES) {
+            describe(f, () => {
+                const live = liveScore(f);
+                const base = baseline[f];
 
-    for (const f of FIXTURES) {
-        describe(f, () => {
-            const live = liveScore(f);
-            const base = baseline[f];
+                it('has a baseline entry', () => {
+                    expect(base, `no baseline entry for ${f} — regenerate`).toBeTruthy();
+                });
+                if (!base) return;
 
-            it('has a baseline entry', () => {
-                expect(base, `no baseline entry for ${f} — regenerate`).toBeTruthy();
+                it(`distanceRatio within ±2% (baseline ${base.distanceRatio})`, () => {
+                    expect(live.distanceRatio).toBeGreaterThan(base.distanceRatio * 0.98);
+                    expect(live.distanceRatio).toBeLessThan(base.distanceRatio * 1.02);
+                });
+
+                it(`route length within ±2% (baseline ${base.lengthM} m)`, () => {
+                    expect(live.lengthM).toBeGreaterThan(base.lengthM * 0.98);
+                    expect(live.lengthM).toBeLessThan(base.lengthM * 1.02);
+                });
+
+                it(`turnCount ≤ baseline + 2 (baseline ${base.turnCount})`, () => {
+                    expect(live.turnCount).toBeLessThanOrEqual(base.turnCount + 2);
+                });
+
+                it(`caution total ≤ baseline + 25% (baseline ${base.cautionTotalM} m over ${base.cautionRuns} runs)`, () => {
+                    expect(live.cautionTotalM).toBeLessThanOrEqual(Math.ceil(base.cautionTotalM * 1.25));
+                });
             });
-            if (!base) return;
-
-            it(`distanceRatio within ±2% (baseline ${base.distanceRatio})`, () => {
-                expect(live.distanceRatio).toBeGreaterThan(base.distanceRatio * 0.98);
-                expect(live.distanceRatio).toBeLessThan(base.distanceRatio * 1.02);
-            });
-
-            it(`route length within ±2% (baseline ${base.lengthM} m)`, () => {
-                expect(live.lengthM).toBeGreaterThan(base.lengthM * 0.98);
-                expect(live.lengthM).toBeLessThan(base.lengthM * 1.02);
-            });
-
-            it(`turnCount ≤ baseline + 2 (baseline ${base.turnCount})`, () => {
-                expect(live.turnCount).toBeLessThanOrEqual(base.turnCount + 2);
-            });
-
-            it(`caution total ≤ baseline + 25% (baseline ${base.cautionTotalM} m over ${base.cautionRuns} runs)`, () => {
-                expect(live.cautionTotalM).toBeLessThanOrEqual(Math.ceil(base.cautionTotalM * 1.25));
-            });
-        });
-    }
-});
+        }
+    },
+);
