@@ -12,6 +12,7 @@ import { BackstopLandRefusal } from '../services/routing/landBackstopWords';
 import { buildTrialWaypointPlan } from '../services/autoroutingDisplayWaypoints';
 import { TRIAL_GRADE_COLORS, type TrialRouteReview } from '../services/autoroutingReview';
 import { clearAllCellMetadata, putCell } from '../services/enc/EncCellMetadata';
+import { ROUTE_STAGE_WORDS } from '../services/autoroutingThalassa';
 
 type Handler = (event?: unknown) => void;
 const mocks = vi.hoisted(() => ({
@@ -57,7 +58,10 @@ const mocks = vi.hoisted(() => ({
 }));
 // Thalassa's router on the phone (2026-10-01); the real one runs in
 // tests/autoroutingThalassa.engine.test.ts.
-vi.mock('../services/autoroutingThalassa', () => ({
+vi.mock('../services/autoroutingThalassa', async (original) => ({
+    // The router's own stage words (127-ROUTE-W), so the status tests below
+    // speak the provider's real words.
+    ROUTE_STAGE_WORDS: (await original<typeof import('../services/autoroutingThalassa')>()).ROUTE_STAGE_WORDS,
     getThalassaAutorouteStatus: mocks.status,
     calculateThalassaProposal: mocks.calculate,
     recheckThalassaBackstop: mocks.recheck,
@@ -154,10 +158,12 @@ const route: AutoroutingTrialRoute = {
 };
 const deferred = <T,>() => {
     let resolve!: (value: T) => void;
-    const promise = new Promise<T>((done) => {
+    let reject!: (failure: unknown) => void;
+    const promise = new Promise<T>((done, fail) => {
         resolve = done;
+        reject = fail;
     });
-    return { promise, resolve };
+    return { promise, resolve, reject };
 };
 async function openWorkspace(onClose = vi.fn()) {
     const view = render(
@@ -1649,16 +1655,24 @@ describe('isolated autorouting trial workspace', () => {
         },
     );
 
-    it('Clear aborts pending work, empties all fields and does not replace the map', async () => {
+    it('Stop aborts pending work and keeps the pins; Clear then empties all fields and does not replace the map', async () => {
         const pending = deferred<AutoroutingTrialRoute>();
         mocks.calculate.mockReturnValue(pending.promise);
         await openWorkspace();
         fillRequest();
         fireEvent.click(calculateButton());
         const signal = mocks.calculate.mock.calls[0][1] as AbortSignal;
-        fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+        // While it routes the second button is Stop (127-ROUTE-W2), not Clear.
+        expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
         await act(async () => pending.resolve(route));
         expect(signal.aborted).toBe(true);
+        expect(screen.getByLabelText('departure latitude')).toHaveValue(-27.2);
+        // A deliberate Clear, a moment later (a second tap of the same press is ignored, below).
+        const later = performance.now() + 1_000;
+        const clock = vi.spyOn(performance, 'now').mockReturnValue(later);
+        fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+        clock.mockRestore();
         expect(screen.getByLabelText('departure latitude')).toHaveValue(null);
         for (const endpoint of [/^departure/i, /^destination/i]) {
             const button = screen.getByRole('button', { name: endpoint });
@@ -1672,6 +1686,188 @@ describe('isolated autorouting trial workspace', () => {
         expect(calculateButton()).toBeEnabled();
         await act(async () => fireEvent.click(calculateButton()));
         expect(mocks.calculate.mock.calls[1][0]).toMatchObject({ draftM: 1.6, speedKts: 6 });
+    });
+
+    describe('Stop, and the seconds while it routes (127-ROUTE-W2)', () => {
+        // Shane, 2026-10-10: "yes for a short while it looked as though the
+        // app had frozen". The router now works in a worker; the status says
+        // so with a ticking count, and Stop really stops it.
+        const statusLine = () => document.querySelector('.trial-tracer-status') as HTMLElement;
+        const LIVE_LINE = 'The chart stays live while it works. Stop ends it.';
+        const progressOf = () => mocks.calculate.mock.calls.at(-1)![2] as (message: string) => void;
+
+        it('while it routes the second button is Stop: it ends the route, keeps her pins, and says "Stopped. Nothing changed."', async () => {
+            const pending = deferred<AutoroutingTrialRoute>();
+            mocks.calculate.mockReturnValueOnce(pending.promise);
+            await openWorkspace();
+            fillRequest();
+            fireEvent.click(calculateButton());
+            const signal = mocks.calculate.mock.calls[0][1] as AbortSignal;
+            act(() => progressOf()(ROUTE_STAGE_WORDS.routing));
+            expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument();
+            fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+            expect(signal.aborted).toBe(true);
+            expect(statusLine()).toHaveTextContent('Stopped. Nothing changed.');
+            expect(screen.queryByText(LIVE_LINE)).not.toBeInTheDocument();
+            // The route that was running comes back late: it is dropped.
+            await act(async () => pending.resolve(route));
+            expect(screen.queryByRole('region', { name: 'Trial proposal' })).not.toBeInTheDocument();
+            expect(features().some((feature) => feature.geometry.type === 'LineString')).toBe(false);
+            expect(statusLine()).toHaveTextContent('Stopped. Nothing changed.');
+            // Her pins are where she put them.
+            for (const [label, value] of [
+                ['departure latitude', -27.2],
+                ['departure longitude', 153.15],
+                ['destination latitude', -27],
+                ['destination longitude', 153.4],
+            ] as const)
+                expect(screen.getByLabelText(label)).toHaveValue(value);
+            expect(screen.getByRole('button', { name: 'Clear' })).toBeVisible();
+            // Calculate again: the route arrives as before.
+            expect(calculateButton()).toBeEnabled();
+            fireEvent.click(calculateButton());
+            await openReview();
+            expect(mocks.calculate).toHaveBeenCalledTimes(2);
+            expect(mocks.calculate.mock.calls[1][0]).toEqual(mocks.calculate.mock.calls[0][0]);
+            expect(statusLine()).not.toHaveTextContent('Stopped');
+        });
+
+        it('a second tap straight after Stop, now on Clear, keeps her pins', async () => {
+            mocks.calculate.mockReturnValueOnce(deferred<AutoroutingTrialRoute>().promise);
+            await openWorkspace();
+            fillRequest();
+            fireEvent.click(calculateButton());
+            fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+            expect(screen.getByLabelText('departure latitude')).toHaveValue(-27.2);
+            expect(statusLine()).toHaveTextContent('Stopped. Nothing changed.');
+        });
+
+        it('the router refuses just as she reaches for Stop: the tap, now on Clear, keeps her pins and the refusal', async () => {
+            // Review, 2026-10-11: the route ends on its own, Stop turns into
+            // Clear under her finger, and the tap meant for Stop lands on Clear.
+            const refusal =
+                'No route for 1.6 m draft: the only way through crosses Synthetic Bank, charted 0.5 m; the highest tide in the next 14 days is 0.6 m and you need 2.1 m.';
+            const pending = deferred<AutoroutingTrialRoute>();
+            mocks.calculate.mockReturnValueOnce(pending.promise);
+            await openWorkspace();
+            fillRequest();
+            fireEvent.click(calculateButton());
+            act(() => progressOf()(ROUTE_STAGE_WORDS.routing));
+            const at = performance.now();
+            const clock = vi.spyOn(performance, 'now').mockReturnValue(at);
+            try {
+                await act(async () => pending.reject(new Error(refusal)));
+                clock.mockReturnValue(at + 100);
+                fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+                expect(screen.getByLabelText('departure latitude')).toHaveValue(-27.2);
+                expect(screen.getByLabelText('destination longitude')).toHaveValue(153.4);
+                expect(screen.getByRole('alert')).toHaveTextContent(refusal);
+                // A deliberate Clear, a moment later, empties them.
+                clock.mockReturnValue(at + 1_000);
+                fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+                expect(screen.getByLabelText('departure latitude')).toHaveValue(null);
+                expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+            } finally {
+                clock.mockRestore();
+            }
+        });
+
+        it("the phone's clock stepping back after a Stop (back online) never blocks a later Clear", async () => {
+            mocks.calculate.mockReturnValueOnce(deferred<AutoroutingTrialRoute>().promise);
+            await openWorkspace();
+            fillRequest();
+            fireEvent.click(calculateButton());
+            fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+            const later = performance.now() + 1_000;
+            const monotonic = vi.spyOn(performance, 'now').mockReturnValue(later);
+            const wall = vi.spyOn(Date, 'now').mockReturnValue(Date.now() - 3_600_000);
+            try {
+                fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+            } finally {
+                monotonic.mockRestore();
+                wall.mockRestore();
+            }
+            expect(screen.getByLabelText('departure latitude')).toHaveValue(null);
+        });
+
+        it('editing a pin after a stop clears "Stopped"', async () => {
+            mocks.calculate.mockReturnValueOnce(deferred<AutoroutingTrialRoute>().promise);
+            await openWorkspace();
+            fillRequest();
+            fireEvent.click(calculateButton());
+            fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+            expect(statusLine()).toHaveTextContent('Stopped. Nothing changed.');
+            fireEvent.change(screen.getByLabelText('destination latitude'), { target: { value: '-27.05' } });
+            expect(statusLine()).not.toHaveTextContent('Stopped');
+            expect(statusLine()).toHaveTextContent('Ready to calculate');
+        });
+
+        it('counts the seconds from the tap once the router starts; VoiceOver hears the words, never the count', async () => {
+            const pending = deferred<AutoroutingTrialRoute>();
+            mocks.calculate.mockReturnValueOnce(pending.promise);
+            await openWorkspace();
+            fillRequest();
+            vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date', 'performance'] });
+            try {
+                fireEvent.click(calculateButton());
+                // The prep, and a route waiting behind another: their words, no count.
+                act(() => progressOf()('Following deep water…'));
+                expect(statusLine()).toHaveTextContent('Following deep water…');
+                act(() => vi.advanceTimersByTime(1_000));
+                act(() => progressOf()(ROUTE_STAGE_WORDS.queued));
+                expect(statusLine()).toHaveTextContent('Waiting for the route before this one…');
+                expect(statusLine().textContent).not.toMatch(/· \d+ s/);
+                act(() => vi.advanceTimersByTime(2_000));
+                act(() => progressOf()(ROUTE_STAGE_WORDS.routing));
+                expect(statusLine()).toHaveTextContent('Routing round the land · 3 s');
+                const count = within(statusLine()).getByText('· 3 s');
+                expect(count).toHaveAttribute('aria-hidden', 'true');
+                // The panel's own status line is the words alone, and the live line shows.
+                expect(screen.getAllByRole('status').map((node) => node.textContent)).toContain(
+                    ROUTE_STAGE_WORDS.routing,
+                );
+                expect(screen.getByText(LIVE_LINE)).toBeVisible();
+                act(() => vi.advanceTimersByTime(2_000));
+                expect(statusLine()).toHaveTextContent('Routing round the land · 5 s');
+                // The phone's clock steps back an hour (back online): the count goes on.
+                vi.setSystemTime(Date.now() - 3_600_000);
+                act(() => vi.advanceTimersByTime(1_000));
+                expect(statusLine()).toHaveTextContent('Routing round the land · 6 s');
+                // After the router: the land check, still counting; the live line goes.
+                act(() => progressOf()('Checking the route…'));
+                act(() => vi.advanceTimersByTime(4_000));
+                expect(statusLine()).toHaveTextContent('Checking the route · 10 s');
+                expect(screen.queryByText(LIVE_LINE)).not.toBeInTheDocument();
+            } finally {
+                vi.useRealTimers();
+            }
+            await act(async () => pending.resolve(route));
+            expect(statusLine().textContent).not.toMatch(/· \d+ s/);
+        });
+
+        it("on a phone where the worker can't start, it says the screen may pause, and promises no live chart", async () => {
+            mocks.calculate.mockReturnValueOnce(deferred<AutoroutingTrialRoute>().promise);
+            await openWorkspace();
+            fillRequest();
+            fireEvent.click(calculateButton());
+            act(() => progressOf()(ROUTE_STAGE_WORDS['routing-main']));
+            expect(statusLine()).toHaveTextContent(
+                /^Set up routeRouting round the land \(the screen may pause\) · \d+ s$/,
+            );
+            expect(screen.queryByText(LIVE_LINE)).not.toBeInTheDocument();
+            expect(screen.getByRole('button', { name: 'Stop' })).toBeVisible();
+        });
+
+        it('closing Auto mid-route ends it too', async () => {
+            mocks.calculate.mockReturnValueOnce(deferred<AutoroutingTrialRoute>().promise);
+            const { unmount } = await openWorkspace();
+            fillRequest();
+            fireEvent.click(calculateButton());
+            const signal = mocks.calculate.mock.calls[0][1] as AbortSignal;
+            unmount();
+            expect(signal.aborted).toBe(true);
+        });
     });
 
     it('invalidates an already displayed proposal before a failed calculation; never draws a straight-line fallback', async () => {

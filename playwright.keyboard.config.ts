@@ -152,6 +152,9 @@ export default defineConfig({
         // The chart can turn (127-11a): the wind field, her marker and a distress
         // beacon stay true at a fixed bearing (e2e/fixtures/chart-orientation.tsx).
         'chart-orientation.spec.ts',
+        // Routing off the main thread (127-ROUTE-W2): while Auto routes the archipelago's 20 NM
+        // leg in the worker, no pause over 150 ms; Stop; and the no-Worker freeze, seen.
+        'route-worker.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

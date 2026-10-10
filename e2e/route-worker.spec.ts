@@ -12,6 +12,14 @@
  *     within relative 1e-12 on numbers and exactly on everything else:
  *     mobile-safari is JavaScriptCore, which differs from V8 in the last bits
  *     of a few lengths (measured 2026-10-10), never in the route.
+ *
+ * And the navGrid fold (127-ROUTE-W2): the tracer's grids are built in a
+ * second instance of the same chunk, so
+ *   - dist has no `navGridWorker-*.js` (the second copy of the navGrid code,
+ *     35,001 B, is gone);
+ *   - the chunk, started as a module worker, answers a tracer grid job with
+ *     its typed arrays transferred, byte for byte the grid the same chunk
+ *     builds on the page's main thread (the tracer's fallback).
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -58,6 +66,29 @@ function fiveMileJob() {
         regionalPairs: [],
         leadGraph: null,
         tideCeilings: [],
+    };
+}
+
+/** A tracer grid job for the same 5 NM leg, as navGridWorkerHost posts it (buildNavGrid's arguments). */
+function fiveMileGridArgs() {
+    const job = fiveMileJob();
+    const { fromLon, fromLat, toLon, toLat } = job.routeOpts;
+    const pad = 0.01;
+    return {
+        layers: job.layers,
+        bbox: [
+            Math.min(fromLon, toLon) - pad,
+            Math.min(fromLat, toLat) - pad,
+            Math.max(fromLon, toLon) + pad,
+            Math.max(fromLat, toLat) + pad,
+        ],
+        resolutionM: 40,
+        draftM: 2.4,
+        safetyM: 0.5,
+        obstructionBufferM: 60,
+        relaxedLndare: false,
+        relaxZones: [],
+        routeProfile: 'safest',
     };
 }
 
@@ -119,6 +150,83 @@ test.describe('the route worker is the engine chunk', () => {
             for (const m of code.matchAll(/(?:\bfrom\s*|\bimport\s*)["']\.\/([^"']+\.js)["']/g)) queue.push(m[1]);
         }
         expect([...seen].filter((f) => !/^(router-engine|engine-leaf)-[\w-]+\.js$/.test(f))).toEqual([]);
+    });
+
+    test('dist has no navGrid worker build: the tracer’s grids use the engine chunk too', () => {
+        expect(readdirSync(ASSETS).filter((f) => /^navGridWorker-[\w-]+\.js$/.test(f))).toEqual([]);
+    });
+
+    test('answers a tracer grid job as a module worker, byte for byte as on the main thread', async ({ page }) => {
+        test.setTimeout(120_000);
+        const args = fiveMileGridArgs();
+        const url = `/assets/${chunk}`;
+        const pageErrors: string[] = [];
+        page.on('pageerror', (e) => pageErrors.push(String(e)));
+        await page.route('**/__route-worker.html', (route) =>
+            route.fulfill({ body: '<!doctype html><title>route worker</title>', contentType: 'text/html' }),
+        );
+        await page.goto('/__route-worker.html');
+        const out = await page.evaluate(
+            async ({ url, args }) => {
+                const worker = new Worker(url, { type: 'module' });
+                const fromWorker = await new Promise<Record<string, unknown>>((resolve, reject) => {
+                    worker.onerror = (e) => reject(new Error(`route worker failed: ${e.message ?? e.type}`));
+                    worker.onmessage = (e: MessageEvent) => {
+                        const d = e.data as { type: string; grid?: Record<string, unknown>; message?: string };
+                        if (d.type === 'ready') worker.postMessage({ type: 'grid', id: 1, args });
+                        else if (d.type === 'grid') resolve(d.grid!);
+                        else if (d.type !== 'console') reject(new Error(`${d.type}: ${d.message}`));
+                    };
+                });
+                worker.terminate();
+                const ns = (await import(url)) as Record<string, unknown>;
+                const engine = Object.values(ns).find(
+                    (v): v is { url: string; grid: (...a: unknown[]) => Record<string, unknown> } =>
+                        !!v &&
+                        typeof v === 'object' &&
+                        typeof (v as { grid?: unknown }).grid === 'function' &&
+                        (v as { url?: unknown }).url === new URL(url, location.href).href,
+                );
+                if (!engine) throw new Error('the chunk does not export its grid builder');
+                const a = structuredClone(args);
+                const onMain = engine.grid(
+                    a.layers,
+                    a.bbox,
+                    a.resolutionM,
+                    a.draftM,
+                    a.safetyM,
+                    a.obstructionBufferM,
+                    a.relaxedLndare,
+                    a.relaxZones,
+                    a.routeProfile,
+                );
+                // Field by field: a typed array by kind and every byte.
+                const differences: string[] = [];
+                const keys = [...new Set([...Object.keys(fromWorker), ...Object.keys(onMain)])].sort();
+                let typedArrays = 0;
+                for (const k of keys) {
+                    const w = fromWorker[k];
+                    const m = onMain[k];
+                    if (ArrayBuffer.isView(w) && ArrayBuffer.isView(m)) {
+                        typedArrays++;
+                        const wb = new Uint8Array(w.buffer, w.byteOffset, w.byteLength);
+                        const mb = new Uint8Array(m.buffer, m.byteOffset, m.byteLength);
+                        if (
+                            w.constructor !== m.constructor ||
+                            wb.length !== mb.length ||
+                            wb.some((byte, i) => byte !== mb[i])
+                        )
+                            differences.push(k);
+                    } else if (JSON.stringify(w) !== JSON.stringify(m)) differences.push(k);
+                }
+                return { differences, typedArrays, width: onMain.width as number };
+            },
+            { url, args },
+        );
+        expect(pageErrors).toEqual([]);
+        expect(out.width).toBeGreaterThan(10);
+        expect(out.typedArrays).toBeGreaterThan(3);
+        expect(out.differences).toEqual([]);
     });
 
     test('answers a 5 NM job as a module worker, exactly as on the main thread, and as in Node', async ({ page }) => {

@@ -109,6 +109,22 @@
             "licence": "synthetic",
             "source": "Route-job golden (a sha256 and a short summary of the router's answer), captured on the unchanged 127 code from the synthetic open North Atlantic buoyed channel and land wall in tests/helpers/routeJobScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids). 127-ROUTE-W1."
         },
+        "tests/fixtures/routeJob/tracer-grid-archipelago-12nm.json": {
+            "licence": "synthetic",
+            "source": "Tracer grid golden (the sha256 of every field of the grid and the fields that came back transferred, plus a short summary), captured from today's navGrid worker (services/engine/navGridWorker.ts) on b127 2f83331f6 before the navGrid fold, from the synthetic archipelago in tests/helpers/tracerGridScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids). 127-ROUTE-W2."
+        },
+        "tests/fixtures/routeJob/tracer-grid-archipelago-5nm-relaxed.json": {
+            "licence": "synthetic",
+            "source": "Tracer grid golden (the sha256 of every field of the grid and the fields that came back transferred, plus a short summary), captured from today's navGrid worker (services/engine/navGridWorker.ts) on b127 2f83331f6 before the navGrid fold, from the synthetic archipelago in tests/helpers/tracerGridScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids). 127-ROUTE-W2."
+        },
+        "tests/fixtures/routeJob/tracer-grid-atlantic-channel.json": {
+            "licence": "synthetic",
+            "source": "Tracer grid golden (the sha256 of every field of the grid and the fields that came back transferred, plus a short summary), captured from today's navGrid worker (services/engine/navGridWorker.ts) on b127 2f83331f6 before the navGrid fold, from the synthetic open North Atlantic buoyed channel in tests/helpers/tracerGridScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids). 127-ROUTE-W2."
+        },
+        "tests/fixtures/routeJob/tracer-grid-noaa.json": {
+            "licence": "public-domain",
+            "source": "Tracer grid golden (the sha256 of every field of the grid and the fields that came back transferred, plus a short summary), captured from today's navGrid worker (services/engine/navGridWorker.ts) on b127 2f83331f6 before the navGrid fold, over NOAA ENC US5GA22M (public domain; the public/enc-samples copy) in tests/helpers/tracerGridScenes.ts. 127-ROUTE-W2."
+        },
         "tests/fixtures/se-qld-nav-markers.json.gz": {
             "licence": "odbl",
             "source": "Thalassa's SE-QLD regional marker file: OpenStreetMap seamark nodes with the seamark: prefix stripped (scripts/extract_seamarks.py). Every class is OpenStreetMap's own; the one hand retag the file once carried, taken from a commercial chart, was put back to OpenStreetMap's tags in 127.",
