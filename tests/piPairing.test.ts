@@ -50,13 +50,18 @@ import {
     verifySignedResponse,
     pairWithPi,
     fetchVerifiedFromPi,
+    pinnedPiRequest,
+    PiHttpError,
+    saveChartDevice,
+    dropChartDevice,
     type PiPairingRecord,
 } from '../services/PiPairingService';
+import { CHART_ACCESS_CODES, chartAccessWords } from '../services/enc/piChartAccessWords';
 
 function record(over: Partial<PiPairingRecord> & { publicKeySpki: string }): PiPairingRecord {
     return {
         deviceId: DEVICE_ID,
-        boatName: 'Serene Summer',
+        boatName: 'Kestrel',
         fingerprint: 'AA:BB',
         host: 'calypso.local',
         pairedAt: '2026-08-04T00:00:00Z',
@@ -254,7 +259,7 @@ describe('PiPairingService — pairWithPi challenges before trusting', () => {
             data: JSON.stringify({
                 service: 'thalassa-pi-cache',
                 deviceId: DEVICE_ID,
-                boatName: 'Serene Summer',
+                boatName: 'Kestrel',
                 publicKeySpki: real.spkiB64,
                 fingerprint: real.fingerprint,
             }),
@@ -289,7 +294,7 @@ describe('PiPairingService — pairWithPi challenges before trusting', () => {
             data: JSON.stringify({
                 service: 'thalassa-pi-cache',
                 deviceId: DEVICE_ID,
-                boatName: 'Serene Summer',
+                boatName: 'Kestrel',
                 publicKeySpki: real.spkiB64,
                 fingerprint: real.fingerprint,
             }),
@@ -310,7 +315,7 @@ describe('PiPairingService — pairWithPi challenges before trusting', () => {
             data: JSON.stringify({
                 service: 'thalassa-pi-cache',
                 deviceId: DEVICE_ID,
-                boatName: 'Serene Summer',
+                boatName: 'Kestrel',
                 publicKeySpki: real.spkiB64,
                 fingerprint: real.fingerprint,
             }),
@@ -344,5 +349,125 @@ describe('PiPairingService — no-downgrade rule', () => {
         expect(getPairing()?.deviceId).toBe(DEVICE_ID);
         forgetPairing();
         expect(getPairing()).toBeNull();
+    });
+});
+
+describe('PiPairingService — the chart device header (127-C-d)', () => {
+    const TOKEN = 'kestrelSolentChartToken_' + 'y'.repeat(19);
+    const BASE = 'https://192.168.4.20:3001';
+    const sentHeader = (call: number) =>
+        (tls.request.mock.calls[call][0] as { headers?: Record<string, string> }).headers?.['X-Thalassa-Chart-Device'];
+
+    beforeEach(() => dropChartDevice());
+
+    it('pinnedPiRequest and fetchVerifiedFromPi add it to /api/enc/* URLs only', async () => {
+        const pi = makeSigner();
+        savePairing(record({ publicKeySpki: pi.spkiB64, host: '192.168.4.20' }));
+        await saveChartDevice({ chartDeviceId: 'dev-iphone-1', token: TOKEN });
+        const body = '{"cells":[]}';
+        const time = String(Date.now());
+        tls.request.mockImplementation(async ({ url }: { url: string }) => {
+            const path = new URL(url).pathname;
+            const hash = createHash('sha256').update(body).digest('hex');
+            return {
+                status: 200,
+                data: body,
+                headers: {
+                    'X-Pi-Signature': pi.signFields(['payload', hash, path, time]),
+                    'X-Pi-Signature-Time': time,
+                },
+            };
+        });
+
+        await pinnedPiRequest({ url: `${BASE}/api/enc/health` });
+        await fetchVerifiedFromPi({ url: `${BASE}/api/enc/installed` });
+        await fetchVerifiedFromPi({ url: `${BASE}/api/enc/route-prepped`, method: 'POST', data: {} });
+        await pinnedPiRequest({ url: `${BASE}/api/admin/status` });
+        await pinnedPiRequest({ url: `${BASE}/api/pair/challenge`, method: 'POST', data: {} });
+        await fetchVerifiedFromPi({ url: `${BASE}/api/osm/overlay` });
+
+        expect([0, 1, 2, 3, 4, 5].map(sentHeader)).toEqual([TOKEN, TOKEN, TOKEN, undefined, undefined, undefined]);
+        // A POST keeps its JSON content type beside the header.
+        expect(tls.request.mock.calls[2][0].headers['Content-Type']).toBe('application/json');
+    });
+
+    it('piPairingFetch (/api/pair/info) never carries it: its transport takes a base URL and nothing else', async () => {
+        const pi = makeSigner();
+        savePairing(record({ publicKeySpki: pi.spkiB64 }));
+        await saveChartDevice({ chartDeviceId: 'dev-iphone-1', token: TOKEN });
+        tls.pairingFetch.mockResolvedValue({ status: 404, data: '', headers: {}, peerSpki: '' });
+        await pairWithPi(BASE, '192.168.4.20');
+        expect(tls.pairingFetch.mock.calls).toEqual([[BASE]]);
+    });
+
+    it.each([
+        [401, 'chart-device-not-enrolled'],
+        [403, 'charts-boat-wifi-only'],
+        [503, 'vault-decoder-down'],
+    ])(
+        'a %i with the JSON code %s throws PiHttpError {status, code}, not a bare "HTTP <status>"',
+        async (status, code) => {
+            savePairing(record({ publicKeySpki: makeSigner().spkiB64 }));
+            tls.request.mockResolvedValue({ status, data: JSON.stringify({ code, error: 'refused' }), headers: {} });
+            const error = await fetchVerifiedFromPi({ url: `${BASE}/api/enc/installed` }).catch((e: unknown) => e);
+            expect(error).toBeInstanceOf(PiHttpError);
+            expect(error).toMatchObject({ status, code });
+            // The message stays "HTTP <status>": EncImportService still reads
+            // 'HTTP 404' off it for a job the Pi has no receipt for.
+            expect((error as Error).message).toBe(`HTTP ${status}`);
+        },
+    );
+
+    it("a status with no JSON code is still a PiHttpError, with no code (today's Pi's own 404 page)", async () => {
+        savePairing(record({ publicKeySpki: makeSigner().spkiB64 }));
+        tls.request.mockResolvedValue({ status: 404, data: '<pre>Cannot GET /api/enc/jobs/x</pre>', headers: {} });
+        const error = await fetchVerifiedFromPi({ url: `${BASE}/api/enc/jobs/x` }).catch((e: unknown) => e);
+        expect(error).toBeInstanceOf(PiHttpError);
+        expect(error).toMatchObject({ status: 404, code: undefined, message: 'HTTP 404' });
+    });
+});
+
+describe('the words for each refusal (services/enc/piChartAccessWords.ts)', () => {
+    it('says each code in a plain sentence, naming the boat from the pairing', () => {
+        const said = Object.fromEntries(
+            CHART_ACCESS_CODES.map((code) => [code, chartAccessWords(code, 'Kestrel').text]),
+        );
+        expect(said['charts-boat-wifi-only']).toBe("Charts come over Kestrel's own Wi-Fi. Join it to get charts.");
+        expect(said['vault-decoder-down']).toBe(
+            "Kestrel can't open her charts. Check the o-charts dongle is plugged into the Pi.",
+        );
+        expect(said['chart-device-limit']).toBe(
+            "Five phones and tablets already get Kestrel's charts. Remove one to add this one.",
+        );
+        for (const [code, text] of Object.entries(said)) {
+            expect(text, code).toMatch(/^[A-Z].*[.]$/);
+            expect(text, code).not.toMatch(/Serene Summer|HTTP|\b[45]\d\d\b|undefined/);
+            expect(text, code).not.toContain(code);
+        }
+        // Every code has its own sentence, never the fallback.
+        const fallback = chartAccessWords('something-new', 'Kestrel').text;
+        expect(Object.values(said)).not.toContain(fallback);
+        expect(new Set(Object.values(said)).size).toBe(CHART_ACCESS_CODES.length);
+    });
+
+    it('marks the quiet codes as not-an-error, for the status line', () => {
+        // Off the boat's Wi-Fi (the tailnet from home) is the normal answer
+        // there, not a fault: 127-C-c's status line shows it muted.
+        expect(chartAccessWords('charts-boat-wifi-only', 'Kestrel').quiet).toBe(true);
+        expect(chartAccessWords('pi-needs-update', 'Kestrel').quiet).toBe(true);
+        expect(chartAccessWords('vault-starting', 'Kestrel').quiet).toBe(true);
+        expect(chartAccessWords('vault-decoder-down', 'Kestrel').quiet).toBe(false);
+        expect(chartAccessWords('chart-device-limit', 'Kestrel').quiet).toBe(false);
+        expect(chartAccessWords('chart-device-removed', 'Kestrel').quiet).toBe(false);
+        expect(chartAccessWords(undefined, 'Kestrel').quiet).toBe(false);
+    });
+
+    it('works for any boat name, and without one', () => {
+        expect(chartAccessWords('charts-boat-wifi-only', 'Étoile du Nord').text).toBe(
+            "Charts come over Étoile du Nord's own Wi-Fi. Join it to get charts.",
+        );
+        expect(chartAccessWords('charts-boat-wifi-only', '').text).toBe(
+            "Charts come over your boat's own Wi-Fi. Join it to get charts.",
+        );
     });
 });
