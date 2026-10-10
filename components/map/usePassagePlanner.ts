@@ -574,7 +574,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 const backstop = chartedLand
                     ? null
                     : await inshoreRouteCrossesLand(inshoreRes.polyline, {
-                          chartWater: inshoreRes.chartWater,
+                          chartVerdicts: inshoreRes.chartVerdicts,
                       });
                 if (gen !== computeGenRef.current) return; // user moved on, abort
                 if (!backstop) {

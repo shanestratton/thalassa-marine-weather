@@ -224,6 +224,45 @@ describe('calculateThalassaProposal', () => {
         expect(m.invoke).not.toHaveBeenCalled();
     });
 
+    // 127-ROUTE-W: the router runs in a worker, Auto's ✕ really stops it, and
+    // the status says which stage it is at (Shane, 2026-10-10: "yes for a
+    // short while it looked as though the app had frozen").
+    it('hands the engine its stop signal and a stage listener, and says each stage in plain words', async () => {
+        m.tryInshoreRoute.mockImplementation(async (...args: unknown[]) => {
+            const opts = args[5] as { onStage?: (stage: string) => void };
+            opts.onStage?.('queued');
+            opts.onStage?.('routing');
+            opts.onStage?.('routing-main');
+            opts.onStage?.('done');
+            return engineResult();
+        });
+        const stop = new AbortController();
+        const progress = vi.fn();
+        await calculateThalassaProposal(request(), stop.signal, progress);
+        const opts = m.tryInshoreRoute.mock.calls[0][5];
+        expect(opts.signal).toBe(stop.signal);
+        expect(opts.onStage).toBeTypeOf('function');
+        expect(progress.mock.calls.map((c) => c[0])).toEqual([
+            'Following deep water…',
+            'Waiting for the route before this one…',
+            'Routing round the land…',
+            'Routing round the land (the screen may pause)…',
+            'Checking the route…',
+        ]);
+    });
+
+    it('a stop while the router runs ends Auto with an AbortError and no route', async () => {
+        const stop = new AbortController();
+        m.tryInshoreRoute.mockImplementation(async (...args: unknown[]) => {
+            const opts = args[5] as { signal?: AbortSignal };
+            stop.abort();
+            opts.signal?.throwIfAborted();
+            return engineResult();
+        });
+        await expect(calculateThalassaProposal(request(), stop.signal)).rejects.toMatchObject({ name: 'AbortError' });
+        expect(m.crossesLand).not.toHaveBeenCalled();
+    });
+
     it('calls the engine once, safest, with the air draft and the departure time', async () => {
         m.tryInshoreRoute.mockResolvedValue(engineResult());
         const now = Date.now();
@@ -320,14 +359,15 @@ describe('calculateThalassaProposal', () => {
 
     it('refuses a route the satellite land check finds over land, and says when it could not check', async () => {
         // The engine's own chart evidence rides the result into the check
-        // (2026-10-02, Coral Sea Marina → Daydream Island).
-        const chartWater = vi.fn(() => 'water' as const);
-        m.tryInshoreRoute.mockResolvedValue(engineResult({ chartWater }));
+        // (2026-10-02, Coral Sea Marina → Daydream Island): since 127-ROUTE-W
+        // as the verdicts the route job worked out at every sample.
+        const chartVerdicts = ['water', 'water', 'land', 'water'];
+        m.tryInshoreRoute.mockResolvedValue(engineResult({ chartVerdicts }));
         m.crossesLand.mockResolvedValue({ status: 'verified', crossesLand: true, runs: [{}] });
         await expect(calculateThalassaProposal(request())).rejects.toThrow(
             'Satellite relief shows land on this route. The route is not shown. Check that stretch on a detailed chart, or plot this passage in Manual. Nothing changed.',
         );
-        expect(m.crossesLand).toHaveBeenLastCalledWith(polyline, { chartWater });
+        expect(m.crossesLand).toHaveBeenLastCalledWith(polyline, { chartVerdicts });
         // Where, and whether the charts are missing there.
         m.crossesLand.mockResolvedValue({
             status: 'verified',

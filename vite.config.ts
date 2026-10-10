@@ -25,6 +25,13 @@ import {
 import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
 import { debugAisInjectorFenceError } from './scripts/debug-ais-injector-fence.mjs';
 import { handleOcean } from './api/ocean/[view]';
+import {
+    ROUTE_ENGINE_LOGGER_QUERY,
+    ROUTE_JOB_LOGGER,
+    routeEngineChunkOf,
+    routeEngineLoggerSource,
+    routeJobClosure,
+} from './scripts/route-job-closure.mjs';
 
 // Define __dirname for ESM context
 const __filename = fileURLToPath(import.meta.url);
@@ -220,6 +227,58 @@ function workerSentryNoop(): Plugin {
         load(id) {
             if (id !== virtualId) return null;
             return 'export const captureException = () => {};\nexport const addBreadcrumb = () => {};\n';
+        },
+    };
+}
+
+/**
+ * 127-ROUTE-W: routing runs off the main thread, and the engine chunk IS the
+ * worker. services/routing/routeJob.ts and its whole static import closure
+ * (worked out from the build's own graph, never a hand list, so a new engine
+ * module joins it by itself) go into one chunk, `router-engine`
+ * (scripts/route-job-closure.mjs routeEngineChunkOf, in manualChunks below).
+ * The route worker is started from that chunk's own URL (routeJob
+ * ROUTE_ENGINE_URL), and the main-thread fallback calls the same chunk: one
+ * copy, no worker build. The chunk must import nothing the worker cannot
+ * load: React's `vendor-react` carries the modulepreload polyfill, which
+ * touches `document` when it loads, and the app's chunks are not worker code.
+ *
+ * The app logger is the one module the job would share with the rest of the
+ * app, so the job's graph gets its own copy of utils/createLogger.ts: the same
+ * source, with the lazy Sentry import of error() resolved to no-op functions,
+ * exactly as workerSentryNoop does for worker builds. The route worker never
+ * initialises Sentry, and nothing in that graph calls a logger's error()
+ * (tests/routeJobPurity.test.ts), so the copy loses nothing; everything else
+ * keeps the app's logger where it was. Measured at the spike (2026-10-11):
+ * moving the one shared logger into the engine's chunks made ~160 chunks
+ * import it from a new chunk, +8.8 KB whether by a logger sink or by moving
+ * Vite's preload helper; the copy costs a few hundred bytes.
+ */
+function routeEngineLogger(): Plugin {
+    const logger = path.resolve(__dirname, ROUTE_JOB_LOGGER).replaceAll('\\', '/');
+    const copyId = `${logger}${ROUTE_ENGINE_LOGGER_QUERY}`;
+    let engineModules = new Set<string>();
+
+    return {
+        name: 'route-engine-logger',
+        apply: 'build',
+        enforce: 'pre',
+        buildStart() {
+            engineModules = new Set(
+                [...routeJobClosure(__dirname).keys()].map((rel: string) =>
+                    path.resolve(__dirname, rel).replaceAll('\\', '/'),
+                ),
+            );
+        },
+        async resolveId(source, importer, options) {
+            if (!importer || !source.includes('createLogger')) return null;
+            if (!engineModules.has(importer.replaceAll('\\', '/'))) return null;
+            const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
+            return resolved && resolved.id.replaceAll('\\', '/') === logger ? copyId : null;
+        },
+        load(id) {
+            if (id !== copyId) return null;
+            return routeEngineLoggerSource(fs.readFileSync(logger, 'utf8'), LOGGER_SENTRY_IMPORT);
         },
     };
 }
@@ -541,6 +600,8 @@ export default defineConfig(({ mode }) => {
                 },
             },
             react(),
+            // The route job's own logger copy (127-ROUTE-W; build only).
+            routeEngineLogger(),
             mode === 'production' && releasePublicInputFence(),
             mode === 'production' && releaseMinifyPublicScripts(),
             mode === 'production' && releaseParkedPagesStayOut(),
@@ -666,8 +727,12 @@ export default defineConfig(({ mode }) => {
                     // name every chunk a lazy import needs, so nothing loads
                     // one after another. tests/BundleStructuralTrims.test.ts.
                     hoistTransitiveImports: false,
-                    manualChunks(id) {
+                    manualChunks(id, meta) {
                         const moduleId = id.replaceAll('\\', '/');
+                        // The router: one chunk that is also the route worker's
+                        // script (routeEngineLogger, above).
+                        const engineChunk = routeEngineChunkOf(id, meta);
+                        if (engineChunk) return engineChunk;
                         // Vite's dynamic-import preload helper and modulepreload
                         // polyfill ride with React, which every entry loads first.
                         // Left to Rollup, a fifth entry (ocean, 2026-10-06) split

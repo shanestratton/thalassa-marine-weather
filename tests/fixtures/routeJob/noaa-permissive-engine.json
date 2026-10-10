@@ -1,0 +1,17 @@
+{
+    "sha256": "35af16aca5f58b12074182796180909d767872d21d649aa7b9b024ac913f9d0c",
+    "summary": {
+        "points": 19,
+        "nm": 8.3347,
+        "first": [-81.041899, 32.082668],
+        "last": [-81.153463, 32.157929],
+        "masks": {
+            "cautionMask": 18,
+            "canalMask": 18,
+            "channelMask": 18,
+            "offshoreMask": 18
+        },
+        "promoted": false,
+        "chartVerdicts": null
+    }
+}
