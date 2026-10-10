@@ -15,8 +15,9 @@
  *      soon as it answers (placesStatus still 'loading'), and merged again
  *      with OpenStreetMap and the coastline when those land.
  *   2. loadStopLegs(needsLegs): for the stops the engine names (at most
- *      three), ONE route spread (the passage HUD's five models, so the two
- *      share a cache) and ONE sea request along the one-way leg. The home
+ *      five: the card's three and two backups, 127-PYD-4), ONE route spread
+ *      (the passage HUD's five models, so the two share a cache) and ONE sea
+ *      request along the one-way leg. The home
  *      leg is that leg turned round (mirror.ts), never a second request: a
  *      round trip under 20 NM would sample the start twice and never the stop.
  *   3. loadLandingWindow(stop): only when a reviewed stop's detail opens.
@@ -597,23 +598,24 @@ export async function loadLandingWindow(
 export function todayInput(
     base: TodayBase,
     args: Pick<DayPlanInput, 'stay' | 'limits' | 'speed' | 'usingDefaultVessel'> &
-        Partial<Pick<DayPlanInput, 'date' | 'legs' | 'boatFixAgeMs' | 'nowMs'>>,
+        Partial<
+            Pick<
+                DayPlanInput,
+                'date' | 'legs' | 'boatFixAgeMs' | 'nowMs' | 'windModel' | 'visited' | 'pinned' | 'pinDepth' | 'draftM'
+            >
+        >,
 ): DayPlanInput {
     return {
+        ...args,
         nowMs: args.nowMs ?? base.nowMs,
         zone: base.zone,
         start: base.start,
         date: args.date ?? null,
-        stay: args.stay,
-        limits: args.limits,
-        speed: args.speed,
-        usingDefaultVessel: args.usingDefaultVessel,
         atmos: base.atmos,
         weather: base.weather,
         places: base.places,
         placesStatus: base.placesStatus,
         tides: base.tidesStatus === 'ok' ? base.tides : null,
-        legs: args.legs,
         boatFixAgeMs: args.boatFixAgeMs ?? null,
         cyclone: base.cyclone,
     };

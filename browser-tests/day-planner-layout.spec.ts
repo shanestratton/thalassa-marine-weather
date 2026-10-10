@@ -50,13 +50,13 @@ const TIMES = /^\d\d:\d\d → \d\d:\d\d · /;
 /**
  * The first stop row's line 2 once its route forecasts are in, per mode: the
  * times, or (127-PYD-1) the reason a ✕ row is ✕, where its times were. Every
- * stop is over the default boat's limits on the over day (the wind on the way)
- * and on the thunder day (home in the afternoon's thunder).
+ * stop is over the default boat's limits on the over day (the wind on the way).
+ * On the thunder day a short hop home before noon fits and is the best fit
+ * (127-PYD-4); with four hours ashore every stop is home into the thunder.
  */
 const LINE2: Partial<Record<string, RegExp>> = {
     offline: /weather not checked$/,
     over: /^SE \d+ kn on the way$/,
-    thunder: /^⚡ Thunder on the way home$/,
 };
 const line2For = (mode: string) => LINE2[mode] ?? /^\d\d:\d\d → \d\d:\d\d · back \d\d:\d\d$/;
 
@@ -281,13 +281,32 @@ function layoutIssues(page: Page, mayScroll: boolean) {
     }, mayScroll);
 }
 
-const visibleStops = (page: Page) =>
-    page.evaluate(
+/**
+ * The card once it has settled (127-PYD-4): five stops' weather along the way
+ * lands one by one, and a ✕ gives way to a checked backup that fits, so a row
+ * may change after the first has its times. Two equal reads 300 ms apart.
+ */
+async function settled(page: Page) {
+    let last: string | null = null;
+    for (let i = 0; i < 20; i++) {
+        const now = await page.evaluate(
+            () => document.querySelector('.today-main .today-col-b .today-stops')?.textContent ?? '',
+        );
+        if (now === last) return;
+        last = now;
+        await page.waitForTimeout(300);
+    }
+}
+
+const visibleStops = async (page: Page) => {
+    await settled(page);
+    return page.evaluate(
         () =>
             [...document.querySelectorAll('.today-main .today-col-b .today-stops > li')].filter(
                 (li) => getComputedStyle(li).display !== 'none',
             ).length,
     );
+};
 
 for (const size of sizes) {
     for (const mode of modes) {
@@ -1470,8 +1489,13 @@ for (const size of [AS_DRAWN.se, sizes[0], sizes[1], AS_DRAWN.mid, AS_DRAWN.shan
         test(`a ✕ row says why on its own row at ${size.name}: ${mode}`, async ({ page }) => {
             const errors = await open(page, size, `&mode=${mode}${size.query}`);
             const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+            // Four hours ashore on the thunder day: every stop is home into the afternoon's thunder. With two,
+            // a short hop home before noon fits and takes its place on the card (127-PYD-4).
+            if (mode === 'thunder') await dialog.getByRole('combobox', { name: 'Stay' }).selectOption('4h');
             const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
-            await expect(stops.first().locator('.today-stop-l2')).toHaveText(line2For(mode));
+            await expect(stops.first().locator('.today-stop-l2')).toHaveText(
+                mode === 'thunder' ? /^⚡ Thunder on the way home$/ : line2For(mode),
+            );
             await expect.poll(() => visibleStops(page)).toBe(size.stops);
             const m = await page.evaluate(
                 ({ before, wrapOk }) => {
@@ -1635,3 +1659,68 @@ for (const display of ['dark', 'light'] as const)
         });
         expect(errors).toEqual([]);
     });
+
+/**
+ * Different places, picked for a reason (build 127, 127-PYD-4). Shane,
+ * 2026-10-10: "plan your day?? why does it only ever show the same 3
+ * destinations. ??? it needs another good clean up claude." The card shows the
+ * best fit, the best the other way and one somewhere different; every row but
+ * the best fit carries one short tag where "Local notes" sat ("Other way",
+ * "Closer", "Short hop", "More shelter", "New to you"). At 320 px the shelter
+ * word gives way first, so the tag stays whole on line 1 and the name is never
+ * cut. The stop page says why first, under its verdict.
+ */
+for (const size of [AS_DRAWN.se, sizes[0], sizes[1], AS_DRAWN.shane, sizes[4], sizes[7]])
+    for (const mode of ['normal', 'default-boat', 'noumea'] as const)
+        test(`a picked stop's tag stays whole on line 1 at ${size.name}: ${mode}`, async ({ page }) => {
+            const errors = await open(page, size, `&mode=${mode}${size.query}`);
+            const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+            const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
+            await expect(stops.first().locator('.today-stop-l2')).toHaveText(TIMES);
+            await expect.poll(() => visibleStops(page)).toBe(size.stops);
+            const tags = await page.evaluate(() =>
+                [...document.querySelectorAll<HTMLElement>('.today-main .today-col-b .today-stops > li')]
+                    .filter((li) => getComputedStyle(li).display !== 'none')
+                    .map((li) => {
+                        const l1 = li.querySelector('.today-stop-l1')!.getBoundingClientRect();
+                        const name = li.querySelector('.today-stop-name')!.getBoundingClientRect();
+                        const tag = li.querySelector<HTMLElement>('.today-pick');
+                        const r = tag?.getBoundingClientRect();
+                        return {
+                            text: tag?.textContent ?? null,
+                            inside: !!r && r.left >= l1.left - 0.5 && r.right <= l1.right + 0.5,
+                            whole: !!tag && tag.scrollWidth <= tag.clientWidth + 0.5,
+                            oneLine:
+                                !!r && Math.abs(r.top + r.height / 2 - (name.top + name.height / 2)) < name.height / 2,
+                        };
+                    }),
+            );
+            // The best fit wears no tag; every other row shown wears one, whole, beside the name.
+            expect(tags[0].text).toBeNull();
+            for (const tag of tags.slice(1)) {
+                expect(tag.text).toMatch(/^(Other way|Closer|Short hop|More shelter|New to you)$/);
+                expect(tag).toMatchObject({ inside: true, whole: true, oneLine: true });
+            }
+            expect(await layoutIssues(page, size.mayScroll)).toEqual([]);
+            expect(errors).toEqual([]);
+        });
+
+for (const size of [AS_DRAWN.se, sizes[1], AS_DRAWN.shane])
+    for (const mode of ['normal', 'noumea', 'over'] as const)
+        test(`the stop page says why first, under its verdict, at ${size.name}: ${mode}`, async ({ page }) => {
+            const errors = await open(page, size, `&mode=${mode}${size.query}`);
+            const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+            const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
+            await expect(stops.first().locator('.today-stop-l2')).toHaveText(line2For(mode));
+            await stops.nth(1).click();
+            const detail = page
+                .getByRole('dialog')
+                .filter({ has: page.getByRole('button', { name: 'Plot on chart' }) });
+            const rows = detail.getByRole('list', { name: 'How the day goes' }).getByRole('listitem');
+            const verdict = (await rows.first().getAttribute('data-level')) !== null;
+            const why = rows.nth(verdict ? 1 : 0);
+            await expect(why).toHaveAttribute('data-why', 'true');
+            await expect(why).toHaveText(/\S/);
+            expect(await layoutIssues(page, size.height < 640)).toEqual([]);
+            expect(errors).toEqual([]);
+        });

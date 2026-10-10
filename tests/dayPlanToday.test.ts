@@ -30,7 +30,6 @@ import {
     type ScoredDeparture,
 } from '../services/passageDepartureSuggestion';
 import {
-    areaVerdict,
     dayParts,
     dayWindow,
     distanceLine,
@@ -48,8 +47,10 @@ import {
     type DayPlanView,
     type StopLegs,
 } from '../services/dayPlanner/today';
+import * as today from '../services/dayPlanner/today';
+import { pinDepth, voyageEnds } from '../services/dayPlanner/pick';
 import type { PassageSpeedModel } from '../services/passagePlan';
-import type { RouteForecast } from '../services/routeForecastSampler';
+import { sampleRouteForecast, type RouteForecast } from '../services/routeForecastSampler';
 import type { RouteSea } from '../services/routeSeaSampler';
 import type { RouteSpread } from '../services/routeForecastSpread';
 import { routeLengthNm, pointAlongRoute } from '../services/routeProgress';
@@ -235,6 +236,18 @@ function whitsundayPlaces(): GatheredPlaces {
     });
 }
 
+/** Cid Harbour alone: its own card, whatever the pick would choose among seventy places. */
+function cidOnly(): GatheredPlaces {
+    return gatherPlaces({
+        start: MARINA,
+        nowMs: NOW,
+        radiusNm: 30,
+        atlas: QLD_TILE.features.filter((f) => f.properties.id === 'osm-node3020491514'),
+        osm: [],
+        coastline: null,
+    });
+}
+
 function osmPoint(node: number, name: string, lat: number, lon: number): CruisingPoint {
     return {
         id: `osm-node${node}`,
@@ -320,8 +333,15 @@ describe("Shane's case: Coral Sea Marina, Thursday 8 October, a south-east trade
         }
     });
 
-    it('puts Cid Harbour in the top three', () => {
-        expect(view.top.map((row) => row.name).join(' | ')).toMatch(/Cid Harbour/);
+    // 127-PYD-4 (Shane: "why does it only ever show the same 3 destinations"): Cid Harbour was on
+    // 109 of 120 cards. It is still ranked and listed; the card is three places picked for a reason.
+    it('ranks and lists Cid Harbour, and the card is the best fit and two tagged alternatives', () => {
+        expect(view.ranked.map((stop) => stop.candidate.id)).toContain('osm-node3020491514');
+        expect([...view.fits, ...view.unchecked, ...view.notToday].map((row) => row.id)).toContain(
+            'osm-node3020491514',
+        );
+        expect(view.top).toHaveLength(3);
+        expect(view.top.map((row) => row.tag)).toEqual([null, expect.any(String), expect.any(String)]);
     });
 
     it('reads Nara Inlet as closed by Queensland Parks, and never scores it', () => {
@@ -350,7 +370,8 @@ describe("Shane's case: Coral Sea Marina, Thursday 8 October, a south-east trade
     });
 
     it('Cid Harbour keeps its Parks shark warning, under the stay, in its detail', () => {
-        const cid = view.top.find((row) => row.id === 'osm-node3020491514')!;
+        const cid = planWithLegs({ places: cidOnly() }, SE_TRADE).top[0];
+        expect(cid.id).toBe('osm-node3020491514');
         expect(cid.candidate.reviewed?.accessNotes.join(' ')).toMatch(/Do not swim in Cid Harbour.*sharks/);
         const detail = stopDetail({
             plan: cid.plan!,
@@ -373,8 +394,23 @@ describe("Shane's case: Coral Sea Marina, Thursday 8 October, a south-east trade
         const chance = view.ranked.find((stop) => stop.candidate.id === 'osm-node8925547809')!;
         expect(chance.stay?.grade).toBe('tenable');
         expect(chance.stay?.reasons[0]).toBe('South-easterlies can make access difficult (Queensland Parks)');
-        const row = [...view.fits, ...view.unchecked].find((r) => r.id === 'osm-node8925547809');
-        expect(row?.shelter).toBe('Some chop');
+        // On her polar walk 2 h ashore there is home after dark (127-PYD-4: no longer judged at cruising speed).
+        const last = hhmm(view.window.lastLightMs!, BRISBANE);
+        expect(view.notToday.find((r) => r.id === 'osm-node8925547809')?.reason).toBe(
+            `over your limits: home after dark (${last})`,
+        );
+        // An hour ashore fits the light: its row says "Some chop".
+        const chanceOnly = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: QLD_TILE.features.filter((f) => f.properties.id === 'osm-node8925547809'),
+            osm: [],
+            coastline: null,
+        });
+        const row = planWithLegs({ places: chanceOnly, stay: '1h' }, SE_TRADE).top[0];
+        expect(row.id).toBe('osm-node8925547809');
+        expect(row.shelter).toBe('Some chop');
     });
 
     it('reads its limits from the default boat and its times in the place’s zone', () => {
@@ -499,7 +535,7 @@ describe('over all day', () => {
         expect(view.chips[2].ariaLabel).toBe('Saturday 10 October, inside your wind limits at best, Models agree');
     });
 
-    it('beyond the best three, the wind in the area rules each stop out: nothing is listed as fitting', () => {
+    it('beyond the five route-checked, the wind in the area rules each stop out: nothing is listed as fitting', () => {
         expect(view.state).toBe('stay-put');
         expect(view.fits).toEqual([]);
         expect(view.unchecked).toEqual([]);
@@ -510,9 +546,10 @@ describe('over all day', () => {
             const reason = view.notToday.find((row) => row.id === stop.candidate.id)?.reason ?? '';
             expect(reason).toMatch(/^over your limits: (SE \d+ kn|gusts \d+ kn) in the area$|^over your limits: /);
         }
-        // e.g. Chance Bay, "very sheltered" by its land table, in a 29 kn day.
+        // e.g. Chance Bay, "very sheltered" by its land table, in a 29 kn day: its area plan's own
+        // reason, in the chart's model at the point (127-PYD-4; the block's first member here).
         const chance = view.notToday.find((row) => row.id === 'osm-node8925547809');
-        expect(chance?.reason).toBe('over your limits: SE 27 kn in the area');
+        expect(chance?.reason).toBe('over your limits: SE 26 kn in the area');
     });
 
     it('still lists every place, ranked, each with a plain reason', () => {
@@ -700,18 +737,22 @@ describe('the earliest leave', () => {
     });
 });
 
-describe('areaVerdict', () => {
+describe('the area plan (127-PYD-4; it replaces areaVerdict)', () => {
     it('finds the calm hours: a stop is out only when every departure meets the blow', () => {
         const blowFrom = Date.UTC(2026, 9, 8, 2); // 12:00 local
         const block = atmos(Math.floor(NOW / H) * H, (m, t) =>
             t < blowFrom ? { kts: 9, dir: 135 } : { kts: 30, dir: 135, gust: 38 },
         );
-        const view = planDay(input({ atmos: block }));
-        const hours = pointHours(block);
-        const near = view.ranked.find((stop) => stop.estNm < 6)!;
-        const far = view.ranked.find((stop) => stop.estNm > 20)!;
-        expect(areaVerdict(near, view.window, '1h', hours, DEFAULT_LIMITS)).toBeNull();
-        expect(areaVerdict(far, view.window, '4h', hours, DEFAULT_LIMITS)).toBe('SE 30 kn in the area');
+        const short = planDay(input({ atmos: block, stay: '1h' }));
+        const near = short.ranked.find((stop) => stop.estNm < 6)!;
+        expect(short.scores.get(near.candidate.id)?.level).not.toBe('over');
+        const long = planDay(input({ atmos: block, stay: '4h' }));
+        const checks = new Set(long.needsLegs.map((n) => n.id));
+        const far = long.ranked.find((stop) => stop.estNm > 20 && !checks.has(stop.candidate.id))!;
+        expect(long.scores.get(far.candidate.id)?.level).toBe('over');
+        expect(long.notToday.find((r) => r.id === far.candidate.id)?.reason).toBe(
+            'over your limits: SE 30 kn in the area',
+        );
     });
 });
 
@@ -1295,7 +1336,9 @@ describe('say why (127-PYD-1): a ✕ stop says why on its own row', () => {
     });
 
     it('a thunder stop: "⚡ Thunder on the way home" on the row; the models are counted where it is said in full', async () => {
-        const view = await fixtureView('thunder');
+        // Four hours ashore, so every stop on the card is home into the afternoon's thunder (with two,
+        // a short hop home before noon fits, and takes its place on the card: 127-PYD-4).
+        const view = await fixtureView('thunder', '4h');
         expect(view.top.length).toBeGreaterThanOrEqual(2);
         for (const row of view.top) {
             expect(row.level).toBe('over');
@@ -1305,7 +1348,7 @@ describe('say why (127-PYD-1): a ✕ stop says why on its own row', () => {
         }
         const detail = stopDetail({
             plan: view.top[0].plan!,
-            stay: '2h',
+            stay: '4h',
             window: view.window,
             speed: SAIL,
             polarIsOwn: false,
@@ -1368,7 +1411,7 @@ describe('say why (127-PYD-1): a ✕ stop says why on its own row', () => {
     });
 
     it('a reviewed stop says its landing tide once: the note names it, the row gives the window', () => {
-        const view = planWithLegs({}, SE_TRADE);
+        const view = planWithLegs({ places: cidOnly() }, SE_TRADE);
         const cid = view.top.find((row) => row.id === 'osm-node3020491514')!;
         const rows = (landing: StopDetailArgs['landing']) =>
             stopDetail({
@@ -1659,5 +1702,334 @@ describe('say why (127-PYD-1): a stay reason is short on the row, whole where wo
             }
             for (const r of view.notToday) expect(r.reason, mode).not.toMatch(BROKEN_COMPASS);
         }
+    });
+});
+
+// ── 17. Different places, picked for a reason (build 127, 127-PYD-4) ──
+
+/**
+ * Shane, 2026-10-10: "plan your day?? why does it only ever show the same 3
+ * destinations." Every place in reach is planned on the area wind (the point
+ * block already loaded, zero requests): her polar walk, so the light is judged
+ * on her real passage time. The five stops the pick names are route-checked;
+ * their pins are checked against her charts (memory only, a verdict only).
+ */
+describe('a free plan for every place: the area wind (127-PYD-4)', () => {
+    const limits = resolveDayPlanLimits({ maxWindKts: 30, maxGustKts: 40, maxWaveM: 3 }, null, false);
+
+    it('areaLegs is a valid route forecast from the point block: the chart model at the point, the members as the spread, no sea', () => {
+        const block = trade(Math.floor(NOW / H) * H);
+        const legs = today.areaLegs(block, 'dwd_icon')!;
+        expect(legs.area).toBe(true);
+        expect(legs.sea).toBeNull();
+        expect(legs.headlineModel).toBe('ICON');
+        const icon = block.models.find((m) => m.id === 'dwd_icon')!;
+        expect(legs.headline!.model).toBe('dwd_icon');
+        const station = legs.headline!.stations[0];
+        expect(station.timesMs).toEqual(block.times);
+        expect(station.speedKts).toEqual(icon.values.wind_speed_10m);
+        // Whatever the distance along, the wind is the point's.
+        for (const along of [0, 4, 17.5]) {
+            const s = sampleRouteForecast(legs.headline, along, block.times[3]);
+            expect(s.twsKts).toBeCloseTo(icon.values.wind_speed_10m[3]!, 6);
+        }
+        expect(Object.keys(legs.spread!.members).sort()).toEqual(block.models.map((m) => m.id).sort());
+        // A model that is not in the block: the first that has wind stands in, named.
+        const stand = today.areaLegs(block, 'no_such_model')!;
+        expect(stand.substituted).toBe(true);
+        expect(stand.headline!.model).toBe(block.models[0].id);
+    });
+
+    it('an area plan says it is on the area wind, its wind reasons say "in the area", and an unread sea does not cap it', () => {
+        const calm = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 7 + (m % 2), dir: 135, gust: 11 }));
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: QLD_TILE.features.filter((f) => f.properties.id === 'osm-node3020491514'),
+            osm: [],
+            coastline: null,
+        });
+        const view = planDay(input({ limits, atmos: calm, places }));
+        // No legs yet: the area plan alone, and with no sea read anywhere it is still Inside.
+        expect(view.scores.get('osm-node3020491514')?.level).toBe('inside');
+        const area = today.areaLegs(calm, 'ecmwf_ifs025')!;
+        const plan = today.planStop({
+            pre: view.ranked[0],
+            start: MARINA,
+            window: view.window,
+            stay: '2h',
+            speed: SAIL,
+            limits,
+            legs: area,
+            hours: pointHours(calm),
+            blockModels: 7,
+        });
+        expect((plan as { area?: boolean }).area).toBe(true);
+        expect(plan.level).toBe('inside');
+        const detail = stopDetail({
+            plan,
+            stay: '2h',
+            window: view.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: false,
+        });
+        expect(detail.footnote).toMatch(/on the area wind/);
+        const blow = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 26 + (m % 3), dir: 135, gust: 45 }));
+        const over = today.planStop({
+            pre: view.ranked[0],
+            start: MARINA,
+            window: view.window,
+            stay: '2h',
+            speed: SAIL,
+            limits,
+            legs: today.areaLegs(blow, 'ecmwf_ifs025')!,
+            hours: pointHours(blow),
+            blockModels: 7,
+        });
+        expect(over.level).toBe('over');
+        expect(over.best!.reason).toBe('gusts 45 kn in the area');
+    });
+
+    it('the light is judged on her polar walk, not her cruising speed: close-hauled out is home after dark, and is not the best fit', () => {
+        // East of the marina, close-hauled out in a light south-easterly (the cruising estimate fits);
+        // north-east, a beam reach both ways at about the same distance.
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: [],
+            osm: [
+                {
+                    points: [
+                        osmPoint(9401, 'Fictional Long Reach', -20.265, 148.969),
+                        osmPoint(9402, 'Fictional Beam Reach', -20.1, 148.895),
+                    ],
+                    stale: false,
+                },
+            ],
+            coastline: null,
+        });
+        const light = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 9 + (m % 2), dir: 135, gust: 13 }));
+        const view = planDay(input({ limits, places, stay: '4h', atmos: light }));
+        // The cruising estimate keeps both in reach.
+        expect(view.ranked.map((p) => p.candidate.id).sort()).toEqual(['osm-node9401', 'osm-node9402']);
+        expect(view.scores.get('osm-node9401')?.level).toBe('over');
+        expect(view.scores.get('osm-node9402')?.level).not.toBe('over');
+        expect(view.top[0].id).toBe('osm-node9402');
+        // Not route-checked yet: listed with the area plan's own reason.
+        const last = hhmm(view.window.lastLightMs!, BRISBANE);
+        const after = planWithLegs({ limits, places, stay: '4h', atmos: light }, () => ({
+            kts: 9,
+            dir: 135,
+            gust: 13,
+        }));
+        expect(after.notToday.find((r) => r.id === 'osm-node9401')?.reason).toBe(
+            `over your limits: home after dark (${last})`,
+        );
+    });
+
+    it('her charts at the pin, every case: words say "charted from N m" and "may need tide", never "needs tide"', () => {
+        const draft = 2.4;
+        const cases: [Parameters<typeof pinDepth>[0], string, boolean][] = [
+            [{ covered: false, hazard: false, minDepthM: null }, 'depth not checked', false],
+            [{ covered: true, hazard: false, minDepthM: null }, '15 m or more charted at the pin', false],
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: 5.2 },
+                'charted from 5.2 m at the pin',
+                false,
+            ],
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: 2.1 },
+                'may need tide at the anchorage (charted from 2.1 m)',
+                true,
+            ],
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: -0.4 },
+                'dries at the pin (charted)',
+                true,
+            ],
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: null },
+                'depth not charted at the pin',
+                false,
+            ],
+            [
+                { covered: true, hazard: true, hazardType: 'land', minDepthM: null },
+                'pin is on charted land: the stop is the water off it',
+                false,
+            ],
+            [
+                { covered: true, hazard: true, hazardType: 'coast', minDepthM: null },
+                'pin is on charted land: the stop is the water off it',
+                false,
+            ],
+            [{ covered: true, hazard: true, hazardType: 'rock', minDepthM: 1 }, 'charted rock near the pin', true],
+            [{ covered: true, hazard: true, hazardType: 'wreck', minDepthM: 3 }, 'charted wreck near the pin', true],
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: 1.6, soundingOnly: true },
+                'depth not checked · a charted sounding of 1.6 m near the pin',
+                false,
+            ],
+        ];
+        for (const [result, words, cap] of cases) {
+            const v = pinDepth(result, draft);
+            expect(v, JSON.stringify(result)).toEqual({ words, cap });
+            expect(v.words).not.toMatch(/needs tide/);
+            // DRVAL1 is the area's shallow end: never "2.1 m at the pin" without "charted from".
+            expect(v.words).not.toMatch(/(?<!from )(?<![\d.])\d+(\.\d)? m at the pin/);
+        }
+        // The default boat (no draft of hers) and no answer: not checked.
+        expect(pinDepth({ covered: true, hazard: true, hazardType: 'shallow', minDepthM: 2.1 }, null)).toEqual({
+            words: 'depth not checked',
+            cap: false,
+        });
+        expect(pinDepth(undefined, draft)).toEqual({ words: 'depth not checked', cap: false });
+    });
+
+    it('a shallow pin holds a route-checked stop at Near, with its words first on the stop page; the default boat is not checked', () => {
+        const calm = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 7 + (m % 2), dir: 135, gust: 11 }));
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: QLD_TILE.features.filter((f) => f.properties.id === 'osm-node3020491514'),
+            osm: [],
+            coastline: null,
+        });
+        const pin = new Map([
+            ['osm-node3020491514', { covered: true, hazard: true, hazardType: 'shallow' as const, minDepthM: 1.2 }],
+        ]);
+        const light = () => ({ kts: 8, dir: 135, gust: 12 });
+        const shallow = planWithLegs({ limits, atmos: calm, places, pinDepth: pin, draftM: 2.4 }, light);
+        const row = shallow.top[0];
+        expect(row.level).toBe('near');
+        const rows = stopDetail({
+            plan: row.plan!,
+            stay: '2h',
+            window: shallow.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: false,
+        }).rows;
+        expect(rows[0]).toBe('≈ Near your limits: may need tide at the anchorage (charted from 1.2 m)');
+        const unset = planWithLegs({ limits, atmos: calm, places, pinDepth: pin, draftM: null }, light);
+        expect(unset.top[0].level).toBe('inside');
+    });
+
+    it('a stop already Near or Over for its wind still says what her charts say at the pin, reviewed or not', () => {
+        // Review 2026-10-10: the words were said only where they became the verdict (an Inside stop
+        // held at Near), so a drying, shallow or rocky pin on a stop Near for its wind said nothing.
+        const cases: [NonNullable<Parameters<typeof pinDepth>[0]>, string][] = [
+            [{ covered: true, hazard: true, hazardType: 'shallow', minDepthM: -0.5 }, 'dries at the pin (charted)'],
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: 1 },
+                'may need tide at the anchorage (charted from 1.0 m)',
+            ],
+            [{ covered: true, hazard: true, hazardType: 'rock', minDepthM: 1 }, 'charted rock near the pin'],
+            // Never coverage, but a caution a reviewed stop says too.
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: 1.6, soundingOnly: true },
+                'a charted sounding of 1.6 m near the pin',
+            ],
+        ];
+        const trade16 = (): LegWind => ({ kts: 16, dir: 135, gust: 21 });
+        for (const [result, words] of cases) {
+            const checks = planDay(input({ draftM: 2.4 })).needsLegs;
+            const pin = new Map(checks.map((n) => [n.id, result]));
+            const view = planWithLegs({ pinDepth: pin, draftM: 2.4 }, trade16);
+            let forWind = 0;
+            let reviewed = 0;
+            for (const row of view.rows.values()) {
+                const plan = row.plan!;
+                expect(plan, row.name).toBeTruthy();
+                const shown = stopDetail({
+                    plan,
+                    stay: '2h',
+                    window: view.window,
+                    speed: SAIL,
+                    polarIsOwn: false,
+                    leavingMarina: false,
+                    why: row.why,
+                    place: row.place,
+                }).rows.join('\n');
+                expect(shown.toLowerCase(), `${row.name}: ${words}`).toContain(words);
+                // Said once on the page, not as the verdict and again below it.
+                expect(shown.toLowerCase().split(words).length - 1, `${row.name}: ${words}`).toBe(1);
+                if (plan.best && plan.best.level !== 'inside' && plan.best.reason !== words) forWind++;
+                if (row.parks) reviewed++;
+            }
+            expect(forWind, words).toBeGreaterThan(0);
+            expect(reviewed, words).toBeGreaterThan(0);
+        }
+    });
+
+    it('an unreviewed place says what it is, and what her charts say at its pin; a reviewed one keeps its "Local notes"', () => {
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: QLD_TILE.features.filter((f) =>
+                ['osm-node3020491514', 'osm-node2503741556'].includes(f.properties.id),
+            ),
+            osm: [{ points: [osmPoint(9403, 'Fictional Seamark', -20.2, 148.86)], stale: false }],
+            coastline: null,
+        });
+        const pin = new Map([
+            ['osm-node2503741556', { covered: true, hazard: true, hazardType: 'shallow' as const, minDepthM: 4.4 }],
+        ]);
+        const view = planWithLegs({ places, pinDepth: pin, draftM: 2.4 }, SE_TRADE);
+        const rows = view.rows;
+        expect(rows.get('osm-node2503741556')?.place).toBe('Mapped bay · not reviewed · charted from 4.4 m at the pin');
+        expect(rows.get('osm-node9403')?.place).toBe('Mapped anchorage · not reviewed · depth not checked');
+        expect(rows.get('osm-node3020491514')?.place ?? null).toBeNull();
+        expect(rows.get('osm-node3020491514')?.parks).toBe(true);
+    });
+
+    it('the why line is the first row under the verdict, and claims nothing the plan does not support', () => {
+        const view = planWithLegs({}, SE_TRADE);
+        for (const row of view.top) {
+            const why = row.why;
+            expect(why, row.name).toBeTruthy();
+            const rows = stopDetail({
+                plan: row.plan!,
+                stay: '2h',
+                window: view.window,
+                speed: SAIL,
+                polarIsOwn: false,
+                leavingMarina: false,
+                why,
+            }).rows;
+            expect(rows[row.plan!.best!.reason ? 1 : 0]).toBe(why);
+            const best = row.plan!.best!;
+            if (/both ways/.test(why!)) expect(best.out.how).toBe(best.home!.how);
+            expect(why).not.toMatch(/reaching|running/);
+        }
+    });
+
+    it('"New to you" needs her voyage history: with none on the phone (getCachedSummaries null) no place says it', () => {
+        expect(voyageEnds(null)).toBeNull();
+        const summaries = [
+            { isPlannedRoute: false, isImported: false, lastLat: -20.2452, lastLon: 148.9484 },
+            { isPlannedRoute: true, isImported: false, lastLat: -20.1, lastLon: 148.9 },
+            { isPlannedRoute: false, isImported: true, lastLat: -20.3, lastLon: 148.8 },
+            { isPlannedRoute: false, isImported: false, lastLat: null, lastLon: null },
+            { isPlannedRoute: false, isImported: false, lastLat: 0, lastLon: 0 },
+        ];
+        expect(voyageEnds(summaries)).toEqual([
+            { lat: -20.2452, lon: 148.9484 },
+            { lat: -20.3, lon: 148.8 },
+        ]);
+        const unknown = planWithLegs({ visited: null }, SE_TRADE);
+        for (const row of unknown.top) expect(row.tag).not.toBe('New to you');
+        // With her history known, and the stop the other way one she has ended a voyage at, the third
+        // is somewhere none of her voyages ended, and says so.
+        const other = unknown.top[1].candidate;
+        const known = planWithLegs({ visited: [{ lat: other.lat, lon: other.lon }] }, SE_TRADE);
+        const fresh = known.top.find((row) => row.tag === 'New to you');
+        expect(fresh).toBeDefined();
+        expect(fresh!.id).not.toBe(other.id);
+        expect(fresh!.why).toMatch(/^None of your voyages ended here/);
     });
 });

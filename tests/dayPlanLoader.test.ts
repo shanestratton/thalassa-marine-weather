@@ -785,7 +785,11 @@ describe("Shane's case through the loader and the engine", () => {
         const legs = await loadStopLegs(first.needsLegs, WIND, { signal, deps });
         const view = planDay(todayInput(base, { ...args, legs }));
         expect(view.date).toBe('2026-10-08');
-        expect(view.top.map((r) => r.id)).toContain(CID_ID);
+        // The card is three places picked for a reason (127-PYD-4), five route-checked; Cid Harbour, on
+        // 109 of 120 cards before, is ranked and listed whether or not it is on today's.
+        expect(view.top).toHaveLength(3);
+        expect(legs.size).toBe(5);
+        expect(view.ranked.map((p) => p.candidate.id)).toContain(CID_ID);
         expect(view.notToday.find((r) => r.id === NARA_ID)?.reason).toBe('closed 6–15 Oct (Queensland Parks)');
         for (const row of view.top) {
             expect(row.line2).toMatch(/^\d\d:\d\d → \d\d:\d\d · back \d\d:\d\d$/);

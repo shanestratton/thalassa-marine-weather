@@ -6,6 +6,7 @@
  * on top, and the skipper's own saved routes for real distances. Fictional
  * names only outside the published atlas and reviewed records.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { AnchorageProps } from '../services/anchorages/AnchorageService';
 import type { CruisingPoint } from '../services/anchorages/cruisingReference';
@@ -217,22 +218,87 @@ describe('gatherPlaces: the merge', () => {
         expect(unranked[0].reason).toBe('not ranked — 40 closer places checked first');
     });
 
-    it('always ranks the reviewed stops, even beyond the 40 nearest', () => {
-        // Forty fictional bays inside 9 NM, and Cid Harbour at 13 NM.
-        const near = Array.from({ length: 40 }, (_, i) =>
-            atlas(`osm-node${7000 + i}`, `Fictional Bay ${i}`, AIRLIE.lat - 0.02, AIRLIE.lon + 0.03 + i * 0.003),
+    it('always ranks the reviewed stops, even beyond the 40 nearest OpenStreetMap points', () => {
+        // Forty fictional OpenStreetMap anchorages inside 9 NM with no baked table, and Cid Harbour at 13 NM.
+        const near = Array.from({ length: 41 }, (_, i) =>
+            osm(7000 + i, `Fictional Bay ${i}`, AIRLIE.lat - 0.02, AIRLIE.lon + 0.03 + i * 0.003),
         );
         const places = gatherPlaces({
             start: AIRLIE,
             nowMs: NOW,
             radiusNm: 30,
-            atlas: [...near, CID],
+            atlas: [CID],
+            osm: [{ points: near, stale: false }],
+            coastline: null,
+        });
+        expect(places.candidates).toHaveLength(41);
+        expect(places.candidates.map((c) => c.id)).toContain('osm-node3020491514');
+        expect(places.excluded.map((e) => e.name)).toEqual(['Fictional Bay 40']);
+    });
+
+    // 127-PYD-4 (Shane, 2026-10-10: "why does it only ever show the same 3 destinations"): the
+    // atlas's tables are baked, so its places cost no ray-cast and are all ranked; the cap is
+    // for the OpenStreetMap points that need one.
+    it('ranks every atlas place with a baked table: no 40-nearest cap on the atlas', () => {
+        const bays = Array.from({ length: 45 }, (_, i) =>
+            atlas(`osm-node${7200 + i}`, `Fictional Bay ${i}`, AIRLIE.lat - 0.02, AIRLIE.lon + 0.03 + i * 0.003),
+        );
+        const places = gatherPlaces({
+            start: AIRLIE,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: bays,
             osm: [],
             coastline: null,
         });
-        expect(places.candidates).toHaveLength(40);
-        expect(places.candidates.map((c) => c.id)).toContain('osm-node3020491514');
-        expect(places.excluded.map((e) => e.name)).toEqual(['Fictional Bay 39']);
+        expect(places.candidates).toHaveLength(45);
+        expect(places.excluded).toEqual([]);
+    });
+
+    it('never lists what the atlas marks as no place to stop: passages, channels, sounds and flats', () => {
+        const tiles = ['t-22e148', 't-20e148'].flatMap(
+            (id) =>
+                (
+                    JSON.parse(readFileSync(`public/anchorages/qld/${id}.geojson`, 'utf8')) as {
+                        features: AtlasFeature[];
+                    }
+                ).features,
+        );
+        const nav = tiles.filter((f) => f.properties.likelyAnchorage === false);
+        expect(nav.map((f) => f.properties.name)).toEqual(
+            expect.arrayContaining(['Molle Channel', 'Unsafe Pass', 'Whitsunday Passage', 'Mangrove Flats']),
+        );
+        const places = gatherPlaces({
+            start: AIRLIE,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: tiles,
+            osm: [],
+            coastline: null,
+        });
+        const listed = [...places.candidates, ...places.excluded];
+        const navIds = new Set(nav.map((f) => f.properties.id));
+        expect(listed.filter((p) => navIds.has(p.id)).map((p) => p.name)).toEqual([]);
+        // The classic 15-22 NM stops are ranked now, and the reviewed ones still are.
+        const names = places.candidates.map((c) => c.name);
+        for (const name of ['Butterfly Bay', 'Blue Pearl Bay', 'Nelly Bay', 'Cateran Bay', 'Shoal Bay'])
+            expect(names).toContain(name);
+        expect(places.candidates.filter((c) => c.reviewed).length).toBe(6);
+        expect(places.candidates.length).toBeGreaterThan(40);
+        expect(places.excluded.filter((e) => e.reason.startsWith('not ranked'))).toEqual([]);
+    });
+
+    it("a reviewed stop is kept even where the atlas's name rule would have called it a passage", () => {
+        const flagged = atlas('osm-node3020491514', 'Cid Harbour', -20.24511, 148.94836, { likelyAnchorage: false });
+        const places = gatherPlaces({
+            start: AIRLIE,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: [flagged],
+            osm: [],
+            coastline: null,
+        });
+        expect(places.candidates.map((c) => c.id)).toEqual(['osm-node3020491514']);
     });
 
     it('one place, one row: the same name within 2.5 NM is the same place mapped twice', () => {

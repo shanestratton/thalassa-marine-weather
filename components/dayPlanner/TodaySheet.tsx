@@ -27,6 +27,12 @@
  * times were; ✓ ≈ ✕ ? always mean her limits (the day chips too, never the
  * models' agreement glyphs); line icons, not emoji; "Local notes", not
  * "Parks", on a reviewed stop.
+ *
+ * Different places (127-PYD-4): the card is the best fit, the best the other
+ * way and one somewhere different, each but the first tagged ("Other way",
+ * "New to you" …) where "Local notes" sat. Five get the weather along the way;
+ * their pins are checked against her charts and her voyage ends are read on
+ * the phone, both kept in this sheet's memory only. An open stop keeps its slot.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { VesselProfile } from '../../types/vessel';
@@ -42,7 +48,8 @@ import { setPlanDeparture } from '../../services/planDeparture';
 import { routingSpeedModel } from '../../services/routingPolar';
 import { useRoutingPolar } from '../../hooks/useRoutingPolar';
 import { closeHauledDegFor } from '../../services/sailing/pointOfSail';
-import { vesselCruisingSpeedKts } from '../../services/units';
+import { vesselCruisingSpeedKts, vesselDraftMetres } from '../../services/units';
+import { getCachedSummaries } from '../../services/shiplog/VoyageSummaryCache';
 import type { PassageSpeedModel } from '../../services/passagePlan';
 import { openExternalUrl } from '../../services/externalLinks';
 import { usePassageSpeedPref } from '../../stores/passageHudStore';
@@ -69,6 +76,7 @@ import {
     type StopLegs,
     type StopRow,
 } from '../../services/dayPlanner/today';
+import { voyageEnds, type PinResult } from '../../services/dayPlanner/pick';
 import {
     isPlanCancelled,
     loadLandingWindow,
@@ -95,6 +103,10 @@ import './DayPlanner.css';
 export interface TodaySheetIO extends PlacePickerIO {
     loader?: Partial<TodayLoaderDeps>;
     readBoat?: () => Promise<BoatFix | null>;
+    /** Where her voyages ended, on the phone; null when her history is not known. */
+    voyageEnds?: () => Promise<LatLon[] | null>;
+    /** Her charts at these pins, in memory (EncHazardService.queryHazards). */
+    pinDepths?: (points: readonly LatLon[]) => Promise<PinResult[]>;
 }
 
 export interface TodaySheetProps {
@@ -131,6 +143,11 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
         now: io?.loader?.now ?? (() => Date.now()),
         readBoat: io?.readBoat ?? readPlannerVesselPosition,
         picker: { readPhone: io?.readPhone, geocode: io?.geocode } as PlacePickerIO,
+        voyageEnds: io?.voyageEnds ?? (() => getCachedSummaries(scope).then(voyageEnds)),
+        pinDepths:
+            io?.pinDepths ??
+            ((points: readonly LatLon[]) =>
+                import('../../services/enc/EncHazardService').then((enc) => enc.queryHazards([...points]))),
     }));
     const [boat, setBoat] = useState<BoatFix | null | 'reading'>('reading');
     const [start, setStart] = useState<PlanStart | null>(null);
@@ -141,6 +158,8 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
     const [stay, setStay] = useState<StayOption>(DEFAULT_STAY);
     const [screen, setScreen] = useState<Screen>(null);
     const [pickerFocus, setPickerFocus] = useState<'list' | 'type'>('list');
+    const [visited, setVisited] = useState<LatLon[] | null>(null);
+    const [pinDepth, setPinDepth] = useState<ReadonlyMap<string, PinResult>>(() => new Map());
     const requested = useRef(new Set<string>());
     const legsAbort = useRef<AbortController | null>(null);
     const onCloseRef = useRef(onClose);
@@ -179,7 +198,7 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
         routeWindModels(PASSAGE_MODEL_CHOICES, passageModelChoice(WindStore.getState().model)),
     );
 
-    // ── Close on an account change; read the boat once ──
+    // ── Close on an account change; read the boat and her voyage ends once ──
     useEffect(() => {
         const stop = subscribeAuthIdentityScope(() => {
             if (!isAuthIdentityScopeCurrent(scope)) onCloseRef.current();
@@ -192,6 +211,12 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                 if (!live || !isAuthIdentityScopeCurrent(scope)) return;
                 setBoat(fix);
                 if (fix) setStart((s) => s ?? { kind: 'boat', lat: fix.latitude, lon: fix.longitude, fix });
+            });
+        sources
+            .voyageEnds()
+            .catch(() => null)
+            .then((ends) => {
+                if (live && isAuthIdentityScopeCurrent(scope)) setVisited(ends);
             });
         return () => {
             live = false;
@@ -207,6 +232,7 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
         requested.current = new Set();
         setBase(null);
         setLegs(new Map());
+        setPinDepth(new Map());
         setLoadError(null);
         setDate(null);
         loadToday(
@@ -228,6 +254,10 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
     }, [start, sources]);
 
     const boatFixAgeMs = start?.kind === 'boat' ? sources.now() - start.fix.timestamp : null;
+    const pinned = screen && typeof screen === 'object' ? screen.stop : null;
+    // The default boat's draft is a guess, and so is the 2.5 m stand-in for a draft she never set:
+    // her pins are not checked against either.
+    const draftM = usingDefaultVessel ? null : vesselDraftMetres(boatProfile, 0) || null;
     const view: DayPlanView | null = useMemo(
         () =>
             base
@@ -240,26 +270,61 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                           date,
                           legs,
                           boatFixAgeMs,
+                          windModel: wind.preferred,
+                          visited,
+                          pinned,
+                          pinDepth,
+                          draftM,
                       }),
                   )
                 : null,
-        [base, stay, limits, speed, usingDefaultVessel, date, legs, boatFixAgeMs],
+        [
+            base,
+            stay,
+            limits,
+            speed,
+            usingDefaultVessel,
+            date,
+            legs,
+            boatFixAgeMs,
+            wind,
+            visited,
+            pinned,
+            pinDepth,
+            draftM,
+        ],
     );
 
-    // ── Route forecasts for the stops the engine names (each once per place) ──
+    // ── Route forecasts for the stops the engine names (each once per place), and her charts at
+    //    their pins (127-PYD-4: memory only, never the default boat's guessed draft) ──
     const needKey = view?.needsLegs.map((n) => n.id).join('|') ?? '';
     useEffect(() => {
         if (!view || !legsAbort.current) return;
+        const signal = legsAbort.current.signal;
         const missing = view.needsLegs.filter((n) => !requested.current.has(n.id));
         if (!missing.length) return;
         for (const n of missing) requested.current.add(n.id);
         loadStopLegs(missing, wind, {
-            signal: legsAbort.current.signal,
+            signal,
             deps: sources.loader,
             onLegs: (id, stopLegs) => setLegs((prev) => new Map(prev).set(id, stopLegs)),
         }).catch(() => {
             /* cancelled: the sheet closed or the place changed */
         });
+        if (draftM !== null)
+            sources
+                .pinDepths(missing.map((n) => view.rows.get(n.id)!.candidate))
+                .then((results) => {
+                    if (!signal.aborted && isAuthIdentityScopeCurrent(scope))
+                        setPinDepth((prev) => {
+                            const next = new Map(prev);
+                            missing.forEach((n, i) => results[i] && next.set(n.id, results[i]));
+                            return next;
+                        });
+                })
+                .catch(() => {
+                    /* no charts answered: "depth not checked" */
+                });
         // needKey stands for view.needsLegs.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [needKey, wind, sources]);
@@ -298,8 +363,8 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
         else if (notice.kind === 'cyclone') void openExternalUrl(warnings.url);
     };
 
-    const detailRow =
-        screen && typeof screen === 'object' && view ? (view.top.find((r) => r.id === screen.stop) ?? null) : null;
+    // Found by id among every checked row, so a stop whose page is open never closes under her.
+    const detailRow = pinned && view ? (view.rows.get(pinned) ?? null) : null;
     const allCount = view ? view.fits.length + view.unchecked.length + view.notToday.length : 0;
     // Places: still asked (none in yet), or none could be read. Never the
     // "fits" copy over an empty list that is only empty because it failed.
@@ -530,7 +595,7 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                             <ul aria-label="Stops" className="today-stops">
                                 {view.top.map((row) => (
                                     <li key={row.id}>
-                                        <StopButton row={row} onOpen={() => setScreen({ stop: row.id })} />
+                                        <StopButton row={row} card onOpen={() => setScreen({ stop: row.id })} />
                                     </li>
                                 ))}
                             </ul>
@@ -606,7 +671,7 @@ function NoticeLine({ notice, onAct }: { notice: Notice; onAct: (notice: Notice)
     );
 }
 
-function StopButton({ row, onOpen }: { row: StopRow; onOpen: () => void }) {
+function StopButton({ row, card, onOpen }: { row: StopRow; card?: boolean; onOpen: () => void }) {
     return (
         <button
             type="button"
@@ -625,7 +690,12 @@ function StopButton({ row, onOpen }: { row: StopRow; onOpen: () => void }) {
                         shortened here to its place; the detail shows it whole. */}
                     <span className="today-stop-name">{row.name.split(' · ')[0]}</span>
                     <span className="today-stop-shelter">&nbsp;· {row.shelter}</span>
-                    {row.parks && <span className="today-tag">Local notes</span>}
+                    {/* The pick's tag wins on the card (127-PYD-4); "Local notes" everywhere else. */}
+                    {card && row.tag ? (
+                        <span className="today-tag today-pick">{row.tag}</span>
+                    ) : (
+                        row.parks && <span className="today-tag">Local notes</span>
+                    )}
                 </span>
                 {/* A ✕ or ? row says why where its times were (127-PYD-1). */}
                 <span className="today-stop-l2">{row.line2Reason ?? row.line2}</span>
@@ -672,7 +742,7 @@ function AllPlaces({
     onClose: () => void;
 }) {
     const day = view.isToday ? 'today' : view.dayName;
-    const swept = new Set(view.top.map((r) => r.id));
+    const swept = view.rows;
     // An OpenStreetMap place over a day old carries the date it was mapped.
     const mapped = (id: string) => {
         const at = base.places?.candidates.find((x) => x.id === id)?.mappedAtMs;
@@ -686,6 +756,7 @@ function AllPlaces({
         ) : (
             <li key={r.id} className="today-place-line">
                 {r.name} · {r.shelter} · {lowerFirst(r.line2)}
+                {r.kind ? ` · ${lowerFirst(r.kind)}` : ''}
                 {r.mapped ? ` · ${r.mapped}` : ''}
             </li>
         );

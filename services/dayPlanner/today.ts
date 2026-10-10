@@ -41,6 +41,17 @@
  * your limits: " prefix, and that prefix is added only where words need it
  * (VoiceOver, Not today, the stop page's verdict); a ✕ or ? row shows its
  * reason where its times were, and thunder is named in the headline.
+ *
+ * DIFFERENT PLACES (build 127, 127-PYD-4; Shane: "why does it only ever show
+ * the same 3 destinations"): every place in reach is planned on the AREA
+ * wind, the point block already loaded (areaLegs, zero requests), on her
+ * polar walk, and ranked on its level, its stay and pick.ts's four terms.
+ * The card shows the best fit, the best the other way and one somewhere
+ * different, each tagged with a fact true for it; five are route-checked so
+ * a ✕ gives way to a checked backup that fits. Nothing under 3 NM goes on
+ * the card while three farther places are in reach (a small harbour or a
+ * fast boat fills it with the hops, route-checked like any stop), and the
+ * five pins are checked against her charts (memory only).
  */
 import {
     scoreAnchorage,
@@ -84,6 +95,20 @@ import {
     type LatLon,
     type PlaceCandidate,
 } from './places';
+import {
+    TAG_WORDS,
+    backfill,
+    bearingFrom,
+    cardTags,
+    pickStops,
+    pinDepth,
+    scorePlaces,
+    visitedNear,
+    type PickPlace,
+    type PickTag,
+    type PinResult,
+    type PlaceScore,
+} from './pick';
 import { dayPlanLocalDate, nextLocalMorning, parseDayPlanInput } from './presentation';
 
 const MIN = 60_000;
@@ -100,8 +125,14 @@ export const POLAR_CAP_H = 14;
 export const MAX_DEPARTURES = 14;
 /** A leg longer than this is not a day out. */
 export const LEG_MAX_MS = 12 * HOUR;
-/** Stops given their own route forecasts, and the most shown at once. */
+/** The most stops the card shows at once (two below 640 px tall). */
 export const SWEEP_STOPS = 3;
+/** Stops given their own route forecasts: the card's three and two backups (127-PYD-4). */
+export const ROUTE_CHECK_STOPS = 5;
+/** Nothing closer than this, or under half an hour at her cruising speed, goes on the card (unless fewer than
+ *  three are farther); All places lists it. */
+export const NEAR_CARD_NM = 3;
+const NEAR_CARD_H = 0.5;
 /** Today is too late when less than the stay plus this is left before last light. */
 export const TOO_LATE_SPARE_H = 2;
 /** An overnight stay runs to this local hour the next day. */
@@ -968,7 +999,7 @@ export interface PreRankedStop {
     /** One way, NM (the distance estimate). */
     estNm: number;
     outH: number;
-    /** At cruising speed from the earliest leave: an estimate for ranking only. */
+    /** At cruising speed from the first hourly departure: an estimate for ranking only. */
     arriveMs: number;
     stayEndMs: number;
     homeMs: number | null;
@@ -1104,9 +1135,8 @@ function lightMissReason(
 
 /**
  * Every open candidate, cheaply: arrival at cruising speed, the stay scored
- * in the AREA wind (land-only shelter), and whether it fits the light.
- * Ranked by shelter grade, reviewed stops first within a grade, then score,
- * then distance. The first three get their own route forecasts.
+ * in the AREA wind (land-only shelter), and whether it is in reach of the
+ * light at all. planDay ranks them (127-PYD-4) on their area-wind plans.
  */
 export function preRank(args: {
     candidates: readonly PlaceCandidate[];
@@ -1128,74 +1158,33 @@ export function preRank(args: {
         }
         const estNm = candidate.distance.nm;
         const outH = cruiseKts > 0 ? estNm / cruiseKts : Infinity;
-        const arriveMs = earliest + outH * HOUR;
         const stayH = stayHours(stay);
-        const stayEndMs =
-            stayH === null ? nextLocalMorning(arriveMs, window.zone, OVERNIGHT_UNTIL_H) : arriveMs + stayH * HOUR;
-        const homeMs = stayH === null ? null : stayEndMs + outH * HOUR;
+        const at = (leaveMs: number) => {
+            const arriveMs = leaveMs + outH * HOUR;
+            const stayEndMs =
+                stayH === null ? nextLocalMorning(arriveMs, window.zone, OVERNIGHT_UNTIL_H) : arriveMs + stayH * HOUR;
+            return { arriveMs, stayEndMs, homeMs: stayH === null ? null : stayEndMs + outH * HOUR };
+        };
+        const est = at(earliest);
         const fits =
-            Number.isFinite(arriveMs) &&
-            (stayH === null ? arriveMs <= last - LIGHT_MARGIN_MS : 2 * outH + stayH <= window.usableH);
+            Number.isFinite(est.arriveMs) &&
+            (stayH === null ? est.arriveMs <= last - LIGHT_MARGIN_MS : 2 * outH + stayH <= window.usableH);
         if (!fits) {
-            notToday.push({ ...row, reason: lightMissReason(stay, estNm, arriveMs, homeMs, window) });
+            notToday.push({ ...row, reason: lightMissReason(stay, estNm, est.arriveMs, est.homeMs, window) });
             continue;
         }
+        // The rank's stay window starts at the first departure the sweep tries, so opening the
+        // sheet a quarter hour later the same morning ranks the same (127-PYD-4).
+        const times = at(ceilLocalHour(earliest, window.zone));
         ranked.push({
             candidate,
             estNm,
             outH,
-            arriveMs,
-            stayEndMs,
-            homeMs,
-            stay: areaStay(candidate, hours, arriveMs, stayEndMs, window.zone),
+            ...times,
+            stay: areaStay(candidate, hours, times.arriveMs, times.stayEndMs, window.zone),
         });
     }
-    // Within a shelter grade the reviewed stops come first: a south-east trade
-    // makes twenty Whitsunday bays "bombproof 100", and by distance alone the
-    // best stops for a day out were bays a mile or two from Airlie.
-    ranked.sort(
-        (a, b) =>
-            gradeRank(a.stay) - gradeRank(b.stay) ||
-            (a.candidate.reviewed ? 0 : 1) - (b.candidate.reviewed ? 0 : 1) ||
-            (b.stay?.score ?? -1) - (a.stay?.score ?? -1) ||
-            a.estNm - b.estNm ||
-            a.candidate.id.localeCompare(b.candidate.id),
-    );
     return { ranked, notToday };
-}
-
-/**
- * A stop beyond the best three, on the area wind alone: is there an hourly
- * departure (as the sweep would try them) whose time under way, at cruising
- * speed, has no hour at the point over her limits? Null when there is (or
- * there is no forecast to say); else the plain reason, from the first try.
- */
-export function areaVerdict(
-    pre: PreRankedStop,
-    window: DayWindow,
-    stay: StayOption,
-    hours: readonly PointHour[],
-    limits: DayPlanLimits,
-): string | null {
-    const earliest = window.earliestLeaveMs;
-    const last = window.lastLightMs;
-    if (earliest === null || last === null || !hours.length || !Number.isFinite(pre.outH)) return null;
-    const outMs = pre.outH * HOUR;
-    const stayH = stayHours(stay);
-    const first = ceilLocalHour(earliest, window.zone);
-    let firstOver: PointHour | null = null;
-    for (let k = 0; k < MAX_DEPARTURES; k++) {
-        const leave = first + k * HOUR;
-        const arrive = leave + outMs;
-        const end = stayH === null ? arrive : arrive + stayH * HOUR + outMs;
-        if (k > 0 && (stayH === null ? arrive > last - LIGHT_MARGIN_MS : end > last)) break;
-        const over =
-            overHourBetween(hours, limits, leave, arrive) ??
-            (stayH === null ? null : overHourBetween(hours, limits, arrive + stayH * HOUR, end));
-        if (!over) return null;
-        firstOver ??= over;
-    }
-    return firstOver ? areaOverReason(firstOver, limits) : null;
 }
 
 // ── One stop: the departure sweep ──────────────────────────────
@@ -1212,6 +1201,66 @@ export interface StopLegs {
     sea: RouteSea | null;
     /** The route request failed outright. */
     failed?: boolean;
+    /** The point block's wind standing in for the route's (areaLegs): no sea, said "in the area". */
+    area?: boolean;
+}
+
+const areaMemo = new WeakMap<SpreadBlock<AtmosVar>, Map<string, StopLegs | null>>();
+
+/**
+ * Every place's free plan (127-PYD-4): legs from the point block already
+ * loaded, zero requests. The headline is the chart's model at the point (else
+ * the first with wind, named), the spread its members, no sea; one station
+ * stands for the whole leg, so any distance along it reads the point's wind.
+ */
+export function areaLegs(atmos: SpreadBlock<AtmosVar> | null, model: string): StopLegs | null {
+    if (!atmos?.models.length) return null;
+    let byModel = areaMemo.get(atmos);
+    if (!byModel) areaMemo.set(atmos, (byModel = new Map()));
+    if (byModel.has(model)) return byModel.get(model)!;
+    const members: Record<string, RouteForecast> = {};
+    for (const m of atmos.models) {
+        const v = (key: AtmosVar) =>
+            atmos.times.map((_, i) => {
+                const x = m.values[key]?.[i];
+                return finite(x) ? x : null;
+            });
+        const speedKts = v('wind_speed_10m');
+        if (speedKts.some(finite))
+            members[m.id] = {
+                model: m.id,
+                fetchedAt: 0,
+                totalNm: 0,
+                stations: [
+                    {
+                        alongNm: 0,
+                        lat: 0,
+                        lon: 0,
+                        timesMs: atmos.times,
+                        speedKts,
+                        dirDeg: v('wind_direction_10m'),
+                        gustKts: v('wind_gusts_10m'),
+                        precipMm: [],
+                        precipProb: [],
+                    },
+                ],
+            };
+    }
+    const own = atmos.models.find((m) => m.id === model && members[m.id]);
+    const head = own ?? atmos.models.find((m) => members[m.id]);
+    const ids = atmos.models.map((m) => m.id);
+    const legs: StopLegs | null = head
+        ? {
+              headline: members[head.id],
+              headlineModel: head.label,
+              substituted: !own,
+              spread: { asked: ids, members, missing: ids.filter((id) => !members[id]), fetchedAt: 0 },
+              sea: null,
+              area: true,
+          }
+        : null;
+    byModel.set(model, legs);
+    return legs;
 }
 
 export type HowWord = 'sailing' | 'beating' | 'motoring' | 'at cruising speed';
@@ -1276,6 +1325,8 @@ export interface StopPlan {
     weatherLoaded: boolean;
     /** The wave forecast along the leg loaded (it may still read nothing inshore). */
     seaLoaded: boolean;
+    /** Planned on the area wind (areaLegs), not yet the weather along the way. */
+    area: boolean;
 }
 
 const STOP_RANK: Record<StopLevel, number> = { inside: 0, near: 1, unknown: 2, over: 3 };
@@ -1516,6 +1567,7 @@ export function planStop(args: PlanStopArgs): StopPlan {
         substituted: !!legs.substituted,
         weatherLoaded,
         seaLoaded: !!legs.sea,
+        area: !!legs.area,
     };
     if (!index || !homeIndex || earliest === null || last === null)
         return { ...base, departures: [], best: null, window: [], level: 'unknown' };
@@ -1578,14 +1630,15 @@ export function planStop(args: PlanStopArgs): StopPlan {
         let short: string | null = null;
         const dir = windiest.maxWindDir === null ? '' : `${compass8(windiest.maxWindDir)} `;
         const there = stayH === null ? 'there' : 'home';
-        const way = ' on the way';
+        // The area wind is the point's (127-PYD-4): said "in the area", never "on the way".
+        const way = legs.area ? ' in the area' : ' on the way';
         const wind = `${dir}${Math.round(maxWind)} kn${way}`;
         if (maxWind >= limits.wind.poor) reason = wind;
         else if (maxGust >= limits.gust.poor) reason = `gusts ${Math.round(maxGust)} kn${way}`;
         else if (maxWave >= limits.wave.poor) reason = `${maxWave.toFixed(1)} m sea${way}`;
         else if (areaOver) reason = areaOverReason(areaOver, limits);
         else if (thunder >= 2) {
-            const leg = thunderOut >= 2 ? way : `${way} home`;
+            const leg = thunderOut >= 2 ? ' on the way' : ' on the way home';
             reason = `thunder in ${thunder} of ${args.blockModels} models${leg}`;
             short = `⚡ Thunder${leg}`;
         } else if (stayVerdict?.grade === 'poor') {
@@ -1607,7 +1660,7 @@ export function planStop(args: PlanStopArgs): StopPlan {
                         ? lowerFirst(stayVerdict.reasons[0] ?? 'some chop for the stay')
                         : !gustComplete
                           ? `no gust forecast${way}`
-                          : seaUnread
+                          : seaUnread && !legs.area
                             ? `no wave reading${way}`
                             : // No shelter table (no coastline): "Shelter not known" is never Inside.
                               !c.fetchLandNM
@@ -1668,6 +1721,44 @@ export function planStop(args: PlanStopArgs): StopPlan {
     const same = best ? departures.filter((d) => d.level === best.level) : [];
     const leaveWindow = best ? compactWindow(same, same.indexOf(best), score) : [];
     return { ...base, departures, best, window: leaveWindow, level: best?.level ?? 'unknown' };
+}
+
+const objectIds = new WeakMap<object, number>();
+let objectCount = 0;
+const idOf = (o: object) => {
+    let id = objectIds.get(o);
+    if (id === undefined) objectIds.set(o, (id = ++objectCount));
+    return id;
+};
+const areaPlans = new WeakMap<StopLegs, Map<string, StopPlan>>();
+
+/**
+ * planStop on the area legs, remembered per day, stay, place, start, speed and
+ * limits (127-PYD-4): a chip tap or a route check landing replans only what
+ * changed. In memory, for the block's life.
+ */
+function areaPlan(args: PlanStopArgs): StopPlan {
+    const { window: w, start } = args;
+    // Her speed and limits are memoised by the sheet: the same objects until they change.
+    const key = [
+        idOf(args.pre.candidate),
+        idOf(args.speed),
+        idOf(args.limits),
+        w.date,
+        w.earliestLeaveMs,
+        w.lastLightMs,
+        args.stay,
+        start.lat,
+        start.lon,
+    ].join('|');
+    let memo = areaPlans.get(args.legs);
+    if (!memo) areaPlans.set(args.legs, (memo = new Map()));
+    const hit = memo.get(key);
+    if (hit) return { ...hit, pre: args.pre };
+    if (memo.size > 2000) memo.clear();
+    const plan = planStop(args);
+    memo.set(key, plan);
+    return plan;
 }
 
 /** The one-way leg the stop is planned on: the saved route, or the straight line. */
@@ -1818,7 +1909,21 @@ export interface StopRow {
     /** "mapped 12 Sep" for an OpenStreetMap place over 24 h old. */
     mapped: string | null;
     ariaLabel: string;
+    /** The card's tag (127-PYD-4): "Other way", "Closer", … ; null on the best fit and off the card. */
+    tag: string | null;
+    /** The stop page's first row under its verdict: why it is here, from what the plan supports. */
+    why: string | null;
+    /** "Mapped bay · not reviewed" for a place with no local notes; null for a reviewed one. */
+    kind: string | null;
+    /** Its kind and what her charts say at the pin, on the stop page; null for a reviewed stop. */
+    place: string | null;
 }
+
+/** What a place is, when no local notes say: an atlas bay, or a charted anchorage (worldwide). */
+const kindOf = (c: PlaceCandidate) =>
+    c.reviewed
+        ? null
+        : `${c.source === 'atlas' && !c.id.startsWith('gbrmpa-') ? 'Mapped bay' : 'Mapped anchorage'} · not reviewed`;
 
 function stopRow(
     pre: PreRankedStop,
@@ -1826,6 +1931,7 @@ function stopRow(
     stay: StayOption,
     zone: string,
     mode: 'swept' | 'pending' | 'unswept' | 'no-weather',
+    extra: Partial<Pick<StopRow, 'tag' | 'why' | 'place'>> = {},
 ): StopRow {
     const c = pre.candidate;
     const best = plan?.best ?? null;
@@ -1872,7 +1978,84 @@ function stopRow(
         ariaLabel: `${line1}. ${
             level && reason ? `${STOP_ARIA[level]}: ${reason}` : level ? `${spoken}. ${STOP_ARIA[level]}` : spoken
         }`,
+        tag: extra.tag ?? null,
+        why: extra.why ?? null,
+        kind: kindOf(c),
+        place: extra.place ?? null,
     };
+}
+
+/** Her charts hold a route-checked stop at Near (a shallow, drying or rocky pin), with their words as the reason. */
+function capAtNear(plan: StopPlan, reason: string): StopPlan {
+    const departures = plan.departures.map((d) =>
+        d.level === 'inside' ? { ...d, level: 'near' as const, reason } : d,
+    );
+    const same = (d: DepartureEval) => departures[plan.departures.indexOf(d)];
+    return {
+        ...plan,
+        departures,
+        best: plan.best && same(plan.best),
+        window: plan.window.map(same),
+        level: plan.level === 'inside' ? 'near' : plan.level,
+    };
+}
+
+/** "in the lee of the SE breeze", from scoreAnchorage's "Full lee for SE 15 kn …" or "Landlocked … (SE 15 kn at worst)". */
+function shelterClause(v: AnchorageVerdict | null): string | null {
+    if (!v || (v.grade !== 'bombproof' && v.grade !== 'good')) return null;
+    const m = /^(?:Full lee|Landlocked)\D*?\b([NESW]{1,3}) (\d+) kn/.exec(v.reasons[0] ?? '');
+    return m
+        ? `in the lee of the ${m[1]} ${Number(m[2]) < 16 ? 'breeze' : 'wind'}`
+        : shelterWord(v, true).toLowerCase();
+}
+
+/**
+ * The stop page's why (127-PYD-4): one line from what put it here and what
+ * its plan supports: the tag's fact or the stay's lee, the point of sail out
+ * and home, the time under way, and a reviewed stop's charted depth. The
+ * sail and the time only from the weather along the way, never the area's.
+ */
+function whyLine(
+    tag: PickTag | null,
+    plan: StopPlan | null,
+    stayVerdict: AnchorageVerdict | null,
+    p: PickPlace,
+    depth: string | null,
+    overnight: boolean,
+): string | null {
+    const d = plan?.weatherLoaded ? plan.best : null;
+    const lead =
+        tag === 'new'
+            ? 'none of your voyages ended here'
+            : tag === 'closer'
+              ? `closer: about ${Math.round(p.estNm)} NM`
+              : tag === 'short'
+                ? `an hour or less ${overnight ? 'there' : 'each way'}`
+                : tag === 'other'
+                  ? `off to the ${compassWords(p.bearingDeg)}`
+                  : shelterClause(stayVerdict);
+    const out = d?.out;
+    const home = d?.home;
+    const sail =
+        !out || out.how === 'at cruising speed' || home?.how === 'at cruising speed'
+            ? null
+            : !home
+              ? `${out.how} there`
+              : out.how === home.how
+                ? `${out.how} both ways`
+                : `${out.how} out, ${home.how} home`;
+    const time =
+        tag === 'short' || !out || out.durationMs === null
+            ? null
+            : !home
+              ? `${durationLabel(out.durationMs)} there`
+              : home.durationMs === null
+                ? null
+                : `${durationLabel(out.durationMs + home.durationMs)} under way`;
+    // Three parts at most, and her charts' words are never the one cut.
+    const parts = [lead, sail, time].filter((x): x is string => !!x).slice(0, depth ? 2 : 3);
+    if (depth) parts.push(depth);
+    return parts.length ? capital(parts.join(' · ')) : null;
 }
 
 // ── Notices ────────────────────────────────────────────────────
@@ -1950,6 +2133,16 @@ export interface DayPlanInput {
     legs?: ReadonlyMap<string, StopLegs>;
     boatFixAgeMs?: number | null;
     cyclone?: CycloneNotice | null;
+    /** The chart's wind model (an Open-Meteo id): the area plans' headline, as the route legs'. */
+    windModel?: string;
+    /** Where her voyages ended, read on the phone (127-PYD-4); null or absent: her history is not known. */
+    visited?: readonly LatLon[] | null;
+    /** The stop whose page is open: it keeps its slot on the card. */
+    pinned?: string | null;
+    /** Her charts at the route-checked pins (EncHazardService.queryHazards), in memory only. */
+    pinDepth?: ReadonlyMap<string, PinResult>;
+    /** Her draft in metres; null for the default boat (no pin is checked). */
+    draftM?: number | null;
 }
 
 export type PlacesStatus = 'loading' | 'ok' | 'partial' | 'failed';
@@ -1970,14 +2163,20 @@ export interface DayPlanView {
     facts: { text: string; ariaLabel: string };
     /** How far a stop can be and fit the day, NM. */
     reachNm: number;
+    /** Every place in reach, in rank order: level, stay grade, then pick.ts's composite. */
     ranked: PreRankedStop[];
-    /** Up to three, ranked; Over ones included (nothing is hidden on a rough day). */
+    /** Each ranked place's area-wind level and its composite's terms, by id. */
+    scores: ReadonlyMap<string, PlaceScore>;
+    /** The card: the best fit, the best the other way, somewhere different; Over ones
+     *  included when nothing checked fits (nothing is hidden on a rough day). */
     top: StopRow[];
+    /** Every route-checked stop's row (and the open one's), by id. */
+    rows: ReadonlyMap<string, StopRow>;
     /** All places: "Fits {today}": stops whose route weather was checked and is not over her limits. */
     fits: StopRow[];
     /** All places: "Weather not checked": the area wind leaves room, but the
-     *  route was not checked (beyond the best three, offline, still loading,
-     *  or past the end of the forecast). Never listed as fitting. */
+     *  route was not checked (beyond the five, offline, still loading, or past
+     *  the end of the forecast). Never listed as fitting. */
     unchecked: StopRow[];
     /** All places: "Not {today}", one line each with its reason. */
     notToday: NotTodayRow[];
@@ -2014,74 +2213,165 @@ export function planDay(input: DayPlanInput): DayPlanView {
         ? dates.find((d, i) => d !== date && byDate[i].some((p) => p.level === 'inside'))
         : undefined;
 
-    // Places: closures first, then the cheap rank, then the sweep for the top three.
+    // Places (127-PYD-4): closures first; then every place in reach planned on
+    // the area wind and ranked; then the pick, and the weather along the way
+    // for five, so a ✕ on the card gives way to a checked backup that fits.
     const places = input.places;
     const { open, closed } = places ? splitClosed(places.candidates, date) : { open: [], closed: [] };
-    const { ranked, notToday: missedLight } = preRank({
+    const { ranked: inReach, notToday: missedLight } = preRank({
         candidates: open,
         window,
         stay,
         cruiseKts: speed.cruiseKts,
         hours,
     });
-    const top = ranked.slice(0, SWEEP_STOPS);
-    const needsLegs = weatherOk
-        ? top.map((pre) => ({ id: pre.candidate.id, coords: routeCoords(start, pre.candidate) }))
-        : [];
     const blockModels = atmos?.models.length ?? 0;
-    const planned = top.map((pre) => {
-        const legs = weatherOk ? input.legs?.get(pre.candidate.id) : undefined;
-        const plan = legs ? planStop({ pre, start, window, stay, speed, limits, legs, hours, blockModels }) : null;
-        return { pre, plan, legs };
+    const area = weatherOk ? areaLegs(atmos, input.windModel ?? '') : null;
+    const planArgs = (pre: PreRankedStop, legs: StopLegs): PlanStopArgs => ({
+        pre,
+        start,
+        window,
+        stay,
+        speed,
+        limits,
+        legs,
+        hours,
+        blockModels,
     });
-    // Final rank: the best departure's level, then the stay, then the
-    // departure score (gust and wave only where every stop has them), then distance.
-    const bests = planned.flatMap(({ plan }) => (plan?.best ? [plan.best] : []));
-    const terms = departureScoreTerms(bests);
-    planned.sort((a, b) => {
-        if (!a.plan || !b.plan) return 0;
-        return (
-            STOP_RANK[a.plan.level] - STOP_RANK[b.plan.level] ||
-            (b.plan.best?.stay?.score ?? -1) - (a.plan.best?.stay?.score ?? -1) ||
-            (a.plan.best && b.plan.best
-                ? departureScore(a.plan.best, terms) - departureScore(b.plan.best, terms)
-                : 0) ||
-            a.pre.estNm - b.pre.estNm
-        );
-    });
-    const topRows = planned.map(({ pre, plan, legs }) =>
-        stopRow(pre, plan, stay, zone, plan ? 'swept' : !weatherOk ? 'no-weather' : legs ? 'swept' : 'pending'),
+    const areaOf = new Map<string, StopPlan>();
+    if (area) for (const pre of inReach) areaOf.set(pre.candidate.id, areaPlan(planArgs(pre, area)));
+    const stayOf = (pre: PreRankedStop, plan?: StopPlan | null) => plan?.best?.stay ?? pre.stay;
+    const scoreList = scorePlaces(
+        inReach.map((pre) => {
+            const plan = areaOf.get(pre.candidate.id);
+            return {
+                level: plan?.level ?? 'unknown',
+                // The stay in the AREA wind (areaStay), as the plan for 127-PYD-4 has it: over the cruising
+                // estimate's window it tells bays apart that the best departure's window scores alike.
+                stayScore: pre.stay?.score ?? null,
+                best: plan?.best ?? null,
+                estNm: pre.estNm,
+                reviewed: !!pre.candidate.reviewed,
+            };
+        }),
+        limits,
     );
-    const restRows = ranked
-        .slice(SWEEP_STOPS)
-        .map((pre) => ({ pre, row: stopRow(pre, null, stay, zone, weatherOk ? 'unswept' : 'no-weather') }));
+    const scores = new Map(inReach.map((pre, i) => [pre.candidate.id, scoreList[i]]));
+    const score = (pre: PreRankedStop) => scores.get(pre.candidate.id)!;
+    // Level, then the stay's grade, then the composite (higher is better), then distance.
+    const ranked = [...inReach].sort(
+        (a, b) =>
+            STOP_RANK[score(a).level] - STOP_RANK[score(b).level] ||
+            gradeRank(a.stay) - gradeRank(b.stay) ||
+            score(b).total - score(a).total ||
+            a.candidate.straightNm - b.candidate.straightNm ||
+            a.candidate.id.localeCompare(b.candidate.id),
+    );
+    const byId = new Map(ranked.map((pre) => [pre.candidate.id, pre]));
+
+    // A place as the pick sees it: the weather along the way where it is in, else the area wind.
+    const checked = new Map<string, StopPlan>();
+    const pickPlace = (pre: PreRankedStop): PickPlace => {
+        const c = pre.candidate;
+        const plan = checked.get(c.id) ?? areaOf.get(c.id);
+        const d = plan?.weatherLoaded ? plan.best : null;
+        // The stay as the row says it: the weather along the way's, else the area wind's (as ranked).
+        const out = d?.out.durationMs ?? null;
+        const home = d?.home ? d.home.durationMs : d ? 0 : null;
+        return {
+            id: c.id,
+            lat: c.lat,
+            lon: c.lon,
+            estNm: pre.estNm,
+            bearingDeg: bearingFrom(start, c),
+            stayScore: stayOf(pre, checked.get(c.id))?.score ?? null,
+            hopMs: out === null || home === null ? null : Math.max(out, home),
+            visited: visitedNear(c, input.visited),
+        };
+    };
+    const dayOut = ranked.filter((pre) => pre.candidate.straightNm >= NEAR_CARD_NM && pre.outH >= NEAR_CARD_H);
+    // A small harbour or a fast boat: when fewer than the card holds are a day out, the hops fill it.
+    const eligible = dayOut.length < SWEEP_STOPS ? [...dayOut, ...ranked.filter((p) => !dayOut.includes(p))] : dayOut;
+    // Chosen on the area wind alone, so the five do not change as their checks land.
+    const { picks, backups } = weatherOk
+        ? pickStops(eligible.map(pickPlace), ROUTE_CHECK_STOPS - SWEEP_STOPS)
+        : { picks: eligible.slice(0, SWEEP_STOPS).map(pickPlace), backups: [] };
+    const checks = [...picks, ...backups].map((p) => p.id);
+    const needsLegs = weatherOk
+        ? checks.map((id) => ({ id, coords: routeCoords(start, byId.get(id)!.candidate) }))
+        : [];
+    const rowIds =
+        input.pinned && byId.has(input.pinned) && !checks.includes(input.pinned) ? [...checks, input.pinned] : checks;
+    const draftM = input.draftM ?? null;
+    const depthOf = (id: string) => pinDepth(input.pinDepth?.get(id), draftM);
+    for (const id of rowIds) {
+        const legs = weatherOk ? input.legs?.get(id) : undefined;
+        if (!legs) continue;
+        const plan = planStop(planArgs(byId.get(id)!, legs));
+        const depth = depthOf(id);
+        checked.set(id, depth.cap ? capAtNear(plan, depth.words) : plan);
+    }
+    const status = (id: string) => {
+        const plan = checked.get(id);
+        if (!plan) return null;
+        return !plan.weatherLoaded || plan.level === 'over' ? 'out' : plan.level === 'unknown' ? null : 'fits';
+    };
+    const card = weatherOk ? backfill(picks, backups, status, input.pinned) : picks;
+    const tags = weatherOk ? cardTags(card.map((p) => pickPlace(byId.get(p.id)!))) : [];
+
+    const rows = new Map<string, StopRow>();
+    const rowOf = (id: string, tag: PickTag | null = null) => {
+        const pre = byId.get(id)!;
+        const c = pre.candidate;
+        const plan = checked.get(id) ?? null;
+        const depth = depthOf(id);
+        const kind = kindOf(c);
+        // Left out only where her charts' words are the verdict on every leave chip (capAtNear on an
+        // Inside stop); a stop Near or Over for its wind still says what her charts say at the pin.
+        const said = !!plan?.best && [plan.best, ...plan.window].every((d) => d.reason === depth.words);
+        return stopRow(pre, plan, stay, zone, plan ? 'swept' : weatherOk ? 'pending' : 'no-weather', {
+            tag: tag && TAG_WORDS[tag],
+            why: whyLine(
+                tag,
+                plan,
+                stayOf(pre, plan),
+                pickPlace(pre),
+                // A reviewed stop's charts in its why line: a bare "depth not checked" is not news.
+                c.reviewed && !said ? depth.words.replace(/^depth not checked(?: · )?/, '') : null,
+                stay === 'overnight',
+            ),
+            place: kind && `${kind}${said ? '' : ` · ${depth.words}`}`,
+        });
+    };
+    card.forEach((p, i) => rows.set(p.id, rowOf(p.id, tags[i])));
+    for (const id of rowIds) if (!rows.has(id)) rows.set(id, rowOf(id));
+    const topRows = card.map((p) => rows.get(p.id)!);
 
     // All places. Only a stop whose own route weather was checked FITS; the
-    // rest are judged on the area wind at the point (an hourly departure
-    // whose time under way has no hour over her limits) and listed as not
-    // checked, or not today with the reason. Nothing unknown reads as fitting.
+    // rest are judged on their area-wind plans and listed as not checked, or
+    // not today with the reason. Nothing unknown reads as fitting.
     const notToday: NotTodayRow[] = [];
     const fits: StopRow[] = [];
     const unchecked: StopRow[] = [];
-    const notRow = (row: StopRow, reason: string): NotTodayRow => ({
-        id: row.id,
-        name: row.name,
+    const notRow = (pre: { candidate: PlaceCandidate }, reason: string): NotTodayRow => ({
+        id: pre.candidate.id,
+        name: pre.candidate.name,
         reason,
-        straightNm: row.candidate.straightNm,
+        straightNm: pre.candidate.straightNm,
     });
-    for (const row of topRows) {
-        const failed = row.plan && !row.plan.weatherLoaded;
-        if (row.level === 'over' || failed)
-            notToday.push(notRow(row, row.level === 'over' ? overWords(row.reason!) : "weather didn't load"));
-        else if (row.level === 'inside' || row.level === 'near') fits.push(row);
-        else unchecked.push(row);
-    }
-    for (const { pre, row } of restRows) {
-        const over = weatherOk ? areaVerdict(pre, window, stay, hours, limits) : null;
-        if (pre.stay?.grade === 'poor')
-            notToday.push(notRow(row, overWords(lowerFirst(pre.stay.reasons[0] ?? 'exposed for the stay'))));
-        else if (over) notToday.push(notRow(row, overWords(over)));
-        else unchecked.push(row);
+    for (const pre of ranked) {
+        const row = rows.get(pre.candidate.id);
+        const plan = row?.plan;
+        if (row && (plan || row.pending)) {
+            if (row.level === 'over' || (plan && !plan.weatherLoaded))
+                notToday.push(notRow(pre, row.level === 'over' ? overWords(row.reason!) : "weather didn't load"));
+            else if (row.level === 'inside' || row.level === 'near') fits.push(row);
+            else unchecked.push(row);
+            continue;
+        }
+        const reason = areaOf.get(pre.candidate.id)?.level === 'over' && areaOf.get(pre.candidate.id)?.best?.reason;
+        if (reason) notToday.push(notRow(pre, overWords(reason)));
+        else unchecked.push(row ?? stopRow(pre, null, stay, zone, weatherOk ? 'unswept' : 'no-weather'));
     }
     notToday.push(...missedLight, ...closed, ...(places?.excluded ?? []));
 
@@ -2168,7 +2458,9 @@ export function planDay(input: DayPlanInput): DayPlanView {
         facts: factsLine({ window, tides: input.tides, nowMs }),
         reachNm,
         ranked,
+        scores,
         top: topRows,
+        rows,
         fits,
         unchecked,
         notToday,
@@ -2215,6 +2507,10 @@ export interface StopDetailArgs {
     leavingMarina: boolean;
     /** Reviewed stops with a landing note: the window, or no curve here. */
     landing?: { fromMs: number; toMs: number } | 'no-curve' | null;
+    /** Why it is here (StopRow.why): the first row under the verdict. */
+    why?: string | null;
+    /** What it is and her charts at its pin (StopRow.place), under the stay. */
+    place?: string | null;
 }
 
 export interface StopDetail {
@@ -2271,6 +2567,7 @@ export function stopDetail(args: StopDetailArgs): StopDetail {
         // It opens on its verdict (127-PYD-1): a ✕ or ≈ stop never opens onto an ordinary-looking plan,
         // and a row below that would say the same (the stay's reason, the light) leaves it to the verdict.
         if (d.reason) rows.push(stopVerdict(d.level, d.reason));
+        if (args.why) rows.push(args.why);
         const said = capital(d.reason ?? '');
         rows.push(
             `Leave ${t(d.departureMs)} → there ${t(d.arriveMs)} (${d.out.durationMs === null ? 'over 12 h' : durationLabel(d.out.durationMs)}, ${d.out.how}${legWind(d.out)})`,
@@ -2282,6 +2579,7 @@ export function stopDetail(args: StopDetailArgs): StopDetail {
                 ? `At anchor ${t(d.arriveMs)} → ${t(d.stayEndMs)} tomorrow · ${shelter}${why}`
                 : `Ashore ${t(d.arriveMs)}–${t(d.stayEndMs)} · ${shelter}${why}`,
         );
+        if (args.place) rows.push(args.place);
         // The note names the landing tide; the window follows it, so the tide is said once (127-PYD-1).
         // The note stays whole: it carries its cautions too (Chance Bay's south-easterlies).
         rows.push(...parksNotes(c));
@@ -2314,14 +2612,16 @@ export function stopDetail(args: StopDetailArgs): StopDetail {
         const lo = Math.min(...legs.flatMap((l) => (l.waveLoM === null ? [] : [l.waveLoM])));
         const hi = Math.max(...legs.flatMap((l) => (l.waveHiM === null ? [] : [l.waveHiM])));
         rows.push(
-            !plan.seaLoaded
-                ? "Sea: not checked, the wave forecast didn't load"
-                : Number.isFinite(lo) && Number.isFinite(hi)
-                  ? `Sea on the way ${lo.toFixed(1) === hi.toFixed(1) ? lo.toFixed(1) : `${lo.toFixed(1)}–${hi.toFixed(1)}`} m (Météo-France)${d.stopSeaInshore ? ` · no reading inside ${c.name.split(' · ')[0]}` : ''}`
-                  : 'Sea: no wave model this close inshore',
+            plan.area
+                ? 'Sea: not checked on the area wind'
+                : !plan.seaLoaded
+                  ? "Sea: not checked, the wave forecast didn't load"
+                  : Number.isFinite(lo) && Number.isFinite(hi)
+                    ? `Sea on the way ${lo.toFixed(1) === hi.toFixed(1) ? lo.toFixed(1) : `${lo.toFixed(1)}–${hi.toFixed(1)}`} m (Météo-France)${d.stopSeaInshore ? ` · no reading inside ${c.name.split(' · ')[0]}` : ''}`
+                    : 'Sea: no wave model this close inshore',
         );
     }
-    if (!d) rows.push(...parksNotes(c));
+    if (!d) rows.push(...[args.why, args.place].filter((x): x is string => !!x), ...parksNotes(c));
     rows.push(distanceLine(c.distance));
     if (args.leavingMarina) rows.push(LEAVING_MARINA);
     const how = timesBasis(speed, args.polar, args.polarIsOwn);
@@ -2329,7 +2629,7 @@ export function stopDetail(args: StopDetailArgs): StopDetail {
         title: c.name,
         sub: `${shortDate(window.date, zone)} · times in ${zoneAbbrev(window.firstLightMs ?? atNoon(window.date, zone), zone)}`,
         rows,
-        footnote: `${how} in ${plan.headlineModel} wind. No current. Depth and tide over the route are not checked. Not a clearance.`,
+        footnote: `${how} ${plan.area ? `on the area wind (${plan.headlineModel})` : `in ${plan.headlineModel} wind`}. No current. Depth and tide over the route are not checked. Not a clearance.`,
         chips: plan.window.map((w) => ({ ms: w.departureMs, label: hhmm(w.departureMs, zone), best: w === plan.best })),
     };
 }
