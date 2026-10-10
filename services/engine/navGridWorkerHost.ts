@@ -1,75 +1,28 @@
 /**
- * navGridWorkerHost — main-thread side of the navGrid worker.
+ * navGridWorkerHost — the tracer's grids, off the main thread.
  *
  * `buildNavGridAsync(...)` mirrors buildNavGrid's signature but runs the heavy
- * build in navGridWorker (off the main thread, fixing the 2026-07-15 sync-freeze
- * crash). Lazy-singleton worker (mirrors EncHazardService.getGeoWorker). On
- * ANYTHING going wrong — no Worker global (SSR/old webview), spawn failure,
- * worker onerror, a thrown build, or an un-postable message — it FALLS BACK to
- * the synchronous buildNavGrid on the main thread, so a trace always grades
- * (the tracer has no "fast version" to hold, unlike the glaze worker).
+ * build off the main thread (the 2026-07-15 sync-freeze crash fix). Since
+ * 127-ROUTE-W2 it runs in a SECOND instance of the route worker
+ * (services/routing/routeWorkerHost runGridJobHosted), the engine chunk
+ * itself, so the bundle carries one copy of the grid code instead of two (the
+ * navGrid worker's own build was 35,001 B), a tracer grid never waits behind a
+ * route, and a route never waits behind a grid. The grid is built by the same
+ * buildNavGrid, so it is the same grid, byte for byte
+ * (tests/navGridFold.parity.test.ts).
+ *
+ * On ANYTHING going wrong (no Worker global, a spawn failure, a crash, a
+ * thrown build, an un-postable message, or three crashes this session) it
+ * FALLS BACK to the synchronous buildNavGrid on the main thread, as it always
+ * has, so a trace always grades (the tracer has no "fast version" to hold,
+ * unlike the glaze worker).
  */
-import { buildNavGrid } from './navGrid';
+import { ROUTE_ENGINE } from '../routing/routeJob';
+import { runGridJobHosted } from '../routing/routeWorkerHost';
 import type { InshoreLayers, NavGrid, RelaxZone } from './types';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('navGridWorkerHost');
-
-type GridMsg = { jobId: number; type: 'grid'; grid: NavGrid } | { jobId: number; type: 'error'; message: string };
-
-let worker: Worker | null = null;
-let broken = false;
-/** Worker spawn attempts this session. One crash used to LATCH `broken`
- *  permanently — every later window's grid then built synchronously on the
- *  main thread (0.3–1.5 s freeze per rebuild) for the rest of the session,
- *  the single biggest "checking a leg slows the page" cost (jank audit #1,
- *  2026-07-17). A crash now only kills the CURRENT job (its caller falls
- *  back sync); the NEXT job respawns, capped so a deterministically-crashing
- *  worker can't thrash. */
-let spawnAttempts = 0;
-const MAX_SPAWN_ATTEMPTS = 3;
-let seq = 0;
-const pending = new Map<number, { resolve: (g: NavGrid) => void; reject: (e: Error) => void }>();
-
-function getWorker(): Worker | null {
-    if (broken) return null;
-    if (worker) return worker;
-    if (spawnAttempts >= MAX_SPAWN_ATTEMPTS) return null;
-    try {
-        if (typeof Worker === 'undefined') {
-            broken = true;
-            return null;
-        }
-        spawnAttempts++;
-        worker = new Worker(new URL('./navGridWorker.ts', import.meta.url), { type: 'module' });
-        worker.onmessage = (ev: MessageEvent<GridMsg>) => {
-            const d = ev.data;
-            const p = pending.get(d.jobId);
-            if (!p) return;
-            pending.delete(d.jobId);
-            if (d.type === 'grid') p.resolve(d.grid);
-            else p.reject(new Error(d.message || 'navGrid worker error'));
-        };
-        worker.onerror = () => {
-            // The whole worker died — reject everything in flight so each
-            // caller's sync fallback runs, then let the NEXT job respawn a
-            // fresh worker (bounded by MAX_SPAWN_ATTEMPTS).
-            log.warn(`navGrid worker crashed (spawn ${spawnAttempts}/${MAX_SPAWN_ATTEMPTS})`);
-            for (const [, p] of pending) p.reject(new Error('navGrid worker crashed'));
-            pending.clear();
-            try {
-                worker?.terminate();
-            } catch {
-                /* already gone */
-            }
-            worker = null;
-        };
-    } catch {
-        broken = true;
-        return null;
-    }
-    return worker;
-}
 
 export function buildNavGridAsync(
     layers: InshoreLayers,
@@ -83,7 +36,7 @@ export function buildNavGridAsync(
     routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
 ): Promise<NavGrid> {
     const runSync = (): NavGrid =>
-        buildNavGrid(
+        ROUTE_ENGINE.grid(
             layers,
             bbox,
             resolutionM,
@@ -95,30 +48,19 @@ export function buildNavGridAsync(
             routeProfile,
         );
 
-    const w = getWorker();
-    if (!w) return Promise.resolve(runSync());
-
-    const jobId = ++seq;
-    return new Promise<NavGrid>((resolve, reject) => {
-        pending.set(jobId, { resolve, reject });
-        try {
-            w.postMessage({
-                jobId,
-                layers,
-                bbox,
-                resolutionM,
-                draftM,
-                safetyM,
-                obstructionBufferM,
-                relaxedLndare,
-                relaxZones,
-                routeProfile,
-            });
-        } catch (e) {
-            pending.delete(jobId);
-            reject(e instanceof Error ? e : new Error(String(e)));
-        }
-    }).catch((err: Error) => {
+    const hosted = runGridJobHosted({
+        layers,
+        bbox,
+        resolutionM,
+        draftM,
+        safetyM,
+        obstructionBufferM,
+        relaxedLndare,
+        relaxZones,
+        routeProfile,
+    });
+    if (!hosted) return Promise.resolve(runSync());
+    return hosted.catch((err: Error) => {
         // Any worker-side failure → synchronous fallback so grading never stalls.
         log.warn(`navGrid worker failed (${err.message}) — synchronous fallback`);
         return runSync();

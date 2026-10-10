@@ -23,17 +23,24 @@
  *   is a stack overflow: the worker's stack is far shallower than the page's,
  *   so that job is routed again here (not a crash; the worker is kept).
  *
+ * The tracer's grids (services/engine/navGridWorkerHost, 127-ROUTE-W2) run in
+ * a SECOND instance of the same script, with its own queue and its own crash
+ * count, so a tracer grid never waits behind a route and a route never waits
+ * behind a grid. The navGrid worker, a second copy of the grid code, is gone.
+ *
  * Nothing here reads or writes a chart: the job's layers live in the worker's
  * memory while it routes and are dropped when it answers (o-charts,
  * 2026-10-10).
  */
 import {
     ROUTE_ENGINE,
+    type NavGridJobArgs,
     type RouteJob,
     type RouteJobOutput,
     type RouteWorkerReply,
     type RouteWorkerRequest,
 } from './routeJob';
+import type { NavGrid } from '../engine/types';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('routeWorkerHost');
@@ -113,15 +120,53 @@ function finish(p: PendingJob, output: RouteJobOutput, where: 'worker' | 'main',
     pump();
 }
 
-/** Ends the worker. A crash counts toward the cap; a deliberate stop never does. */
-function endWorker(crashed: boolean): void {
-    if (!instance) return;
-    if (instance.readyTimer) clearTimeout(instance.readyTimer);
+/**
+ * Start one instance of the route worker's script (the engine chunk itself).
+ * Its forwarded console lines are printed here; every other reply goes to
+ * `onReply`, and `onFail` hears of a crash, or a start that never says it is
+ * ready.
+ */
+function startInstance(
+    onReply: (reply: RouteWorkerReply, from: RouteWorker) => void,
+    onFail: (from: RouteWorker, why: string) => void,
+): RouteWorker {
+    const worker = new Worker(ROUTE_ENGINE.url, { type: 'module' });
+    const created: RouteWorker = { worker, ready: false };
+    worker.onmessage = (ev: MessageEvent<RouteWorkerReply>) => {
+        const d = ev.data;
+        if (d.type === 'console') {
+            // The worker's lines, printed here with the same text (Xcode
+            // shows this thread's console, not a worker's).
+            if (d.level === 'error') console.error(d.text);
+            else console.warn(d.text);
+            return;
+        }
+        if (d.type === 'ready') {
+            created.ready = true;
+            clearTimeout(created.readyTimer);
+        }
+        onReply(d, created);
+    };
+    worker.onerror = () => onFail(created, created.ready ? 'crashed' : 'failed to start');
+    created.readyTimer = setTimeout(() => {
+        if (!created.ready) onFail(created, `not ready in ${readyTimeoutMs} ms`);
+    }, readyTimeoutMs);
+    return created;
+}
+
+function stopInstance(w: RouteWorker): void {
+    clearTimeout(w.readyTimer);
     try {
-        instance.worker.terminate();
+        w.worker.terminate();
     } catch {
         /* already gone */
     }
+}
+
+/** Ends the worker. A crash counts toward the cap; a deliberate stop never does. */
+function endWorker(crashed: boolean): void {
+    if (!instance) return;
+    stopInstance(instance);
     instance = null;
     if (crashed && ++crashes >= MAX_CRASHES) {
         mainOnly = true;
@@ -144,19 +189,9 @@ function workerFailed(why: string): void {
     if (p) backToMain(p, `route worker ${why}`);
 }
 
-function onReply(ev: MessageEvent<RouteWorkerReply>): void {
-    const d = ev.data;
-    if (d.type === 'console') {
-        // The worker's lines, printed here with the same text (Xcode shows
-        // this thread's console, not a worker's).
-        if (d.level === 'error') console.error(d.text);
-        else console.warn(d.text);
-        return;
-    }
+function onReply(d: RouteWorkerReply, from: RouteWorker): void {
+    if (from !== instance) return;
     if (d.type === 'ready') {
-        if (!instance) return;
-        instance.ready = true;
-        if (instance.readyTimer) clearTimeout(instance.readyTimer);
         if (running?.onWorker && running.postedAt === undefined) post(running);
         return;
     }
@@ -165,7 +200,7 @@ function onReply(ev: MessageEvent<RouteWorkerReply>): void {
         return;
     }
     const p = running;
-    if (!p || d.id !== p.id) return;
+    if (!p || (d.type !== 'result' && d.type !== 'error') || d.id !== p.id) return;
     if (d.type === 'result') {
         // Too deep for the worker's stack (routeJob runRouteJob): the main
         // thread's is far deeper. Not a crash: the worker is kept.
@@ -184,17 +219,10 @@ function spawn(): RouteWorker | null {
     if (instance) return instance;
     if (typeof Worker === 'undefined') return null;
     try {
-        const worker = new Worker(ROUTE_ENGINE.url, { type: 'module' });
-        const created: RouteWorker = { worker, ready: false };
-        worker.onmessage = onReply;
-        worker.onerror = () => {
-            if (instance?.worker === worker) workerFailed(created.ready ? 'crashed' : 'failed to start');
-        };
-        created.readyTimer = setTimeout(() => {
-            if (instance?.worker === worker && !created.ready) workerFailed(`not ready in ${readyTimeoutMs} ms`);
-        }, readyTimeoutMs);
-        instance = created;
-        return created;
+        instance = startInstance(onReply, (from, why) => {
+            if (from === instance) workerFailed(why);
+        });
+        return instance;
     } catch (err) {
         crashes++;
         if (crashes >= MAX_CRASHES) mainOnly = true;
@@ -276,22 +304,122 @@ export function runRouteJobHosted(
     });
 }
 
+// ── The tracer's grids: a second instance of the same script ───────
+
+interface GridJob {
+    id: number;
+    args: NavGridJobArgs;
+    resolve: (grid: NavGrid) => void;
+    reject: (err: Error) => void;
+    posted: boolean;
+}
+
+let gridInstance: RouteWorker | null = null;
+/** The grid instance's own crash count: routes and grids never latch each other. */
+let gridCrashes = 0;
+const gridJobs = new Map<number, GridJob>();
+
+/** The grid instance failed (a crash): end it, and each grid it held is built on the main thread by its caller. */
+function gridFailed(why: string): void {
+    if (!gridInstance) return;
+    stopInstance(gridInstance);
+    gridInstance = null;
+    log.warn(`navGrid worker ${why} (${++gridCrashes}/${MAX_CRASHES})`);
+    const failed = [...gridJobs.values()];
+    gridJobs.clear();
+    for (const g of failed) g.reject(new Error(`navGrid worker ${why}`));
+}
+
+function postGrid(g: GridJob): void {
+    if (g.posted || !gridInstance) return;
+    g.posted = true;
+    try {
+        gridInstance.worker.postMessage({ type: 'grid', id: g.id, args: g.args } satisfies RouteWorkerRequest);
+    } catch (err) {
+        // A DataCloneError: only this grid is built on the main thread.
+        gridJobs.delete(g.id);
+        g.reject(err instanceof Error ? err : new Error(String(err)));
+    }
+}
+
+function onGridReply(d: RouteWorkerReply, from: RouteWorker): void {
+    if (from !== gridInstance) return;
+    if (d.type === 'ready') {
+        for (const g of gridJobs.values()) postGrid(g);
+        return;
+    }
+    if (d.type === 'init-error') {
+        gridFailed(`failed to start (${d.message})`);
+        return;
+    }
+    if (d.type !== 'grid' && d.type !== 'error') return;
+    const g = gridJobs.get(d.id);
+    if (!g) return;
+    gridJobs.delete(d.id);
+    if (d.type === 'grid') g.resolve(d.grid);
+    else g.reject(new Error(d.message || 'navGrid worker error'));
+}
+
+/**
+ * Build one tracer grid in the grid instance (services/engine/navGridWorkerHost).
+ * Grids go to it as they come; it builds them one after another, never behind
+ * a route. Resolves with the grid, its typed arrays transferred; rejects when
+ * the worker cannot build it (a crash, a start that fails, a throw, a job that
+ * cannot be posted), and the caller builds it on the main thread. Null where
+ * no worker can take it at all: no Worker (vitest, an old webview), a spawn
+ * that throws, or three grid-instance crashes this session.
+ */
+export function runGridJobHosted(args: NavGridJobArgs): Promise<NavGrid> | null {
+    if (gridCrashes >= MAX_CRASHES || typeof Worker === 'undefined') return null;
+    if (!gridInstance) {
+        try {
+            gridInstance = startInstance(onGridReply, (from, why) => {
+                if (from === gridInstance) gridFailed(why);
+            });
+        } catch {
+            // As the navGrid worker's host did: a spawn that throws is not tried again.
+            gridCrashes = MAX_CRASHES;
+            return null;
+        }
+    }
+    const w = gridInstance;
+    return new Promise<NavGrid>((resolve, reject) => {
+        const g: GridJob = { id: ++seq, args, resolve, reject, posted: false };
+        gridJobs.set(g.id, g);
+        if (w.ready) postGrid(g);
+        // …else it is posted when the instance says it is ready (onGridReply).
+    });
+}
+
+/** Ask a busy instance to drop its grids; end an idle one (the next job starts a fresh one). */
+function trimOrEnd(w: RouteWorker, busy: boolean, end: () => void): void {
+    if (!busy) return end();
+    try {
+        w.worker.postMessage({ type: 'trim' } satisfies RouteWorkerRequest);
+    } catch {
+        /* nothing to trim */
+    }
+}
+
 /**
  * An iOS memory warning (services/native/memoryGauge.ts): the route worker's
- * grid cache (up to 48 MB) is dropped too. A busy worker trims it after its
- * route; an idle one is simply ended (the next route starts a fresh one),
- * also while a job that could not be posted runs on the main thread. A worker
- * still starting for its job holds no grids and is left to start.
+ * grid cache (up to 48 MB) is dropped too, and the tracer's grid instance is
+ * told the same. A busy worker trims after its job; an idle one is simply
+ * ended (the next job starts a fresh one), also while a route that could not
+ * be posted runs on the main thread. A worker still starting for its job
+ * holds no grids and is left to start.
  */
 export function trimRouteWorkers(): void {
-    if (!instance) return;
-    if (running?.onWorker && running.postedAt !== undefined) {
-        try {
-            instance.worker.postMessage({ type: 'trim' } satisfies RouteWorkerRequest);
-        } catch {
-            /* nothing to trim */
-        }
-    } else if (!running?.onWorker) endWorker(false);
+    if (instance && !(running?.onWorker && running.postedAt === undefined))
+        trimOrEnd(instance, !!running?.onWorker, () => endWorker(false));
+    if (gridInstance) {
+        const jobs = [...gridJobs.values()];
+        if (jobs.length === 0 || jobs.some((g) => g.posted))
+            trimOrEnd(gridInstance, jobs.length > 0, () => {
+                stopInstance(gridInstance!);
+                gridInstance = null;
+            });
+    }
 }
 
 /** Test seam. */
@@ -302,15 +430,12 @@ export function __setRouteWorkerHostForTest(t: { readyTimeoutMs?: number; mainYi
 
 /** Test seam. */
 export function __resetRouteWorkerHostForTest(): void {
-    if (instance) {
-        if (instance.readyTimer) clearTimeout(instance.readyTimer);
-        try {
-            instance.worker.terminate();
-        } catch {
-            /* gone */
-        }
-    }
+    if (instance) stopInstance(instance);
+    if (gridInstance) stopInstance(gridInstance);
     instance = null;
+    gridInstance = null;
+    gridCrashes = 0;
+    gridJobs.clear();
     crashes = 0;
     mainOnly = false;
     queue.length = 0;

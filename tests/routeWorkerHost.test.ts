@@ -7,10 +7,17 @@
  * and runs the real runRouteJob on a structured clone of each message, a turn
  * later, as a worker would. The main thread's own runs go through
  * ROUTE_ENGINE.run, which the tests spy on.
+ *
+ * Since 127-ROUTE-W2 the tracer's grids (services/engine/navGridWorkerHost)
+ * run in a SECOND instance of the same script: the fake answers a 'grid' job
+ * with the real buildNavGrid, and the main thread's own grid builds go
+ * through ROUTE_ENGINE.grid, which the tests spy on too.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tinyRouteJob } from './helpers/routeJobScenes';
 import { ROUTE_ENGINE, runRouteJob } from '../services/routing/routeJob';
+import { buildNavGrid } from '../services/engine/navGrid';
+import { buildNavGridAsync } from '../services/engine/navGridWorkerHost';
 import {
     __resetRouteWorkerHostForTest,
     __setRouteWorkerHostForTest,
@@ -36,15 +43,77 @@ const overflowingLayers = () =>
         },
     );
 
+type GridArgs = Parameters<typeof buildNavGrid>;
+type GridJob = {
+    layers: GridArgs[0];
+    bbox: GridArgs[1];
+    resolutionM: number;
+    draftM: number;
+    safetyM: number;
+    obstructionBufferM: number;
+    relaxedLndare: boolean;
+    relaxZones: GridArgs[7];
+    routeProfile: GridArgs[8];
+};
+
+/** A small tracer grid job: the tiny route's 15 m water, 60 x 60 cells. */
+function tinyGridArgs(extra: Partial<GridJob> = {}): GridJob {
+    const layers = tinyRouteJob().layers as unknown as GridArgs[0];
+    const ring = (layers.DEPARE!.features[0].geometry as unknown as { coordinates: [number, number][][] })
+        .coordinates[0];
+    const lons = ring.map((p) => p[0]);
+    const lats = ring.map((p) => p[1]);
+    return {
+        layers,
+        bbox: [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)],
+        resolutionM: 100,
+        draftM: 2.4,
+        safetyM: 0.5,
+        obstructionBufferM: 60,
+        relaxedLndare: false,
+        relaxZones: [],
+        routeProfile: 'safest',
+        ...extra,
+    };
+}
+const gridAsync = (a: GridJob) =>
+    buildNavGridAsync(
+        a.layers,
+        a.bbox,
+        a.resolutionM,
+        a.draftM,
+        a.safetyM,
+        a.obstructionBufferM,
+        a.relaxedLndare,
+        a.relaxZones,
+        a.routeProfile,
+    );
+const gridOf = (a: GridJob) =>
+    buildNavGrid(
+        a.layers,
+        a.bbox,
+        a.resolutionM,
+        a.draftM,
+        a.safetyM,
+        a.obstructionBufferM,
+        a.relaxedLndare,
+        a.relaxZones,
+        a.routeProfile,
+    );
+
 class FakeWorker {
     static instances: FakeWorker[] = [];
     static behaviour: Behaviour = 'run';
+    /** How a 'grid' job is answered (any instance): built, held, a crash or a throw. */
+    static gridBehaviour: 'run' | 'hold' | 'crash' | 'throw' = 'run';
     onmessage: ((ev: MessageEvent) => void) | null = null;
     onerror: ((ev: Event) => void) | null = null;
     terminated = false;
     started: number[] = [];
     trims = 0;
     held = new Map<number, unknown>();
+    grids: number[] = [];
+    heldGrids = new Map<number, GridJob>();
     behaviour: Behaviour = FakeWorker.behaviour;
 
     constructor(
@@ -60,9 +129,23 @@ class FakeWorker {
 
     postMessage(message: unknown): void {
         // Throws DataCloneError for a function, as postMessage does.
-        const data = structuredClone(message) as { type: string; id: number; job: never };
+        const data = structuredClone(message) as { type: string; id: number; job: never; args: GridJob };
         if (data.type === 'trim') {
             this.trims++;
+            return;
+        }
+        if (data.type === 'grid') {
+            this.grids.push(data.id);
+            const how = FakeWorker.gridBehaviour;
+            if (how === 'hold') {
+                this.heldGrids.set(data.id, data.args);
+                return;
+            }
+            setTimeout(() => {
+                if (how === 'crash') this.onerror?.(new Event('error'));
+                else if (how === 'throw') this.emit({ type: 'error', id: data.id, message: 'grid boom' });
+                else this.replyGrid(data.id, data.args);
+            }, 0);
             return;
         }
         this.started.push(data.id);
@@ -86,6 +169,16 @@ class FakeWorker {
         this.reply(id, job as never);
     }
 
+    releaseGrid(id: number): void {
+        const args = this.heldGrids.get(id)!;
+        this.heldGrids.delete(id);
+        this.replyGrid(id, args);
+    }
+
+    private replyGrid(id: number, args: GridJob): void {
+        this.emit({ type: 'grid', id, grid: structuredClone(gridOf(args)) });
+    }
+
     private reply(id: number, job: never): void {
         this.emit({ type: 'result', id, output: structuredClone(runRouteJob(job)) });
     }
@@ -105,14 +198,17 @@ const until = async (check: () => boolean, label: string): Promise<void> => {
 };
 
 let mainRuns: ReturnType<typeof vi.spyOn>;
+let mainGrids: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
     FakeWorker.instances = [];
     FakeWorker.behaviour = 'run';
+    FakeWorker.gridBehaviour = 'run';
     vi.stubGlobal('Worker', FakeWorker);
     __resetRouteWorkerHostForTest();
     __setRouteWorkerHostForTest({ readyTimeoutMs: 200, mainYieldMs: 0 });
     mainRuns = vi.spyOn(ROUTE_ENGINE, 'run');
+    mainGrids = vi.spyOn(ROUTE_ENGINE, 'grid');
 });
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -370,5 +466,148 @@ describe('iOS memory warnings reach the route worker (decision 12)', () => {
     it('does nothing without a worker', () => {
         expect(() => trimRouteWorkers()).not.toThrow();
         expect(FakeWorker.instances).toHaveLength(0);
+    });
+});
+
+describe("the tracer's grids run in a second instance of the route worker (127-ROUTE-W2)", () => {
+    const same = (a: unknown, b: unknown) => expect(structuredClone(a)).toEqual(structuredClone(b));
+
+    it('a grid goes to a second instance and never waits behind a route; a route never waits behind a grid', async () => {
+        FakeWorker.behaviour = 'hold';
+        const route = runRouteJobHosted(tinyRouteJob() as never);
+        await until(() => FakeWorker.instances[0]?.started.length === 1, 'the route');
+        // The route is still running: the grid is built anyway, in its own instance.
+        const grid = await gridAsync(tinyGridArgs());
+        same(grid, gridOf(tinyGridArgs()));
+        expect(FakeWorker.instances).toHaveLength(2);
+        const [routes, grids] = FakeWorker.instances;
+        expect(String(grids.url)).toBe(ROUTE_ENGINE.url);
+        expect(grids.options).toEqual({ type: 'module' });
+        expect(routes.grids).toEqual([]);
+        expect(grids.started).toEqual([]);
+        expect(mainGrids).not.toHaveBeenCalled();
+
+        // …and the other way round: a grid is held, and routes still go through.
+        FakeWorker.gridBehaviour = 'hold';
+        const held = gridAsync(tinyGridArgs());
+        await until(() => grids.grids.length === 2, 'the second grid');
+        routes.release(routes.started[0]);
+        expect((await route).where).toBe('worker');
+        routes.behaviour = 'run';
+        expect((await runRouteJobHosted(tinyRouteJob() as never)).where).toBe('worker');
+        grids.releaseGrid(grids.grids[1]);
+        same(await held, gridOf(tinyGridArgs()));
+        // The grid instance is kept for the next window, as the navGrid worker was.
+        FakeWorker.gridBehaviour = 'run';
+        expect(await gridAsync(tinyGridArgs())).toBeTruthy();
+        expect(FakeWorker.instances).toHaveLength(2);
+        expect(mainRuns).not.toHaveBeenCalled();
+        expect(mainGrids).not.toHaveBeenCalled();
+    });
+
+    it('several grids may wait in the grid instance at once, each answered by its own reply', async () => {
+        FakeWorker.gridBehaviour = 'hold';
+        const a = gridAsync(tinyGridArgs());
+        const b = gridAsync(tinyGridArgs({ resolutionM: 150 }));
+        await until(() => FakeWorker.instances[0]?.grids.length === 2, 'both grids');
+        const w = FakeWorker.instances[0];
+        w.releaseGrid(w.grids[1]);
+        w.releaseGrid(w.grids[0]);
+        same(await a, gridOf(tinyGridArgs()));
+        same(await b, gridOf(tinyGridArgs({ resolutionM: 150 })));
+    });
+
+    describe('a grid always comes back, built on the main thread where the worker cannot (as the navGrid worker did)', () => {
+        beforeEach(() => {
+            vi.spyOn(console, 'warn').mockImplementation(() => {});
+        });
+
+        it.each([
+            ['the grid instance crashes mid-grid', () => (FakeWorker.gridBehaviour = 'crash')],
+            ['the build throws inside the worker', () => (FakeWorker.gridBehaviour = 'throw')],
+            ['the worker cannot start (init-error)', () => (FakeWorker.behaviour = 'init-error')],
+            ['the worker never says it is ready', () => (FakeWorker.behaviour = 'silent')],
+        ])('%s', async (_why, arrange) => {
+            __setRouteWorkerHostForTest({ readyTimeoutMs: 30, mainYieldMs: 0 });
+            arrange();
+            const grid = await gridAsync(tinyGridArgs());
+            same(grid, gridOf(tinyGridArgs()));
+            expect(mainGrids).toHaveBeenCalledTimes(1);
+            expect(FakeWorker.instances).toHaveLength(1);
+        });
+
+        it("a grid job that can't be posted (DataCloneError)", async () => {
+            const args = tinyGridArgs();
+            (args.layers as Record<string, unknown>).probe = () => 'water';
+            const grid = await gridAsync(args);
+            expect(grid.width).toBeGreaterThan(0);
+            expect(mainGrids).toHaveBeenCalledTimes(1);
+        });
+
+        it('no Worker at all (vitest, an old webview): no instance, the main thread builds it', async () => {
+            vi.stubGlobal('Worker', undefined);
+            same(await gridAsync(tinyGridArgs()), gridOf(tinyGridArgs()));
+            expect(mainGrids).toHaveBeenCalledTimes(1);
+            expect(FakeWorker.instances).toHaveLength(0);
+        });
+
+        it("three grid-instance crashes keep the tracer's grids on the main thread; routes keep their worker", async () => {
+            FakeWorker.gridBehaviour = 'crash';
+            for (let i = 0; i < 3; i++) await gridAsync(tinyGridArgs());
+            expect(FakeWorker.instances).toHaveLength(3);
+            expect(mainGrids).toHaveBeenCalledTimes(3);
+            FakeWorker.gridBehaviour = 'run';
+            await gridAsync(tinyGridArgs());
+            // No fourth grid instance: the rest of the session builds grids on the main thread.
+            expect(FakeWorker.instances).toHaveLength(3);
+            expect(mainGrids).toHaveBeenCalledTimes(4);
+            // Routes have their own count: they still go to a worker.
+            expect((await runRouteJobHosted(tinyRouteJob() as never)).where).toBe('worker');
+            expect(FakeWorker.instances).toHaveLength(4);
+        });
+
+        it("three route-worker crashes leave the tracer's grids in their worker", async () => {
+            FakeWorker.behaviour = 'crash';
+            for (let i = 0; i < 3; i++) expect((await runRouteJobHosted(tinyRouteJob() as never)).where).toBe('main');
+            FakeWorker.behaviour = 'run';
+            same(await gridAsync(tinyGridArgs()), gridOf(tinyGridArgs()));
+            expect(mainGrids).not.toHaveBeenCalled();
+            expect(FakeWorker.instances).toHaveLength(4);
+        });
+    });
+
+    it('a memory warning trims a busy grid instance and ends an idle one', async () => {
+        FakeWorker.gridBehaviour = 'hold';
+        const pending = gridAsync(tinyGridArgs());
+        await until(() => FakeWorker.instances[0]?.grids.length === 1, 'the grid');
+        const w = FakeWorker.instances[0];
+        trimRouteWorkers();
+        expect(w.trims).toBe(1);
+        expect(w.terminated).toBe(false);
+        w.releaseGrid(w.grids[0]);
+        await pending;
+        trimRouteWorkers();
+        expect(w.terminated).toBe(true);
+        FakeWorker.gridBehaviour = 'run';
+        await gridAsync(tinyGridArgs());
+        expect(FakeWorker.instances).toHaveLength(2);
+        expect(mainGrids).not.toHaveBeenCalled();
+    });
+
+    it('a memory warning reaches both instances at once', async () => {
+        FakeWorker.behaviour = 'hold';
+        FakeWorker.gridBehaviour = 'hold';
+        const route = runRouteJobHosted(tinyRouteJob() as never);
+        const grid = gridAsync(tinyGridArgs());
+        await until(() => FakeWorker.instances.length === 2, 'both instances');
+        const [routes, grids] = FakeWorker.instances;
+        await until(() => routes.started.length === 1 && grids.grids.length === 1, 'both jobs');
+        trimRouteWorkers();
+        expect([routes.trims, grids.trims]).toEqual([1, 1]);
+        routes.release(routes.started[0]);
+        grids.releaseGrid(grids.grids[0]);
+        await Promise.all([route, grid]);
+        trimRouteWorkers();
+        expect([routes.terminated, grids.terminated]).toEqual([true, true]);
     });
 });

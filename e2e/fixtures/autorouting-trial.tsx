@@ -17,6 +17,7 @@ import { initGlobalKeyboardScroll } from '../../utils/keyboardScroll';
 import type { AutoroutingTrialRequest, AutoroutingTrialRoute } from '../../types/autorouting';
 import type { TrialRouteReview } from '../../services/autoroutingReview';
 import { importCell } from '../../services/enc/EncHazardService';
+import { syntheticArchipelago } from '../../tests/fixtures/syntheticArchipelago';
 import '../../index.css';
 
 const params = new URLSearchParams(location.search);
@@ -24,6 +25,39 @@ const pane = params.get('pane') === 'true';
 /** ?engine=real runs Thalassa's own router on a synthetic navigation cell;
  * otherwise a stub provider returns synthetic geometry (2026-10-01). */
 const realEngine = params.get('engine') === 'real';
+/** ?scene=archipelago (127-ROUTE-W2, with engine=real): the synthetic
+ * archipelago's three navigation cells (invented, 161.0E 20.3S;
+ * tests/fixtures/syntheticArchipelago.ts) instead of the Tasman island, for
+ * the 5, 12 and 20 NM routes the route worker is measured on. */
+const archipelago = realEngine && params.get('scene') === 'archipelago';
+// In the archipelago scene every Worker started is counted with what it is
+// sent, so a spec can tell a route worker from the tracer's grid instance
+// (browser-tests/route-worker.spec.ts). ?worker=off: the route worker cannot
+// start (as on an old webview, or a failed spawn), so the router runs the old
+// way on the main thread (the long-task spec's negative control). Only the
+// route engine's script is refused: Mapbox's own workers still draw the chart.
+const workers: { url: string; sent: string[] }[] = [];
+if (archipelago && typeof Worker === 'function') {
+    const PageWorker = Worker;
+    const routeWorkerOff = params.get('worker') === 'off';
+    Object.defineProperty(window, 'Worker', {
+        configurable: true,
+        value: class extends PageWorker {
+            private readonly record: { url: string; sent: string[] };
+            constructor(url: string | URL, options?: WorkerOptions) {
+                if (routeWorkerOff && /routing\/routeJob|router-engine-/.test(String(url)))
+                    throw new Error('fixture: the route worker cannot start (worker=off)');
+                super(url, options);
+                this.record = { url: String(url), sent: [] };
+                workers.push(this.record);
+            }
+            postMessage(message: unknown, transfer?: unknown) {
+                this.record.sent.push(String((message as { type?: unknown })?.type));
+                return super.postMessage(message, transfer as Transferable[]);
+            }
+        },
+    });
+}
 const mode = params.get('mode') || 'dark';
 document.documentElement.classList.toggle('display-light', mode === 'light');
 // ?fonts=wide (2026-10-02): the Linux CI runner draws DejaVu Sans, far wider
@@ -47,11 +81,14 @@ const settingsReady = awaitSettingsLoaded().then(() =>
                 type: 'sail',
                 length: 35,
                 beam: 11,
-                airDraft: 50,
-                draft: 1.5 / 0.3048,
+                // The archipelago's routes are measured at Serene Summer's
+                // 2.4 m draft and 18 m air draft, as its goldens are
+                // (tests/helpers/routeJobScenes.ts).
+                airDraft: archipelago ? 18 / 0.3048 : 50,
+                draft: (archipelago ? 2.4 : 1.5) / 0.3048,
                 // Confirmed, so Auto opens at once; the ask itself is
                 // browser-tested in draft-confirm-layout.spec.ts.
-                draftConfirmedFt: 1.5 / 0.3048,
+                draftConfirmedFt: (archipelago ? 2.4 : 1.5) / 0.3048,
                 displacement: 12000,
                 maxWaveHeight: 2,
                 cruisingSpeed: 6,
@@ -217,8 +254,16 @@ const area = (geometry: GeoJSON.Polygon, properties: Record<string, unknown>): G
     properties,
     geometry,
 });
+// One after another, so the cells are listed in the same order on every load
+// (the router merges them in that order).
+const archipelagoReady = archipelago
+    ? syntheticArchipelago().cells.reduce<Promise<unknown>>(
+          (previous, cell) => previous.then(() => importCell(cell.blob, { usage: 'navigation' })),
+          Promise.resolve(),
+      )
+    : Promise.resolve();
 const realEncReady =
-    realEngine && params.get('charts') !== 'none'
+    realEngine && !archipelago && params.get('charts') !== 'none'
         ? importCell(
               {
                   cellId: 'ZZ5TEST9',
@@ -265,7 +310,7 @@ const realEncReady =
               { usage: 'navigation' },
           )
         : Promise.resolve();
-const encReady = Promise.all([fineEncReady, overviewEncReady, realEncReady]);
+const encReady = Promise.all([fineEncReady, overviewEncReady, realEncReady, archipelagoReady]);
 const control = {
     statuses: 0,
     calculations: 0,
@@ -279,6 +324,14 @@ const control = {
     lastRequest: null as AutoroutingTrialRequest | null,
     routeCoordinates: [] as [number, number][],
     backstopRetries: 0,
+    /** ?engine=real: the last route the real provider returned (coordinates and engine disclosure). */
+    lastRoute: null as AutoroutingTrialRoute | null,
+    workers,
+    /** ?scene=archipelago: the OSM water the boat Pi would hand back for the scene
+     *  (the long-task spec serves it as the OSM overlay). */
+    osm: archipelago ? syntheticArchipelago().osm : null,
+    /** When the probe button's clicks were handled (performance.now()). */
+    probeClicks: [] as number[],
 };
 Object.assign(window, { __trialFixture: control });
 const OriginalMap = mapboxgl.Map;
@@ -466,10 +519,12 @@ const provider: AutoroutingProvider = realEngine
               control.statuses += 1;
               return thalassaAutoroutingProvider.status();
           },
-          calculate: (request, signal, onProgress) => {
+          calculate: async (request, signal, onProgress) => {
               control.calculations += 1;
               control.lastRequest = structuredClone(request);
-              return thalassaAutoroutingProvider.calculate(request, signal, onProgress);
+              const route = await thalassaAutoroutingProvider.calculate(request, signal, onProgress);
+              control.lastRoute = structuredClone(route);
+              return route;
           },
       }
     : stubProvider;
@@ -539,6 +594,17 @@ function Fixture() {
                     </section>
                 </PanePortalScope>
             </div>
+            {archipelago && (
+                // A probe the long-task spec clicks while the router works: how long
+                // its click waits for the main thread (browser-tests/route-worker.spec.ts).
+                <button
+                    type="button"
+                    className="fixed bottom-0 left-0 h-6 w-6 opacity-50"
+                    style={{ zIndex: 2147483647 }}
+                    aria-label="Fixture probe"
+                    onClick={() => control.probeClicks.push(performance.now())}
+                />
+            )}
             {mode === 'night' && (
                 <div
                     className="pointer-events-none fixed inset-0"

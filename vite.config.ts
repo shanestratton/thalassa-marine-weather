@@ -204,7 +204,7 @@ function releaseParkedPagesStayOut(): Plugin {
 export const LOGGER_SENTRY_IMPORT = '../services/sentry';
 
 /**
- * Worker builds only. The navGrid worker reaches createLogger through the
+ * Worker builds only. The navGrid worker reached createLogger through the
  * router engine's `engineLog`, and createLogger.error() lazily imports
  * services/sentry, so Vite bundled a second copy of the Sentry SDK, React's
  * Sentry bindings and @capacitor/core (about 97 KB) into the worker build.
@@ -213,6 +213,12 @@ export const LOGGER_SENTRY_IMPORT = '../services/sentry';
  * resolves to no-op functions instead. The main build is untouched, and
  * tests/WorkerSentryNoop.test.ts fails if any worker's import graph starts
  * calling a logger's error().
+ *
+ * Since 127-ROUTE-W2 no worker build reaches the logger (the navGrid worker
+ * is folded into the route worker, which is the main build's engine chunk and
+ * has its own logger copy, routeEngineLogger below). It stays wired, inert,
+ * as a net: a future worker build that reaches the logger gets the no-op,
+ * not a second Sentry SDK.
  */
 function workerSentryNoop(): Plugin {
     const virtualId = '\0worker-sentry-noop';
@@ -672,10 +678,12 @@ export default defineConfig(({ mode }) => {
                       drop: ['debugger'],
                   }
                 : undefined,
-        // ES-module workers (2026-07-15): the navGrid worker imports the
+        // ES-module workers (2026-07-15): the navGrid worker imported the
         // engine graph (navGrid → aStar → marinaCenterline …), which Vite
         // code-splits — unsupported by the default 'iife' worker format. All
         // our workers are spawned with { type: 'module' }, so 'es' is correct.
+        // (The navGrid worker itself is gone since 127-ROUTE-W2: the tracer's
+        // grids run in the route worker, the main build's engine chunk.)
         worker: {
             format: 'es',
             plugins: () => [workerSentryNoop()],

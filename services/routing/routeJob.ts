@@ -19,7 +19,9 @@
  * scripts/route-job-closure.mjs). So this graph must be worker-safe and
  * hold no IO: no storage, network, DOM or plugin, and no logger error()
  * (tests/routeJobPurity.test.ts). The chart cells it is handed live in its
- * memory only and are never written anywhere (o-charts, 2026-10-10).
+ * memory only and are never written anywhere (o-charts, 2026-10-10). A
+ * second instance of the same script builds the tracer's depth grids
+ * (127-ROUTE-W2: the navGrid worker, a second copy of the grid code, is gone).
  *
  * The job never imports InshoreRouter.ts, not even for a type: InshoreRouter
  * imports the job and re-exports what moved here.
@@ -33,6 +35,7 @@ import type {
     NavGrid,
     PinOffWater,
     PinTail,
+    RelaxZone,
     RouteRequest,
     ShallowRunInfo,
     SurveyRunInfo,
@@ -58,7 +61,7 @@ import {
 import { UNCHARTED_MAX_RUN_M } from '../engine/constants';
 import { collectShallowRuns, collectSurveyRuns } from '../engine/shallowRuns';
 import { routeTierMasks } from '../engine/tierPipeline';
-import { trimNavGridCache } from '../engine/navGrid';
+import { buildNavGrid, trimNavGridCache } from '../engine/navGrid';
 import { cardinalWrongSideMask } from '../tier3/cardinalClamp';
 import { polylineCrossesClearanceBar } from './overheadClearance';
 import { samplePolyline, type BackstopChartVerdict, type LonLat } from './backstopSamples';
@@ -1044,20 +1047,46 @@ function routeJobResult(job: RouteJob, timings: RouteJobTimings): InshoreRouteRe
 
 /** This module's own URL: in the production build, the `router-engine` chunk's, the route worker's script. */
 export const ROUTE_ENGINE_URL = import.meta.url;
-/** What the host starts and runs: the chunk's URL, and the job on this thread (the fallback). */
-export const ROUTE_ENGINE = { url: ROUTE_ENGINE_URL, run: runRouteJob };
+/**
+ * What the hosts start and run: the chunk's URL, a route job on this thread
+ * (the route's fallback), and the tracer's grid build on this thread (its
+ * fallback, services/engine/navGridWorkerHost).
+ */
+export const ROUTE_ENGINE = { url: ROUTE_ENGINE_URL, run: runRouteJob, grid: buildNavGrid };
 
-export type RouteWorkerRequest = { type: 'job'; id: number; job: RouteJob } | { type: 'trim' };
+/**
+ * One tracer grid (127-ROUTE-W2, the navGrid fold): buildNavGrid's arguments,
+ * as navGridWorkerHost's buildNavGridAsync is given them. Since 127 these
+ * run in a second instance of this script, so a grid never waits behind a
+ * route and a route never waits behind a grid.
+ */
+export interface NavGridJobArgs {
+    layers: InshoreLayers;
+    bbox: [number, number, number, number];
+    resolutionM: number;
+    draftM: number;
+    safetyM: number;
+    obstructionBufferM: number;
+    relaxedLndare: boolean;
+    relaxZones: RelaxZone[];
+    routeProfile: 'safest' | 'tideAssist' | 'tideDirect';
+}
+
+export type RouteWorkerRequest =
+    | { type: 'job'; id: number; job: RouteJob }
+    | { type: 'grid'; id: number; args: NavGridJobArgs }
+    | { type: 'trim' };
 export type RouteWorkerReply =
     | { type: 'ready' }
     | { type: 'init-error'; message: string }
     | { type: 'result'; id: number; output: RouteJobOutput }
+    | { type: 'grid'; id: number; grid: NavGrid }
     | { type: 'error'; id: number; message: string }
     | { type: 'console'; level: 'warn' | 'error'; text: string };
 
 interface RouteWorkerScope {
     onmessage: ((ev: MessageEvent<RouteWorkerRequest>) => void) | null;
-    postMessage(message: RouteWorkerReply): void;
+    postMessage(message: RouteWorkerReply, transfer?: Transferable[]): void;
 }
 
 const logText = (value: unknown): string =>
@@ -1069,14 +1098,16 @@ const logText = (value: unknown): string =>
  * "RENDERED ROUTE" are the Seaway programme's telemetry: each warn or error
  * line is posted to the main thread (text only) and printed there unchanged.
  * Nothing new is logged. A 'trim' (an iOS memory warning) drops the worker's
- * route grids.
+ * route grids. A 'grid' is one tracer grid, built exactly as the navGrid
+ * worker built it, its typed arrays transferred back (zero-copy). Exported
+ * for the tests, which serve it in a fake scope; `out` is the console it
+ * forwards (the worker's own).
  */
-function startRouteWorker(scope: RouteWorkerScope): void {
+export function startRouteWorker(scope: RouteWorkerScope, out: Pick<Console, 'warn' | 'error'> = console): void {
     const post = (message: RouteWorkerReply): void => scope.postMessage(message);
     try {
         for (const level of ['warn', 'error'] as const)
-            console[level] = (...args: unknown[]) =>
-                post({ type: 'console', level, text: args.map(logText).join(' ') });
+            out[level] = (...args: unknown[]) => post({ type: 'console', level, text: args.map(logText).join(' ') });
         scope.onmessage = (ev) => {
             const message = ev.data;
             if (message.type === 'trim') {
@@ -1084,7 +1115,27 @@ function startRouteWorker(scope: RouteWorkerScope): void {
                 return;
             }
             try {
-                post({ type: 'result', id: message.id, output: runRouteJob(message.job) });
+                if (message.type === 'grid') {
+                    const a = message.args;
+                    const grid = buildNavGrid(
+                        a.layers,
+                        a.bbox,
+                        a.resolutionM,
+                        a.draftM,
+                        a.safetyM,
+                        a.obstructionBufferM,
+                        a.relaxedLndare ?? false,
+                        a.relaxZones ?? [],
+                        a.routeProfile ?? 'safest',
+                    );
+                    // Every typed array's buffer goes back transferred, as the
+                    // navGrid worker sent it; the grid rehydrates on the main
+                    // thread as a plain object with live typed arrays.
+                    const transfer: ArrayBuffer[] = [];
+                    for (const v of Object.values(grid))
+                        if (ArrayBuffer.isView(v)) transfer.push((v as ArrayBufferView).buffer as ArrayBuffer);
+                    scope.postMessage({ type: 'grid', id: message.id, grid }, transfer);
+                } else post({ type: 'result', id: message.id, output: runRouteJob(message.job) });
             } catch (err) {
                 post({ type: 'error', id: message.id, message: err instanceof Error ? err.message : String(err) });
             }
