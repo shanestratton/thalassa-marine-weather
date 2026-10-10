@@ -39,10 +39,11 @@ vi.mock('../services/authIdentityScope', () => ({
 }));
 vi.mock('../services/PiPairingService', () => ({ getPairing: () => ({ publicKeySpki: 'key-one' }) }));
 // 127-C-c: the boat's charts, from the registry state.
-const boat = vi.hoisted(() => ({ now: null as string | null }));
+const boat = vi.hoisted(() => ({ now: null as string | null, ensure: vi.fn(async () => 'loaded') }));
 vi.mock('../services/enc/piCellSync', () => ({
     boatName: () => 'Serene Summer',
     boatChartsNow: () => boat.now,
+    ensureBoatRegistry: boat.ensure,
     subscribeBoatRegistry: () => () => undefined,
 }));
 vi.mock('../stores/MapFitTargetStore', () => ({ requestMapFit: vi.fn() }));
@@ -180,6 +181,16 @@ describe('the Charts card says where licensed charts are (127-C-c)', () => {
             ),
         ).toBeInTheDocument();
         expect(screen.queryByText(/stored on this phone/)).not.toBeInTheDocument();
+    });
+
+    // 127-C-c review: opened before the map has mounted, the card itself asks
+    // the Pi, so 'Opening…' is never said with nothing opening.
+    it('asks for her charts when it opens, before the map ever has', async () => {
+        boat.now = 'opening';
+        mocks.listPiInstalledCharts.mockResolvedValue([]);
+        mocks.getCoverage.mockReturnValue([]);
+        render(<EncCellManager />);
+        await waitFor(() => expect(boat.ensure).toHaveBeenCalledTimes(1));
     });
 
     it('ashore after a relaunch: says where her charts open, never claims them', async () => {

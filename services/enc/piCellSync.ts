@@ -190,6 +190,18 @@ export function whenBoatRegistrySettled(capMs: number): Promise<BoatRegistryStat
     );
 }
 
+/**
+ * Cast Off's read of her licensed charts: while they are still opening (just
+ * after a launch aboard) it waits, bounded, so she is not told to recheck on
+ * the Wi-Fi she is on (127-C-c review). Null once they are open, or with none.
+ */
+export async function boatChartsAwayAtCastOff(capMs = 8_000): Promise<{ boatName: string | null } | null> {
+    const now = boatRegistryState();
+    if (now === 'pending' || now === 'away') await whenBoatRegistrySettled(capMs);
+    const settled = boatRegistryState();
+    return settled === 'none' || settled === 'loaded' ? null : { boatName: boatName() };
+}
+
 /** "Has licensed charts": unknown counts as yes while paired (decision 7a). */
 export const boatHasLicensedCharts = (): boolean =>
     getPairing() !== null && useSettingsStore.getState().settings?.boatCharts?.licensed !== false;

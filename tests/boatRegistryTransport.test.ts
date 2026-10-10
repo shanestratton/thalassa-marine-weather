@@ -101,6 +101,7 @@ import { registerFromPiIndex, syncEncFromPi } from '../services/EncImportService
 import * as meta from '../services/enc/EncCellMetadata';
 import * as vault from '../services/enc/boatCellVault';
 import {
+    boatChartsAwayAtCastOff,
     boatChartsNow,
     boatRegistryState,
     boatRegistryWhy,
@@ -256,6 +257,22 @@ describe('the boat registry tells the truth', () => {
         await expect(syncEncFromPi()).rejects.toThrow(/Failed to list Pi charts/);
         expect(boatRegistryState()).toBe('away');
         expect(boatChartsNow()).toBe('away');
+    });
+
+    it('Cast Off just after a launch aboard waits for her charts, so it does not say "recheck"', async () => {
+        h.rows = licensed(2);
+        expect(boatRegistryState()).toBe('pending');
+        // The index lands while Cast Off waits: open, so no recheck words.
+        expect(await boatChartsAwayAtCastOff(8_000)).toBeNull();
+        expect(h.indexFetches).toBe(1);
+        expect(boatRegistryState()).toBe('loaded');
+    });
+
+    it('Cast Off over remote access still says where to recheck, after a bounded wait', async () => {
+        h.remote = true;
+        h.rows = licensed(2);
+        expect(await boatChartsAwayAtCastOff(8_000)).toEqual({ boatName: 'Moana Nui' });
+        expect(h.indexFetches).toBe(0);
     });
 
     it('registration reads the registry once, not once per row (1,031 rows, two open charts held)', () => {

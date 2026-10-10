@@ -57,6 +57,8 @@ vi.mock('../services/PiCacheService', () => ({
     piCache: {
         isAvailable: () => true,
         baseUrl: 'https://pi.local:3001',
+        // On the boat's Wi-Fi the live base is the LAN one (127-C-c review).
+        getLanBaseUrl: () => 'https://pi.local:3001',
         get viaRemoteAccess() {
             return h.viaRemoteAccess;
         },

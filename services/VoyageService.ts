@@ -699,8 +699,7 @@ async function activateVoyage(
                 import('./enc/piCellSync'),
             ]);
             // Just after a launch aboard her charts may still be opening: wait for them (bounded).
-            const registry = boat.boatRegistryState();
-            if (registry === 'pending' || registry === 'away') await boat.whenBoatRegistrySettled(8_000);
+            const boatChartsAway = await boat.boatChartsAwayAtCastOff();
             if (!identityStillOwns(identity, ownerId)) {
                 return { voyage: null, error: 'Account changed while checking Cast Off' };
             }
@@ -714,9 +713,7 @@ async function activateVoyage(
                     voyageDepartureMs: candidate.departure_time ? Date.parse(candidate.departure_time) : null,
                     nowMs: Date.now(),
                     // Her licensed charts open only on the boat's Wi-Fi (127-C-c).
-                    ...(boat.boatRegistryState() !== 'none' && boat.boatRegistryState() !== 'loaded'
-                        ? { boatChartsAway: { boatName: boat.boatName() } }
-                        : {}),
+                    ...(boatChartsAway ? { boatChartsAway } : {}),
                 }) ??
                 undefined;
         }

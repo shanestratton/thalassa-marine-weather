@@ -135,6 +135,28 @@ describe('boatCellVault — memory only, bounded, gzip', () => {
         expect(await vault.getText('OC-99-ZZ0005')).toBeNull();
     });
 
+    // 127-C-c review: a fresh put used to count its full text before its gzip
+    // landed, so three 6 MB pulls threw out up to half a full vault.
+    it('a big put still compressing evicts about its gzip size, not its text size', async () => {
+        // A full vault of compressed cells: noisy text keeps roughly 2/3 of its size.
+        for (let i = 0; i < 70; i++) vault.put(`OC-99-ZZ${String(i).padStart(4, '0')}`, noisy(`f${i}`, MiB));
+        await settle();
+        const full = vault.stats();
+        expect(full.storedBytes).toBeLessThanOrEqual(vault.budgetBytes());
+        expect(full.cells).toBeLessThan(70);
+        // Full means full: pulls one after another leave it near its budget, not half empty.
+        expect(full.storedBytes).toBeGreaterThan(vault.budgetBytes() * 0.9);
+        const perCell = full.storedBytes / full.cells;
+
+        vault.put('OC-99-ZZ9000', text('big', 6 * MiB));
+        // Before its gzip lands: charged about 1 MiB, so about two cells go, not ~9.
+        const evicted = full.cells + 1 - vault.stats().cells;
+        expect(evicted).toBeLessThanOrEqual(Math.ceil(MiB / perCell) + 1);
+        await settle();
+        expect(vault.stats().storedBytes).toBeLessThanOrEqual(vault.budgetBytes());
+        expect(await vault.getText('OC-99-ZZ9000')).toBe(text('big', 6 * MiB));
+    });
+
     it('a cell replaced while its compression runs keeps the newer text', async () => {
         vault.put('OC-99-ZZ0006', text('old', 200_000));
         vault.put('OC-99-ZZ0006', text('new', 200_000));
