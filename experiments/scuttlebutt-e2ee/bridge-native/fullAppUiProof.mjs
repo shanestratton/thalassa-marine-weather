@@ -38,6 +38,7 @@ import {
     inspectControlLaunchMetadata,
     inspectControlLaunchObservation,
     FULL_APP_CONTROL_BUNDLE,
+    FULL_APP_CONTROL_LAUNCH_BOUND_MS,
 } from './fullAppUiResumeContract.mjs';
 import { inspectSimulatorEntitlementSections } from './machOEntitlementEvidence.mjs';
 
@@ -468,7 +469,7 @@ try {
     if (controlLaunchProbe) {
         receipt.phase = 'owned-control-launch-probe';
         receipt.controlLaunchBundle = FULL_APP_CONTROL_BUNDLE;
-        receipt.controlLaunchBoundMs = 30000;
+        receipt.controlLaunchBoundMs = FULL_APP_CONTROL_LAUNCH_BOUND_MS;
         receipt.researchInstallAttempted = false;
         save();
         const inventory = quiet('/usr/bin/xcrun', ['simctl', 'listapps', simulator], 30000, 1024 * 1024);
@@ -488,7 +489,12 @@ try {
         assert(!converted.error && converted.status === 0);
         receipt.controlAppMetadata = inspectControlLaunchMetadata(JSON.parse(converted.stdout));
         save();
-        quiet('/usr/bin/xcrun', ['simctl', 'launch', simulator, FULL_APP_CONTROL_BUNDLE], 30000, 4096);
+        quiet(
+            '/usr/bin/xcrun',
+            ['simctl', 'launch', simulator, FULL_APP_CONTROL_BUNDLE],
+            FULL_APP_CONTROL_LAUNCH_BOUND_MS,
+            4096,
+        );
         assert(receipt.controlLaunchObservation.launchCallAccepted);
         receipt.controlLaunchReturnedPIDAlive = null;
         try {
