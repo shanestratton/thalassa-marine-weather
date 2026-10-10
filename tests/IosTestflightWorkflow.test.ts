@@ -1,11 +1,16 @@
 /**
  * The iPhone build on a GitHub-hosted Mac (.github/workflows/ios-testflight.yml).
  *
- * It holds Apple signing material, so its safety rules are pinned here, not
- * left to review: Apple secrets reach only the signing steps of an owner-run
- * build, never a pull request and never a VITE_* name (every VITE_* value is
- * inlined into the app bundle); an uploaded build number is never reused; no
- * app, archive or key is kept as an artifact; the keychain and key are removed.
+ * It holds Apple signing material, so its rules are pinned here, not left to
+ * review: this file names Apple secrets only in the signing steps of an
+ * owner-run build, never for a pull request and never under a VITE_* name
+ * (every VITE_* value is inlined into the app bundle); an uploaded build number
+ * is never reused; no app, archive or key is kept as an artifact; the
+ * certificate is imported non-extractable; the keychain and key are removed.
+ *
+ * What these tests cannot promise: anyone who can push a workflow to this repo
+ * can read repository secrets, and dependency code runs on the same machine as
+ * the keys. docs/IOS_TESTFLIGHT_CI.md says so and how to revoke the key.
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -53,17 +58,25 @@ describe('the iOS TestFlight workflow', () => {
         expect(jobEnv).not.toContain('secrets.');
         expect(code).not.toMatch(/VITE_[A-Z0-9_]*:\s*\$\{\{\s*secrets\./);
         for (const name of APPLE_SECRETS) expect(name.startsWith('VITE_')).toBe(false);
-        // The npm build runs before any secret is written to the runner.
-        const order = steps.map((s) => s.name);
-        expect(order.indexOf('npm run ship:beta')).toBeLessThan(
-            order.indexOf('Signing keychain and App Store Connect key'),
-        );
+    });
+
+    it('checks every Apple secret is present, and keeps the certificate non-extractable', () => {
+        const signing = step('Signing keychain and App Store Connect key');
+        const loop = /for name in ([^;]+);/.exec(signing)?.[1].split(/\s+/) ?? [];
+        expect([...loop].sort()).toEqual([...APPLE_SECRETS].sort());
+        for (const name of APPLE_SECRETS) expect(signing).toContain(`${name}: \${{ secrets.${name} }}`);
+        expect(signing).toContain('-----BEGIN PRIVATE KEY-----');
+        const importLine = signing.split('\n').find((line) => line.includes('security import')) ?? '';
+        expect(importLine).toContain(' -x ');
+        expect(importLine).not.toContain('/usr/bin/security');
     });
 
     it('builds only the committed build number, and uploads once only when asked', () => {
         const numbers = step('Build number and versions');
         expect(numbers).toContain('"$INPUT_BUILD" != "$committed"');
         expect(numbers).toContain('never reuse an uploaded number');
+        // No default ref: master's committed number may already be uploaded.
+        expect(code).toMatch(/ref:\s*\n\s*description:[^\n]*\n\s*required: true\n(?!\s*default:)/);
         expect(step('Upload to TestFlight (once)')).toContain("if: env.SIGN == 'true' && inputs.upload");
         expect(code).toContain('<key>manageAppVersionAndBuildNumber</key><false/>');
         expect(code).toMatch(/upload:\s*\n\s*description:[^\n]*\n\s*type: boolean\n\s*default: false/);
@@ -82,8 +95,13 @@ describe('the iOS TestFlight workflow', () => {
             "fail 'a Watch app or extension is embedded'",
             'differs from dist',
             "fail 'source maps in the app'",
+            "fail 'commit stamp differs from HEAD'",
         ])
             expect(verify).toContain(check);
+        // `find | grep -q` fails open under pipefail when find is killed by SIGPIPE.
+        expect(verify).not.toMatch(/find [^\n]*\|\s*grep/);
+        // On a dispatch GITHUB_SHA names "Use workflow from", not the commit built.
+        expect(step('npm run ship:beta')).toContain('GITHUB_SHA="$(git rev-parse HEAD)" npm run ship:beta');
         const order = steps.map((s) => s.name);
         expect(order.indexOf('Verify the signed app')).toBeLessThan(order.indexOf('Upload to TestFlight (once)'));
     });
@@ -96,6 +114,11 @@ describe('the iOS TestFlight workflow', () => {
         expect(cleanup).toContain('security delete-keychain');
         expect(cleanup).toContain('"$RUNNER_TEMP/asc"');
         expect(step('Signing keychain and App Store Connect key')).toContain('::add-mask::$password');
+    });
+
+    it('does not download browsers nothing in the build uses', () => {
+        const jobEnv = code.slice(code.indexOf('        env:'), code.indexOf('        steps:'));
+        expect(jobEnv).toContain("PUPPETEER_SKIP_DOWNLOAD: 'true'");
     });
 
     it("checks the Google sign-in client against the app's URL scheme before building", () => {

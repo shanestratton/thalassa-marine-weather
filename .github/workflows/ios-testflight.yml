@@ -8,26 +8,37 @@ name: iOS TestFlight
 # Setup and use: docs/IOS_TESTFLIGHT_CI.md.
 #
 # Two ways in:
-#   - a pull request that touches this file or ios/: the same web build and an
-#     unsigned compile. No signing, no Apple secret is read.
+#   - a pull request that changes this file, the CocoaPods/Bundler inputs or the
+#     native patches: the same web build and an unsigned compile. No signing, no
+#     Apple secret is read. Kept narrow on purpose: on a private repo every Mac
+#     minute counts ten times.
 #   - Run workflow (workflow_dispatch), owner only: builds `ref`, signs, exports
 #     and verifies the signed app; with `upload` ticked it then uploads it once.
 #
 # Rules that never bend (the release docs): an uploaded build number is never
 # reused; `build_number` must equal the CURRENT_PROJECT_VERSION committed at
 # `ref`. No app, archive or key is kept as a workflow artifact.
+#
+# What this does NOT do: isolate the keys from the build. npm, CocoaPods and
+# Xcode run dependency code on this same machine, as they do on the owner's Mac.
+# The certificate is imported non-extractable and everything is deleted at the
+# end, but a malicious dependency could still use the App Store Connect key while
+# the job runs. docs/IOS_TESTFLIGHT_CI.md says how to revoke it.
 
 on:
     pull_request:
         paths:
             - '.github/workflows/ios-testflight.yml'
-            - 'ios/**'
+            - 'ios/App/Podfile'
+            - 'ios/App/Podfile.lock'
+            - 'ios/App/Gemfile'
+            - 'ios/App/Gemfile.lock'
+            - 'patches/**'
     workflow_dispatch:
         inputs:
             ref:
-                description: 'Branch, tag or commit to build (for example b127)'
+                description: 'Branch or commit to build (for example b127)'
                 required: true
-                default: master
             build_number:
                 description: 'Build number: the CURRENT_PROJECT_VERSION committed at that ref, never one already uploaded'
                 required: true
@@ -55,6 +66,9 @@ jobs:
             CI: 'true'
             HUSKY: '0'
             NODE_OPTIONS: --max-old-space-size=4096
+            # puppeteer's postinstall would fetch two Chromes nothing here uses, and one
+            # failed download fails npm ci.
+            PUPPETEER_SKIP_DOWNLOAD: 'true'
             # The Xcode the 102-117 uploads were made with (docs/BUILD_114_TESTFLIGHT.md).
             DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
             # Public client configuration only, exactly as ci.yml: every VITE_* value is
@@ -82,7 +96,9 @@ jobs:
             - name: Toolchain
               run: |
                   set -euo pipefail
-                  xcodebuild -version
+                  [ -d "$DEVELOPER_DIR" ] || {
+                      echo "::error::Xcode 26.6 is no longer on GitHub's macos-26 image ($DEVELOPER_DIR). Do not switch Xcode without testing the build on the Mac first."; exit 1
+                  }
                   case "$(xcodebuild -version | head -1)" in
                       'Xcode 26.6'*) ;;
                       *) echo "::error::Expected Xcode 26.6 at $DEVELOPER_DIR"; exit 1 ;;
@@ -92,6 +108,7 @@ jobs:
             - name: Build number and versions
               env:
                   INPUT_BUILD: ${{ inputs.build_number }}
+                  INPUT_REF: ${{ inputs.ref }}
               run: |
                   set -euo pipefail
                   pbx=ios/App/App.xcodeproj/project.pbxproj
@@ -102,7 +119,7 @@ jobs:
                   committed="$builds"
                   if [ "$SIGN" = true ]; then
                       if ! printf '%s' "$INPUT_BUILD" | grep -qE '^[0-9]+$' || [ "$INPUT_BUILD" != "$committed" ]; then
-                          echo "::error::build_number '$INPUT_BUILD' must equal the committed CURRENT_PROJECT_VERSION ($committed). Commit the bump first; never reuse an uploaded number."
+                          echo "::error::build_number '$INPUT_BUILD' must equal the committed CURRENT_PROJECT_VERSION ($committed) at ref '$INPUT_REF' (commit $(git rev-parse --short HEAD)). Commit AND push the bump to that branch, or check the ref; never reuse an uploaded number."
                           exit 1
                       fi
                   fi
@@ -153,8 +170,10 @@ jobs:
 
             # The owner's packaging gate, unchanged: check:beta, build, web release,
             # bundle budget, routes, cap sync (pod install), secret and artifact checks.
+            # On a dispatch GITHUB_SHA is the tip of "Use workflow from", not `ref`, and
+            # the app's Sentry commit tag must name the commit actually built.
             - name: npm run ship:beta
-              run: npm run ship:beta
+              run: GITHUB_SHA="$(git rev-parse HEAD)" npm run ship:beta
 
             - name: Compile (unsigned)
               if: env.SIGN != 'true'
@@ -170,21 +189,28 @@ jobs:
                   IOS_DEV_CERT_P12_BASE64: ${{ secrets.IOS_DEV_CERT_P12_BASE64 }}
                   IOS_DEV_CERT_PASSWORD: ${{ secrets.IOS_DEV_CERT_PASSWORD }}
                   ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+                  ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
                   ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
               run: |
                   set -euo pipefail
-                  for name in IOS_DEV_CERT_P12_BASE64 IOS_DEV_CERT_PASSWORD ASC_KEY_ID ASC_KEY_P8; do
+                  for name in IOS_DEV_CERT_P12_BASE64 IOS_DEV_CERT_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
                       [ -n "${!name}" ] || { echo "::error::Secret $name is not set (docs/IOS_TESTFLIGHT_CI.md)"; exit 1; }
                   done
+                  case "$ASC_KEY_P8" in
+                      *'-----BEGIN PRIVATE KEY-----'*'-----END PRIVATE KEY-----'*) ;;
+                      *) echo '::error::ASC_KEY_P8 is not the text of the .p8 file (BEGIN to END PRIVATE KEY)'; exit 1 ;;
+                  esac
                   keychain="$RUNNER_TEMP/signing.keychain-db"
                   password=$(openssl rand -hex 24)
                   echo "::add-mask::$password"
                   security create-keychain -p "$password" "$keychain"
-                  security set-keychain-settings -lut 21600 "$keychain"
+                  # Locks itself after the job's own 90-minute limit.
+                  security set-keychain-settings -lut 5400 "$keychain"
                   security unlock-keychain -p "$password" "$keychain"
                   umask 077
                   printf '%s' "$IOS_DEV_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dev.p12"
-                  security import "$RUNNER_TEMP/dev.p12" -k "$keychain" -P "$IOS_DEV_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+                  # -x: the private key can sign but can never be exported again.
+                  security import "$RUNNER_TEMP/dev.p12" -k "$keychain" -P "$IOS_DEV_CERT_PASSWORD" -x -T /usr/bin/codesign
                   rm -f "$RUNNER_TEMP/dev.p12"
                   security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
                   security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
@@ -279,7 +305,11 @@ jobs:
                   # The web app inside is the one ship:beta built and checked: byte for byte, no maps.
                   (cd dist && find . -type f ! -name '*.map' | sort) > "$RUNNER_TEMP/dist-files.txt"
                   while IFS= read -r file; do cmp -s "dist/$file" "$app/public/$file" || fail "public/$file differs from dist"; done < "$RUNNER_TEMP/dist-files.txt"
-                  if find "$app/public" -name '*.map' | grep -q .; then fail 'source maps in the app'; fi
+                  # No pipe into `grep -q`: under pipefail an early grep exit can hide a match.
+                  [ -z "$(find "$app/public" -name '*.map' -print -quit)" ] || fail 'source maps in the app'
+                  # The Sentry commit tag (vite.config.ts: the first 12 characters) names the
+                  # commit that was checked out and built.
+                  grep -rqF "$(git rev-parse HEAD | cut -c1-12)" "$app/public/assets" || fail 'commit stamp differs from HEAD'
                   main=$(ls "$app"/public/assets/main-*.js)
                   {
                       echo "### $BUNDLE_ID $APP_VERSION ($APP_BUILD)"
@@ -288,7 +318,7 @@ jobs:
                       echo "- Signed: Apple Distribution, team $TEAM_ID; entitlements checked"
                       echo "- Web files: $(wc -l < "$RUNNER_TEMP/dist-files.txt" | tr -d ' ') byte-identical to dist"
                       echo "- main asset \`$(basename "$main")\` SHA-256 \`$(shasum -a 256 "$main" | cut -d' ' -f1)\`"
-                      echo "- IPA SHA-256 \`$(shasum -a 256 "$ipa" | cut -d' ' -f1)\`"
+                      echo "- Verified IPA SHA-256 \`$(shasum -a 256 "$ipa" | cut -d' ' -f1)\` (an upload is re-signed by Xcode from the same archive, so its own hash differs)"
                   } >> "$GITHUB_STEP_SUMMARY"
 
             - name: Upload to TestFlight (once)
