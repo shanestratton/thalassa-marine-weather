@@ -228,7 +228,11 @@ async function run(scope: AuthIdentityScope, signal: AbortSignal): Promise<CrewC
         );
         stop = halted();
         if (stop) return stop;
-        if (created.error) return fail(classify(created.error, created.status), 'create');
+        // 23505: chat_channels_one_crew_room_per_owner refused a second room,
+        // so another phone made it first. Read that one back.
+        if (created.error && field(created.error, 'code') !== '23505') {
+            return fail(classify(created.error, created.status), 'create');
+        }
         await forgetChannelList(scope);
 
         // Read it back: two phones racing both land in the oldest room.

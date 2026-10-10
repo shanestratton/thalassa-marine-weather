@@ -53,6 +53,11 @@ const net = vi.hoisted(() => {
         override: {} as Partial<Record<Step, (call: Call) => Promise<Reply>>>,
         /** Runs just before our channel insert lands (another phone racing). */
         beforeCreate: null as null | (() => void),
+        /**
+         * chat_channels_one_crew_room_per_owner (20261010154500): a second
+         * active private 👥 room for the same owner is refused with 23505.
+         */
+        oneRoomIndex: false,
         /** Who auth.uid() is on the server, for the RLS the fake applies. */
         authUid: () => state.sessionUserId,
     };
@@ -110,6 +115,21 @@ function serve(call: Call): Promise<Reply> {
             });
         }
         net.state.beforeCreate?.();
+        const crewRoom = (other: Record<string, unknown>) =>
+            other.owner_id === row.owner_id &&
+            other.is_private === true &&
+            other.icon === '👥' &&
+            other.status === 'active';
+        if (net.state.oneRoomIndex && crewRoom(row) && net.state.channels.some(crewRoom)) {
+            return Promise.resolve({
+                data: null,
+                error: {
+                    code: '23505',
+                    message: 'duplicate key value violates unique constraint "chat_channels_one_crew_room_per_owner"',
+                },
+                status: 409,
+            });
+        }
         const stored = { id: row.id ?? `server-${net.state.clock}`, created_at: stamp(), ...row };
         net.state.channels.push(stored);
         return Promise.resolve({ data: call.returning ? stored : null, error: null, status: 201 });
@@ -329,6 +349,7 @@ beforeEach(() => {
     net.state.clock = 0;
     net.state.override = {};
     net.state.beforeCreate = null;
+    net.state.oneRoomIndex = false;
     logs.warn = [];
     chatCache.invalidateChannelCache.mockClear();
     localStorage.clear();
@@ -524,6 +545,43 @@ describe('With no room yet, a skipper with crew gets one, created without RETURN
         expect(thisPhone).toMatchObject({ ok: true, channel: { id: 'room-other-phone' } });
         expect(otherPhone).toMatchObject({ ok: true, channel: { id: 'room-other-phone' } });
         expect(channelInserts()).toHaveLength(1);
+    });
+
+    it('with one room per skipper in the database, a create that loses the race (23505) opens the other phone’s room', async () => {
+        // The other phone's Crew Chat lands a moment before ours, and the
+        // unique index refuses ours. That is not a failure: read it back.
+        net.state.oneRoomIndex = true;
+        net.state.beforeCreate = () => {
+            net.state.beforeCreate = null;
+            net.state.channels.push(room('room-other-phone', 'Crew Chat', '2026-10-09T00:09:59.000Z'));
+        };
+
+        const result = await openOwnCrewChat();
+
+        expect(result).toMatchObject({ ok: true, channel: { id: 'room-other-phone', name: 'Crew Chat' } });
+        expect(crewChatFailureMessage(result)).toBeNull();
+        expect(channelInserts()).toHaveLength(1);
+        expect(net.state.channels.map((channel) => channel.id)).toEqual(['room-other-phone']);
+        // The find, then the read-back.
+        expect(finds()).toHaveLength(2);
+        expect(memberInserts()).toHaveLength(1);
+        expect(memberInserts()[0].payload).toEqual({ channel_id: 'room-other-phone', user_id: 'skipper-1' });
+        expect(warned()).toEqual([]);
+    });
+
+    it('a 23505 with no room to read back still does not open, and says why', async () => {
+        net.state.override.create = async () => ({
+            data: null,
+            error: { code: '23505', message: 'duplicate key value violates unique constraint' },
+            status: 409,
+        });
+
+        const result = await openOwnCrewChat();
+
+        expect(result).toEqual({ ok: false, reason: 'denied', step: 'readback' });
+        expect(finds()).toHaveLength(2);
+        expect(memberInserts()).toHaveLength(0);
+        expect(crewChatFailureMessage(result)).not.toMatch(/sign in/i);
     });
 
     it('a crew-only account with no room of its own is told so, and nothing is created', async () => {
