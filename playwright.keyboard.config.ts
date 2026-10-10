@@ -133,6 +133,9 @@ export default defineConfig({
         // to the iPad split in wide fonts, centred above the tab bar, scrolling inside
         // themselves; the New box name stays above the keyboard (e2e/fixtures/stores-boxes.tsx).
         'stores-boxes-layout.spec.ts',
+        // A phone without Thalassa held to a box tag (126-11b): public/box.html fits 320 × 568
+        // and 430 × 932, light and dark, and loads nothing but itself.
+        'box-fallback-page.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

@@ -1,0 +1,15 @@
+{
+    "applinks": {
+        "details": [
+            {
+                "appIDs": ["D4TW8A23QZ.com.thalassa.weather"],
+                "components": [
+                    {
+                        "/": "/box/*",
+                        "comment": "Only the Ship's Stores box tags (126-11b). Every other thalassawx.app page stays in the browser."
+                    }
+                ]
+            }
+        ]
+    }
+}

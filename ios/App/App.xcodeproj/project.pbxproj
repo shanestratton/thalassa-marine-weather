@@ -44,6 +44,8 @@
 		AA000024AAAA002400000001 /* BarometerPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000024AAAA002400000002 /* BarometerPlugin.m */; };
 		AA000025AAAA002500000001 /* NetworkInterfacesPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000025AAAA002500000002 /* NetworkInterfacesPlugin.swift */; };
 		AA000026AAAA002600000001 /* NetworkInterfacesPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */; };
+		AA0011B1AAAA11B100000001 /* NfcTagPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0011B1AAAA11B100000002 /* NfcTagPlugin.swift */; };
+		AA0011B2AAAA11B200000001 /* NfcTagPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0011B2AAAA11B200000002 /* NfcTagPlugin.m */; };
 		AA000027AAAA002700000001 /* MemoryGaugePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000027AAAA002700000002 /* MemoryGaugePlugin.swift */; };
 		AA000028AAAA002800000001 /* MemoryGaugePlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000028AAAA002800000002 /* MemoryGaugePlugin.m */; };
 		AA000029AAAA002900000001 /* GoogleOAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000029AAAA002900000002 /* GoogleOAuthPlugin.swift */; };
@@ -94,6 +96,8 @@
 		AA000024AAAA002400000002 /* BarometerPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BarometerPlugin.m; sourceTree = "<group>"; };
 		AA000025AAAA002500000002 /* NetworkInterfacesPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkInterfacesPlugin.swift; sourceTree = "<group>"; };
 		AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NetworkInterfacesPlugin.m; sourceTree = "<group>"; };
+		AA0011B1AAAA11B100000002 /* NfcTagPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NfcTagPlugin.swift; sourceTree = "<group>"; };
+		AA0011B2AAAA11B200000002 /* NfcTagPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NfcTagPlugin.m; sourceTree = "<group>"; };
 		AA000027AAAA002700000002 /* MemoryGaugePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryGaugePlugin.swift; sourceTree = "<group>"; };
 		AA000028AAAA002800000002 /* MemoryGaugePlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MemoryGaugePlugin.m; sourceTree = "<group>"; };
 		AA000029AAAA002900000002 /* GoogleOAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleOAuthPlugin.swift; sourceTree = "<group>"; };
@@ -182,6 +186,8 @@
 				AA000028AAAA002800000002 /* MemoryGaugePlugin.m */,
 				AA000025AAAA002500000002 /* NetworkInterfacesPlugin.swift */,
 				AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */,
+				AA0011B1AAAA11B100000002 /* NfcTagPlugin.swift */,
+				AA0011B2AAAA11B200000002 /* NfcTagPlugin.m */,
 				AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */,
 				AA000015AAAA001500000002 /* WatchConnectivityPlugin.swift */,
 				AA000016AAAA001600000002 /* WatchConnectivityPlugin.m */,
@@ -420,6 +426,8 @@
 				AA000028AAAA002800000001 /* MemoryGaugePlugin.m in Sources */,
 				AA000025AAAA002500000001 /* NetworkInterfacesPlugin.swift in Sources */,
 				AA000026AAAA002600000001 /* NetworkInterfacesPlugin.m in Sources */,
+				AA0011B1AAAA11B100000001 /* NfcTagPlugin.swift in Sources */,
+				AA0011B2AAAA11B200000001 /* NfcTagPlugin.m in Sources */,
 				AA000014AAAA001400000001 /* MdnsBrowserPlugin.m in Sources */,
 				AA000015AAAA001500000001 /* WatchConnectivityPlugin.swift in Sources */,
 				AA000016AAAA001600000001 /* WatchConnectivityPlugin.m in Sources */,

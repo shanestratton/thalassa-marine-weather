@@ -16,6 +16,8 @@
 	<string>Thalassa uses speech recognition to transcribe your spoken diary entries and Bosun questions, letting you capture your passage and ask the boat about weather, systems, and live state without typing.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Thalassa uses the camera to scan barcodes on inventory items and spare parts for quick identification and stock management.</string>
+	<key>NFCReaderUsageDescription</key>
+	<string>Thalassa reads and writes the NFC tags on your stowage boxes, so holding your iPhone to a box opens what is inside it.</string>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>Thalassa connects to your Apple Music library so you can play your music and playlists from the helm, and so the Bosun voice console can change the tune hands-free while you sail.</string>
 	<!-- audio = anchor-alarm tones; location =

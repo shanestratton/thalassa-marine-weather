@@ -49,7 +49,10 @@ import { initLocalDatabase } from '../../services/vessel/LocalDatabase';
 import { StoresBoxService, serverHasBoxes } from '../../services/vessel/StoresBoxService';
 import { addRestock, restockFor } from '../../services/vessel/storesRestock';
 import { StoresBoxes, type BoxView } from './inventory/BoxesSheet';
-import { registerBoxOpener } from './inventory/openBox';
+import { openBox, registerBoxOpener } from './inventory/openBox';
+import { OPEN_BOX_EVENT, consumePendingBox } from '../../services/boxLinks';
+import { scanBoxTag } from '../../services/native/nfcTags';
+import { useNfcTags } from './inventory/useNfcTags';
 
 interface InventoryListProps {
     onBack: () => void;
@@ -65,6 +68,10 @@ interface ScopedInventoryData {
 }
 
 // SwipeableInventoryCard now in ./inventory/SwipeableInventoryCard.tsx
+
+/** Boxes and Scan box, beside the search field. */
+const ROW_BUTTON =
+    'shrink-0 min-h-[44px] px-3 rounded-xl bg-white/5 border border-white/10 text-sm font-bold text-gray-300';
 
 export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [inventoryData, setInventoryData] = useState<ScopedInventoryData>(() => ({
@@ -186,6 +193,26 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     /** "New item here": the Add form opens in this box. */
     const [scanBox, setScanBox] = useState<string | null>(null);
     useEffect(() => registerBoxOpener((id) => setBoxView({ id })), []);
+    // A box from its tag (126-11b): the link that opened Stores, or one that
+    // arrives while it is open. Only this account's (services/boxLinks).
+    useEffect(() => {
+        const take = () => {
+            const id = consumePendingBox();
+            if (id) openBox(id);
+        };
+        take();
+        window.addEventListener(OPEN_BOX_EVENT, take);
+        return () => window.removeEventListener(OPEN_BOX_EVENT, take);
+    }, []);
+    const nfc = useNfcTags();
+    /** Scan box: read the tag held to the iPhone and open its box. */
+    const scanTag = async () => {
+        const identity = getAuthIdentityScope();
+        const { id, words } = await scanBoxTag();
+        if (!isAuthIdentityScopeCurrent(identity)) return;
+        if (id) openBox(id);
+        else if (words) toast.error(words);
+    };
     // Its own channel: before the push the table is not published, and a
     // binding the server refuses must not take the items' channel with it.
     useRealtimeSync('stores_boxes', reloadInBackground, boxesLive);
@@ -612,17 +639,20 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                 aria-label="Search stores"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Search by name or location…"
+                                // Shorter beside Scan box, so it is not cut off on a 320-390 pt iPhone.
+                                placeholder={nfc ? 'Search…' : 'Search by name or location…'}
                                 className="min-w-0 flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-400 [.display-light_&]:placeholder-slate-600! outline-hidden focus:border-sky-500/30"
                             />
                         )}
                         {/* Boxes in a locker (126-11a): see what is in each. */}
-                        <button
-                            onClick={() => setBoxView({ id: null })}
-                            className="shrink-0 min-h-[44px] px-3 rounded-xl bg-white/5 border border-white/10 text-sm font-bold text-gray-300"
-                        >
+                        <button onClick={() => setBoxView({ id: null })} className={ROW_BUTTON}>
                             Boxes
                         </button>
+                        {nfc && (
+                            <button onClick={() => void scanTag()} className={ROW_BUTTON}>
+                                Scan box
+                            </button>
+                        )}
                     </div>
                 )}
 
@@ -929,10 +959,12 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
             <UndoToast key={undoToastKey} {...undoToastProps} />
 
-            {/* Boxes (126-11a): one sheet at a time; a new box view starts fresh. */}
+            {/* Boxes (126-11a): one sheet at a time; a new box view starts fresh.
+                Shown once the page has loaded, so a box opened from its tag on
+                the way in never flashes "not on this phone" first (126-11b). */}
             <StoresBoxes
                 key={boxView ? (boxView.id ?? '') : '-'}
-                view={inventoryDataIsCurrent ? boxView : null}
+                view={inventoryDataIsCurrent && inventoryData.loaded ? boxView : null}
                 setView={setBoxView}
                 items={items}
                 boxes={boxes}
@@ -946,6 +978,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     setShowScanner(true);
                 }}
                 reload={() => loadItems(getAuthIdentityScope(), true)}
+                onScan={nfc ? () => void scanTag() : undefined}
             />
 
             {/* ═══ EXPORT CATEGORY PICKER ═══ */}
