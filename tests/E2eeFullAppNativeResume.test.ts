@@ -11,6 +11,7 @@ import {
     inspectControlLaunchMetadata,
     inspectControlLaunchObservation,
     FULL_APP_CONTROL_BUNDLE,
+    FULL_APP_CONTROL_LAUNCH_BOUND_MS,
 } from '../experiments/scuttlebutt-e2ee/bridge-native/fullAppUiResumeContract.mjs';
 import {
     FULL_APP_NATIVE_COUNTERS,
@@ -190,6 +191,9 @@ describe('cached unsigned native resume — pure plan only', () => {
 });
 
 describe('fixed Apple control launch — pure metadata and syscall fixtures only', () => {
+    it('pins the fixed 120-second Settings diagnostic cutoff', () => {
+        expect(FULL_APP_CONTROL_LAUNCH_BOUND_MS).toBe(120000);
+    });
     const inventory = () => ({
         [FULL_APP_CONTROL_BUNDLE]: {
             ApplicationType: 'System',

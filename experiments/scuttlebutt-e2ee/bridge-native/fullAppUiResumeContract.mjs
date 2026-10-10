@@ -142,6 +142,8 @@ export const FULL_APP_CACHED_RUNTIME_IDS = Object.freeze([
 ]);
 const cachedDeviceTypeId = 'com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation';
 export const FULL_APP_CONTROL_BUNDLE = 'com.apple.Preferences';
+// Diagnostic timing hypothesis only; no arbitrary CLI bound or retry.
+export const FULL_APP_CONTROL_LAUNCH_BOUND_MS = 120000;
 
 /** Cached-mode tail only: optional wait/runtime, then one fixed control probe. */
 export function inspectCachedResumeOptions(raw) {

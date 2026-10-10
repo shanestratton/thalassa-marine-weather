@@ -253,7 +253,24 @@ storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gate
 before treating this routing seam as startup integration. No ordinary activation,
 shared dependency write, primary sync, master or production change is included.
 
-The [10 October fresh queued control invocation](../experiments/scuttlebutt-e2ee/review/full-app-native-control-invocation-2026-10-10.json)
+The [10 October control timing evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-control-timing-2026-10-10.json)
+executes one cached-only control attempt on `93469456`: preflight, new owned-copy
+signing, fresh iOS 27 boot and System Settings metadata verification passed.
+The 30-second Settings launch call timed out with null exit/no PID. Research
+installation/launch was skipped and the exact simulator removed; 88 execution
+source hashes stayed stable, with no compile or shared waiting. This is a failed
+control comparison, not a launch-cause diagnosis or native acceptance.
+
+A separate fixed 120,000 ms Settings cutoff is now prepared and unrun. Research
+remains at 30,000 ms; default modes and exact metadata/status/PID/native gates
+are unchanged, with no arbitrary bound or retry. All 54 final-byte focused
+cases, narrow types and named lint/format pass. The new pure assertion pins the
+constant only; no second simulator attempt or actual 120-second observation
+occurred. Next test that bounded timing hypothesis on a new owned simulator,
+not a claimed fix. Native/physical/production/provenance/licence/independent
+assessment gates remain open.
+
+The historical [10 October fresh queued control invocation](../experiments/scuttlebutt-e2ee/review/full-app-native-control-invocation-2026-10-10.json)
 retains clean `a4769c88` and 87 stable source hashes, without repeating checks or
 compilation. Its new heartbeat window expired at 120,007/120,000 ms before the
 child driver: no preflight, signing, simulator, control or Research execution

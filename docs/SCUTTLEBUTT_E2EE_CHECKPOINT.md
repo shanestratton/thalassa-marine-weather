@@ -113,8 +113,9 @@ earlier boot timeout, two fresh iOS 27.0 attempts booted and installed the same
 app, but each launch call timed out. The second attempt captured absence of both
 expected diagnostic files before cleanup; that does not prove no app code ran.
 All exact simulators were removed; native acceptance remains unproved. A fixed
-Settings launch-control probe is now prepared and locally tested, but its owned
-simulator invocation is queued-unrun. The ordinary
+Settings launch control now booted and passed installed System metadata checks,
+then its 30-second launch call timed out before Research installation/launch.
+A separately tested 120-second Settings cutoff is prepared but unrun. The ordinary
 app/router still has no experimental startup admission. Production
 cutover is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
@@ -149,6 +150,33 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 10 October Settings control launch timed out
+
+The [control timing evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-control-timing-2026-10-10.json)
+records one cached-only attempt on `93469456`. Strict cached preflight passed,
+only a new owned copy was signed, and the fresh iOS 27.0 simulator booted.
+Bounded private installed-app metadata verified System `com.apple.Preferences`.
+Its one launch call reached the 30-second cutoff with null exit status and no
+returned PID. The driver stopped before Research installation/launch and removed
+the exact owned simulator. All 88 execution source hashes stayed unchanged;
+no native/web compilation or shared-slot waiting occurred.
+
+This provides a failed launch comparison outside Research, not a proven
+infrastructure cause, fix or native startup result. The failed receipt remains
+unchanged. A conservative timing hypothesis now pins **120,000 ms for Settings
+only**, leaving Research's 30,000 ms cutoff, exact System/status/PID checks,
+default modes and all native/transport/admission gates intact. No arbitrary CLI
+timeout or retry was added. All 54 final-byte focused cases, narrow types and
+named lint/format passed; the new constant assertion is not an actual timer or
+simulator test. The 120-second plan is **unrun**, and no second simulator attempt
+occurred this heartbeat. Shared waiting remained 0/120,000 ms throughout.
+
+Next run the prepared fixed-cutoff control once on a newly owned simulator in
+a later free slot, retaining exact cached inputs and fail-closed Research
+selection. Native startup, protected exchange, physical acceptance, production
+cutover, provenance/licence and independent review remain open. Master `196bcb0e`
+is unreconciled and foundation `3c30f47c` unchanged.
 
 ### 10 October prepared control invocation remains queued
 
