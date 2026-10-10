@@ -1,6 +1,6 @@
 # Scuttlebutt private message E2EE review brief
 
-Updated 10 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
+Updated 11 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work. Commit IDs in the historical evidence below predate the 10 October licensed-chart history cleanup and must not be used as push bases or relabelled as current acceptance.
 
 The installed isolated Research candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c` on `codex/scuttlebutt-e2ee-foundation`. It passed 1,069 tests across 15 isolated suites, focused strict TypeScript, named lint, formatting and separate web/unsigned physical-iOS builds before local signing and in-place installation on both devices. Research entitlements match the previous candidate, and identical 11-file metadata inventories were retained across each update. Normal Thalassa's compared bundle/version/build metadata is unchanged. Launch requests succeeded; the owner subsequently reported signing into both. These are fixture/build/update checks and an owner report; the later bounded new-candidate message observations below are separate, not a full acceptance pass or an audit.
 
@@ -62,8 +62,33 @@ must be included in that decision. Production database activation, primary sync,
 reviewer contact, payment and source sharing retain separate unapproved authority.
 Current research is not ready for master or production activation.
 
-The active development branch is `codex/scuttlebutt-e2ee-integration-2026-10-06`,
-rebased onto master `7e0b27a4` without rewriting the published foundation branch.
+Shane resumed development on 11 October after the pause and licensed-chart
+history cleanup. The active branch is
+`codex/scuttlebutt-e2ee-integration-clean-2026-10-11`, starting at `9e24986f` on
+cleaned master `b4cb3211`. Git migration checks passed 68/68 tests and preserved
+the ten paused fixture files byte-identically, including the accepted-crew/cache
+and alarm-handler conflict resolutions. The rewritten remote integration is left
+untouched. New pushes must be on the clean continuation only; old foundation,
+integration and stash refs must never be pushed.
+
+The separate resource-v4 full-App protected exchange fixture now requires real
+completed scan evidence, grounded legacy-control checks and an exact launch PID.
+The [clean web and Window slice](../experiments/scuttlebutt-e2ee/review/clean-web-window-2026-10-11.json)
+now has a fresh source-bound build and actual unsupported Chrome startup, Chat,
+closure/remount and CSP acceptance on the rebased graph. Exact closed projections
+cover newer Auth, local-data and GPS classifier interfaces without evaluating
+production modules. The overlapping tests and four retained build failures are
+separate evidence, not an aggregate or an encryption pass.
+
+The eleven native fixture/harness WIP paths remain local and unpublished. Native
+v4 preflight found a missing original completed-exchange receipt; cached artifact
+hash matching does not replace that execution record. No native build, signing,
+resource or simulator action occurred and no passed receipt was reconstructed.
+Recover exact evidence or regenerate the legitimate provider/relay evidence chain
+before native execution. Earlier startup acceptance remains historical, not
+current protected-exchange acceptance. Physical, lifecycle/prekey/recovery,
+production cutover, licence/provenance and independent-assessment gates remain open.
+
 The new ordinary text-only native port shares the existing Research Auth host,
 requires a complete confirmed native peer snapshot, and preserves original-owner
 publication checks. Its explicit screen performs one bounded scan on Refresh,

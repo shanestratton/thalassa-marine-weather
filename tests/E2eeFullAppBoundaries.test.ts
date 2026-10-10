@@ -19,6 +19,7 @@ import {
     createFullAppStartupBoundaries,
     FULL_APP_BOUNDARY_COUNTER_LIMIT,
     FULL_APP_BOUNDARY_UNAVAILABLE,
+    ANCHOR_RELOCATE_FIX_MAX_AGE_MS,
     FullAppBoundaryUnavailableError,
 } from '../experiments/scuttlebutt-e2ee/full-app-pilot/boundaries';
 
@@ -276,6 +277,50 @@ describe('fixed denied full-App startup/native leaves', () => {
         expect(() => leaves.haversineDistance(0, 0, 0, 0)).toThrowError(FullAppBoundaryUnavailableError);
         expect(getter).not.toHaveBeenCalled();
         expect(leaves.readCounters().anchorRequests).toBe(2);
+    });
+    it('keeps anchor-age vocabulary equal to the current literal without evaluating the original service', () => {
+        const source = readFileSync('services/AnchorWatchService.ts', 'utf8');
+        expect(ANCHOR_RELOCATE_FIX_MAX_AGE_MS).toBe(30_000);
+        expect(source).toContain('export const ANCHOR_RELOCATE_FIX_MAX_AGE_MS = 30_000;');
+    });
+    it('keeps voyage-error classification false without reading errors/getters or requesting native location', () => {
+        const leaves = createFullAppStartupBoundaries();
+        const getter = vi.fn(() => {
+            throw new Error('Private voyage diagnostic must not be read');
+        });
+        const error = Object.defineProperty(new Error('private-voyage-canary'), 'name', { get: getter });
+        for (const argument of [error, new Proxy({}, { get: getter }), null, undefined])
+            expect(leaves.isVoyageLocationError(argument)).toBe(false);
+        expect(getter).not.toHaveBeenCalled();
+        expect(leaves.readCounters().observations).toBe(4);
+        for (const name of ['gpsRequests', 'nativeRequests', 'shiplogRequests'] as const)
+            expect(leaves.readCounters()[name]).toBe(0);
+        expect(JSON.stringify(leaves.readCounters())).not.toContain('private-voyage-canary');
+    });
+    it('refuses identity tokens and outbox repairs without argument inspection, callbacks or writes', async () => {
+        const leaves = createFullAppStartupBoundaries();
+        const getter = vi.fn(() => {
+            throw new Error('Private database input must not be read');
+        });
+        const callback = vi.fn(),
+            outbox = vi.fn();
+        const input = new Proxy({}, { get: getter });
+        const queueBefore = leaves.getFullQueue();
+        const stop = leaves.onOutboxAppended(outbox);
+        for (const identity of [null, 'private-identity-canary', input])
+            expect(() => leaves.identityFileToken(identity)).toThrowError(FullAppBoundaryUnavailableError);
+        await expect(leaves.rewriteQueuedRecord(input, input, callback, callback)).rejects.toMatchObject(
+            boundaryFailure,
+        );
+        await expect(leaves.discardUnsentRecord(input, input, callback)).rejects.toMatchObject(boundaryFailure);
+        expect(getter).not.toHaveBeenCalled();
+        expect(callback).not.toHaveBeenCalled();
+        expect(outbox).not.toHaveBeenCalled();
+        expect(leaves.getFullQueue()).toBe(queueBefore);
+        expect(queueBefore).toEqual([]);
+        expect(leaves.readCounters().vesselRequests).toBe(5);
+        expect(JSON.stringify(leaves.readCounters())).not.toContain('private-identity-canary');
+        stop();
     });
 
     it('settles background GPS presentation with absent fixes and unknown unusable health', async () => {

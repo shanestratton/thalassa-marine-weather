@@ -314,7 +314,7 @@ export function inspectWindowBuildReceipt(raw, checkout) {
     const sourceInputs = rows(inputs, 10000),
         artifacts = rows(outputs, 2000);
     const assetInputs = rows(value('explicitAssetSourceInputs'), 1);
-    const expectedAssetHash = '629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15';
+    const expectedAssetHash = '5beb04af8d53a700cddcfca1a4a0b9120ea22aa136e1cf03d79add6814b0aab1';
     demand(
         assetInputs.length === 1 &&
             assetInputs[0].path === resolve(checkout, 'public/thalassa-icon-128.png') &&
@@ -337,7 +337,7 @@ export function inspectWindowBuildReceipt(raw, checkout) {
         output = exact(emission.output, ['path', 'sha256']);
     demand(
         emission.label === 'app-brand-icon-128' &&
-            emission.byteLength === 31539 &&
+            emission.byteLength === 9036 &&
             emission.width === 256 &&
             emission.height === 256,
     );

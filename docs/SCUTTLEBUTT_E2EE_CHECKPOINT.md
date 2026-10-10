@@ -1,10 +1,15 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 10 October 2026, Australia/Brisbane. Active branch:
-`codex/scuttlebutt-e2ee-integration-2026-10-06`.
-The published foundation branch remains at `3c30f47c`; it was not rewritten.
-On 6 October the integration branch was rebased onto master `7e0b27a4`, retaining the then-newer
-legacy chat initialization, accepted-crew repair and text-selection fixes.
+Updated: 11 October 2026, Australia/Brisbane. Active branch:
+`codex/scuttlebutt-e2ee-integration-clean-2026-10-11`, starting at
+`9e24986f1b1646a7112ab0433811cdf265fdab40` on cleaned master
+`b4cb321167e27c4cf592786bd576abd841e57821`.
+Shane resumed development after the pause and the 10 October repository history
+rewrite removing licensed chart data. Older commit IDs and acceptance below are
+historical evidence, not current ancestry or acceptance of the rebased sources.
+Never push old local foundation/integration refs or the local backup stash. The
+rewritten remote integration is left untouched; coherent new pushes belong only
+to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
 ## Shared-Mac workflow — owner's 1 October rules
 
@@ -42,27 +47,24 @@ a substitute for those checks or a way around a bundled dependency's licence.
 On 6 October, Shane authorized continued E2EE implementation without routine
 questions while away for a week, initially through 13 October. On 9 October he
 renewed the instruction to work autonomously all the way to a justified merge.
-The existing heartbeat `advance-scuttlebutt-e2ee-while-shane-is-away` continues
-every four hours, Australia/Brisbane, without the 13 October expiry. It names
-the integration branch above and the same isolated worktree; it must not switch
-back to or rewrite the published foundation branch. Use named-file commits and
-verified coherent pushes. Unchanged state does not justify repeating the same
-tests or status messages.
+The existing heartbeat `advance-scuttlebutt-e2ee-while-shane-is-away` was paused
+at Shane's request, then resumed on 11 October with the clean continuation branch
+above and the same isolated worktree. It continues every four hours without the
+earlier 13 October expiry. Fetch before every push; current cleaned `origin/master`
+must be an ancestor and retired chart paths must remain absent. Safely reconcile
+any newer or rewritten upstream first. Use named-file commits and verified
+coherent pushes. Unchanged state does not justify repeating tests or messages.
 
 The order is controlled real-provider crash recovery, an explicit isolated-test
 private-message integration, fail-closed cutover, device/prekey lifecycle and
 recovery policy, then integration evidence and the review packet. Conservative
 implementation choices should be recorded. If a step needs human devices or
 expired account access, continue unrelated unblocked work and retain the gate.
-The 6 October integration rebase onto `7e0b27a4` preserved Claude's then-newer app
-fixes. Shared master `058ba16e` was observed on 9 October but is unreconciled.
-The later native startup slice observes `196bcb0e`, also externally advanced and
-unreconciled. On 10 October `98aa277a` was observed, also unreconciled; none of
-these combined master states has been tested by this slice.
-Fetch and reconcile later master changes before any eventual merge, preserving
-published integration history without rewriting or force-pushing it. The
-unsupported Window proof on `8c28d08e` does not test a candidate combined with
-`058ba16e`; no master merge or push is implied.
+The 11 October continuation includes the cleaned master and preserves its
+accepted-crew/cache refactor, chat-loading/copyability and Pi alarm handlers.
+The earlier Window/native startup proofs do not establish acceptance of this
+combined code. Fresh source-bound web and native builds are required for the
+new protected full-App exchange fixture; no master merge or push is implied.
 
 The renewed direction does not waive any readiness gate. Independent security
 assessment, dependency/licence obligations, current physical acceptance and
@@ -153,6 +155,113 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 11 October clean history continuation
+
+The Git-only rebase verification completed before feature work resumed: **68 of
+68 tests passed**, with no skips, across ChatPage, private bootstrap/push cutover,
+import isolation and retired chart-data guards. The ten paused fixture files
+were restored byte-identically. Clean `origin/master` is an ancestor, all 67
+feature commits were replayed from the rewritten remote, and no old post-fork
+commit or retired chart-path history was retained on the new branch.
+
+The local receipt is
+`/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-git-rebase-checks-J1A3pZ/checks-receipt.json`,
+SHA-256 `6f8265fa729790bc780dae2920d2b3078f89641b269af28f5fa756825bc575ff`.
+It pins Node 24.21.0, source hashes and 30,015 ms of shared-slot waiting. Its scope
+is Git migration only: no web/native build, simulator execution or protected
+exchange acceptance, and no external mutation.
+
+After Shane's resumption, the protected fixture is being completed as a separate
+resource-v4/report-v3 simulator scenario. It keeps the original startup and
+protected-page scenarios separate. Review strengthened completed inbox-scan
+evidence for deduplication, grounded legacy-control absence in real UI selectors,
+and required an exact positive Research launch PID. Focused verification passed
+160/160 tests (25 new protected contract, 55 startup contract, 54 cached-resume
+and 26 old protected JS/source cases), plus narrow types, named lint and format.
+All 83 frozen code/proof hashes stayed unchanged with no shared-slot waiting.
+The checks receipt is
+`/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-protected-checks-HUIYSg/checks-receipt.json`,
+SHA-256 `878161c757fadea33a20ece8a6e5de733bde522147ba3b085c8900b092cac82d`.
+This is contract/source verification, not native exchange acceptance.
+
+The first fresh web attempt stopped before compiling modules because the old
+brand-asset pin rejected upstream's optimised icon. The exact current master
+asset comes from `ef6348dc4959cbd62e45490ce5366956e6fd8138`: 9,036 bytes, still
+256 by 256 pixels, SHA-256
+`5beb04af8d53a700cddcfca1a4a0b9120ea22aa136e1cf03d79add6814b0aab1`.
+The isolated helper/build contract now pins those exact bytes; public-directory
+copying remains disabled and retired hash/length fixtures reject. No public image
+was edited. The failed build receipt remains at
+`/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-protected-web-MFPIne/build-receipt.json`,
+SHA-256 `c1b177bc91099efc7ed24a649b81f587ef4454aed0537374270dc23af6c49810`.
+The revised asset contract passed a separate 92/92 tests (asset 4, Window contract
+63, protected contract 25), narrow types, named lint and format. This overlaps
+the earlier checks and is not a combined 252-test acceptance claim. Its receipt
+is `/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-asset-checks-kftuO3/checks-receipt.json`,
+SHA-256 `816220d552e592d39468c588ece7057d5817d736db9528cdc1849fdb7a243895`.
+
+Two further fresh attempts retained distinct failures: obsolete private-runner
+sortable preflight, then a real Rollup missing export for the new local Auth
+cleanup helper. The current app no longer declares or imports sortable, so only
+that obsolete runner alias/preflight was removed, with current dependency-version
+checks retained. No package installation or shared dependency write occurred.
+The isolated Auth replacement adds only a fixed refusal for
+`fenceSignedOutOnThisDevice`, not native fencing or a cleanup-success claim.
+Named-import inspection also found three new LocalDatabase helpers and one
+anchor-age constant. The helpers now refuse synchronously/asynchronously through
+the existing vessel boundary without inspecting identities or invoking callbacks;
+the anchor constant remains literal display vocabulary. Type-only
+`CachedPosition` imports were confirmed elided and were not made runtime exports.
+Production modules, memory-storage policy and native authority remain unchanged.
+
+The expanded import/re-export scan covered 1,598 tracked frontend files and 481
+bindings, including pages. It found no remaining runtime mapped-export mismatch;
+namespace/reflective/dynamic use and third-party bodies are outside that scan.
+One further GPS error classifier now returns false without reading its argument.
+An affected 97-case batch retained one stale exact-export assertion failure;
+Boundaries 30 and protected contract 25 passed. The corrected exact Graph 42,
+scoped types, named lint and format passed separately. These batches overlap;
+their totals are not added together.
+
+The [clean web and Window evidence](../experiments/scuttlebutt-e2ee/review/clean-web-window-2026-10-11.json)
+binds the successful fresh build: 1,734 module inputs plus one exact icon,
+296 outputs and three ES workers, each observed graph carrying one closed gate.
+There were no source-hash omissions or injected configuration canaries in output.
+Root independently checked the strict build receipt and current source/output
+hashes. The actual fresh Chrome Window then passed cold startup, Chat navigation,
+synthetic closure, remount, audio CSP control and final terminal closure. Two CSP
+violations were expected, zero unexpected; request refusals and page errors were
+zero, while six console errors remain recorded. The owned browser, loopback
+server and profile were closed/removed. App User remained null and private legacy
+permission unavailable. This is current unsupported-browser evidence, not native
+login, encryption, real OS/BFCache lifecycle or a general network sandbox.
+
+Native v4 preparation stopped before any driver/build/sign/resource/simulator
+action: the original exchange receipt with expected SHA-256
+`a8530dd24c494dc850c8ad784d37544e9ad2f9760f5ed1e1194c990601621df2`
+is missing, as are the inspected alternative receipts. The provider's four cached
+artifacts and the framework receipt/19+22 file trees match their historical pins,
+but that does not recreate the missing execution record or independently prove
+provenance. No receipt was reconstructed and the fixture gate was not bypassed.
+The supported prior-build shortcut applies only to nonfixture compilation.
+
+The verified web/Window slice is separate from **eleven local, unpublished native
+WIP paths**: the original ten protected-fixture paths plus the old protected-test
+harness repair. Their hashes are retained in the evidence manifest. They remain
+unstaged; native compilation and protected exchange are unrun. Next recover exact
+preserved evidence or regenerate a legitimately evidenced provider/relay chain
+in fresh owned inputs, reviewing the old runner's runtime/wait/privacy rules
+before invocation. Then compile/run the current full-root protected fixture.
+The final licensed-chart guard passed 12/12 with no skips, preserving the exact
+13 staged names/bytes, 21 code/WIP hashes and cleaned-master ancestry. Receipt:
+`/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-clean-web-chart-guard-oPOB7E/guard-receipt.json`,
+SHA-256 `26156bc929a6a53e04786857ab99f1ef27a65e818f8edc61d744c06084022942`.
+After the guard, only this documentation receipt reference and manifest
+formatting changed; runtime/test bytes and manifest data are unchanged. The thirteen-file verified web slice is
+ready for a named side-branch commit, not a master merge.
+Do not repeat the accepted web/Window checks without a relevant source change.
+Historical startup acceptance cannot be reused as a protected-exchange pass.
 
 ### 10 October scoped native full App startup passed
 

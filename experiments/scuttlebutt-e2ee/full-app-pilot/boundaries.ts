@@ -6,6 +6,8 @@
 export const FULL_APP_BOUNDARY_COUNTER_LIMIT = 1_024;
 export const FULL_APP_BOUNDARY_UNAVAILABLE = 'Unavailable in full app Research.';
 export const MIN_ANCHOR_SWING_RADIUS_M = 20;
+/** Display vocabulary only, not a fix, location permission or anchor authority. */
+export const ANCHOR_RELOCATE_FIX_MAX_AGE_MS = 30_000;
 export const ANCHOR_WATCH_CONFIG_LIMITS = Object.freeze({
     rodeLength: Object.freeze({ min: 1, max: 300 }),
     waterDepth: Object.freeze({ min: 0.5, max: 100 }),
@@ -390,6 +392,8 @@ export function createFullAppStartupBoundaries() {
         // Geometry imported through the denied service remains unavailable;
         // returning zero would invent a usable distance observation.
         haversineDistance: denied('anchorRequests'),
+        // No original native error or location permission is classified here.
+        isVoyageLocationError: observe(false),
         validateAndNormalizeAnchorWatchConfig: refusal(
             'anchorRequests',
             Object.freeze({ ok: false as const, error: FULL_APP_BOUNDARY_UNAVAILABLE }),
@@ -402,6 +406,7 @@ export function createFullAppStartupBoundaries() {
         getFailedCount: observe(0),
         getSyncMeta: denied('vesselRequests'),
         generateUUID: denied('vesselRequests'),
+        identityFileToken: denied('vesselRequests'),
         deltaLocal: deniedAsync('vesselRequests'),
         getAll: observe(Object.freeze([])),
         getById: observe(null),
@@ -423,6 +428,8 @@ export function createFullAppStartupBoundaries() {
         markFailed: deniedAsync('vesselRequests'),
         retryFailed: deniedAsync('vesselRequests'),
         rewriteQueuedInsert: deniedAsync('vesselRequests'),
+        rewriteQueuedRecord: deniedAsync('vesselRequests'),
+        discardUnsentRecord: deniedAsync('vesselRequests'),
         updateSyncMeta: deniedAsync('vesselRequests'),
         purgeLocalDatabaseForUser: deniedAsync('vesselRequests'),
         startSyncEngine: discarded('vesselRequests'),
@@ -490,11 +497,13 @@ export const {
     buildAnchorPayload,
     payloadsEqual,
     haversineDistance,
+    isVoyageLocationError,
     validateAndNormalizeAnchorWatchConfig,
     getPendingCount,
     getFailedCount,
     getSyncMeta,
     generateUUID,
+    identityFileToken,
     deltaLocal,
     startSyncEngine,
     stopSyncEngine,
@@ -518,6 +527,8 @@ export const {
     markFailed,
     retryFailed,
     rewriteQueuedInsert,
+    rewriteQueuedRecord,
+    discardUnsentRecord,
     updateSyncMeta,
     purgeLocalDatabaseForUser,
     requestCatchUpSync,

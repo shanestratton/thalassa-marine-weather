@@ -17,8 +17,10 @@ import {
 } from '../experiments/scuttlebutt-e2ee/full-app-pilot/authProjection';
 import {
     handleNativeAppleCredentialRevocation,
+    fenceSignedOutOnThisDevice,
     useAuthStore,
 } from '../experiments/scuttlebutt-e2ee/full-app-pilot/authStore';
+import { getAuthIdentityScope } from '../services/authIdentityScope';
 
 const OWNER_A = '11111111-1111-4111-8111-111111111111';
 const OWNER_B = '22222222-2222-4222-8222-222222222222';
@@ -469,6 +471,42 @@ describe('closed main-App AuthStore compatibility', () => {
         await expect(handleNativeAppleCredentialRevocation('synthetic-apple-subject')).rejects.toThrow(
             'Full App Research Auth mutation unavailable',
         );
+    });
+    it('rejects the upstream local fence export without inspecting arguments or changing any authority presentation', async () => {
+        const source = sourceFixture(authenticated());
+        bindings.push(attachFullAppResearchAuth(source.source));
+        const nativeBefore = fullAppAuthProjection.getState();
+        const appBefore = useAuthStore.getState();
+        const scopeBefore = getAuthIdentityScope();
+        const getStateCalls = vi.mocked(source.source.getState).mock.calls.length;
+        const subscribeCalls = vi.mocked(source.source.subscribe).mock.calls.length;
+        const appListener = vi.fn(),
+            nativeListener = vi.fn();
+        const stopApp = useAuthStore.subscribe(appListener),
+            stopNative = fullAppAuthProjection.subscribe(nativeListener);
+        const getter = vi.fn(() => {
+            throw new Error('Private argument must not be read');
+        });
+        try {
+            await expect(fenceSignedOutOnThisDevice()).rejects.toThrow('Full App Research Auth mutation unavailable');
+            await expect(
+                Reflect.apply(fenceSignedOutOnThisDevice, undefined, [
+                    Object.defineProperty({}, 'credential', { get: getter }),
+                ]),
+            ).rejects.toThrow('Full App Research Auth mutation unavailable');
+            expect(getter).not.toHaveBeenCalled();
+            expect(appListener).not.toHaveBeenCalled();
+            expect(nativeListener).not.toHaveBeenCalled();
+            expect(fullAppAuthProjection.getState()).toBe(nativeBefore);
+            expect(useAuthStore.getState()).toBe(appBefore);
+            expect(appBefore.user).toBeNull();
+            expect(getAuthIdentityScope()).toBe(scopeBefore);
+            expect(source.source.getState).toHaveBeenCalledTimes(getStateCalls);
+            expect(source.source.subscribe).toHaveBeenCalledTimes(subscribeCalls);
+        } finally {
+            stopApp();
+            stopNative();
+        }
     });
     it('has no production/native/persistence/Auth-driver import or construction edge', () => {
         const projection = readFileSync(

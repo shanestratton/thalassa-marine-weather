@@ -67,3 +67,7 @@ export const useAuthStore = Object.assign(useResearchAuthStore, {
 
 /** Never acknowledge production Apple/Auth cleanup as successful in Research. */
 export const handleNativeAppleCredentialRevocation = async (_appleUserId: string): Promise<void> => refuseMutation();
+
+/** Exact upstream export, still unavailable here. No native fencing, identity
+ * mutation or successful local/production sign-out is claimed by this leaf. */
+export const fenceSignedOutOnThisDevice = async (): Promise<void> => refuseMutation();

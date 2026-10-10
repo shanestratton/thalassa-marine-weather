@@ -1,0 +1,157 @@
+{
+    "schemaVersion": 1,
+    "createdAtUTC": "2026-10-10 20:10:06 UTC",
+    "checkpointDate": "2026-10-11",
+    "timezone": "Australia/Brisbane",
+    "scope": "Clean-history isolated web compatibility and actual unsupported Window acceptance; native v4 remains local unrun work",
+    "branch": "codex/scuttlebutt-e2ee-integration-clean-2026-10-11",
+    "testedSourceBase": "9e24986f1b1646a7112ab0433811cdf265fdab40",
+    "cleanMaster": "b4cb321167e27c4cf592786bd576abd841e57821",
+    "publishedSourceHashes": {
+        "experiments/scuttlebutt-e2ee/full-app-pilot/authStore.ts": "8381a5f99e9e3b185b1d72a0f1b4db26eca91a3d18d4219f5d5b2aed3483c994",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/boundaries.ts": "0d98dc73dc8f5ec160c9cb96a622211ddaf5c1714180afe232c40686a451c748",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/brandAsset.mjs": "2f26b4d76ff4f7cc4049aaac64435b2b52393b2a624a42422800927d41284a49",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/graphIsolation.mjs": "1bc2b8e9e145baedcd65f9230f81db2a79cec56833b689279f436ad74087a476",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/windowProofContract.mjs": "36780dd7cffd13c56ce5035745dbf0397ddc2d8513b6792c00fd6d4414d58a77",
+        "tests/E2eeFullAppAuthProjection.test.ts": "5dbbc52f50664d88477228573f37a63213b6fbea672ee8baf4ce90f155a27d7c",
+        "tests/E2eeFullAppBoundaries.test.ts": "825677a01664274fbc4c6a7636e44dc082c68eb263d114c69845940e87a0cc24",
+        "tests/E2eeFullAppBrandAsset.test.ts": "64d5aed52e2109bf7c62633936dc3c4a14d9c9051b4d49edbe502bea2e6b1b51",
+        "tests/E2eeFullAppGraphIsolation.test.ts": "a4e36809559af1b0b19b7370de6c1732a045e9aba3cf508ebbe5cc07a70dd293",
+        "tests/E2eeFullAppWindowProof.test.ts": "5fd612406632361015d10f239aa97725e9aaec3deafc6ffb8cf8dda52c999359"
+    },
+    "localUnpublishedNativeWipHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchApp.swift": "38443a9b8e348672112bb37225b26b4341634a46078ea800466bc723f59e6596",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchLocalUiFixture.swift": "f2ffe3273ec3b32e0727b4bb1888ae8fdf57fff8e16bef854234b591c015ef0c",
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "c8abe95038bfa14973cd5e18f36c2dde1f0a7d609600caa56cfc4d5b690b0eec",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "9559ff638c8f956b25c4235a4b3ed66000545ad2bf50331a948a52f57c4958af",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedHttpFence.swift": "18516b408ae2a1e38d0c014a744d2101cdba8c84f0fa6c06b1ae1c8ab21924a4",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "eeee6a2545a82390b3bc1bc258df189fd81c466fe079caf952e64d8160d6a088",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiContract.mjs": "fd59b504eaa6c256d3903efcf94d4e930fe4e87950c98c3ecb8f6d4372e40749",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs": "fc47881e6ab40b90cd2b0af8c3c19919157be6804a402ae3ce68a03dacbad825",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeProtectedUiFixture.js": "0f87f3bb2b65c55522799fdc88cf3af64c0b448f3d2a14ad043e697cfeee293a",
+        "tests/E2eeFullAppProtectedNativeContract.test.ts": "f496db210b4e58777cf383e2009a6b5675bcec21b62b11b0bbcae4b1aba333d2",
+        "tests/E2eeProtectedUiFixture.test.ts": "6efbe799b82c9419c7ab60ebc9f5e1b2fa8c63c1037a06761b93c779d3edf9c8"
+    },
+    "evidence": {
+        "gitMigration68": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-git-rebase-checks-J1A3pZ/checks-receipt.json",
+            "sha256": "6f8265fa729790bc780dae2920d2b3078f89641b269af28f5fa756825bc575ff"
+        },
+        "protectedContracts160": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-protected-checks-HUIYSg/checks-receipt.json",
+            "sha256": "878161c757fadea33a20ece8a6e5de733bde522147ba3b085c8900b092cac82d"
+        },
+        "assetContracts92": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-asset-checks-kftuO3/checks-receipt.json",
+            "sha256": "816220d552e592d39468c588ece7057d5817d736db9528cdc1849fdb7a243895"
+        },
+        "interfaceContracts138": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-interface-checks-BekTnn/checks-receipt.json",
+            "sha256": "48fd64a8a8934f3f4fb5551ae849b348762006d393090ec00194d22586b55d48"
+        },
+        "partialContracts97WithStaleAssertionFailure": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-final-interface-checks-J5pVnz/checks-receipt.json",
+            "sha256": "fb70598d53054af155408b5550aabea99f9ad6255457c0a91cb7b3c603ad6190"
+        },
+        "finalGraph42": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-graph-final-checks-Dr8Pey/checks-receipt.json",
+            "sha256": "1111a3819fb20fd11300bacddcf80a378119863c189c13ff12dab2483747812c"
+        },
+        "failedBrandPreflight": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-protected-web-MFPIne/build-receipt.json",
+            "sha256": "c1b177bc91099efc7ed24a649b81f587ef4454aed0537374270dc23af6c49810"
+        },
+        "failedSortablePreflight": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-protected-web-final-ctVmiA/build-receipt.json",
+            "sha256": "b07ace48a13596d5975cd4604dd08418db3d41160354b5dc4fa4a17abeb96097"
+        },
+        "failedAuthExport": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-protected-web-current-eRfpEA/build-receipt.json",
+            "sha256": "a6cf0786dd570ed697942e946336b84d5b05cbea3c10262ef1699ab032c57cdc"
+        },
+        "failedGpsExport": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-protected-web-repaired-Ad4B33/build-receipt.json",
+            "sha256": "a230037175d2fb23d17ec20aa792b12d012fbda80a2bbdfbc9f076110082dfc5"
+        },
+        "currentWebBuild": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-protected-web-finalpins-JmQOcI/build-receipt.json",
+            "sha256": "10d64ad8a70ec5aaa597c685bce5c916a8f17359a408af5dcee2bb62227d5a1e"
+        },
+        "currentActualWindow": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-window-8GIuvI/window-receipt.json",
+            "sha256": "455de694cdc28662fa39d91f4b7e1ed68332a02b9dc21fc43bff10de2fb83d8b"
+        },
+        "currentWindowInvocation": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-current-window-QAHCw4/invocation-receipt.json",
+            "sha256": "7a6ac8cbf23dc5e31f33538eddf01ce1b224f504a9bf78a25acefb15f0987ce2"
+        },
+        "nativeInputPreflight": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-root-protected-invocation-HtOUnV/native-input-preflight.json",
+            "sha256": "bc404066de9d49d6cc382a6b8ef1458370a4ba317b7908f16c1d32182f854393"
+        }
+    },
+    "testInterpretation": "Distinct overlapping batches, not additive totals. The 97-case batch retains one stale export assertion failure; its unchanged Boundaries30/protected25 passed. The corrected exact Graph42 and dependent types/lint/format passed separately.",
+    "web": {
+        "moduleInputs": 1734,
+        "explicitAssetInputs": 1,
+        "outputs": 296,
+        "esWorkers": 3,
+        "closedGraphInstancesPerObservedGraph": 1,
+        "syntheticCanariesAbsent": true,
+        "sourceHashOmissions": 0,
+        "automaticPublicDirectoryCopy": false
+    },
+    "actualWindow": {
+        "status": "passed",
+        "phases": ["cold", "chat", "syntheticClosure", "remount", "audioCspControl", "finalTerminal"],
+        "hashedAssetsServed": 49,
+        "expectedCspViolations": 2,
+        "unexpectedCspViolations": 0,
+        "requestRefusals": 0,
+        "pageErrors": 0,
+        "consoleErrors": 6,
+        "browserClosed": true,
+        "serverClosed": true,
+        "ownedProfileRemoved": true,
+        "appUserNull": true,
+        "legacyPermitUnavailable": true,
+        "encryptedExchange": false,
+        "nativeExecution": false,
+        "realOsLifecycleOrBfCacheProved": false,
+        "browserProcessNetworkingMeasured": false
+    },
+    "native": {
+        "status": "unrun-missing-prior-exchange-evidence",
+        "driverInvoked": false,
+        "builds": 0,
+        "signs": 0,
+        "simulators": 0,
+        "resourceCreated": false,
+        "priorReceiptReconstructed": false,
+        "cacheAndFrameworkHashesMatched": true,
+        "cachedArtifactProvenanceIndependentlyAccepted": false
+    },
+    "rootReadback": {
+        "strictBuildAndCurrentInputOutputHashesAccepted": true,
+        "currentWindowHashAndFiveEvidenceStatesAccepted": true,
+        "chatDomValidatedSeparately": true,
+        "initialChatDomTreatedAsWindowEvidenceRefused": true
+    },
+    "sharedSlotWaitingMsThisTurn": 0,
+    "productionTouched": false,
+    "humanDevicesChanged": false,
+    "hostedStateChanged": false,
+    "primaryCheckoutOrIosSynced": false,
+    "ordinaryEncryptionEnabled": false,
+    "mergeReady": false,
+    "releaseReady": false,
+    "independentlyReviewed": false,
+    "remainingGates": [
+        "Recover exact preserved native exchange evidence or regenerate a legitimately evidenced provider/relay chain in fresh owned inputs; do not bypass fixture preflight",
+        "Compile and execute current native full-root protected navigation/exchange",
+        "Current physical device acceptance",
+        "Device/prekey/retention/recovery policy and adversarial evidence",
+        "Production cutover and dependency/licence/provenance obligations",
+        "Independent security assessment and owner release decision"
+    ]
+}

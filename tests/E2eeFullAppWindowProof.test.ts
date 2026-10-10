@@ -69,7 +69,7 @@ function buildReceipt() {
         explicitAssetSourceInputs: [
             {
                 path: checkout + '/public/thalassa-icon-128.png',
-                sha256: '629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15',
+                sha256: '5beb04af8d53a700cddcfca1a4a0b9120ea22aa136e1cf03d79add6814b0aab1',
             },
         ],
         explicitAssetEmissions: [
@@ -77,13 +77,13 @@ function buildReceipt() {
                 label: 'app-brand-icon-128',
                 input: {
                     path: checkout + '/public/thalassa-icon-128.png',
-                    sha256: '629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15',
+                    sha256: '5beb04af8d53a700cddcfca1a4a0b9120ea22aa136e1cf03d79add6814b0aab1',
                 },
                 output: {
                     path: '/owned/built/dist/thalassa-icon-128.png',
-                    sha256: '629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15',
+                    sha256: '5beb04af8d53a700cddcfca1a4a0b9120ea22aa136e1cf03d79add6814b0aab1',
                 },
-                byteLength: 31539,
+                byteLength: 9036,
                 width: 256,
                 height: 256,
             },
@@ -97,7 +97,7 @@ function buildReceipt() {
             { path: '/owned/built/dist/assets/entry.js', sha256: digest },
             {
                 path: '/owned/built/dist/thalassa-icon-128.png',
-                sha256: '629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15',
+                sha256: '5beb04af8d53a700cddcfca1a4a0b9120ea22aa136e1cf03d79add6814b0aab1',
             },
         ],
         outputCount: 3,
@@ -298,6 +298,18 @@ describe('passed hashed isolated build contract — pure fixtures', () => {
         const copied = buildReceipt();
         copied.automaticPublicDirectoryCopy = true;
         expect(() => inspectWindowBuildReceipt(copied, checkout)).toThrow('contract refused');
+    });
+    it('refuses correlated retired asset hashes or retired emission byte length', () => {
+        const retired = buildReceipt();
+        const oldHash = '629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15';
+        retired.explicitAssetSourceInputs[0].sha256 = oldHash;
+        retired.explicitAssetEmissions[0].input.sha256 = oldHash;
+        retired.explicitAssetEmissions[0].output.sha256 = oldHash;
+        retired.outputs[2].sha256 = oldHash;
+        expect(() => inspectWindowBuildReceipt(retired, checkout)).toThrow('contract refused');
+        const length = buildReceipt();
+        length.explicitAssetEmissions[0].byteLength = 31539;
+        expect(() => inspectWindowBuildReceipt(length, checkout)).toThrow('contract refused');
     });
     it.each([
         'status',

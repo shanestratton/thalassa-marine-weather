@@ -14,7 +14,7 @@ describe('one pinned full App brand asset', () => {
         const asset = readFullAppBrandAsset();
         expect(asset).toMatchObject({
             sha256: FULL_APP_BRAND_ASSET_SHA256,
-            byteLength: 31539,
+            byteLength: 9036,
             width: 256,
             height: 256,
         });
@@ -27,6 +27,12 @@ describe('one pinned full App brand asset', () => {
         changed[changed.length - 1] ^= 1;
         for (const input of [null, new Uint8Array(bytes), bytes.subarray(1), changed])
             expect(() => inspectFullAppBrandBytes(input)).toThrow('Pinned full App brand asset refused');
+    });
+    it('refuses the retired byte length and keeps a different exact current hash pin', () => {
+        expect(() => inspectFullAppBrandBytes(Buffer.alloc(31539))).toThrow('Pinned full App brand asset refused');
+        expect(FULL_APP_BRAND_ASSET_SHA256).not.toBe(
+            '629fc1d56dbbc8e0e57f4a46bfdfa353865db69b3cc7707af1be849092440b15',
+        );
     });
     it('emits exactly the one named file and does not install a worker or public-directory copier', () => {
         const emitFile = vi.fn();

@@ -189,6 +189,45 @@ describe('exact full-App graph isolation', () => {
     });
 });
 describe('explicit unavailable backend and native proxies', () => {
+    it('selects only the false voyage classifier and closed manager for the real Log-page importer', () => {
+        const plugin = createFullAppGraphIsolation();
+        const code = plugin.load(plugin.resolveId('../services/BgGeoManager', repo + '/pages/LogPage.tsx')!);
+        expect(code).toContain('BgGeoManager,isVoyageLocationError');
+        expect(code).toContain('boundaries.ts');
+        expect(code).not.toContain('class VoyageLocationError');
+        expect(code).not.toContain('node_modules');
+        expect(() => plugin.load(repo + '/services/BgGeoManager.ts')).toThrow(/Production entry or authority/);
+    });
+    it('keeps current database helpers and anchor-age vocabulary behind only exact closed projections', () => {
+        const plugin = createFullAppGraphIsolation();
+        const database = plugin.load(plugin.resolveId('./LocalDatabase', repo + '/services/vessel/vaultFiles.ts')!);
+        for (const name of ['identityFileToken', 'rewriteQueuedRecord', 'discardUnsentRecord'])
+            expect(database).toContain(name);
+        expect(database).toContain('boundaries.ts');
+        expect(database).not.toContain('CachedPosition');
+        expect(() => plugin.load(repo + '/services/vessel/LocalDatabase.ts')).toThrow(/Production entry or authority/);
+        const anchor = plugin.load(
+            plugin.resolveId(
+                '../../services/AnchorWatchService',
+                repo + '/components/anchor-watch/MoveAnchorSheet.tsx',
+            )!,
+        );
+        expect(anchor).toContain('ANCHOR_RELOCATE_FIX_MAX_AGE_MS');
+        expect(anchor).toContain('boundaries.ts');
+        expect(() => plugin.load(repo + '/services/AnchorWatchService.ts')).toThrow(/Production entry or authority/);
+    });
+    it('projects the exact unavailable Auth fence export without selecting production Auth or Apple', () => {
+        const plugin = createFullAppGraphIsolation();
+        const id = plugin.resolveId('../../stores/authStore', repo + '/services/auth/SocialAuthService.ts');
+        const code = plugin.load(id!);
+        expect(code).toContain('fenceSignedOutOnThisDevice');
+        expect(code).toContain('full-app-pilot/authStore.ts');
+        expect(code).not.toContain('node_modules');
+        expect(() => plugin.load(repo + '/stores/authStore.ts')).toThrow(/Production entry or authority/);
+        expect(() => plugin.resolveId('@supabase/supabase-js', repo + '/services/auth/SocialAuthService.ts')).toThrow(
+            /Unexpected runtime SDK dependency/,
+        );
+    });
     it('projects only the unavailable anchor distance helper without evaluating its production service', () => {
         const plugin = createFullAppGraphIsolation();
         const id = plugin.resolveId(
@@ -220,7 +259,7 @@ describe('explicit unavailable backend and native proxies', () => {
         const plugin = createFullAppGraphIsolation();
         const id = plugin.resolveId('../BgGeoManager', repo + '/services/shiplog/PositionResolver.ts');
         const code = plugin.load(id!);
-        expect(code).toContain('export {BgGeoManager}');
+        expect(code).toContain('export {BgGeoManager,isVoyageLocationError}');
         expect(code).toContain('boundaries.ts');
         expect(code).not.toContain('node_modules');
         expect(() => plugin.load(repo + '/services/BgGeoManager.ts')).toThrow(/Production entry or authority/);

@@ -46,7 +46,7 @@ const names = (value) => value.split(' ');
 const serviceModules = {
     'services/InstrumentSourcePolicy.ts': names('InstrumentSourcePolicy'),
     'services/GpsService.ts': names('GpsService canUseForegroundHighAccuracy'),
-    'services/BgGeoManager.ts': names('BgGeoManager'),
+    'services/BgGeoManager.ts': names('BgGeoManager isVoyageLocationError'),
     'services/gpsWarmUp.ts': names('warmUpGps'),
     'services/internetProbe.ts': names('startInternetProbe stopInternetProbe'),
     'services/AisShareService.ts': names(
@@ -56,7 +56,7 @@ const serviceModules = {
         'bindAppleCredentialUser clearBoundAppleCredential startAppleCredentialRevocationMonitoring',
     ),
     'services/AnchorWatchService.ts': names(
-        'AnchorWatchService MIN_ANCHOR_SWING_RADIUS_M ANCHOR_WATCH_CONFIG_LIMITS validateAndNormalizeAnchorWatchConfig haversineDistance',
+        'AnchorWatchService MIN_ANCHOR_SWING_RADIUS_M ANCHOR_RELOCATE_FIX_MAX_AGE_MS ANCHOR_WATCH_CONFIG_LIMITS validateAndNormalizeAnchorWatchConfig haversineDistance',
     ),
     'services/AnchorWatchSyncService.ts': names('AnchorWatchSyncService'),
     'services/anchorPiPush.ts': names(
@@ -67,7 +67,7 @@ const serviceModules = {
     'services/PiCacheService.ts': names('piCache'),
     'services/native/memoryGauge.ts': names('refreshAvailableMemory recentAvailableMemory'),
     'services/vessel/LocalDatabase.ts': names(
-        'initLocalDatabase getLocalDatabaseIdentity getLocalDatabaseSession isLocalDatabaseSessionCurrent getAll getById query atomicLocalTransaction insertLocal updateLocal deleteLocal deltaLocal bulkUpsert mergePulledRecords prunePulledTable applyRealtimeChange bulkDelete onOutboxAppended getPendingQueue getFullQueue markSyncing removeSynced markFailed retryFailed rewriteQueuedInsert getPendingCount getFailedCount getSyncMeta updateSyncMeta purgeLocalDatabaseForUser generateUUID',
+        'initLocalDatabase getLocalDatabaseIdentity getLocalDatabaseSession isLocalDatabaseSessionCurrent getAll getById query atomicLocalTransaction insertLocal updateLocal deleteLocal deltaLocal bulkUpsert mergePulledRecords prunePulledTable applyRealtimeChange bulkDelete onOutboxAppended getPendingQueue getFullQueue markSyncing removeSynced markFailed retryFailed rewriteQueuedInsert rewriteQueuedRecord discardUnsentRecord getPendingCount getFailedCount getSyncMeta updateSyncMeta purgeLocalDatabaseForUser generateUUID identityFileToken',
     ),
     'services/vessel/SyncService.ts': names(
         'startSyncEngine stopSyncEngine syncNow forceFullPull requestFullReconciliation isFullReconciliationPending getSyncStatus onSyncComplete onStatusChange requestCatchUpSync',
@@ -109,7 +109,7 @@ const modules = new Map(
 );
 modules.set(
     canonicalPath(resolve(repo, 'stores/authStore.ts')),
-    reexport('authStore.ts', names('useAuthStore handleNativeAppleCredentialRevocation')),
+    reexport('authStore.ts', names('useAuthStore handleNativeAppleCredentialRevocation fenceSignedOutOnThisDevice')),
 );
 modules.set(
     canonicalPath(resolve(repo, 'services/nativeStorage.ts')),
