@@ -225,7 +225,10 @@ describe('Boat Binder and Settings fill their screen, with bigger words', () => 
         expect(title).toMatch(
             /^clamp\(13px, min\(13px \+ 0\.04 \* var\(--menu-room\), var\(--menu-title-wide\)\), 19px\)$/,
         );
-        const settingsTitle = value(css, '.settings-menu-row .settings-menu-title', 'font-size');
+        // Since 126-14 the size is a property on the row, so the title line's
+        // clip (below) can be measured in it; the title still reads today's clamp.
+        expect(value(css, '.settings-menu-row .settings-menu-title', 'font-size')).toBe('var(--settings-title-size)');
+        const settingsTitle = css.match(/^\.settings-menu-row \{\s*--settings-title-size:\s*([^;]+);/m)?.[1];
         expect(settingsTitle).toMatch(
             /^clamp\(0\.875rem, min\(13px \+ 0\.04 \* var\(--menu-room\), var\(--menu-title-wide\)\), 19px\)$/,
         );
@@ -285,6 +288,34 @@ describe('Boat Binder and Settings fill their screen, with bigger words', () => 
         // alone on its last line ("... see your / voyage").
         expect(value(roomySettings, '.settings-menu-row .settings-menu-desc', 'text-wrap')).toBe('pretty');
         expect(value(block(ROOMY_HUB), '.vessel-hub-binder .hub-row-status', 'text-wrap')).toBe('pretty');
+    });
+
+    // Build 126 (126-14): a fixed state word ("Sign in", "Off", "3 alerts on")
+    // sits whole on its title's line or not at all. Its line wraps, and is
+    // clipped to one title line, so a word that does not fit beside the title
+    // goes to a second line nobody sees (only on a 320 pt phone), never "Ne…".
+    // VoiceOver still hears it: it is in the row's name.
+    it('keeps a fixed state word whole on the title line, or off it entirely, never cut', () => {
+        const line = '.settings-menu-row .settings-menu-line--word';
+        expect(value(css, line, 'flex-wrap')).toBe('wrap');
+        expect(value(css, line, 'overflow')).toBe('hidden');
+        const clip = value(css, line, 'max-height');
+        expect(clip).toMatch(/^calc\(var\(--settings-title-size\) \* 1\.43 \+ 2px\)$/);
+        // A word that wraps starts below the clip's 2 px allowance, so none of it shows.
+        expect(parseFloat(value(css, line, 'row-gap'))).toBeGreaterThan(2 / 16);
+        // The word itself never shrinks, wraps or ellipsises.
+        const word = '.settings-menu-line--word .settings-menu-state--word';
+        expect(value(css, word, 'flex-shrink')).toBe('0');
+        expect(value(css, word, 'white-space')).toBe('nowrap');
+        expect(css).not.toMatch(/settings-menu-state--word[^{]*\{[^}]*(text-overflow|ellipsis)/);
+        // And the roomy tier's wrap still drops a free state (a port, a boat
+        // name) under its title, whole.
+        expect(value(block(ROOMY_SETTINGS), '.settings-menu-row .settings-menu-line', 'flex-wrap')).toBe('wrap');
+        const settings = readFileSync('components/SettingsModal.tsx', 'utf8');
+        expect(settings).toContain('settings-menu-state--word');
+        expect(settings).toContain('settings-menu-line--word');
+        // The word's class list is never the free state's truncating one.
+        expect(settings).not.toMatch(/settings-menu-state--word[^'"`]*truncate/);
     });
 
     it("holds a fresh install's Vessel page at today's words while its setup card makes it scroll", () => {

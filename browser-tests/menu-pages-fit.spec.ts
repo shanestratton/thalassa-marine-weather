@@ -18,6 +18,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import { ONBOARDED_STORAGE } from '../e2e/helpers/storageState';
+import { SETTINGS_STATE_WORDS } from '../components/settings/menuStatusWords';
 
 test.use({
     serviceWorkers: 'block',
@@ -549,9 +550,11 @@ test.describe('menu pages fill their screen with bigger words', () => {
     // A Settings row's live state that no longer fits beside its grown title
     // takes the line under it, whole, but keeps to the right-hand column where
     // its siblings' states sit, so it reads as the row's state and not as a
-    // second grey subtitle over the description (review 2026-10-09). A long
-    // home port always drops; in the widest face "Not signed in" and "Needs
-    // sign-in" do too, where the phone's own face keeps them beside the title.
+    // second grey subtitle over the description (review 2026-10-09). That is
+    // the rule for free text, a home port or a boat name, and a long home port
+    // always drops. A fixed state word ("Sign in", "Off", "3 alerts on") is
+    // short enough to stay on the title line since 126-14, and does, in the
+    // widest face too.
     for (const size of FILL_SIZES.filter((size) => size.width < 1024 && size.grows)) {
         test(`a Settings row's live state keeps to the right-hand column at ${size.name}`, async ({
             page,
@@ -571,6 +574,7 @@ test.describe('menu pages fill their screen with bigger words', () => {
                     return [
                         {
                             name: row.getAttribute('aria-label'),
+                            word: state.classList.contains('settings-menu-state--word'),
                             dropped: box.top >= title.bottom - 1,
                             short: line.right - box.right,
                         },
@@ -587,6 +591,124 @@ test.describe('menu pages fill their screen with bigger words', () => {
                     Math.abs(state.short),
                     `${state.name}: its state ends ${state.short}px short`,
                 ).toBeLessThanOrEqual(1);
+                if (state.word) expect(state.dropped, `${state.name}: its word stays on the title line`).toBe(false);
+            }
+        });
+    }
+
+    // 126-14: every fixed state word sits WHOLE on its title's line: from the
+    // SE up and in the iPad's split pane, in the widest face. The fixture is
+    // signed out, so the rows really say "Sign in"; the words a row shows
+    // signed in ("Signed in", "Live", "12 alerts on") are proven by setting the
+    // state's text in place and measuring again. That is a layout probe, not
+    // a state the app reached. On a 320 pt phone a word with no room beside
+    // "Public Voyage Page" is left off the line entirely (VoiceOver still hears
+    // it in the row's name): whole or gone, never cut, never "Ne...".
+    const WORD_SIZES = [
+        { name: 'SE', width: 375, height: 667 },
+        { name: '390x844', width: 390, height: 844 },
+        { name: '6.1in Pro +insets', width: 393, height: 775 },
+        { name: '430x932', width: 430, height: 932 },
+        { name: 'Pro Max +insets', width: 430, height: 856 },
+        { name: '16 Pro Max +insets', width: 440, height: 876 },
+        { name: '1024x768 split', width: 1024, height: 768 },
+        { name: '1080x810 split +insets', width: 1080, height: 782 },
+        { name: 'SE Display Zoom', width: 320, height: 568, narrow: true },
+        { name: '6.1in Display Zoom +insets', width: 320, height: 627, narrow: true },
+    ];
+    for (const size of WORD_SIZES) {
+        test(`Settings' state words are whole on the title line${size.narrow ? ' or off it' : ''} at ${size.name}`, async ({
+            page,
+            baseURL,
+        }) => {
+            const menu = MENU_PAGES['Settings menu'];
+            await open(page, baseURL, { ...size, view: 'vessel', split: size.width >= 1024, home: HOME_PORT });
+            await menu.open(page);
+            await settle(page);
+            const measured = await page.locator(menu.rows).evaluateAll(
+                (rows, vocabulary) => {
+                    const rowIds: Record<string, string> = {
+                        account: 'Open Account & Cloud settings',
+                        voyageLog: 'Open Public voyage page settings',
+                        alerts: 'Open Notifications settings',
+                        locations: 'Open Locations settings',
+                    };
+                    const measure = (row: Element, state: HTMLElement) => {
+                        const line = row.querySelector('.settings-menu-line')!.getBoundingClientRect();
+                        const title = row.querySelector('.settings-menu-title')!.getBoundingClientRect();
+                        const box = state.getBoundingClientRect();
+                        return {
+                            name: row.getAttribute('aria-label'),
+                            text: state.textContent,
+                            word: state.classList.contains('settings-menu-state--word'),
+                            onLine:
+                                box.top < title.bottom &&
+                                box.bottom <= line.bottom + 0.5 &&
+                                box.right <= line.right + 1 &&
+                                box.left >= title.right - 0.5,
+                            hidden: box.top >= line.bottom - 0.5,
+                            cut: state.scrollWidth > state.clientWidth + 1,
+                            ellipsis: getComputedStyle(state).textOverflow === 'ellipsis',
+                            missing: false,
+                        };
+                    };
+                    const live = rows.flatMap((row) => {
+                        const state = row.querySelector<HTMLElement>('.settings-menu-line > .settings-menu-title + p');
+                        return state && state.classList.contains('settings-menu-state--word')
+                            ? [measure(row, state)]
+                            : [];
+                    });
+                    const swept = Object.entries(vocabulary).flatMap(([id, words]) => {
+                        const row = rows.find((row) => row.getAttribute('aria-label')?.startsWith(rowIds[id]));
+                        const state = row?.querySelector<HTMLElement>('.settings-menu-line > .settings-menu-title + p');
+                        if (!row || !state) {
+                            const none = { name: rowIds[id], text: '', word: false, onLine: false, hidden: false };
+                            return [{ ...none, cut: false, ellipsis: false, missing: true }];
+                        }
+                        const was = state.textContent;
+                        const out = words.map((word) => {
+                            state.textContent = word;
+                            return measure(row, state);
+                        });
+                        state.textContent = was;
+                        return out;
+                    });
+                    return { live, swept };
+                },
+                SETTINGS_STATE_WORDS as unknown as Record<string, string[]>,
+            );
+            // Signed out: Account & Cloud and the Public Voyage Page say "Sign in".
+            expect(measured.live.filter((state) => state.text === 'Sign in')).toHaveLength(2);
+            for (const state of [...measured.live, ...measured.swept]) {
+                const label = `${state.name} "${state.text}"`;
+                expect(state.missing, `${label} has a state to measure`).toBe(false);
+                if (state.missing) continue;
+                expect(state.word, `${label} is a fixed word`).toBe(true);
+                expect(state.cut, `${label} is never cut`).toBe(false);
+                expect(state.ellipsis, `${label} never ellipsises`).toBe(false);
+                if (size.narrow)
+                    expect(state.onLine || state.hidden, `${label} is whole on the line or off it`).toBe(true);
+                else expect(state.onLine, `${label} is whole on its title's line`).toBe(true);
+            }
+            if (!size.narrow) await wholeRows(page, menu.rows, await floor(page));
+            else {
+                // The clip itself, probed with the old long word, which was cut to
+                // "Needs si..." here: now it is wholly off the line, none of it drawn.
+                const probe = await page
+                    .getByRole('button', { name: /^Open Public voyage page settings/ })
+                    .evaluate((row) => {
+                        const state = row.querySelector<HTMLElement>('.settings-menu-state--word')!;
+                        const was = state.textContent;
+                        state.textContent = 'Needs sign-in';
+                        const line = row.querySelector('.settings-menu-line')!.getBoundingClientRect();
+                        const box = state.getBoundingClientRect();
+                        state.textContent = was;
+                        return { hidden: box.top >= line.bottom - 0.5, cut: state.scrollWidth > state.clientWidth + 1 };
+                    });
+                expect(probe, '"Needs sign-in" is off the line, whole, never cut').toEqual({
+                    hidden: true,
+                    cut: false,
+                });
             }
         });
     }

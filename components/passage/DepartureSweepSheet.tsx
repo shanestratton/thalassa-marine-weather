@@ -358,7 +358,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                                 </span>
                                 {haveCurrents && spreadMin > 0 && (
                                     <span className="text-[10px] text-emerald-300/70">
-                                        tide stream swings passage ±{spreadMin} min
+                                        currents swing passage ±{spreadMin} min
                                     </span>
                                 )}
                             </div>

@@ -2849,7 +2849,12 @@ check(
         // configured it says so and sends nothing. The card moved from the
         // NMEA Gateway page to Settings → Preferences on 2026-09-09
         // (41e1c58f, "Share what you hear"); the copy and the rule came with it.
-        read('components/settings/FleetSharingSection.tsx').includes('This build has no share relay configured') &&
+        // Since 126-01b a build with no relay shows no switch at all, only this
+        // line, so no consent can be given to something that sends nothing.
+        includesAll(read('components/settings/FleetSharingSection.tsx'), [
+            'if (!configured)',
+            'needs a relay this build doesn&rsquo;t have yet. It stays off until',
+        ]) &&
         read('components/settings/GeneralTab.tsx').includes('<FleetSharingSection />'),
 );
 check(

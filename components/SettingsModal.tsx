@@ -15,6 +15,7 @@ import { AccountTab } from './settings/AccountTab';
 import { LocationsTab } from './settings/LocationsTab';
 import { VoyageLogTab } from './settings/VoyageLogTab';
 import { RowChevron } from './settings/SettingsPrimitives';
+import { menuStatusFor } from './settings/menuStatusWords';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { PageHeader } from './ui/PageHeader';
 import {
@@ -384,45 +385,18 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 cancelled = true;
             };
         }, [identity, activeTab, satelliteMode]);
-        const menuStatus = (id: SettingsTab): string | null => {
-            switch (id) {
-                case 'general': {
-                    // What the home port IS, not a bare place: 'Current Location'
-                    // read as a place or a link (UX scorecard run 8). The town the
-                    // Glass opens on, without its state: 'Home: Gladstone'. A GPS
-                    // fix saved as 'WP -27.2104, 153.0893' keeps both halves;
-                    // cutting at the comma left a bare latitude.
-                    const home = settings?.defaultLocation?.trim();
-                    if (!home) return null;
-                    // 'Home: follows you' took a second read (UX scorecard run 10).
-                    if (home === 'Current Location') return 'Home: your position';
-                    if (/^(WP\s|[-+]?\d)/.test(home)) return `Home: ${home}`;
-                    return `Home: ${home.split(',')[0].trim() || home}`;
-                }
-                case 'vessel': {
-                    const name = settings?.vessel?.name?.trim();
-                    return name && !isObserver ? name : null;
-                }
-                case 'alerts': {
-                    const alerts = settings?.notifications;
-                    if (!alerts) return null;
-                    const on = Object.values(alerts).filter((alert) => alert?.enabled).length;
-                    return on === 0 ? 'All alerts off' : on === 1 ? '1 alert on' : `${on} alerts on`;
-                }
-                case 'account':
-                    return signedIn ? 'Signed in' : 'Not signed in';
-                case 'locations': {
-                    const saved = settings?.savedLocations?.length ?? 0;
-                    return saved === 0 ? 'None saved' : `${saved} saved`;
-                }
-                case 'voyageLog':
-                    if (!signedIn) return 'Needs sign-in';
-                    if (!voyageLogLive || voyageLogLive.generation !== identity.generation) return null;
-                    return voyageLogLive.live ? 'Live' : 'Off';
-                default:
-                    return null;
-            }
-        };
+        // The words and what VoiceOver hears: components/settings/menuStatusWords.ts.
+        const menuStatus = (id: SettingsTab) =>
+            menuStatusFor(id, {
+                signedIn,
+                homePort: settings?.defaultLocation,
+                vesselName: settings?.vessel?.name,
+                isObserver,
+                notifications: settings?.notifications,
+                savedLocations: settings?.savedLocations?.length,
+                voyageLogLive:
+                    voyageLogLive && voyageLogLive.generation === identity.generation ? voyageLogLive.live : null,
+            });
         const menuIdBase = useId();
 
         const activeItem = MENU_ITEMS.find((m) => m.id === activeTab);
@@ -445,10 +419,11 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
          *  set right in grey, and a plain chevron. */
         const renderMenuRow = (item: (typeof MENU_ITEMS)[number]) => {
             const status = menuStatus(item.id);
+            const word = status?.kind === 'word';
             const descId = `${menuIdBase}-${item.id}-desc`;
             return (
                 <button
-                    aria-label={`Open ${item.label} settings${status ? `, ${status}` : ''}`}
+                    aria-label={`Open ${item.label} settings${status ? `, ${status.spoken}` : ''}`}
                     aria-describedby={descId}
                     key={item.id}
                     onClick={() => handleSelectTab(item.id)}
@@ -462,17 +437,22 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         {item.icon('w-5 h-5')}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <div className="settings-menu-line flex items-baseline justify-between gap-2">
+                        <div
+                            className={`settings-menu-line${word ? ' settings-menu-line--word' : ''} flex items-baseline justify-between gap-2`}
+                        >
                             <p className="settings-menu-title shrink-0 text-white font-bold text-sm tracking-wide">
                                 {item.rowTitle ?? item.label}
                             </p>
                             {/* A long port or boat name ellipsises; the label never does.
                                 Where the title has grown, a state that no longer
-                                fits beside it drops under it, still set right
-                                (styles/menu-page-fit.css). */}
+                                fits beside it drops under it, still set right. A
+                                fixed word ("Sign in") is never cut: whole on the
+                                title line, or off it (styles/menu-page-fit.css). */}
                             {status && (
-                                <p className="settings-menu-state min-w-0 truncate text-xs font-semibold text-gray-300">
-                                    {status}
+                                <p
+                                    className={`settings-menu-state ${word ? 'settings-menu-state--word' : 'min-w-0 truncate'} text-xs font-semibold text-gray-300`}
+                                >
+                                    {status.text}
                                 </p>
                             )}
                         </div>

@@ -1,9 +1,12 @@
 /**
  * cmemsPassageCurrents — passage-briefing samples from Thalassa's OWN
  * CMEMS currents pipeline: the same verified THCU frames the Obs particle
- * layer paints (cmems_mod_glo_phy_anfc_merged-uv_PT1H-i — hourly TOTAL
- * current: geostrophic + tides + wind-driven), instead of a third-party
- * feed.
+ * layer paints (cmems_mod_glo_phy_anfc_merged-uv_PT1H-i, hourly), instead of
+ * a third-party feed. The pipeline publishes `uo`/`vo` only
+ * (scripts/cmems-currents-pipeline/pipeline.py, VARIABLES): the ocean
+ * current, geostrophic and wind-driven, with NO tide (that is `utide`) and
+ * no Stokes drift (`utotal` adds both). Nothing that reads these frames may
+ * say they include tidal streams (126-01b).
  *
  * Primary source for OceanCurrentService since 2026-08-25 (Shane: "you can
  * do this for me so it will be ready in the morning"), the same day NOAA

@@ -36,10 +36,11 @@ export interface VesselProfile {
     hullType?: 'monohull' | 'catamaran' | 'trimaran';
     keelType?: 'fin' | 'full' | 'wing' | 'skeg' | 'centerboard' | 'bilge';
     /**
-     * Closest she will sail to the TRUE wind, degrees off the bow. Drives the
-     * "In irons / Pinching" call on the Instrument Panel. Unset → a default by
-     * hull and rig (services/sailing/pointOfSail.ts): 45 for a heavy cutter,
-     * ketch or yawl, 40 for a sloop, 50 for a multihull.
+     * Closest she will sail to the TRUE wind, degrees off the bow. The
+     * passage HUD's ETA and Plan Your Day time upwind legs with it
+     * (closeHauledDegFor → routingSpeedModel). Unset → a default by hull and
+     * rig (services/sailing/pointOfSail.ts): 45 for a heavy cutter, ketch or
+     * yawl, 40 for a sloop, 50 for a multihull.
      */
     closeHauledTwa?: number;
     /**
