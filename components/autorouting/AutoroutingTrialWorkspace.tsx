@@ -52,6 +52,7 @@ import { annotateTideWindows } from '../map/tideWindowChips';
 import { routeRedStretches } from '../map/routeRedReasons';
 import { isBackstopLandRefusal } from '../../services/routing/landBackstopWords';
 import { AutoroutingProposalSaveCard } from './AutoroutingProposalSaveCard';
+import { CHART_FACTS_STAY_ABOARD } from '../../services/chartFacts';
 import { TrialTracerShell } from './TrialTracerShell';
 import { TrialWaypointEditor } from './TrialWaypointEditor';
 import { PlannerVesselLocator } from '../map/PlannerVesselLocator';
@@ -64,9 +65,19 @@ export interface AutoroutingTrialWorkspaceProps {
     initialDraftM?: number;
     initialSpeedKts?: number;
     initialVesselProfile?: AutoroutingVesselProfile;
-    /** Read-only itinerary review. No edits, standalone saves or setup changes;
-     * the owning planner must retain the exact route/schedule relationship. */
-    reviewProposal?: AutoroutingTrialRoute;
+    /**
+     * Plan Your Day's routed stop (127-PYD-3). Contract change, said here: the
+     * endpoints arrive inside a proposal Thalassa routed after the skipper's
+     * own tap on a stop; the boat's fix appears only as its first coordinate.
+     * Drawn as Auto draws it, every waypoint locked, review checks run, tide
+     * chips at `proposal.departureMs` (her leave). No setup or recalculation;
+     * the way on is "Use on the main chart" (`onClose` is Back).
+     */
+    dayPlan?: {
+        proposal: AutoroutingTrialRoute;
+        stopName: string;
+        onUseOnMainChart: (route: AutoroutingTrialRoute) => void;
+    };
     onReviewChange?: (review: import('../../services/autoroutingReview').TrialRouteReview | null) => void;
 }
 type Endpoint = 'departure' | 'destination';
@@ -108,9 +119,10 @@ export function AutoroutingTrialWorkspace({
     initialDraftM,
     initialSpeedKts,
     initialVesselProfile,
-    reviewProposal,
+    dayPlan,
     onReviewChange,
 }: AutoroutingTrialWorkspaceProps) {
+    const reviewProposal = dayPlan?.proposal;
     const pane = usePaneScope();
     const provider = useAutoroutingProvider();
     const keyboardHeight = useKeyboardOffset(!pane);
@@ -261,10 +273,7 @@ export function AutoroutingTrialWorkspace({
     // What this route found — not the lines every Auto route carries (125-06).
     const notesToReview = shownProposal ? routeNotesToReview(shownProposal.warnings).length : 0;
     const backstopUnavailable =
-        !!shownProposal &&
-        !reviewProposal &&
-        !shownProposal.localEdit &&
-        shownProposal.engine?.backstop === 'unavailable';
+        !!shownProposal && !shownProposal.localEdit && shownProposal.engine?.backstop === 'unavailable';
     // Retry needs the charts' verdict at every satellite sample, which the
     // proposal keeps only when the router could build its chart probe
     // (calculateThalassaProposal: one per sample of this very line).
@@ -752,7 +761,8 @@ export function AutoroutingTrialWorkspace({
         );
         if (!engine.shallowRuns?.length && !engine.surveyRuns?.length && liftable.length === 0) return clearChips;
         const stale = () => revision !== chipRevision.current || mapRef.current !== map;
-        const departureMs = Date.parse(proposal.createdAt);
+        // Her leave, for a Plan Your Day route; else when it was routed.
+        const departureMs = proposal.departureMs ?? Date.parse(proposal.createdAt);
         void annotateTideWindows({
             map,
             runs: engine.shallowRuns ?? [],
@@ -795,7 +805,7 @@ export function AutoroutingTrialWorkspace({
     };
     const inspectedWaypoint = inspectingWaypoint ? displayWaypoints[selectedWaypoint] : undefined;
     const moveLockedReason = reviewProposal
-        ? 'Itinerary preview only. Save the plan, then edit it in Plan and reassess timings and weather.'
+        ? 'Change the stop in Plan Your Day; edit the route on the main chart.'
         : !inspectedWaypoint
           ? undefined
           : inspectedWaypoint.pathIndex === 0 || inspectedWaypoint.pathIndex === (proposal?.coordinates.length ?? 0) - 1
@@ -1116,7 +1126,7 @@ export function AutoroutingTrialWorkspace({
                     ref={container}
                     role="region"
                     aria-label={
-                        reviewProposal ? 'Day plan route review chart' : 'Trial chart — tap to set selected endpoint'
+                        reviewProposal ? 'Plan Your Day route chart' : 'Trial chart — tap to set selected endpoint'
                     }
                     className="absolute inset-0"
                     style={{ position: 'absolute', inset: 0 }}
@@ -1278,17 +1288,20 @@ export function AutoroutingTrialWorkspace({
                         )
                     }
                     footer={
-                        reviewProposal ? (
+                        dayPlan ? (
                             <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => dayPlan.onUseOnMainChart(shownProposal ?? dayPlan.proposal)}
+                                    className={`${buttonClass} col-span-2 bg-teal-600 text-white`}
+                                >
+                                    Use on the main chart
+                                </button>
                                 <button type="button" onClick={fitRoute} className={buttonClass}>
                                     Whole route
                                 </button>
-                                <button
-                                    type="button"
-                                    onClick={onClose}
-                                    className={`${buttonClass} bg-teal-600 text-white`}
-                                >
-                                    Back to day plan
+                                <button type="button" onClick={onClose} className={buttonClass}>
+                                    Back to Plan Your Day
                                 </button>
                             </div>
                         ) : !proposal || panelPage === 'setup' ? (
@@ -1522,7 +1535,7 @@ export function AutoroutingTrialWorkspace({
                                 </section>
                             </div>
                         )}
-                        {proposal && typeof draft === 'number' && !reviewProposal && (
+                        {proposal && typeof draft === 'number' && (
                             <div hidden={panelPage !== 'review'}>
                                 {backstopUnavailable && (
                                     <section
@@ -1557,14 +1570,21 @@ export function AutoroutingTrialWorkspace({
                                         )}
                                     </section>
                                 )}
-                                <AutoroutingProposalSaveCard
-                                    key={proposal.id}
-                                    route={shownProposal ?? proposal}
-                                    review={review}
-                                    draftM={draft}
-                                    draftAssumed={draftAssumed}
-                                    onSaved={() => setSavedProposal(proposal)}
-                                />
+                                {/* Plan Your Day saves here only while 127-C-b keeps the chart facts aboard. */}
+                                {dayPlan && !CHART_FACTS_STAY_ABOARD ? (
+                                    <p className="text-micro text-gray-300">
+                                        Save it from the main chart: Use on the main chart.
+                                    </p>
+                                ) : (
+                                    <AutoroutingProposalSaveCard
+                                        key={proposal.id}
+                                        route={shownProposal ?? proposal}
+                                        review={review}
+                                        draftM={draft}
+                                        draftAssumed={draftAssumed}
+                                        onSaved={() => setSavedProposal(proposal)}
+                                    />
+                                )}
                             </div>
                         )}
                     </div>
@@ -1612,7 +1632,7 @@ export function AutoroutingTrialWorkspace({
                         ? dangerReported
                             ? 'Danger reported · open Route review before proceeding.'
                             : reviewProposal
-                              ? 'Day plan preview · review checks, then return to the itinerary.'
+                              ? 'Plan Your Day route · review checks, then use it on the main chart or go back.'
                               : 'Trial proposal only · open Route review to inspect checks and save.'
                         : `Tap the chart to set ${target}.`}
                 </div>
