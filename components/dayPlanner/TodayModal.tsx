@@ -14,6 +14,7 @@ export function TodayModal({
     sub,
     layer = 'nested',
     active = true,
+    hidden = false,
     onClose,
     closeLabel = 'Close',
     headerBody,
@@ -29,6 +30,8 @@ export function TodayModal({
     layer?: OverlayLayer;
     /** False while a nested screen is open over this one. */
     active?: boolean;
+    /** Hidden, not closed (its state kept), while Auto's chart is over Plan Your Day (127-PYD-3). */
+    hidden?: boolean;
     onClose: () => void;
     closeLabel?: string;
     headerExtra?: React.ReactNode;
@@ -38,9 +41,12 @@ export function TodayModal({
 }) {
     const titleId = useId();
     const closeRef = useRef<HTMLButtonElement>(null);
-    const dialogRef = useFocusTrap<HTMLDivElement>(active, { initialFocusRef: closeRef, onEscape: onClose });
+    const dialogRef = useFocusTrap<HTMLDivElement>(active && !hidden, {
+        initialFocusRef: closeRef,
+        onEscape: onClose,
+    });
     return (
-        <OverlayPortal layer={layer} role="presentation" className="today-overlay">
+        <OverlayPortal layer={layer} role="presentation" className="today-overlay" hidden={hidden}>
             <div
                 ref={dialogRef}
                 role="dialog"

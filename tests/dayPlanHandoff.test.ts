@@ -1,13 +1,12 @@
 /**
- * Plan Your Day's handoff to the chart (build 124, slice 2).
+ * Plan Your Day's handoff to the chart (build 124; 127-PYD-3).
  *
- * Both ⚡ buttons in the chart's route plotter are parked
- * (mapHubHelpers.ts AUTO_ROUTE_BUTTON_VISIBLE / COURSE_FRAME_VISIBLE), so
- * "Plot on chart" loads straight pins into the MANUAL plotter: start → stop
- * (→ start for a day trip), or the skipper's own saved route when one joins
- * the two. The skipper drags the pins round the land; nothing is saved until
- * the skipper saves. The request is identity-fenced like every other tracer
- * handoff: it carries the boat's position.
+ * "Plot on chart" never draws a straight line: it loads the line Thalassa
+ * routed round the land, or the skipper's own saved route, into the MANUAL
+ * plotter as an unsaved draft; with neither, only the start and stop marks
+ * and why ("Plot by hand"), with no dashed bearing hint. Nothing is saved
+ * until the skipper saves. The request is identity-fenced like every other
+ * tracer handoff: it carries the boat's position.
  */
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';

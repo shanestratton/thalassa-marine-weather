@@ -38,7 +38,7 @@
  * their pins are checked against her charts and her voyage ends are read on
  * the phone, both kept in this sheet's memory only. An open stop keeps its slot.
  */
-import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { VesselProfile } from '../../types/vessel';
 import type { PlotDayAction } from '../../services/deepLink';
 import type { BoatFix } from '../../services/boatPositionChain';
@@ -105,6 +105,18 @@ import {
 } from '../../services/dayPlanner/todayLoader';
 import { TodayModal } from './TodayModal';
 import { TodayStopDetail, type LandingLoader, type StopRouteView } from './TodayStopDetail';
+import { lazyRetry } from '../../utils/lazyRetry';
+import { snapshotAutoroutingVesselProfile } from '../../services/autoroutingVesselProfile';
+import type { AutoroutingTrialRoute } from '../../types/autorouting';
+
+// Auto's chart, over Plan Your Day for a routed stop (127-PYD-3): lazy, as RoutingModeDialog loads it.
+const DayChart = lazyRetry(
+    () =>
+        import('../autorouting/AutoroutingTrialWorkspace').then((module) => ({
+            default: module.AutoroutingTrialWorkspace,
+        })),
+    'AutoroutingTrialWorkspace',
+);
 import {
     TodayPlacePicker,
     readPhonePosition,
@@ -142,6 +154,8 @@ export interface TodaySheetProps {
     onPlot: (action: PlotDayAction) => void;
     /** Settings → Vessel, for the default-boat notice. */
     onOpenVessel?: () => void;
+    /** For Auto's chart over a routed stop (127-PYD-3). */
+    mapboxToken?: string;
     io?: TodaySheetIO;
 }
 
@@ -160,7 +174,15 @@ function startAge(start: PlanStart, nowMs: number): string {
     return 'typed place';
 }
 
-export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot, onOpenVessel, io }: TodaySheetProps) {
+export default function TodaySheet({
+    vessel,
+    usingDefaultVessel,
+    onClose,
+    onPlot,
+    onOpenVessel,
+    mapboxToken = '',
+    io,
+}: TodaySheetProps) {
     const [scope] = useState(getAuthIdentityScope);
     // The sources, fixed for the sheet's life.
     const [sources] = useState(() => ({
@@ -427,10 +449,37 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
         setScreen('picker');
     };
 
-    const plot = (row: StopRow, departureMs: number | null) => {
+    // Never a straight line (127-PYD-3): the routed line, her saved route, or the two marks and why.
+    const plot = (row: StopRow, departureMs: number | null, routed?: AutoroutingTrialRoute) => {
         if (!base) return;
         if (departureMs !== null) setPlanDeparture(departureMs, scope);
-        onPlot(plotDayAction(base.start, row.candidate, stay));
+        const state = openKey ? queue.states.get(openKey) : undefined;
+        onPlot(
+            plotDayAction(base.start, row.candidate, stay, {
+                routed: routed?.coordinates.map(([lon, lat]) => ({ lat, lon })),
+                why: state?.kind === 'no-route' ? state.words : '',
+            }),
+        );
+    };
+    // Auto's chart over Plan Your Day: the routed proposal at her chosen leave (no re-route).
+    const [dayChart, setDayChart] = useState<{ proposal: AutoroutingTrialRoute; departureMs: number | null } | null>(
+        null,
+    );
+    const showRoute = (departureMs: number | null) => {
+        const state = openKey ? queue.states.get(openKey) : undefined;
+        if (state?.kind !== 'routed') return;
+        const leave = departureMs ?? state.proposal.departureMs ?? null;
+        setDayChart({
+            proposal: { ...state.proposal, ...(leave !== null ? { departureMs: leave } : {}) },
+            departureMs,
+        });
+    };
+    const closeDayChart = () => {
+        setDayChart(null);
+        // Back on her stop page, on the button that opened the chart.
+        requestAnimationFrame(() =>
+            document.querySelector<HTMLElement>('.today-detail .today-primary')?.focus({ preventScroll: true }),
+        );
     };
 
     const loadLanding: LandingLoader = useCallback(
@@ -545,6 +594,7 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                 title="Plan Your Day"
                 layer="modal"
                 active={screen === null}
+                hidden={!!dayChart}
                 onClose={onClose}
                 className="today-main"
                 headerBody={
@@ -805,6 +855,7 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                     loadLanding={detailRow.candidate.reviewed?.landingTide ? loadLanding : null}
                     onPlot={(departureMs) => plot(detailRow, departureMs)}
                     onBack={() => setScreen(null)}
+                    hidden={!!dayChart}
                     route={
                         offered && openKey
                             ? {
@@ -817,11 +868,37 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                                   owner,
                                   draftM: routeDraftM,
                                   onRoute: (departureMs) => startRoute(detailRow, departureMs),
+                                  onShow: showRoute,
                                   onAction: onRouteAction,
                               }
                             : null
                     }
                 />
+            )}
+            {dayChart && detailRow && (
+                <Suspense
+                    fallback={
+                        <p role="status" className="today-notice">
+                            Opening chart…
+                        </p>
+                    }
+                >
+                    <DayChart
+                        mapboxToken={mapboxToken}
+                        initialDraftM={routeDraftM}
+                        initialSpeedKts={routeVessel.cruisingSpeed}
+                        initialVesselProfile={snapshotAutoroutingVesselProfile(routeVessel)}
+                        onClose={closeDayChart}
+                        dayPlan={{
+                            proposal: dayChart.proposal,
+                            stopName: detailRow.name.split(' · ')[0],
+                            onUseOnMainChart: (route) => {
+                                setDayChart(null);
+                                plot(detailRow, dayChart.departureMs, route);
+                            },
+                        }}
+                    />
+                </Suspense>
             )}
         </>
     );

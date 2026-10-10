@@ -24,16 +24,19 @@ export function DayPlannerEntry({
     onUpgrade,
     onPlot,
     onOpenVessel,
+    mapboxToken,
 }: {
     /** Always resolved: her profile, or the default boat (and it says so). */
     vessel: VesselProfile;
     usingDefaultVessel: boolean;
     isPro: boolean;
     onUpgrade: () => void;
-    /** "Plot on chart": straight pins into the Manual plotter. */
+    /** "Plot on chart": the routed line, her saved route, or two marks into the Manual plotter. */
     onPlot: (action: TracerOpenAction) => void;
     /** Settings → Vessel, from the default-boat notice. */
     onOpenVessel?: () => void;
+    /** For Auto's chart over a routed stop (127-PYD-3). */
+    mapboxToken?: string;
 }) {
     const [open, setOpen] = useState(false);
     const close = useCallback(() => setOpen(false), []);
@@ -89,6 +92,7 @@ export function DayPlannerEntry({
                         onClose={close}
                         onPlot={plot}
                         onOpenVessel={onOpenVessel ? openVessel : undefined}
+                        mapboxToken={mapboxToken}
                     />
                 </Suspense>
             )}
