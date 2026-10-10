@@ -20,13 +20,15 @@ import { navLineLeads, osmNavLineLeads, parseLeadingLines } from '../services/le
 import { snapTraceTapToLead, tracerContextFromLayers, validateTraceLeg } from '../services/routeTracer';
 import type { CardinalDisc } from '../services/tier3/cardinalClamp';
 import { encLayer, osmOverlay } from './helpers/encCells';
+import { lazy, REAL_AU_CHART_FIXTURES_RETIRED } from './helpers/retiredChartFixtures';
 
 const CELLS = ['OC-61-10ENB5', 'OC-61-10RCS5'];
-const chartNav = CELLS.flatMap((id) => encLayer(id, 'NAVLNE'));
-const chartRectrc = CELLS.flatMap((id) => encLayer(id, 'RECTRC'));
+// Read on first use: the chart cells are retired, so only gated blocks call these.
+const chartNavOf = lazy(() => CELLS.flatMap((id) => encLayer(id, 'NAVLNE')));
+const chartRectrcOf = lazy(() => CELLS.flatMap((id) => encLayer(id, 'RECTRC')));
 const osmNav = (osmOverlay('newport-pinkenba') as { navLines: FeatureCollection }).navLines.features;
 const fc = (features: Feature[]): FeatureCollection => ({ type: 'FeatureCollection', features });
-const rcid = (n: number) => chartNav.find((f) => f.properties?.rcid === n)!;
+const rcid = (n: number) => chartNavOf().find((f) => f.properties?.rcid === n)!;
 const osmId = (f: Feature) => f.properties?._osmId as number | undefined;
 
 /** The four OSM ways that redraw the dropped chart transits. */
@@ -35,7 +37,10 @@ const OSM_TRANSIT_TWINS = [1050662194, 1050662196, 1050662407, 1050662408];
 const OSM_TWINS_OF_CHART_LEADS = [1050662120, 1050662193, 1050662403];
 
 /** The device merge: chart leads, then OSM through osmNavLineLeads. */
-const mergedNavLine = (): Feature[] => [...navLineLeads(chartNav, 'NAVLNE'), ...osmNavLineLeads(osmNav, chartNav)];
+const mergedNavLine = (): Feature[] => [
+    ...navLineLeads(chartNavOf(), 'NAVLNE'),
+    ...osmNavLineLeads(osmNav, chartNavOf()),
+];
 
 // ── Independent geometry (deliberately NOT the production twin test) ──
 const M_LAT = 110_540;
@@ -87,104 +92,122 @@ function alongsideM(line: Feature, target: Feature, withinM: number): number {
     return m;
 }
 
-describe('OSM navigation lines that redraw a chart clearing or transit line', () => {
-    it('the fixtures still hold the case: chart transits 2383 and 3454, with OSM twins on top', () => {
-        expect(rcid(2383).properties?.CATNAV).toBe(2);
-        expect(rcid(3454).properties?.CATNAV).toBe(2);
-        expect(osmNav.map(osmId)).toEqual(expect.arrayContaining(OSM_TRANSIT_TWINS));
-        for (const id of [1050662196, 1050662408])
-            expect(alongsideM(osmNav.find((f) => osmId(f) === id)!, rcid(2383), 15)).toBeGreaterThan(1_000);
-        for (const id of [1050662194, 1050662407])
-            expect(alongsideM(osmNav.find((f) => osmId(f) === id)!, rcid(3454), 15)).toBeGreaterThan(1_000);
-    });
-
-    it('the merge drops exactly those four and keeps every other OSM line', () => {
-        const kept = osmNavLineLeads(osmNav, chartNav).map(osmId);
-        expect(kept).toHaveLength(osmNav.length - OSM_TRANSIT_TWINS.length);
-        for (const id of OSM_TRANSIT_TWINS) expect(kept).not.toContain(id);
-        // "transit" ways that the chart says are LEADING lines stay (the chart decides).
-        expect(kept).toEqual(expect.arrayContaining(OSM_TWINS_OF_CHART_LEADS));
-        // The device merges also weigh RECTRC as a chart lead: same answer
-        // here, and every kept line is the overlay's own, uncut.
-        const withRectrc = osmNavLineLeads(osmNav, chartNav, chartRectrc);
-        expect(withRectrc.map(osmId)).toEqual(kept);
-        for (const f of withRectrc) expect(osmNav).toContain(f);
-    });
-
-    it('no merged NAVLINE feature runs along 2383 or 3454', () => {
-        // The chart's own lead 2379 runs ~30 m between the two transits, so
-        // "within 30 m" cannot be the bound: it would forbid the real lead.
-        expect(alongsideM(rcid(2379), rcid(2383), 25)).toBe(0);
-        expect(alongsideM(rcid(2379), rcid(3454), 25)).toBe(0);
-        const merged = mergedNavLine();
-        for (const f of merged)
-            for (const target of [2383, 3454])
-                expect(
-                    alongsideM(f, rcid(target), 15),
-                    `${f.properties?.rcid ?? osmId(f)} runs along chart transit ${target}`,
-                ).toBeLessThan(50);
-    });
-
-    it('routeInshore entry gives the same answer for a raw mixed assembly (all chart + all OSM)', () => {
-        // The Pinkenba repro and other fixtures push raw chart NAVLNE and raw
-        // OSM lines into NAVLINE; the engine's own gate must still drop the twins.
-        const gated = withNavLineLeadsOnly({ NAVLINE: fc([...chartNav, ...osmNav]) }).NAVLINE!.features;
-        const key = (f: Feature) => String(f.properties?.rcid ?? osmId(f));
-        expect(gated.map(key).sort()).toEqual(mergedNavLine().map(key).sort());
-    });
-});
-
-describe('tracer: a wrong-side cardinal next to the dropped transits stays a DANGER', () => {
-    // A leg riding 20 m south of transit 2383 in Hamilton Reach, ~50 m from
-    // the chart lead 2379 and RECTRC 2380 (beyond the tracer's 40 m "on the
-    // lead" reach) but ~25 m from OSM twin 1050662408 (inside it). A north
-    // cardinal sits 10 m north of the leg, so the leg passes its wrong side.
-    const [, A, B] = rings(rcid(2383))[0];
-    const k = mLon(A[1]);
-    const len = Math.hypot((B[0] - A[0]) * k, (B[1] - A[1]) * M_LAT);
-    const ux = ((B[0] - A[0]) * k) / len,
-        uy = ((B[1] - A[1]) * M_LAT) / len;
-    const [nx, ny] = [-uy, ux]; // south of the line (away from 2379)
-    const at = (t: number, offM: number) => ({
-        lon: A[0] + (B[0] - A[0]) * t + (nx * offM) / k,
-        lat: A[1] + (B[1] - A[1]) * t + (ny * offM) / M_LAT,
-    });
-    const legA = at(0.6, 20),
-        legB = at(0.75, 20);
-    const cardinal: CardinalDisc = { ...at(0.67, 10), dir: 'n', radiusM: 100 };
-    const bbox: [number, number, number, number] = [153.08, -27.46, 153.12, -27.43];
-    const context = (navline: Feature[]) => {
-        const ctx = tracerContextFromLayers({ RECTRC: fc(chartRectrc), NAVLINE: fc(navline) }, [], bbox, 2, {
-            skipGrid: true,
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'OSM navigation lines that redraw a chart clearing or transit line (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        it('the fixtures still hold the case: chart transits 2383 and 3454, with OSM twins on top', () => {
+            expect(rcid(2383).properties?.CATNAV).toBe(2);
+            expect(rcid(3454).properties?.CATNAV).toBe(2);
+            expect(osmNav.map(osmId)).toEqual(expect.arrayContaining(OSM_TRANSIT_TWINS));
+            for (const id of [1050662196, 1050662408])
+                expect(alongsideM(osmNav.find((f) => osmId(f) === id)!, rcid(2383), 15)).toBeGreaterThan(1_000);
+            for (const id of [1050662194, 1050662407])
+                expect(alongsideM(osmNav.find((f) => osmId(f) === id)!, rcid(3454), 15)).toBeGreaterThan(1_000);
         });
-        ctx.cardinals = [cardinal];
-        return ctx;
-    };
-    const cardinalIssue = (ctx: ReturnType<typeof context>) =>
-        validateTraceLeg(legA, legB, ctx).issues.filter((i) => i.message.includes('cardinal'));
 
-    it('with the device merge', () => {
-        expect(ny).toBeLessThan(0);
-        const issues = cardinalIssue(context(mergedNavLine()));
-        expect(issues).toHaveLength(1);
-        expect(issues[0].severity).toBe('danger');
-        expect(issues[0].message).toContain('wrong side of the north cardinal');
-    });
+        it('the merge drops exactly those four and keeps every other OSM line', () => {
+            const kept = osmNavLineLeads(osmNav, chartNavOf()).map(osmId);
+            expect(kept).toHaveLength(osmNav.length - OSM_TRANSIT_TWINS.length);
+            for (const id of OSM_TRANSIT_TWINS) expect(kept).not.toContain(id);
+            // "transit" ways that the chart says are LEADING lines stay (the chart decides).
+            expect(kept).toEqual(expect.arrayContaining(OSM_TWINS_OF_CHART_LEADS));
+            // The device merges also weigh RECTRC as a chart lead: same answer
+            // here, and every kept line is the overlay's own, uncut.
+            const withRectrc = osmNavLineLeads(osmNav, chartNavOf(), chartRectrcOf());
+            expect(withRectrc.map(osmId)).toEqual(kept);
+            for (const f of withRectrc) expect(osmNav).toContain(f);
+        });
 
-    it('even when an assembler left the OSM twins in NAVLINE: OSM never holds the lead override', () => {
-        const ctx = context([...navLineLeads(chartNav, 'NAVLNE'), ...osmNav]);
-        expect(ctx.osmLeads?.length).toBeGreaterThan(0);
-        expect(cardinalIssue(ctx).map((i) => i.severity)).toEqual(['danger']);
-    });
+        it('no merged NAVLINE feature runs along 2383 or 3454', () => {
+            // The chart's own lead 2379 runs ~30 m between the two transits, so
+            // "within 30 m" cannot be the bound: it would forbid the real lead.
+            expect(alongsideM(rcid(2379), rcid(2383), 25)).toBe(0);
+            expect(alongsideM(rcid(2379), rcid(3454), 25)).toBe(0);
+            const merged = mergedNavLine();
+            for (const f of merged)
+                for (const target of [2383, 3454])
+                    expect(
+                        alongsideM(f, rcid(target), 15),
+                        `${f.properties?.rcid ?? osmId(f)} runs along chart transit ${target}`,
+                    ).toBeLessThan(50);
+        });
 
-    it('control: had the OSM twin carried chart authority, the danger would read as "the charted lead"', () => {
-        const ctx = context(mergedNavLine());
-        const twin = parseLeadingLines([osmNav.find((f) => osmId(f) === 1050662408)!]);
-        const issues = cardinalIssue({ ...ctx, leads: [...ctx.leads, ...twin] });
-        expect(issues.map((i) => i.severity)).toEqual(['info']);
-        expect(issues[0].message).toContain('on the charted lead');
-    });
-});
+        it('routeInshore entry gives the same answer for a raw mixed assembly (all chart + all OSM)', () => {
+            // The Pinkenba repro and other fixtures push raw chart NAVLNE and raw
+            // OSM lines into NAVLINE; the engine's own gate must still drop the twins.
+            const gated = withNavLineLeadsOnly({ NAVLINE: fc([...chartNavOf(), ...osmNav]) }).NAVLINE!.features;
+            const key = (f: Feature) => String(f.properties?.rcid ?? osmId(f));
+            expect(gated.map(key).sort()).toEqual(mergedNavLine().map(key).sort());
+        });
+    },
+);
+
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'tracer: a wrong-side cardinal next to the dropped transits stays a DANGER (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        // A leg riding 20 m south of transit 2383 in Hamilton Reach, ~50 m from
+        // the chart lead 2379 and RECTRC 2380 (beyond the tracer's 40 m "on the
+        // lead" reach) but ~25 m from OSM twin 1050662408 (inside it). A north
+        // cardinal sits 10 m north of the leg, so the leg passes its wrong side.
+        const geometry = lazy(() => {
+            const [, A, B] = rings(rcid(2383))[0];
+            const k = mLon(A[1]);
+            const len = Math.hypot((B[0] - A[0]) * k, (B[1] - A[1]) * M_LAT);
+            const ux = ((B[0] - A[0]) * k) / len,
+                uy = ((B[1] - A[1]) * M_LAT) / len;
+            const [nx, ny] = [-uy, ux]; // south of the line (away from 2379)
+            const at = (t: number, offM: number) => ({
+                lon: A[0] + (B[0] - A[0]) * t + (nx * offM) / k,
+                lat: A[1] + (B[1] - A[1]) * t + (ny * offM) / M_LAT,
+            });
+            const legA = at(0.6, 20),
+                legB = at(0.75, 20);
+            const cardinal: CardinalDisc = { ...at(0.67, 10), dir: 'n', radiusM: 100 };
+            const bbox: [number, number, number, number] = [153.08, -27.46, 153.12, -27.43];
+            const context = (navline: Feature[]) => {
+                const ctx = tracerContextFromLayers(
+                    { RECTRC: fc(chartRectrcOf()), NAVLINE: fc(navline) },
+                    [],
+                    bbox,
+                    2,
+                    {
+                        skipGrid: true,
+                    },
+                );
+                ctx.cardinals = [cardinal];
+                return ctx;
+            };
+            const cardinalIssue = (ctx: ReturnType<typeof context>) =>
+                validateTraceLeg(legA, legB, ctx).issues.filter((i) => i.message.includes('cardinal'));
+            return { ny, context, cardinalIssue };
+        });
+
+        it('with the device merge', () => {
+            const { ny, context, cardinalIssue } = geometry();
+            expect(ny).toBeLessThan(0);
+            const issues = cardinalIssue(context(mergedNavLine()));
+            expect(issues).toHaveLength(1);
+            expect(issues[0].severity).toBe('danger');
+            expect(issues[0].message).toContain('wrong side of the north cardinal');
+        });
+
+        it('even when an assembler left the OSM twins in NAVLINE: OSM never holds the lead override', () => {
+            const { context, cardinalIssue } = geometry();
+            const ctx = context([...navLineLeads(chartNavOf(), 'NAVLNE'), ...osmNav]);
+            expect(ctx.osmLeads?.length).toBeGreaterThan(0);
+            expect(cardinalIssue(ctx).map((i) => i.severity)).toEqual(['danger']);
+        });
+
+        it('control: had the OSM twin carried chart authority, the danger would read as "the charted lead"', () => {
+            const { context, cardinalIssue } = geometry();
+            const ctx = context(mergedNavLine());
+            const twin = parseLeadingLines([osmNav.find((f) => osmId(f) === 1050662408)!]);
+            const issues = cardinalIssue({ ...ctx, leads: [...ctx.leads, ...twin] });
+            expect(issues.map((i) => i.severity)).toEqual(['info']);
+            expect(issues[0].message).toContain('on the charted lead');
+        });
+    },
+);
 
 describe('the twin rule takes only the stretch the chart claims (review 2026-09-29, probes C D F G)', () => {
     // It used to drop the WHOLE OSM line once 50 m of it (an absolute figure)

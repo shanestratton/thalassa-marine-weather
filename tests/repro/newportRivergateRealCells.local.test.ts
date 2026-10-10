@@ -125,6 +125,7 @@ import { dangerWithoutChartedDepth, inshoreSegmentStates } from '../../component
 import { parseAndCacheCellText } from '../../services/enc/EncCellStore';
 import { validateLocalEncPack } from '../../services/enc/localEncPackImport';
 import { loadFixture } from '../helpers/corridorFixture';
+import { REAL_AU_CHART_FIXTURES_RETIRED } from '../helpers/retiredChartFixtures';
 import { chartAreaIndexFor, chartedDepthRangeAt } from '../../services/routing/leadLandClip';
 import { backstopChartWaterProbe, hardLandAtPoint } from '../../services/engine/safetyAudit';
 import { haversineM } from '../../services/engine/geometry';
@@ -210,152 +211,162 @@ function audit(r: RouteResult, layers: Record<string, FeatureCollection>, ceilin
     return { landM, dryingM, noTideM: noTide.reduce((m, x) => m + x.lengthM, 0), lengthM };
 }
 
-describe.skipIf(!HAVE_CELLS)('Newport → Rivergate on the real cells (app path, local only)', () => {
-    for (const tide of [2.5, null] as const) {
-        it(
-            `reaches the Rivergate pin by water — highest tide ${tide === null ? 'unknown' : `${tide} m`}`,
-            { timeout: 600_000 },
-            async () => {
-                const fx = loadFixture('newport-rivergate.corridor.json.gz');
-                const from = { lat: fx.request.fromLat, lon: fx.request.fromLon };
-                const to = { lat: fx.request.toLat, lon: fx.request.toLon };
-                h.cells = [];
-                h.blobs.clear();
-                const loaded = loadRealCells([
-                    Math.min(from.lon, to.lon),
-                    Math.min(from.lat, to.lat),
-                    Math.max(from.lon, to.lon),
-                    Math.max(from.lat, to.lat),
-                ]);
-                h.osm = { berths: { type: 'FeatureCollection', features: [] }, ...fx.osm };
-                const markers = gunzipSync(readFileSync('tests/fixtures/se-qld-nav-markers.json.gz')).toString();
-                vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-                    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-                    if (url.endsWith(SEQLD_SUFFIX))
-                        return Promise.resolve(
-                            new Response(markers, { status: 200, headers: { 'content-type': 'application/json' } }),
-                        );
-                    return Promise.reject(new Error(`no network here: ${url}`));
-                });
-                // The 2.5 m tide top Shane measured for Moreton Bay, everywhere on
-                // the route's 0.25° tide grid; "unknown" is an empty list.
-                const ceilings: TideCeiling[] = [];
-                if (tide !== null)
-                    for (let lat = -28.0; lat <= -26.5; lat += 0.25)
-                        for (let lon = 152.75; lon <= 153.75; lon += 0.25)
-                            ceilings.push({ lat, lon, highestM: tide, days: 14 });
-
-                const res = await tryInshoreRoute(from, to, DRAFT_M, AIR_DRAFT_M, 'safest', {
-                    tideCeilings: ceilings,
-                });
-                const engine = h.lastResult as (RouteResult & { debug?: Record<string, unknown> }) | { error: string };
-                expect(res, 'the app router returned nothing').not.toBeNull();
-                expect(engine && 'error' in engine ? engine.error : null).toBeNull();
-                const r = engine as RouteResult & { debug?: Record<string, unknown> };
-                const layers = h.lastLayers as Record<string, FeatureCollection>;
-                const a = audit(
-                    r,
-                    layers,
-                    tide === null ? [{ lat: -27.25, lon: 153.0, highestM: 2.5, days: 14 }] : ceilings,
-                );
-                const end = r.polyline[r.polyline.length - 1];
-                const endToPinM = haversineM(end[1], end[0], to.lat, to.lon);
-                // The path, a point every ~2 km, for the report.
-                const path: string[] = [];
-                let run = Infinity;
-                for (let i = 0; i < r.polyline.length; i++) {
-                    if (i > 0)
-                        run += haversineM(
-                            r.polyline[i - 1][1],
-                            r.polyline[i - 1][0],
-                            r.polyline[i][1],
-                            r.polyline[i][0],
-                        );
-                    if (run >= 2000 || i === r.polyline.length - 1) {
-                        path.push(`${r.polyline[i][1].toFixed(4)},${r.polyline[i][0].toFixed(4)}`);
-                        run = 0;
-                    }
-                }
-                console.log(
-                    `REAL ${tide ?? 'none'}: cells=${loaded.join(',')} ${r.distanceNM.toFixed(2)} NM, ` +
-                        `land ${Math.round(a.landM)} m, drying ${Math.round(a.dryingM)} m, no-tide ${Math.round(a.noTideM)} m, ` +
-                        `end ${Math.round(endToPinM)} m from pin, inlandTrim=${String(r.debug?.destinationInlandTrimM ?? 'none')}` +
-                        `\n  path ${path.join(' ')}`,
-                );
-                expect(r.debug?.destinationInlandTrimM, 'the pin in a 9.1 m dredged area read as land').toBeUndefined();
-                expect(endToPinM, 'the route stops short of the pin').toBeLessThan(60);
-                expect(Math.round(a.landM), 'metres on charted land').toBe(0);
-                expect(Math.round(a.dryingM), 'metres over charted drying ground').toBe(0);
-                expect(Math.round(a.noTideM), 'metres over water no 2.5 m tide clears').toBe(0);
-                // What Auto refuses (services/autoroutingThalassa; 2026-10-01
-                // review): land away from a pin's edge, and red with no charted
-                // depth inside a relax zone when the tides were loaded. A real
-                // route it would refuse is a regression.
-                const shipped = res as InshoreRouteResult;
-                const states = inshoreSegmentStates(shipped);
-                const unchecked = dangerWithoutChartedDepth({ ...shipped, stateMask: states }) ?? [];
-                const inZone = unchecked.filter((i) => {
-                    const mid = {
-                        lat: (shipped.polyline[i][1] + shipped.polyline[i + 1][1]) / 2,
-                        lon: (shipped.polyline[i][0] + shipped.polyline[i + 1][0]) / 2,
-                    };
-                    return (shipped.relaxZones ?? []).some(
-                        (z) => haversineM(z.lat, z.lon, mid.lat, mid.lon) <= z.radiusM,
-                    );
-                });
-                console.log(
-                    `AUTO ${tide ?? 'none'}: hardLand ${JSON.stringify(shipped.hardLand)} relaxZones ${shipped.relaxZones?.length ?? 0} ` +
-                        `tideCeilingsLoaded ${String(shipped.tideCeilingsLoaded)} red-without-depth segs ${unchecked.length} (in zones ${inZone.length})`,
-                );
-                expect(shipped.hardLand?.awayM, 'metres of charted land away from a pin edge').toBe(0);
-                if (shipped.tideCeilingsLoaded) expect(inZone, 'red with no depth inside a relax zone').toEqual([]);
-                // The satellite land check, as Auto, the planner and the voyage
-                // form run it (2026-10-02): ETOPO land counts only where the
-                // route's own charts do not vouch for water.
-                if (existsSync(ETOPO_GRID)) {
-                    const rows = (
-                        JSON.parse(readFileSync(ETOPO_GRID, 'utf8')) as { table: { rows: [number, number, number][] } }
-                    ).table.rows;
-                    h.etopo = {
-                        lats: [...new Set(rows.map((x) => x[0]))],
-                        lons: [...new Set(rows.map((x) => x[1]))],
-                        alt: new Map(rows.map((x) => [`${x[0]},${x[1]}`, x[2]])),
-                    };
-                    // What building the route's chart evidence costs (it runs once
-                    // per finished route, inside tryInshoreRoute).
-                    const tProbe = performance.now();
-                    const probe = backstopChartWaterProbe(layers as never, [
-                        Math.min(...shipped.polyline.map((p) => p[0])),
-                        Math.min(...shipped.polyline.map((p) => p[1])),
-                        Math.max(...shipped.polyline.map((p) => p[0])),
-                        Math.max(...shipped.polyline.map((p) => p[1])),
+describe.skipIf(!HAVE_CELLS || REAL_AU_CHART_FIXTURES_RETIRED)(
+    'Newport → Rivergate on the real cells (app path, local only) (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        for (const tide of [2.5, null] as const) {
+            it(
+                `reaches the Rivergate pin by water — highest tide ${tide === null ? 'unknown' : `${tide} m`}`,
+                { timeout: 600_000 },
+                async () => {
+                    const fx = loadFixture('newport-rivergate.corridor.json.gz');
+                    const from = { lat: fx.request.fromLat, lon: fx.request.fromLon };
+                    const to = { lat: fx.request.toLat, lon: fx.request.toLon };
+                    h.cells = [];
+                    h.blobs.clear();
+                    const loaded = loadRealCells([
+                        Math.min(from.lon, to.lon),
+                        Math.min(from.lat, to.lat),
+                        Math.max(from.lon, to.lon),
+                        Math.max(from.lat, to.lat),
                     ]);
-                    const probeMs = performance.now() - tProbe;
-                    expect(probe(shipped.polyline[0][0], shipped.polyline[0][1])).toBe(
-                        shipped.chartWater!(shipped.polyline[0][0], shipped.polyline[0][1]),
-                    );
-                    const without = await inshoreRouteCrossesLand(shipped.polyline);
-                    const withCharts = await inshoreRouteCrossesLand(shipped.polyline, {
-                        chartWater: shipped.chartWater,
+                    h.osm = { berths: { type: 'FeatureCollection', features: [] }, ...fx.osm };
+                    const markers = gunzipSync(readFileSync('tests/fixtures/se-qld-nav-markers.json.gz')).toString();
+                    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+                        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+                        if (url.endsWith(SEQLD_SUFFIX))
+                            return Promise.resolve(
+                                new Response(markers, { status: 200, headers: { 'content-type': 'application/json' } }),
+                            );
+                        return Promise.reject(new Error(`no network here: ${url}`));
                     });
-                    // What the charts say at each ETOPO land sample.
-                    const samples = samplePolyline(shipped.polyline);
-                    const depths = await (
-                        await import('../../services/GebcoDepthService')
-                    ).GebcoDepthService.queryRouteDepths(samples.map(([lon, lat]) => ({ lat, lon })));
-                    const said = samples
-                        .map(([lon, lat], i) =>
-                            (depths[i].depth_m ?? -1) >= 0
-                                ? `#${i} ${lat.toFixed(4)},${lon.toFixed(4)} ${depths[i].depth_m} m → ${shipped.chartWater!(lon, lat)}`
-                                : null,
-                        )
-                        .filter(Boolean);
-                    console.log(
-                        `BACKSTOP ${tide ?? 'none'} (chart evidence built in ${probeMs.toFixed(1)} ms): without charts ${JSON.stringify(without)}\n  with charts ${JSON.stringify(withCharts)}\n  ${said.join('\n  ')}`,
+                    // The 2.5 m tide top Shane measured for Moreton Bay, everywhere on
+                    // the route's 0.25° tide grid; "unknown" is an empty list.
+                    const ceilings: TideCeiling[] = [];
+                    if (tide !== null)
+                        for (let lat = -28.0; lat <= -26.5; lat += 0.25)
+                            for (let lon = 152.75; lon <= 153.75; lon += 0.25)
+                                ceilings.push({ lat, lon, highestM: tide, days: 14 });
+
+                    const res = await tryInshoreRoute(from, to, DRAFT_M, AIR_DRAFT_M, 'safest', {
+                        tideCeilings: ceilings,
+                    });
+                    const engine = h.lastResult as
+                        | (RouteResult & { debug?: Record<string, unknown> })
+                        | { error: string };
+                    expect(res, 'the app router returned nothing').not.toBeNull();
+                    expect(engine && 'error' in engine ? engine.error : null).toBeNull();
+                    const r = engine as RouteResult & { debug?: Record<string, unknown> };
+                    const layers = h.lastLayers as Record<string, FeatureCollection>;
+                    const a = audit(
+                        r,
+                        layers,
+                        tide === null ? [{ lat: -27.25, lon: 153.0, highestM: 2.5, days: 14 }] : ceilings,
                     );
-                    expect(withCharts).toMatchObject({ status: 'verified', crossesLand: false });
-                }
-            },
-        );
-    }
-});
+                    const end = r.polyline[r.polyline.length - 1];
+                    const endToPinM = haversineM(end[1], end[0], to.lat, to.lon);
+                    // The path, a point every ~2 km, for the report.
+                    const path: string[] = [];
+                    let run = Infinity;
+                    for (let i = 0; i < r.polyline.length; i++) {
+                        if (i > 0)
+                            run += haversineM(
+                                r.polyline[i - 1][1],
+                                r.polyline[i - 1][0],
+                                r.polyline[i][1],
+                                r.polyline[i][0],
+                            );
+                        if (run >= 2000 || i === r.polyline.length - 1) {
+                            path.push(`${r.polyline[i][1].toFixed(4)},${r.polyline[i][0].toFixed(4)}`);
+                            run = 0;
+                        }
+                    }
+                    console.log(
+                        `REAL ${tide ?? 'none'}: cells=${loaded.join(',')} ${r.distanceNM.toFixed(2)} NM, ` +
+                            `land ${Math.round(a.landM)} m, drying ${Math.round(a.dryingM)} m, no-tide ${Math.round(a.noTideM)} m, ` +
+                            `end ${Math.round(endToPinM)} m from pin, inlandTrim=${String(r.debug?.destinationInlandTrimM ?? 'none')}` +
+                            `\n  path ${path.join(' ')}`,
+                    );
+                    expect(
+                        r.debug?.destinationInlandTrimM,
+                        'the pin in a 9.1 m dredged area read as land',
+                    ).toBeUndefined();
+                    expect(endToPinM, 'the route stops short of the pin').toBeLessThan(60);
+                    expect(Math.round(a.landM), 'metres on charted land').toBe(0);
+                    expect(Math.round(a.dryingM), 'metres over charted drying ground').toBe(0);
+                    expect(Math.round(a.noTideM), 'metres over water no 2.5 m tide clears').toBe(0);
+                    // What Auto refuses (services/autoroutingThalassa; 2026-10-01
+                    // review): land away from a pin's edge, and red with no charted
+                    // depth inside a relax zone when the tides were loaded. A real
+                    // route it would refuse is a regression.
+                    const shipped = res as InshoreRouteResult;
+                    const states = inshoreSegmentStates(shipped);
+                    const unchecked = dangerWithoutChartedDepth({ ...shipped, stateMask: states }) ?? [];
+                    const inZone = unchecked.filter((i) => {
+                        const mid = {
+                            lat: (shipped.polyline[i][1] + shipped.polyline[i + 1][1]) / 2,
+                            lon: (shipped.polyline[i][0] + shipped.polyline[i + 1][0]) / 2,
+                        };
+                        return (shipped.relaxZones ?? []).some(
+                            (z) => haversineM(z.lat, z.lon, mid.lat, mid.lon) <= z.radiusM,
+                        );
+                    });
+                    console.log(
+                        `AUTO ${tide ?? 'none'}: hardLand ${JSON.stringify(shipped.hardLand)} relaxZones ${shipped.relaxZones?.length ?? 0} ` +
+                            `tideCeilingsLoaded ${String(shipped.tideCeilingsLoaded)} red-without-depth segs ${unchecked.length} (in zones ${inZone.length})`,
+                    );
+                    expect(shipped.hardLand?.awayM, 'metres of charted land away from a pin edge').toBe(0);
+                    if (shipped.tideCeilingsLoaded) expect(inZone, 'red with no depth inside a relax zone').toEqual([]);
+                    // The satellite land check, as Auto, the planner and the voyage
+                    // form run it (2026-10-02): ETOPO land counts only where the
+                    // route's own charts do not vouch for water.
+                    if (existsSync(ETOPO_GRID)) {
+                        const rows = (
+                            JSON.parse(readFileSync(ETOPO_GRID, 'utf8')) as {
+                                table: { rows: [number, number, number][] };
+                            }
+                        ).table.rows;
+                        h.etopo = {
+                            lats: [...new Set(rows.map((x) => x[0]))],
+                            lons: [...new Set(rows.map((x) => x[1]))],
+                            alt: new Map(rows.map((x) => [`${x[0]},${x[1]}`, x[2]])),
+                        };
+                        // What building the route's chart evidence costs (it runs once
+                        // per finished route, inside tryInshoreRoute).
+                        const tProbe = performance.now();
+                        const probe = backstopChartWaterProbe(layers as never, [
+                            Math.min(...shipped.polyline.map((p) => p[0])),
+                            Math.min(...shipped.polyline.map((p) => p[1])),
+                            Math.max(...shipped.polyline.map((p) => p[0])),
+                            Math.max(...shipped.polyline.map((p) => p[1])),
+                        ]);
+                        const probeMs = performance.now() - tProbe;
+                        expect(probe(shipped.polyline[0][0], shipped.polyline[0][1])).toBe(
+                            shipped.chartWater!(shipped.polyline[0][0], shipped.polyline[0][1]),
+                        );
+                        const without = await inshoreRouteCrossesLand(shipped.polyline);
+                        const withCharts = await inshoreRouteCrossesLand(shipped.polyline, {
+                            chartWater: shipped.chartWater,
+                        });
+                        // What the charts say at each ETOPO land sample.
+                        const samples = samplePolyline(shipped.polyline);
+                        const depths = await (
+                            await import('../../services/GebcoDepthService')
+                        ).GebcoDepthService.queryRouteDepths(samples.map(([lon, lat]) => ({ lat, lon })));
+                        const said = samples
+                            .map(([lon, lat], i) =>
+                                (depths[i].depth_m ?? -1) >= 0
+                                    ? `#${i} ${lat.toFixed(4)},${lon.toFixed(4)} ${depths[i].depth_m} m → ${shipped.chartWater!(lon, lat)}`
+                                    : null,
+                            )
+                            .filter(Boolean);
+                        console.log(
+                            `BACKSTOP ${tide ?? 'none'} (chart evidence built in ${probeMs.toFixed(1)} ms): without charts ${JSON.stringify(without)}\n  with charts ${JSON.stringify(withCharts)}\n  ${said.join('\n  ')}`,
+                        );
+                        expect(withCharts).toMatchObject({ status: 'verified', crossesLand: false });
+                    }
+                },
+            );
+        }
+    },
+);

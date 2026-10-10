@@ -754,7 +754,7 @@ the fifth (B, the Hamilton reach's lateral chain) follows, below.
 
 With the SE-QLD marker file loaded (the normal online case) the Brisbane
 River's Hamilton reach bend left the 9.1 m dredged channel and crossed ~250 m
-of 2 m water 87 m NW of the chart's green beacon at ***REMOVED***
+of 2 m water 87 m NW of the chart's green beacon at about -27.418,153.141
 (Rivergate leg 26 red SHALLOW|WING 424 m; newport-shane leg 30, 2,418 m).
 Without the file it stayed in the channel.
 
@@ -842,7 +842,7 @@ Without the file it stayed in the channel.
       chords past the east cardinal's disc at the mouth).
     - newport-shane 24.59 → 24.69 NM, 20 → 18 caution segments, red 9,080 →
       6,662 m: the 2,418 m SHALLOW from the bend is gone, and the red beacon
-      at ***REMOVED*** is passed 74 m off, not 5 m.
+      at about -27.432,153.120 is passed 74 m off, not 5 m.
     - At a 2.5 m tide the same (amber 3,756 → 3,295 m on Rivergate, 5,759 →
       3,341 m on newport-shane). Unchanged: Tangalooma (with the marker
       file), Rivergate and newport-shane without it (no pairs at all, so no
@@ -1137,7 +1137,7 @@ cases in `tests/routeTracer.test.ts` (item 4) and `tests/engine/redNamesItsReaso
       full.)
 2. **A cardinal's wrong side is red, and the router keeps to its safe side.** With no
    SE-QLD marker file, Newport → Rivergate passed 12 m (newport-shane 5 m) on the WEST
-   side of the river mouth's east cardinal (-27.39651, 153.15337), drawn as channel. The
+   side of the river mouth's east cardinal (about -27.397, 153.153), drawn as channel. The
    chart's track (RECTRC) passes 60 m east of it; the tier-2 snap onto it, which has land
    as its only veto, joined the route to the track's next piece across the mark's west
    side.
@@ -1393,9 +1393,11 @@ The broader daily obstacle refresh is unchanged and cannot renew this reviewed
 marker profile. Its initial review expires **20 September 2026 at 07:12 AEST**.
 An expired profile returns to manual until reviewed again.
 
-The [source review](NEWPORT_AUTOMATIC_EXIT_REVIEW_2026-09-13.md) records the live
-licensed chart, official MSQ map, notices, exact pairs and conservative polygon
-derivation. “Chart-matched” is not a physical inspection, tidal/depth/traffic
+The source review recorded the live licensed chart, official MSQ map, notices,
+exact pairs and conservative polygon derivation. (The exit was retired on 29
+September 2026; the review and the profile's modules were removed from the
+repository on 10 October 2026 because they carried positions derived from the
+licensed chart.) “Chart-matched” is not a physical inspection, tidal/depth/traffic
 clearance or permission to navigate an unsaved proposal. No worldwide automatic
 coverage or control of a vessel/lock is implied.
 

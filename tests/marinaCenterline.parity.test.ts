@@ -18,13 +18,15 @@
  *
  * Grid is little-endian [int32 w][int32 h][float32 depth…], land = NaN.
  */
-import { describe, it, expect } from 'vitest';
+import { beforeAll, describe, it, expect } from 'vitest';
 import { gunzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { routeMarina, type Cell, type MarinaRouteParams } from '../services/marinaCenterline';
+import { assertNotRetiredChartFixture, REAL_AU_CHART_FIXTURES_RETIRED } from './helpers/retiredChartFixtures';
 
 function loadGrid(): { width: number; height: number; depth: Float32Array } {
+    assertNotRetiredChartFixture('newport-marina.grid.bin.gz');
     const gz = readFileSync(join(__dirname, 'fixtures', 'newport-marina.grid.bin.gz'));
     const buf = gunzipSync(gz);
     const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
@@ -50,8 +52,11 @@ const BERTHS: Record<string, Cell> = {
     'G-far-east': { x: 991, y: 452 },
 };
 
-const { width, height, depth } = loadGrid();
-const shape = { width, height };
+// Loaded by the gated block only: the grid was baked from retired chart cells.
+let width: number;
+let height: number;
+let depth: Float32Array;
+let shape: { width: number; height: number };
 
 /**
  * Sample every straight leg densely and check each sampled point against
@@ -78,41 +83,49 @@ function validateLegs(waypoints: Cell[]): { land: number; minClear: number } {
     return { land, minClear: 0 };
 }
 
-describe('marinaCenterline parity — real Newport ENC grid', () => {
-    it('fixture loads with the expected shape', () => {
-        expect(width).toBe(1200);
-        expect(height).toBe(896);
-        let navigable = 0;
-        for (let i = 0; i < depth.length; i++) if (!Number.isNaN(depth[i])) navigable++;
-        expect(navigable).toBeGreaterThan(250_000); // spike reported 303,380
-    });
-
-    // Every finger → the entrance gate.
-    for (const [name, berth] of Object.entries(BERTHS)) {
-        it(`${name} → gate: route found, 0 land crossings, keel clearance held`, () => {
-            const r = routeMarina(depth, shape, berth, GATE, PARAMS);
-            expect(r).not.toBeNull();
-            // Cells stay in water and hold the keel margin.
-            for (const c of r!.cells) expect(Number.isNaN(depth[c.y * width + c.x])).toBe(false);
-            expect(r!.minClearanceCells).toBeGreaterThanOrEqual(PARAMS.keelCells - 0.01);
-            // Straight legs (what you steer) never touch land.
-            expect(validateLegs(r!.waypoints).land).toBe(0);
-            // Sensible simplification, not a wobble.
-            expect(r!.waypoints.length).toBeLessThanOrEqual(15);
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'marinaCenterline parity — real Newport ENC grid (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        beforeAll(() => {
+            ({ width, height, depth } = loadGrid());
+            shape = { width, height };
         });
-    }
 
-    it('REVERSE gate → D-west: 0 land crossings', () => {
-        const r = routeMarina(depth, shape, GATE, BERTHS['D-west'], PARAMS);
-        expect(r).not.toBeNull();
-        expect(validateLegs(r!.waypoints).land).toBe(0);
-        expect(r!.minClearanceCells).toBeGreaterThanOrEqual(PARAMS.keelCells - 0.01);
-    });
+        it('fixture loads with the expected shape', () => {
+            expect(width).toBe(1200);
+            expect(height).toBe(896);
+            let navigable = 0;
+            for (let i = 0; i < depth.length; i++) if (!Number.isNaN(depth[i])) navigable++;
+            expect(navigable).toBeGreaterThan(250_000); // spike reported 303,380
+        });
 
-    it('CROSS-ESTATE A-east → F-north: 0 land crossings', () => {
-        const r = routeMarina(depth, shape, BERTHS['A-east'], BERTHS['F-north'], PARAMS);
-        expect(r).not.toBeNull();
-        expect(validateLegs(r!.waypoints).land).toBe(0);
-        expect(r!.minClearanceCells).toBeGreaterThanOrEqual(PARAMS.keelCells - 0.01);
-    });
-});
+        // Every finger → the entrance gate.
+        for (const [name, berth] of Object.entries(BERTHS)) {
+            it(`${name} → gate: route found, 0 land crossings, keel clearance held`, () => {
+                const r = routeMarina(depth, shape, berth, GATE, PARAMS);
+                expect(r).not.toBeNull();
+                // Cells stay in water and hold the keel margin.
+                for (const c of r!.cells) expect(Number.isNaN(depth[c.y * width + c.x])).toBe(false);
+                expect(r!.minClearanceCells).toBeGreaterThanOrEqual(PARAMS.keelCells - 0.01);
+                // Straight legs (what you steer) never touch land.
+                expect(validateLegs(r!.waypoints).land).toBe(0);
+                // Sensible simplification, not a wobble.
+                expect(r!.waypoints.length).toBeLessThanOrEqual(15);
+            });
+        }
+
+        it('REVERSE gate → D-west: 0 land crossings', () => {
+            const r = routeMarina(depth, shape, GATE, BERTHS['D-west'], PARAMS);
+            expect(r).not.toBeNull();
+            expect(validateLegs(r!.waypoints).land).toBe(0);
+            expect(r!.minClearanceCells).toBeGreaterThanOrEqual(PARAMS.keelCells - 0.01);
+        });
+
+        it('CROSS-ESTATE A-east → F-north: 0 land crossings', () => {
+            const r = routeMarina(depth, shape, BERTHS['A-east'], BERTHS['F-north'], PARAMS);
+            expect(r).not.toBeNull();
+            expect(validateLegs(r!.waypoints).land).toBe(0);
+            expect(r!.minClearanceCells).toBeGreaterThanOrEqual(PARAMS.keelCells - 0.01);
+        });
+    },
+);

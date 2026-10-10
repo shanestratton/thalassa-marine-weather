@@ -53,6 +53,8 @@
  */
 
 import { describe, expect, it, beforeAll, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Feature, FeatureCollection, LineString, MultiPolygon, Polygon, Position } from 'geojson';
 import { pointInGeometry, geometryBbox } from '../../services/engine/geometry';
 
@@ -65,6 +67,7 @@ import {
 import { fetchRegionalMarkers } from '../../services/InshoreRouter';
 import { snapRouteToCanalLines, parseCanalLines } from '../../services/tier3/canalLineFollower';
 import { encCell, osmOverlay, seQldNavMarkers } from '../helpers/encCells';
+import { REAL_AU_CHART_FIXTURES_RETIRED } from '../helpers/retiredChartFixtures';
 import { revisits } from '../helpers/routeRevisits';
 
 // This harness routes on the REAL ENC, but from committed fixtures rather than
@@ -87,6 +90,16 @@ const CELLS = [
 //    chart NAVLNE). Served by the same Pi. ─────────────────────────────────
 const REGIONAL_MARKERS_URL =
     'https://pcisdplnodrphauixcau.supabase.co/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson';
+
+// ── Newport exit-gate centres. They are computed from the licensed cell's
+//    lateral marks, so they are never committed: when this repro is ported it
+//    reads them from THALASSA_REAL_CELLS_DIR/newport-gate-centres.json
+//    ([{ name: '7/8', lat, lon }, … '1/2']), next to the real cells. ──────
+function newportGateCentres(): { name: string; lat: number; lon: number }[] {
+    const dir = process.env.THALASSA_REAL_CELLS_DIR;
+    if (!dir) throw new Error('newportGateCentres: set THALASSA_REAL_CELLS_DIR (holds newport-gate-centres.json)');
+    return JSON.parse(readFileSync(join(dir, 'newport-gate-centres.json'), 'utf8'));
+}
 
 // ── Geometry helpers ────────────────────────────────────────────────
 const R_EARTH = 6_371_000;
@@ -568,539 +581,542 @@ function osmWaterFeatures(): Feature[] {
     return [...((d.water?.features ?? []) as Feature[]), ...((d.marina?.features ?? []) as Feature[])];
 }
 
-describe('Newport → Pinkenba — hug reproduction against real ENC', { timeout: 120_000 }, () => {
-    it('sanity: RECTRC river chain + DRGARE assembled from the real cells', () => {
-        console.log(
-            'SANITY cells=',
-            cells.length,
-            'rectrcFeatures=',
-            cells.flatMap((c) => c.layers['RECTRC']?.features ?? []).length,
-            'chainPts=',
-            rectrcChain.length,
-            'drgare=',
-            drgarePolys.length,
-            'chainHead=',
-            rectrcChain[0],
-            'chainTail=',
-            rectrcChain[rectrcChain.length - 1],
-        );
-        expect(rectrcChain.length).toBeGreaterThan(5);
-        expect(drgarePolys.length).toBeGreaterThan(10);
-        // Chain should span the river proper: top near -27.388, bottom near -27.448.
-        const lats = rectrcChain.map((p) => p[1]);
-        expect(Math.min(...lats)).toBeLessThan(-27.44);
-        expect(Math.max(...lats)).toBeGreaterThan(-27.39);
-    });
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'Newport → Pinkenba — hug reproduction against real ENC (real AU chart fixture retired; port: 127-C-a)',
+    { timeout: 120_000 },
+    () => {
+        it('sanity: RECTRC river chain + DRGARE assembled from the real cells', () => {
+            console.log(
+                'SANITY cells=',
+                cells.length,
+                'rectrcFeatures=',
+                cells.flatMap((c) => c.layers['RECTRC']?.features ?? []).length,
+                'chainPts=',
+                rectrcChain.length,
+                'drgare=',
+                drgarePolys.length,
+                'chainHead=',
+                rectrcChain[0],
+                'chainTail=',
+                rectrcChain[rectrcChain.length - 1],
+            );
+            expect(rectrcChain.length).toBeGreaterThan(5);
+            expect(drgarePolys.length).toBeGreaterThan(10);
+            // Chain should span the river proper: top near -27.388, bottom near -27.448.
+            const lats = rectrcChain.map((p) => p[1]);
+            expect(Math.min(...lats)).toBeLessThan(-27.44);
+            expect(Math.max(...lats)).toBeGreaterThan(-27.39);
+        });
 
-    it('VARIANT A — chart-only (no OSM overlay): runs + measures hug', () => {
-        const { route, prov, hug } = runVariant('none');
+        it('VARIANT A — chart-only (no OSM overlay): runs + measures hug', () => {
+            const { route, prov, hug } = runVariant('none');
 
-        console.log('\n=== VARIANT A (chart-only / no OSM overlay) ===');
+            console.log('\n=== VARIANT A (chart-only / no OSM overlay) ===');
 
-        console.log('prov  :', prov);
+            console.log('prov  :', prov);
 
-        console.log('points:', route.polyline.length, ' distanceNM:', route.distanceNM.toFixed(2));
+            console.log('points:', route.polyline.length, ' distanceNM:', route.distanceNM.toFixed(2));
 
-        console.log(
-            `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
-                `meanSigned=${hug.meanSignedM.toFixed(0)}m(${hug.meanSignedM >= 0 ? 'LEFT' : 'RIGHT'}) ` +
-                `p90=${hug.p90RectrcM.toFixed(0)}m max=${hug.maxRectrcM.toFixed(0)}m insideDRGARE=${(
-                    hug.fracInsideDrgare * 100
-                ).toFixed(0)}%`,
-        );
-        expect(route.polyline.length).toBeGreaterThanOrEqual(2);
-        expect(hug.riverPts).toBeGreaterThan(0);
-        // NO OUT-AND-BACK, pinned (decision 11 fix-up, 2026-10-01; HEAD and
-        // the fix each measured in their own process): the origin's decision-7
-        // tail came from deep water out past the pin, and the route looped
-        // 12 km back to -27.20989, 153.093 — 26.73 NM on HEAD. It now leaves
-        // through the pin's own charted water: 20.33 NM. The junction keeps a
-        // ≈140 m V there: the path runs on through the relaxed −2 m band,
-        // which a tail may never enter (decision 7), so it cannot join sooner.
-        expect(route.distanceNM, 'no out-and-back loop from the origin').toBeLessThan(21);
-        expect(revisits(route.polyline), 'the route never comes back over its own track').toBe(false);
-    });
+            console.log(
+                `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
+                    `meanSigned=${hug.meanSignedM.toFixed(0)}m(${hug.meanSignedM >= 0 ? 'LEFT' : 'RIGHT'}) ` +
+                    `p90=${hug.p90RectrcM.toFixed(0)}m max=${hug.maxRectrcM.toFixed(0)}m insideDRGARE=${(
+                        hug.fracInsideDrgare * 100
+                    ).toFixed(0)}%`,
+            );
+            expect(route.polyline.length).toBeGreaterThanOrEqual(2);
+            expect(hug.riverPts).toBeGreaterThan(0);
+            // NO OUT-AND-BACK, pinned (decision 11 fix-up, 2026-10-01; HEAD and
+            // the fix each measured in their own process): the origin's decision-7
+            // tail came from deep water out past the pin, and the route looped
+            // 12 km back to -27.20989, 153.093 — 26.73 NM on HEAD. It now leaves
+            // through the pin's own charted water: 20.33 NM. The junction keeps a
+            // ≈140 m V there: the path runs on through the relaxed −2 m band,
+            // which a tail may never enter (decision 7), so it cannot join sooner.
+            expect(route.distanceNM, 'no out-and-back loop from the origin').toBeLessThan(21);
+            expect(revisits(route.polyline), 'the route never comes back over its own track').toBe(false);
+        });
 
-    it('VARIANT B — chart NAVLNE baseline comparison', () => {
-        const { route, prov, hug } = runVariant('chart');
+        it('VARIANT B — chart NAVLNE baseline comparison', () => {
+            const { route, prov, hug } = runVariant('chart');
 
-        console.log('\n=== VARIANT B (chart NAVLNE baseline) ===');
+            console.log('\n=== VARIANT B (chart NAVLNE baseline) ===');
 
-        console.log('prov  :', prov);
+            console.log('prov  :', prov);
 
-        console.log('points:', route.polyline.length, ' distanceNM:', route.distanceNM.toFixed(2));
+            console.log('points:', route.polyline.length, ' distanceNM:', route.distanceNM.toFixed(2));
 
-        console.log(
-            `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
-                `meanSigned=${hug.meanSignedM.toFixed(0)}m(${hug.meanSignedM >= 0 ? 'LEFT' : 'RIGHT'}) ` +
-                `p90=${hug.p90RectrcM.toFixed(0)}m max=${hug.maxRectrcM.toFixed(0)}m insideDRGARE=${(
-                    hug.fracInsideDrgare * 100
-                ).toFixed(0)}%`,
-        );
-        expect(route.polyline.length).toBeGreaterThanOrEqual(2);
-        expect(hug.riverPts).toBeGreaterThan(0);
-    });
+            console.log(
+                `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
+                    `meanSigned=${hug.meanSignedM.toFixed(0)}m(${hug.meanSignedM >= 0 ? 'LEFT' : 'RIGHT'}) ` +
+                    `p90=${hug.p90RectrcM.toFixed(0)}m max=${hug.maxRectrcM.toFixed(0)}m insideDRGARE=${(
+                        hug.fracInsideDrgare * 100
+                    ).toFixed(0)}%`,
+            );
+            expect(route.polyline.length).toBeGreaterThanOrEqual(2);
+            expect(hug.riverPts).toBeGreaterThan(0);
+        });
 
-    it('VARIANT C — REAL OSM navLines → NAVLINE (the actual on-device puller)', (context) => {
-        if (osmNav.length === 0 || osmCanal.length === 0) {
-            return context.skip('Pi is reachable but its live OSM overlay returned no navigation/canal lines');
-        }
-        const { route, prov, hug } = runVariant('osm');
+        it('VARIANT C — REAL OSM navLines → NAVLINE (the actual on-device puller)', (context) => {
+            if (osmNav.length === 0 || osmCanal.length === 0) {
+                return context.skip('Pi is reachable but its live OSM overlay returned no navigation/canal lines');
+            }
+            const { route, prov, hug } = runVariant('osm');
 
-        console.log('\n=== VARIANT C (REAL OSM navLines → NAVLINE) ===');
+            console.log('\n=== VARIANT C (REAL OSM navLines → NAVLINE) ===');
 
-        console.log('osmNavLines:', osmNav.length);
+            console.log('osmNavLines:', osmNav.length);
 
-        console.log('prov  :', prov);
+            console.log('prov  :', prov);
 
-        console.log('points:', route.polyline.length, ' distanceNM:', route.distanceNM.toFixed(2));
+            console.log('points:', route.polyline.length, ' distanceNM:', route.distanceNM.toFixed(2));
 
-        console.log(
-            `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
-                `meanSigned=${hug.meanSignedM.toFixed(0)}m(${hug.meanSignedM >= 0 ? 'LEFT' : 'RIGHT'}) ` +
-                `p90=${hug.p90RectrcM.toFixed(0)}m max=${hug.maxRectrcM.toFixed(0)}m insideDRGARE=${(
-                    hug.fracInsideDrgare * 100
-                ).toFixed(0)}%`,
-        );
-        expect(route.polyline.length).toBeGreaterThanOrEqual(2);
-        expect(prov).toContain('egress-channel×4');
-        expect(prov).toContain('tier2:chain×4');
-        const newportGateCentres = [
-            ['7/8', -***REMOVED***, ***REMOVED***],
-            ['5/6', -***REMOVED***, 153.0934],
-            ['3/4', -27.19034, ***REMOVED***],
-            ['1/2', -***REMOVED***, ***REMOVED***],
-        ] as const;
-        for (const [name, lat, lon] of newportGateCentres) {
+            console.log(
+                `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
+                    `meanSigned=${hug.meanSignedM.toFixed(0)}m(${hug.meanSignedM >= 0 ? 'LEFT' : 'RIGHT'}) ` +
+                    `p90=${hug.p90RectrcM.toFixed(0)}m max=${hug.maxRectrcM.toFixed(0)}m insideDRGARE=${(
+                        hug.fracInsideDrgare * 100
+                    ).toFixed(0)}%`,
+            );
+            expect(route.polyline.length).toBeGreaterThanOrEqual(2);
+            expect(prov).toContain('egress-channel×4');
+            expect(prov).toContain('tier2:chain×4');
+            for (const { name, lat, lon } of newportGateCentres()) {
+                expect(
+                    route.polyline.some(([pLon, pLat]) => haversineM(pLat, pLon, lat, lon) < 35),
+                    `route passes through Newport gate ${name}`,
+                ).toBe(true);
+            }
+            const [endLon, endLat] = route.polyline[route.polyline.length - 1];
+            expect(route.debug?.destinationWaterSnap, 'Pinkenba shore label resolves to a water endpoint').toBe(true);
+            expect(route.debug?.destinationSnap?.snapDistanceM ?? 0).toBeGreaterThan(10);
+            expect(Math.abs(endLat - (route.debug?.destinationSnap?.snappedLat ?? 0))).toBeLessThan(1e-8);
+            expect(Math.abs(endLon - (route.debug?.destinationSnap?.snappedLon ?? 0))).toBeLessThan(1e-8);
+            expect(hug.riverPts).toBeGreaterThan(0);
+        });
+
+        it('VARIANT D — REAL OSM + regional marker chains (live device path)', async (context) => {
+            if (osmNav.length === 0 || osmCanal.length === 0) {
+                return context.skip('Pi is reachable but its live OSM overlay returned no navigation/canal lines');
+            }
+            const { route, prov, hug, regional } = await runVariantWithRegionalMarkers();
+            const newportPts = route.polyline
+                .filter(([lon, lat]) => lat > -27.206 && lat < -27.178 && lon > 153.088 && lon < 153.098)
+                .map(([lon, lat]) => `${lat.toFixed(6)},${lon.toFixed(6)}`);
+            const indexedNewportPts = route.polyline
+                .map(([lon, lat], i) => ({ i, lon, lat }))
+                .filter(({ lon, lat }) => lat > -27.206 && lat < -27.178 && lon > 153.088 && lon < 153.098)
+                .map(
+                    ({ i, lon, lat }) =>
+                        `${i}:${lat.toFixed(6)},${lon.toFixed(6)} ` +
+                        `c${route.canalMask?.[i] ? 1 : 0} y${(route.channelMask ?? route.tier4Mask)?.[i] ? 1 : 0}`,
+                );
+            const handoffPts = route.polyline
+                .slice(20, 33)
+                .map(
+                    ([lon, lat], j) =>
+                        `${j + 20}:${lat.toFixed(6)},${lon.toFixed(6)} ` +
+                        `c${route.canalMask?.[j + 20] ? 1 : 0} y${(route.channelMask ?? route.tier4Mask)?.[j + 20] ? 1 : 0}`,
+                );
+
+            console.log('\n=== VARIANT D (REAL OSM + regional marker chains) ===');
+
+            console.log('regional:', regional);
+
+            console.log('prov  :', prov);
+
+            console.log('points:', route.polyline.length, ' distanceNM:', route.distanceNM.toFixed(2));
+
+            console.log('newportPts:', newportPts.join(' | '));
+
+            console.log('indexedNewportPts:', indexedNewportPts.join(' | '));
+
+            console.log('handoffPts:', handoffPts.join(' | '));
+
+            console.log(
+                `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
+                    `meanSigned=${hug.meanSignedM.toFixed(0)}m(${hug.meanSignedM >= 0 ? 'LEFT' : 'RIGHT'}) ` +
+                    `p90=${hug.p90RectrcM.toFixed(0)}m max=${hug.maxRectrcM.toFixed(0)}m insideDRGARE=${(
+                        hug.fracInsideDrgare * 100
+                    ).toFixed(0)}%`,
+            );
+            expect(route.polyline.length).toBeGreaterThanOrEqual(2);
+            expect(regional.midpoints).toBeGreaterThan(0);
+            expect(prov).toContain('egress-channel×4');
+            expect(prov).toContain('tier2:chain×4');
+            expect(prov, 'no stray tier-2 gate fallback after the Newport egress chain').not.toContain('gate:gates1');
+            const outerGate = newportGateCentres().find((g) => g.name === '1/2')!;
+            const outerGateIdx = route.polyline.findIndex(
+                ([lon, lat]) => haversineM(lat, lon, outerGate.lat, outerGate.lon) < 35,
+            );
+            expect(outerGateIdx, 'route reaches the Newport outer gate').toBeGreaterThanOrEqual(0);
+            const ch = route.channelMask ?? route.tier4Mask ?? [];
             expect(
-                route.polyline.some(([pLon, pLat]) => haversineM(pLat, pLon, lat, lon) < 35),
-                `route passes through Newport gate ${name}`,
+                ch.slice(outerGateIdx + 1, outerGateIdx + 5).some(Boolean),
+                'bay side of the outer gate is tier-3',
+            ).toBe(false);
+        });
+
+        it('DIFF — A (none) vs B (chart NAVLNE) vs C (real OSM navLines): which hugs?', () => {
+            const a = runVariant('none');
+            const b = runVariant('chart');
+            const c = runVariant('osm');
+            const fmt = (x: { hug: HugReport }) =>
+                `mean=${x.hug.meanRectrcM.toFixed(0)}m signed=${x.hug.meanSignedM.toFixed(0)}m ` +
+                `p90=${x.hug.p90RectrcM.toFixed(0)}m max=${x.hug.maxRectrcM.toFixed(0)}m ` +
+                `inDRGARE=${(x.hug.fracInsideDrgare * 100).toFixed(0)}%`;
+
+            console.log('\n=== DIFF A vs B vs C (offset from RECTRC river centreline) ===');
+
+            console.log(`A none : ${fmt(a)}\n         prov: ${a.prov}`);
+
+            console.log(`B chart: ${fmt(b)}\n         prov: ${b.prov}`);
+
+            console.log(`C OSM  : ${fmt(c)}\n         prov: ${c.prov}`);
+            // The protect fix is ACTIVE in the engine here, so C's provenance reflects
+            // the AFTER state. To capture BEFORE, run with the engine RECTRC-protect
+            // stashed (see the run script in the response). Always-pass reporter.
+            expect(true).toBe(true);
+        });
+
+        it('CANAL SNAP — Newport canal rides dead centre, river left untouched', (context) => {
+            if (osmCanal.length === 0) {
+                return context.skip('Pi is reachable but its live OSM overlay returned no canal lines');
+            }
+            // Variant C = the faithful on-device path (CANAL populated). The Newport
+            // canal can come out tier-3 passthrough here (the lines carve navigable water),
+            // i.e. the raw A* wall-hug. snapRouteToCanalLines should pull it dead centre,
+            // while the RECTRC-followed river at the Pinkenba end stays byte-identical.
+            const { route, prov } = runVariant('osm');
+            const lines = parseCanalLines(osmCanal as Parameters<typeof parseCanalLines>[0]);
+            expect(lines.length).toBeGreaterThan(10);
+
+            // Mean perpendicular offset (m) from the canal lines over the NEWPORT CANAL
+            // INTERIOR (lat −27.213..−27.203 — excludes the marina berth + the bay exit,
+            // which legitimately sit off the lines), densified so we sample the path.
+            // Distance is to the nearest line SEGMENT (not vertex): the canal lines have
+            // long straight runs, so a vertex metric falsely reports a mid-segment point
+            // as far off even when it rides the line exactly.
+            const interiorOffset = (poly: Position[]): { mean: number; n: number } => {
+                let sum = 0;
+                let n = 0;
+                for (const [lon, lat] of densify(poly, 20)) {
+                    if (lat > -27.203 || lat < -27.213 || lon < 153.082 || lon > 153.095) continue;
+                    let best = Infinity;
+                    for (const ln of lines) {
+                        const d = pointToChainM(lat, lon, ln as unknown as Position[]);
+                        if (d < best) best = d;
+                    }
+                    sum += best;
+                    n++;
+                }
+                return { mean: n ? sum / n : NaN, n };
+            };
+
+            // The engine now applies the snap internally, so route.polyline is the
+            // FINAL on-device geometry. Verify it rides the canal centre + the snap
+            // engaged (+canalsnap), and that re-snapping leaves the river byte-identical.
+            const off = interiorOffset(route.polyline);
+            const { polyline: resnapped } = snapRouteToCanalLines(route.polyline, lines);
+            const river = (poly: readonly (readonly number[])[]): string =>
+                JSON.stringify(poly.filter(([, la]) => la < -27.38));
+
+            // The canal stretch must render RED via the dedicated canalMask (the grid
+            // calls carved canal cells navigable, so they'd otherwise be green). Every
+            // non-channel route segment in the Newport canal interior must carry the
+            // canal flag. The charted lead-out inside the same bbox is tier-2/yellow,
+            // not tier-1/red.
+            const cm = route.canalMask ?? [];
+            const ch = route.channelMask ?? route.tier4Mask ?? [];
+            const caution = route.cautionMask ?? [];
+            const inCanal = (lon: number, lat: number): boolean =>
+                lat <= -27.203 && lat >= -27.213 && lon >= 153.082 && lon <= 153.095;
+            let canalSegs = 0;
+            let canalOnlySegs = 0;
+            let flaggedCanalSegs = 0;
+            let canalSegsInCaution = 0;
+            for (let i = 0; i < route.polyline.length - 1; i++) {
+                const [lon, lat] = route.polyline[i];
+                const [lon2, lat2] = route.polyline[i + 1];
+                if (inCanal(lon, lat) || inCanal(lon2, lat2)) {
+                    canalSegs++;
+                    if (ch[i] || ch[i + 1]) continue;
+                    canalOnlySegs++;
+                    if (cm[i] || cm[i + 1]) flaggedCanalSegs++;
+                    if (caution[i]) canalSegsInCaution++;
+                }
+            }
+
+            console.log(
+                `\n=== CANAL SNAP (engine output) ===\nNewport canal interior: mean=${off.mean.toFixed(1)}m (n=${off.n})\n` +
+                    `prov: ${prov}\nriver untouched by snap: ${river(resnapped) === river(route.polyline)}\n` +
+                    `canal-only segments flagged red (canalMask): ${flaggedCanalSegs}/${canalOnlySegs} ` +
+                    `(total in bbox ${canalSegs}); of those in cautionMask: ${canalSegsInCaution}`,
+            );
+            expect(off.n).toBeGreaterThan(0);
+            expect(
+                off.mean,
+                'engine routes the canal near centre while continuing to the charted lead-out',
+            ).toBeLessThan(12);
+            // Round 2 (2026-09-30, owner decision 7): in this variant (chart + OSM
+            // canal LINES, no OSM water polygons) the Newport pin sits in the
+            // harbour cell's charted 0 m band — charted-shallow water, so the route
+            // starts AT the pin, its first ~32 m a 'needs tide' head through that
+            // charted water, with no 60 m 5 m-deep carve bubble faked over it.
+            // The snap used to engage on that bubble's jog at the start (the rest
+            // of the canal run is the tier-2 egress channel, which it never
+            // touches); with no bubble there is nothing for it to straighten.
+            //
+            // Fix-up (2026-09-30): assert the branch that happens — the fixture is
+            // deterministic, and an either-or let a flip between the two pass
+            // unseen. The pin's 0 m band is NOT under land paint here, so owner
+            // decision 2's rule for decision-1 water leaves it a charted pin.
+            //
+            // RE-PIN (round-3 review fix-up, 2026-09-30; measured in its own
+            // process): that ~32 m head reached "deep" water only because the OSM
+            // canal-line carve painted the canal 5 m deep over the harbour cell's
+            // own 0–2 m band. The carve no longer paints a charted shallow band
+            // deep (navGrid Pass 1b), so the pin's charted water reaches deep water
+            // only by running the whole canal — whose line cells sit under the
+            // cells' land paint, so the head fails the chart's own land check
+            // (debug.chartedEndRejected) and the route departs as it did before
+            // decision 7, from the endpoint carve. Honestly drawn all the same:
+            // the whole canal is one 'needs tide' run from the first segment
+            // (charted 0 m), and the carve's first segment is red by the backstop
+            // (chartedShallowSpans), never clean water.
+            expect(route.debug?.originChartedPin).toBeUndefined();
+            expect(route.debug?.chartedEndRejected).toMatch(/charted head crosses charted land/);
+            const canalRun = route.shallowRuns?.find((x) => x.startSeg === 0);
+            expect(canalRun, 'the canal carries a needs-tide run from the pin').toBeDefined();
+            expect(canalRun!.minDepthM).toBe(0);
+            expect(
+                route.cautionMask?.[0] || route.chartedShallowSpans?.some((sp) => sp.startSeg === 0),
+                'the first segment is red',
             ).toBe(true);
-        }
-        const [endLon, endLat] = route.polyline[route.polyline.length - 1];
-        expect(route.debug?.destinationWaterSnap, 'Pinkenba shore label resolves to a water endpoint').toBe(true);
-        expect(route.debug?.destinationSnap?.snapDistanceM ?? 0).toBeGreaterThan(10);
-        expect(Math.abs(endLat - (route.debug?.destinationSnap?.snappedLat ?? 0))).toBeLessThan(1e-8);
-        expect(Math.abs(endLon - (route.debug?.destinationSnap?.snappedLon ?? 0))).toBeLessThan(1e-8);
-        expect(hug.riverPts).toBeGreaterThan(0);
-    });
-
-    it('VARIANT D — REAL OSM + regional marker chains (live device path)', async (context) => {
-        if (osmNav.length === 0 || osmCanal.length === 0) {
-            return context.skip('Pi is reachable but its live OSM overlay returned no navigation/canal lines');
-        }
-        const { route, prov, hug, regional } = await runVariantWithRegionalMarkers();
-        const newportPts = route.polyline
-            .filter(([lon, lat]) => lat > -27.206 && lat < -27.178 && lon > 153.088 && lon < 153.098)
-            .map(([lon, lat]) => `${lat.toFixed(6)},${lon.toFixed(6)}`);
-        const indexedNewportPts = route.polyline
-            .map(([lon, lat], i) => ({ i, lon, lat }))
-            .filter(({ lon, lat }) => lat > -27.206 && lat < -27.178 && lon > 153.088 && lon < 153.098)
-            .map(
-                ({ i, lon, lat }) =>
-                    `${i}:${lat.toFixed(6)},${lon.toFixed(6)} ` +
-                    `c${route.canalMask?.[i] ? 1 : 0} y${(route.channelMask ?? route.tier4Mask)?.[i] ? 1 : 0}`,
+            expect(river(resnapped), 'snap leaves the river alone').toBe(river(route.polyline));
+            expect(canalOnlySegs, 'canal interior has non-channel segments').toBeGreaterThan(0);
+            expect(flaggedCanalSegs, 'every non-channel canal-interior segment carries the canal red flag').toBe(
+                canalOnlySegs,
             );
-        const handoffPts = route.polyline
-            .slice(20, 33)
-            .map(
-                ([lon, lat], j) =>
-                    `${j + 20}:${lat.toFixed(6)},${lon.toFixed(6)} ` +
-                    `c${route.canalMask?.[j + 20] ? 1 : 0} y${(route.channelMask ?? route.tier4Mask)?.[j + 20] ? 1 : 0}`,
-            );
+        });
 
-        console.log('\n=== VARIANT D (REAL OSM + regional marker chains) ===');
-
-        console.log('regional:', regional);
-
-        console.log('prov  :', prov);
-
-        console.log('points:', route.polyline.length, ' distanceNM:', route.distanceNM.toFixed(2));
-
-        console.log('newportPts:', newportPts.join(' | '));
-
-        console.log('indexedNewportPts:', indexedNewportPts.join(' | '));
-
-        console.log('handoffPts:', handoffPts.join(' | '));
-
-        console.log(
-            `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
-                `meanSigned=${hug.meanSignedM.toFixed(0)}m(${hug.meanSignedM >= 0 ? 'LEFT' : 'RIGHT'}) ` +
-                `p90=${hug.p90RectrcM.toFixed(0)}m max=${hug.maxRectrcM.toFixed(0)}m insideDRGARE=${(
-                    hug.fracInsideDrgare * 100
-                ).toFixed(0)}%`,
-        );
-        expect(route.polyline.length).toBeGreaterThanOrEqual(2);
-        expect(regional.midpoints).toBeGreaterThan(0);
-        expect(prov).toContain('egress-channel×4');
-        expect(prov).toContain('tier2:chain×4');
-        expect(prov, 'no stray tier-2 gate fallback after the Newport egress chain').not.toContain('gate:gates1');
-        const outerGateIdx = route.polyline.findIndex(
-            ([lon, lat]) => haversineM(lat, lon, -***REMOVED***, ***REMOVED***) < 35,
-        );
-        expect(outerGateIdx, 'route reaches the Newport outer gate').toBeGreaterThanOrEqual(0);
-        const ch = route.channelMask ?? route.tier4Mask ?? [];
-        expect(ch.slice(outerGateIdx + 1, outerGateIdx + 5).some(Boolean), 'bay side of the outer gate is tier-3').toBe(
-            false,
-        );
-    });
-
-    it('DIFF — A (none) vs B (chart NAVLNE) vs C (real OSM navLines): which hugs?', () => {
-        const a = runVariant('none');
-        const b = runVariant('chart');
-        const c = runVariant('osm');
-        const fmt = (x: { hug: HugReport }) =>
-            `mean=${x.hug.meanRectrcM.toFixed(0)}m signed=${x.hug.meanSignedM.toFixed(0)}m ` +
-            `p90=${x.hug.p90RectrcM.toFixed(0)}m max=${x.hug.maxRectrcM.toFixed(0)}m ` +
-            `inDRGARE=${(x.hug.fracInsideDrgare * 100).toFixed(0)}%`;
-
-        console.log('\n=== DIFF A vs B vs C (offset from RECTRC river centreline) ===');
-
-        console.log(`A none : ${fmt(a)}\n         prov: ${a.prov}`);
-
-        console.log(`B chart: ${fmt(b)}\n         prov: ${b.prov}`);
-
-        console.log(`C OSM  : ${fmt(c)}\n         prov: ${c.prov}`);
-        // The protect fix is ACTIVE in the engine here, so C's provenance reflects
-        // the AFTER state. To capture BEFORE, run with the engine RECTRC-protect
-        // stashed (see the run script in the response). Always-pass reporter.
-        expect(true).toBe(true);
-    });
-
-    it('CANAL SNAP — Newport canal rides dead centre, river left untouched', (context) => {
-        if (osmCanal.length === 0) {
-            return context.skip('Pi is reachable but its live OSM overlay returned no canal lines');
-        }
-        // Variant C = the faithful on-device path (CANAL populated). The Newport
-        // canal can come out tier-3 passthrough here (the lines carve navigable water),
-        // i.e. the raw A* wall-hug. snapRouteToCanalLines should pull it dead centre,
-        // while the RECTRC-followed river at the Pinkenba end stays byte-identical.
-        const { route, prov } = runVariant('osm');
-        const lines = parseCanalLines(osmCanal as Parameters<typeof parseCanalLines>[0]);
-        expect(lines.length).toBeGreaterThan(10);
-
-        // Mean perpendicular offset (m) from the canal lines over the NEWPORT CANAL
-        // INTERIOR (lat −27.213..−27.203 — excludes the marina berth + the bay exit,
-        // which legitimately sit off the lines), densified so we sample the path.
-        // Distance is to the nearest line SEGMENT (not vertex): the canal lines have
-        // long straight runs, so a vertex metric falsely reports a mid-segment point
-        // as far off even when it rides the line exactly.
-        const interiorOffset = (poly: Position[]): { mean: number; n: number } => {
-            let sum = 0;
-            let n = 0;
-            for (const [lon, lat] of densify(poly, 20)) {
-                if (lat > -27.203 || lat < -27.213 || lon < 153.082 || lon > 153.095) continue;
+        it('MAIN CHANNEL DIAG — where does the red leave the centre + is there an OSM line there', () => {
+            // Shane's actual route: Newport → Pinkenba (REQ_BASE). Its main channel comes
+            // out RED (canalMask), which is the stretch he sees off-centre.
+            const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
+            const res = routeInshore(layers, REQ_BASE as RouteRequest);
+            if ('error' in res) {
+                console.log(`MAIN CHANNEL DIAG: route failed (${res.code ?? '?'})`);
+                expect(true).toBe(true);
+                return;
+            }
+            const lines = parseCanalLines(osmCanal as Parameters<typeof parseCanalLines>[0]);
+            const cm = res.canalMask ?? [];
+            const ch = res.channelMask ?? res.tier4Mask ?? [];
+            const offTo = (lat: number, lon: number): number => {
                 let best = Infinity;
                 for (const ln of lines) {
                     const d = pointToChainM(lat, lon, ln as unknown as Position[]);
                     if (d < best) best = d;
                 }
-                sum += best;
-                n++;
-            }
-            return { mean: n ? sum / n : NaN, n };
-        };
-
-        // The engine now applies the snap internally, so route.polyline is the
-        // FINAL on-device geometry. Verify it rides the canal centre + the snap
-        // engaged (+canalsnap), and that re-snapping leaves the river byte-identical.
-        const off = interiorOffset(route.polyline);
-        const { polyline: resnapped } = snapRouteToCanalLines(route.polyline, lines);
-        const river = (poly: readonly (readonly number[])[]): string =>
-            JSON.stringify(poly.filter(([, la]) => la < -27.38));
-
-        // The canal stretch must render RED via the dedicated canalMask (the grid
-        // calls carved canal cells navigable, so they'd otherwise be green). Every
-        // non-channel route segment in the Newport canal interior must carry the
-        // canal flag. The charted lead-out inside the same bbox is tier-2/yellow,
-        // not tier-1/red.
-        const cm = route.canalMask ?? [];
-        const ch = route.channelMask ?? route.tier4Mask ?? [];
-        const caution = route.cautionMask ?? [];
-        const inCanal = (lon: number, lat: number): boolean =>
-            lat <= -27.203 && lat >= -27.213 && lon >= 153.082 && lon <= 153.095;
-        let canalSegs = 0;
-        let canalOnlySegs = 0;
-        let flaggedCanalSegs = 0;
-        let canalSegsInCaution = 0;
-        for (let i = 0; i < route.polyline.length - 1; i++) {
-            const [lon, lat] = route.polyline[i];
-            const [lon2, lat2] = route.polyline[i + 1];
-            if (inCanal(lon, lat) || inCanal(lon2, lat2)) {
-                canalSegs++;
-                if (ch[i] || ch[i + 1]) continue;
-                canalOnlySegs++;
-                if (cm[i] || cm[i + 1]) flaggedCanalSegs++;
-                if (caution[i]) canalSegsInCaution++;
-            }
-        }
-
-        console.log(
-            `\n=== CANAL SNAP (engine output) ===\nNewport canal interior: mean=${off.mean.toFixed(1)}m (n=${off.n})\n` +
-                `prov: ${prov}\nriver untouched by snap: ${river(resnapped) === river(route.polyline)}\n` +
-                `canal-only segments flagged red (canalMask): ${flaggedCanalSegs}/${canalOnlySegs} ` +
-                `(total in bbox ${canalSegs}); of those in cautionMask: ${canalSegsInCaution}`,
-        );
-        expect(off.n).toBeGreaterThan(0);
-        expect(off.mean, 'engine routes the canal near centre while continuing to the charted lead-out').toBeLessThan(
-            12,
-        );
-        // Round 2 (2026-09-30, owner decision 7): in this variant (chart + OSM
-        // canal LINES, no OSM water polygons) the Newport pin sits in the
-        // harbour cell's charted 0 m band — charted-shallow water, so the route
-        // starts AT the pin, its first ~32 m a 'needs tide' head through that
-        // charted water, with no 60 m 5 m-deep carve bubble faked over it.
-        // The snap used to engage on that bubble's jog at the start (the rest
-        // of the canal run is the tier-2 egress channel, which it never
-        // touches); with no bubble there is nothing for it to straighten.
-        //
-        // Fix-up (2026-09-30): assert the branch that happens — the fixture is
-        // deterministic, and an either-or let a flip between the two pass
-        // unseen. The pin's 0 m band is NOT under land paint here, so owner
-        // decision 2's rule for decision-1 water leaves it a charted pin.
-        //
-        // RE-PIN (round-3 review fix-up, 2026-09-30; measured in its own
-        // process): that ~32 m head reached "deep" water only because the OSM
-        // canal-line carve painted the canal 5 m deep over the harbour cell's
-        // own 0–2 m band. The carve no longer paints a charted shallow band
-        // deep (navGrid Pass 1b), so the pin's charted water reaches deep water
-        // only by running the whole canal — whose line cells sit under the
-        // cells' land paint, so the head fails the chart's own land check
-        // (debug.chartedEndRejected) and the route departs as it did before
-        // decision 7, from the endpoint carve. Honestly drawn all the same:
-        // the whole canal is one 'needs tide' run from the first segment
-        // (charted 0 m), and the carve's first segment is red by the backstop
-        // (chartedShallowSpans), never clean water.
-        expect(route.debug?.originChartedPin).toBeUndefined();
-        expect(route.debug?.chartedEndRejected).toMatch(/charted head crosses charted land/);
-        const canalRun = route.shallowRuns?.find((x) => x.startSeg === 0);
-        expect(canalRun, 'the canal carries a needs-tide run from the pin').toBeDefined();
-        expect(canalRun!.minDepthM).toBe(0);
-        expect(
-            route.cautionMask?.[0] || route.chartedShallowSpans?.some((sp) => sp.startSeg === 0),
-            'the first segment is red',
-        ).toBe(true);
-        expect(river(resnapped), 'snap leaves the river alone').toBe(river(route.polyline));
-        expect(canalOnlySegs, 'canal interior has non-channel segments').toBeGreaterThan(0);
-        expect(flaggedCanalSegs, 'every non-channel canal-interior segment carries the canal red flag').toBe(
-            canalOnlySegs,
-        );
-    });
-
-    it('MAIN CHANNEL DIAG — where does the red leave the centre + is there an OSM line there', () => {
-        // Shane's actual route: Newport → Pinkenba (REQ_BASE). Its main channel comes
-        // out RED (canalMask), which is the stretch he sees off-centre.
-        const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
-        const res = routeInshore(layers, REQ_BASE as RouteRequest);
-        if ('error' in res) {
-            console.log(`MAIN CHANNEL DIAG: route failed (${res.code ?? '?'})`);
-            expect(true).toBe(true);
-            return;
-        }
-        const lines = parseCanalLines(osmCanal as Parameters<typeof parseCanalLines>[0]);
-        const cm = res.canalMask ?? [];
-        const ch = res.channelMask ?? res.tier4Mask ?? [];
-        const offTo = (lat: number, lon: number): number => {
-            let best = Infinity;
-            for (const ln of lines) {
-                const d = pointToChainM(lat, lon, ln as unknown as Position[]);
-                if (d < best) best = d;
-            }
-            return best;
-        };
-        // Count OSM canal-line vertices per latitude band to see WHERE the chart has a
-        // centre-line at all (narrow canals) vs WHERE it doesn't (the wide main channel).
-        const bandPts = (loLat: number, hiLat: number): number => {
-            let n = 0;
-            for (const ln of lines)
-                for (const [lo, la] of ln) if (la >= loLat && la <= hiLat && lo >= 153.088 && lo <= 153.097) n++;
-            return n;
-        };
-        const rows: string[] = [];
-        res.polyline.forEach(([lon, lat], i) => {
-            if (lat < -27.216 || lat > -27.18) return;
-            const red = !!(cm[i] || (i > 0 && cm[i - 1]));
-            const yellow = !!(ch[i] || (i > 0 && ch[i - 1]));
-            rows.push(
-                `${i}: ${lat.toFixed(5)},${lon.toFixed(5)} ${red ? 'RED' : yellow ? 'YEL' : 'tea'} offLine=${lines.length ? offTo(lat, lon).toFixed(0) : '∞'}m`,
-            );
-        });
-
-        console.log(
-            `\n=== MAIN CHANNEL DIAG (north exit) ===\nprov: ${res.debug?.threeTier ?? ''}\n` +
-                `OSM canal-line vertices by lat band: marina[-27.216..-27.208]=${bandPts(-27.216, -27.208)} ` +
-                `mainCh[-27.208..-27.203]=${bandPts(-27.208, -27.203)} gates[-27.203..-27.182]=${bandPts(-27.203, -27.182)}\n` +
-                rows.join('\n'),
-        );
-        expect(res.polyline.length).toBeGreaterThan(2);
-    });
-
-    it('VARIANT F — inject Mapbox-water ⇒ device finegrid main channel + measure water-centring', () => {
-        // The plain repro routes the Newport approach as tier3/tier2; the DEVICE injects
-        // Mapbox water into DEPARE (_source:'mapbox-water') so it routes tier1:finegrid —
-        // the off-centre RED Shane sees. Replicate that injection (origin crop) so the
-        // off-centre main channel + the recentre fix can be reproduced + tested LOCALLY.
-        const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
-        const water = loadOsmWater().filter((f) => {
-            const g = f.geometry as Polygon | MultiPolygon | undefined;
-            if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return false;
-            const bb = geometryBbox(g);
-            return bb[2] >= 153.085 && bb[0] <= 153.099 && bb[3] >= -27.217 && bb[1] <= -27.19;
-        });
-        for (const f of water) {
-            (layers.DEPARE!.features as unknown[]).push({
-                ...f,
-                properties: {
-                    ...(f.properties ?? {}),
-                    natural: 'water',
-                    _source: 'mapbox-water',
-                    DRVAL1: 5,
-                    DRVAL2: 5,
-                },
+                return best;
+            };
+            // Count OSM canal-line vertices per latitude band to see WHERE the chart has a
+            // centre-line at all (narrow canals) vs WHERE it doesn't (the wide main channel).
+            const bandPts = (loLat: number, hiLat: number): number => {
+                let n = 0;
+                for (const ln of lines)
+                    for (const [lo, la] of ln) if (la >= loLat && la <= hiLat && lo >= 153.088 && lo <= 153.097) n++;
+                return n;
+            };
+            const rows: string[] = [];
+            res.polyline.forEach(([lon, lat], i) => {
+                if (lat < -27.216 || lat > -27.18) return;
+                const red = !!(cm[i] || (i > 0 && cm[i - 1]));
+                const yellow = !!(ch[i] || (i > 0 && ch[i - 1]));
+                rows.push(
+                    `${i}: ${lat.toFixed(5)},${lon.toFixed(5)} ${red ? 'RED' : yellow ? 'YEL' : 'tea'} offLine=${lines.length ? offTo(lat, lon).toFixed(0) : '∞'}m`,
+                );
             });
-        }
-        const res = routeInshore(layers, REQ_BASE as RouteRequest);
-        if ('error' in res) {
-            console.log(`VARIANT F: route failed (${res.code ?? '?'})`);
-            expect(true).toBe(true);
-            return;
-        }
-        const cm = res.canalMask ?? [];
-        const ch = res.channelMask ?? res.tier4Mask ?? [];
-        const wp = water.map((f) => {
-            const g = f.geometry as Polygon | MultiPolygon;
-            return { g, bb: geometryBbox(g) };
-        });
-        const inW = (lon: number, lat: number): boolean =>
-            wp.some(
-                (w) =>
-                    lon >= w.bb[0] &&
-                    lon <= w.bb[2] &&
-                    lat >= w.bb[1] &&
-                    lat <= w.bb[3] &&
-                    pointInGeometry(lon, lat, w.g),
+
+            console.log(
+                `\n=== MAIN CHANNEL DIAG (north exit) ===\nprov: ${res.debug?.threeTier ?? ''}\n` +
+                    `OSM canal-line vertices by lat band: marina[-27.216..-27.208]=${bandPts(-27.216, -27.208)} ` +
+                    `mainCh[-27.208..-27.203]=${bandPts(-27.208, -27.203)} gates[-27.203..-27.182]=${bandPts(-27.203, -27.182)}\n` +
+                    rows.join('\n'),
             );
-        const mLon = (lat: number): number => 111320 * Math.cos((lat * Math.PI) / 180);
-        const rows: string[] = [];
-        let measured = 0;
-        let worstOff = 0;
-        res.polyline.forEach(([lon, lat], i) => {
-            if (lat < -27.216 || lat > -27.2) return; // the main-channel / approach band
-            const red = !!(cm[i] || (i > 0 && cm[i - 1]));
-            const yellow = !!(ch[i] || (i > 0 && ch[i - 1]));
-            let e = NaN;
-            let w = NaN;
-            for (let s = 3; s <= 280; s += 3) {
-                if (isNaN(e) && !inW(lon + s / mLon(lat), lat)) e = s;
-                if (isNaN(w) && !inW(lon - s / mLon(lat), lat)) w = s;
-                if (!isNaN(e) && !isNaN(w)) break;
-            }
-            const twoWall = !isNaN(e) && !isNaN(w);
-            const off = twoWall ? (e - w) / 2 : NaN;
-            if (twoWall) {
-                measured++;
-                worstOff = Math.max(worstOff, Math.abs(off));
-            }
-            rows.push(
-                `${i}: ${lat.toFixed(5)},${lon.toFixed(5)} ${red ? 'RED' : yellow ? 'YEL' : 'tea'} ` +
-                    `waterOff=${twoWall ? off.toFixed(0) + 'm' : 'open'} (E${isNaN(e) ? '∞' : e.toFixed(0)}/W${isNaN(w) ? '∞' : w.toFixed(0)})`,
-            );
+            expect(res.polyline.length).toBeGreaterThan(2);
         });
 
-        console.log(
-            `\n=== VARIANT F (inject mapbox-water) ===\nprov: ${res.debug?.threeTier ?? ''}\n` +
-                `injected ${water.length} water polys | measured ${measured} two-walled vtx, worst off-centre = ${worstOff.toFixed(0)}m\n` +
-                rows.join('\n'),
-        );
-        expect(res.polyline.length).toBeGreaterThan(2);
-    });
-
-    it('VARIANT G — regional markers + injected water = FAITHFUL device repro (the little leg)', async () => {
-        const { route, prov, layers } = await runVariantWithRegionalMarkers(true);
-        // Rebuild the buoy chains the engine uses: BOYLAT channel_midpoints grouped by
-        // _chainId, sorted by _chainOrder (mirrors tierPipeline's channelChains).
-        const groups = new Map<number, { order: number; lon: number; lat: number }[]>();
-        for (const f of layers.BOYLAT?.features ?? []) {
-            const p = f.properties as { _class?: string; _chainId?: number; _chainOrder?: number } | null;
-            if (p?._class !== 'channel_midpoint' || p._chainId == null) continue;
-            const g = f.geometry as { coordinates: number[] };
-            if (!groups.has(p._chainId)) groups.set(p._chainId, []);
-            groups.get(p._chainId)!.push({ order: p._chainOrder ?? 0, lon: g.coordinates[0], lat: g.coordinates[1] });
-        }
-        const chains = [...groups.values()].map((g) =>
-            g.sort((a, b) => a.order - b.order).map((m) => ({ lon: m.lon, lat: m.lat })),
-        );
-        const mLon = (lat: number): number => 111320 * Math.cos((lat * Math.PI) / 180);
-        const offChain = (lon: number, lat: number): number => {
-            let best = Infinity;
-            for (const c of chains)
-                for (let k = 0; k + 1 < c.length; k++) {
-                    const ax = (c[k].lon - lon) * mLon(lat);
-                    const ay = (c[k].lat - lat) * 110540;
-                    const bx = (c[k + 1].lon - lon) * mLon(lat);
-                    const by = (c[k + 1].lat - lat) * 110540;
-                    const dx = bx - ax;
-                    const dy = by - ay;
-                    const l2 = dx * dx + dy * dy;
-                    const t = l2 < 1e-9 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2));
-                    best = Math.min(best, Math.hypot(ax + t * dx, ay + t * dy));
+        it('VARIANT F — inject Mapbox-water ⇒ device finegrid main channel + measure water-centring', () => {
+            // The plain repro routes the Newport approach as tier3/tier2; the DEVICE injects
+            // Mapbox water into DEPARE (_source:'mapbox-water') so it routes tier1:finegrid —
+            // the off-centre RED Shane sees. Replicate that injection (origin crop) so the
+            // off-centre main channel + the recentre fix can be reproduced + tested LOCALLY.
+            const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
+            const water = loadOsmWater().filter((f) => {
+                const g = f.geometry as Polygon | MultiPolygon | undefined;
+                if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return false;
+                const bb = geometryBbox(g);
+                return bb[2] >= 153.085 && bb[0] <= 153.099 && bb[3] >= -27.217 && bb[1] <= -27.19;
+            });
+            for (const f of water) {
+                (layers.DEPARE!.features as unknown[]).push({
+                    ...f,
+                    properties: {
+                        ...(f.properties ?? {}),
+                        natural: 'water',
+                        _source: 'mapbox-water',
+                        DRVAL1: 5,
+                        DRVAL2: 5,
+                    },
+                });
+            }
+            const res = routeInshore(layers, REQ_BASE as RouteRequest);
+            if ('error' in res) {
+                console.log(`VARIANT F: route failed (${res.code ?? '?'})`);
+                expect(true).toBe(true);
+                return;
+            }
+            const cm = res.canalMask ?? [];
+            const ch = res.channelMask ?? res.tier4Mask ?? [];
+            const wp = water.map((f) => {
+                const g = f.geometry as Polygon | MultiPolygon;
+                return { g, bb: geometryBbox(g) };
+            });
+            const inW = (lon: number, lat: number): boolean =>
+                wp.some(
+                    (w) =>
+                        lon >= w.bb[0] &&
+                        lon <= w.bb[2] &&
+                        lat >= w.bb[1] &&
+                        lat <= w.bb[3] &&
+                        pointInGeometry(lon, lat, w.g),
+                );
+            const mLon = (lat: number): number => 111320 * Math.cos((lat * Math.PI) / 180);
+            const rows: string[] = [];
+            let measured = 0;
+            let worstOff = 0;
+            res.polyline.forEach(([lon, lat], i) => {
+                if (lat < -27.216 || lat > -27.2) return; // the main-channel / approach band
+                const red = !!(cm[i] || (i > 0 && cm[i - 1]));
+                const yellow = !!(ch[i] || (i > 0 && ch[i - 1]));
+                let e = NaN;
+                let w = NaN;
+                for (let s = 3; s <= 280; s += 3) {
+                    if (isNaN(e) && !inW(lon + s / mLon(lat), lat)) e = s;
+                    if (isNaN(w) && !inW(lon - s / mLon(lat), lat)) w = s;
+                    if (!isNaN(e) && !isNaN(w)) break;
                 }
-            return best;
-        };
-        const cm = route.canalMask ?? [];
-        const ch = route.channelMask ?? route.tier4Mask ?? [];
-        const rows: string[] = [];
-        route.polyline.forEach(([lon, lat], i) => {
-            if (lat < -27.216 || lat > -27.18) return;
-            const red = !!(cm[i] || (i > 0 && cm[i - 1]));
-            const yellow = !!(ch[i] || (i > 0 && ch[i - 1]));
-            rows.push(
-                `${i}: ${lat.toFixed(5)},${lon.toFixed(5)} ${red ? 'RED' : yellow ? 'YEL' : 'tea'} ` +
-                    `offChain=${chains.length ? offChain(lon, lat).toFixed(0) + 'm' : '∞'}`,
+                const twoWall = !isNaN(e) && !isNaN(w);
+                const off = twoWall ? (e - w) / 2 : NaN;
+                if (twoWall) {
+                    measured++;
+                    worstOff = Math.max(worstOff, Math.abs(off));
+                }
+                rows.push(
+                    `${i}: ${lat.toFixed(5)},${lon.toFixed(5)} ${red ? 'RED' : yellow ? 'YEL' : 'tea'} ` +
+                        `waterOff=${twoWall ? off.toFixed(0) + 'm' : 'open'} (E${isNaN(e) ? '∞' : e.toFixed(0)}/W${isNaN(w) ? '∞' : w.toFixed(0)})`,
+                );
+            });
+
+            console.log(
+                `\n=== VARIANT F (inject mapbox-water) ===\nprov: ${res.debug?.threeTier ?? ''}\n` +
+                    `injected ${water.length} water polys | measured ${measured} two-walled vtx, worst off-centre = ${worstOff.toFixed(0)}m\n` +
+                    rows.join('\n'),
             );
+            expect(res.polyline.length).toBeGreaterThan(2);
         });
 
-        console.log(
-            `\n=== VARIANT G (regional + water = device repro) ===\nprov: ${prov}\n` +
-                `chains: [${chains.map((c) => c.length).join(',')}] midpoints in Newport band: ` +
-                `${chains.flat().filter((m) => m.lat > -27.216 && m.lat < -27.18).length}\n` +
-                rows.join('\n'),
-        );
-        expect(route.polyline.length).toBeGreaterThan(2);
-    });
+        it('VARIANT G — regional markers + injected water = FAITHFUL device repro (the little leg)', async () => {
+            const { route, prov, layers } = await runVariantWithRegionalMarkers(true);
+            // Rebuild the buoy chains the engine uses: BOYLAT channel_midpoints grouped by
+            // _chainId, sorted by _chainOrder (mirrors tierPipeline's channelChains).
+            const groups = new Map<number, { order: number; lon: number; lat: number }[]>();
+            for (const f of layers.BOYLAT?.features ?? []) {
+                const p = f.properties as { _class?: string; _chainId?: number; _chainOrder?: number } | null;
+                if (p?._class !== 'channel_midpoint' || p._chainId == null) continue;
+                const g = f.geometry as { coordinates: number[] };
+                if (!groups.has(p._chainId)) groups.set(p._chainId, []);
+                groups
+                    .get(p._chainId)!
+                    .push({ order: p._chainOrder ?? 0, lon: g.coordinates[0], lat: g.coordinates[1] });
+            }
+            const chains = [...groups.values()].map((g) =>
+                g.sort((a, b) => a.order - b.order).map((m) => ({ lon: m.lon, lat: m.lat })),
+            );
+            const mLon = (lat: number): number => 111320 * Math.cos((lat * Math.PI) / 180);
+            const offChain = (lon: number, lat: number): number => {
+                let best = Infinity;
+                for (const c of chains)
+                    for (let k = 0; k + 1 < c.length; k++) {
+                        const ax = (c[k].lon - lon) * mLon(lat);
+                        const ay = (c[k].lat - lat) * 110540;
+                        const bx = (c[k + 1].lon - lon) * mLon(lat);
+                        const by = (c[k + 1].lat - lat) * 110540;
+                        const dx = bx - ax;
+                        const dy = by - ay;
+                        const l2 = dx * dx + dy * dy;
+                        const t = l2 < 1e-9 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2));
+                        best = Math.min(best, Math.hypot(ax + t * dx, ay + t * dy));
+                    }
+                return best;
+            };
+            const cm = route.canalMask ?? [];
+            const ch = route.channelMask ?? route.tier4Mask ?? [];
+            const rows: string[] = [];
+            route.polyline.forEach(([lon, lat], i) => {
+                if (lat < -27.216 || lat > -27.18) return;
+                const red = !!(cm[i] || (i > 0 && cm[i - 1]));
+                const yellow = !!(ch[i] || (i > 0 && ch[i - 1]));
+                rows.push(
+                    `${i}: ${lat.toFixed(5)},${lon.toFixed(5)} ${red ? 'RED' : yellow ? 'YEL' : 'tea'} ` +
+                        `offChain=${chains.length ? offChain(lon, lat).toFixed(0) + 'm' : '∞'}`,
+                );
+            });
 
-    it('TIER-2 — routing through the Newport exit gate channel engages the channel tier (yellow)', () => {
-        // The Newport→Pinkenba route exits WEST and bypasses the buoyed exit gate, so
-        // it shows no channel tier. Route NORTH instead — Newport marina → a point past the
-        // green-7/red-8 gate (rcs5 BCNLAT, CATLAM 1/2) which has marks but NO DRGARE —
-        // and the marked channel must classify tier-2 + populate the yellow mask.
-        const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
-        const res = routeInshore(layers, { ...REQ_BASE, toLat: -27.182, toLon: 153.0935 } as RouteRequest);
-        if ('error' in res) {
-            console.log(`north-exit route failed: ${res.error} (${res.code ?? '?'})`);
-            // Not a hard fail — the gate corridor may be too short to route on the
-            // chart-only cells; the device (full data) is the oracle. Report + skip.
-            expect(res.code ?? 'error').toBeTruthy();
-            return;
-        }
-        const prov = res.debug?.threeTier ?? '';
-        const channelSegs = (res.channelMask ?? res.tier4Mask ?? []).filter(Boolean).length;
-        const channelMaskLen = (res.channelMask ?? res.tier4Mask ?? []).length;
+            console.log(
+                `\n=== VARIANT G (regional + water = device repro) ===\nprov: ${prov}\n` +
+                    `chains: [${chains.map((c) => c.length).join(',')}] midpoints in Newport band: ` +
+                    `${chains.flat().filter((m) => m.lat > -27.216 && m.lat < -27.18).length}\n` +
+                    rows.join('\n'),
+            );
+            expect(route.polyline.length).toBeGreaterThan(2);
+        });
 
-        console.log(
-            `\n=== TIER-2 channel (north exit through the gate) ===\nprov: ${prov}\n` +
-                `channel segments (yellow): ${channelSegs}/${channelMaskLen}`,
-        );
-        expect(prov, 'a tier-2 marked-channel span engaged').toContain('tier2');
-        expect(channelSegs, 'the yellow channel mask is populated').toBeGreaterThan(0);
-        // NO OUT-AND-BACK (2026-10-01): the pin sits in the charted 0–2 m band
-        // 113 m from gate 1/2. Its decision-7 tail used to come from the 5 m
-        // water 2.3 km out past it — the route ran out through the shallows
-        // and back: 4.51 NM (2.07 NM on the old code). It now reaches the pin
-        // through its own charted water — 2.15 NM, measured in its own process
-        // (2026-10-01) — within a sane bound of that direct way, and never back
-        // over its own track.
-        expect(res.distanceNM, 'no out-and-back to the deep water').toBeLessThan(2.5);
-        expect(revisits(res.polyline), 'the route never comes back over its own track').toBe(false);
-    });
-});
+        it('TIER-2 — routing through the Newport exit gate channel engages the channel tier (yellow)', () => {
+            // The Newport→Pinkenba route exits WEST and bypasses the buoyed exit gate, so
+            // it shows no channel tier. Route NORTH instead — Newport marina → a point past the
+            // green-7/red-8 gate (rcs5 BCNLAT, CATLAM 1/2) which has marks but NO DRGARE —
+            // and the marked channel must classify tier-2 + populate the yellow mask.
+            const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
+            const res = routeInshore(layers, { ...REQ_BASE, toLat: -27.182, toLon: 153.0935 } as RouteRequest);
+            if ('error' in res) {
+                console.log(`north-exit route failed: ${res.error} (${res.code ?? '?'})`);
+                // Not a hard fail — the gate corridor may be too short to route on the
+                // chart-only cells; the device (full data) is the oracle. Report + skip.
+                expect(res.code ?? 'error').toBeTruthy();
+                return;
+            }
+            const prov = res.debug?.threeTier ?? '';
+            const channelSegs = (res.channelMask ?? res.tier4Mask ?? []).filter(Boolean).length;
+            const channelMaskLen = (res.channelMask ?? res.tier4Mask ?? []).length;
+
+            console.log(
+                `\n=== TIER-2 channel (north exit through the gate) ===\nprov: ${prov}\n` +
+                    `channel segments (yellow): ${channelSegs}/${channelMaskLen}`,
+            );
+            expect(prov, 'a tier-2 marked-channel span engaged').toContain('tier2');
+            expect(channelSegs, 'the yellow channel mask is populated').toBeGreaterThan(0);
+            // NO OUT-AND-BACK (2026-10-01): the pin sits in the charted 0–2 m band
+            // 113 m from gate 1/2. Its decision-7 tail used to come from the 5 m
+            // water 2.3 km out past it — the route ran out through the shallows
+            // and back: 4.51 NM (2.07 NM on the old code). It now reaches the pin
+            // through its own charted water — 2.15 NM, measured in its own process
+            // (2026-10-01) — within a sane bound of that direct way, and never back
+            // over its own track.
+            expect(res.distanceNM, 'no out-and-back to the deep water').toBeLessThan(2.5);
+            expect(revisits(res.polyline), 'the route never comes back over its own track').toBe(false);
+        });
+    },
+);

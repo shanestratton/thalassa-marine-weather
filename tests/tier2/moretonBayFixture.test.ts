@@ -14,10 +14,7 @@
  *     water — the high-value case (centerline bend on real geometry).
  *   • This is the Tier-2 regression input for PHASE 4 wiring.
  */
-import { describe, it, expect } from 'vitest';
-import { gunzipSync } from 'node:zlib';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { beforeAll, describe, it, expect } from 'vitest';
 import {
     routeInshore,
     getCachedNavGrid,
@@ -27,12 +24,8 @@ import {
 import { routeTier2, type Tier2Context } from '../../services/tier2/tier2Router';
 import { isRefusal, type BoundaryNode, type LatLon } from '../../services/routing/legContract';
 import type { TierSpan } from '../../services/routing/segmentRoute';
-import { assembleLayers, type CorridorFixture } from '../helpers/corridorFixture';
-
-function loadFixtureRaw(name: string): CorridorFixture {
-    const path = join(__dirname, '..', 'fixtures', name);
-    return JSON.parse(gunzipSync(readFileSync(path)).toString()) as CorridorFixture;
-}
+import { assembleLayers, loadFixture, type CorridorFixture } from '../helpers/corridorFixture';
+import { REAL_AU_CHART_FIXTURES_RETIRED } from '../helpers/retiredChartFixtures';
 
 const node = (p: LatLon): BoundaryNode => ({
     at: p,
@@ -50,51 +43,60 @@ const span = (entry: LatLon, exit: LatLon): TierSpan => ({
     caution: false,
 });
 
-describe('Tier-2 real-chart fixture — Moreton Bay open-bay crossing', () => {
-    const fx = loadFixtureRaw('moreton-bay-tier2.corridor.json.gz');
-    const layers = assembleLayers(fx) as InshoreLayers;
-    const req = fx.request as RouteRequest;
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'Tier-2 real-chart fixture — Moreton Bay open-bay crossing (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        let fx: CorridorFixture;
+        let layers: InshoreLayers;
+        let req: RouteRequest;
+        let bbox: [number, number, number, number] | null;
+        beforeAll(() => {
+            // The shared loader: it refuses the retired capture.
+            fx = loadFixture('moreton-bay-tier2.corridor.json.gz');
+            layers = assembleLayers(fx) as InshoreLayers;
+            req = fx.request as RouteRequest;
+            // Build + cache the engine grid by routing once (route result irrelevant).
+            const built = routeInshore(layers, req);
+            bbox = 'bbox' in built ? built.bbox : null;
+        });
 
-    // Build + cache the engine grid by routing once (route result irrelevant).
-    const built = routeInshore(layers, req);
-    const bbox = 'bbox' in built ? built.bbox : null;
+        const ENTRY: LatLon = [153.22, -27.3533];
+        const EXIT: LatLon = [153.3, -27.4467];
 
-    const ENTRY: LatLon = [153.22, -27.3533];
-    const EXIT: LatLon = [153.3, -27.4467];
+        it('the fixture carries real chart depth data (DEPARE present)', () => {
+            expect(fx.cells.DEPARE?.features.length ?? 0).toBeGreaterThan(1000);
+        });
 
-    it('the fixture carries real chart depth data (DEPARE present)', () => {
-        expect(fx.cells.DEPARE?.features.length ?? 0).toBeGreaterThan(1000);
-    });
+        it('the engine grid builds and is mostly deep open water', () => {
+            expect(bbox).not.toBeNull();
+            if (!bbox) return;
+            const grid = getCachedNavGrid(layers, bbox, req.resolutionM ?? 50, req.draftM, req.safetyM ?? 0.2, 30);
+            expect(grid).not.toBeNull();
+            if (!grid) return;
+            let deep = 0;
+            for (let i = 0; i < grid.cells.length; i++) if (!Number.isNaN(grid.cells[i]) && grid.cells[i] >= 5) deep++;
+            // Eastern bay is genuinely open deep water, not a thin channel.
+            expect(deep / grid.cells.length).toBeGreaterThan(0.2);
+        });
 
-    it('the engine grid builds and is mostly deep open water', () => {
-        expect(bbox).not.toBeNull();
-        if (!bbox) return;
-        const grid = getCachedNavGrid(layers, bbox, req.resolutionM ?? 50, req.draftM, req.safetyM ?? 0.2, 30);
-        expect(grid).not.toBeNull();
-        if (!grid) return;
-        let deep = 0;
-        for (let i = 0; i < grid.cells.length; i++) if (!Number.isNaN(grid.cells[i]) && grid.cells[i] >= 5) deep++;
-        // Eastern bay is genuinely open deep water, not a thin channel.
-        expect(deep / grid.cells.length).toBeGreaterThan(0.2);
-    });
-
-    it('routeTier2 routes the documented open-bay crossing as a clean deep Leg', () => {
-        expect(bbox).not.toBeNull();
-        if (!bbox) return;
-        const grid = getCachedNavGrid(layers, bbox, req.resolutionM ?? 50, req.draftM, req.safetyM ?? 0.2, 30);
-        expect(grid).not.toBeNull();
-        if (!grid) return;
-        const ctx: Tier2Context = { grid, draftM: 2.4, tideSafetyM: 0.5 };
-        const leg = routeTier2(span(ENTRY, EXIT), ctx);
-        expect(isRefusal(leg), `routeTier2 refused: ${isRefusal(leg) ? leg.reason : ''}`).toBe(false);
-        if (isRefusal(leg)) return;
-        // routeTier2 emits tierId 3 under the four-tier contract (7574df84):
-        // the marks-free deep bay crossing IS tier 3; "tier 2" is now the
-        // marked channel. The function keeps its legacy name.
-        expect(leg.tierId).toBe(3);
-        expect(leg.controllingDepthM ?? 0).toBeGreaterThanOrEqual(5); // genuine ≥5 m crossing
-        expect(leg.polyline.length).toBeGreaterThanOrEqual(2);
-        expect(leg.cautionMask.every((c) => c === false)).toBe(true); // open deep water, no caution
-        expect(Object.isFrozen(leg)).toBe(true);
-    });
-});
+        it('routeTier2 routes the documented open-bay crossing as a clean deep Leg', () => {
+            expect(bbox).not.toBeNull();
+            if (!bbox) return;
+            const grid = getCachedNavGrid(layers, bbox, req.resolutionM ?? 50, req.draftM, req.safetyM ?? 0.2, 30);
+            expect(grid).not.toBeNull();
+            if (!grid) return;
+            const ctx: Tier2Context = { grid, draftM: 2.4, tideSafetyM: 0.5 };
+            const leg = routeTier2(span(ENTRY, EXIT), ctx);
+            expect(isRefusal(leg), `routeTier2 refused: ${isRefusal(leg) ? leg.reason : ''}`).toBe(false);
+            if (isRefusal(leg)) return;
+            // routeTier2 emits tierId 3 under the four-tier contract (7574df84):
+            // the marks-free deep bay crossing IS tier 3; "tier 2" is now the
+            // marked channel. The function keeps its legacy name.
+            expect(leg.tierId).toBe(3);
+            expect(leg.controllingDepthM ?? 0).toBeGreaterThanOrEqual(5); // genuine ≥5 m crossing
+            expect(leg.polyline.length).toBeGreaterThanOrEqual(2);
+            expect(leg.cautionMask.every((c) => c === false)).toBe(true); // open deep water, no caution
+            expect(Object.isFrozen(leg)).toBe(true);
+        });
+    },
+);

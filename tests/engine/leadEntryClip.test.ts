@@ -17,7 +17,7 @@
  * polygons with the engine's pointInGeometry.
  */
 import type { Feature, FeatureCollection, MultiPolygon, Polygon, Position } from 'geojson';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { geometryBbox, haversineM, pointInGeometry } from '../../services/engine/geometry';
 import type { InshoreLayers } from '../../services/engine/types';
 import { cellFinenessRank } from '../../services/enc/scaleShadow';
@@ -27,6 +27,7 @@ import { tracerContextFromLayers } from '../../services/routeTracer';
 import { CORRIDOR_CELL_SCALE, corridorCellRanks, withCorridorCellRanks } from '../helpers/corridorCellRanks';
 import { loadFixture } from '../helpers/corridorFixture';
 import { encCell } from '../helpers/encCells';
+import { lazy, REAL_AU_CHART_FIXTURES_RETIRED } from '../helpers/retiredChartFixtures';
 
 const fc = (features: Feature[]): FeatureCollection => ({ type: 'FeatureCollection', features });
 
@@ -52,12 +53,14 @@ const newport = (): InshoreLayers => ({
     NAVLINE: fc(navLineLeads(layer('NAVLNE'), 'NAVLNE')),
 });
 
-const rawLand = layer('LNDARE').map((f) => ({
-    g: f.geometry as Polygon | MultiPolygon,
-    bbox: geometryBbox(f.geometry as Polygon | MultiPolygon),
-}));
+const rawLand = lazy(() =>
+    layer('LNDARE').map((f) => ({
+        g: f.geometry as Polygon | MultiPolygon,
+        bbox: geometryBbox(f.geometry as Polygon | MultiPolygon),
+    })),
+);
 const onLand = (lon: number, lat: number): boolean =>
-    rawLand.some(
+    rawLand().some(
         ({ g, bbox }) =>
             lon >= bbox[0] && lon <= bbox[2] && lat >= bbox[1] && lat <= bbox[3] && pointInGeometry(lon, lat, g),
     );
@@ -86,87 +89,107 @@ const partsOf = (f: Feature): Position[][] => {
 };
 const rcidOf = (f: Feature) => (f.properties as { rcid?: number } | null)?.rcid;
 
-describe('routeInshore entry: leads cut to their on-water spans (withNavLineLeadsOnly)', () => {
-    const layers = newport();
-    const out = withNavLineLeadsOnly(layers);
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'routeInshore entry: leads cut to their on-water spans (withNavLineLeadsOnly) (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        let layers: InshoreLayers;
+        let out: InshoreLayers;
+        beforeAll(() => {
+            layers = newport();
+            out = withNavLineLeadsOnly(layers);
+        });
 
-    it('NAVLNE 2379 and 2387 lose their land extensions (~1.1 km and ~0.95 km); no lead keeps any land', () => {
-        for (const [rcid, rawLandM] of [
-            [2379, 1_096],
-            [2387, 949],
-        ] as const) {
-            const raw = layers.NAVLINE!.features.find((f) => rcidOf(f) === rcid)!;
-            // Independent: the raw lead really does cross this much land.
-            expect(landM(partsOf(raw)[0])).toBeGreaterThan(rawLandM - 25);
-            const cut = out.NAVLINE!.features.filter((f) => rcidOf(f) === rcid);
-            expect(cut).toHaveLength(1);
-            expect(cut[0].geometry.type).toBe('MultiLineString');
-            for (const part of partsOf(cut[0])) expect(landM(part)).toBe(0);
-            // The lead's own properties ride along (CATNAV 3, the NAVLNE identity).
-            expect(cut[0].properties).toMatchObject({ CATNAV: 3, rcid });
-        }
-        for (const f of out.NAVLINE!.features)
-            for (const part of partsOf(f)) expect(landM(part), `${rcidOf(f)}`).toBe(0);
-    });
+        it('NAVLNE 2379 and 2387 lose their land extensions (~1.1 km and ~0.95 km); no lead keeps any land', () => {
+            for (const [rcid, rawLandM] of [
+                [2379, 1_096],
+                [2387, 949],
+            ] as const) {
+                const raw = layers.NAVLINE!.features.find((f) => rcidOf(f) === rcid)!;
+                // Independent: the raw lead really does cross this much land.
+                expect(landM(partsOf(raw)[0])).toBeGreaterThan(rawLandM - 25);
+                const cut = out.NAVLINE!.features.filter((f) => rcidOf(f) === rcid);
+                expect(cut).toHaveLength(1);
+                expect(cut[0].geometry.type).toBe('MultiLineString');
+                for (const part of partsOf(cut[0])) expect(landM(part)).toBe(0);
+                // The lead's own properties ride along (CATNAV 3, the NAVLNE identity).
+                expect(cut[0].properties).toMatchObject({ CATNAV: 3, rcid });
+            }
+            for (const f of out.NAVLINE!.features)
+                for (const part of partsOf(f)) expect(landM(part), `${rcidOf(f)}`).toBe(0);
+        });
 
-    it('the grid keeps the leads as they were, for its own land verdict (NAVLINE_GRID)', () => {
-        expect(out.NAVLINE_GRID?.features).toBe(layers.NAVLINE!.features);
-    });
+        it('the grid keeps the leads as they were, for its own land verdict (NAVLINE_GRID)', () => {
+            expect(out.NAVLINE_GRID?.features).toBe(layers.NAVLINE!.features);
+        });
 
-    it('recommended tracks already on water are the same objects; the layer is kept', () => {
-        expect(out.RECTRC).toBe(layers.RECTRC);
-    });
+        it('recommended tracks already on water are the same objects; the layer is kept', () => {
+            expect(out.RECTRC).toBe(layers.RECTRC);
+        });
 
-    it('nothing to cut: the same layer set back', () => {
-        const water: InshoreLayers = { ...layers, LNDARE: fc([]) };
-        expect(withNavLineLeadsOnly(water)).toBe(water);
-    });
+        it('nothing to cut: the same layer set back', () => {
+            const water: InshoreLayers = { ...layers, LNDARE: fc([]) };
+            expect(withNavLineLeadsOnly(water)).toBe(water);
+        });
 
-    it('still the lead gate: a clearing line never reaches any consumer', () => {
-        const withClearing: InshoreLayers = { ...layers, NAVLINE: fc(layer('NAVLNE')) };
-        const gated = withNavLineLeadsOnly(withClearing);
-        for (const c of [gated.NAVLINE!, gated.NAVLINE_GRID!]) {
-            expect(c.features.some((f) => (f.properties as { CATNAV?: number }).CATNAV !== 3)).toBe(false);
-        }
-    });
-});
+        it('still the lead gate: a clearing line never reaches any consumer', () => {
+            const withClearing: InshoreLayers = { ...layers, NAVLINE: fc(layer('NAVLNE')) };
+            const gated = withNavLineLeadsOnly(withClearing);
+            for (const c of [gated.NAVLINE!, gated.NAVLINE_GRID!]) {
+                expect(c.features.some((f) => (f.properties as { CATNAV?: number }).CATNAV !== 3)).toBe(false);
+            }
+        });
+    },
+);
 
-describe('the Moreton corridor: RECTRC 2655 lies wholly on land paint', () => {
-    const fx = loadFixture('moreton-bay-tier2.corridor.json.gz');
-    const asCaptured = fx.cells as unknown as InshoreLayers;
-    const ranked = withCorridorCellRanks(
-        fx.cells,
-        corridorCellRanks(fx._meta.cells as string[], fx.cells),
-    ) as unknown as InshoreLayers;
-    const has2655 = (l: InshoreLayers) => (l.RECTRC?.features ?? []).some((f) => rcidOf(f) === 2655);
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'the Moreton corridor: RECTRC 2655 lies wholly on land paint (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        let asCaptured: InshoreLayers;
+        let ranked: InshoreLayers;
+        beforeAll(() => {
+            const fx = loadFixture('moreton-bay-tier2.corridor.json.gz');
+            asCaptured = fx.cells as unknown as InshoreLayers;
+            ranked = withCorridorCellRanks(
+                fx.cells,
+                corridorCellRanks(fx._meta.cells as string[], fx.cells),
+            ) as unknown as InshoreLayers;
+        });
+        const has2655 = (l: InshoreLayers) => (l.RECTRC?.features ?? []).some((f) => rcidOf(f) === 2655);
 
-    it('unranked (the capture as it is): the land paint stands and the track is gone', () => {
-        expect(has2655(asCaptured)).toBe(true);
-        expect(has2655(withNavLineLeadsOnly(asCaptured))).toBe(false);
-    });
+        it('unranked (the capture as it is): the land paint stands and the track is gone', () => {
+            expect(has2655(asCaptured)).toBe(true);
+            expect(has2655(withNavLineLeadsOnly(asCaptured))).toBe(false);
+        });
 
-    it('ranked as production merges it: a finer never-drying band beats the overview paint, and it stays', () => {
-        const out = withNavLineLeadsOnly(ranked);
-        expect(has2655(out)).toBe(true);
-        // Kept whole: its water is the finer survey's (the lead compiler
-        // classes it 'needs tide', never clear — tests/leadCompiler).
-        const f = out.RECTRC!.features.find((x) => rcidOf(x) === 2655)!;
-        expect(f).toBe(ranked.RECTRC!.features.find((x) => rcidOf(x) === 2655));
-    });
-});
+        it('ranked as production merges it: a finer never-drying band beats the overview paint, and it stays', () => {
+            const out = withNavLineLeadsOnly(ranked);
+            expect(has2655(out)).toBe(true);
+            // Kept whole: its water is the finer survey's (the lead compiler
+            // classes it 'needs tide', never clear — tests/leadCompiler).
+            const f = out.RECTRC!.features.find((x) => rcidOf(x) === 2655)!;
+            expect(f).toBe(ranked.RECTRC!.features.find((x) => rcidOf(x) === 2655));
+        });
+    },
+);
 
-describe('tracer context: tap-snap and ridingLeadAt read on-water spans only', () => {
-    const merged = newport();
-    const ctx = tracerContextFromLayers(merged, [], [153.0, -27.5, 153.4, -27.0], 1.9, { skipGrid: true });
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'tracer context: tap-snap and ridingLeadAt read on-water spans only (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        let ctx: ReturnType<typeof tracerContextFromLayers>;
+        beforeAll(() => {
+            ctx = tracerContextFromLayers(newport(), [], [153.0, -27.5, 153.4, -27.0], 1.9, { skipGrid: true });
+        });
 
-    it('no chart lead or chart track the tracer holds runs over land', () => {
-        for (const l of ctx.leads) expect(landM(l.pts.map((p) => [p.lon, p.lat]))).toBe(0);
-        for (const t of ctx.chartTracks ?? []) expect(landM(t.pts.map((p) => [p.lon, p.lat])), t.chartTrack.id).toBe(0);
-    });
+        it('no chart lead or chart track the tracer holds runs over land', () => {
+            for (const l of ctx.leads) expect(landM(l.pts.map((p) => [p.lon, p.lat]))).toBe(0);
+            for (const t of ctx.chartTracks ?? [])
+                expect(landM(t.pts.map((p) => [p.lon, p.lat])), t.chartTrack.id).toBe(0);
+        });
 
-    it('NAVLNE 2379 is still there as a lead — its on-water span', () => {
-        const spans = (ctx.chartTracks ?? []).filter((t) => t.chartTrack.featureId === '2379');
-        expect(spans.length).toBeGreaterThan(0);
-        expect(spans.every((t) => t.chartTrack.kind === 'leading-line')).toBe(true);
-    });
-});
+        it('NAVLNE 2379 is still there as a lead — its on-water span', () => {
+            const spans = (ctx.chartTracks ?? []).filter((t) => t.chartTrack.featureId === '2379');
+            expect(spans.length).toBeGreaterThan(0);
+            expect(spans.every((t) => t.chartTrack.kind === 'leading-line')).toBe(true);
+        });
+    },
+);

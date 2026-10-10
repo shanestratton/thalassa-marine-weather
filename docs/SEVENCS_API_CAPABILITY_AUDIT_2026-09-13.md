@@ -18,7 +18,7 @@ The following changes now exist in the local tree, without production deployment
   `mustGo` points from a separately reviewed Newport track. It validates the
   returned geometry and rechecks the complete resulting route; it never
   post-snaps a line while retaining the old provider report. This is **not**
-  universal channel-centreline routing. See [the exact local policy and expiry](NEWPORT_CHANNEL_TRACK_REVIEW_2026-09-13.md).
+  universal channel-centreline routing. (The Newport track policy and its review were retired and removed on 10 October 2026.)
 - Provider reports now have a bounded structured unsafe/caution/not-reported
   summary. Explicit `safe: false` remains red; documented Info/Warning/Danger
   severity is preserved. A prominent provider banner is separate from local

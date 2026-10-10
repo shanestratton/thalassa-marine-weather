@@ -92,17 +92,20 @@ import { haversineM } from '../services/engine/geometry';
 import { auditUnvouchedHardLand } from '../services/engine/safetyAudit';
 import { routeInshore, type RouteRequest } from '../services/inshoreRouterEngine';
 import { navLineLeads } from '../services/leadingLine';
-import { assembleLayers, loadFixture } from './helpers/corridorFixture';
+import { assembleLayers, loadFixture, type CorridorFixture } from './helpers/corridorFixture';
+import { lazy, REAL_AU_CHART_FIXTURES_RETIRED } from './helpers/retiredChartFixtures';
 import { chartedDryingM, HIGHEST_TIDE_SWEEP_M, nonRedOverShallow } from './helpers/nonRedOverShallow';
 
-const fx = loadFixture('newport-shane.corridor.json.gz');
+// Read on first use: both captures are retired, and every block here is gated.
+const fxOf = lazy(() => loadFixture('newport-shane.corridor.json.gz'));
 // The OSM overlay production merges on top (the rivergate capture's: marina
 // basins, the canal lines, OSM water and coastline). newport-shane's own
 // capture carries none — the characterisation below is chart layers alone.
-const osmRivergate = loadFixture('newport-rivergate.corridor.json.gz');
+const osmRivergateOf = lazy(() => loadFixture('newport-rivergate.corridor.json.gz'));
 
 /** assembleLayers + the chart's CATNAV 3 leads, as InshoreRouter merges them. */
-function productionLayers(osm: typeof fx.osm = fx.osm) {
+function productionLayers(osm: CorridorFixture['osm'] = fxOf().osm) {
+    const fx = fxOf();
     const layers = assembleLayers({ ...fx, osm });
     layers.NAVLINE.features.push(...navLineLeads(fx.cells.NAVLNE?.features ?? [], 'NAVLNE'));
     return layers;
@@ -127,7 +130,7 @@ const TANGALOOMA: RouteRequest = {
  */
 const ROUTE_TEST_TIMEOUT_MS = 90_000;
 
-function run(req: RouteRequest, strict: boolean, osm: typeof fx.osm = fx.osm) {
+function run(req: RouteRequest, strict: boolean, osm: CorridorFixture['osm'] = fxOf().osm) {
     const layers = productionLayers(osm);
     const r = routeInshore(layers, strict ? { ...req, unchartedPolicy: 'strict' } : req);
     if ('error' in r) return { refused: true as const, code: r.code, hardLandMaxRunM: r.debug?.hardLandMaxRunM };
@@ -164,12 +167,12 @@ const within = (value: number | undefined, pin: number, frac: number): void => {
     expect(value).toBeLessThan(pin * (1 + frac));
 };
 
-describe(
-    'CHARACTERISATION: chart CATNAV 3 leads in the production shape (newport-shane cells)',
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'CHARACTERISATION: chart CATNAV 3 leads in the production shape (newport-shane cells) (real AU chart fixture retired; port: 127-C-a)',
     { timeout: ROUTE_TEST_TIMEOUT_MS },
     () => {
         it('the fixture carries the chart leads this file is about', () => {
-            const leads = navLineLeads(fx.cells.NAVLNE?.features ?? [], 'NAVLNE');
+            const leads = navLineLeads(fxOf().cells.NAVLNE?.features ?? [], 'NAVLNE');
             expect(leads.length).toBe(31);
             expect(leads.every((f) => f.properties?.CATNAV === 3)).toBe(true);
         });
@@ -198,7 +201,7 @@ describe(
         // the offline canal still gets no route in the app. Kept apart from
         // the permissive pin below on purpose: the same route.
         it('newport-shane, strict (the production policy): the offline canal still gets no route a caller accepts (decision 2)', () => {
-            const r = run(fx.request, true);
+            const r = run(fxOf().request, true);
             expect(r.refused, JSON.stringify(r)).toBe(false);
             if (r.refused) return;
             expect(r.originChartedPin).toBe(false);
@@ -218,7 +221,7 @@ describe(
         // instead of by the dispute, and the river end's 5.9 km decision-1
         // tail (AU428153's land over the harbour cell), which stays.
         it('newport-shane, permissive: 23.96 NM with a ~135 m audit land run (known bad, pinned as is)', () => {
-            const r = run(fx.request, false);
+            const r = run(fxOf().request, false);
             expect(r.refused).toBe(false);
             if (r.refused) return;
             within(r.distanceNM, 23.959, 0.02);
@@ -360,28 +363,32 @@ describe(
 // and the Rivergate route rode NAVLNE 2387/2785 across the river mouth's
 // −2.2 m bank — 30 m of drying ground crossed became 1,116 m, with every
 // figure here green. Measured now: 0 m on both (HEAD 0 and 30 m).
-describe('GOLDEN: chart leads + OSM overlay (the production shape), strict', { timeout: ROUTE_TEST_TIMEOUT_MS }, () => {
-    it.each([
-        ['newport-shane', { ...fx.request, obstructionBufferM: 60 }, 24.54, 26, 44],
-        ['Newport -> Rivergate', osmRivergate.request, 23.93, 21, 32],
-    ] as const)('%s routes (%s NM), with no unvouched charted land', (_name, req, nm, maxCaution, maxPoints) => {
-        const r = run(req, true, osmRivergate.osm);
-        expect(r.refused, JSON.stringify(r)).toBe(false);
-        if (r.refused) return;
-        expect(r.auditMaxRunM).toBe(0);
-        within(r.distanceNM, nm, 0.02);
-        expect(r.caution).toBeLessThanOrEqual(maxCaution);
-        expect(r.points).toBeLessThanOrEqual(maxPoints);
-        // No tide data (the first draw, offline, a failed tide fetch): the
-        // finest survey's drying ground the route crosses.
-        expect(r.dryingM).toBeLessThanOrEqual(30);
-        // Nothing the finest S-57 survey charts drying or too shallow for the
-        // keel is drawn anything but red (round-3 review, 2026-09-30) — or,
-        // since owner decision 10 (2026-09-30), needs-tide amber where the
-        // tide clears it, never beyond it.
-        expect(r.nonRedDryM).toBe(0);
-        expect(r.nonRedShallowM).toBe(0);
-        expect(r.amberBeyondTideM).toBe(0);
-        expect(r.amberUnchartedM).toBe(0);
-    });
-});
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'GOLDEN: chart leads + OSM overlay (the production shape), strict (real AU chart fixture retired; port: 127-C-a)',
+    { timeout: ROUTE_TEST_TIMEOUT_MS },
+    () => {
+        it.each([
+            ['newport-shane', (): RouteRequest => ({ ...fxOf().request, obstructionBufferM: 60 }), 24.54, 26, 44],
+            ['Newport -> Rivergate', (): RouteRequest => osmRivergateOf().request, 23.93, 21, 32],
+        ] as const)('%s routes (%s NM), with no unvouched charted land', (_name, reqOf, nm, maxCaution, maxPoints) => {
+            const r = run(reqOf(), true, osmRivergateOf().osm);
+            expect(r.refused, JSON.stringify(r)).toBe(false);
+            if (r.refused) return;
+            expect(r.auditMaxRunM).toBe(0);
+            within(r.distanceNM, nm, 0.02);
+            expect(r.caution).toBeLessThanOrEqual(maxCaution);
+            expect(r.points).toBeLessThanOrEqual(maxPoints);
+            // No tide data (the first draw, offline, a failed tide fetch): the
+            // finest survey's drying ground the route crosses.
+            expect(r.dryingM).toBeLessThanOrEqual(30);
+            // Nothing the finest S-57 survey charts drying or too shallow for the
+            // keel is drawn anything but red (round-3 review, 2026-09-30) — or,
+            // since owner decision 10 (2026-09-30), needs-tide amber where the
+            // tide clears it, never beyond it.
+            expect(r.nonRedDryM).toBe(0);
+            expect(r.nonRedShallowM).toBe(0);
+            expect(r.amberBeyondTideM).toBe(0);
+            expect(r.amberUnchartedM).toBe(0);
+        });
+    },
+);

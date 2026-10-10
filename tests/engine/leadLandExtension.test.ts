@@ -16,6 +16,7 @@ import { auditUnvouchedHardLand, MAX_UNVOUCHED_HARD_LAND_RUN_M } from '../../ser
 import type { InshoreLayers } from '../../services/engine/types';
 import { navLineLeads } from '../../services/leadingLine';
 import { encCell } from '../helpers/encCells';
+import { lazy, REAL_AU_CHART_FIXTURES_RETIRED } from '../helpers/retiredChartFixtures';
 
 const CELLS = ['OC-61-10ENB5', 'OC-61-10RCS5'];
 const fc = (features: Feature[]): FeatureCollection => ({ type: 'FeatureCollection', features });
@@ -24,21 +25,25 @@ function layer(name: string): Feature[] {
     return CELLS.flatMap((id) => encCell(id).layers[name]?.features ?? []);
 }
 
-const layers: InshoreLayers = {
-    LNDARE: fc(layer('LNDARE')),
-    DEPARE: fc(layer('DEPARE')),
-    DRGARE: fc(layer('DRGARE')),
-    FAIRWY: fc(layer('FAIRWY')),
-    RECTRC: fc(layer('RECTRC')),
-    NAVLINE: fc(navLineLeads(layer('NAVLNE'), 'NAVLNE')),
-};
+const layers = lazy(
+    (): InshoreLayers => ({
+        LNDARE: fc(layer('LNDARE')),
+        DEPARE: fc(layer('DEPARE')),
+        DRGARE: fc(layer('DRGARE')),
+        FAIRWY: fc(layer('FAIRWY')),
+        RECTRC: fc(layer('RECTRC')),
+        NAVLINE: fc(navLineLeads(layer('NAVLNE'), 'NAVLNE')),
+    }),
+);
 
-const land = layer('LNDARE').map((f) => ({
-    g: f.geometry as Polygon | MultiPolygon,
-    bbox: geometryBbox(f.geometry as Polygon | MultiPolygon),
-}));
+const land = lazy(() =>
+    layer('LNDARE').map((f) => ({
+        g: f.geometry as Polygon | MultiPolygon,
+        bbox: geometryBbox(f.geometry as Polygon | MultiPolygon),
+    })),
+);
 const onLand = (lon: number, lat: number): boolean =>
-    land.some(
+    land().some(
         ({ g, bbox }) =>
             lon >= bbox[0] && lon <= bbox[2] && lat >= bbox[1] && lat <= bbox[3] && pointInGeometry(lon, lat, g),
     );
@@ -81,27 +86,30 @@ function lead(rcid: number): Position[] {
     return f.geometry.coordinates;
 }
 
-describe('a leading line over charted land vouches no water (Newport cells)', () => {
-    // Longest continuous land run (2379 has ~1.1 km of land in all, the
-    // longest single run ~880 m; 2387 ~950 m in one run).
-    it.each([
-        [2379, 850],
-        [2387, 900],
-    ])('a route along the land extension of NAVLNE %i fails the land audit', (rcid, minLandM) => {
-        const { run, lengthM } = longestLandRun(lead(rcid));
-        // The fixture pin: this lead really does run on over land.
-        expect(lengthM).toBeGreaterThan(minLandM);
-        const audit = auditUnvouchedHardLand(layers, run);
-        // Before Phase 1: 0 m (every sample sat within 125 m of the lead).
-        // Now only the 125 m beside the lead's on-water spans stays vouched.
-        expect(audit.maxRunM).toBeGreaterThan(MAX_UNVOUCHED_HARD_LAND_RUN_M);
-        expect(audit.maxRunM).toBeGreaterThan(lengthM - 2 * 125 - 25);
-    });
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'a leading line over charted land vouches no water (Newport cells) (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        // Longest continuous land run (2379 has ~1.1 km of land in all, the
+        // longest single run ~880 m; 2387 ~950 m in one run).
+        it.each([
+            [2379, 850],
+            [2387, 900],
+        ])('a route along the land extension of NAVLNE %i fails the land audit', (rcid, minLandM) => {
+            const { run, lengthM } = longestLandRun(lead(rcid));
+            // The fixture pin: this lead really does run on over land.
+            expect(lengthM).toBeGreaterThan(minLandM);
+            const audit = auditUnvouchedHardLand(layers(), run);
+            // Before Phase 1: 0 m (every sample sat within 125 m of the lead).
+            // Now only the 125 m beside the lead's on-water spans stays vouched.
+            expect(audit.maxRunM).toBeGreaterThan(MAX_UNVOUCHED_HARD_LAND_RUN_M);
+            expect(audit.maxRunM).toBeGreaterThan(lengthM - 2 * 125 - 25);
+        });
 
-    it('the recommended track beside it is still water all the way (control)', () => {
-        const g = layer('RECTRC').find((x) => x.properties?.rcid === 2380)?.geometry;
-        if (g?.type !== 'LineString') throw new Error('no RECTRC 2380 LineString in the Newport fixture');
-        const coords = g.coordinates.map((c) => [c[0], c[1]] as [number, number]);
-        expect(auditUnvouchedHardLand(layers, coords).maxRunM).toBe(0);
-    });
-});
+        it('the recommended track beside it is still water all the way (control)', () => {
+            const g = layer('RECTRC').find((x) => x.properties?.rcid === 2380)?.geometry;
+            if (g?.type !== 'LineString') throw new Error('no RECTRC 2380 LineString in the Newport fixture');
+            const coords = g.coordinates.map((c) => [c[0], c[1]] as [number, number]);
+            expect(auditUnvouchedHardLand(layers(), coords).maxRunM).toBe(0);
+        });
+    },
+);

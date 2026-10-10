@@ -10,7 +10,7 @@ import {
 // The client's hazard locator (services/providerHazardGeometry) went with the
 // SevenCs client on 2026-10-01; these are the edge function's own cases.
 
-const point = [***REMOVED***, -27.1675];
+const point = [153.0875, -27.1625]; // fictional
 const ring = [
     [153, -27],
     [153.1, -27],

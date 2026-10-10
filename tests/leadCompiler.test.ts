@@ -8,7 +8,7 @@
  * 5 m samples against the raw polygons with the engine's pointInGeometry.
  */
 import type { Feature, FeatureCollection, MultiPolygon, Polygon, Position } from 'geojson';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { geometryBbox, haversineM, pointInGeometry } from '../services/engine/geometry';
 import {
     cachedLeadGraph,
@@ -28,8 +28,9 @@ import {
 } from '../services/routing/leadCompiler';
 import { catzocVerticalErrorM } from '../services/routing/leadReview';
 import { CORRIDOR_CELL_SCALE, corridorCellRanks, withCorridorCellRanks } from './helpers/corridorCellRanks';
-import { loadFixture } from './helpers/corridorFixture';
+import { loadFixture, type CorridorFixture } from './helpers/corridorFixture';
 import { encCell } from './helpers/encCells';
+import { lazy, REAL_AU_CHART_FIXTURES_RETIRED } from './helpers/retiredChartFixtures';
 
 // ── Fixtures ───────────────────────────────────────────────────────
 
@@ -54,10 +55,11 @@ function extent(layers: AnyLayers): [number, number, number, number] {
 const NEWPORT_IDS = ['OC-61-10ENB5', 'OC-61-10RCS5'];
 // Each cell's scale as production knows it (the blob's compilation scale;
 // here the fixture's usage band — tests/helpers/corridorCellRanks.ts).
-const newportCells = NEWPORT_IDS.map((id) => {
-    const c = encCell(id);
-    return { id, bbox: extent(c.layers as AnyLayers), layers: c.layers, ...CORRIDOR_CELL_SCALE[id] };
-});
+const readNewportCells = () =>
+    NEWPORT_IDS.map((id) => {
+        const c = encCell(id);
+        return { id, bbox: extent(c.layers as AnyLayers), layers: c.layers, ...CORRIDOR_CELL_SCALE[id] };
+    });
 /**
  * The same cells as if re-extracted with the structure layers (BRIDGE,
  * PONTON, CBLOHD, PIPOHD, CONVYR) carried empty — "extracted, none charted". The real
@@ -65,29 +67,45 @@ const newportCells = NEWPORT_IDS.map((id) => {
  * chart data cannot show" at the end); most of this file pins the OTHER
  * rules, so it reads the cells this way to keep them visible.
  */
-const newportExtracted = newportCells.map((c) => ({
-    ...c,
-    layers: {
-        ...c.layers,
-        BRIDGE: { features: [] },
-        PONTON: { features: [] },
-        CBLOHD: { features: [] },
-        PIPOHD: { features: [] },
-        CONVYR: { features: [] },
-    },
-}));
-const newport: LeadCompilerLayers = mergeLeadCells(newportExtracted);
+const extractedOf = (cells: ReturnType<typeof readNewportCells>) =>
+    cells.map((c) => ({
+        ...c,
+        layers: {
+            ...c.layers,
+            BRIDGE: { features: [] },
+            PONTON: { features: [] },
+            CBLOHD: { features: [] },
+            PIPOHD: { features: [] },
+            CONVYR: { features: [] },
+        },
+    }));
 const newportRaw = (layer: string): Feature[] => NEWPORT_IDS.flatMap((id) => encCell(id).layers[layer]?.features ?? []);
 
-const moretonFx = loadFixture('moreton-bay-tier2.corridor.json.gz');
+// The Newport cells and the Moreton capture were retired on 2026-10-10 (the
+// o-charts ruling): read once, by readRealCells, from the gated blocks'
+// beforeAll only.
+let newportCells: ReturnType<typeof readNewportCells>;
+let newportExtracted: ReturnType<typeof extractedOf>;
+let newport: LeadCompilerLayers;
+let moretonFx: CorridorFixture;
 /** The capture as it is: no cell ids, no ranks — every band under land paint
  * is "rank unknown", so decision 1 leaves all of it land (fail safe). */
-const moreton = moretonFx.cells as unknown as LeadCompilerLayers;
+let moreton: LeadCompilerLayers;
 /** The same four cells ranked the way the router's merge ranks them
  * (tests/helpers/corridorCellRanks: each feature's cell recovered from the
  * capture's order): the production shape of this corridor. */
-const moretonRanks = corridorCellRanks(moretonFx._meta.cells as string[], moretonFx.cells);
-const moretonRanked = withCorridorCellRanks(moretonFx.cells, moretonRanks) as unknown as LeadCompilerLayers;
+let moretonRanks: ReturnType<typeof corridorCellRanks>;
+let moretonRanked: LeadCompilerLayers;
+const readRealCells = lazy(() => {
+    newportCells = readNewportCells();
+    newportExtracted = extractedOf(newportCells);
+    newport = mergeLeadCells(newportExtracted);
+    moretonFx = loadFixture('moreton-bay-tier2.corridor.json.gz');
+    moreton = moretonFx.cells as unknown as LeadCompilerLayers;
+    moretonRanks = corridorCellRanks(moretonFx._meta.cells as string[], moretonFx.cells);
+    moretonRanked = withCorridorCellRanks(moretonFx.cells, moretonRanks) as unknown as LeadCompilerLayers;
+    return true;
+});
 
 // ── Independent measures ───────────────────────────────────────────
 
@@ -146,461 +164,487 @@ const forward = (g: LeadGraph): LeadEdge[] => g.edges.filter((e) => e.id.endsWit
 
 // ── Newport ────────────────────────────────────────────────────────
 
-describe('lead compiler — Newport cells (OC-61-10ENB5 + OC-61-10RCS5)', () => {
-    const g19 = compileLeadGraph(newport, 1.9);
-    const g35 = compileLeadGraph(newport, 3.5);
-    const rectrc = newportRaw('RECTRC');
-    const navlne = newportRaw('NAVLNE');
-    const rcidsWith = (key: 'CATNAV' | 'CATTRK', v: number, fs: Feature[]) =>
-        fs.filter((f) => f.properties?.[key] === v).map((f) => f.properties?.rcid as number);
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'lead compiler — Newport cells (OC-61-10ENB5 + OC-61-10RCS5) (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        let g19: LeadGraph;
+        let g35: LeadGraph;
+        let rectrc: Feature[];
+        let navlne: Feature[];
+        beforeAll(() => {
+            readRealCells();
+            g19 = compileLeadGraph(newport, 1.9);
+            g35 = compileLeadGraph(newport, 3.5);
+            rectrc = newportRaw('RECTRC');
+            navlne = newportRaw('NAVLNE');
+        });
+        const rcidsWith = (key: 'CATNAV' | 'CATTRK', v: number, fs: Feature[]) =>
+            fs.filter((f) => f.properties?.[key] === v).map((f) => f.properties?.rcid as number);
 
-    it('reads the fixture it is pinned to: 18 RECTRC, 14 CATNAV 3, 5 CATNAV 1, 2 CATNAV 2', () => {
-        expect(rectrc).toHaveLength(18);
-        expect(rcidsWith('CATNAV', 3, navlne)).toHaveLength(14);
-        expect(rcidsWith('CATNAV', 1, navlne).sort()).toEqual([2366, 2367, 2368, 2369, 2370]);
-        expect(rcidsWith('CATNAV', 2, navlne).sort()).toEqual([2383, 3454]);
-    });
+        it('reads the fixture it is pinned to: 18 RECTRC, 14 CATNAV 3, 5 CATNAV 1, 2 CATNAV 2', () => {
+            expect(rectrc).toHaveLength(18);
+            expect(rcidsWith('CATNAV', 3, navlne)).toHaveLength(14);
+            expect(rcidsWith('CATNAV', 1, navlne).sort()).toEqual([2366, 2367, 2368, 2369, 2370]);
+            expect(rcidsWith('CATNAV', 2, navlne).sort()).toEqual([2383, 3454]);
+        });
 
-    it('every recommended track becomes one whole, unclipped span', () => {
-        const tracks = g19.spans.filter((s) => s.kind === 'recommended-track');
-        expect(tracks).toHaveLength(18);
-        expect(tracks.flatMap((s) => s.rcids).sort()).toEqual(rectrc.map((f) => f.properties?.rcid as number).sort());
-        for (const s of tracks) {
-            const src = rectrc.find((f) => f.properties?.rcid === s.rcids[0])!;
-            const srcCoords = (src.geometry as { coordinates: Position[] }).coordinates;
-            expect(s.sourceLandM).toBe(0);
-            expect(s.coordinates).toEqual(srcCoords);
-            expect(s.trust).toBe('chart');
-        }
-    });
+        it('every recommended track becomes one whole, unclipped span', () => {
+            const tracks = g19.spans.filter((s) => s.kind === 'recommended-track');
+            expect(tracks).toHaveLength(18);
+            expect(tracks.flatMap((s) => s.rcids).sort()).toEqual(
+                rectrc.map((f) => f.properties?.rcid as number).sort(),
+            );
+            for (const s of tracks) {
+                const src = rectrc.find((f) => f.properties?.rcid === s.rcids[0])!;
+                const srcCoords = (src.geometry as { coordinates: Position[] }).coordinates;
+                expect(s.sourceLandM).toBe(0);
+                expect(s.coordinates).toEqual(srcCoords);
+                expect(s.trust).toBe('chart');
+            }
+        });
 
-    it('clearing lines (CATNAV 1) and transits (CATNAV 2) never become a lead edge', () => {
-        const nonLeads = [...rcidsWith('CATNAV', 1, navlne), ...rcidsWith('CATNAV', 2, navlne)];
-        for (const e of g19.edges) for (const r of nonLeads) expect(e.rcids).not.toContain(r);
-        const leadRcids = new Set(g19.spans.filter((s) => s.kind === 'leading-line').flatMap((s) => s.rcids));
-        for (const r of leadRcids) expect(rcidsWith('CATNAV', 3, navlne)).toContain(r);
-    });
+        it('clearing lines (CATNAV 1) and transits (CATNAV 2) never become a lead edge', () => {
+            const nonLeads = [...rcidsWith('CATNAV', 1, navlne), ...rcidsWith('CATNAV', 2, navlne)];
+            for (const e of g19.edges) for (const r of nonLeads) expect(e.rcids).not.toContain(r);
+            const leadRcids = new Set(g19.spans.filter((s) => s.kind === 'leading-line').flatMap((s) => s.rcids));
+            for (const r of leadRcids) expect(rcidsWith('CATNAV', 3, navlne)).toContain(r);
+        });
 
-    it('each CATTRK 1 recommended track is the on-water span of a CATNAV 3 leading line', () => {
-        const leads = navlne.filter((f) => f.properties?.CATNAV === 3);
-        const cattrk1 = rectrc.filter((f) => f.properties?.CATTRK === 1);
-        expect(cattrk1).toHaveLength(14);
-        for (const t of cattrk1) {
-            const tc = (t.geometry as { coordinates: Position[] }).coordinates;
-            const host = leads.find((l) => {
-                const lc = (l.geometry as { coordinates: Position[] }).coordinates;
-                return tc.every((p) => distToLineM(p, lc) < 1);
+        it('each CATTRK 1 recommended track is the on-water span of a CATNAV 3 leading line', () => {
+            const leads = navlne.filter((f) => f.properties?.CATNAV === 3);
+            const cattrk1 = rectrc.filter((f) => f.properties?.CATTRK === 1);
+            expect(cattrk1).toHaveLength(14);
+            for (const t of cattrk1) {
+                const tc = (t.geometry as { coordinates: Position[] }).coordinates;
+                const host = leads.find((l) => {
+                    const lc = (l.geometry as { coordinates: Position[] }).coordinates;
+                    return tc.every((p) => distToLineM(p, lc) < 1);
+                });
+                expect(host, `RECTRC ${t.properties?.rcid} lies on a leading line`).toBeDefined();
+            }
+        });
+
+        it('a leading line is not drawn again over its recommended track', () => {
+            // NAVLNE 2372 IS RECTRC 2371 (same two nodes): no leading-line span.
+            expect(spansOf(g19, 2372)).toHaveLength(0);
+            expect(g19.dropped).toContainEqual({
+                sourceId: 'NAVLNE OC-61-10ENB5 2372',
+                reason: 'coincides-with-recommended-track',
             });
-            expect(host, `RECTRC ${t.properties?.rcid} lies on a leading line`).toBeDefined();
-        }
-    });
-
-    it('a leading line is not drawn again over its recommended track', () => {
-        // NAVLNE 2372 IS RECTRC 2371 (same two nodes): no leading-line span.
-        expect(spansOf(g19, 2372)).toHaveLength(0);
-        expect(g19.dropped).toContainEqual({
-            sourceId: 'NAVLNE OC-61-10ENB5 2372',
-            reason: 'coincides-with-recommended-track',
+            const tracks = g19.spans.filter((s) => s.kind === 'recommended-track').map((s) => s.coordinates);
+            const brg = (a: Position, b: Position) =>
+                (Math.atan2((b[0] - a[0]) * Math.cos((a[1] * Math.PI) / 180), b[1] - a[1]) * 180) / Math.PI;
+            const parallel = (x: number, y: number) => {
+                const d = Math.abs(x - y) % 180;
+                return Math.min(d, 180 - d) < 3;
+            };
+            for (const s of g19.spans.filter((x) => x.kind === 'leading-line')) {
+                // No stretch runs ALONG a track (near it and parallel to it); the
+                // lines may only meet at a join.
+                let alongM = 0;
+                const c = s.coordinates;
+                for (let i = 0; i < c.length - 1; i++) {
+                    const segM = haversineM(c[i][1], c[i][0], c[i + 1][1], c[i + 1][0]);
+                    const b = brg(c[i], c[i + 1]);
+                    const near = tracks.filter((tr) =>
+                        tr.slice(1).some((q, j) => parallel(b, brg(tr[j], q)) && distToLineM(c[i], [tr[j], q]) < 50),
+                    );
+                    const n = Math.max(1, Math.ceil(segM / 5));
+                    for (let k = 0; k < n; k++) {
+                        const t = (k + 0.5) / n;
+                        const p: Position = [
+                            c[i][0] + (c[i + 1][0] - c[i][0]) * t,
+                            c[i][1] + (c[i + 1][1] - c[i][1]) * t,
+                        ];
+                        if (near.some((tr) => distToLineM(p, tr) < 2)) alongM += segM / n;
+                    }
+                }
+                expect(alongM, s.id).toBeLessThan(5);
+            }
         });
-        const tracks = g19.spans.filter((s) => s.kind === 'recommended-track').map((s) => s.coordinates);
-        const brg = (a: Position, b: Position) =>
-            (Math.atan2((b[0] - a[0]) * Math.cos((a[1] * Math.PI) / 180), b[1] - a[1]) * 180) / Math.PI;
-        const parallel = (x: number, y: number) => {
-            const d = Math.abs(x - y) % 180;
-            return Math.min(d, 180 - d) < 3;
-        };
-        for (const s of g19.spans.filter((x) => x.kind === 'leading-line')) {
-            // No stretch runs ALONG a track (near it and parallel to it); the
-            // lines may only meet at a join.
-            let alongM = 0;
-            const c = s.coordinates;
-            for (let i = 0; i < c.length - 1; i++) {
-                const segM = haversineM(c[i][1], c[i][0], c[i + 1][1], c[i + 1][0]);
-                const b = brg(c[i], c[i + 1]);
-                const near = tracks.filter((tr) =>
-                    tr.slice(1).some((q, j) => parallel(b, brg(tr[j], q)) && distToLineM(c[i], [tr[j], q]) < 50),
-                );
-                const n = Math.max(1, Math.ceil(segM / 5));
-                for (let k = 0; k < n; k++) {
-                    const t = (k + 0.5) / n;
-                    const p: Position = [c[i][0] + (c[i + 1][0] - c[i][0]) * t, c[i][1] + (c[i + 1][1] - c[i][1]) * t];
-                    if (near.some((tr) => distToLineM(p, tr) < 2)) alongM += segM / n;
+
+        it('clips the land-crossing leading lines 2379 (~1.1 km) and 2387 (~0.95 km) to water', () => {
+            const land = areas(newportRaw('LNDARE'));
+            for (const [rcid, landM] of [
+                [2379, 1_096],
+                [2387, 949],
+            ] as const) {
+                const raw = navlne.find((f) => f.properties?.rcid === rcid)!;
+                const rawCoords = (raw.geometry as { coordinates: Position[] }).coordinates;
+                // Independent: the raw line really does cross this much land.
+                expect(metresOver(rawCoords, land)).toBeGreaterThan(landM - 25);
+                const spans = spansOf(g19, rcid);
+                expect(spans.length).toBeGreaterThan(0);
+                for (const s of spans) {
+                    expect(s.kind).toBe('leading-line');
+                    expect(s.sourceLandM).toBeGreaterThan(landM - 10);
+                    expect(s.sourceLandM).toBeLessThan(landM + 10);
+                    expect(metresOver(s.coordinates, land)).toBe(0);
                 }
             }
-            expect(alongM, s.id).toBeLessThan(5);
-        }
-    });
-
-    it('clips the land-crossing leading lines 2379 (~1.1 km) and 2387 (~0.95 km) to water', () => {
-        const land = areas(newportRaw('LNDARE'));
-        for (const [rcid, landM] of [
-            [2379, 1_096],
-            [2387, 949],
-        ] as const) {
-            const raw = navlne.find((f) => f.properties?.rcid === rcid)!;
-            const rawCoords = (raw.geometry as { coordinates: Position[] }).coordinates;
-            // Independent: the raw line really does cross this much land.
-            expect(metresOver(rawCoords, land)).toBeGreaterThan(landM - 25);
-            const spans = spansOf(g19, rcid);
-            expect(spans.length).toBeGreaterThan(0);
-            for (const s of spans) {
-                expect(s.kind).toBe('leading-line');
-                expect(s.sourceLandM).toBeGreaterThan(landM - 10);
-                expect(s.sourceLandM).toBeLessThan(landM + 10);
-                expect(metresOver(s.coordinates, land)).toBe(0);
-            }
-        }
-    });
-
-    it('no compiled edge has any length over LNDARE', () => {
-        const land = areas(newportRaw('LNDARE'));
-        for (const s of g19.spans) expect(metresOver(s.coordinates, land), s.id).toBe(0);
-        expect(g19.clippedLandM).toBeGreaterThan(4_000);
-    });
-
-    it('joins the recommended-track chain 2380~2382~2375~2378~2941~2918~2944 into one network', () => {
-        const chain = [2380, 2382, 2375, 2378, 2941, 2918, 2944];
-        const edgesOf = (rcid: number) =>
-            g19.edges.filter((e) => e.kind === 'recommended-track' && e.rcids.includes(rcid));
-        const nets = new Set(chain.flatMap((r) => edgesOf(r).map((e) => e.networkId)));
-        expect(nets.size).toBe(1);
-        // The joins the chart draws (S-57 shares these end points exactly):
-        // 2382—2380—2375—2378—2941—2918—2944.
-        const joins: [number, number][] = [
-            [2380, 2382],
-            [2375, 2380],
-            [2375, 2378],
-            [2378, 2941],
-            [2918, 2941],
-            [2918, 2944],
-        ];
-        for (const [x, y] of joins) {
-            const a = new Set(edgesOf(x).flatMap((e) => [e.from, e.to]));
-            expect(
-                edgesOf(y)
-                    .flatMap((e) => [e.from, e.to])
-                    .some((n) => a.has(n)),
-                `${x}~${y}`,
-            ).toBe(true);
-        }
-        // The leading-line remnants hang off the same nodes.
-        const net = g19.networks.find((n) => n.id === [...nets][0])!;
-        expect(net.spanIds.some((id) => id.startsWith('leading-line:NAVLNE OC-61-10ENB5 2379'))).toBe(true);
-    });
-
-    it('every two-way lead is two directed edges, each the reverse of the other', () => {
-        for (const s of g19.spans) expect(s.direction).toBe('both');
-        expect(g19.edges).toHaveLength(g19.spans.length * 2);
-        for (const e of forward(g19)) {
-            const r = g19.edges.find((x) => x.id === e.reverseId)!;
-            expect(r.reverseId).toBe(e.id);
-            expect(r.coordinates).toEqual([...e.coordinates].reverse());
-            expect([r.from, r.to]).toEqual([e.to, e.from]);
-            const turn = (((r.bearingDeg - e.bearingDeg) % 360) + 360) % 360;
-            expect(Math.abs(turn - 180)).toBeLessThan(0.5);
-            expect(e.oneWay).toBe(false);
-        }
-        // RECTRC 2380 is charted at 255.5°: one of its two edges runs that way.
-        const bearings = g19.edges.filter((e) => e.rcids.includes(2380)).map((e) => e.bearingDeg);
-        expect(bearings.some((b) => Math.abs(b - 255.5) < 1.5)).toBe(true);
-    });
-
-    it('classes charted depth against a 1.9 m and a 3.5 m draft (0.5 m under the keel)', () => {
-        const cls = (g: LeadGraph, rcid: number) =>
-            forward(g).filter((e) => e.kind === 'recommended-track' && e.rcids.includes(rcid))[0].depth;
-        // 9.1 m and 5 m tracks: deep enough for both keels. 2380 (CATZOC A1)
-        // is clear. 2374 lies in a CATZOC C (4) survey zone. Owner decision 3
-        // (2026-09-30) replaced the Phase 1 blanket "C is review": C's
-        // vertical error is 2 m + 5% of the depth, so 5 m charted is 2.75 m
-        // trusted — clear for a 1.9 m keel (needs 2.4 m), but not for 3.5 m
-        // (needs 4.0 m): 'survey-margin'.
-        for (const g of [g19, g35]) {
-            expect(cls(g, 2380)).toMatchObject({ class: 'clear', minDepthM: 9.1, uncoveredM: 0, review: [] });
-            expect(g.spans.find((s) => s.rcids.includes(2374))!.review.worstCatzoc).toBe(4);
-            // A 2 m track and the 0 m Newport canal exit: charted, but needs tide.
-            expect(cls(g, 2493)).toMatchObject({ class: 'needs-tide', minDepthM: 2 });
-            expect(cls(g, 407)).toMatchObject({ class: 'needs-tide', minDepthM: 0 });
-        }
-        expect(cls(g19, 2374)).toMatchObject({ class: 'clear', minDepthM: 5, review: [] });
-        expect(cls(g35, 2374)).toMatchObject({ class: 'needs-review', minDepthM: 5, review: ['survey-margin'] });
-        const counts = (g: LeadGraph) =>
-            forward(g).reduce<Record<string, number>>((m, e) => {
-                const k = `${e.kind}:${e.depth.class}`;
-                m[k] = (m[k] ?? 0) + 1;
-                return m;
-            }, {});
-        // 18 tracks: 16 clear (2374's C zone leaves it margin enough at
-        // 1.9 m, decision 3), 2 needs tide.
-        expect(counts(g19)).toMatchObject({
-            'recommended-track:clear': 16,
-            'recommended-track:needs-tide': 2,
         });
-        expect(counts(g19)['recommended-track:needs-review']).toBeUndefined();
-        // A leading-line remnant with no charted depth under part of it is unknown, never clear.
-        const unknown = forward(g19).filter((e) => e.depth.class === 'unknown');
-        expect(unknown.length).toBeGreaterThan(0);
-        for (const e of unknown) expect(e.depth.uncoveredM).toBeGreaterThan(1);
-        // Deeper keel, same spans: 5 m tracks are no longer clear at 4.8 m (needs 5.3 m).
-        const g48 = compileLeadGraph(newport, 4.8);
-        expect(cls(g48, 2374).class).toBe('needs-tide');
-        expect(cls(g48, 2380).class).toBe('clear');
-    });
 
-    it('compiles channel edges from the numbered lateral marks, two-way', () => {
-        const channels = g19.spans.filter((s) => s.kind === 'channel');
-        expect(channels.length).toBeGreaterThan(10);
-        for (const s of channels) {
-            expect(s.sourceIds[0]).toMatch(/^CHANNEL /);
-            expect(s.direction).toBe('both');
-        }
-    });
-
-    // Phase 1 review (medium): NAVLNE 2373 and 2920 are charted 5 m and read
-    // 'clear', but pass 36 m and 45 m from OBSTRN 145 and 2627, which carry no
-    // VALSOU (the depth over them is unknown) — inside the router's 60 m
-    // obstruction buffer, where the router flags caution. The overlay showed
-    // clear where the router shows red.
-    it.each([
-        [2373, 145, 36],
-        [2920, 2627, 45],
-    ])('NAVLNE %i passes OBSTRN %i (no VALSOU) at ~%i m: needs review, never clear', (rcid, obstrn, nearM) => {
-        const raw = newportRaw('OBSTRN').find((f) => f.properties?.rcid === obstrn)!;
-        // Independent: the obstruction really has no charted depth over it.
-        expect(raw.properties?.VALSOU).toBeUndefined();
-        const hit = forward(g19).filter(
-            (e) =>
-                e.rcids.includes(rcid) &&
-                distToLineM((raw.geometry as { coordinates: Position }).coordinates, e.coordinates) < 60,
-        );
-        expect(hit.length).toBeGreaterThan(0);
-        for (const e of hit) {
-            expect(e.depth.class, e.id).toBe('needs-review');
-            expect(e.depth.review).toContain('hazard');
-            const span = g19.spans.find((s) => s.id === e.spanId)!;
-            const h = span.review.hazards.find((x) => x.rcid === obstrn)!;
-            expect(h).toMatchObject({ layer: 'OBSTRN', valsouM: null });
-            expect(Math.abs(h.distanceM - nearM)).toBeLessThan(2);
-        }
-    });
-
-    it('no clear edge passes an unknown or too-shallow charted hazard within 60 m, or lies in a CATZOC D/U or ungraded zone', () => {
-        const hazards = ['OBSTRN', 'WRECKS', 'UWTROC'].flatMap((l) => newportRaw(l));
-        const points = hazards.flatMap((f) => {
-            const g = f.geometry;
-            const v = f.properties?.VALSOU;
-            const shallow = typeof v !== 'number' || v < 1.9 + 0.5;
-            if (!shallow) return [];
-            if (g.type === 'Point') return [g.coordinates];
-            if (g.type === 'Polygon') return g.coordinates.flat();
-            return [];
+        it('no compiled edge has any length over LNDARE', () => {
+            const land = areas(newportRaw('LNDARE'));
+            for (const s of g19.spans) expect(metresOver(s.coordinates, land), s.id).toBe(0);
+            expect(g19.clippedLandM).toBeGreaterThan(4_000);
         });
-        // The finest survey zone at a point (cell fineness from the merged
-        // ranks); 0 where no zone covers it (not graded).
-        const zones = (newport.M_QUAL?.features ?? []) as Feature[];
-        const catzocAt = (lon: number, lat: number): number => {
-            let bestRank = -Infinity;
-            let worst = 0;
-            for (const z of zones) {
-                const g = z.geometry as Polygon | MultiPolygon;
-                if (!pointInGeometry(lon, lat, g)) continue;
-                const rank = Number(z.properties?._scaleRank);
-                const c = Number(z.properties?.CATZOC);
-                if (rank > bestRank) {
-                    bestRank = rank;
-                    worst = c;
-                } else if (rank === bestRank) worst = Math.max(worst, c);
+
+        it('joins the recommended-track chain 2380~2382~2375~2378~2941~2918~2944 into one network', () => {
+            const chain = [2380, 2382, 2375, 2378, 2941, 2918, 2944];
+            const edgesOf = (rcid: number) =>
+                g19.edges.filter((e) => e.kind === 'recommended-track' && e.rcids.includes(rcid));
+            const nets = new Set(chain.flatMap((r) => edgesOf(r).map((e) => e.networkId)));
+            expect(nets.size).toBe(1);
+            // The joins the chart draws (S-57 shares these end points exactly):
+            // 2382—2380—2375—2378—2941—2918—2944.
+            const joins: [number, number][] = [
+                [2380, 2382],
+                [2375, 2380],
+                [2375, 2378],
+                [2378, 2941],
+                [2918, 2941],
+                [2918, 2944],
+            ];
+            for (const [x, y] of joins) {
+                const a = new Set(edgesOf(x).flatMap((e) => [e.from, e.to]));
+                expect(
+                    edgesOf(y)
+                        .flatMap((e) => [e.from, e.to])
+                        .some((n) => a.has(n)),
+                    `${x}~${y}`,
+                ).toBe(true);
             }
-            return worst;
-        };
-        const clear = forward(g19).filter((e) => e.depth.class === 'clear');
-        expect(clear.length).toBeGreaterThan(20);
-        let poorSurveyDemoted = 0;
-        let clearInC = 0;
-        for (const e of forward(g19)) {
-            const c = e.coordinates;
-            let poor = false;
-            let inC = false;
-            for (let i = 0; i < c.length - 1 && !poor; i++) {
-                const n = Math.max(1, Math.ceil(haversineM(c[i][1], c[i][0], c[i + 1][1], c[i + 1][0]) / 10));
-                // Interior samples only: an end point can sit on a zone edge.
-                for (let k = 1; k < n && !poor; k++) {
-                    const t = k / n;
-                    const z = catzocAt(c[i][0] + (c[i + 1][0] - c[i][0]) * t, c[i][1] + (c[i + 1][1] - c[i][1]) * t);
-                    if (z === 0 || z >= 5) poor = true;
-                    if (z === 4) inC = true;
+            // The leading-line remnants hang off the same nodes.
+            const net = g19.networks.find((n) => n.id === [...nets][0])!;
+            expect(net.spanIds.some((id) => id.startsWith('leading-line:NAVLNE OC-61-10ENB5 2379'))).toBe(true);
+        });
+
+        it('every two-way lead is two directed edges, each the reverse of the other', () => {
+            for (const s of g19.spans) expect(s.direction).toBe('both');
+            expect(g19.edges).toHaveLength(g19.spans.length * 2);
+            for (const e of forward(g19)) {
+                const r = g19.edges.find((x) => x.id === e.reverseId)!;
+                expect(r.reverseId).toBe(e.id);
+                expect(r.coordinates).toEqual([...e.coordinates].reverse());
+                expect([r.from, r.to]).toEqual([e.to, e.from]);
+                const turn = (((r.bearingDeg - e.bearingDeg) % 360) + 360) % 360;
+                expect(Math.abs(turn - 180)).toBeLessThan(0.5);
+                expect(e.oneWay).toBe(false);
+            }
+            // RECTRC 2380 is charted at 255.5°: one of its two edges runs that way.
+            const bearings = g19.edges.filter((e) => e.rcids.includes(2380)).map((e) => e.bearingDeg);
+            expect(bearings.some((b) => Math.abs(b - 255.5) < 1.5)).toBe(true);
+        });
+
+        it('classes charted depth against a 1.9 m and a 3.5 m draft (0.5 m under the keel)', () => {
+            const cls = (g: LeadGraph, rcid: number) =>
+                forward(g).filter((e) => e.kind === 'recommended-track' && e.rcids.includes(rcid))[0].depth;
+            // 9.1 m and 5 m tracks: deep enough for both keels. 2380 (CATZOC A1)
+            // is clear. 2374 lies in a CATZOC C (4) survey zone. Owner decision 3
+            // (2026-09-30) replaced the Phase 1 blanket "C is review": C's
+            // vertical error is 2 m + 5% of the depth, so 5 m charted is 2.75 m
+            // trusted — clear for a 1.9 m keel (needs 2.4 m), but not for 3.5 m
+            // (needs 4.0 m): 'survey-margin'.
+            for (const g of [g19, g35]) {
+                expect(cls(g, 2380)).toMatchObject({ class: 'clear', minDepthM: 9.1, uncoveredM: 0, review: [] });
+                expect(g.spans.find((s) => s.rcids.includes(2374))!.review.worstCatzoc).toBe(4);
+                // A 2 m track and the 0 m Newport canal exit: charted, but needs tide.
+                expect(cls(g, 2493)).toMatchObject({ class: 'needs-tide', minDepthM: 2 });
+                expect(cls(g, 407)).toMatchObject({ class: 'needs-tide', minDepthM: 0 });
+            }
+            expect(cls(g19, 2374)).toMatchObject({ class: 'clear', minDepthM: 5, review: [] });
+            expect(cls(g35, 2374)).toMatchObject({ class: 'needs-review', minDepthM: 5, review: ['survey-margin'] });
+            const counts = (g: LeadGraph) =>
+                forward(g).reduce<Record<string, number>>((m, e) => {
+                    const k = `${e.kind}:${e.depth.class}`;
+                    m[k] = (m[k] ?? 0) + 1;
+                    return m;
+                }, {});
+            // 18 tracks: 16 clear (2374's C zone leaves it margin enough at
+            // 1.9 m, decision 3), 2 needs tide.
+            expect(counts(g19)).toMatchObject({
+                'recommended-track:clear': 16,
+                'recommended-track:needs-tide': 2,
+            });
+            expect(counts(g19)['recommended-track:needs-review']).toBeUndefined();
+            // A leading-line remnant with no charted depth under part of it is unknown, never clear.
+            const unknown = forward(g19).filter((e) => e.depth.class === 'unknown');
+            expect(unknown.length).toBeGreaterThan(0);
+            for (const e of unknown) expect(e.depth.uncoveredM).toBeGreaterThan(1);
+            // Deeper keel, same spans: 5 m tracks are no longer clear at 4.8 m (needs 5.3 m).
+            const g48 = compileLeadGraph(newport, 4.8);
+            expect(cls(g48, 2374).class).toBe('needs-tide');
+            expect(cls(g48, 2380).class).toBe('clear');
+        });
+
+        it('compiles channel edges from the numbered lateral marks, two-way', () => {
+            const channels = g19.spans.filter((s) => s.kind === 'channel');
+            expect(channels.length).toBeGreaterThan(10);
+            for (const s of channels) {
+                expect(s.sourceIds[0]).toMatch(/^CHANNEL /);
+                expect(s.direction).toBe('both');
+            }
+        });
+
+        // Phase 1 review (medium): NAVLNE 2373 and 2920 are charted 5 m and read
+        // 'clear', but pass 36 m and 45 m from OBSTRN 145 and 2627, which carry no
+        // VALSOU (the depth over them is unknown) — inside the router's 60 m
+        // obstruction buffer, where the router flags caution. The overlay showed
+        // clear where the router shows red.
+        it.each([
+            [2373, 145, 36],
+            [2920, 2627, 45],
+        ])('NAVLNE %i passes OBSTRN %i (no VALSOU) at ~%i m: needs review, never clear', (rcid, obstrn, nearM) => {
+            const raw = newportRaw('OBSTRN').find((f) => f.properties?.rcid === obstrn)!;
+            // Independent: the obstruction really has no charted depth over it.
+            expect(raw.properties?.VALSOU).toBeUndefined();
+            const hit = forward(g19).filter(
+                (e) =>
+                    e.rcids.includes(rcid) &&
+                    distToLineM((raw.geometry as { coordinates: Position }).coordinates, e.coordinates) < 60,
+            );
+            expect(hit.length).toBeGreaterThan(0);
+            for (const e of hit) {
+                expect(e.depth.class, e.id).toBe('needs-review');
+                expect(e.depth.review).toContain('hazard');
+                const span = g19.spans.find((s) => s.id === e.spanId)!;
+                const h = span.review.hazards.find((x) => x.rcid === obstrn)!;
+                expect(h).toMatchObject({ layer: 'OBSTRN', valsouM: null });
+                expect(Math.abs(h.distanceM - nearM)).toBeLessThan(2);
+            }
+        });
+
+        it('no clear edge passes an unknown or too-shallow charted hazard within 60 m, or lies in a CATZOC D/U or ungraded zone', () => {
+            const hazards = ['OBSTRN', 'WRECKS', 'UWTROC'].flatMap((l) => newportRaw(l));
+            const points = hazards.flatMap((f) => {
+                const g = f.geometry;
+                const v = f.properties?.VALSOU;
+                const shallow = typeof v !== 'number' || v < 1.9 + 0.5;
+                if (!shallow) return [];
+                if (g.type === 'Point') return [g.coordinates];
+                if (g.type === 'Polygon') return g.coordinates.flat();
+                return [];
+            });
+            // The finest survey zone at a point (cell fineness from the merged
+            // ranks); 0 where no zone covers it (not graded).
+            const zones = (newport.M_QUAL?.features ?? []) as Feature[];
+            const catzocAt = (lon: number, lat: number): number => {
+                let bestRank = -Infinity;
+                let worst = 0;
+                for (const z of zones) {
+                    const g = z.geometry as Polygon | MultiPolygon;
+                    if (!pointInGeometry(lon, lat, g)) continue;
+                    const rank = Number(z.properties?._scaleRank);
+                    const c = Number(z.properties?.CATZOC);
+                    if (rank > bestRank) {
+                        bestRank = rank;
+                        worst = c;
+                    } else if (rank === bestRank) worst = Math.max(worst, c);
                 }
+                return worst;
+            };
+            const clear = forward(g19).filter((e) => e.depth.class === 'clear');
+            expect(clear.length).toBeGreaterThan(20);
+            let poorSurveyDemoted = 0;
+            let clearInC = 0;
+            for (const e of forward(g19)) {
+                const c = e.coordinates;
+                let poor = false;
+                let inC = false;
+                for (let i = 0; i < c.length - 1 && !poor; i++) {
+                    const n = Math.max(1, Math.ceil(haversineM(c[i][1], c[i][0], c[i + 1][1], c[i + 1][0]) / 10));
+                    // Interior samples only: an end point can sit on a zone edge.
+                    for (let k = 1; k < n && !poor; k++) {
+                        const t = k / n;
+                        const z = catzocAt(
+                            c[i][0] + (c[i + 1][0] - c[i][0]) * t,
+                            c[i][1] + (c[i + 1][1] - c[i][1]) * t,
+                        );
+                        if (z === 0 || z >= 5) poor = true;
+                        if (z === 4) inC = true;
+                    }
+                }
+                if (poor) {
+                    expect(e.depth.class, e.id).not.toBe('clear');
+                    if (e.depth.review.some((r) => r === 'survey' || r === 'survey-ungraded')) poorSurveyDemoted++;
+                }
+                if (e.depth.class !== 'clear') continue;
+                if (inC) clearInC++;
+                for (const p of points) expect(distToLineM(p, e.coordinates), e.id).toBeGreaterThanOrEqual(58);
             }
-            if (poor) {
-                expect(e.depth.class, e.id).not.toBe('clear');
-                if (e.depth.review.some((r) => r === 'survey' || r === 'survey-ungraded')) poorSurveyDemoted++;
-            }
-            if (e.depth.class !== 'clear') continue;
-            if (inC) clearInC++;
-            for (const p of points) expect(distToLineM(p, e.coordinates), e.id).toBeGreaterThanOrEqual(58);
-        }
-        // Spans the chart surveys at CATZOC D/U really are demoted on this
-        // fixture, and a C zone no longer demotes a lead with margin to spare.
-        expect(poorSurveyDemoted).toBeGreaterThan(0);
-        expect(clearInC).toBeGreaterThan(0);
-    });
-});
+            // Spans the chart surveys at CATZOC D/U really are demoted on this
+            // fixture, and a C zone no longer demotes a lead with margin to spare.
+            expect(poorSurveyDemoted).toBeGreaterThan(0);
+            expect(clearInC).toBeGreaterThan(0);
+        });
+    },
+);
 
 // ── Moreton ────────────────────────────────────────────────────────
 
-describe('lead compiler — Moreton Bay corridor (four overlapping cells, merged)', () => {
-    const g = compileLeadGraph(moreton, 1.9);
-    const cells = moretonFx.cells as unknown as Record<string, FeatureCollection>;
-
-    it('reads the fixture it is pinned to: 42 RECTRC, 38 NAVLNE', () => {
-        expect(cells.RECTRC.features).toHaveLength(42);
-        expect(cells.NAVLNE.features).toHaveLength(38);
-    });
-
-    it('no compiled edge has any length over hard land (LNDARE not charted as water)', () => {
-        const land = areas(cells.LNDARE.features);
-        const water = areas(
-            [...cells.DEPARE.features, ...(cells.DRGARE?.features ?? []), ...(cells.FAIRWY?.features ?? [])],
-            (f) => {
-                const p = f.properties ?? {};
-                return typeof p.acronym === 'string' && (p.acronym !== 'DEPARE' || Number(p.DRVAL1) > 0);
-            },
-        );
-        for (const s of g.spans) expect(metresOver(s.coordinates, land, water), s.id).toBe(0);
-        expect(g.clippedLandM).toBeGreaterThan(10_000);
-    });
-
-    it('a line charted in two overlapping cells is one span listing both records', () => {
-        const twin = g.spans.find((s) => s.kind === 'recommended-track' && s.rcids.includes(2386));
-        expect(twin?.rcids.sort()).toEqual([2386, 2784]);
-        expect(g.dropped.filter((d) => d.reason === 'duplicate').length).toBeGreaterThanOrEqual(3);
-        const keys = g.spans.map((s) => `${s.kind}|${JSON.stringify(s.coordinates)}`);
-        expect(new Set(keys).size).toBe(keys.length);
-    });
-
-    it('never compiles a clearing line or a transit', () => {
-        const nonLeads = cells.NAVLNE.features
-            .filter((f) => f.properties?.CATNAV !== 3)
-            .map((f) => f.properties?.rcid as number);
-        expect(nonLeads).toHaveLength(8);
-        for (const s of g.spans) for (const r of nonLeads) expect(s.rcids).not.toContain(r);
-    });
-
-    // Owner decision 1 (2026-09-30). RECTRC 2380 sits under the overview
-    // cell's LNDARE and over ENB5's 9.1 m DEPARE. Phase 1 kept it whole and
-    // could class it by depth alone; now a coarse chart's land paint over a
-    // FINER survey's never-drying band is shallow water, never clear — and
-    // only when the ranks show the band is finer.
-    it('a track a coarse overview paints as land but a finer chart charts as water: needs tide, never clear', () => {
-        const r = compileLeadGraph(moretonRanked, 1.9);
-        const s = spansOf(r, 2380);
-        expect(s).toHaveLength(1);
-        expect(s[0].sourceLandM).toBe(0);
-        expect(s[0].lengthM).toBeGreaterThan(1_500);
-        // All of it is over the overview's land paint.
-        expect(s[0].depth.landConflictM).toBeGreaterThan(1_500);
-        const e = forward(r).find((x) => x.spanId === s[0].id)!;
-        expect(e.depth).toMatchObject({ class: 'needs-tide', minDepthM: 9.1 });
-        expect(e.depth.review[0]).toBe('land-paint');
-        expect(
-            leadGraphOverlayGeoJSON(r).features.find((f) => f.properties.spanId === s[0].id)!.properties.label,
-        ).toMatch(/^Lead · needs tide · a coarser chart shows land/);
-    });
-
-    it('unranked (the capture as it is), the comparison cannot be made: the land paint stands', () => {
-        expect(spansOf(g, 2380)).toHaveLength(0);
-        expect(g.dropped).toContainEqual({ sourceId: 'RECTRC 2380', reason: 'on-land' });
-    });
-
-    it('the capture ranks as production ranks it (cells recovered from the capture order)', () => {
-        // The router's rank (cellFinenessRank), from each cell's REAL
-        // compilation scale read off the Pi's store (round 3, 2026-09-30;
-        // tests/helpers/corridorCellRanks CORRIDOR_CELL_SCALE). RE-PIN
-        // 1000 / 2000 / 4000 / 3000 → 1352 / 2382 / 5592 / 4505: the usage
-        // bands were inferred from the extents, and two were a band out —
-        // the Moreton cell is band 4 (1:90,000), the Brisbane harbour cell
-        // band 5 (1:12,000). The same order, so nothing here moves with it
-        // (round 2: 1000 / 2000 / 4000 / 3000; before that bbox ranks).
-        expect(moretonRanks.rank).toEqual({
-            'OC-61-051031': 1352, // the 30° × 30° overview, 1:3,000,000
-            'OC-61-051032': 2382, // 1:1,500,000
-            'OC-61-10ENB5': 5592, // the Brisbane harbour cell, 1:12,000
-            'OC-61-351824': 4505, // the 1° × 1° Moreton cell, 1:90,000
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'lead compiler — Moreton Bay corridor (four overlapping cells, merged) (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        let g: LeadGraph;
+        let cells: Record<string, FeatureCollection>;
+        beforeAll(() => {
+            readRealCells();
+            g = compileLeadGraph(moreton, 1.9);
+            cells = moretonFx.cells as unknown as Record<string, FeatureCollection>;
         });
-        // ENB5's LNDARE + DEPARE + DRGARE, matched whole: 65 + 552 + 43.
-        expect(moretonRanks.counts['OC-61-10ENB5']).toBe(660);
-        const total = ['LNDARE', 'DEPARE', 'DRGARE'].reduce((m, k) => m + (cells[k]?.features.length ?? 0), 0);
-        expect(Object.values(moretonRanks.counts).reduce((m, n) => m + n, 0)).toBe(total);
-    });
 
-    it('ranked: no compiled edge has any length over land paint that no finer never-drying band beats', () => {
-        const r = compileLeadGraph(moretonRanked, 1.9);
-        const ranked = moretonRanked as unknown as Record<string, FeatureCollection>;
-        const rankOf = (f: Feature) => Number(f.properties?._scaleRank);
-        // Independent, 5 m samples: land unless the finest band there is
-        // finer than every land claim and all its bands never dry.
-        const withArea = (fs: Feature[]) => fs.flatMap((f) => areas([f]).map((a) => ({ f, ...a })));
-        const land = withArea(ranked.LNDARE.features);
-        const bands = withArea(
-            [...ranked.DEPARE.features, ...(ranked.DRGARE?.features ?? [])].filter(
-                (f) => typeof f.properties?.acronym === 'string',
-            ),
-        );
-        const hardLandAt = (lon: number, lat: number): boolean => {
-            const inLand = land.filter(
-                ({ g: lg, b }) =>
-                    lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3] && pointInGeometry(lon, lat, lg),
+        it('reads the fixture it is pinned to: 42 RECTRC, 38 NAVLNE', () => {
+            expect(cells.RECTRC.features).toHaveLength(42);
+            expect(cells.NAVLNE.features).toHaveLength(38);
+        });
+
+        it('no compiled edge has any length over hard land (LNDARE not charted as water)', () => {
+            const land = areas(cells.LNDARE.features);
+            const water = areas(
+                [...cells.DEPARE.features, ...(cells.DRGARE?.features ?? []), ...(cells.FAIRWY?.features ?? [])],
+                (f) => {
+                    const p = f.properties ?? {};
+                    return typeof p.acronym === 'string' && (p.acronym !== 'DEPARE' || Number(p.DRVAL1) > 0);
+                },
             );
-            if (inLand.length === 0) return false;
-            const landRank = Math.max(...inLand.map((a) => rankOf(a.f)));
-            const here = bands.filter(
-                ({ g: bg, b }) =>
-                    lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3] && pointInGeometry(lon, lat, bg),
+            for (const s of g.spans) expect(metresOver(s.coordinates, land, water), s.id).toBe(0);
+            expect(g.clippedLandM).toBeGreaterThan(10_000);
+        });
+
+        it('a line charted in two overlapping cells is one span listing both records', () => {
+            const twin = g.spans.find((s) => s.kind === 'recommended-track' && s.rcids.includes(2386));
+            expect(twin?.rcids.sort()).toEqual([2386, 2784]);
+            expect(g.dropped.filter((d) => d.reason === 'duplicate').length).toBeGreaterThanOrEqual(3);
+            const keys = g.spans.map((s) => `${s.kind}|${JSON.stringify(s.coordinates)}`);
+            expect(new Set(keys).size).toBe(keys.length);
+        });
+
+        it('never compiles a clearing line or a transit', () => {
+            const nonLeads = cells.NAVLNE.features
+                .filter((f) => f.properties?.CATNAV !== 3)
+                .map((f) => f.properties?.rcid as number);
+            expect(nonLeads).toHaveLength(8);
+            for (const s of g.spans) for (const r of nonLeads) expect(s.rcids).not.toContain(r);
+        });
+
+        // Owner decision 1 (2026-09-30). RECTRC 2380 sits under the overview
+        // cell's LNDARE and over ENB5's 9.1 m DEPARE. Phase 1 kept it whole and
+        // could class it by depth alone; now a coarse chart's land paint over a
+        // FINER survey's never-drying band is shallow water, never clear — and
+        // only when the ranks show the band is finer.
+        it('a track a coarse overview paints as land but a finer chart charts as water: needs tide, never clear', () => {
+            const r = compileLeadGraph(moretonRanked, 1.9);
+            const s = spansOf(r, 2380);
+            expect(s).toHaveLength(1);
+            expect(s[0].sourceLandM).toBe(0);
+            expect(s[0].lengthM).toBeGreaterThan(1_500);
+            // All of it is over the overview's land paint.
+            expect(s[0].depth.landConflictM).toBeGreaterThan(1_500);
+            const e = forward(r).find((x) => x.spanId === s[0].id)!;
+            expect(e.depth).toMatchObject({ class: 'needs-tide', minDepthM: 9.1 });
+            expect(e.depth.review[0]).toBe('land-paint');
+            expect(
+                leadGraphOverlayGeoJSON(r).features.find((f) => f.properties.spanId === s[0].id)!.properties.label,
+            ).toMatch(/^Lead · needs tide · a coarser chart shows land/);
+        });
+
+        it('unranked (the capture as it is), the comparison cannot be made: the land paint stands', () => {
+            expect(spansOf(g, 2380)).toHaveLength(0);
+            expect(g.dropped).toContainEqual({ sourceId: 'RECTRC 2380', reason: 'on-land' });
+        });
+
+        it('the capture ranks as production ranks it (cells recovered from the capture order)', () => {
+            // The router's rank (cellFinenessRank), from each cell's REAL
+            // compilation scale read off the Pi's store (round 3, 2026-09-30;
+            // tests/helpers/corridorCellRanks CORRIDOR_CELL_SCALE). RE-PIN
+            // 1000 / 2000 / 4000 / 3000 → 1352 / 2382 / 5592 / 4505: the usage
+            // bands were inferred from the extents, and two were a band out —
+            // the Moreton cell is band 4 (1:90,000), the Brisbane harbour cell
+            // band 5 (1:12,000). The same order, so nothing here moves with it
+            // (round 2: 1000 / 2000 / 4000 / 3000; before that bbox ranks).
+            expect(moretonRanks.rank).toEqual({
+                'OC-61-051031': 1352, // the 30° × 30° overview, 1:3,000,000
+                'OC-61-051032': 2382, // 1:1,500,000
+                'OC-61-10ENB5': 5592, // the Brisbane harbour cell, 1:12,000
+                'OC-61-351824': 4505, // the 1° × 1° Moreton cell, 1:90,000
+            });
+            // ENB5's LNDARE + DEPARE + DRGARE, matched whole: 65 + 552 + 43.
+            expect(moretonRanks.counts['OC-61-10ENB5']).toBe(660);
+            const total = ['LNDARE', 'DEPARE', 'DRGARE'].reduce((m, k) => m + (cells[k]?.features.length ?? 0), 0);
+            expect(Object.values(moretonRanks.counts).reduce((m, n) => m + n, 0)).toBe(total);
+        });
+
+        it('ranked: no compiled edge has any length over land paint that no finer never-drying band beats', () => {
+            const r = compileLeadGraph(moretonRanked, 1.9);
+            const ranked = moretonRanked as unknown as Record<string, FeatureCollection>;
+            const rankOf = (f: Feature) => Number(f.properties?._scaleRank);
+            // Independent, 5 m samples: land unless the finest band there is
+            // finer than every land claim and all its bands never dry.
+            const withArea = (fs: Feature[]) => fs.flatMap((f) => areas([f]).map((a) => ({ f, ...a })));
+            const land = withArea(ranked.LNDARE.features);
+            const bands = withArea(
+                [...ranked.DEPARE.features, ...(ranked.DRGARE?.features ?? [])].filter(
+                    (f) => typeof f.properties?.acronym === 'string',
+                ),
             );
-            if (here.length === 0) return true;
-            const top = Math.max(...here.map((a) => rankOf(a.f)));
-            const owners = here.filter((a) => rankOf(a.f) === top);
-            const neverDries = owners.every(
-                (a) => typeof a.f.properties?.DRVAL1 === 'number' && a.f.properties.DRVAL1 >= 0,
-            );
-            return !(neverDries && top > landRank);
-        };
-        let conflictSpans = 0;
-        for (const sp of r.spans) {
-            const c = sp.coordinates;
-            let m = 0;
-            for (let i = 0; i < c.length - 1; i++) {
-                const segM = haversineM(c[i][1], c[i][0], c[i + 1][1], c[i + 1][0]);
-                const n = Math.max(1, Math.ceil(segM / 5));
-                for (let k = 0; k < n; k++) {
-                    const t = (k + 0.5) / n;
-                    if (hardLandAt(c[i][0] + (c[i + 1][0] - c[i][0]) * t, c[i][1] + (c[i + 1][1] - c[i][1]) * t))
-                        m += segM / n;
+            const hardLandAt = (lon: number, lat: number): boolean => {
+                const inLand = land.filter(
+                    ({ g: lg, b }) =>
+                        lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3] && pointInGeometry(lon, lat, lg),
+                );
+                if (inLand.length === 0) return false;
+                const landRank = Math.max(...inLand.map((a) => rankOf(a.f)));
+                const here = bands.filter(
+                    ({ g: bg, b }) =>
+                        lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3] && pointInGeometry(lon, lat, bg),
+                );
+                if (here.length === 0) return true;
+                const top = Math.max(...here.map((a) => rankOf(a.f)));
+                const owners = here.filter((a) => rankOf(a.f) === top);
+                const neverDries = owners.every(
+                    (a) => typeof a.f.properties?.DRVAL1 === 'number' && a.f.properties.DRVAL1 >= 0,
+                );
+                return !(neverDries && top > landRank);
+            };
+            let conflictSpans = 0;
+            for (const sp of r.spans) {
+                const c = sp.coordinates;
+                let m = 0;
+                for (let i = 0; i < c.length - 1; i++) {
+                    const segM = haversineM(c[i][1], c[i][0], c[i + 1][1], c[i + 1][0]);
+                    const n = Math.max(1, Math.ceil(segM / 5));
+                    for (let k = 0; k < n; k++) {
+                        const t = (k + 0.5) / n;
+                        if (hardLandAt(c[i][0] + (c[i + 1][0] - c[i][0]) * t, c[i][1] + (c[i + 1][1] - c[i][1]) * t))
+                            m += segM / n;
+                    }
                 }
+                // A 5 m sample can straddle a polygon edge the exact cut honours.
+                expect(m, sp.id).toBeLessThan(10);
+                if ((sp.depth.landConflictM ?? 0) > 1) conflictSpans++;
             }
-            // A 5 m sample can straddle a polygon edge the exact cut honours.
-            expect(m, sp.id).toBeLessThan(10);
-            if ((sp.depth.landConflictM ?? 0) > 1) conflictSpans++;
-        }
-        expect(conflictSpans).toBeGreaterThan(10);
-    });
+            expect(conflictSpans).toBeGreaterThan(10);
+        });
 
-    // RE-PIN (D12 fix-up, 2026-10-03; owner decision 12, Shane: "Trust the
-    // detailed chart"): ranked, the land paint over RECTRC 2655 is the
-    // overview cells' only, over a detailed chart's never-drying 0 m band, so
-    // it is no dispute any more (landConflictM 421 → 0, no 'land-paint'
-    // review). It is still 'needs tide' — by its own charted 0 m.
-    it("RECTRC 2655 lies wholly on the overview's land paint: dropped unranked; ranked, the detailed chart's own 0 m — needs tide, no dispute", () => {
-        expect(spansOf(g, 2655)).toHaveLength(0);
-        const r = compileLeadGraph(moretonRanked, 1.9);
-        const s = spansOf(r, 2655);
-        expect(s).toHaveLength(1);
-        expect(s[0].depth.landConflictM ?? 0).toBe(0);
-        expect(s[0].depth.minDepthM).toBe(0);
-        const e = forward(r).find((x) => x.spanId === s[0].id)!;
-        expect(e.depth.class).toBe('needs-tide');
-        expect(e.depth.review).not.toContain('land-paint');
-    });
-});
+        // RE-PIN (D12 fix-up, 2026-10-03; owner decision 12, Shane: "Trust the
+        // detailed chart"): ranked, the land paint over RECTRC 2655 is the
+        // overview cells' only, over a detailed chart's never-drying 0 m band, so
+        // it is no dispute any more (landConflictM 421 → 0, no 'land-paint'
+        // review). It is still 'needs tide' — by its own charted 0 m.
+        it("RECTRC 2655 lies wholly on the overview's land paint: dropped unranked; ranked, the detailed chart's own 0 m — needs tide, no dispute", () => {
+            expect(spansOf(g, 2655)).toHaveLength(0);
+            const r = compileLeadGraph(moretonRanked, 1.9);
+            const s = spansOf(r, 2655);
+            expect(s).toHaveLength(1);
+            expect(s[0].depth.landConflictM ?? 0).toBe(0);
+            expect(s[0].depth.minDepthM).toBe(0);
+            const e = forward(r).find((x) => x.spanId === s[0].id)!;
+            expect(e.depth.class).toBe('needs-tide');
+            expect(e.depth.review).not.toContain('land-paint');
+        });
+    },
+);
 
 // ── Synthetic rules ────────────────────────────────────────────────
 
@@ -1428,167 +1472,179 @@ describe('lead compiler — rules on synthetic charts', () => {
 
 // ── Totals (Phase 1 review: the reported fixture numbers were never locked) ──
 
-describe('lead compiler — fixture totals, pinned', () => {
-    const summary = (g: LeadGraph) => {
-        const tally = (keys: string[]) =>
-            keys.reduce<Record<string, number>>((m, k) => ({ ...m, [k]: (m[k] ?? 0) + 1 }), {});
-        return {
-            spans: g.spans.length,
-            edges: g.edges.length,
-            nodes: g.nodes.length,
-            networks: g.networks.length,
-            dropped: tally(g.dropped.map((d) => d.reason)),
-            kinds: tally(g.spans.map((s) => s.kind)),
-            classes: tally(forward(g).map((e) => `${e.kind}:${e.depth.class}`)),
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'lead compiler — fixture totals, pinned (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        beforeAll(() => readRealCells());
+        const summary = (g: LeadGraph) => {
+            const tally = (keys: string[]) =>
+                keys.reduce<Record<string, number>>((m, k) => ({ ...m, [k]: (m[k] ?? 0) + 1 }), {});
+            return {
+                spans: g.spans.length,
+                edges: g.edges.length,
+                nodes: g.nodes.length,
+                networks: g.networks.length,
+                dropped: tally(g.dropped.map((d) => d.reason)),
+                kinds: tally(g.spans.map((s) => s.kind)),
+                classes: tally(forward(g).map((e) => `${e.kind}:${e.depth.class}`)),
+            };
         };
-    };
 
-    // A change here is a behaviour change: re-pin it deliberately, with the
-    // reason, never to make a run go green.
-    //
-    // Re-pinned 2026-09-30 (owner decisions 3 and 4): CATZOC C is read against
-    // its error bound instead of blanket review, so RECTRC 2374 (5 m, C) and
-    // NAVLNE 2387:0 (10 m, C and A1) are clear at 1.9 m; NAVLNE 2373 keeps
-    // 'hazard'. clippedLandM is unchanged: on these two cells no lead runs
-    // over land paint that a finer band beats (decision 1).
-    it('Newport (ENB5 + RCS5, merged) at a 1.9 m draft', () => {
-        const g = compileLeadGraph(newport, 1.9);
-        expect(summary(g)).toEqual({
-            spans: 65,
-            edges: 130,
-            nodes: 84,
-            networks: 19,
-            dropped: { 'coincides-with-recommended-track': 1, duplicate: 6 },
-            kinds: { 'recommended-track': 18, 'leading-line': 21, channel: 26 },
-            classes: {
-                'recommended-track:clear': 16,
-                'recommended-track:needs-tide': 2,
-                'leading-line:clear': 1,
-                'leading-line:needs-review': 2,
-                'leading-line:needs-tide': 16,
-                'leading-line:unknown': 2,
-                'channel:clear': 10,
-                'channel:needs-tide': 16,
-            },
+        // A change here is a behaviour change: re-pin it deliberately, with the
+        // reason, never to make a run go green.
+        //
+        // Re-pinned 2026-09-30 (owner decisions 3 and 4): CATZOC C is read against
+        // its error bound instead of blanket review, so RECTRC 2374 (5 m, C) and
+        // NAVLNE 2387:0 (10 m, C and A1) are clear at 1.9 m; NAVLNE 2373 keeps
+        // 'hazard'. clippedLandM is unchanged: on these two cells no lead runs
+        // over land paint that a finer band beats (decision 1).
+        it('Newport (ENB5 + RCS5, merged) at a 1.9 m draft', () => {
+            const g = compileLeadGraph(newport, 1.9);
+            expect(summary(g)).toEqual({
+                spans: 65,
+                edges: 130,
+                nodes: 84,
+                networks: 19,
+                dropped: { 'coincides-with-recommended-track': 1, duplicate: 6 },
+                kinds: { 'recommended-track': 18, 'leading-line': 21, channel: 26 },
+                classes: {
+                    'recommended-track:clear': 16,
+                    'recommended-track:needs-tide': 2,
+                    'leading-line:clear': 1,
+                    'leading-line:needs-review': 2,
+                    'leading-line:needs-tide': 16,
+                    'leading-line:unknown': 2,
+                    'channel:clear': 10,
+                    'channel:needs-tide': 16,
+                },
+            });
+            expect(Math.round(g.clippedLandM)).toBe(4_745);
         });
-        expect(Math.round(g.clippedLandM)).toBe(4_745);
-    });
 
-    // Re-pinned 2026-09-30 (owner decision 1). The capture carries no ranks,
-    // so no band under land paint can be shown finer: all of it is land
-    // (fail safe). Phase 1 let any charted water beat unranked land, so 47
-    // spans that lay over the overview cell's land paint are gone (dropped
-    // on-land 15 → 51, clipped 28,324 → 66,901 m), and the corridor is pinned
-    // RANKED below — the shape production merges. Decision 4: no M_QUAL in
-    // the capture, so nothing is graded; every deep lead left would be
-    // needs-review, and none is (the unranked bands' shallowest-wins depth).
-    it('Moreton corridor (four cells, as the fixture merged them: unranked) at a 1.9 m draft', () => {
-        const g = compileLeadGraph(moreton, 1.9);
-        expect(summary(g)).toEqual({
-            spans: 53,
-            edges: 106,
-            nodes: 78,
-            networks: 25,
-            dropped: { 'on-land': 51, duplicate: 16, 'coincides-with-recommended-track': 1 },
-            kinds: { 'recommended-track': 27, 'leading-line': 5, channel: 21 },
-            classes: {
-                'recommended-track:needs-tide': 27,
-                'leading-line:needs-tide': 5,
-                'channel:needs-tide': 21,
-            },
+        // Re-pinned 2026-09-30 (owner decision 1). The capture carries no ranks,
+        // so no band under land paint can be shown finer: all of it is land
+        // (fail safe). Phase 1 let any charted water beat unranked land, so 47
+        // spans that lay over the overview cell's land paint are gone (dropped
+        // on-land 15 → 51, clipped 28,324 → 66,901 m), and the corridor is pinned
+        // RANKED below — the shape production merges. Decision 4: no M_QUAL in
+        // the capture, so nothing is graded; every deep lead left would be
+        // needs-review, and none is (the unranked bands' shallowest-wins depth).
+        it('Moreton corridor (four cells, as the fixture merged them: unranked) at a 1.9 m draft', () => {
+            const g = compileLeadGraph(moreton, 1.9);
+            expect(summary(g)).toEqual({
+                spans: 53,
+                edges: 106,
+                nodes: 78,
+                networks: 25,
+                dropped: { 'on-land': 51, duplicate: 16, 'coincides-with-recommended-track': 1 },
+                kinds: { 'recommended-track': 27, 'leading-line': 5, channel: 21 },
+                classes: {
+                    'recommended-track:needs-tide': 27,
+                    'leading-line:needs-tide': 5,
+                    'channel:needs-tide': 21,
+                },
+            });
+            expect(Math.round(g.clippedLandM)).toBe(66_901);
         });
-        expect(Math.round(g.clippedLandM)).toBe(66_901);
-    });
 
-    // New 2026-09-30: the same corridor ranked as the router's merge ranks it
-    // (tests/helpers/corridorCellRanks). The finer ENB5 / detail-cell bands
-    // beat the overviews' land paint wherever they never dry, so fewer leads
-    // are cut than in Phase 1's unranked pin (on-land 15 → 5, clipped
-    // 28,324 → 18,210 m) — but every span that runs over such paint is
-    // 'needs tide' ('land-paint'), never clear. The capture has no M_QUAL:
-    // nothing is graded (decision 4), so no span is clear either way.
-    //
-    // RE-PIN (D12 fix-up, 2026-10-03; owner decision 12, Shane: "Trust the
-    // detailed chart"; measured in its own process): the same 110 spans and
-    // 18,210 m clipped (the first D12 build, which let drying detailed bands
-    // count, had 115 spans and 8,121 m of leads over drying ground under the
-    // overview's land — reverted). Where only the overview cells' land paint
-    // lies over a detailed chart's never-drying band, a span is no longer in
-    // dispute: 'land-paint' 71 → 18 edges. Ten deep spans that were 'needs
-    // tide' only for that paint (least 5–14 m: RECTRC 2386, 2658, 2659,
-    // 2921, 2946 and five buoyed-channel spans) are 'needs review' — survey
-    // ungraded (decision 4), never clear; the rest stay 'needs tide' by their
-    // own charted depth. The 18 left in dispute are a detailed chart's land
-    // over a finer band (decision 1), all still 'needs tide'.
-    it('Moreton corridor, ranked as production merges it, at a 1.9 m draft', () => {
-        const g = compileLeadGraph(moretonRanked, 1.9);
-        expect(summary(g)).toEqual({
-            spans: 110,
-            edges: 220,
-            nodes: 146,
-            networks: 36,
-            dropped: { duplicate: 16, 'coincides-with-recommended-track': 1, 'on-land': 5 },
-            kinds: { 'recommended-track': 39, 'leading-line': 34, channel: 37 },
-            classes: {
-                'recommended-track:needs-review': 20,
-                'recommended-track:needs-tide': 19,
-                'leading-line:needs-review': 2,
-                'leading-line:needs-tide': 32,
-                'channel:needs-review': 10,
-                'channel:needs-tide': 27,
-            },
+        // New 2026-09-30: the same corridor ranked as the router's merge ranks it
+        // (tests/helpers/corridorCellRanks). The finer ENB5 / detail-cell bands
+        // beat the overviews' land paint wherever they never dry, so fewer leads
+        // are cut than in Phase 1's unranked pin (on-land 15 → 5, clipped
+        // 28,324 → 18,210 m) — but every span that runs over such paint is
+        // 'needs tide' ('land-paint'), never clear. The capture has no M_QUAL:
+        // nothing is graded (decision 4), so no span is clear either way.
+        //
+        // RE-PIN (D12 fix-up, 2026-10-03; owner decision 12, Shane: "Trust the
+        // detailed chart"; measured in its own process): the same 110 spans and
+        // 18,210 m clipped (the first D12 build, which let drying detailed bands
+        // count, had 115 spans and 8,121 m of leads over drying ground under the
+        // overview's land — reverted). Where only the overview cells' land paint
+        // lies over a detailed chart's never-drying band, a span is no longer in
+        // dispute: 'land-paint' 71 → 18 edges. Ten deep spans that were 'needs
+        // tide' only for that paint (least 5–14 m: RECTRC 2386, 2658, 2659,
+        // 2921, 2946 and five buoyed-channel spans) are 'needs review' — survey
+        // ungraded (decision 4), never clear; the rest stay 'needs tide' by their
+        // own charted depth. The 18 left in dispute are a detailed chart's land
+        // over a finer band (decision 1), all still 'needs tide'.
+        it('Moreton corridor, ranked as production merges it, at a 1.9 m draft', () => {
+            const g = compileLeadGraph(moretonRanked, 1.9);
+            expect(summary(g)).toEqual({
+                spans: 110,
+                edges: 220,
+                nodes: 146,
+                networks: 36,
+                dropped: { duplicate: 16, 'coincides-with-recommended-track': 1, 'on-land': 5 },
+                kinds: { 'recommended-track': 39, 'leading-line': 34, channel: 37 },
+                classes: {
+                    'recommended-track:needs-review': 20,
+                    'recommended-track:needs-tide': 19,
+                    'leading-line:needs-review': 2,
+                    'leading-line:needs-tide': 32,
+                    'channel:needs-review': 10,
+                    'channel:needs-tide': 27,
+                },
+            });
+            expect(Math.round(g.clippedLandM)).toBe(18_210);
+            const landPaint = forward(g).filter((e) => e.depth.review.includes('land-paint'));
+            expect(landPaint.length).toBe(18);
+            for (const e of landPaint) expect(e.depth.class).toBe('needs-tide');
         });
-        expect(Math.round(g.clippedLandM)).toBe(18_210);
-        const landPaint = forward(g).filter((e) => e.depth.review.includes('land-paint'));
-        expect(landPaint.length).toBe(18);
-        for (const e of landPaint) expect(e.depth.class).toBe('needs-tide');
-    });
-});
+    },
+);
 
 // ── Cache + performance + overlay ──────────────────────────────────
 
-describe('lead compiler — one compile per cell set, measured', () => {
-    beforeEach(() => clearLeadGraphCache());
+describe.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+    'lead compiler — one compile per cell set, measured (real AU chart fixture retired; port: 127-C-a)',
+    () => {
+        beforeAll(() => readRealCells());
+        beforeEach(() => clearLeadGraphCache());
 
-    it('compiles a cell set once and re-classifies per draft without recompiling', () => {
-        let loads = 0;
-        const layers = () => {
-            loads++;
-            return newport;
-        };
-        const a = cachedLeadGraph(NEWPORT_IDS, 1.9, layers);
-        const b = cachedLeadGraph([...NEWPORT_IDS].reverse(), 1.9, layers);
-        expect(b).toBe(a);
-        const c = cachedLeadGraph(NEWPORT_IDS, 3.5, layers);
-        expect(c).not.toBe(a);
-        expect(c.spans).toBe(a.spans);
-        expect(loads).toBe(1);
-    });
+        it('compiles a cell set once and re-classifies per draft without recompiling', () => {
+            let loads = 0;
+            const layers = () => {
+                loads++;
+                return newport;
+            };
+            const a = cachedLeadGraph(NEWPORT_IDS, 1.9, layers);
+            const b = cachedLeadGraph([...NEWPORT_IDS].reverse(), 1.9, layers);
+            expect(b).toBe(a);
+            const c = cachedLeadGraph(NEWPORT_IDS, 3.5, layers);
+            expect(c).not.toBe(a);
+            expect(c.spans).toBe(a.spans);
+            expect(loads).toBe(1);
+        });
 
-    it('compiles the fixtures quickly (measured)', () => {
-        const n = compileLeadSpans(newport);
-        const m = compileLeadSpans(moreton);
-        // Reported, not tuned: generous bounds so a slow CI box does not flake.
-        console.info(
-            `[leadCompiler] newport: ${n.spans.length} spans in ${n.compileMs} ms; moreton: ${m.spans.length} spans in ${m.compileMs} ms`,
-        );
-        expect(n.compileMs).toBeLessThan(5_000);
-        expect(m.compileMs).toBeLessThan(10_000);
-    });
+        it('compiles the fixtures quickly (measured)', () => {
+            const n = compileLeadSpans(newport);
+            const m = compileLeadSpans(moreton);
+            // Reported, not tuned: generous bounds so a slow CI box does not flake.
+            console.info(
+                `[leadCompiler] newport: ${n.spans.length} spans in ${n.compileMs} ms; moreton: ${m.spans.length} spans in ${m.compileMs} ms`,
+            );
+            expect(n.compileMs).toBeLessThan(5_000);
+            expect(m.compileMs).toBeLessThan(10_000);
+        });
 
-    it('draws one overlay line per span with its ink, depth class and label', () => {
-        const g = compileLeadGraph(newport, 1.9);
-        const fcOut = leadGraphOverlayGeoJSON(g);
-        expect(fcOut.features).toHaveLength(g.spans.length);
-        const byId = new Map(fcOut.features.map((f) => [f.properties.spanId, f.properties]));
-        const t2380 = g.spans.find((s) => s.rcids.includes(2380))!;
-        expect(byId.get(t2380.id)).toMatchObject({ ink: 'lead', depthClass: 'clear', label: 'Lead' });
-        const t407 = g.spans.find((s) => s.rcids.includes(407))!;
-        expect(byId.get(t407.id)).toMatchObject({ ink: 'lead', depthClass: 'needs-tide', label: 'Lead · needs tide' });
-        expect(fcOut.features.some((f) => f.properties.ink === 'channel')).toBe(true);
-        expect(leadGraphOverlayGeoJSON(null).features).toEqual([]);
-    });
-});
+        it('draws one overlay line per span with its ink, depth class and label', () => {
+            const g = compileLeadGraph(newport, 1.9);
+            const fcOut = leadGraphOverlayGeoJSON(g);
+            expect(fcOut.features).toHaveLength(g.spans.length);
+            const byId = new Map(fcOut.features.map((f) => [f.properties.spanId, f.properties]));
+            const t2380 = g.spans.find((s) => s.rcids.includes(2380))!;
+            expect(byId.get(t2380.id)).toMatchObject({ ink: 'lead', depthClass: 'clear', label: 'Lead' });
+            const t407 = g.spans.find((s) => s.rcids.includes(407))!;
+            expect(byId.get(t407.id)).toMatchObject({
+                ink: 'lead',
+                depthClass: 'needs-tide',
+                label: 'Lead · needs tide',
+            });
+            expect(fcOut.features.some((f) => f.properties.ink === 'channel')).toBe(true);
+            expect(leadGraphOverlayGeoJSON(null).features).toEqual([]);
+        });
+    },
+);
 
 // ── Structures the chart data cannot show ─────────────────────────
 //
@@ -1605,30 +1661,45 @@ describe('lead compiler — one compile per cell set, measured', () => {
 describe('structures the chart data cannot show: never clear', () => {
     const STRUCTURE_KEYS = ['BRIDGE', 'PONTON', 'CBLOHD', 'PIPOHD', 'CONVYR'] as const;
 
-    it('the real Newport blobs carry none of the structure layers (fixture pin)', () => {
-        for (const id of NEWPORT_IDS) {
-            for (const k of STRUCTURE_KEYS) expect(encCell(id).layers[k], `${id} ${k}`).toBeUndefined();
-        }
-    });
+    it.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+        'the real Newport blobs carry none of the structure layers (fixture pin) (real AU chart fixture retired; port: 127-C-a)',
+        () => {
+            for (const id of NEWPORT_IDS) {
+                for (const k of STRUCTURE_KEYS) expect(encCell(id).layers[k], `${id} ${k}`).toBeUndefined();
+            }
+        },
+    );
 
-    it('on the real blobs nothing is clear, and every lead says why', () => {
-        const g = compileLeadGraph(mergeLeadCells(newportCells), 1.9);
-        expect(g.edges.length).toBeGreaterThan(20);
-        expect(g.edges.some((e) => e.depth.class === 'clear')).toBe(false);
-        for (const e of g.edges) expect(e.depth.review, e.id).toContain('structures-unknown');
-        // RECTRC 2380 — 9.1 m, nothing charted near it — is the one that would be clear.
-        const t2380 = forward(g).find((e) => e.kind === 'recommended-track' && e.rcids.includes(2380))!;
-        expect(t2380.depth).toMatchObject({ class: 'needs-review', minDepthM: 9.1, review: ['structures-unknown'] });
-        const label = leadGraphOverlayGeoJSON(g).features.find((f) => f.properties.spanId === t2380.spanId)!.properties
-            .label;
-        expect(label).toBe('Lead · bridges not in chart data');
-    });
+    it.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+        'on the real blobs nothing is clear, and every lead says why (real AU chart fixture retired; port: 127-C-a)',
+        () => {
+            readRealCells();
+            const g = compileLeadGraph(mergeLeadCells(newportCells), 1.9);
+            expect(g.edges.length).toBeGreaterThan(20);
+            expect(g.edges.some((e) => e.depth.class === 'clear')).toBe(false);
+            for (const e of g.edges) expect(e.depth.review, e.id).toContain('structures-unknown');
+            // RECTRC 2380 — 9.1 m, nothing charted near it — is the one that would be clear.
+            const t2380 = forward(g).find((e) => e.kind === 'recommended-track' && e.rcids.includes(2380))!;
+            expect(t2380.depth).toMatchObject({
+                class: 'needs-review',
+                minDepthM: 9.1,
+                review: ['structures-unknown'],
+            });
+            const label = leadGraphOverlayGeoJSON(g).features.find((f) => f.properties.spanId === t2380.spanId)!
+                .properties.label;
+            expect(label).toBe('Lead · bridges not in chart data');
+        },
+    );
 
-    it('the same cells re-extracted with the layers (empty: none charted) can be clear', () => {
-        const g = compileLeadGraph(mergeLeadCells(newportExtracted), 1.9);
-        const t2380 = forward(g).find((e) => e.kind === 'recommended-track' && e.rcids.includes(2380))!;
-        expect(t2380.depth).toMatchObject({ class: 'clear', review: [] });
-    });
+    it.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+        'the same cells re-extracted with the layers (empty: none charted) can be clear (real AU chart fixture retired; port: 127-C-a)',
+        () => {
+            readRealCells();
+            const g = compileLeadGraph(mergeLeadCells(newportExtracted), 1.9);
+            const t2380 = forward(g).find((e) => e.kind === 'recommended-track' && e.rcids.includes(2380))!;
+            expect(t2380.depth).toMatchObject({ class: 'clear', review: [] });
+        },
+    );
 
     it('one cell without them leaves every lead over its extent unreviewed', () => {
         const extracted = Object.fromEntries(STRUCTURE_KEYS.map((k) => [k, { features: [] }]));
@@ -1889,48 +1960,52 @@ describe('bridges and overhead lines against the air draft', () => {
         expect(short.edges[0].depth.review).toEqual(['bridge']);
     });
 
-    it('on the real Newport cells re-extracted WITH a low bridge across RECTRC 2380, that lead says bridge clearance', () => {
-        // The real blobs carry no structure layers (pinned above: every lead is
-        // 'structures-unknown'). Re-extracted, they carry the layers; here one
-        // of them also charts a 16 m bridge straight across RECTRC 2380.
-        // Half-way along the compiled span, well clear of the network nodes
-        // at its ends (where 2382 and the leading lines 2379 / 2381 join).
-        const before = forward(compileLeadGraph(newport, 1.9, {}, LEAD_UKC_M, { airDraftM: AIR })).find(
-            (x) => x.kind === 'recommended-track' && x.rcids.includes(2380),
-        )!;
-        const [a, b] = [before.coordinates[0], before.coordinates[before.coordinates.length - 1]];
-        const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-        const bridge: Feature = {
-            type: 'Feature',
-            properties: { acronym: 'BRIDGE', rcid: 99001, VERCLR: 16, OBJNAM: 'Synthetic Bridge' },
-            geometry: {
-                type: 'LineString',
-                coordinates: [
-                    [mid[0] - 0.0002, mid[1] - 0.0002],
-                    [mid[0] + 0.0002, mid[1] + 0.0002],
-                ],
-            },
-        };
-        const cells = newportExtracted.map((c, i) =>
-            i === 0 ? { ...c, layers: { ...c.layers, BRIDGE: { features: [bridge] } } } : c,
-        );
-        const g = compileLeadGraph(mergeLeadCells(cells), 1.9, {}, LEAD_UKC_M, { airDraftM: AIR });
-        const e = forward(g).find((x) => x.kind === 'recommended-track' && x.rcids.includes(2380))!;
-        expect(e.depth).toMatchObject({
-            class: 'blocked',
-            minDepthM: 9.1,
-            review: ['bridge-clearance'],
-            blockedBy: [{ layer: 'BRIDGE', name: 'Synthetic Bridge', clearanceM: 16, block: 'too-low' }],
-        });
-        // Nothing else in the view gained a clearance reason from it.
-        expect(
-            forward(g)
-                .filter((x) => x.depth.review.includes('bridge-clearance'))
-                .map((x) => x.spanId),
-        ).toEqual([e.spanId]);
-        // With a mast that clears it, the same lead is amber 'bridge on the line'.
-        const tall = compileLeadGraph(mergeLeadCells(cells), 1.9, {}, LEAD_UKC_M, { airDraftM: 12 });
-        const e2 = forward(tall).find((x) => x.spanId === e.spanId)!;
-        expect(e2.depth).toMatchObject({ class: 'needs-review', review: ['bridge'] });
-    });
+    it.skipIf(REAL_AU_CHART_FIXTURES_RETIRED)(
+        'on the real Newport cells re-extracted WITH a low bridge across RECTRC 2380, that lead says bridge clearance (real AU chart fixture retired; port: 127-C-a)',
+        () => {
+            readRealCells();
+            // The real blobs carry no structure layers (pinned above: every lead is
+            // 'structures-unknown'). Re-extracted, they carry the layers; here one
+            // of them also charts a 16 m bridge straight across RECTRC 2380.
+            // Half-way along the compiled span, well clear of the network nodes
+            // at its ends (where 2382 and the leading lines 2379 / 2381 join).
+            const before = forward(compileLeadGraph(newport, 1.9, {}, LEAD_UKC_M, { airDraftM: AIR })).find(
+                (x) => x.kind === 'recommended-track' && x.rcids.includes(2380),
+            )!;
+            const [a, b] = [before.coordinates[0], before.coordinates[before.coordinates.length - 1]];
+            const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+            const bridge: Feature = {
+                type: 'Feature',
+                properties: { acronym: 'BRIDGE', rcid: 99001, VERCLR: 16, OBJNAM: 'Synthetic Bridge' },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                        [mid[0] - 0.0002, mid[1] - 0.0002],
+                        [mid[0] + 0.0002, mid[1] + 0.0002],
+                    ],
+                },
+            };
+            const cells = newportExtracted.map((c, i) =>
+                i === 0 ? { ...c, layers: { ...c.layers, BRIDGE: { features: [bridge] } } } : c,
+            );
+            const g = compileLeadGraph(mergeLeadCells(cells), 1.9, {}, LEAD_UKC_M, { airDraftM: AIR });
+            const e = forward(g).find((x) => x.kind === 'recommended-track' && x.rcids.includes(2380))!;
+            expect(e.depth).toMatchObject({
+                class: 'blocked',
+                minDepthM: 9.1,
+                review: ['bridge-clearance'],
+                blockedBy: [{ layer: 'BRIDGE', name: 'Synthetic Bridge', clearanceM: 16, block: 'too-low' }],
+            });
+            // Nothing else in the view gained a clearance reason from it.
+            expect(
+                forward(g)
+                    .filter((x) => x.depth.review.includes('bridge-clearance'))
+                    .map((x) => x.spanId),
+            ).toEqual([e.spanId]);
+            // With a mast that clears it, the same lead is amber 'bridge on the line'.
+            const tall = compileLeadGraph(mergeLeadCells(cells), 1.9, {}, LEAD_UKC_M, { airDraftM: 12 });
+            const e2 = forward(tall).find((x) => x.spanId === e.spanId)!;
+            expect(e2.depth).toMatchObject({ class: 'needs-review', review: ['bridge'] });
+        },
+    );
 });

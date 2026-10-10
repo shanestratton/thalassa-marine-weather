@@ -25,14 +25,11 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { VERIFIED_CANAL_EXIT_PROFILES } from '../services/automaticCanalExit';
 import {
     CURATED_LAPSE_ACKNOWLEDGEMENTS,
     curatedLapseProblems,
     type CuratedExpiryRecord,
 } from '../services/curatedDataLifecycle';
-import { NEWPORT_CANAL_EXIT_PROFILE } from '../services/newportCanalExitProfile';
-import { NEWPORT_CHANNEL_TRACK_POLICY } from '../services/newportChannelTrackPolicy';
 import { NTM_ROUTING_PACKS, PACK_MAX_AGE_MS } from '../services/ntmRouting';
 import {
     loadRegionalOverlay,
@@ -45,11 +42,6 @@ const REGIONAL_DIR = 'supabase/functions/osm-overlay/data';
 /** When this guard was written (29 Sep in Brisbane). A clock earlier than
  * this is a pinned or faked one, not the real one. */
 const GUARD_WRITTEN = Date.parse('2026-09-28T12:00:00Z');
-/** The file that holds each reviewed canal-exit profile's literal validUntil.
- * A profile added without an entry here has its literal flagged below. */
-const CANAL_EXIT_LITERAL_FILES: Readonly<Record<string, string>> = {
-    [NEWPORT_CANAL_EXIT_PROFILE.id]: 'services/newportCanalExitProfile.ts',
-};
 
 const MONTHS = [
     'january',
@@ -90,21 +82,9 @@ function regionalSeeds(): RegionalSeed[] {
 /** Every curated, time-limited record the app ships, read from the real modules. */
 function curatedRecords(): CuratedExpiryRecord[] {
     const records: CuratedExpiryRecord[] = [];
-    for (const profile of VERIFIED_CANAL_EXIT_PROFILES)
-        records.push({
-            key: `canal-exit:${profile.id}:${profile.sourceRevision}`,
-            source: 'services/automaticCanalExit.ts VERIFIED_CANAL_EXIT_PROFILES',
-            literalFile: CANAL_EXIT_LITERAL_FILES[profile.id],
-            expiresAtMs: Date.parse(profile.validUntil),
-            retirement: profile.retirement,
-        });
-    records.push({
-        key: `channel-track:${NEWPORT_CHANNEL_TRACK_POLICY.id}:${NEWPORT_CHANNEL_TRACK_POLICY.sourceRevision}`,
-        source: 'services/newportChannelTrackPolicy.ts',
-        literalFile: 'services/newportChannelTrackPolicy.ts',
-        expiresAtMs: Date.parse(NEWPORT_CHANNEL_TRACK_POLICY.validUntil),
-        retirement: NEWPORT_CHANNEL_TRACK_POLICY.retirement,
-    });
+    // The Newport canal-exit profile and channel-track policy (retired on
+    // 2026-09-29) were deleted on 2026-10-10 with the rest of the retired
+    // chain: they held positions derived from the licensed chart (127-C-a).
     // The runtime ceiling runs PACK_MAX_AGE_MS from the notice's own date on
     // the live feed. A notice reports a survey, so it cannot predate it: the
     // survey day gives the earliest possible lapse and this guard can only
@@ -212,7 +192,7 @@ describe('curated routing data on the REAL clock', () => {
 
     it('finds every kind of curated time-limited record', () => {
         const keys = curatedRecords().map((r) => r.key.split(':')[0]);
-        for (const kind of ['canal-exit', 'channel-track', 'ntm-pack', 'osm-regional'])
+        for (const kind of ['ntm-pack', 'osm-regional'])
             expect(keys, `no ${kind} records found — did an export move?`).toContain(kind);
     });
 

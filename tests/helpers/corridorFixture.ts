@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import type { RouteRequest } from '../../services/inshoreRouterEngine';
 import type { Feature, FeatureCollection } from 'geojson';
 import { corridorCellRanks, corridorCellRanksByReference, withCorridorCellRanks } from './corridorCellRanks';
+import { assertNotRetiredChartFixture } from './retiredChartFixtures';
 
 // ── Fixture loading ────────────────────────────────────────────────
 
@@ -22,7 +23,9 @@ export interface CorridorFixture {
     osm: Record<string, FeatureCollection>;
 }
 
+/** Throws for a retired real AU chart fixture (helpers/retiredChartFixtures). */
 export function loadFixture(name: string): CorridorFixture {
+    assertNotRetiredChartFixture(name);
     const path = join(__dirname, '..', 'fixtures', name);
     return JSON.parse(gunzipSync(readFileSync(path)).toString()) as CorridorFixture;
 }
