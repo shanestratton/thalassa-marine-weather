@@ -12,7 +12,7 @@
  * person who could report it.
  */
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /** The live pattern, lifted from the middleware so the two cannot drift. */
 function hostPattern(): RegExp {
@@ -60,5 +60,58 @@ describe('public host routing', () => {
         // parseVoyageLogParams must not read "thalassawx" as a boat name.
         const source = readFileSync('src/voyageLogApi.ts', 'utf8');
         expect(source).toMatch(/thalassawx\\\.\(app\|com\)/);
+    });
+});
+
+/**
+ * Box tags (126-11b): https://www.thalassawx.app/box/<id> must reach vercel.json's
+ * /box/:id rewrite (the static page for a phone without Thalassa), and Apple
+ * must find the association file where it looks. www, because the apex is a
+ * Vercel domain redirect to www that never reaches this project. The real
+ * middleware, called with real Requests; its upstream fetch is a fake.
+ */
+describe('box links and the association file', () => {
+    const id = '4c3b2a19-0817-4f6e-9d5c-4b3a29180716';
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    async function route(url: string): Promise<{ result: unknown; fetched: string[] }> {
+        const fetched: string[] = [];
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async (target: URL | string) => {
+                fetched.push(new URL(String(target)).pathname);
+                return new Response('<!doctype html>', { status: 200, headers: { 'content-type': 'text/html' } });
+            }),
+        );
+        const { default: middleware } = await import('../middleware');
+        const request = new Request(url, { headers: { host: new URL(url).host } });
+        return { result: await middleware(request), fetched };
+    }
+
+    it('leaves www.thalassawx.app/box/<id>, the link on the tags, alone for the vercel.json rewrite', async () => {
+        for (const host of ['www.thalassawx.app', 'thalassawx.app']) {
+            const { result, fetched } = await route(`https://${host}/box/${id}`);
+            expect(result, host).toBeUndefined();
+            expect(fetched, host).toEqual([]);
+        }
+    });
+
+    it('still sends <handle>.thalassawx.app/box/x to the voyage log, on both endings', async () => {
+        for (const host of ['serene-example.thalassawx.app', 'serene-example.thalassawx.com']) {
+            const { result, fetched } = await route(`https://${host}/box/x`);
+            expect(fetched).toEqual(['/logs.html']);
+            expect((result as Response).headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive');
+        }
+    });
+
+    it('never runs on /.well-known/apple-app-site-association, but does on /box/<id>', async () => {
+        const { config } = await import('../middleware');
+        const matcher = new RegExp(`^${config.matcher}$`);
+        expect(matcher.test('/.well-known/apple-app-site-association')).toBe(false);
+        expect(matcher.test('/box.html')).toBe(false);
+        expect(matcher.test(`/box/${id}`)).toBe(true);
     });
 });

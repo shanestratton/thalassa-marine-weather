@@ -95,7 +95,9 @@ export const StoresBoxes: React.FC<{
     onNewItem: (box: StoresBox) => void;
     /** Re-read the page after a write (resolves once it has). */
     reload: () => Promise<void>;
-}> = ({ view, setView, items, boxes, live, editable, canDelete, onAdjust, onNewItem, reload }) => {
+    /** Scan box (126-11b): only on an iPhone with NFC; reading a tag is for crew too. */
+    onScan?: () => void;
+}> = ({ view, setView, items, boxes, live, editable, canDelete, onAdjust, onNewItem, reload, onScan }) => {
     const [sheet, setSheet] = useState<'put' | 'form' | null>(null);
     // One write at a time: a second tap while the first is still writing
     // would make a second box, or put the items twice.
@@ -152,6 +154,11 @@ export const StoresBoxes: React.FC<{
                         {editable && (
                             <Button className="mt-3 w-full" onClick={() => setSheet('form')}>
                                 New box
+                            </Button>
+                        )}
+                        {onScan && (
+                            <Button className="mt-3 w-full" onClick={onScan}>
+                                Scan box
                             </Button>
                         )}
                     </div>

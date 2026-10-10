@@ -53,6 +53,10 @@
             "destination": "/ocean.html"
         },
         {
+            "source": "/box/:id",
+            "destination": "/box.html"
+        },
+        {
             "source": "/((?!api/)(?!.*\\..*).*)",
             "destination": "/index.html"
         }
@@ -154,6 +158,24 @@
                 {
                     "key": "Cache-Control",
                     "value": "public, max-age=0, must-revalidate"
+                }
+            ]
+        },
+        {
+            "source": "/box.html",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=0, must-revalidate"
+                }
+            ]
+        },
+        {
+            "source": "/.well-known/apple-app-site-association",
+            "headers": [
+                {
+                    "key": "Content-Type",
+                    "value": "application/json"
                 }
             ]
         },

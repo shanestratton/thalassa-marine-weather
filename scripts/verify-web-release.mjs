@@ -133,6 +133,7 @@ const DOCUMENT_HEADER_SOURCES = Object.freeze([
     '/ocean.html',
     '/terms.html',
     '/voyage-log-api.html',
+    '/box.html',
 ]);
 
 const REQUIRED_REWRITES = Object.freeze([
@@ -146,8 +147,47 @@ const REQUIRED_REWRITES = Object.freeze([
     ['/feedback', '/feedback.html'],
     ['/ocean', '/ocean.html'],
     ['/ocean/:path*', '/ocean.html'],
+    // A phone without Thalassa held to a Ship's Stores box tag (126-11b).
+    ['/box/:id', '/box.html'],
     ['/((?!api/)(?!.*\\..*).*)', '/index.html'],
 ]);
+
+/* Box tags (126-11b): iOS opens https://www.thalassawx.app/box/<id> in Thalassa only
+   when this file, served as JSON with no redirect, names the app and the path. It
+   claims /box/* and nothing else, so no other page is ever pulled into the app. */
+export const APP_SITE_ASSOCIATION_PATH = '/.well-known/apple-app-site-association';
+const APP_SITE_ASSOCIATION_APP_ID = 'D4TW8A23QZ.com.thalassa.weather';
+/* The host on every box tag and in the applinks entitlement (a test keeps the three
+   together). Apple fetches the file from exactly this host and follows no redirect:
+   the apex thalassawx.app is a Vercel domain redirect to www, so it can never associate. */
+export const BOX_LINK_ORIGIN = 'https://www.thalassawx.app';
+
+/** Every way the association file is not exactly "this app, /box/* only". */
+export function validateAppSiteAssociation(value) {
+    const details = value?.applinks?.details;
+    const only =
+        Array.isArray(details) &&
+        details.length === 1 &&
+        JSON.stringify(details[0]?.appIDs) === JSON.stringify([APP_SITE_ASSOCIATION_APP_ID]) &&
+        JSON.stringify(details[0]?.components?.map((component) => component?.['/'])) === '["/box/*"]';
+    return only ? [] : [`apple-app-site-association must claim only /box/* for ${APP_SITE_ASSOCIATION_APP_ID}`];
+}
+
+/** Everything Apple would refuse in a served association file: any redirect, the wrong type, the wrong claims. */
+export function appSiteAssociationResponseFailures({ response, text }, label) {
+    if (response.status !== 200) {
+        const location = response.headers.get('location');
+        return [
+            `${label}: HTTP ${response.status}${location ? ` to ${location}` : ''}, expected 200 with no redirect (Apple follows none)`,
+        ];
+    }
+    if (responseMediaType(response) !== 'application/json') return [`${label}: must be served as application/json`];
+    try {
+        return validateAppSiteAssociation(JSON.parse(text)).map((failure) => `${label}: ${failure}`);
+    } catch {
+        return [`${label}: invalid JSON`];
+    }
+}
 
 const REQUIRED_REDIRECTS = Object.freeze([
     ['/float', '/logs'],
@@ -161,6 +201,7 @@ const SURFACE_MARKERS = Object.freeze({
     feedback: ['<div id="root"></div>', '<title>Feedback — Thalassa</title>'],
     ocean: ['<div id="root"></div>', '<title>Thalassa Ocean — wildlife seen from boats</title>'],
     terms: ['<title>Thalassa Marine Weather — Terms & Privacy</title>'],
+    box: ['<title>Box tag — Thalassa</title>', 'This tag belongs to a stowage box on a boat that uses Thalassa.'],
     api: ['<title>Voyage Log API — Thalassa</title>', '<h1>Voyage Log API</h1>'],
 });
 
@@ -256,6 +297,11 @@ export function validateVercelConfig(config) {
         failures.push(`/sw.js must use ${DOCUMENT_CACHE_CONTROL}`);
     }
 
+    const associationRules = exactlyOneRule(config.headers, APP_SITE_ASSOCIATION_PATH);
+    if (associationRules.length !== 1 || headerMap(associationRules[0]).get('content-type') !== 'application/json') {
+        failures.push(`${APP_SITE_ASSOCIATION_PATH} must be served as application/json`);
+    }
+
     for (const source of DOCUMENT_HEADER_SOURCES) {
         const matches = exactlyOneRule(config.headers, source);
         if (matches.length !== 1 || headerMap(matches[0]).get('cache-control') !== DOCUMENT_CACHE_CONTROL) {
@@ -288,6 +334,7 @@ export function validateHtmlSurface(html, surface) {
         failures.push(`${surface} document does not boot a hashed production JavaScript asset`);
     }
     if (/\bsrc=["']\/src\//.test(html)) failures.push(`${surface} document still references a source module`);
+    if (surface === 'box' && /<script/i.test(html)) failures.push('box document must not run a script');
     return failures;
 }
 
@@ -351,6 +398,7 @@ function validateBuiltArtifacts() {
         ['ocean.html', 'ocean'],
         ['terms.html', 'terms'],
         ['voyage-log-api.html', 'api'],
+        ['box.html', 'box'],
     ];
 
     for (const [file, surface] of specs) {
@@ -373,6 +421,22 @@ function validateBuiltArtifacts() {
         const target = path.resolve(DIST, decoded);
         if (!target.startsWith(`${DIST}${path.sep}`) || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
             failures.push(`built document references a missing or unsafe asset: ${asset}`);
+        }
+    }
+
+    // A Vite change that stopped copying public/'s dot-folders would drop this silently.
+    const associationPath = path.join(DIST, '.well-known/apple-app-site-association');
+    if (!fs.existsSync(associationPath)) {
+        failures.push('dist/.well-known/apple-app-site-association is missing');
+    } else {
+        try {
+            failures.push(
+                ...validateAppSiteAssociation(JSON.parse(fs.readFileSync(associationPath, 'utf8'))).map(
+                    (failure) => `dist: ${failure}`,
+                ),
+            );
+        } catch {
+            failures.push('dist/.well-known/apple-app-site-association is invalid JSON');
         }
     }
 
@@ -998,6 +1062,7 @@ async function verifyHostedDeployment(rawOrigin) {
         ['/ocean', 'ocean'],
         ['/terms', 'terms'],
         ['/voyage-log-api', 'api'],
+        ['/box/release-verification', 'box'],
     ];
     const results = new Map();
 
@@ -1075,6 +1140,24 @@ async function verifyHostedDeployment(rawOrigin) {
             );
         }
         failures.push(...responseSecurityFailures(asset.response, `hosted ${scriptAsset}`));
+    }
+
+    const association = await getResponse(
+        origin,
+        APP_SITE_ASSOCIATION_PATH,
+        'manual',
+        DEFAULT_RESPONSE_MAX_BYTES,
+        protectionBypassSecret,
+    );
+    failures.push(...appSiteAssociationResponseFailures(association, `hosted ${APP_SITE_ASSOCIATION_PATH}`));
+    // Apple reads it from the host on the tags, never from this deployment's own address,
+    // so ask that host itself, following no redirect and never sending the bypass secret.
+    const tagHostLabel = `${BOX_LINK_ORIGIN}${APP_SITE_ASSOCIATION_PATH}`;
+    try {
+        const onTagHost = await getResponse(BOX_LINK_ORIGIN, APP_SITE_ASSOCIATION_PATH, 'manual', 64 * 1024, '');
+        failures.push(...appSiteAssociationResponseFailures(onTagHost, tagHostLabel));
+    } catch (error) {
+        failures.push(`${tagHostLabel}: probe failed (${error instanceof Error ? error.message : error})`);
     }
 
     const serviceWorker = await getResponse(

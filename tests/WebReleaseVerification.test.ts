@@ -13,6 +13,9 @@ import {
     localRouteExpectation,
     verifyHostedMarineDataset,
     validatePublicBetaFeatureManifest,
+    validateAppSiteAssociation,
+    appSiteAssociationResponseFailures,
+    BOX_LINK_ORIGIN,
     validateHtmlSurface,
     validateVercelConfig,
     sameOriginVercelRequestHeaders,
@@ -373,6 +376,79 @@ describe('web release verification', () => {
                 `/assets/(.*) must use ${IMMUTABLE_ASSET_CACHE_CONTROL}`,
             ]),
         );
+    });
+
+    it('serves box tags their page and Apple its association file, and fails closed when either drifts (126-11b)', () => {
+        const config = JSON.parse(read('vercel.json'));
+        config.rewrites = config.rewrites.filter((rule: { source: string }) => rule.source !== '/box/:id');
+        config.headers = config.headers.filter(
+            (rule: { source: string }) =>
+                rule.source !== '/.well-known/apple-app-site-association' && rule.source !== '/box.html',
+        );
+        expect(validateVercelConfig(config)).toEqual(
+            expect.arrayContaining([
+                '/box/:id must have one rewrite to /box.html',
+                `/box.html must use ${DOCUMENT_CACHE_CONTROL}`,
+                '/.well-known/apple-app-site-association must be served as application/json',
+            ]),
+        );
+
+        const association = JSON.parse(read('public/.well-known/apple-app-site-association'));
+        expect(validateAppSiteAssociation(association)).toEqual([]);
+        const everything = structuredClone(association);
+        everything.applinks.details[0].components = [{ '/': '/*' }];
+        expect(validateAppSiteAssociation(everything)).toEqual([
+            'apple-app-site-association must claim only /box/* for D4TW8A23QZ.com.thalassa.weather',
+        ]);
+        expect(validateAppSiteAssociation(null)).toHaveLength(1);
+
+        expect(validateHtmlSurface(read('public/box.html'), 'box')).toEqual([]);
+        expect(
+            validateHtmlSurface(`${read('public/box.html')}<script src="/assets/main-release123.js"></script>`, 'box'),
+        ).toEqual([expect.stringContaining('must not run a script')]);
+        // The verifier checks the built copies, and the hosted ones after a deploy.
+        const verifier = read('scripts/verify-web-release.mjs');
+        expect(verifier).toContain("['box.html', 'box']");
+        expect(verifier).toContain("'.well-known/apple-app-site-association'");
+        expect(verifier).toContain("['/box/release-verification', 'box']");
+    });
+
+    it('fails an association file Apple would refuse: behind a redirect, the wrong type, or broken (126-11b)', () => {
+        const json = read('public/.well-known/apple-app-site-association');
+        const served = (status: number, headers: Record<string, string>, text = '') => ({
+            response: new Response(status === 200 ? text : null, { status, headers }),
+            text,
+        });
+        const where = `${BOX_LINK_ORIGIN}/.well-known/apple-app-site-association`;
+        expect(
+            appSiteAssociationResponseFailures(served(200, { 'content-type': 'application/json' }, json), where),
+        ).toEqual([]);
+        // What the apex answered on 2026-10-10: Vercel's domain redirect to www.
+        expect(
+            appSiteAssociationResponseFailures(
+                served(307, {
+                    'content-type': 'text/plain',
+                    location: 'https://www.thalassawx.app/.well-known/apple-app-site-association',
+                }),
+                'https://thalassawx.app/.well-known/apple-app-site-association',
+            ),
+        ).toEqual([
+            'https://thalassawx.app/.well-known/apple-app-site-association: HTTP 307 to https://www.thalassawx.app/.well-known/apple-app-site-association, expected 200 with no redirect (Apple follows none)',
+        ]);
+        expect(appSiteAssociationResponseFailures(served(404, { 'content-type': 'text/plain' }), where)).toEqual([
+            `${where}: HTTP 404, expected 200 with no redirect (Apple follows none)`,
+        ]);
+        expect(appSiteAssociationResponseFailures(served(200, { 'content-type': 'text/plain' }, json), where)).toEqual([
+            `${where}: must be served as application/json`,
+        ]);
+        expect(
+            appSiteAssociationResponseFailures(
+                served(200, { 'content-type': 'application/json' }, '<!doctype html>'),
+                where,
+            ),
+        ).toEqual([`${where}: invalid JSON`]);
+        // The tags' own host, probed by name after every deploy, never the deployment's address alone.
+        expect(BOX_LINK_ORIGIN).toBe('https://www.thalassawx.app');
     });
 
     it('maps every critical preview route to the intended document or redirect', () => {
