@@ -11,6 +11,49 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
+## Website build repair on 11 October
+
+Shane approved repair of the ordinary Vercel build after actual logs showed
+failures on both master and this Research branch. Vercel removed test helpers
+but still compiled browser fixtures; this branch also selected a nested Deno
+function with Node's compiler. Passing the isolated Research bundle had not
+proved that the ordinary website build worked.
+
+The separate [five-file repair PR](https://github.com/shanestratton/thalassa-marine-weather/pull/55)
+starts from cleaned master `b4cb321167e27c4cf592786bd576abd841e57821` and contains
+no E2EE implementation. Its commit is `b0744ae975d56bc6477017408dbbd69bb372b252`.
+Releases now use an explicit strict compiler scope covering all five web entry
+points, application source, middleware and API handlers. CI retains its broader
+test/fixture scope; nested Deno functions stay outside the Node compiler.
+Vercel uploads exclude development and Research trees while retaining the
+browser-used shared Supabase wave types. Both client-secret scans remain.
+
+Local verification passed 24 focused tests, release and broad CI type-checks,
+and the ordinary production bundle. Exact `npm run build` also passed in an
+owned Vercel-filtered source copy, with the test helpers absent. Existing local
+packages were reused read-only, not clean-installed; Vite's configuration cache
+was owned by the copy. The verification receipt is
+`/private/tmp/thalassa-web-build-validation.SN1xIm/repair-verification.json`,
+SHA-256 `64e3683a43eb931a0125ad2d1441d560a6cf135002fb4889a4c61dccc59ad127`.
+The [repair preview](https://vercel.com/serene-summer/thalassa/5KdkCcENjhsERuwv9BeXHoYPorKu)
+then reported Vercel success; full hosted CI is still running. Master and the
+production deployment remain unchanged until the repair is merged.
+
+The same build/configuration repair is applied separately to this isolated
+integration branch. Its ordinary `npm run build` passed in a second filtered
+copy of the Research branch plus those configuration changes. No App selection,
+native authority, relay, provider or human-device state changed. The eleven
+native WIP files remain separate. That build receipt is
+`/private/tmp/thalassa-web-build-validation.SN1xIm/e2ee-filtered-production-npm-build-receipt.json`,
+SHA-256 `c47434741c4007ebe6f10c537f4089bdf3dc2003d5672f98a2c0fa4e0bd18bd6`.
+The same 24 focused tests also passed in this branch; that repeats the repair
+checks on a different source context, not an additional E2EE acceptance count.
+This website-build evidence closes no native
+exchange, current physical acceptance, cutover, lifecycle, licence or independent
+security-review gate. Continue the legitimately evidenced native-chain recovery
+described below. Existing Window/native evidence retains its original source
+bindings; these website builds are not new executions of those proofs.
+
 ## Shared-Mac workflow — owner's 1 October rules
 
 - Commit and push this branch freely from its own worktree. Stage named files
@@ -258,8 +301,8 @@ The final licensed-chart guard passed 12/12 with no skips, preserving the exact
 `/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-clean-web-chart-guard-oPOB7E/guard-receipt.json`,
 SHA-256 `26156bc929a6a53e04786857ab99f1ef27a65e818f8edc61d744c06084022942`.
 After the guard, only this documentation receipt reference and manifest
-formatting changed; runtime/test bytes and manifest data are unchanged. The thirteen-file verified web slice is
-ready for a named side-branch commit, not a master merge.
+formatting changed; runtime/test bytes and manifest data are unchanged. The thirteen-file verified web slice was
+published as `930561783e1fcd0e8f2e2c182f2320c69487837b`, not merged to master.
 Do not repeat the accepted web/Window checks without a relevant source change.
 Historical startup acceptance cannot be reused as a protected-exchange pass.
 

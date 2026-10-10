@@ -35,6 +35,7 @@
     ],
     "exclude": [
         "supabase/**/*",
+        "experiments/**/supabase/**/*",
         "pi-cache/**/*",
         "cloudflare-worker/**/*",
         "workers/**/*",
