@@ -1927,8 +1927,8 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                                         className={`${FIELD_CLASS} ${NO_SPINNER_CLASS} focus:border-sky-500`}
                                     />
                                     <p className="text-xs text-gray-400 mt-1">
-                                        How close to the wind she sails. The Instrument Panel calls “In irons” and
-                                        “Pinching” against this. Blank uses the default for her rig (
+                                        How close to the wind she sails. The passage HUD and Plan Your Day use it to
+                                        time upwind legs. Blank uses the default for her rig (
                                         {closeHauledDegFor(vessel)}°).
                                     </p>
                                 </div>

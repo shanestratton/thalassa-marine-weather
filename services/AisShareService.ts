@@ -46,14 +46,20 @@ const log = createLogger('AisShare');
  * per-identity as well. Scoping changes the key, so existing opt-ins lapse and
  * are re-asked under the current disclaimer — which is the correct outcome,
  * not a migration to work around.
+ *
+ * v2 since build 126 (126-01b), for the same reason: until then the switch was
+ * offered in builds with no relay, so an opt-in given there was consent to
+ * something that sent nothing, under a disclaimer that promised earnings. Left
+ * on v1 it would start sharing silently the day a build carries the relay URL.
+ * Those opt-ins lapse; the first build that can share asks afresh.
  */
-const ENABLED_KEY = 'ais_share_enabled_v1';
+const ENABLED_KEY = 'ais_share_enabled_v2';
 const LOW_DATA_KEY = 'ais_share_lowdata_v1';
 const CARD_KEY = 'ais_share_card_v1';
 
 /** Bump when the disclaimer's substance changes, which re-asks for consent.
  *  Recorded server-side per check-in so we know what each punter agreed to. */
-export const AIS_SHARE_CONSENT_VERSION = '2026-08-23';
+export const AIS_SHARE_CONSENT_VERSION = '2026-10-10';
 
 /** ~20-30 s of a busy bay; older sentences roll off the front. */
 const MAX_BUFFER = 2000;

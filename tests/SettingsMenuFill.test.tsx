@@ -45,12 +45,12 @@ import { setAuthIdentityScope } from '../services/authIdentityScope';
 const SETTINGS = { defaultLocation: 'Horta, Faial, Azores' } as UserSettings;
 
 /** The phone's menu: Settings opens on its list inside a split pane, as on an iPhone. */
-const Menu = () => {
+const Menu = ({ settings = SETTINGS }: { settings?: UserSettings }) => {
     const ref = useRef<HTMLElement>(null);
     return (
         <PanePortalScope enabled paneId="page" frameRef={ref}>
             <section ref={ref}>
-                <SettingsView settings={SETTINGS} onSave={vi.fn()} onLocationSelect={vi.fn()} onBack={vi.fn()} />
+                <SettingsView settings={settings} onSave={vi.fn()} onLocationSelect={vi.fn()} onBack={vi.fn()} />
             </section>
         </PanePortalScope>
     );
@@ -121,5 +121,36 @@ describe('Settings menu fill (2026-10-09)', () => {
             expect(row).toHaveAccessibleName(name);
             expect(row).toHaveAccessibleDescription(description);
         });
+    });
+
+    // Build 126 (126-14): the row shows a short word so it stays on the title
+    // line, while VoiceOver hears exactly what it heard before.
+    it('signed out, both sign-in rows show "Sign in" and are heard as before', () => {
+        setAuthIdentityScope(null);
+        render(<Menu />);
+        const account = phone().getByRole('button', { name: 'Open Account & Cloud settings, Not signed in' });
+        const voyage = phone().getByRole('button', { name: 'Open Public voyage page settings, Needs sign-in' });
+        for (const row of [account, voyage]) {
+            const state = row.querySelector('.settings-menu-line > .settings-menu-title + .settings-menu-state')!;
+            expect(state).toHaveTextContent(/^Sign in$/);
+            // A fixed word: whole on the title line or not at all, never cut.
+            expect(state).toHaveClass('settings-menu-state--word');
+            expect(state).not.toHaveClass('truncate');
+            expect(row.querySelector('.settings-menu-line')).toHaveClass('settings-menu-line--word');
+        }
+        expect(account.textContent).not.toMatch(/Not signed in/);
+        expect(voyage.textContent).not.toMatch(/Needs sign-in/);
+    });
+
+    it('no alert on reads "Off", heard "All alerts off"; a home port keeps the free-text rule', () => {
+        const notifications = { wind: { enabled: false }, waves: { enabled: false } };
+        render(<Menu settings={{ ...SETTINGS, notifications } as unknown as UserSettings} />);
+        const row = phone().getByRole('button', { name: 'Open Notifications settings, All alerts off' });
+        expect(row.querySelector('.settings-menu-state')).toHaveTextContent(/^Off$/);
+        const home = phone().getByRole('button', { name: /^Open Preferences settings, Home: Horta$/ });
+        const state = home.querySelector('.settings-menu-state')!;
+        expect(state).not.toHaveClass('settings-menu-state--word');
+        expect(state).toHaveClass('truncate');
+        expect(home.querySelector('.settings-menu-line')).not.toHaveClass('settings-menu-line--word');
     });
 });

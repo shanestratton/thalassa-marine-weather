@@ -583,9 +583,13 @@
 }
 /* Its words grow as the hub rows' do, from its own text-sm title. Its icon
    tile is already the 2.25rem the hub rows grow to, and the live state beside
-   the title keeps its size. */
+   the title keeps its size. The size is a property on the row so the title
+   line's clip (below) can be measured in it. */
+.settings-menu-row {
+    --settings-title-size: clamp(0.875rem, min(13px + 0.04 * var(--menu-room), var(--menu-title-wide)), 19px);
+}
 .settings-menu-row .settings-menu-title {
-    font-size: clamp(0.875rem, min(13px + 0.04 * var(--menu-room), var(--menu-title-wide)), 19px);
+    font-size: var(--settings-title-size);
 }
 .settings-menu-row .settings-menu-desc {
     font-size: clamp(max(0.75rem, var(--text-micro)), max(0.75rem, var(--text-micro)) + 0.02 * var(--menu-room), 15px);
@@ -634,10 +638,8 @@
    longer fits beside its grown title drops under it, whole, rather than being
    cut to "Ne...". It stays set right, in the column its siblings' states sit
    in: dropped to the left, grey over the grey description, it read as one long
-   subtitle (review 2026-10-09). In the phone's own face every short state
-   ("Needs sign-in") stays beside its title on a Pro Max's page (430x856); a
-   long home port or boat name drops, and so do the sign-in states in the
-   widest face the fit tests use. */
+   subtitle (review 2026-10-09). A long home port or boat name drops; the
+   fixed state words keep their line (below). */
 @container settings-menu (min-height: 580px) {
     .settings-menu-row .settings-menu-desc {
         overflow: visible;
@@ -652,6 +654,25 @@
     .settings-menu-line .settings-menu-state {
         margin-left: auto;
     }
+}
+
+/* A fixed state word ("Sign in", "Off", "3 alerts on", 126-14) is never cut
+   and never drops: it sits whole on its title's line or not at all. Its line
+   wraps at every height and is clipped to one title line (text-sm's 1.43, and
+   2 px for a baseline that sits low), so a word with no room beside its title
+   goes to a second line nobody sees: only on a 320 pt phone, beside "Public
+   Voyage Page" or "Account & Cloud". The row's name still carries it for
+   VoiceOver. The row gap puts that hidden line clear of the 2 px. */
+.settings-menu-row .settings-menu-line--word {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+    overflow: hidden;
+    max-height: calc(var(--settings-title-size) * 1.43 + 2px);
+}
+.settings-menu-line--word .settings-menu-state--word {
+    flex-shrink: 0;
+    white-space: nowrap;
+    margin-left: auto;
 }
 
 /* The Log's anchored pair (pages/LogPage.tsx, Shane 2026-10-06): Voyage stats

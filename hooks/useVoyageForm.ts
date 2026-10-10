@@ -172,7 +172,7 @@ subscribeAuthIdentityScope(() => {
 
 export const LOADING_PHASES = [
     'Reading the charts…',
-    'Reading tidal streams…',
+    'Reading ocean currents…',
     'Checking notices to mariners…',
     'Plotting waypoints…',
     'Working out ETAs…',

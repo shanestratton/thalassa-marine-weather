@@ -243,9 +243,10 @@ export const OceanCurrentService = {
             let dataTime: string | null = null;
 
             // PRIMARY: Thalassa's own CMEMS pipeline — the same verified
-            // hourly TOTAL-current frames the Obs particle layer paints
-            // (tides included), against NOAA's daily geostrophic-only
-            // blend. Null on any doubt → the NOAA chain below answers.
+            // hourly frames the Obs particle layer paints: `uo`/`vo` only
+            // (scripts/cmems-currents-pipeline/pipeline.py), so NO tides and
+            // no Stokes drift, against NOAA's daily geostrophic-only blend.
+            // Null on any doubt → the NOAA chain below answers.
             const cmems = await sampleCmemsPassageCurrents(paddedBbox);
             if (cmems) {
                 provider = 'E.U. Copernicus Marine Service';

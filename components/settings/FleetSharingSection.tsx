@@ -35,9 +35,10 @@ import {
  *     cannot be undone once AISHub copies it onward. Disabling is one tap with
  *     no friction, no confirmation and no "are you sure": consent withdrawal
  *     must never carry a cost.
- *  2. A DEAD CONTROL MUST LOOK DEAD. Inert-with-reason whenever the relay is
- *     unconfigured or the skipper is signed out, never a green light over
- *     nothing.
+ *  2. A DEAD CONTROL MUST LOOK DEAD. Inert-with-reason when the skipper is
+ *     signed out, never a green light over nothing. A build with no relay
+ *     goes further (126-01b): no switch at all, so no consent can be given
+ *     to something that sends nothing; one honest line instead.
  *
  * Note what is NOT here any more: "waiting for the gateway". A disconnected
  * gateway no longer stops the watch — the check-in reports the fault and
@@ -103,7 +104,7 @@ const ConsentSheet: React.FC<{ onAccept: () => void; onDismiss: () => void }> = 
                 <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
                     Anchored somewhere with no ships for 200 miles? That silence is worth as much as a busy harbour
                     &mdash; it proves someone was listening out there. What we count is time on watch, never ships
-                    delivered. An empty ocean earns exactly what Sydney Harbour earns.
+                    delivered. An empty ocean counts the same as the busiest harbour.
                 </p>
 
                 <h3 className="mt-5 text-[15px] font-bold text-gray-100">What we keep about you.</h3>
@@ -123,7 +124,7 @@ const ConsentSheet: React.FC<{ onAccept: () => void; onDismiss: () => void }> = 
                 <p className="mt-4 text-[12px] leading-relaxed text-gray-400">
                     <span className="font-semibold text-gray-300">Data cost.</span> About 5 MB a month when
                     there&rsquo;s nothing to hear, more in busy water. Switch on Low-data link for a satellite
-                    connection and it&rsquo;s under 1 MB &mdash; you earn exactly the same either way.
+                    connection and it&rsquo;s under 1 MB &mdash; your watch counts the same either way.
                 </p>
                 <p className="mt-2 text-[12px] leading-relaxed text-gray-400">
                     <span className="font-semibold text-gray-300">Turning it off.</span> One tap, any time. Sharing
@@ -169,9 +170,20 @@ export const FleetSharingSection: React.FC = () => {
     // claim "Sharing live" in that state (review, 2026-08-21).
     const signedIn = useAuthStore((state) => state.user !== null);
 
+    // No relay in this build (VITE_FLEET_FEED_URL unset): no switch and no
+    // consent sheet, only what is true (126-01b). The section heading above
+    // (GeneralTab) still names it.
     const configured = isShareConfigured();
+    if (!configured)
+        return (
+            <p className="p-4 text-xs leading-relaxed text-gray-400">
+                Sharing what your gateway hears needs a relay this build doesn&rsquo;t have yet. It stays off until
+                then.
+            </p>
+        );
+
     const stats = getShareStats();
-    const active = enabled && configured && signedIn;
+    const active = enabled && signedIn;
     const hours = stats.card ? Math.floor(stats.card.watchMinutes / 60) : 0;
 
     return (
@@ -203,12 +215,7 @@ export const FleetSharingSection: React.FC = () => {
                 />
             </div>
 
-            {enabled && !configured && (
-                <p className="mt-2 text-xs font-semibold text-amber-300">
-                    This build has no share relay configured &mdash; nothing is being sent.
-                </p>
-            )}
-            {enabled && configured && !signedIn && (
+            {enabled && !signedIn && (
                 <p className="mt-2 text-xs font-semibold text-amber-300">
                     Sign in to share &mdash; the fleet feed needs a Thalassa account.
                 </p>
@@ -246,7 +253,7 @@ export const FleetSharingSection: React.FC = () => {
                         <div className="min-w-0">
                             <p className="text-[12px] font-semibold text-gray-200">Low-data link</p>
                             <p className="text-xs leading-relaxed text-gray-400">
-                                Check in every 30 minutes instead of 5, for satellite. Earns exactly the same.
+                                Check in every 30 minutes instead of 5, for satellite. Counts the same.
                             </p>
                         </div>
                         <Toggle

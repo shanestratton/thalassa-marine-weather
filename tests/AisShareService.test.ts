@@ -19,6 +19,7 @@ vi.mock('@capacitor/core', () => ({
 }));
 
 import {
+    AIS_SHARE_CONSENT_VERSION,
     __bankConnectedForTest,
     __flushForTest,
     __markCheckedInForTest,
@@ -31,6 +32,7 @@ import {
     setLowDataLink,
     setShareEnabled,
 } from '../services/AisShareService';
+import { authScopedStorageKey } from '../services/authIdentityScope';
 
 const SENTENCE = '!AIVDM,1,1,,B,17Ojo>0011btinahKV54lSqp0000,0*6D';
 
@@ -59,6 +61,38 @@ describe('consent', () => {
     it('never inherits the retired AisHubService opt-in', () => {
         localStorage.setItem('aishub_enabled', 'true'); // the OLD feature's key
         expect(isShareEnabled()).toBe(false);
+    });
+
+    // Build 126 (126-01b): the switch was offered in builds that had no relay,
+    // so an opt-in given there was consent to something that sent nothing.
+    // The key moved to v2 so the first build that can share asks again.
+    it('keeps consent under the v2 key, and it round-trips', () => {
+        setShareEnabled(true);
+        expect(localStorage.getItem(authScopedStorageKey('ais_share_enabled_v2'))).toBe('true');
+        expect(localStorage.getItem(authScopedStorageKey('ais_share_enabled_v1'))).toBeNull();
+        __resetAisShareForTest(); // a relaunch: read back from storage
+        expect(isShareEnabled()).toBe(true);
+        setShareEnabled(false);
+        __resetAisShareForTest();
+        expect(isShareEnabled()).toBe(false);
+    });
+
+    it('ignores an opt-in stored under the old v1 key: it never springs back to life', () => {
+        localStorage.setItem(authScopedStorageKey('ais_share_enabled_v1'), 'true');
+        expect(isShareEnabled()).toBe(false);
+        for (let i = 0; i < 10; i++) offer(SENTENCE);
+        expect(getShareStats().buffered).toBe(0);
+    });
+
+    it('records the new disclaimer version, which re-asks for consent', async () => {
+        expect(AIS_SHARE_CONSENT_VERSION).toBe('2026-10-10');
+        setShareEnabled(true);
+        reportLink('connected');
+        await __flushForTest();
+        const fetchMock = globalThis.fetch as unknown as {
+            mock: { calls: [string, { headers: Record<string, string> }][] };
+        };
+        expect(fetchMock.mock.calls[0][1].headers['X-Thalassa-Consent']).toBe('2026-10-10');
     });
 
     it('turning it off clears the buffer immediately', () => {

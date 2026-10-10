@@ -380,6 +380,11 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                                     · {briefing.retrieval === 'cached' ? 'cached' : 'downloaded'}{' '}
                                     {new Date(briefing.fetchedAt).toLocaleString()}
                                 </p>
+                                {/* Both providers are tide-free: Copernicus uo/vo and
+                                    NOAA's geostrophic blend (126-01b). */}
+                                <p className="text-[11px] text-gray-400 mt-0.5">
+                                    Ocean currents only: tidal streams are not included.
+                                </p>
                             </div>
                         </div>
 
