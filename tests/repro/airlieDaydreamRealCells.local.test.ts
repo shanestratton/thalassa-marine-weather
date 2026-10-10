@@ -297,9 +297,10 @@ describe.skipIf(!HAVE_DATA)('Coral Sea Marina → Daydream Island on the real ce
                     `engine: ${JSON.stringify(res && 'error' in res ? res.error : res)}`,
                 ).toBe(true);
                 const ok = res as InshoreRouteResult;
-                expect(ok.chartWater, 'the route carries its own chart evidence').toEqual(expect.any(Function));
                 const layers = h.lastLayers as Record<string, FeatureCollection>;
                 const samples = samplePolyline(ok.polyline);
+                // The route carries its own chart evidence: a verdict at every sample (127-ROUTE-W).
+                expect(ok.chartVerdicts, 'the route carries its own chart evidence').toHaveLength(samples.length);
                 const depths = await (
                     await import('../../services/GebcoDepthService')
                 ).GebcoDepthService.queryRouteDepths(samples.map(([lon, lat]) => ({ lat, lon })));
@@ -307,7 +308,7 @@ describe.skipIf(!HAVE_DATA)('Coral Sea Marina → Daydream Island on the real ce
                     const d = depths[i].depth_m;
                     const land = d !== null && d >= 0;
                     return (
-                        `  #${i} ${lat.toFixed(5)},${lon.toFixed(5)} ETOPO ${d}${land ? ` LAND → charts: ${ok.chartWater!(lon, lat)}` : ''}` +
+                        `  #${i} ${lat.toFixed(5)},${lon.toFixed(5)} ETOPO ${d}${land ? ` LAND → charts: ${ok.chartVerdicts![i]}` : ''}` +
                         ` | ${chartWordsAt(layers, lon, lat)}`
                     );
                 });
@@ -343,7 +344,7 @@ describe.skipIf(!HAVE_DATA)('Coral Sea Marina → Daydream Island on the real ce
                     drawn.set(piece.state, (drawn.get(piece.state) ?? 0) + m);
                 }
                 const without = await inshoreRouteCrossesLand(ok.polyline);
-                const backstop = await inshoreRouteCrossesLand(ok.polyline, { chartWater: ok.chartWater });
+                const backstop = await inshoreRouteCrossesLand(ok.polyline, { chartVerdicts: ok.chartVerdicts });
                 console.log(
                     `AIRLIE→DAYDREAM tide=${tide ?? 'unknown'} cells=${loaded.join(',')} ${ok.distanceNM.toFixed(2)} NM, ${ok.polyline.length} pts, ` +
                         `hardLand ${JSON.stringify(ok.hardLand)} pinOffWater ${JSON.stringify(ok.pinOffWater)} tideCheck ${String(ok.tideCheck)}\n` +

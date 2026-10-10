@@ -341,12 +341,11 @@ describe.skipIf(!HAVE_CELLS || REAL_AU_CHART_FIXTURES_RETIRED)(
                             Math.max(...shipped.polyline.map((p) => p[1])),
                         ]);
                         const probeMs = performance.now() - tProbe;
-                        expect(probe(shipped.polyline[0][0], shipped.polyline[0][1])).toBe(
-                            shipped.chartWater!(shipped.polyline[0][0], shipped.polyline[0][1]),
-                        );
+                        // The route job's verdict at the first sample is the probe's (127-ROUTE-W).
+                        expect(probe(shipped.polyline[0][0], shipped.polyline[0][1])).toBe(shipped.chartVerdicts![0]);
                         const without = await inshoreRouteCrossesLand(shipped.polyline);
                         const withCharts = await inshoreRouteCrossesLand(shipped.polyline, {
-                            chartWater: shipped.chartWater,
+                            chartVerdicts: shipped.chartVerdicts,
                         });
                         // What the charts say at each ETOPO land sample.
                         const samples = samplePolyline(shipped.polyline);
@@ -356,7 +355,7 @@ describe.skipIf(!HAVE_CELLS || REAL_AU_CHART_FIXTURES_RETIRED)(
                         const said = samples
                             .map(([lon, lat], i) =>
                                 (depths[i].depth_m ?? -1) >= 0
-                                    ? `#${i} ${lat.toFixed(4)},${lon.toFixed(4)} ${depths[i].depth_m} m → ${shipped.chartWater!(lon, lat)}`
+                                    ? `#${i} ${lat.toFixed(4)},${lon.toFixed(4)} ${depths[i].depth_m} m → ${shipped.chartVerdicts![i]}`
                                     : null,
                             )
                             .filter(Boolean);

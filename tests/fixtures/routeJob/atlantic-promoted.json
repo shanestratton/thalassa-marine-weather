@@ -1,0 +1,20 @@
+{
+    "sha256": "4abf15852515a8ec72579dbcc0a3464be4bdbc934c427b194e8b9bc5bfbdf8e4",
+    "summary": {
+        "points": 3,
+        "nm": 2.8078,
+        "first": [-30.030455021508327, 40.00017427236795],
+        "last": [-29.96947659980039, 40.00017427236795],
+        "masks": {
+            "channelMask": 2,
+            "tier4Mask": 2,
+            "cautionMask": 2,
+            "canalMask": 2,
+            "offshoreMask": 2,
+            "chartedShallowMask": 2,
+            "landPaintConflictMask": 2
+        },
+        "promoted": true,
+        "chartVerdicts": 14
+    }
+}

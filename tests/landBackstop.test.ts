@@ -641,13 +641,19 @@ describe('backstopVerdict — only a chart finer than ETOPO may vouch', () => {
 
 describe('every caller passes the route’s own charts to the check', () => {
     it('Auto, the passage planner and the voyage form', () => {
+        // The verdicts the route job worked out where it routed (127-ROUTE-W:
+        // a probe is a function, which cannot come back from the worker).
         for (const [file, call] of [
-            ['services/autoroutingThalassa.ts', 'inshoreRouteCrossesLand(polyline, { chartWater: ok.chartWater })'],
-            ['components/map/usePassagePlanner.ts', 'chartWater: inshoreRes.chartWater'],
-            ['hooks/useVoyageForm.ts', 'chartWater: inshoreRes.chartWater'],
+            [
+                'services/autoroutingThalassa.ts',
+                'inshoreRouteCrossesLand(polyline, { chartVerdicts: ok.chartVerdicts })',
+            ],
+            ['components/map/usePassagePlanner.ts', 'chartVerdicts: inshoreRes.chartVerdicts'],
+            ['hooks/useVoyageForm.ts', 'chartVerdicts: inshoreRes.chartVerdicts'],
         ] as const) {
             const source = readFileSync(file, 'utf8');
             expect(source, file).toContain(call);
+            expect(source, file).not.toContain('chartWater: ');
             expect(source, file).toContain('landBackstop');
         }
         // …and the planner and the voyage form refuse the engine's own
@@ -661,9 +667,70 @@ describe('every caller passes the route’s own charts to the check', () => {
         }
         expect(readFileSync('components/map/usePassagePlanner.ts', 'utf8')).toContain('landBackstopTitle(backstop)');
         expect(readFileSync('services/autoroutingThalassa.ts', 'utf8')).toContain('chartedLandFinding(ok.hardLand)');
-        // The engine wrapper builds it on both of its success paths.
-        const router = readFileSync('services/InshoreRouter.ts', 'utf8');
-        expect(router).toContain('...routeChartWater(merged, g.polyline)');
-        expect(router).toContain('...routeChartWater(merged, result.polyline)');
+        // The route job works them out on both of its success paths.
+        const job = readFileSync('services/routing/routeJob.ts', 'utf8');
+        expect(job).toContain('...routeChartVerdicts(job.layers, g.polyline)');
+        expect(job).toContain('...routeChartVerdicts(job.layers, result.polyline)');
+    });
+});
+
+// ── The verdicts come from the route job now (127-ROUTE-W decision 2) ─────
+//
+// The probe is a function and cannot cross back from the route worker, so the
+// job answers with the probe's verdict at every sample of the line it returns;
+// the check then reads them as Retry always has. Same samples, same verdicts:
+// the land check does not change.
+describe('the route job’s chart verdicts', () => {
+    it('equal today’s probe at the same samples (the synthetic archipelago)', async () => {
+        const { syntheticArchipelago } = await import('./fixtures/syntheticArchipelago');
+        const { routeChartVerdicts } = await import('../services/routing/routeJob');
+        const a = syntheticArchipelago();
+        const layers: Record<string, FeatureCollection> = {};
+        for (const cell of a.cells)
+            for (const [name, fc] of Object.entries(cell.blob.layers)) {
+                const rank = cellFinenessRank({ nativeScale: cell.blob.nativeScale, cellId: cell.meta.id });
+                (layers[name] ??= { type: 'FeatureCollection', features: [] }).features.push(
+                    ...fc.features.map((f) => ({ ...f, properties: { ...f.properties, _scaleRank: rank } })),
+                );
+            }
+        // Straight across the archipelago: land, reef, banded water and the open sea.
+        const line: LonLat[] = [a.routes['5nm'].from, a.routes['20nm'].to, a.routes['12nm'].to];
+        let w = Infinity;
+        let s = Infinity;
+        let e = -Infinity;
+        let n = -Infinity;
+        for (const [lon, lat] of line) {
+            w = Math.min(w, lon);
+            e = Math.max(e, lon);
+            s = Math.min(s, lat);
+            n = Math.max(n, lat);
+        }
+        const probe = backstopChartWaterProbe(layers as never, [w - 1e-6, s - 1e-6, e + 1e-6, n + 1e-6]);
+        etopo(() => 5);
+        const today = await inshoreRouteCrossesLand(line, { chartWater: probe });
+        const { chartVerdicts } = routeChartVerdicts(layers as never, line);
+        expect(chartVerdicts).toEqual(today.chartVerdicts);
+        expect(chartVerdicts).toHaveLength(samplePolyline(line).length);
+        // The line crosses more than one kind of chart evidence.
+        expect(new Set(chartVerdicts).size).toBeGreaterThan(1);
+        // …and the check reads them exactly as it read the probe.
+        const fromVerdicts = await inshoreRouteCrossesLand(line, { chartVerdicts });
+        expect(fromVerdicts).toEqual(today);
+    });
+
+    it("a probe that throws gives 'unchecked' there, with today's one warn line", async () => {
+        const { chartVerdictsAlong } = await import('../services/routing/routeJob');
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const broken: ChartWaterProbe = (lon) => {
+            if (lon > 161.02) throw new Error('bad geometry');
+            return 'water';
+        };
+        const verdicts = chartVerdictsAlong(broken, EAST);
+        expect(verdicts).toHaveLength(samplePolyline(EAST).length);
+        expect(verdicts).toContain('water');
+        expect(verdicts.filter((v) => v === 'unchecked').length).toBeGreaterThan(1);
+        const lines = warn.mock.calls.filter((c) => String(c.join(' ')).includes('chart evidence failed'));
+        expect(lines).toHaveLength(1);
+        expect(lines[0].join(' ')).toContain('[landBackstop] chart evidence failed — it vouches nothing there:');
     });
 });

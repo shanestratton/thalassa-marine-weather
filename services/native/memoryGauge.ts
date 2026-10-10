@@ -52,6 +52,9 @@ function armWarningListener(): void {
         // so this display-layer module never pulls the routing engine or
         // ENC machinery into bundles that only wanted a gauge.
         void import('../engine/navGrid').then(({ trimNavGridCache }) => trimNavGridCache(0)).catch(() => {});
+        // …and the route worker's own grids (127-ROUTE-W: routes build their
+        // grids there now, so the main thread's cache above is empty).
+        void import('../routing/routeWorkerHost').then(({ trimRouteWorkers }) => trimRouteWorkers()).catch(() => {});
         void import('../enc/encIndexCache').then(({ clearIndexCache }) => clearIndexCache()).catch(() => {});
     }).catch(() => {
         // Plugin absent (old native build) — the gauge stays silent and the

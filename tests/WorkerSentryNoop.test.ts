@@ -69,8 +69,17 @@ function workerSpecifiers(code: string): string[] {
     return specs;
 }
 
+/**
+ * The route worker (127-ROUTE-W) is the main build's `router-engine` chunk
+ * itself, started from its own URL (routeWorkerHost: `new Worker(ROUTE_ENGINE.url,
+ * …)`), so no `new URL(...)` names it. Its graph gets the route job's own
+ * logger copy, whose Sentry import is stubbed the same way (vite.config.ts
+ * routeEngineLogger): the same no-error() rule keeps that free.
+ */
+const ROUTE_WORKER = join(ROOT, 'services/routing/routeJob.ts');
+
 function workerEntries(): string[] {
-    const entries = new Set<string>();
+    const entries = new Set<string>([ROUTE_WORKER]);
     for (const file of appSource()) {
         for (const specifier of workerSpecifiers(read(file))) {
             const target = resolveImport(file, specifier);
@@ -164,13 +173,19 @@ describe('workers ship without a second Sentry SDK', () => {
                 'services/engine/navGridWorker.ts',
                 'services/enc/encGeometryWorker.ts',
                 'services/enc/encParseWorker.ts',
+                'services/routing/routeJob.ts',
             ]),
         );
+        // The route worker is started from the engine chunk's own URL.
+        const host = read(join(ROOT, 'services/routing/routeWorkerHost.ts'));
+        expect(host).toMatch(/new Worker\(ROUTE_ENGINE\.url, \{ type: 'module' \}\)/);
+        expect(read(ROUTE_WORKER)).toContain('export const ROUTE_ENGINE_URL = import.meta.url;');
         const withLogger = entries.filter((entry) =>
             importGraph(entry).some((f) => rel(f) === 'utils/createLogger.ts'),
         );
         // If no worker reaches createLogger any more, remove workerSentryNoop from vite.config.ts.
         expect(withLogger.map(rel)).toContain('services/engine/navGridWorker.ts');
+        expect(withLogger.map(rel)).toContain('services/routing/routeJob.ts');
     });
 
     it.each(entries.map((entry) => [rel(entry), entry]))('%s never calls a logger error()', (_name, entry) => {

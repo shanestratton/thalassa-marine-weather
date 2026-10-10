@@ -70,9 +70,26 @@ const PIN_GAP_REFUSE_M = 500;
 const NOTICE_LOOKUP_MS = 5_000;
 /** The ⚡ Auto route's cloud fill pad around the leg (useAutoRouteLeg). */
 const FILL_PAD_DEG = 0.03;
-/** Lets the status paint before the engine's synchronous A* holds the thread
- *  (20–47 s measured on iPhone; the passage planner yields the same). */
+/** Lets "Following deep water…" paint before the prep starts. The router
+ *  itself runs in the route worker since 127-ROUTE-W, so nothing should hold
+ *  the thread after it; where no worker can start, the A* holds it for a few
+ *  seconds (measured 1.7-1.9 s for a synthetic 20 NM route on a Mac; the old
+ *  "20–47 s on iPhone" dates from before the grid speed-ups), and the stage
+ *  words say so (ROUTE_STAGE_WORDS). */
 const PAINT_YIELD_MS = 80;
+/**
+ * What Auto's status says at each stage of the router (127-ROUTE-W; Shane,
+ * 2026-10-10: "yes for a short while it looked as though the app had
+ * frozen"). 'routing-main' is a phone where the route worker could not start:
+ * the router runs the old way, and the screen may pause.
+ */
+export const ROUTE_STAGE_WORDS: Readonly<Record<string, string>> = {
+    queued: 'Waiting for the route before this one…',
+    routing: 'Routing round the land…',
+    'routing-main': 'Routing round the land (the screen may pause)…',
+};
+/** Said while the satellite land check and the notices run, after the router. */
+const CHECKING_WORDS = 'Checking the route…';
 
 const AUTH_REQUIRED = 'Sign in to use Auto routing.';
 const NO_ROUTE = 'Thalassa could not route this passage. Nothing changed.';
@@ -294,7 +311,16 @@ export async function calculateThalassaProposal(
         // here would abort good computes on the phone (the old trial's 45 s).
         let res: Awaited<ReturnType<typeof tryInshoreRoute>>;
         try {
-            res = await tryInshoreRoute(departure, destination, draftM, airDraftM, 'safest', { departureMs });
+            // The stop signal reaches the router (✕ ends a route in the
+            // worker at once), and each stage says what it is doing.
+            res = await tryInshoreRoute(departure, destination, draftM, airDraftM, 'safest', {
+                departureMs,
+                ...(signal ? { signal } : {}),
+                onStage: (stage) => {
+                    const words = ROUTE_STAGE_WORDS[stage];
+                    if (words) progress(words);
+                },
+            });
         } catch (error) {
             assertCurrent();
             log.warn(`engine threw: ${error instanceof Error ? error.message : String(error)}`);
@@ -430,9 +456,11 @@ export async function calculateThalassaProposal(
     // water (2026-10-02, Coral Sea Marina → Daydream Island: its ~1.8 km
     // pixels read the marina and the deep water off a headland as land), and
     // the refusal says where, and whether the charts are missing there.
+    progress(CHECKING_WORDS);
     const { inshoreRouteCrossesLand } = await import('./routing/landBackstop');
     assertCurrent();
-    const backstop = await inshoreRouteCrossesLand(polyline, { chartWater: ok.chartWater });
+    // The verdicts the route job worked out at every sample (127-ROUTE-W).
+    const backstop = await inshoreRouteCrossesLand(polyline, { chartVerdicts: ok.chartVerdicts });
     assertCurrent();
     if (backstop.status === 'verified' && backstop.crossesLand) throw new Error(landBackstopRefusal(backstop));
     const backstopState: ThalassaRouteDisclosure['backstop'] =
