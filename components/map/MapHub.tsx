@@ -16,7 +16,7 @@
  *   - MapWeatherControls.tsx (weather timeline, legend, model picker)
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  */
-import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { CREDITS_SLOT_PX, CREDITS_STRIP_POSITION_CLASS, creditsStripTop, creditStackPx } from './creditsStrip';
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
@@ -227,7 +227,10 @@ import { useTracerPinMarkers } from './useTracerPinMarkers';
 import { useTracerTraceLayer } from './useTracerTraceLayer';
 import { usePassageRouterEvents } from './usePassageRouterEvents';
 import { usePiTileAutoCache } from './usePiTileAutoCache';
-import { useTracerGrading, type TracerStatus } from './useTracerGrading';
+import { useTracerGrading, type TracerChartsWait, type TracerStatus } from './useTracerGrading';
+// 127-C-c: where the boat's licensed charts are (memory only, from her Pi).
+import { boatChartsNow as readBoatChartsNow, boatName, subscribeBoatRegistry } from '../../services/enc/piCellSync';
+import { boatChartsLine, boatChartsRefusal } from '../../services/enc/boatChartsWords';
 import {
     AUTO_ROUTE_BUTTON_VISIBLE,
     CHARTS_FAB_CATEGORY_VISIBLE,
@@ -516,6 +519,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     // actually writes it. Restating the union here would be a second
     // hand-maintained copy of the same list.
     const [tracerStatus, setTracerStatus] = useState<TracerStatus>('idle');
+    // The tracer's wait for her licensed charts (127-C-c decision 7a).
+    const [tracerChartsWait, setTracerChartsWait] = useState<TracerChartsWait | null>(null);
     const tracerCtxRef = useRef<TracerContext | null>(null);
     /** Small LRU of recent GRID-BEARING contexts (jank audit #6): the single
      *  slot rebuilt the whole window on every ping-pong edit (nudge pin 3,
@@ -1276,8 +1281,22 @@ export const MapHub: React.FC<MapHubProps> = ({
                 encRegistryFingerprint: getEncRegistryFingerprint(traceRegistryScope(capturedCoords)),
                 departureMs: departureMs ?? Date.now(),
                 tideWindowLabel: departureLabel,
+                // Graded while her licensed charts were not open: never released.
+                boatChartsMissing:
+                    tracerChartsWait && tracerChartsWait !== 'opening'
+                        ? boatChartsRefusal(tracerChartsWait, boatName())
+                        : null,
             }),
-        [capturedCoords, tracerStatus, legVerdicts, ackedLegs, settings.vessel, departureMs, departureLabel],
+        [
+            capturedCoords,
+            tracerStatus,
+            legVerdicts,
+            ackedLegs,
+            settings.vessel,
+            departureMs,
+            departureLabel,
+            tracerChartsWait,
+        ],
     );
     /* Memoised on the same inputs the callback already closes over. This gate
        builds the whole ENC registry fingerprint (every cell in scope, sorted
@@ -2067,6 +2086,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         setAckedLegs,
         setSailArmed,
         setShareArmed,
+        setTracerChartsWait,
     });
     // Grade stubs (127-C-b) are checked again on her charts when she opens the
     // Route report; her tap on a stub row and a refused Save do the same.
@@ -3192,6 +3212,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Read only: the phone aboard writes it (127-C-c). True means this
     // account's paired Pi holds licensed charts (127-DESKMAP C1).
     const boatChartsLicensed = settings.boatCharts?.licensed === true;
+    // The phone: where her licensed charts are (127-C-c); null when not paired.
+    const boatChartsNow = useSyncExternalStore(subscribeBoatRegistry, readBoatChartsNow);
+    const chartsBoatName = boatChartsNow ? boatName() : ownBoatName;
     const crewingBoat = useCrewingBoat();
     const crewingOwnerId = crewingBoat?.ownerId ?? null;
     const crewingName = crewingBoat?.name ?? null;
@@ -4571,12 +4594,23 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 </button>
                                             </div>
                                         )}
-                                        {tracerStatus === 'loading' && (
+                                        {tracerStatus === 'loading' && !tracerChartsWait && (
                                             <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-sky-300">
                                                 Reading charts for this area…
                                             </div>
                                         )}
-                                        {tracerStatus === 'nochart' && (
+                                        {/* Her licensed charts, opening or not here (127-C-c 7a): the
+                                            one line, in place of the loading and no-chart lines. */}
+                                        {tracerChartsWait && (
+                                            <div
+                                                className={`border-b border-white/10 px-3 py-1.5 text-[10px] font-bold ${
+                                                    tracerChartsWait === 'opening' ? 'text-sky-300' : 'text-slate-300'
+                                                }`}
+                                            >
+                                                {boatChartsLine(tracerChartsWait, boatName(), 'strip')}
+                                            </div>
+                                        )}
+                                        {tracerStatus === 'nochart' && !tracerChartsWait && (
                                             // Grey like the sketch legs, never the needs-tide amber (127-DESKMAP C3).
                                             <div className="border-b border-white/10 px-3 py-1.5 text-sm font-bold text-slate-300">
                                                 No chart for here on this device: these legs are a sketch, not checked.
@@ -5235,9 +5269,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                     nightDim={nightDim}
                     onNightDimChange={setNightDim}
                     onToggleChartKey={() => setChartKeyOpen((open) => !open)}
-                    onOpenEncLibrary={() => setPage('encLibrary')}
                     boatChartsLicensed={boatChartsLicensed}
-                    boatName={ownBoatName}
+                    boatName={chartsBoatName}
+                    boatChartsState={boatChartsNow}
                 />
                 <Suspense fallback={null}>
                     <ChartKeyPanel

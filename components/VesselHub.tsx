@@ -1487,8 +1487,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             onNavigate('nmea');
                         }}
                     />
-                    {/* ENC Library is not on this menu (Shane 2026-08-07: "less
-                        is more"); the map's no-coverage affordance opens it. */}
+                    {/* No ENC Library on this menu: it is retired (127-C-c). */}
                     <ListDivider />
                     {/* MUSIC — removed 2026-07-19, RESTORED 2026-08-08 at Shane's
                         ask: the mic and the now-playing bar do not help when you

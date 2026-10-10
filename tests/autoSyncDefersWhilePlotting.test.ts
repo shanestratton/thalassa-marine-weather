@@ -19,10 +19,33 @@ const h = vi.hoisted(() => ({
     syncEncFromPi: vi.fn(async () => ({ pulled: 0, failed: 0, skipped: 0 })),
     isAvailable: vi.fn(() => true),
     getCurrentPosition: vi.fn(async () => null),
+    listPiInstalledCharts: vi.fn(async () => [] as unknown[]),
+    registerFromPiIndex: vi.fn(() => 0),
+    pulls: vi.fn(),
 }));
 
-vi.mock('../services/EncImportService', () => ({ syncEncFromPi: h.syncEncFromPi }));
-vi.mock('../services/PiCacheService', () => ({ piCache: { isAvailable: h.isAvailable } }));
+vi.mock('../services/EncImportService', () => ({
+    syncEncFromPi: h.syncEncFromPi,
+    listPiInstalledCharts: h.listPiInstalledCharts,
+    registerFromPiIndex: h.registerFromPiIndex,
+}));
+vi.mock('../services/PiCacheService', () => ({
+    piCache: {
+        isAvailable: h.isAvailable,
+        viaRemoteAccess: false,
+        baseUrl: 'https://pi.local:3001',
+        ping: async () => ({ reachable: true }),
+        onStatusChange: () => () => undefined,
+    },
+}));
+vi.mock('../services/piTls', () => ({
+    piRequest: async (options: { url: string }) => {
+        h.pulls(options.url);
+        throw new Error('no blob pulls in this test');
+    },
+    piPairingFetch: async () => ({ status: 599, headers: {}, data: '', peerSpki: '' }),
+    isPinnedTransportAvailable: () => true,
+}));
 vi.mock('../services/GpsService', () => ({
     GpsService: { getCurrentPositionIfGranted: h.getCurrentPosition },
 }));
@@ -55,6 +78,26 @@ describe('autoSyncFromPi — defers while the skipper is plotting', () => {
         setTracer(false);
         await autoSyncFromPiIfPossible();
         expect(h.syncEncFromPi).toHaveBeenCalledTimes(1);
+    });
+
+    // 127-C-c decision 7a: the boat registry (metadata only) is the tracer's
+    // own call, so it never waits for this deferral — only blob pulls do.
+    it('with the tracer open at launch the boat registry still registers, and no blob is pulled', async () => {
+        localStorage.setItem(
+            'thalassa_pi_pairing_v1',
+            JSON.stringify({ deviceId: 'pi-fixture', publicKeySpki: 'key', boatName: 'Nordlys av Tromsø' }),
+        );
+        const rows = [{ cellId: 'OC-99-ZZ0700', sourceHO: 'ZZ' }];
+        h.listPiInstalledCharts.mockResolvedValueOnce(rows);
+        setTracer(true);
+        await autoSyncFromPiIfPossible();
+        const { ensureBoatRegistry, boatRegistryState } = await import('../services/enc/piCellSync');
+        expect(await ensureBoatRegistry()).toBe('loaded');
+        expect(boatRegistryState()).toBe('loaded');
+        expect(h.registerFromPiIndex).toHaveBeenCalledWith(rows);
+        expect(h.syncEncFromPi).not.toHaveBeenCalled();
+        expect(h.pulls).not.toHaveBeenCalled();
+        localStorage.removeItem('thalassa_pi_pairing_v1');
     });
 
     it('still skips when the Pi is unreachable, tracer or no tracer', async () => {

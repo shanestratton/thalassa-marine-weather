@@ -30,9 +30,37 @@ vi.mock('../stores/settingsStore', () => ({
     useSettingsStore: { getState: () => ({ settings: { vessel: hoisted.vessel } }) },
 }));
 vi.mock('../services/VoyageService', () => ({ refreshSavedRouteVoyageVerification: vi.fn(async () => ({})) }));
+// The boat registry (127-C-c decision 7a): not paired ('none') unless a test says so.
+const boat = vi.hoisted(() => ({
+    state: 'none' as 'none' | 'pending' | 'loaded' | 'away',
+    licensed: true,
+    subs: new Set<() => void>(),
+    waiters: [] as Array<(state: string) => void>,
+}));
+vi.mock('../services/enc/piCellSync', () => ({
+    whenBoatRegistrySettled: () =>
+        boat.state === 'pending' ? new Promise((resolve) => boat.waiters.push(resolve)) : Promise.resolve(boat.state),
+    boatRegistryState: () => boat.state,
+    subscribeBoatRegistry: (fn: () => void) => {
+        boat.subs.add(fn);
+        return () => boat.subs.delete(fn);
+    },
+    boatHasLicensedCharts: () => boat.licensed,
+}));
+const setBoat = (state: typeof boat.state) => {
+    boat.state = state;
+    for (const resolve of boat.waiters.splice(0)) resolve(state);
+    for (const fn of [...boat.subs]) fn();
+};
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
-import { loadSavedTraces, saveTrace, type TraceLegVerdict, type TracePoint } from '../services/routeTracer';
+import {
+    bankTraceVerification,
+    loadSavedTraces,
+    saveTrace,
+    type TraceLegVerdict,
+    type TracePoint,
+} from '../services/routeTracer';
 import { evaluateTraceRelease, traceFollowStatus } from '../services/traceVerification';
 import { getTraceCheckOutcome } from '../services/traceCheckOutcomes';
 import {
@@ -114,6 +142,9 @@ describe('traceBackgroundCheck', () => {
                     calls.push({ points, opts, resolve });
                 }),
         );
+        boat.state = 'none';
+        boat.licensed = true;
+        boat.waiters.length = 0;
         setAuthIdentityScope(null);
         setAuthIdentityScope('queue-owner');
         __resetTraceBackgroundCheckForTest();
@@ -125,6 +156,41 @@ describe('traceBackgroundCheck', () => {
         __resetTraceBackgroundCheckForTest();
         setAuthIdentityScope(null);
         vi.useRealTimers();
+    });
+
+    it('paired + pending: no re-check until the boat registry loads, then a matching check reads checked', async () => {
+        const banked = okFor(routeA);
+        if (banked.ok) bankTraceVerification(A, banked.verification);
+        expect(statusOf(A).tone).toBe('checked');
+        boat.state = 'pending';
+        setLogPageActive(true);
+        enqueueTraceChecks([A, B], 'sheet');
+        await settle();
+        await settle();
+        expect(calls).toHaveLength(0);
+        expect(getTraceCheckSnapshot().states.get(A)).not.toMatchObject({ phase: 'done' });
+
+        setBoat('loaded');
+        await vi.waitFor(() =>
+            expect(getTraceCheckSnapshot().states.get(A)).toEqual({ phase: 'done', result: 'checked' }),
+        );
+        await vi.waitFor(() => expect(calls).toHaveLength(1));
+        expect(calls[0].points).toEqual(routeB);
+    });
+
+    it('away with licensed charts: unavailable (retryable), never nochart; the charts opening re-queues it', async () => {
+        boat.state = 'away';
+        setLogPageActive(true);
+        enqueueTraceChecks([B], 'sheet');
+        await vi.waitFor(() =>
+            expect(getTraceCheckSnapshot().states.get(B)).toEqual({ phase: 'done', result: 'unavailable' }),
+        );
+        expect(calls).toHaveLength(0);
+        expect(getTraceCheckOutcome(B)?.kind).not.toBe('nochart');
+
+        setBoat('loaded');
+        await vi.waitFor(() => expect(calls).toHaveLength(1));
+        expect(calls[0].points).toEqual(routeB);
     });
 
     it('waits for the Log page, then runs ONE route at a time, in order, without duplicates', async () => {

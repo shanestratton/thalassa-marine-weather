@@ -81,7 +81,13 @@ vi.mock('../services/piTls', () => ({
     isPinnedTransportAvailable: () => true,
 }));
 vi.mock('../services/PiCacheService', () => ({
-    piCache: { isAvailable: () => true, baseUrl: 'https://pi.local:3001' },
+    // On the boat's Wi-Fi: the live base is the LAN one (127-C-c).
+    piCache: {
+        isAvailable: () => true,
+        baseUrl: 'https://pi.local:3001',
+        lane: 'lan',
+        getLanBaseUrl: () => 'https://pi.local:3001',
+    },
 }));
 vi.mock('../services/enc/EncHazardService', () => ({
     importCell: h.importCell,
@@ -90,6 +96,9 @@ vi.mock('../services/enc/EncHazardService', () => ({
 
 import { syncEncFromPi } from '../services/EncImportService';
 import { planPiCellSync } from '../services/enc/piSyncPlan';
+import * as vault from '../services/enc/boatCellVault';
+import { clearAllCellMetadata } from '../services/enc/EncCellMetadata';
+import { isProtectedChart } from '../services/enc/chartLicence';
 
 /** Serve a Pi row and its body; the row's size is the Pi's file, as on the Pi. */
 function servePi(
@@ -123,7 +132,10 @@ function servePi(
 /** What the phone's import records — its OWN byte count, never the Pi's. */
 function wireImport(): void {
     h.importCell.mockImplementation(
-        async (cell: { cellId: string; edition: number }, opts: { contentSha256?: string; piSizeBytes?: number }) => {
+        async (
+            cell: { cellId: string; edition: number },
+            opts: { contentSha256?: string; piSizeBytes?: number; licence?: 'open' | 'protected' },
+        ) => {
             const stored = {
                 id: cell.cellId,
                 edition: cell.edition,
@@ -132,6 +144,10 @@ function wireImport(): void {
                 ...(opts.piSizeBytes !== undefined ? { piSizeBytes: opts.piSizeBytes } : {}),
             };
             h.held = [...h.held.filter((c) => c.id !== cell.cellId), stored];
+            // As the real import does since 127-C-c: a licensed cell's bytes go
+            // to the in-memory vault, an open one's to disk.
+            if (isProtectedChart({ id: cell.cellId, licence: opts.licence }))
+                vault.put(cell.cellId, JSON.stringify(cell));
             return stored;
         },
     );
@@ -140,6 +156,8 @@ function wireImport(): void {
 describe('Pi chart sync count — never offers a sync that cannot add anything', () => {
     beforeEach(() => {
         localStorage.clear();
+        vault.clear();
+        clearAllCellMetadata();
         h.rows = [];
         h.bodies.clear();
         h.fetched = [];

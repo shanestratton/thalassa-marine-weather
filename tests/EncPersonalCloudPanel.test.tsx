@@ -20,11 +20,11 @@ vi.mock('../services/supabase', () => {
 
 import { EncPersonalCloudPanel } from '../components/vessel/EncPersonalCloudPanel';
 
-/** What Thalassa itself does, which 126 makes true. Not "never copied to the
- *  cloud": until 127 moves the chart store out of Documents and excludes it
- *  from device backup, iCloud Backup can still copy it, and the card must not
- *  promise what the phone does not yet keep. */
-const LINE = "Licensed charts stay on this device and your boat's Pi. Thalassa never uploads them to its servers.";
+/** What Thalassa itself does, which 127 makes true (127-C-c: memory only on
+ *  the phone). Not "never copied to the cloud": device backups made before 127
+ *  may still hold the old chart folder until the skipper deletes them. */
+const LINE =
+    "Licensed charts stay on your boat's Pi and open in this device's memory only. Thalassa never uploads them to its servers.";
 
 describe('the charts line in Settings → System & Cloud', () => {
     it('says where licensed charts live, in one plain line', () => {

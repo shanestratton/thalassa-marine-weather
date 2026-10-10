@@ -35,6 +35,9 @@ vi.mock('../services/PiCacheService', () => ({
         get baseUrl() {
             return mocks.baseUrl;
         },
+        // On the boat's Wi-Fi: the live base is the LAN one (127-C-c).
+        lane: 'lan',
+        getLanBaseUrl: () => mocks.baseUrl,
     },
 }));
 vi.mock('../services/authIdentityScope', () => ({
@@ -42,6 +45,13 @@ vi.mock('../services/authIdentityScope', () => ({
     isAuthIdentityScopeCurrent: mocks.currentScope,
 }));
 vi.mock('../services/PiPairingService', () => ({ getPairing: () => ({ publicKeySpki: mocks.pairingKey }) }));
+// The boat's charts (127-C-c): not the subject here.
+vi.mock('../services/enc/piCellSync', () => ({
+    boatName: () => null,
+    boatChartsNow: () => null,
+    ensureBoatRegistry: async () => 'none',
+    subscribeBoatRegistry: () => () => undefined,
+}));
 vi.mock('../stores/MapFitTargetStore', () => ({ requestMapFit: vi.fn() }));
 vi.mock('../context/UIContext', () => ({ useUI: () => ({ setPage: vi.fn() }) }));
 vi.mock('../utils/system', async (importOriginal) => ({
@@ -479,11 +489,13 @@ describe('easy chart delivery dialog', () => {
         expect(screen.getByRole('region', { name: 'Recent chart installs' })).not.toHaveTextContent('private-token');
     });
 
+    // An open (NOAA-shaped) chart: "Sync N charts" counts open charts only,
+    // since licensed ones open from the Pi in memory (127-C-c).
     it('surfaces sync when bytes changed despite an unchanged id, edition and size', async () => {
         mocks.getCoverage.mockReturnValue([
             {
-                id: 'TESTCELL',
-                sourceHO: 'TEST',
+                id: 'US5ZZ11M',
+                sourceHO: 'US',
                 bbox: [0, 0, 1, 1],
                 edition: 1,
                 issued: '2026-09-27',
@@ -494,7 +506,7 @@ describe('easy chart delivery dialog', () => {
             },
         ]);
         mocks.listPiInstalledCharts.mockResolvedValue([
-            { cellId: 'TESTCELL', edition: 1, sizeBytes: 100, contentSha256: 'b'.repeat(64) },
+            { cellId: 'US5ZZ11M', sourceHO: 'US', edition: 1, sizeBytes: 100, contentSha256: 'b'.repeat(64) },
         ]);
         render(<EncCellManager />);
         fireEvent.click(screen.getByRole('button', { name: /ENC Charts/i }));

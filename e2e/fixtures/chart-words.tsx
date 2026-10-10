@@ -14,6 +14,11 @@ if (!import.meta.env.DEV) throw new Error('The chart-words fixture is available 
 //
 // ?view=legs | sweep | caveats — the Route tracer's leg rows, the departure
 //   planner on a plan opened again, and RoutePlanner's saved-plan notes.
+// ?view=tracer-wait&state=opening | away | slow — the tracer card while her
+//   licensed charts open from the Pi, or are not here (127-C-c decision 7a).
+// ?view=notice&state=away | tailnet | opening — the phone's no-chart notice
+//   (ChartDepthControls) when her licensed charts open on the boat's Wi-Fi only.
+//   Both name the longest fictional boat, L'Étoile du Pacifique.
 // &place=noumea | chesapeake | tromso   &mode=dark | light | night
 // &root=app (the app's fluid root)   &largeText   &fonts=wide   &pane=true
 class FixtureStorage implements Storage {
@@ -43,7 +48,10 @@ window.fetch = async () =>
     new Response(JSON.stringify({ error: 'Chart-words fixture: network disabled.' }), { status: 503 });
 
 const params = new URLSearchParams(location.search);
-const view = (['legs', 'sweep', 'caveats'] as const).find((v) => v === params.get('view')) ?? 'legs';
+const view =
+    (['legs', 'sweep', 'caveats', 'tracer-wait', 'notice'] as const).find((v) => v === params.get('view')) ?? 'legs';
+const boatState = (['opening', 'away', 'slow', 'tailnet'] as const).find((v) => v === params.get('state')) ?? 'opening';
+const BOAT = "L'Étoile du Pacifique";
 const place = (['noumea', 'chesapeake', 'tromso'] as const).find((p) => p === params.get('place')) ?? 'noumea';
 const mode = params.get('mode') === 'light' ? 'light' : params.get('mode') === 'night' ? 'night' : 'dark';
 const pane = params.get('pane') === 'true';
@@ -68,6 +76,9 @@ const [
     { savedInshoreRouteCaveats },
     { chartFreeVoyagePlan, stubLegVerdict, TRACE_LAND_CROSSING_MESSAGE },
     { NIGHT_SCRIM_Z_INDEX },
+    { boatChartsLine, boatChartsRefusal },
+    { ChartDepthControls },
+    { Capacitor },
 ] = await Promise.all([
     import('../../services/authIdentityScope'),
     import('../../stores/settingsStore'),
@@ -77,7 +88,12 @@ const [
     import('../../components/map/inshoreRouteNotice'),
     import('../../services/chartFacts'),
     import('../../components/ui/OverlayPortal'),
+    import('../../services/enc/boatChartsWords'),
+    import('../../components/map/ChartDepthControls'),
+    import('@capacitor/core'),
 ]);
+// The no-chart notice is the phone's (127-C-c): draw it as the app does there.
+if (view === 'notice') (Capacitor as { isNativePlatform: () => boolean }).isNativePlatform = () => true;
 setAuthIdentityScope('chart-words-synthetic-fixture');
 await awaitSettingsLoaded();
 
@@ -185,6 +201,76 @@ const panel = mode === 'light' ? 'bg-white text-slate-900' : 'bg-slate-900/95 te
 // The tracer card is MapHub's (w-72), clamped to the screen so that large
 // text (a 24 px root makes w-72 432 px) measures the words, not the card.
 function Body() {
+    if (view === 'tracer-wait')
+        return (
+            <div
+                data-fixture-card
+                className={`map-tracer-card absolute left-3 top-3 bottom-3 flex w-72 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-amber-500/30 shadow-2xl ${panel}`}
+            >
+                <div className="border-b border-white/10 px-3 py-2 text-xs font-black">
+                    🧭 Trace route ({pins.length})
+                </div>
+                {/* MapHub's line while her licensed charts open, or are not here. */}
+                <div
+                    data-boat-line
+                    className={`border-b border-white/10 px-3 py-1.5 text-[10px] font-bold ${
+                        boatState === 'opening' ? 'text-sky-300' : 'text-slate-300'
+                    }`}
+                >
+                    {boatChartsLine(boatState, BOAT, 'strip')}
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                    <TracerWaypointList
+                        capturedCoords={pins}
+                        legVerdicts={boatState === 'opening' ? pins.slice(1).map(() => null) : full}
+                        tideLabels={{}}
+                        tideAnchor={null}
+                        departureMs={null}
+                        departureLabel={null}
+                        mapRef={{ current: null }}
+                        pulseMarkHalo={() => undefined}
+                        onRegradeStub={() => undefined}
+                    />
+                </div>
+                {boatState !== 'opening' && (
+                    <div className="border-t border-white/10 p-2">
+                        <div
+                            role="status"
+                            data-boat-refusal
+                            className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-sm font-bold leading-snug text-amber-200"
+                        >
+                            Route not ready to save, export or sail: {boatChartsRefusal(boatState, BOAT)}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    if (view === 'notice')
+        return (
+            <div data-fixture-card className="thalassa-chart-map absolute inset-0">
+                <ChartDepthControls
+                    surfaceVisible
+                    chartKeyVisible={false}
+                    plotting={false}
+                    tideDepthMode={false}
+                    tideOffsetInfo={null}
+                    tideScrubQ={0}
+                    onTideScrubChange={() => undefined}
+                    onToggleTideDepth={() => undefined}
+                    encCellCount={0}
+                    encReferenceCellCount={0}
+                    encVisible
+                    encHydration={{ total: 0, remaining: 0 }}
+                    encNoCoverage
+                    referenceNoticeVisible={false}
+                    nightDim={false}
+                    onNightDimChange={() => undefined}
+                    onToggleChartKey={() => undefined}
+                    boatName={BOAT}
+                    boatChartsState={boatState === 'slow' ? 'away' : boatState}
+                />
+            </div>
+        );
     if (view === 'legs')
         return (
             <div

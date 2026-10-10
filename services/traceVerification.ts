@@ -10,6 +10,8 @@
 import type { TraceGrade, TraceLegVerdict, TracePoint } from './routeTracer';
 import { TRACE_LAND_CROSSING_MESSAGE } from './routeTracer';
 import type { TraceCheckOutcomeRecord } from './traceCheckOutcomes';
+import { boatChartsLine } from './enc/boatChartsWords';
+import { isProtectedChart } from './enc/chartLicence';
 
 export type TraceCheckStatus = 'idle' | 'loading' | 'ready' | 'marksonly' | 'toolarge' | 'nochart';
 
@@ -40,6 +42,9 @@ export interface TraceVerificationContext {
     encRegistryFingerprint: string;
     departureMs: number;
     tideWindowLabel: string | null;
+    /** Her licensed charts are not open here (127-C-c decision 7a): the words
+     *  to refuse with. Legs graded meanwhile are provisional, never released. */
+    boatChartsMissing?: string | null;
 }
 
 export interface TraceReleaseGate {
@@ -219,6 +224,12 @@ export function evaluateTraceRelease(
                   recheck: true,
               };
     }
+    // Graded on the open charts while hers were not open: provisional (127-C-c).
+    if (context.boatChartsMissing) {
+        return landLegs.length > 0
+            ? landRefusal()
+            : { allowed: false, reason: context.boatChartsMissing, verification: null };
+    }
 
     const legGrades = verdicts.map((verdict) => verdict!.grade);
     const needsTide = verdicts.some((verdict) => verdict?.needsTide);
@@ -308,6 +319,8 @@ export interface TraceCastOffContext {
     encRegistryFingerprint: string;
     voyageDepartureMs: number | null;
     nowMs: number;
+    /** Paired, with her licensed charts not open here (127-C-c): the boat's name. */
+    boatChartsAway?: { boatName: string | null };
 }
 
 /**
@@ -345,6 +358,10 @@ export function traceCastOffBlockReason(
             );
         const checked = cellIds(verification.encRegistryFingerprint);
         const current = cellIds(context.encRegistryFingerprint);
+        // Checked on her licensed charts, which open only on the boat's Wi-Fi.
+        const changed = [...checked, ...current].filter((entry) => !checked.has(entry) || !current.has(entry));
+        if (context.boatChartsAway && changed.every((entry) => isProtectedChart({ id: entry.split('@')[0] })))
+            return boatChartsLine('recheck', context.boatChartsAway.boatName);
         const differing =
             [...current].find((entry) => !checked.has(entry)) ?? [...checked].find((entry) => !current.has(entry));
         const cellName = differing ? differing.split('@')[0] : null;

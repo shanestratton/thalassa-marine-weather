@@ -20,6 +20,8 @@
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
 import { AUTO_ROUTE_TRIAL_OFF, isAutorouteTrialOn } from './autorouteTrialSwitch';
 import { listCells } from './enc/EncCellMetadata';
+import { boatName, boatRegistryState, boatRegistryWhy, ensureBoatCells } from './enc/piCellSync';
+import { boatChartsLine } from './enc/boatChartsWords';
 import { validateAutoroutingVesselProfile } from '../supabase/functions/_shared/autorouting-vessel';
 import { thalassaVesselWarnings } from './autoroutingVesselProfile';
 import { THALASSA_PLANNED_ONLY_WARNING, THALASSA_ROUTED_ON_PHONE } from './autoroutingNotes';
@@ -96,9 +98,10 @@ const NO_ROUTE = 'Thalassa could not route this passage. Nothing changed.';
 const WATCHDOG = 'Routing took longer than this phone allows (85 s). Try a shorter passage. Nothing changed.';
 // Licensed charts never come from the cloud since 126-20: a gap the cloud
 // can't fill is one only the boat's Pi can, and the shared shelf is NOAA only.
+// They open in memory on the boat's Wi-Fi since 127-C-c.
 /** Exported so Plan Your Day says it in global words with no Pi paired (127-PYD-2). */
 export const THALASSA_BUCKET_UNREACHABLE =
-    "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: sync them aboard, then try again. Nothing changed.";
+    "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: open them on the boat's Wi-Fi, then try again. Nothing changed.";
 const NOT_SIGNED_IN_FILL =
     "The missing charts wouldn't download. You're probably not signed in: sign in and try again. Nothing changed.";
 
@@ -122,9 +125,17 @@ export function getThalassaAutorouteStatus(): AutoroutingTrialStatus {
     } catch {
         cells = 0;
     }
-    return cells > 0
-        ? { enabled: true, ready: true }
-        : { enabled: true, ready: false, message: 'Install charts for your area to use Auto. Manual is ready.' };
+    // Paired with her charts not yet registered: ready, and the route itself
+    // opens them from the Pi or says where they are (127-C-c).
+    if (cells > 0 || boatRegistryState() === 'pending') return { enabled: true, ready: true };
+    const why = boatRegistryWhy();
+    return {
+        enabled: true,
+        ready: false,
+        message: why
+            ? `${boatChartsLine(why, boatName(), 'strip')} Manual is ready.`
+            : 'Install charts for your area to use Auto. Manual is ready.',
+    };
 }
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -297,11 +308,23 @@ export async function calculateThalassaProposal(
         throw new Error(
             `Auto routes inshore passages up to ${MAX_INSHORE_NM} NM; this one is ${directNM.toFixed(1)} NM. Split it, or plot it in Manual.`,
         );
+    // Her licensed charts open from the boat's Pi first (127-C-c decision 8c):
+    // in memory only, so after a launch the gates below would otherwise see
+    // only the open charts. Counts in the log, never a position.
+    const box: [number, number, number, number] = [
+        Math.min(departure.lon, destination.lon) - FILL_PAD_DEG,
+        Math.min(departure.lat, destination.lat) - FILL_PAD_DEG,
+        Math.max(departure.lon, destination.lon) + FILL_PAD_DEG,
+        Math.max(departure.lat, destination.lat) + FILL_PAD_DEG,
+    ];
+    const charts = await ensureBoatCells(box, { maxCells: 24 });
+    assertCurrent();
+    let chartsMs = charts.ms;
     const startCovered = hasEncCoverageForRoute(departure, departure);
     const endCovered = hasEncCoverageForRoute(destination, destination);
     if (!startCovered || !endCovered)
         throw new Error(
-            `No installed chart covers the ${!startCovered && !endCovered ? 'departure or the destination' : !startCovered ? 'departure' : 'destination'}.`,
+            `No installed chart covers the ${!startCovered && !endCovered ? 'departure or the destination' : !startCovered ? 'departure' : 'destination'}.${charts.why ? ` ${boatChartsLine(charts.why, boatName())}` : ''}`,
         );
 
     // Air draft not set → null: every charted and curated structure blocks
@@ -341,19 +364,22 @@ export async function calculateThalassaProposal(
     };
 
     let res = await run();
-    // A corridor gap: fetch the missing charts from the cloud once, then route
-    // once more — exactly as the ⚡ Auto route does (useAutoRouteLeg).
+    // A corridor gap: more of her charts from the Pi first, then the missing
+    // open charts from the cloud once, then route once more — exactly as the
+    // ⚡ Auto route does (useAutoRouteLeg).
+    if (res && 'error' in res && res.code === 'coverage-gap') {
+        progress('Fetching the missing charts…');
+        const more = await ensureBoatCells(box, { maxCells: 24 });
+        assertCurrent();
+        chartsMs += more.ms;
+        if (more.pulled > 0) res = await run();
+    }
     if (res && 'error' in res && res.code === 'coverage-gap') {
         progress('Fetching the missing charts…');
         let fill: { downloaded: number; needed: number; bucketAvailable: boolean };
         try {
             const { downloadCloudCellsForBBox } = await import('./enc/cloudCellSync');
-            fill = await downloadCloudCellsForBBox([
-                Math.min(departure.lon, destination.lon) - FILL_PAD_DEG,
-                Math.min(departure.lat, destination.lat) - FILL_PAD_DEG,
-                Math.max(departure.lon, destination.lon) + FILL_PAD_DEG,
-                Math.max(departure.lat, destination.lat) + FILL_PAD_DEG,
-            ]);
+            fill = await downloadCloudCellsForBBox(box);
         } catch (error) {
             assertCurrent();
             throw new Error(
@@ -573,6 +599,8 @@ export async function calculateThalassaProposal(
         ...(vesselProfile ? { vesselProfile } : {}),
         ...(input.departureMs !== undefined ? { departureMs } : {}),
         engine,
+        // What opening her charts from the Pi cost (PYD-2's readout, decision 2).
+        ...(charts.state !== 'none' ? { chartsMs } : {}),
     };
 }
 

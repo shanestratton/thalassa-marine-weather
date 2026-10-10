@@ -17,6 +17,9 @@ vi.mock('../services/PiCacheService', () => ({
         get baseUrl() {
             return mocks.baseUrl;
         },
+        // On the boat's Wi-Fi: the live base is the LAN one (127-C-c).
+        lane: 'lan',
+        getLanBaseUrl: () => mocks.baseUrl,
         isAvailable: () => true,
     },
 }));
@@ -28,6 +31,15 @@ vi.mock('../services/PiPairingService', () => ({
 vi.mock('../services/authIdentityScope', () => ({
     getAuthIdentityScope: () => mocks.accountRevision,
     isAuthIdentityScopeCurrent: (revision: number) => revision === mocks.accountRevision,
+}));
+// The boat registry (127-C-c): the install flow's licensed rows register in
+// memory; its state and the account flag are not the subject here.
+vi.mock('../services/enc/piCellSync', () => ({
+    // On the boat's Wi-Fi: licensed cells come from the LAN base (127-C-c).
+    boatLanBaseNow: () => mocks.baseUrl,
+    noteBoatAway: vi.fn(),
+    noteBoatRegistered: vi.fn(),
+    withPiPullSlot: <T>(job: () => Promise<T>) => job(),
 }));
 vi.mock('../services/enc/EncHazardService', () => ({
     getCoverage: mocks.getCoverage,
@@ -52,6 +64,7 @@ import {
     syncEncFromPi,
     type PiInstalledCell,
 } from '../services/EncImportService';
+import * as vault from '../services/enc/boatCellVault';
 
 const DELIVERY_URL = 'https://charts.example.test/package.zip';
 const CONTENT_HASH = 'a'.repeat(64);
@@ -140,6 +153,7 @@ async function pollOnce<T>(pending: Promise<T>): Promise<T> {
 }
 
 beforeEach(() => {
+    vault.clear();
     vi.resetAllMocks();
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     mocks.baseUrl = 'https://boat.test';
@@ -281,6 +295,8 @@ describe('o-charts Pi installation and phone-copy receipts', () => {
         mocks.getCoverage.mockReturnValue([
             { id: 'FR466870', edition: 2, sizeBytes: 999, contentSha256: CONTENT_HASH },
         ]);
+        // A licensed chart is held when its bytes are in this phone's memory (127-C-c).
+        vault.put('FR466870', '{"cellId":"FR466870"}');
         const result = await pollOnce(resumeEncInstall('install-1'));
         expect(result).toMatchObject({ cells: [], skipped: [], installedOnPi: true });
         expect(mocks.fetchVerifiedFromPi).toHaveBeenCalledTimes(2);

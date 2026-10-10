@@ -38,6 +38,14 @@ vi.mock('../services/authIdentityScope', () => ({
     isAuthIdentityScopeCurrent: () => true,
 }));
 vi.mock('../services/PiPairingService', () => ({ getPairing: () => ({ publicKeySpki: 'key-one' }) }));
+// 127-C-c: the boat's charts, from the registry state.
+const boat = vi.hoisted(() => ({ now: null as string | null, ensure: vi.fn(async () => 'loaded') }));
+vi.mock('../services/enc/piCellSync', () => ({
+    boatName: () => 'Serene Summer',
+    boatChartsNow: () => boat.now,
+    ensureBoatRegistry: boat.ensure,
+    subscribeBoatRegistry: () => () => undefined,
+}));
 vi.mock('../stores/MapFitTargetStore', () => ({ requestMapFit: vi.fn() }));
 vi.mock('../context/UIContext', () => ({ useUI: () => ({ setPage: vi.fn() }) }));
 vi.mock('../utils/system', async (importOriginal) => ({
@@ -107,8 +115,11 @@ describe('ENC sheet Pi sync count', () => {
     it('counts only what a sync can add', async () => {
         const refusedRows = REFUSED.map((id, i) => piRow(id, i, true));
         for (const row of refusedRows) rememberPiCellWithoutDepthAreas(row);
-        const fresh = piRow('OC-61-10ENB5', 40, true);
-        mocks.listPiInstalledCharts.mockResolvedValue([...refusedRows, fresh]);
+        // Licensed rows open from the Pi in memory and are never counted
+        // (127-C-c); the count is open (NOAA) charts a sync can add to disk.
+        const fresh = { ...piRow('US5ZZ40M', 40, true), sourceHO: 'US' };
+        const licensedFresh = piRow('OC-99-ZZ0041', 41, true);
+        mocks.listPiInstalledCharts.mockResolvedValue([...refusedRows, fresh, licensedFresh]);
         mocks.getCoverage.mockReturnValue([]);
 
         await openSheet();
@@ -117,7 +128,7 @@ describe('ENC sheet Pi sync count', () => {
     });
 
     it('offers a refused chart again once the Pi holds a corrected revision', async () => {
-        const refused = piRow('OC-33-A94074', 0, true);
+        const refused = { ...piRow('US4ZZ94M', 0, true), sourceHO: 'US' };
         rememberPiCellWithoutDepthAreas(refused);
         mocks.listPiInstalledCharts.mockResolvedValue([{ ...refused, contentSha256: sha(999) }]);
         mocks.getCoverage.mockReturnValue([]);
@@ -125,5 +136,69 @@ describe('ENC sheet Pi sync count', () => {
         await openSheet();
         expect(await screen.findByRole('button', { name: /Sync 1 chart from Pi/i })).toBeInTheDocument();
         expect(screen.queryByText(/can’t be used on this phone/)).not.toBeInTheDocument();
+    });
+});
+
+describe('the Charts card says where licensed charts are (127-C-c)', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        vi.clearAllMocks();
+        boat.now = null;
+    });
+
+    const held = (id: string, sourceHO: string) => ({
+        id,
+        sourceHO,
+        edition: 2,
+        issued: '2026-09-01',
+        importedAt: '2026-10-01T00:00:00.000Z',
+        bbox: [-21.9, 64.1, -21.8, 64.2] as [number, number, number, number],
+        geojsonPath: 'vault',
+        hazardCount: 1,
+        usage: 'navigation' as const,
+        sizeBytes: 1000,
+    });
+
+    it('aboard: the count opened in memory, licensed rows say aboard with no Remove, and the licence line', async () => {
+        mocks.listPiInstalledCharts.mockResolvedValue([]);
+        mocks.getCoverage.mockReturnValue([
+            held('OC-99-ZZ0051', 'ZZ'),
+            held('OC-99-ZZ0052', 'ZZ'),
+            held('OC-99-ZZ0053', 'ZZ'),
+            held('US5ZZ01M', 'US'),
+        ]);
+        await openSheet();
+        expect(
+            screen.getByText(
+                '3 charts aboard Serene Summer · opened in memory, never saved on this phone · 1 chart on this phone',
+            ),
+        ).toBeInTheDocument();
+        expect(screen.getAllByText('aboard')).toHaveLength(3);
+        expect(screen.getAllByRole('button', { name: /Remove/i })).toHaveLength(1);
+        expect(
+            screen.getByText(
+                "Licensed charts stay on your boat's Pi. This phone opens them in memory on the boat's Wi-Fi and never saves them, as the chart licences require. Open charts (NOAA) are kept on this phone.",
+            ),
+        ).toBeInTheDocument();
+        expect(screen.queryByText(/stored on this phone/)).not.toBeInTheDocument();
+    });
+
+    // 127-C-c review: opened before the map has mounted, the card itself asks
+    // the Pi, so 'Opening…' is never said with nothing opening.
+    it('asks for her charts when it opens, before the map ever has', async () => {
+        boat.now = 'opening';
+        mocks.listPiInstalledCharts.mockResolvedValue([]);
+        mocks.getCoverage.mockReturnValue([]);
+        render(<EncCellManager />);
+        await waitFor(() => expect(boat.ensure).toHaveBeenCalledTimes(1));
+    });
+
+    it('ashore after a relaunch: says where her charts open, never claims them', async () => {
+        boat.now = 'away';
+        mocks.listPiInstalledCharts.mockResolvedValue([]);
+        mocks.getCoverage.mockReturnValue([]);
+        render(<EncCellManager />);
+        expect(await screen.findByText("Serene Summer's charts open on the boat's Wi-Fi.")).toBeInTheDocument();
+        expect(screen.queryByText(/charts aboard/)).not.toBeInTheDocument();
     });
 });

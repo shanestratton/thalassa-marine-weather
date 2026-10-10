@@ -21,7 +21,7 @@
  *   - error:    inline error banner under the import button
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 /** Charts shown before the list asks permission to keep going. */
 const CELL_PREVIEW_COUNT = 8;
@@ -43,6 +43,9 @@ import {
 } from '../../services/EncImportService';
 import { getCoverage as getEncCoverage, removeCell as removeEncCell } from '../../services/enc/EncHazardService';
 import { planPiCellSync } from '../../services/enc/piSyncPlan';
+import { isProtectedChart } from '../../services/enc/chartLicence';
+import { BOAT_CHARTS_FOOT, boatChartsAboardLine, boatChartsLine } from '../../services/enc/boatChartsWords';
+import { boatChartsNow, boatName, ensureBoatRegistry, subscribeBoatRegistry } from '../../services/enc/piCellSync';
 import type { EncCell } from '../../services/enc/types';
 import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
 import { piCache } from '../../services/PiCacheService';
@@ -298,7 +301,12 @@ const CellRow: React.FC<{
                     );
                 })()}
             </div>
-            {confirming ? (
+            {isProtectedChart(cell) ? (
+                // Licensed: on the boat's Pi, opened in memory; nothing here to remove (127-C-c).
+                <span className="shrink-0 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-sky-300/80">
+                    aboard
+                </span>
+            ) : confirming ? (
                 <div className="flex flex-col gap-1 shrink-0">
                     <button
                         onClick={() => {
@@ -388,6 +396,14 @@ export const EncCellManager: React.FC = () => {
     const refreshCells = useCallback(() => {
         setCells(getEncCoverage());
     }, []);
+    // Where her licensed charts are (127-C-c); the list follows a registration.
+    const boatNow = useSyncExternalStore(subscribeBoatRegistry, boatChartsNow);
+    useEffect(() => refreshCells(), [boatNow, refreshCells]);
+    // This card may be the first to ask (the map has not mounted): "Opening…" is then true.
+    useEffect(() => void ensureBoatRegistry(), []);
+    const chartsBoat = boatName();
+    const protectedCells = cells.filter((cell) => isProtectedChart(cell));
+    const openCells = cells.filter((cell) => !isProtectedChart(cell));
 
     useEffect(() => {
         if (expanded) refreshCells();
@@ -684,7 +700,15 @@ export const EncCellManager: React.FC = () => {
     // show which office issued a cell and roughly how big the pull is —
     // "FR466870" alone doesn't tell you it's Nouméa.
     const [piCellsSummary, setPiCellsSummary] = useState<
-        { cellId: string; edition: number; sourceHO?: string; sizeBytes?: number; contentSha256?: string }[] | null
+        | {
+              cellId: string;
+              edition: number;
+              sourceHO?: string;
+              sizeBytes?: number;
+              contentSha256?: string;
+              licence?: 'open' | 'protected';
+          }[]
+        | null
     >(null);
     const [piListBusy, setPiListBusy] = useState(false);
     const refreshPiCells = useCallback(async () => {
@@ -698,6 +722,7 @@ export const EncCellManager: React.FC = () => {
                     sourceHO: c.sourceHO,
                     sizeBytes: c.sizeBytes,
                     contentSha256: c.contentSha256,
+                    licence: c.licence,
                 })),
             );
         } catch (err) {
@@ -850,7 +875,11 @@ export const EncCellManager: React.FC = () => {
         void syncRefusalsVersion;
         return planPiCellSync(piCellsSummary ?? [], cells);
     }, [piCellsSummary, cells, syncRefusalsVersion]);
-    const missingOnDevice = piSyncPlan.pending;
+    // "Sync N charts" counts open charts only: licensed ones open from the Pi
+    // in memory, on demand, and are never synced to this phone (127-C-c).
+    const missingOnDevice = piSyncPlan.pending.filter(
+        (c) => !isProtectedChart({ id: c.cellId, sourceHO: c.sourceHO, licence: c.licence }),
+    );
     const unusableOnPhone = piSyncPlan.withoutDepthAreas.length;
     const piHasMoreThanLocal = missingOnDevice.length > 0;
 
@@ -923,10 +952,16 @@ export const EncCellManager: React.FC = () => {
                             <span className="text-[11px] text-sky-300 font-normal">(needs the Pi to import)</span>
                         </p>
                         <p className="text-[11px] text-gray-400">
-                            {cells.length === 0
-                                ? 'Paste a chart link — the Pi downloads and installs it'
-                                : `${cells.length} chart${cells.length === 1 ? '' : 's'} on this phone` +
-                                  (piHasMoreThanLocal ? ` · ${missingOnDevice.length} more on the Pi` : '')}
+                            {[
+                                protectedCells.length
+                                    ? boatChartsAboardLine(protectedCells.length, chartsBoat)
+                                    : boatNow && boatChartsLine(boatNow, chartsBoat, 'strip'),
+                                openCells.length &&
+                                    `${openCells.length} chart${openCells.length === 1 ? '' : 's'} on this phone`,
+                                piHasMoreThanLocal && `${missingOnDevice.length} more on the Pi`,
+                            ]
+                                .filter(Boolean)
+                                .join(' · ') || 'Paste a chart link — the Pi downloads and installs it'}
                         </p>
                     </div>
                     <svg
@@ -976,7 +1011,7 @@ export const EncCellManager: React.FC = () => {
                             </button>
                             <p className="text-[11px] text-gray-500 leading-relaxed">
                                 Paste your o-charts delivery email or chart download links. The Pi installs new charts
-                                and updates, then copies available charts to this phone.
+                                and updates, and this phone opens them from the Pi.
                             </p>
                         </div>
 
@@ -1075,10 +1110,9 @@ export const EncCellManager: React.FC = () => {
                             <p className="text-[11px] text-gray-500 leading-relaxed">
                                 Pick a raw S-57 cell (<span className="font-mono text-sky-300">.000</span>) or a full
                                 ENC <span className="font-mono text-sky-300">.zip</span> archive from your device. The
-                                file is sent to your boat&apos;s Pi for conversion (GDAL does the heavy lifting), then
-                                the converted vector data is stored on your phone and used by the routing validator
-                                instead of GEBCO bathymetry — surveyed depths, coastlines, obstructions and wrecks
-                                rather than 460&nbsp;m interpolated tiles.
+                                file is sent to your boat&apos;s Pi for conversion (GDAL does the heavy lifting), and
+                                routing then checks surveyed depths, coastlines, obstructions and wrecks rather than
+                                460&nbsp;m GEBCO tiles.
                             </p>
 
                             {progress && (
@@ -1266,7 +1300,7 @@ export const EncCellManager: React.FC = () => {
                         {/* ── Imported cells list ── */}
                         <div className="space-y-2">
                             <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
-                                Charts on this phone
+                                {protectedCells.length ? 'Charts' : 'Charts on this phone'}
                             </p>
                             {cells.length === 0 ? (
                                 <p className="text-[11px] text-gray-500 italic">
@@ -1298,15 +1332,11 @@ export const EncCellManager: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Where the charts actually are. Worth one plain
-                            sentence: the Pi is a translator, not the place
-                            your charts live, and a skipper whose Pi is ashore
-                            should not be wondering whether their charts went
-                            with it (Shane 2026-08-28). */}
-                        <p className="text-[10px] text-gray-400 leading-relaxed px-1">
-                            Your charts are stored on this phone and keep working with the Pi switched off. The Pi is
-                            only used to convert a cell when you import one, and to hold spares you can pull down.
-                        </p>
+                        {/* Where the charts actually are, in one plain sentence
+                            (Shane 2026-08-28). From 127 licensed charts stay on
+                            the Pi and open here in memory only, as the chart
+                            licences require (127-C-c). */}
+                        <p className="text-[10px] text-gray-400 leading-relaxed px-1">{BOAT_CHARTS_FOOT}</p>
 
                         {/* ── Source attribution / honesty note ── */}
                         <div className="px-3 py-2 rounded-xl bg-white/2 border border-white/4">

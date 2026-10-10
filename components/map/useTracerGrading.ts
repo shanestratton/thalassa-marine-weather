@@ -39,7 +39,7 @@
  * mid-session. `toolarge` verdicts are durable because they are pure geometry.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import {
     tideWindowLabelFor,
@@ -53,6 +53,18 @@ import { legCacheKey, TRACE_CLUSTER_SPAN_M } from './mapHubHelpers';
 import { vesselAirDraftMetres, vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { getVersion as getEncRegistryVersion, getRegistryFingerprint } from '../../services/enc/EncCellMetadata';
 import { traceGeometryKey, type TraceCheckStatus } from '../../services/traceVerification';
+import {
+    boatHasLicensedCharts,
+    boatRegistryState,
+    boatRegistryWhy,
+    ensureBoatRegistry,
+    subscribeBoatRegistry,
+} from '../../services/enc/piCellSync';
+
+/** What the tracer card says while her licensed charts are not open here (decision 7a). */
+export type TracerChartsWait = 'opening' | 'away' | 'tailnet' | 'slow';
+/** How long a pass waits for the boat registry before grading as away ('slow'). */
+const BOAT_WAIT_CAP_MS = 20_000;
 
 /**
  * Volatile-failure retry ledger — MODULE scope on purpose (a ref dies with
@@ -124,6 +136,8 @@ export interface TracerGradingDeps {
     setAckedLegs: Dispatch<SetStateAction<Set<number>>>;
     setSailArmed: (v: boolean) => void;
     setShareArmed: (v: boolean) => void;
+    /** MapHub's loading/no-chart lines and the release refusal read it (127-C-c 7a). */
+    setTracerChartsWait?: (wait: TracerChartsWait | null) => void;
 }
 
 export interface TracerGrading {
@@ -155,6 +169,7 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
         setAckedLegs,
         setSailArmed,
         setShareArmed,
+        setTracerChartsWait,
     } = deps;
 
     const tracerSeqRef = useRef(0);
@@ -166,11 +181,24 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
      *  every untouched leg is a hit. Cleared when the CONTEXT rebuilds
      *  (new area / draft change) — those invalidate every cached verdict. */
     const legCacheRef = useRef<Map<string, TraceLegVerdict>>(new Map());
-    /** One-shot hydration of the persisted verdict cache (Shane 2026-07-17:
-     *  "checks the entire route again, even though nothing changed" — the
-     *  cache used to die with every remount/reload/tab-bounce). Runs inside
-     *  the grading effect where the real draft is known. */
-    const legCacheHydratedRef = useRef(false);
+    /** The registry fingerprint the persisted verdict cache was last hydrated
+     *  against (Shane 2026-07-17: "checks the entire route again, even though
+     *  nothing changed" — the cache used to die with every remount/reload/
+     *  tab-bounce). Keyed, not one-shot, since 127-C-c: the boat's licensed
+     *  cells register after launch, and the bank must be read again then. An
+     *  open-cell change mid-session costs one more localStorage read. */
+    const hydratedForRef = useRef<string | null>(null);
+    /** Legs graded away from her licensed charts: memory only, dropped when they open. */
+    const provisionalKeysRef = useRef<Set<string>>(new Set());
+    const pendingSinceRef = useRef<number | null>(null);
+    const [capTick, setCapTick] = useState(0);
+    // Transitions only (never per cell): at most two or three re-runs a launch.
+    const boatState = useSyncExternalStore(subscribeBoatRegistry, boatRegistryState);
+    // The tracer asks for the registry itself: it never waits for the auto-sync's
+    // boot or plotting deferral (metadata only, no blobs).
+    useEffect(() => {
+        if (coordCaptureMode) void ensureBoatRegistry();
+    }, [coordCaptureMode]);
     /** VOLATILE failure verdicts ("no ENC chart here", build exception) —
      *  kept OUT of legCacheRef because a nochart can be a transient network
      *  blip (cloud cell hydration offline): every grading pass clears this
@@ -230,13 +258,44 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
             }
             return;
         }
+        const seq = ++tracerSeqRef.current;
+        // ── The boat registry gate (127-C-c decision 7a) ──
+        let wait: TracerChartsWait | null = null;
+        if (boatState === 'pending') {
+            const since = (pendingSinceRef.current ??= Date.now());
+            const left = BOAT_WAIT_CAP_MS - (Date.now() - since);
+            if (left > 0) {
+                // No hydrate, no grade, no persist: the rows say "checking…".
+                setTracerChartsWait?.('opening');
+                const n = capturedCoords.length - 1;
+                setLegVerdicts((prev) =>
+                    prev.length === n && prev.every((v) => v === null) ? prev : new Array(n).fill(null),
+                );
+                setTracerStatus('loading');
+                const timer = setTimeout(() => setCapTick((t) => t + 1), left);
+                return () => clearTimeout(timer);
+            }
+            wait = 'slow';
+        } else pendingSinceRef.current = null;
+        // Away from her licensed charts (or the wait capped): legs graded now
+        // are provisional. Unknown counts as licensed while paired.
+        const provisional = (wait === 'slow' || boatState === 'away') && boatHasLicensedCharts();
+        if (provisional) wait ??= boatRegistryWhy() === 'tailnet' ? 'tailnet' : 'away';
+        setTracerChartsWait?.(provisional ? wait : null);
+        if (!provisional && provisionalKeysRef.current.size) {
+            // Her charts opened: what was graded without them goes, so the bank wins.
+            for (const key of provisionalKeysRef.current) {
+                legCacheRef.current.delete(key);
+                failVerdictsRef.current.delete(key);
+            }
+            provisionalKeysRef.current.clear();
+        }
         const draftNow = vesselDraftMetres(vessel);
         const draftAssumed = vesselDraftIsAssumed(vessel);
         // The mast: legs are graded against bridges and overhead lines for
         // THIS air draft (TracerContext.clearanceBars), so it keys the caches
         // exactly as the keel does.
         const airNow = vesselAirDraftMetres(vessel);
-        const seq = ++tracerSeqRef.current;
 
         // Draft change invalidates EVERY cached verdict and tide label —
         // they were graded against the old keel (adversarial-audit critical
@@ -259,14 +318,15 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
         }
         gradedDraftRef.current = { d: draftNow, assumed: draftAssumed, air: airNow };
         const cache = legCacheRef.current;
-        if (!legCacheHydratedRef.current) {
-            legCacheHydratedRef.current = true;
+        const fingerprint = getRegistryFingerprint();
+        if (hydratedForRef.current !== fingerprint) {
+            hydratedForRef.current = fingerprint;
             // Same keel + same chart library ⇒ yesterday's verdicts are
             // today's verdicts; anything else returns null and we re-grade.
             // Library identity is the FINGERPRINT (stable across reloads),
             // never the in-memory version counter (boot-scoped — using it
             // meant hydration never matched and every mount cold-regraded).
-            const persisted = hydrateLegVerdicts(draftNow, draftAssumed, getRegistryFingerprint(), airNow);
+            const persisted = hydrateLegVerdicts(draftNow, draftAssumed, fingerprint, airNow);
             if (persisted) for (const [k, v] of persisted) if (!cache.has(k)) cache.set(k, v);
         }
         // Failure verdicts retry with BACKOFF, not on every pass. Retrying
@@ -301,7 +361,10 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
         const hold = stubHoldRef.current;
         for (const key of Array.from(hold.keys())) if (!legKeysRef.current.includes(key)) hold.delete(key);
         for (const key of hold.keys()) cache.delete(key);
-        const bank = (): void =>
+        // The persist rule (7a): never from a provisional pass, so an ashore
+        // launch leaves the aboard bank as it was.
+        const bank = (): void => {
+            if (provisional) return;
             persistLegVerdicts(
                 hold.size ? new Map([...hold, ...cache]) : cache,
                 draftNow,
@@ -309,6 +372,7 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
                 getRegistryFingerprint(),
                 airNow,
             );
+        };
         const passFor: TracerGradedFor = {
             geometryKey: traceGeometryKey(capturedCoords),
             draftM: draftNow,
@@ -375,6 +439,7 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
                         });
                     } else {
                         cache.set(key, verdict);
+                        if (provisional) provisionalKeysRef.current.add(key);
                         volatileRetrySchedule.delete(key);
                     }
                 },
@@ -411,6 +476,9 @@ export function useTracerGrading(deps: TracerGradingDeps): TracerGrading {
         coordCaptureMode,
         vessel,
         regradeTick,
+        boatState,
+        capTick,
+        setTracerChartsWait,
         tracerCtxFromLru,
         tracerCtxHold,
         tracerCtxRef,

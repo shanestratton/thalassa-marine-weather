@@ -92,7 +92,7 @@ describe('uiStore', () => {
             'checklists',
             'galley',
             'avnav',
-            'encLibrary',
+            // 'encLibrary' retired with the ENC Library (127-C-c).
             // 'notices' retired as a route (binder review 2026-09-02) —
             // notices live on the OBS chart layer.
             'gpx-import',

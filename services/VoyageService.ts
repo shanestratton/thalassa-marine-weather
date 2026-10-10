@@ -692,11 +692,14 @@ async function activateVoyage(
                 }
             }
             const verification = parseTraceVerificationNote(candidate.notes, points);
-            const [{ useSettingsStore }, units, encMetadata] = await Promise.all([
+            const [{ useSettingsStore }, units, encMetadata, boat] = await Promise.all([
                 import('../stores/settingsStore'),
                 import('./units'),
                 import('./enc/EncCellMetadata'),
+                import('./enc/piCellSync'),
             ]);
+            // Just after a launch aboard her charts may still be opening: wait for them (bounded).
+            const boatChartsAway = await boat.boatChartsAwayAtCastOff();
             if (!identityStillOwns(identity, ownerId)) {
                 return { voyage: null, error: 'Account changed while checking Cast Off' };
             }
@@ -709,6 +712,8 @@ async function activateVoyage(
                     encRegistryFingerprint: encMetadata.getRegistryFingerprint(traceRegistryScope(points)),
                     voyageDepartureMs: candidate.departure_time ? Date.parse(candidate.departure_time) : null,
                     nowMs: Date.now(),
+                    // Her licensed charts open only on the boat's Wi-Fi (127-C-c).
+                    ...(boatChartsAway ? { boatChartsAway } : {}),
                 }) ??
                 undefined;
         }
