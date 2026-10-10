@@ -433,6 +433,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         setTraceOrigin,
         traceDest,
         setTraceDest,
+        traceFrameKind,
+        setTraceFrameKind,
+        setDraftSource,
         reverseDirection,
         returnPlan,
         setReturnPlan,
@@ -843,28 +846,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                     );
                 }
             } else if (action?.kind === 'plot-day') {
-                // Plan Your Day's "Plot on chart" (build 124): straight pins
-                // start → stop (→ start for a day trip), or the skipper's own
-                // saved route, as an UNSAVED draft in the Manual plotter. Both
-                // ⚡ buttons are parked, so the skipper drags the pins round
-                // the land and the Route report checks them against the
-                // charts. The departure was set before the request
-                // (services/planDeparture), so the tide windows follow it.
+                // Plan Your Day's "Plot on chart", as an UNSAVED draft in the
+                // Manual plotter. Never a straight line (127-PYD-3): the line
+                // Thalassa routed round the land, her own saved route, or no
+                // line at all, only the start and stop marks (a Plan Your Day
+                // frame, whose bearing hint is never drawn). The departure was
+                // set before the request (services/planDeparture), so the tide
+                // windows follow it.
                 const plot = plotDayPins(action);
-                if (plot) {
-                    setLegAnchor(null); // a new route, edited standalone
-                    clearReturnContext(); // …and not part of a trip home
-                    setSelectedPin(null);
-                    setOverwriteArm(null);
-                    setTraceOrigin(null);
-                    setTraceDest(null);
-                    rebaseHistoryRef.current = true; // a different route → Undo floor
-                    setCapturedCoords(plot.points);
-                    // Our name, kept as the skipper's: moving a pin does not retitle it.
-                    setTraceName(plot.name);
-                    lastAutoNameRef.current = '';
-                    setSavedTraces(loadSavedTraces());
-                    const fly = () => mapRef.current && fitTraceBounds(mapRef.current, plot.points);
+                const flyWhenReady = (points: { lat: number; lon: number }[]) => {
+                    const fly = () => mapRef.current && fitTraceBounds(mapRef.current, points);
                     if (mapRef.current) {
                         if (isAuthIdentityScopeCurrent(requestScope)) fly();
                     } else {
@@ -874,11 +865,36 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }, 1_200);
                         tracerHandoffTimersRef.current.add(timer);
                     }
-                    flashTraceFeedback(
-                        plot.savedRoute
-                            ? `Your saved route to ${plot.stop}: Route report checks it against your charts`
-                            : `Straight lines to ${plot.stop}: drag pins round the land, then Route report checks your charts`,
-                    );
+                };
+                if (plot) {
+                    setLegAnchor(null); // a new route, edited standalone
+                    clearReturnContext(); // …and not part of a trip home
+                    setSelectedPin(null);
+                    setOverwriteArm(null);
+                    setTraceOrigin(plot.frame?.from ?? null);
+                    setTraceDest(plot.frame?.to ?? null);
+                    if (plot.frame) setTraceFrameKind('day-plan');
+                    rebaseHistoryRef.current = true; // a different route → Undo floor
+                    setCapturedCoords(plot.points);
+                    // Read by 127-C-b: this line was routed on her charts.
+                    if (plot.routed) setDraftSource('day-plan-route');
+                    // Our name, kept as the skipper's: moving a pin does not retitle it.
+                    setTraceName(plot.name);
+                    lastAutoNameRef.current = '';
+                    setSavedTraces(loadSavedTraces());
+                    flyWhenReady(plot.frame ? [plot.frame.from, plot.frame.to] : plot.points);
+                    // The reason and the routed note stay until she taps them away (PYD-3 review):
+                    // a 1.8 s flash is gone before she can read why there is no line.
+                    if (plot.frame || plot.routed)
+                        setAutoRouteDiag(
+                            plot.frame
+                                ? `${plot.frame.why ? `${plot.frame.why} ` : ''}Drop pins round the land; Route report checks them.`
+                                : `Plan Your Day's route to ${plot.stop}: Route report is checking it; Sail follows it, Save keeps it.${plot.outOnly ? ' Home: Reverse route.' : ''}`,
+                        );
+                    else
+                        flashTraceFeedback(
+                            `Your saved route to ${plot.stop}: Route report checks it against your charts`,
+                        );
                 } else {
                     // Never a silent dead end: the plotter is open, so say why it is empty.
                     log.warn('Plan Your Day asked to plot a day with unusable pins; nothing was loaded');
@@ -1086,6 +1102,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         ghostLanes,
         traceOrigin,
         traceDest,
+        // A Plan Your Day frame never draws the straight bearing hint (127-PYD-3).
+        destHint: traceFrameKind !== 'day-plan',
     });
     // START / 🏁 ghost rings for the course frame —
     // components/map/useTracerFrameMarkers.ts. Called BEFORE the pin markers
@@ -2823,6 +2841,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             const d = await parseLocation(to, { lat: o.lat, lon: o.lon });
             setTraceOrigin({ lat: o.lat, lon: o.lon, name: o.name });
             setTraceDest({ lat: d.lat, lon: d.lon, name: d.name });
+            setTraceFrameKind('course');
             if (mapRef.current) tracerFlyTo(mapRef.current, o, 14.5, 1400);
             // Geocoder sanity flash — "Mooloolaba Marina" once matched
             // Marina del Rey, California (proximity bias lost to the word
@@ -2841,7 +2860,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         } finally {
             setFrameBusy(false);
         }
-    }, [fromQuery, toQuery, frameBusy, flashTraceFeedback, setTraceDest, setTraceOrigin]);
+    }, [fromQuery, toQuery, frameBusy, flashTraceFeedback, setTraceDest, setTraceOrigin, setTraceFrameKind]);
 
     const clearCourseFrame = useCallback(() => {
         setTraceOrigin(null);
@@ -4564,7 +4583,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 </span>
                                                 <button
                                                     onClick={clearCourseFrame}
-                                                    aria-label="Clear the course frame"
+                                                    aria-label={
+                                                        traceFrameKind === 'day-plan'
+                                                            ? 'Clear the start and stop marks'
+                                                            : 'Clear the course frame'
+                                                    }
                                                     className="ml-2 min-h-[44px] min-w-[44px] shrink-0 text-[10px] font-bold text-gray-500"
                                                 >
                                                     ✕
@@ -4670,6 +4693,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                         };
                                                         rebaseHistoryRef.current = true; // wholesale load → Undo floor
                                                         setCapturedCoords(lane.points);
+                                                        setDraftSource(null); // not Plan Your Day's routed line now
                                                         // Draft-relative honesty: a shared lane was proven
                                                         // by SOMEONE'S keel — the re-grade against YOURS
                                                         // happens automatically as the pins load.
@@ -5067,6 +5091,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                     triggerHaptic('light');
                                                                     rebaseHistoryRef.current = true; // load → Undo floor
                                                                     setCapturedCoords(r.points);
+                                                                    setDraftSource(null);
                                                                     const mid =
                                                                         r.points[Math.floor(r.points.length / 2)];
                                                                     if (mapRef.current)
@@ -5114,6 +5139,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                 triggerHaptic('light');
                                                                 rebaseHistoryRef.current = true; // opened a saved route → Undo floor
                                                                 setCapturedCoords(t.points);
+                                                                setDraftSource(null);
                                                                 setTraceName(t.name);
                                                                 setShowSavedTraces(false);
                                                                 // A route built on the desktop is usually

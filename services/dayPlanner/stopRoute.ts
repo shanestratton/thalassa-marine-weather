@@ -229,6 +229,18 @@ export interface StopRouteQueue {
     cancel(key: string): void;
     /** A new start, or the sheet closing: everything stopped and forgotten. */
     clear(): void;
+    /** A kept route refused afterwards (Auto's chart: satellite land, 127-PYD-3) is no route, in its words. */
+    refuse(key: string, words: string): void;
+}
+
+/**
+ * The hour Auto's chart shows a routed stop at, and the one the main chart is
+ * given (127-PYD-3): the leave she chose on her stop page, never in the past
+ * (a leave gone by while the sheet stayed open is now, as routing asks); with
+ * none chosen, the leave it was routed for.
+ */
+export function chartLeave(chosenMs: number | null, routedMs: number | undefined, nowMs: number): number | null {
+    return chosenMs !== null ? Math.max(chosenMs, nowMs) : (routedMs ?? null);
 }
 
 /**
@@ -301,6 +313,10 @@ export function stopRouteQueue(
             running?.stop.abort();
             states.clear();
             onChange();
+        },
+        refuse(key, words) {
+            const was = states.get(key);
+            if (was?.kind === 'routed') set(key, { id: was.id, kind: 'no-route', words, wallMs: was.wallMs });
         },
     };
 }

@@ -13,6 +13,8 @@ const keys = {
     destination: 'thalassa_trace_wip_dest',
     returnPlan: 'thalassa_trace_wip_return_plan',
     reversedFrom: 'thalassa_trace_wip_reversed_from',
+    frameKind: 'thalassa_trace_wip_frame_kind',
+    source: 'thalassa_trace_wip_source',
 };
 
 const BAY_POINT = { lat: -29.9, lon: 160.1 };
@@ -264,6 +266,80 @@ describe('useTraceDraft', () => {
         // The locked leg itself still never flips.
         act(() => result.current.reverseDirection());
         expect(result.current.capturedCoords).toEqual([seed.anchor, MIDWAY, BAY_POINT]);
+    });
+
+    // 127-PYD-3 decision 6: the frame's kind is persisted with it, so a reload
+    // or a jetsam never brings the straight bearing hint back for Plan Your Day.
+    it('a Plan Your Day frame keeps its kind across a reload; a kind-less stored frame reads as Plan Your Day', () => {
+        const first = renderHook(() => useTraceDraft());
+        act(() => {
+            first.result.current.setTraceOrigin({ ...BAY_POINT, name: 'Bay Point' });
+            first.result.current.setTraceDest({ ...SANDY_COVE, name: 'Sandy Cove' });
+            first.result.current.setTraceFrameKind('day-plan');
+        });
+        expect(sessionStorage.getItem(key(keys.frameKind))).toBe('day-plan');
+        first.unmount();
+        // A reload: a fresh hook reads the frame and its kind back.
+        expect(renderHook(() => useTraceDraft()).result.current.traceFrameKind).toBe('day-plan');
+
+        // Fail closed: a stored frame with no kind never shows the hint.
+        sessionStorage.removeItem(key(keys.frameKind));
+        expect(renderHook(() => useTraceDraft()).result.current.traceFrameKind).toBe('day-plan');
+        sessionStorage.setItem(key(keys.frameKind), 'nonsense');
+        expect(renderHook(() => useTraceDraft()).result.current.traceFrameKind).toBe('day-plan');
+    });
+
+    it('the course frame reads back as course; clearing the destination clears the kind; reverse keeps it', () => {
+        const { result, unmount } = renderHook(() => useTraceDraft());
+        act(() => {
+            result.current.setTraceOrigin({ ...BAY_POINT, name: 'Bay Point' });
+            result.current.setTraceDest({ ...SANDY_COVE, name: 'Sandy Cove' });
+            result.current.setTraceFrameKind('course');
+            result.current.setCapturedCoords([BAY_POINT, MIDWAY]);
+        });
+        unmount();
+        const again = renderHook(() => useTraceDraft());
+        expect(again.result.current.traceFrameKind).toBe('course');
+        act(() => again.result.current.reverseDirection());
+        expect(again.result.current.traceFrameKind).toBe('course');
+        act(() => {
+            again.result.current.setTraceOrigin(null);
+            again.result.current.setTraceDest(null);
+        });
+        expect(again.result.current.traceFrameKind).toBeNull();
+        expect(sessionStorage.getItem(key(keys.frameKind))).toBeNull();
+        // No frame stored at all: no kind.
+        sessionStorage.clear();
+        expect(renderHook(() => useTraceDraft()).result.current.traceFrameKind).toBeNull();
+    });
+
+    it('a routed Plan Your Day draft says where it came from, through a reload and a pin move, until it is replaced or cleared', () => {
+        const first = renderHook(() => useTraceDraft());
+        act(() => {
+            first.result.current.setLegAnchor(null);
+            first.result.current.setCapturedCoords([BAY_POINT, MIDWAY, SANDY_COVE]);
+            first.result.current.setDraftSource('day-plan-route');
+        });
+        first.unmount();
+        const { result } = renderHook(() => useTraceDraft());
+        expect(result.current.draftSource).toBe('day-plan-route');
+        act(() =>
+            result.current.setCapturedCoords((pins) =>
+                pins.map((p, i) => (i === 1 ? { lat: -29.85, lon: 160.16 } : p)),
+            ),
+        );
+        expect(result.current.draftSource).toBe('day-plan-route');
+        // Another route declared through the front door replaces it.
+        act(() => {
+            result.current.setLegAnchor(null);
+            result.current.setCapturedCoords([BAY_POINT, SANDY_COVE]);
+        });
+        expect(result.current.draftSource).toBeNull();
+        act(() => result.current.setDraftSource('day-plan-route'));
+        // Cleared pins clear it too.
+        act(() => result.current.setCapturedCoords([]));
+        expect(result.current.draftSource).toBeNull();
+        expect(sessionStorage.getItem(key(keys.source))).toBeNull();
     });
 
     it('declaring another route ends the return-trip flow and its note', () => {

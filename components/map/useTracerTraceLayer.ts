@@ -81,6 +81,42 @@ export interface TracerTraceLayerDeps {
     ghostLanes: GhostLane[];
     traceOrigin: { lat: number; lon: number; name: string } | null;
     traceDest: { lat: number; lon: number; name: string } | null;
+    /** False for a Plan Your Day frame: its bearing hint is never drawn (127-PYD-3). */
+    destHint: boolean;
+}
+
+/**
+ * The course frame's bearing hint: one straight segment from the trace's live
+ * end (or the origin, pre-first-pin) to the destination. Pure orientation for
+ * the course frame. Never for a Plan Your Day frame (`destHint` false): from
+ * the boat to the stop it crosses whatever island lies between, which is the
+ * straight line Shane asked to be rid of (127-PYD-3 decision 6).
+ */
+export function destHintFeatures({
+    coordCaptureMode,
+    destHint,
+    hintFrom,
+    traceDest,
+}: {
+    coordCaptureMode: boolean;
+    destHint: boolean;
+    hintFrom: { lat: number; lon: number } | null;
+    traceDest: { lat: number; lon: number } | null;
+}) {
+    if (!coordCaptureMode || !destHint || !traceDest || !hintFrom) return [];
+    return [
+        {
+            type: 'Feature' as const,
+            properties: {},
+            geometry: {
+                type: 'LineString' as const,
+                coordinates: [
+                    [hintFrom.lon, hintFrom.lat],
+                    [traceDest.lon, traceDest.lat],
+                ],
+            },
+        },
+    ];
 }
 
 export function useTracerTraceLayer({
@@ -91,6 +127,7 @@ export function useTracerTraceLayer({
     ghostLanes,
     traceOrigin,
     traceDest,
+    destHint,
 }: TracerTraceLayerDeps): void {
     /**
      * Re-entry ticket for the trace-layer sync effect when it ran before the
@@ -387,21 +424,7 @@ export function useTracerTraceLayer({
                 const hintFrom = capturedCoords[capturedCoords.length - 1] ?? traceOrigin;
                 (map.getSource('trace-dest-hint') as mapboxgl.GeoJSONSource).setData({
                     type: 'FeatureCollection',
-                    features: (coordCaptureMode && traceDest && hintFrom
-                        ? [
-                              {
-                                  type: 'Feature' as const,
-                                  properties: {},
-                                  geometry: {
-                                      type: 'LineString' as const,
-                                      coordinates: [
-                                          [hintFrom.lon, hintFrom.lat],
-                                          [traceDest.lon, traceDest.lat],
-                                      ],
-                                  },
-                              },
-                          ]
-                        : []) as never,
+                    features: destHintFeatures({ coordCaptureMode, destHint, hintFrom, traceDest }) as never,
                 });
                 // ── Lift the trace to the top, EVERY sync ──
                 // The line was never buried by one specific layer; it was
@@ -534,5 +557,15 @@ export function useTracerTraceLayer({
         // changes identity, so this is runtime-inert — the effect still runs
         // exactly when the seven real deps change. This dep array carries no
         // suppression and must not gain one.
-    }, [capturedCoords, legVerdicts, coordCaptureMode, ghostLanes, traceOrigin, traceDest, traceLayerNudge, mapRef]);
+    }, [
+        capturedCoords,
+        legVerdicts,
+        coordCaptureMode,
+        ghostLanes,
+        traceOrigin,
+        traceDest,
+        destHint,
+        traceLayerNudge,
+        mapRef,
+    ]);
 }

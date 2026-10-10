@@ -732,8 +732,8 @@ export const RoutePlanner: React.FC<{
                     </button>
                 ))}
                 {/* Today on the water (build 124): the default boat works and
-                    says so; "Plot on chart" loads straight pins into the
-                    Manual plotter. */}
+                    says so; "Plot on chart" loads the routed line, her saved
+                    route, or two marks into the Manual plotter (127-PYD-3). */}
                 <DayPlannerEntry
                     vessel={vessel}
                     usingDefaultVessel={usingDefaultVessel}
@@ -744,6 +744,7 @@ export const RoutePlanner: React.FC<{
                         setPage('map');
                     }}
                     onOpenVessel={openVesselSettings}
+                    mapboxToken={mapboxToken || import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || ''}
                 />
             </div>
         </>

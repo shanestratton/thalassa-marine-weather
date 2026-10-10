@@ -47,6 +47,8 @@ export interface StopRouteView {
     owner: boolean;
     draftM: number;
     onRoute: (departureMs: number | null) => void;
+    /** Routed: Auto's chart over Plan Your Day, at this leave (127-PYD-3). */
+    onShow: (departureMs: number | null) => void;
     onAction: (action: StopRouteAction) => void;
 }
 
@@ -62,10 +64,12 @@ export interface StopRouteView {
  * both ways · 3 h 29 under way"), and a place with no local notes says what
  * it is and what her charts say at its pin.
  * The leave chips are the best departure's window; a tap recomputes in place.
- * "Plot on chart" sets the departure and opens the Manual plotter with
- * straight pins. Where routing is offered (127-PYD-2, his account in 127)
- * the main button is "Route round the land" until the route is in ("Plot on
- * chart" while a setting stands in the way): a route row says each stage
+ * The main button never plots a straight line (127-PYD-3): "Plot your saved
+ * route" when hers joins the two, else "Plot by hand" (the two marks, no
+ * line). Where routing is offered (127-PYD-2, his account in 127) it is
+ * "Route round the land", "Finding the way…" while it routes, then "Show
+ * route on chart" (Auto's chart over Plan Your Day); with no route, or while
+ * a setting stands in the way, "Plot by hand". A route row says each stage
  * with its own seconds, then the routed distance and what the router found
  * (it is then the distance row), or why there is no route with the estimate
  * under it; the owner's timing line sits under it. Fits outright at normal text
@@ -85,6 +89,7 @@ export function TodayStopDetail({
     onPlot,
     onBack,
     route = null,
+    hidden = false,
 }: {
     row: StopRow;
     view: DayPlanView;
@@ -99,6 +104,8 @@ export function TodayStopDetail({
     onPlot: (departureMs: number | null) => void;
     onBack: () => void;
     route?: StopRouteView | null;
+    /** Auto's chart is over it (127-PYD-3): hidden, its state kept. */
+    hidden?: boolean;
 }) {
     const plan = row.plan;
     const [chosenMs, setChosenMs] = useState<number | null>(null);
@@ -272,16 +279,27 @@ export function TodayStopDetail({
             className="today-detail"
             layer={asking ? 'modal' : 'nested'}
             active={!asking}
+            hidden={hidden}
             footer={
                 <div className="today-actions">
-                    {/* One main button (127-PYD-3's states own it next): Route round the land until it is in. */}
+                    {/* One main button, by the route's state (127-PYD-3). */}
                     <button
                         type="button"
                         className="today-button today-primary"
                         disabled={toRoute && busy}
-                        onClick={() => (toRoute ? route?.onRoute(departure) : onPlot(departure))}
+                        onClick={() =>
+                            toRoute ? route?.onRoute(departure) : routed ? route?.onShow(departure) : onPlot(departure)
+                        }
                     >
-                        {toRoute ? 'Route round the land' : 'Plot on chart'}
+                        {toRoute
+                            ? busy
+                                ? 'Finding the way…'
+                                : 'Route round the land'
+                            : routed
+                              ? 'Show route on chart'
+                              : candidate.distance.basis === 'saved'
+                                ? 'Plot your saved route'
+                                : 'Plot by hand'}
                     </button>
                     <button type="button" className="today-button" onClick={onBack}>
                         Back

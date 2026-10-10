@@ -91,12 +91,13 @@ export type TracerOpenAction =
     | PlotDayAction;
 
 /**
- * Plan Your Day's "Plot on chart" (build 124). Both ⚡ buttons in the chart's
- * route plotter are parked, so this loads straight pins into the MANUAL
- * plotter as an unsaved draft: start → stop (→ start for a day trip), or the
- * skipper's own saved route when one joins the two. The skipper drags the
- * pins round the land and the Route report checks them against the charts.
- * It carries the boat's position, so it is identity-fenced like the rest.
+ * Plan Your Day's "Plot on chart" into the MANUAL plotter as an unsaved
+ * draft. Never a straight line (127-PYD-3; Shane 2026-10-10: "it goes direct.
+ * straight over hills"): the line Thalassa routed round the land (`routed`),
+ * her own saved route (`savedRoute`), or, with neither, no line at all — only
+ * the start and stop marks and why (`frame`, with `points` empty), so she
+ * drops pins round the land herself. It carries the boat's position, so it is
+ * identity-fenced like the rest.
  */
 export interface PlotDayAction {
     kind: 'plot-day';
@@ -105,8 +106,20 @@ export interface PlotDayAction {
     name: string;
     /** The stop's name, for the chart's one-line note. */
     stop: string;
-    /** Set when the pins are the skipper's saved route, not straight lines. */
+    /** Set when the pins are the skipper's saved route. */
     savedRoute?: string;
+    /** Set when the pins are the line Thalassa routed round the land. */
+    routed?: true;
+    /** A routed line too long to take there and back: one way; home is Reverse route. */
+    outOnly?: true;
+    /** Plot by hand: the two end marks and why, no pins (`points` is empty). */
+    frame?: { from: PlotDayMark; to: PlotDayMark; why: string };
+}
+
+export interface PlotDayMark {
+    lat: number;
+    lon: number;
+    name: string;
 }
 
 /** The most points a saved route may hold (saved_routes and
@@ -117,31 +130,43 @@ export const SAVED_ROUTE_MAX_POINTS = 10_000;
 export const PLOT_DAY_MAX_POINTS = 2 * SAVED_ROUTE_MAX_POINTS - 1;
 
 /** What the chart accepts from a plot-day request: two to
- *  PLOT_DAY_MAX_POINTS real positions, and a name. Null when the pins are
- *  not usable. */
-export function plotDayPins(
-    action: PlotDayAction,
-): { points: { lat: number; lon: number }[]; name: string; stop: string; savedRoute: string | null } | null {
+ *  PLOT_DAY_MAX_POINTS real positions, or no pins and a frame of two real
+ *  marks; and a name. Null when the request is not usable. */
+export function plotDayPins(action: PlotDayAction): {
+    points: { lat: number; lon: number }[];
+    name: string;
+    stop: string;
+    savedRoute: string | null;
+    routed: boolean;
+    outOnly: boolean;
+    frame: { from: PlotDayMark; to: PlotDayMark; why: string } | null;
+} | null {
+    const real = (p: { lat: number; lon: number } | undefined) =>
+        !!p &&
+        typeof p.lat === 'number' &&
+        typeof p.lon === 'number' &&
+        Number.isFinite(p.lat) &&
+        Number.isFinite(p.lon) &&
+        Math.abs(p.lat) <= 90 &&
+        Math.abs(p.lon) <= 180;
+    const text = (value: unknown, fallback: string, max = 120) =>
+        (typeof value === 'string' && value.trim() ? value.trim() : fallback).slice(0, max);
     const points = Array.isArray(action?.points) ? action.points : [];
-    if (points.length < 2 || points.length > PLOT_DAY_MAX_POINTS) return null;
-    const valid = points.every(
-        (p) =>
-            !!p &&
-            typeof p.lat === 'number' &&
-            typeof p.lon === 'number' &&
-            Number.isFinite(p.lat) &&
-            Number.isFinite(p.lon) &&
-            Math.abs(p.lat) <= 90 &&
-            Math.abs(p.lon) <= 180,
-    );
-    if (!valid) return null;
-    const text = (value: unknown, fallback: string) =>
-        (typeof value === 'string' && value.trim() ? value.trim() : fallback).slice(0, 120);
+    const f = action?.frame;
+    let frame: { from: PlotDayMark; to: PlotDayMark; why: string } | null = null;
+    if (f) {
+        if (points.length || !real(f.from) || !real(f.to)) return null;
+        const mark = (m: PlotDayMark, fallback: string) => ({ lat: m.lat, lon: m.lon, name: text(m.name, fallback) });
+        frame = { from: mark(f.from, 'Start'), to: mark(f.to, 'the stop'), why: text(f.why, '', 240) };
+    } else if (points.length < 2 || points.length > PLOT_DAY_MAX_POINTS || !points.every(real)) return null;
     return {
         points: points.map((p) => ({ lat: p.lat, lon: p.lon })),
         name: text(action.name, 'Day out'),
         stop: text(action.stop, 'the stop'),
         savedRoute: typeof action.savedRoute === 'string' && action.savedRoute.trim() ? action.savedRoute.trim() : null,
+        routed: !frame && action.routed === true,
+        outOnly: !frame && action.outOnly === true,
+        frame,
     };
 }
 
