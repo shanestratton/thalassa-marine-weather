@@ -2,8 +2,8 @@ import React, { useId } from 'react';
 
 /**
  * Shore Watch's Weigh Anchor, shown only when the watch is this phone's own
- * Pi's (Shane 2026-09-29). Leave stays in the header and keeps its meaning
- * (the Pi carries on).
+ * Pi's (Shane 2026-09-29). There the header has no Leave (Shane 2026-10-10:
+ * it looked just like this button); Back leaves the Pi watching.
  *
  * It ends the readings column, inside their scroll region: pinned under it,
  * it left compact landscape (844x430) a 40 px sliver of readings. Weighing
@@ -23,7 +23,7 @@ export const ShoreWeighAnchorBar: React.FC<{ onWeighAnchor: () => void }> = ({ o
                 ⏏ Weigh Anchor
             </button>
             <p id={noteId} className="mt-1 text-center text-xs text-slate-400">
-                Stops the Pi&rsquo;s watch. Leave keeps the Pi watching.
+                Stops the Pi&rsquo;s watch. Back keeps the Pi watching.
             </p>
         </div>
     );

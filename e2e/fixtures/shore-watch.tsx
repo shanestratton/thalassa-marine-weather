@@ -123,14 +123,17 @@ function Fixture() {
                             </p>
                         }
                         onBack={() => undefined}
+                        // As the page: no Leave on this phone's own Pi watch (?ownPi), crew keep it.
                         action={
-                            <button
-                                type="button"
-                                aria-label="Leave Shore Watch"
-                                className="min-h-11 rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-1.5 text-sm font-bold text-red-400"
-                            >
-                                Leave
-                            </button>
+                            params.has('ownPi') ? undefined : (
+                                <button
+                                    type="button"
+                                    aria-label="Leave Shore Watch"
+                                    className="min-h-11 rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-1.5 text-sm font-bold text-red-400"
+                                >
+                                    Leave
+                                </button>
+                            )
                         }
                     />
                     {params.has('notificationWarning') && (

@@ -173,6 +173,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [piWatchReason, setPiWatchReason] = useState<string | null>(null);
     /** Whether the Pi HAS it. Mirrored into state because the keeper is not reactive. */
     const [piKeepingWatch, setPiKeepingWatch] = useState(false);
+    /** Shore Watch's Weigh Anchor tapped, until it lands on setup: the keeper
+     *  forgets the session at once, then waits on the Pi (up to 30 s), and the
+     *  own boat must not look like crew meanwhile (Leave back in the header). */
+    const [weighingFromShore, setWeighingFromShore] = useState(false);
     /** The Move anchor sheet (build 123, must-do #3). */
     const [showMoveAnchor, setShowMoveAnchor] = useState(false);
     /** The same sheet for the watch this phone handed to the Pi (126-07a). */
@@ -722,14 +726,16 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
      * Leave, and Leave does not end the Pi's watch: the keeper went on renewing
      * it every hour, so the Pi was still watching after the anchor came up and
      * could raise a drag alarm as the boat motored off. Shane 2026-09-29 chose
-     * two buttons: this one gives the watch back (the explicit act the
-     * hand-off notes above ask for), Leave keeps today's meaning.
+     * this button to give the watch back (the explicit act the hand-off notes
+     * above ask for). Since 2026-10-10 the own boat has no Leave beside it
+     * (they looked the same); Back leaves the Pi watching. Crew keep Leave.
      *
      * end() stops the renewals before it asks the Pi to stop, so a Pi that
      * cannot be reached right now still lets go when its six-hour
      * authorisation lapses. Leaving the session follows either way.
      */
     const handleWeighAnchorFromShore = useCallback(async () => {
+        setWeighingFromShore(true);
         try {
             await AnchorPiWatchKeeper.end();
         } catch (e) {
@@ -741,6 +747,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             log.warn('leaveSession (shore, weigh anchor) failed', e);
         }
         setPiKeepingWatch(false);
+        setWeighingFromShore(false);
         setViewMode('setup');
         setShoreData(null);
         setShoreDataReceivedAt(null);
@@ -1645,14 +1652,21 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         </p>
                     }
                     onBack={onBack}
+                    // No Leave on this phone's own Pi watch (Shane 2026-10-10):
+                    // it and Weigh Anchor both landed on setup, so they looked
+                    // the same. Weigh Anchor ends that watch; Back leaves the Pi
+                    // on it. Crew following another boat keep Leave: it is how
+                    // they stop following. Not while Weigh Anchor is under way.
                     action={
-                        <button
-                            onClick={handleStopWatch}
-                            className="min-h-11 px-3 py-1.5 bg-red-500/8 border border-red-500/20 rounded-lg text-red-400 text-sm font-bold transition-all active:scale-95"
-                            aria-label="Leave Shore Watch"
-                        >
-                            Leave
-                        </button>
+                        ownPiWatch || weighingFromShore ? undefined : (
+                            <button
+                                onClick={handleStopWatch}
+                                className="min-h-11 px-3 py-1.5 bg-red-500/8 border border-red-500/20 rounded-lg text-red-400 text-sm font-bold transition-all active:scale-95"
+                                aria-label="Leave Shore Watch"
+                            >
+                                Leave
+                            </button>
+                        )
                     }
                 />
 
