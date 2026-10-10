@@ -113,6 +113,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
         });
 
         map.touchZoomRotate.disableRotation();
+        map.keyboard.disableRotation();
 
         map.on('load', () => {
             // ── Nautical chart layers (same as main MapHub) ──

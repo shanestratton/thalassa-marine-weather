@@ -42,6 +42,8 @@ describe('useAisLayer visibility lifecycle', () => {
         expect(map.setLayoutProperty.mock.calls).toEqual([
             ['ais-targets-glow', 'visibility', 'none'],
             ['ais-targets-circle', 'visibility', 'none'],
+            // A distress beacon's own upright layer (127-11a): the AIS switch hides it too.
+            ['ais-targets-sart', 'visibility', 'none'],
             ['ais-targets-heading', 'visibility', 'none'],
             ['ais-targets-label', 'visibility', 'none'],
             ['ais-predicted-tracks-line', 'visibility', 'none'],

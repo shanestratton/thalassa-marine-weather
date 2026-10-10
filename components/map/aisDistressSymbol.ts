@@ -6,8 +6,8 @@
  * caution (aisPresentationPalette.ts). Upright, never a boat or a dot, never
  * faded with age (the label carries the age), and never hidden by a filter.
  *
- * Shared by components/map/useMapInit.ts and the browser fixture that renders
- * it for real (e2e/fixtures/distress-beacon.tsx).
+ * Shared by components/map/useMapInit.ts and the browser fixtures that render
+ * it for real (e2e/fixtures/distress-beacon.tsx, chart-orientation.tsx).
  */
 
 export const AIS_DISTRESS_ICON = 'ais-sart';
@@ -40,6 +40,75 @@ export const AIS_TARGET_ICON_SIZE = [
     ['case', IS_BEACON, 0.65, 0.5],
     14,
     0.8,
+] as const;
+
+/** A distress beacon's own layer: upright on screen, so a turned chart never makes the ⊗ a ⊕ (127-11a). */
+export const AIS_SART_LAYER = 'ais-targets-sart';
+
+/**
+ * The AIS target icons, two layers on the one 'ais-targets' source. Motion
+ * picks the boat's shape (the rotated boat underway with an orientation, else
+ * the dot), precomputed per target (targetPresentation in useAisStreamLayer):
+ * heading first, COG only when moving, map-aligned so each boat points her
+ * real way on a turned chart. A distress beacon is always the circle and
+ * cross on its own layer above the boats, upright on screen as IEC 62288
+ * draws it; same image, size and paint. The AIS switch, a tap and the
+ * weather bubble's target test name both layers.
+ */
+const ICON_LAYOUT = {
+    'icon-image': AIS_TARGET_ICON_IMAGE,
+    'icon-size': AIS_TARGET_ICON_SIZE,
+    'icon-rotate': ['coalesce', ['get', 'orientation'], 0],
+    'icon-rotation-alignment': 'map',
+    'icon-allow-overlap': true,
+    'icon-pitch-alignment': 'map',
+} as const;
+const ICON_PAINT = {
+    // Type colour with safety override (NUC/restricted keep their status
+    // colour); statusColor is the fallback for any feature that predates the
+    // presentation pass.
+    'icon-color': ['coalesce', ['get', 'typeColor'], ['get', 'statusColor']],
+    // Ghost ship effect: fade vessels by age (staleMinutes): fully opaque to
+    // 30 min, fading to 2 h, ghostly after. A distress beacon never fades: its
+    // label says its age.
+    'icon-opacity': [
+        'case',
+        IS_BEACON,
+        1,
+        [
+            'interpolate',
+            ['linear'],
+            ['coalesce', ['get', 'staleMinutes'], 0],
+            0,
+            1,
+            30,
+            0.8,
+            60,
+            0.5,
+            120,
+            0.25,
+            720,
+            0.15,
+        ],
+    ],
+} as const;
+export const AIS_TARGET_ICON_LAYERS = [
+    {
+        id: 'ais-targets-circle',
+        type: 'symbol',
+        source: 'ais-targets',
+        filter: ['!', IS_BEACON],
+        layout: ICON_LAYOUT,
+        paint: ICON_PAINT,
+    },
+    {
+        id: AIS_SART_LAYER,
+        type: 'symbol',
+        source: 'ais-targets',
+        filter: IS_BEACON,
+        layout: { ...ICON_LAYOUT, 'icon-rotate': 0, 'icon-rotation-alignment': 'viewport' },
+        paint: ICON_PAINT,
+    },
 ] as const;
 
 /** Where the ring and the arms sit, as fractions of the image (the browser test probes these). */

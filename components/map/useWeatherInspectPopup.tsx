@@ -37,6 +37,7 @@ import mapboxgl from 'mapbox-gl';
 import { createRoot } from 'react-dom/client';
 import { triggerHaptic } from '../../utils/system';
 import { coordName } from './mapHubHelpers';
+import { chartBearing } from './chartOrientation';
 import type { PointWeatherData } from '../../services/weather/pointWeather';
 import type { NearestBuoyResult } from '../../services/weather/buoys/types';
 import type { DisplayMode, UnitPreferences } from '../../types/units';
@@ -285,8 +286,16 @@ export function useWeatherInspectPopup(
                 .addTo(map);
             inspectSpotRef.current = spot;
 
+            // The bubble stays upright on a turned chart, so its wind arrow
+            // takes the bearing off (127-11a): a CSS variable, not a re-render.
+            const turn = () => container.style.setProperty('--chart-bearing', `${chartBearing(map)}deg`);
+            turn();
+            const turns = typeof map.on === 'function';
+            if (turns) map.on('rotate', turn);
+
             inspectPopupRef.current = popup;
             popup.on('close', () => {
+                if (turns) map.off('rotate', turn);
                 // closeOnClick fires this without going through
                 // closeWeatherInspect, so the spot marker has to be cleared
                 // here as well or a tap elsewhere leaves it stranded.

@@ -25,6 +25,7 @@ import { crumb } from '../../utils/flightRecorder';
 import { installPaneAwareAttribution } from './paneAwareAttribution';
 import { installScaleBarLabel } from './scaleBarLabel';
 import { registerChartMap } from './chartMapRegistry';
+import { isOrientationEvent } from './chartOrientation';
 import {
     addReliefBase,
     BASE_LABEL,
@@ -39,7 +40,7 @@ import { OBS_PLACE_ZOOM, OBS_VESSEL_ZOOM, type ObsStartTarget } from './useObsSt
 import { inshoreRouteLineLayers, surveyDashLayers, unverifiedRouteDashLayers } from './inshoreRouteState';
 import { OPENSEAMAP_ATTRIBUTION } from './seamarkCredit';
 import { TRACE_CASING } from './traceLegInk';
-import { AIS_TARGET_ICON_IMAGE, AIS_TARGET_ICON_SIZE, registerAisDistressSymbol } from './aisDistressSymbol';
+import { AIS_SART_LAYER, AIS_TARGET_ICON_LAYERS, registerAisDistressSymbol } from './aisDistressSymbol';
 
 /** Map instances created THIS PROCESS — the flight trail's #N. */
 let mapInstanceSeq = 0;
@@ -677,6 +678,10 @@ export function useMapInit(opts: UseMapInitOptions) {
         // rotate the map by twisting two fingers. Belt-and-braces lock
         // to north-up. See the rationale on the constructor options.
         map.touchZoomRotate.disableRotation();
+        // And the keyboard's: Shift+left/right turned the chart 15° a press
+        // on the desk, with nothing on screen to turn it back (127-11a). Only
+        // the orientation modes turn the chart now.
+        map.keyboard?.disableRotation();
 
         // Store Aus+NZ zoom on map instance so other hooks can read it
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -692,13 +697,12 @@ export function useMapInit(opts: UseMapInitOptions) {
             const ch = containerRef.current.clientHeight;
             const z = map.getZoom();
 
-            const leftPx = map.project([AUS_NZ_WEST, (AUS_NZ_NORTH + AUS_NZ_SOUTH) / 2]).x;
-            const rightPx = map.project([AUS_NZ_EAST, (AUS_NZ_NORTH + AUS_NZ_SOUTH) / 2]).x;
-            const topPx = map.project([(AUS_NZ_WEST + AUS_NZ_EAST) / 2, AUS_NZ_NORTH]).y;
-            const bottomPx = map.project([(AUS_NZ_WEST + AUS_NZ_EAST) / 2, AUS_NZ_SOUTH]).y;
-
-            const spanW = Math.abs(rightPx - leftPx);
-            const spanH = Math.abs(bottomPx - topPx);
+            // The box's spans in mercator, not project(): screen axes turn
+            // with a turned chart, the box does not (127-11a, A13).
+            const worldPx = 512 * Math.pow(2, z);
+            const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) / (2 * Math.PI);
+            const spanW = ((AUS_NZ_EAST - AUS_NZ_WEST) / 360) * worldPx;
+            const spanH = Math.abs(mercY(AUS_NZ_NORTH) - mercY(AUS_NZ_SOUTH)) * worldPx;
 
             const zoomForWidth = z + Math.log2(cw / spanW);
             const zoomForHeight = z + Math.log2(ch / spanH);
@@ -1300,56 +1304,9 @@ export function useMapInit(opts: UseMapInitOptions) {
                 },
             });
 
-            // Boat icon — rotated by heading, colour-coded by status
-            map.addLayer({
-                id: 'ais-targets-circle',
-                type: 'symbol',
-                source: 'ais-targets',
-                layout: {
-                    // Motion picks the shape: underway-with-orientation is the
-                    // rotated boat, everything else the dot, and a distress
-                    // beacon is always the circle-and-cross (see
-                    // targetPresentation in useAisStreamLayer — precomputed,
-                    // the established pattern for this source).
-                    'icon-image': AIS_TARGET_ICON_IMAGE as unknown as mapboxgl.Expression,
-                    'icon-size': AIS_TARGET_ICON_SIZE as unknown as mapboxgl.Expression,
-                    // Precomputed orientation (heading-first, COG only when
-                    // moving); dots ignore rotation by shape.
-                    'icon-rotate': ['coalesce', ['get', 'orientation'], 0],
-                    'icon-rotation-alignment': 'map',
-                    'icon-allow-overlap': true,
-                    'icon-pitch-alignment': 'map',
-                },
-                paint: {
-                    // Type colour with safety override (NUC/restricted keep
-                    // their status colour); statusColor is the fallback for
-                    // any feature that predates the presentation pass.
-                    'icon-color': ['coalesce', ['get', 'typeColor'], ['get', 'statusColor']],
-                    // Ghost ship effect: fade vessels by age (staleMinutes)
-                    // 0-30 min: fully opaque, 30-120 min: fading, 120+: ghostly.
-                    // A distress beacon never fades: its label says its age.
-                    'icon-opacity': [
-                        'case',
-                        ['==', ['get', 'iconKind'], 'sart'],
-                        1,
-                        [
-                            'interpolate',
-                            ['linear'],
-                            ['coalesce', ['get', 'staleMinutes'], 0],
-                            0,
-                            1, // Fresh: fully visible
-                            30,
-                            0.8, // 30 min: slightly faded
-                            60,
-                            0.5, // 1 hour: half opacity
-                            120,
-                            0.25, // 2 hours: ghostly
-                            720,
-                            0.15, // 12 hours: very ghostly
-                        ],
-                    ],
-                },
-            });
+            // Boat icons, rotated by heading and colour-coded by status, and a
+            // distress beacon's upright ⊗ on its own layer above them (127-11a).
+            for (const layer of AIS_TARGET_ICON_LAYERS) map.addLayer(layer as unknown as mapboxgl.AnyLayer);
 
             // Remove the separate heading arrow — boat icon already shows direction
             // (keeping 'ais-targets-heading' layer ID for visibility toggle compatibility)
@@ -1474,7 +1431,8 @@ export function useMapInit(opts: UseMapInitOptions) {
         map.on('mousemove', (e) => movePress(e.point));
         map.on('mouseup', cancelPress);
         map.on('zoomstart', cancelPress);
-        map.on('rotatestart', cancelPress);
+        // An orientation turn is not the skipper's gesture (127-11a).
+        map.on('rotatestart', (e) => isOrientationEvent(e) || cancelPress());
         map.on('pitchstart', cancelPress);
 
         // ── Single-tap inspect handler ──
@@ -1500,7 +1458,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             // Coordinate capture needs taps to land even with a route shown.
             if (!coordCaptureRef.current && (opts.settingPoint || opts.showPassage)) return;
             // Don't fire weather popup if user tapped an AIS vessel
-            const aisLayers = existingMapLayerIds(map, ['ais-targets-circle']);
+            const aisLayers = existingMapLayerIds(map, ['ais-targets-circle', AIS_SART_LAYER]);
             const aisHits = aisLayers.length > 0 ? map.queryRenderedFeatures(e.point, { layers: aisLayers }) : [];
             if (aisHits.length > 0) return;
             onMapTapRef.current?.(e.lngLat.lat, e.lngLat.lng);

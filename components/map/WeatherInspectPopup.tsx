@@ -113,12 +113,16 @@ const DASH = '--';
 
 // ── Wind direction arrow ──
 
+/** The bubble is upright on a turned chart: the arrow takes off its --chart-bearing (127-11a). */
 const WindArrow: React.FC<{ deg: number }> = ({ deg }) => (
     <svg
         width="14"
         height="14"
         viewBox="0 0 24 24"
-        style={{ transform: `rotate(${deg + 180}deg)`, transition: 'transform 0.3s' }}
+        style={{
+            transform: `rotate(calc(${deg + 180}deg - var(--chart-bearing, 0deg)))`,
+            transition: 'transform 0.3s',
+        }}
         fill="none"
         stroke="currentColor"
         strokeWidth="2.5"

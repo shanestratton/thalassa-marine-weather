@@ -184,6 +184,76 @@ describe('projectTrackContinuously', () => {
     });
 });
 
+/**
+ * The chart can turn (127-11a, audit A6). The storm track's SVG overlay
+ * placed every point by a north-up mercator delta from its one wrapped
+ * anchor, so on a turned chart the track drew skewed off its own GL cone.
+ * The delta is now turned by minus the bearing, and still only the anchor
+ * touches project()'s per-point wrap (the antimeridian rule, round four).
+ * The stub below is rotation-faithful AND wraps per point, like Mapbox.
+ */
+describe('projectTrackContinuously on a turned chart', () => {
+    const wrapLon = (lon: number) => ((((lon + 180) % 360) + 360) % 360) - 180;
+    const turnedMap = (centerLng: number, centerLat: number, zoom: number, bearing: number) => {
+        const world = 512 * Math.pow(2, zoom);
+        const mercY = (lat: number) =>
+            (0.5 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) / (2 * Math.PI)) * world;
+        const a = (-bearing * Math.PI) / 180;
+        return {
+            getZoom: () => zoom,
+            getBearing: () => bearing,
+            project: ([lon, lat]: [number, number]) => {
+                const dx = ((wrapLon(lon) - centerLng) / 360) * world;
+                const dy = mercY(lat) - mercY(centerLat);
+                return {
+                    x: 640 + dx * Math.cos(a) - dy * Math.sin(a),
+                    y: 360 + dx * Math.sin(a) + dy * Math.cos(a),
+                } as never;
+            },
+        };
+    };
+    const maxJump = (pts: { x: number; y: number }[]) => {
+        let m = 0;
+        for (let i = 1; i < pts.length; i++)
+            m = Math.max(m, Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+        return m;
+    };
+    const LALA: [number, number][] = [
+        [-175.5, 33.9],
+        [-179.0, 36.6],
+        [-180.5, 38.2],
+        [-182.1, 39.8],
+    ];
+
+    it('at bearing 90 it is exactly project() for a track that does not wrap (a fictional Coral Sea storm)', () => {
+        const track: [number, number][] = [
+            [152, -27],
+            [153, -26],
+            [150.5, -23.4],
+        ];
+        const m = turnedMap(151, -25.5, 5, 90);
+        const px = projectTrackContinuously(m as never, track);
+        track.forEach((p, i) => {
+            const direct = (m.project as (q: [number, number]) => { x: number; y: number })(p);
+            expect(px[i].x).toBeCloseTo(direct.x, 6);
+            expect(px[i].y).toBeCloseTo(direct.y, 6);
+        });
+    });
+
+    for (const bearing of [0, 45]) {
+        it(`holds LALA together at bearing ${bearing}° at every camera that defeated the earlier rounds`, () => {
+            for (const [lng, zoom, limit] of [
+                [-116.9, 2.1, 100],
+                [107.3, 3, 150],
+                [180, 4, 300],
+            ]) {
+                const px = projectTrackContinuously(turnedMap(lng, 36, zoom, bearing) as never, LALA);
+                expect(maxJump(px)).toBeLessThan(limit); // a split is ~worldPx, thousands of px
+            }
+        });
+    }
+});
+
 describe('both SVG projection sites use the continuous projector', () => {
     it('map.project has exactly ONE owner in this file — the tripwire', () => {
         // ROUND FOUR's lesson: three rounds of fixes patched the projection

@@ -48,8 +48,33 @@ describe('mapHubHelpers', () => {
                 maxZoom: 15,
                 duration: 900,
                 retainPadding: false,
+                // North up: the fit says 0, as Mapbox's default always did (127-11a).
+                bearing: 0,
             },
         );
+    });
+
+    // 127-11a, audit A8: Mapbox's fitBounds turns the chart to 0 unless told,
+    // so a route fit on a turned chart kept snapping it north. Every fit keeps
+    // the orientation mode's bearing (chartFitBearing), else the chart's own.
+    it('a route fit on a turned chart keeps the mode’s bearing (a fictional Chesapeake leg)', async () => {
+        const { setChartOrientation } = await import('../components/map/chartOrientation');
+        const fitBounds = vi.fn();
+        const route = [
+            { lat: 38.98, lon: -76.48 },
+            { lat: 38.6, lon: -76.4 },
+        ];
+        try {
+            setChartOrientation({ turning: true, target: 200 });
+            fitTraceBounds({ fitBounds, getBearing: () => 185 } as never, route);
+            expect(fitBounds.mock.calls[0][1]).toMatchObject({ bearing: 200 });
+            // No mode target: the chart's own bearing, never a snap north.
+            setChartOrientation({ turning: false, target: null });
+            fitTraceBounds({ fitBounds, getBearing: () => 33 } as never, route);
+            expect(fitBounds.mock.calls[1][1]).toMatchObject({ bearing: 33 });
+        } finally {
+            setChartOrientation({ turning: false, target: null });
+        }
     });
 
     it('fits a northern and western route the same way (Falmouth to A Coruña)', () => {

@@ -13,7 +13,8 @@
  * draw additively. Same 30 fps cadence, same 60-frame particle life.
  *
  * Panning carries the streaks with the water; a pinch rescales them about the
- * camera. prefers-reduced-motion draws a static arrow field and never starts
+ * camera; a turn of the chart re-aims the flow from the same wind (127-11a),
+ * eased like any change of direction. prefers-reduced-motion draws a static arrow field and never starts
  * the animation loop. The loop runs only while there is something to draw: a
  * hidden app, a 0x0 container (Obs kept alive under display:none) or no local
  * wind stops it. Losing the wind clears the canvas at once, so the last
@@ -173,6 +174,7 @@ export class CloseInWindLayer {
             this.map.on('move', this.onMove);
             this.map.on('moveend', this.onMoveEnd);
             this.map.on('resize', this.onResize);
+            this.map.on('rotate', this.onRotate);
             document.addEventListener('visibilitychange', this.onVisibility);
             if (typeof ResizeObserver !== 'undefined') {
                 this.sizeObserver = new ResizeObserver(() => this.onResize());
@@ -243,6 +245,7 @@ export class CloseInWindLayer {
         this.map.off('move', this.onMove);
         this.map.off('moveend', this.onMoveEnd);
         this.map.off('resize', this.onResize);
+        this.map.off('rotate', this.onRotate);
         document.removeEventListener('visibilitychange', this.onVisibility);
         this.sizeObserver?.disconnect();
         this.sizeObserver = null;
@@ -411,6 +414,16 @@ export class CloseInWindLayer {
         if (this.destroyed) return;
         this.resize();
         this.resetAnchor();
+    };
+
+    /** The chart turned: the same wind flows another way on screen (the easing in stepFrame smooths it). */
+    private readonly onRotate = (): void => {
+        const wind = this.wind;
+        if (!wind || wind.fromDeg === null) return;
+        const speed = Math.hypot(this.targetVx, this.targetVy);
+        const heading = this.screenAngle(wind);
+        this.targetVx = Math.cos(heading) * speed;
+        this.targetVy = Math.sin(heading) * speed;
     };
 
     private readonly onVisibility = (): void => {

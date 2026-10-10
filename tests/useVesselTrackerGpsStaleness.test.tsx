@@ -322,7 +322,8 @@ describe('useVesselTracker independent true-heading updates', () => {
         expect(t.arrow().style.transform).toBe('rotate(45deg)');
         expect(t.marker().setLngLat).toHaveBeenCalledTimes(translations);
         expect(t.marker().element.style.transform).toBe('translate(100px, 200px) rotateZ(-30deg)');
-        expect(t.marker().options).toMatchObject({ rotationAlignment: 'map', pitchAlignment: 'map' });
+        // Upright on screen however the chart is turned (127-11a): only her arrows turn.
+        expect(t.marker().options).toMatchObject({ rotationAlignment: 'viewport', pitchAlignment: 'map' });
         t.view.unmount();
         expect(mocks.nmeaCallbacks.size).toBe(0);
         expect(mocks.nmeaPositionCallbacks.size).toBe(0);

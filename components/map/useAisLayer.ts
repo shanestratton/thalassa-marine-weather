@@ -11,11 +11,13 @@
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { AisStore } from '../../services/AisStore';
+import { AIS_SART_LAYER } from './aisDistressSymbol';
 
 const UPDATE_THROTTLE_MS = 2000;
 const AIS_LAYER_IDS = [
     'ais-targets-glow',
     'ais-targets-circle',
+    AIS_SART_LAYER,
     'ais-targets-heading',
     'ais-targets-label',
     'ais-predicted-tracks-line',

@@ -1838,3 +1838,158 @@ describe('MapboxVelocityOverlay palette', () => {
         );
     });
 });
+
+// ── The chart turned (127-11a, audit A1): the field turns with it ──
+describe('MapboxVelocityOverlay on a turned chart', () => {
+    afterEach(async () => {
+        const { setChartOrientation } = await import('../components/map/chartOrientation');
+        setChartOrientation({ turning: false, target: null });
+    });
+
+    /** A 390x844 phone chart that can be turned, over a fictional Brittany-like coast. */
+    function turnableHarness() {
+        const mapbox = createMapboxHarness(5);
+        const size = { w: 390, h: 844 };
+        Object.defineProperty(mapbox.container, 'clientWidth', { configurable: true, get: () => size.w });
+        Object.defineProperty(mapbox.container, 'clientHeight', { configurable: true, get: () => size.h });
+        mapbox.map.getCenter.mockReturnValue({ lat: 48.38, lng: -4.49 });
+        // The camera centre projects to the middle of the chart, as Mapbox's does.
+        mapbox.map.project.mockImplementation(() => ({ x: size.w / 2, y: size.h / 2 }));
+        const camera = { bearing: 0 };
+        (mapbox.map as unknown as { getBearing: () => number }).getBearing = () => camera.bearing;
+        return { mapbox, camera, size };
+    }
+
+    const fieldDiv = (mapbox: MapboxHarness) =>
+        [...mapbox.container.children].find(
+            (el) => (el as HTMLElement).style.zIndex === '400' && !(el as HTMLElement).dataset.closeInWind,
+        ) as HTMLDivElement;
+
+    async function mountField() {
+        mocks.releasePlugin();
+        const { mapbox, camera, size } = turnableHarness();
+        const before = mocks.leafletMaps.length;
+        const beforeLayers = mocks.velocityLayers.length;
+        const view = render(
+            <MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={windGrid(12, 'ecmwf')} />,
+        );
+        await waitFor(() => expect(mocks.leafletMaps.length).toBe(before + 1));
+        await waitFor(() => expect(mocks.velocityLayers.length).toBe(beforeLayers + 1));
+        const leaflet = mocks.leafletMaps[before];
+        // Leaflet draws the synced centre in the middle of its own div.
+        leaflet.latLngToContainerPoint.mockImplementation(() => {
+            const div = fieldDiv(mapbox);
+            const w = parseFloat(div.style.width) || 390;
+            const h = parseFloat(div.style.height) || 844;
+            return { x: w / 2, y: h / 2 };
+        });
+        return { mapbox, camera, size, view, leaflet, layer: mocks.velocityLayers[beforeLayers] };
+    }
+
+    it('north up: today’s div exactly, inset 0 and no rotation', async () => {
+        const { mapbox, view } = await mountField();
+        act(() => mapbox.emit('moveend'));
+        const div = fieldDiv(mapbox);
+        expect(div.style.inset).toBe('0');
+        expect(div.style.width).toBe('');
+        expect(div.style.transform).not.toContain('rotate');
+        view.unmount();
+    });
+
+    it('a turning mode makes the field a square of the view’s diagonal, centred, re-sized once', async () => {
+        const { setChartOrientation } = await import('../components/map/chartOrientation');
+        const { mapbox, view, leaflet } = await mountField();
+        act(() => mapbox.emit('moveend'));
+        leaflet.invalidateSize.mockClear();
+        act(() => setChartOrientation({ turning: true, target: 37 }));
+        const div = fieldDiv(mapbox);
+        const side = Math.ceil(Math.hypot(390, 844)); // 930
+        expect(div.style.width).toBe(`${side}px`);
+        expect(div.style.height).toBe(`${side}px`);
+        expect(div.style.left).toBe(`${(390 - side) / 2}px`);
+        expect(div.style.top).toBe(`${(844 - side) / 2}px`);
+        expect(leaflet.invalidateSize).toHaveBeenCalledTimes(1);
+        // Back to North up: today's div again.
+        act(() => setChartOrientation({ turning: false, target: null }));
+        expect(div.style.inset).toBe('0');
+        expect(div.style.width).toBe('');
+        view.unmount();
+    });
+
+    it('turned to 37°, the settled field is rotated by −37° about the chart’s centre', async () => {
+        const { setChartOrientation } = await import('../components/map/chartOrientation');
+        const { mapbox, camera, view } = await mountField();
+        act(() => setChartOrientation({ turning: true, target: 37 }));
+        camera.bearing = 37;
+        act(() => mapbox.emit('moveend'));
+        expect(fieldDiv(mapbox).style.transform).toContain('rotate(-37deg)');
+        // Every move frame turns it too, not only the settle.
+        camera.bearing = 52;
+        act(() => mapbox.emit('move'));
+        expect(fieldDiv(mapbox).style.transform).toContain('rotate(-52deg)');
+        view.unmount();
+    });
+
+    it('the bigger square keeps today’s density, capped at 1.6x today’s particle count', async () => {
+        const { setChartOrientation } = await import('../components/map/chartOrientation');
+        const { mapbox, view, layer } = await mountField();
+        act(() => setChartOrientation({ turning: true, target: 90 }));
+        act(() => mapbox.emit('moveend'));
+        const side = Math.ceil(Math.hypot(390, 844));
+        const cap = Math.min(1, (1.6 * 390 * 844) / (side * side));
+        expect(cap).toBeLessThan(1); // a portrait phone's square is ~1.64x its area
+        expect((layer._windy as { particleMultiplier?: number }).particleMultiplier).toBeCloseTo(
+            zoomScaledParticleMultiplier(5) * cap,
+            12,
+        );
+        act(() => setChartOrientation({ turning: false, target: null }));
+        act(() => mapbox.emit('moveend'));
+        expect((layer._windy as { particleMultiplier?: number }).particleMultiplier).toBe(
+            zoomScaledParticleMultiplier(5),
+        );
+        view.unmount();
+    });
+
+    it('a phone turned on its side re-centres the square, though the diagonal is the same', async () => {
+        const { setChartOrientation } = await import('../components/map/chartOrientation');
+        const { mapbox, size, view, leaflet } = await mountField();
+        act(() => setChartOrientation({ turning: true, target: 37 }));
+        const div = fieldDiv(mapbox);
+        expect(div.style.left).toBe('-270px');
+        expect(div.style.top).toBe('-43px');
+        // 390x844 to 844x390: ceil(hypot) is 930 both ways.
+        size.w = 844;
+        size.h = 390;
+        leaflet.invalidateSize.mockClear();
+        act(() => mapbox.emit('resize'));
+        expect(div.style.width).toBe('930px');
+        expect(div.style.left).toBe('-43px');
+        expect(div.style.top).toBe('-270px');
+        expect(leaflet.invalidateSize).toHaveBeenCalled();
+        view.unmount();
+    });
+
+    it('a field rebuilt north up after one torn down turned starts at today’s density', async () => {
+        const { setChartOrientation } = await import('../components/map/chartOrientation');
+        mocks.releasePlugin();
+        const { mapbox } = turnableHarness();
+        const grid = windGrid(12, 'ecmwf');
+        const before = mocks.leafletMaps.length;
+        const view = render(<MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={grid} />);
+        await waitFor(() => expect(mocks.leafletMaps.length).toBe(before + 1));
+        act(() => setChartOrientation({ turning: true, target: 90 }));
+        act(() => mapbox.emit('moveend'));
+        // Hidden while turned (the wind layer off), then back on North up.
+        view.rerender(<MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible={false} windGrid={grid} />);
+        act(() => setChartOrientation({ turning: false, target: null }));
+        const beforeLayers = mocks.velocityLayers.length;
+        view.rerender(<MapboxVelocityOverlay mapboxMap={mapbox.map as never} visible windGrid={grid} />);
+        await waitFor(() => expect(mocks.velocityLayers.length).toBeGreaterThan(beforeLayers));
+        const layer = mocks.velocityLayers[mocks.velocityLayers.length - 1];
+        act(() => mapbox.emit('moveend'));
+        expect((layer._windy as { particleMultiplier?: number }).particleMultiplier).toBe(
+            zoomScaledParticleMultiplier(5),
+        );
+        view.unmount();
+    });
+});
