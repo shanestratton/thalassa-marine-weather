@@ -57,7 +57,8 @@ expired account access, continue unrelated unblocked work and retain the gate.
 The 6 October integration rebase onto `7e0b27a4` preserved Claude's then-newer app
 fixes. Shared master `058ba16e` was observed on 9 October but is unreconciled.
 The later native startup slice observes `196bcb0e`, also externally advanced and
-unreconciled; neither combined master state has been tested by this slice.
+unreconciled. On 10 October `98aa277a` was observed, also unreconciled; none of
+these combined master states has been tested by this slice.
 Fetch and reconcile later master changes before any eventual merge, preserving
 published integration history without rewriting or force-pushing it. The
 unsupported Window proof on `8c28d08e` does not test a candidate combined with
@@ -106,16 +107,18 @@ actual unsupported jsdom App/remount check. Its instrumented web bundle compiled
 and passed the complete unsupported-browser scenario in a fresh owned Chrome
 Window: startup, Chat selection, synthetic closure, whole-root remount, blocked
 audio CSP control and final synthetic terminal closure. A separate simulator-only
-native full-App startup fixture now compiles, but native startup and supported
-SDK login acceptance remain unproved.
+native full-App startup fixture now passes in one owned WKWebView/Capacitor app
+with actual SDK/native wiring and synthetic Auth responses. It verifies closed
+unknown admission, terminal credential fencing and a fresh root, not live login,
+encryption, durable logout or physical acceptance.
 Cached-only replay passed strict preflight without recompilation. After the
 earlier boot timeout, two fresh iOS 27.0 attempts booted and installed the same
 app, but each launch call timed out. The second attempt captured absence of both
 expected diagnostic files before cleanup; that does not prove no app code ran.
-All exact simulators were removed; native acceptance remains unproved. A fixed
-Settings launch control now booted and passed installed System metadata checks,
-then its 30-second launch call timed out before Research installation/launch.
-A separately tested 120-second Settings cutoff is prepared but unrun. The ordinary
+All exact simulators were removed. The earlier 30-second Settings launch timeout
+is preserved. A later fixed 120-second control passed, permitting the unchanged
+30-second Research launch and scoped startup acceptance; that comparison does
+not establish the earlier failures' cause. The ordinary
 app/router still has no experimental startup admission. Production
 cutover is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
@@ -150,6 +153,68 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 10 October scoped native full App startup passed
+
+The [accepted startup evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-startup-accepted-2026-10-10.json)
+records one actual cached-only app run on `967cd312`: **seven cases, 163 JS
+assertions and 10 native assertions**. Fresh iOS 27.0 boot and System Settings
+metadata passed. The fixed 120-second control returned status zero/exact PID;
+Research then installed and launched under its unchanged 30-second bound.
+The original resource binding and strict v2 receipt validated through final
+closure, with the exact simulator removed and all 89 execution source hashes
+stable. There was no native/web compilation, shared waiting or second attempt.
+
+One SDK password request and two native verifier requests used local synthetic
+responses; unexpected and relay requests were zero. Native verified progress
+remained unregistered, unpaired and `unknown`. Final native facts show
+credential-fenced, current account absent and the original snapshot no longer
+current. Configuration/fence/authenticate/current-account/admission counters
+were 2/5/1/3/1; protected-message/history/send/sync, enrollment, pairing and
+relay operations stayed zero.
+The native HTTP backstop denied each of six methods once through both inspected
+dispatch names, with no listener insertion. One Auth host/controller and the
+same factory-local wrapper identity remained in use; App's User stayed null.
+
+The final window had two runtime/SDK successful constructions, 12 wrapped native
+calls, two mounts and one remount. Inactive/anonymous Auth, unavailable private
+selection, no legacy permit and absent message log remained closed. These are
+not zero startup attempts: closed core attempts were 20/34, navigation count 1,
+location patch unavailable 3 and volatile local-storage reads/writes 198/45.
+Closed-render count 14 counts render invocations, not commits. Pre-fence Auth
+identity storage reads are outside these counters; this is not a general
+native/OS/navigation sandbox. Synthetic pagehide/fencing is neither durable
+logout/revocation nor real OS/BFCache lifecycle acceptance.
+
+The explicit Node24 alias had advanced from 24.19 to 24.21. Its initial pin
+refusal is retained. A new invocation-only runner pinned the observed 24.21
+version, executable path and SHA; historical 54-case/type checks remain on
+24.19 and were not rerun or relabelled. Root's read-only report says the old
+binary could no longer start because of its missing dynamic dependency;
+validation did not retry, repair, install or use an environment fallback.
+Executable/cache matching is not complete toolchain provenance or an audit.
+
+Next design a separate full-root protected native-adapter navigation/exchange
+fixture. `ResearchProtectedUiFixture.swift` reuses the same UI Auth-host facade
+and creates a separate owned peer, not a second UI Auth issuer;
+`ResearchProtectedUiRelay.swift` supplies synthetic URLProtocol transport with
+signature/canary evidence. The current builder selects resource v3 as full-App
+startup and v2 as protected-page exchange, while the native fixture's
+`#if E2EE_FULL_APP_UI_FIXTURE` / `#elseif E2EE_PROTECTED_UI_FIXTURE` branches
+exclude protected behaviour from startup. A new explicit full-root-protected
+scenario/resource discriminator,
+strict report and fresh source-bound compile are required; merely combining
+flags or widening the startup/global native allowlist is not acceptable.
+
+Proposed acceptance must prove actual App Chat routing, native-issued admission
+and readiness, native-adapter send/receive and correlated provider/relay/envelope
+results, deduplication, truthful null incoming time/status and closed
+stale-owner/terminal/remount behaviour, while keeping App User null. This is
+proposed, not implemented or executed; cached accepted startup cannot establish
+or be relabelled as protected exchange. No encryption,
+current physical, full lifecycle/prekey/recovery, production cutover,
+licence/provenance or independent security gate is closed by startup acceptance.
+Master `98aa277a` is observed/unreconciled and foundation `3c30f47c` unchanged.
 
 ### 10 October Settings control launch timed out
 

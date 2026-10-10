@@ -253,7 +253,45 @@ storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gate
 before treating this routing seam as startup integration. No ordinary activation,
 shared dependency write, primary sync, master or production change is included.
 
-The [10 October control timing evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-control-timing-2026-10-10.json)
+The [10 October accepted native startup evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-startup-accepted-2026-10-10.json)
+passes seven actual simulator cases with 163 JS/10 native assertions on
+`967cd312`. Fixed 120-second Settings control and unchanged 30-second Research
+launch gates passed; the strict native receipt reached final closure. The exact
+simulator was removed, 89 execution source hashes stayed stable and no compile,
+shared waiting or second attempt occurred. Prior failures remain unchanged;
+the passing comparison is not proof of their cause.
+
+Actual SDK/Capacitor/native wiring uses synthetic Auth: one SDK password request,
+two native verifier requests and zero unexpected/relay traffic. Native progress
+is verified but unregistered/unpaired/unknown; final facts are credential-fenced,
+account absent and original snapshot stale, not durable logout/revocation. App
+User remains null, private/legacy access closed and message-send/enrollment methods
+zero. Both native HTTP names deny all six inspected methods once. The window
+records two successful runtime/SDK constructions, 12 wrapped native calls,
+two mounts/one remount and synthetic pagehide; no OS/BFCache acceptance is proved.
+Nonzero closed core/storage/navigation counters and three unavailable location
+patches preclude a zero-attempt or complete sandbox claim. Counts cover the
+Research seam, not all native operations or the pre-fence Auth storage read.
+
+The invocation-only runner explicitly pins observed Node 24.21 after retaining
+an initial 24.19 pin refusal. Root-reported old-binary startup failure was not
+repeated or repaired; historical 54 cases/types remain 24.19 evidence. This is
+not full toolchain provenance or independent assessment. Next propose a separate
+full-root-protected scenario/resource and strict report with a fresh source-bound
+compile. Existing protected fixtures reuse the same UI Auth-host facade and a
+separate owned peer; their synthetic URLProtocol relay supplies signature/canary
+evidence. Builder v3/full-App versus v2/protected selection and native
+`#if / #elseif` exclusion mean the flags cannot simply be combined or the
+startup/global native allowlist widened. Acceptance must prove actual App Chat
+routing, native-issued admission/readiness, adapter send/receive, correlated
+provider/relay/envelope results, deduplication, truthful null time/status and
+stale-owner/terminal/remount denial without fabricating an App User. This is
+not implemented or executed; cached startup cannot be relabelled as protected
+exchange. Encryption, physical, lifecycle,
+production and external review gates remain open; master `98aa277a` is observed
+but unreconciled and foundation unchanged.
+
+The historical [10 October control timing evidence](../experiments/scuttlebutt-e2ee/review/full-app-native-control-timing-2026-10-10.json)
 executes one cached-only control attempt on `93469456`: preflight, new owned-copy
 signing, fresh iOS 27 boot and System Settings metadata verification passed.
 The 30-second Settings launch call timed out with null exit/no PID. Research
