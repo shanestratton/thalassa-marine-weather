@@ -548,6 +548,12 @@ describe('the open strip clears the Sat cloud and lightning credits', () => {
             ),
             match: (el: HTMLElement) => el.closest('[data-testid="lightning-credit"]') !== null,
         },
+        {
+            // 127-DESKMAP-b: the wind model's licence credit, in the same strip.
+            name: 'wind model',
+            node: <div data-testid="wind-credit">Wind: ECMWF (CC BY 4.0) via Open-Meteo</div>,
+            match: (el: HTMLElement) => el.dataset.testid === 'wind-credit',
+        },
     ];
 
     for (const credit of credits) {

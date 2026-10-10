@@ -7,6 +7,8 @@ export interface DeskMapStripProps {
     slot0: { text: string; hidden: boolean };
     /** Slot 1 (B2): OpenSeaMap's label while the Seamarks switch is on; 'down' when it is not answering. */
     seamarks: 'shown' | 'down' | null;
+    /** Slot 2 (127-DESKMAP-b): the wind model's licence credit while the desk's wind draws. */
+    wind?: string | null;
     /** The world tint is showing on Light (schedule brief 2): its depths are a model's. */
     seabed: boolean;
 }
@@ -17,12 +19,12 @@ export interface DeskMapStripProps {
  * the top middle of the screen"). One stacked column in a fixed order, so a
  * line that wraps at a narrow width pushes the next one down instead of
  * overlapping it, and slot 0 always keeps its box: panning onto a NOAA cell
- * blanks its words, never moves the seamark line. 127-DESKMAP-b's wind credit
- * is the next slot after the seamarks. On a narrow window while tracing only
+ * blanks its words, never moves the seamark line. The wind model's credit
+ * (127-DESKMAP-b) is slot 2, after the seamarks. On a narrow window while tracing only
  * the seamark line stays, under the menu's icon pill (index.css
  * .thalassa-desk-tracing).
  */
-export function DeskMapStrip({ slot0, seamarks, seabed }: DeskMapStripProps) {
+export function DeskMapStrip({ slot0, seamarks, wind, seabed }: DeskMapStripProps) {
     return (
         <div
             data-testid="desk-map-strip"
@@ -57,6 +59,11 @@ export function DeskMapStrip({ slot0, seamarks, seabed }: DeskMapStripProps) {
                     >
                         ⓘ
                     </a>
+                </div>
+            )}
+            {wind && (
+                <div data-testid="desk-strip-slot-2" data-map-credit>
+                    {wind}
                 </div>
             )}
             {seabed && <div data-testid="desk-strip-seabed">Seabed: model depth, not a chart</div>}

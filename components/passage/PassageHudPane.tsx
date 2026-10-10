@@ -584,7 +584,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
         // chart key renders the same labelled chip low in this column.
         const ownCredits =
             '[aria-label^="Copernicus Marine data attribution"], [data-testid="sat-ir-credit"], ' +
-            '[data-testid="lightning-credit"]';
+            '[data-testid="lightning-credit"], [data-testid="wind-credit"]';
         const creditSelector =
             `${ownCredits}, ` +
             'a[aria-label="Rain radar data by RainViewer"], a[aria-label="Rain forecast imagery by Rainbow.ai"]';

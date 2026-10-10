@@ -17,12 +17,7 @@
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
-import {
-    CREDITS_SLOT_PX,
-    CREDITS_STRIP_POSITION_CLASS,
-    creditsStripTop,
-    satelliteCreditOffsetPx,
-} from './creditsStrip';
+import { CREDITS_SLOT_PX, CREDITS_STRIP_POSITION_CLASS, creditsStripTop, creditStackPx } from './creditsStrip';
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
 import { parseCoordinateString } from '../../utils/coordParse';
@@ -46,6 +41,7 @@ import { DESK_MAP_BASE_OPTIONS, MapBaseSelector, mapBaseVisibility, type MapBase
 import { RELIEF_TILE_BASE, seaBaseLayers, setReliefPalette } from './reliefBase';
 import { deskSlot0Line, useDeskMap } from './deskMap';
 import { DeskMapStrip } from './DeskMapStrip';
+import { deskWindToggle, useStillCentre, windCreditLine } from './deskWind';
 import { traceHintPaint } from './traceLegInk';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
@@ -335,6 +331,8 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 // ── Component ──────────────────────────────────────────────────
 /** Find-boat FAB zoom (Shane 2026-10-05: "change the zoom in the obs page to 14 when the punter clicks on the find boat fab"). */
 const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
+/** The desk's own layer while its Wind switch is on (127-DESKMAP-b). */
+const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
@@ -2233,6 +2231,18 @@ export const MapHub: React.FC<MapHubProps> = ({
     const { deskBase, setDeskBase, deskSeamarks, toggleDeskSeamarks } = useDeskMap();
     const deskPlanner = !Capacitor.isNativePlatform() && (cleanPlanningMap || coordCaptureMode);
     const deskSurface = deskPlanner && !pickerMode && !embedded && !isPinView;
+    // WIND ON THE DESK (127-DESKMAP-b; Shane 2026-10-10: "can we include the
+    // wind layer on the desktop.?? as an option??"): a Wind row in the desk
+    // menu on a window 768 px wide or more, OFF at every mount and kept nowhere
+    // (Shane 2026-09-05: layers never outlive the app). It paints as the
+    // planner's own layer (useWeatherLayers' planLayers), so Obs's selection
+    // never shows through and is never written, and the camera never moves.
+    const [deskWindOn, setDeskWindOn] = useState(false);
+    const deskWindOffered = deskSurface && deviceMode === 'helm';
+    const deskWind = deskWindOffered && deskWindOn;
+    // Where the panel asks whether the models agree: the first pin, else the still centre.
+    const stillCentre = useStillCentre(mapRef, mapReady, deskWind && capturedCoords.length === 0);
+    const deskWindPoint = capturedCoords[0] ?? stillCentre;
     // Chart-declutter scrubber (Shane 2026-07-14): 0 = full chart, 6 =
     // near-bare. Session-only; encDetailScrubber owns which furniture
     // each step removes (safety layers are untouchable there).
@@ -3285,6 +3295,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         planningSurface,
         { hudEnabled: passageHudOnChart, squallVisible: browseSquallVisible },
         true, // Do not restore weather/MPA overlays into a fresh OBS.
+        deskWind ? DESK_WIND_LAYERS : undefined,
     );
     usePassageHudLayerActivation({
         available: passageHudOnChart,
@@ -3796,6 +3807,16 @@ export const MapHub: React.FC<MapHubProps> = ({
         // under both. Testing for 'radar' alone let the two overlap.
         !!weather.unifiedFramesRef?.current?.[weather.rainFrameIndex];
     const showEmbeddedRainViewerAttribution = embedded && embeddedRain.embRainCount > 0 && embeddedRain.embRainIdx >= 0;
+    // The wind model's licence credit on Obs whenever the field draws
+    // (127-DESKMAP-b; the desk shows it in its strip): after the radar and
+    // Copernicus credits, lightning and the satellite cloud under it.
+    const obsWindCredit =
+        ownshipStartup &&
+        !mobActive &&
+        weather.windReady &&
+        (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity'));
+    // The streaks' palette: dark ink on the desk's Light by day, white everywhere else.
+    const windPalette = shownBase === 'light' && !nightMode ? 'light' : 'dark';
     const obsKeyProps: ObsLayerKeyProps = {
         enc: encVisible
             ? {
@@ -3929,6 +3950,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                             on: deskSeamarks,
                             onToggle: toggleDeskSeamarks,
                         },
+                        ...(deskWindOffered
+                            ? [deskWindToggle(deskWindOn, weather.windModel, () => setDeskWindOn((on) => !on))]
+                            : []),
                     ]}
                     encCellCount={encCellCount}
                     encVisible={encVisible}
@@ -3945,6 +3969,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // seamarks step aside for a chart: nothing in the strip
                         // jumps as the view crosses a cell edge.
                         seamarks={deskSeamarks ? (deskSeamarkView.down ? 'down' : 'shown') : null}
+                        wind={deskWind && weather.windReady ? windCreditLine(weather.windModel) : null}
                         seabed={shownBase === 'light' && !!RELIEF_TILE_BASE && deskSeamarkView.low}
                     />
                 )}
@@ -3973,7 +3998,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                     plotting guard above: the overlay only, never the controls,
                     legend or scrubber (799dc4d0 was reverted for exactly
                     that). */}
-                {!isPinView && !embedded && !pickerMode && !planningSurface && (
+                {/* ...and on the desk planner its Wind switch is the planner's
+                    own choice (127-DESKMAP-b): the forecast field alone, never
+                    her instruments, in dark ink on Light by day. */}
+                {!isPinView && !embedded && !pickerMode && (!planningSurface || deskWind) && (
                     <MapboxVelocityOverlay
                         mapboxMap={mapRef.current}
                         visible={
@@ -3982,8 +4010,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                         windHour={weather.windHour}
                         windNowIdx={weather.windNowIdx}
                         windGrid={weather.windState.grid ?? undefined}
-                        boatInstruments={obsStart.kind === 'follow'}
-                        boatLookUp={obsShowing}
+                        boatInstruments={!planningSurface && obsStart.kind === 'follow'}
+                        boatLookUp={!planningSurface && obsShowing}
+                        palette={windPalette}
                     />
                 )}
 
@@ -5395,21 +5424,41 @@ export const MapHub: React.FC<MapHubProps> = ({
                         className={`${CREDITS_STRIP_POSITION_CLASS} z-510 max-w-[calc(100%-120px)] pointer-events-none`}
                         style={{
                             top: creditsStripTop(
-                                ((rainCreditShown ? 1 : 0) + (cmemsAttributionLayers.length > 0 ? 1 : 0)) *
-                                    CREDITS_SLOT_PX,
+                                creditStackPx({
+                                    rain: rainCreditShown,
+                                    cmems: cmemsAttributionLayers.length > 0,
+                                    wind: obsWindCredit,
+                                }),
                             ),
                         }}
                     >
                         <BlitzortungAttribution visible compact />
                     </div>
                 )}
+                {obsWindCredit && (
+                    <div
+                        data-testid="wind-credit"
+                        // Cut out of the layer menu's scrim, like every licence credit.
+                        // Its look is index.css .thalassa-wind-credit (the radar pill's).
+                        data-map-credit
+                        className={`thalassa-wind-credit ${CREDITS_STRIP_POSITION_CLASS}`}
+                        style={{
+                            top: creditsStripTop(
+                                creditStackPx({ rain: rainCreditShown, cmems: cmemsAttributionLayers.length > 0 }),
+                            ),
+                        }}
+                    >
+                        {windCreditLine(weather.windModel)}
+                    </div>
+                )}
                 {!pickerMode && !planningSurface && !embedded && !isPinView && satellite.status !== 'off' && (
                     <SatelliteIrCredit
                         state={satellite}
                         top={creditsStripTop(
-                            satelliteCreditOffsetPx({
+                            creditStackPx({
                                 rain: rainCreditShown,
                                 cmems: cmemsAttributionLayers.length > 0,
+                                wind: obsWindCredit,
                                 lightning: browseLightningVisible,
                             }),
                         )}
@@ -5804,6 +5853,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                             onControlsHiddenChange={setChartControlsHidden}
                             extraLegend={obsKeyCount > 0 ? <ObsLayerKey {...obsKeyProps} /> : undefined}
                             extraLegendCount={obsKeyCount}
+                            desk={
+                                deskWind
+                                    ? {
+                                          palette: windPalette,
+                                          point: deskWindPoint,
+                                          pinned: capturedCoords.length > 0,
+                                          startMs: departureMs,
+                                      }
+                                    : undefined
+                            }
                         />
                     </Suspense>
                 )}

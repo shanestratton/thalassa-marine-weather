@@ -145,6 +145,10 @@ export default defineConfig({
         // iPad split, landscape and large text, in the system face and wide fonts
         // (e2e/fixtures/chart-words.tsx); NOAA keeps its figures.
         'chart-words-layout.spec.ts',
+        // Wind on the desk (127-DESKMAP-b): the menu's Wind row, the panel bottom right clear of
+        // the planner's controls, dark streaks on Light, the model credit, the models' agreement,
+        // and the wind credit on the phone's Obs, offline with a stubbed proxy-openmeteo.
+        'desk-wind-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

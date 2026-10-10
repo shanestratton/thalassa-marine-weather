@@ -20,7 +20,7 @@
  * frame's streaks can never stay painted, frozen, in an old direction.
  */
 import { CLOSE_IN_CALM_KT, closeInParticleCount, closeInScreenSpeed, type LocalWind } from './closeInWind';
-import { windParticleColorForKt } from './windRamp';
+import { windParticleColorForKt, type WindPalette } from './windRamp';
 
 export interface CloseInWindMap {
     getContainer(): HTMLElement;
@@ -35,6 +35,8 @@ export interface CloseInWindMap {
 export interface CloseInWindLayerOptions {
     /** The overlay's CSS filter — MapboxVelocityOverlay's PARTICLE_HALO. */
     filter?: string;
+    /** The streak palette for the base under it (windRamp; dark ink on the desk's Light). */
+    palette?: WindPalette;
     /** MapboxVelocityOverlay's PARTICLE_FADE. */
     fade?: number;
     /** MapboxVelocityOverlay's PARTICLE_LINE_WIDTH. */
@@ -78,6 +80,7 @@ export class CloseInWindLayer {
     private readonly reducedMotion: boolean;
     private readonly frameTime: number;
     private readonly random: () => number;
+    readonly palette: WindPalette;
     private readonly requestFrame: (callback: FrameRequestCallback) => number;
     private readonly cancelFrame: (id: number) => void;
 
@@ -110,6 +113,7 @@ export class CloseInWindLayer {
         this.reducedMotion = options.reducedMotion ?? false;
         this.frameTime = 1000 / (options.frameRate ?? 30);
         this.random = options.random ?? Math.random;
+        this.palette = options.palette ?? 'dark';
         const raf = typeof requestAnimationFrame === 'function';
         this.requestFrame =
             options.requestFrame ??
@@ -198,7 +202,7 @@ export class CloseInWindLayer {
         }
         const first = this.wind === null;
         this.wind = { kt: wind.kt, fromDeg: wind.fromDeg };
-        this.colour = windParticleColorForKt(wind.kt);
+        this.colour = windParticleColorForKt(wind.kt, this.palette);
         const perFrame = (closeInScreenSpeed(wind.kt) * this.frameTime) / 1000;
         // Calm with no direction keeps drifting the way it was going, slowly.
         const heading = wind.fromDeg === null ? this.currentScreenAngle() : this.screenAngle(wind);

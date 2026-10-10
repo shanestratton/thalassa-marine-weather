@@ -147,6 +147,7 @@ describe('ObsCentreNoticeChip', () => {
         // The Whole route button it drops below is the one at safe top + 112 px.
         expect(hub).toContain("top: 'calc(env(safe-area-inset-top) + 112px)'");
         expect(hub).toContain('useObsCentreNoticeWatch(obsShowing);');
-        expect(hub).toContain("boatInstruments={obsStart.kind === 'follow'}");
+        // On Obs only: the desk planner's wind (127-DESKMAP-b) is the forecast field alone.
+        expect(hub).toContain("boatInstruments={!planningSurface && obsStart.kind === 'follow'}");
     });
 });
