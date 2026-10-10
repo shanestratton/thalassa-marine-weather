@@ -44,12 +44,12 @@
 		AA000024AAAA002400000001 /* BarometerPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000024AAAA002400000002 /* BarometerPlugin.m */; };
 		AA000025AAAA002500000001 /* NetworkInterfacesPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000025AAAA002500000002 /* NetworkInterfacesPlugin.swift */; };
 		AA000026AAAA002600000001 /* NetworkInterfacesPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */; };
-		AA0011B1AAAA11B100000001 /* NfcTagPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0011B1AAAA11B100000002 /* NfcTagPlugin.swift */; };
-		AA0011B2AAAA11B200000001 /* NfcTagPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0011B2AAAA11B200000002 /* NfcTagPlugin.m */; };
 		AA000027AAAA002700000001 /* MemoryGaugePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000027AAAA002700000002 /* MemoryGaugePlugin.swift */; };
 		AA000028AAAA002800000001 /* MemoryGaugePlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000028AAAA002800000002 /* MemoryGaugePlugin.m */; };
 		AA000029AAAA002900000001 /* GoogleOAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000029AAAA002900000002 /* GoogleOAuthPlugin.swift */; };
 		AA000030AAAA003000000001 /* thalassa-anchor-alarm.wav in Resources */ = {isa = PBXBuildFile; fileRef = AA000030AAAA003000000002 /* thalassa-anchor-alarm.wav */; };
+		AA0011B1AAAA11B100000001 /* NfcTagPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0011B1AAAA11B100000002 /* NfcTagPlugin.swift */; };
+		AA0011B2AAAA11B200000001 /* NfcTagPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0011B2AAAA11B200000002 /* NfcTagPlugin.m */; };
 		B3A100012026080400000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B3A100012026080400000002 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
@@ -96,12 +96,12 @@
 		AA000024AAAA002400000002 /* BarometerPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BarometerPlugin.m; sourceTree = "<group>"; };
 		AA000025AAAA002500000002 /* NetworkInterfacesPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkInterfacesPlugin.swift; sourceTree = "<group>"; };
 		AA000026AAAA002600000002 /* NetworkInterfacesPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NetworkInterfacesPlugin.m; sourceTree = "<group>"; };
-		AA0011B1AAAA11B100000002 /* NfcTagPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NfcTagPlugin.swift; sourceTree = "<group>"; };
-		AA0011B2AAAA11B200000002 /* NfcTagPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NfcTagPlugin.m; sourceTree = "<group>"; };
 		AA000027AAAA002700000002 /* MemoryGaugePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryGaugePlugin.swift; sourceTree = "<group>"; };
 		AA000028AAAA002800000002 /* MemoryGaugePlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MemoryGaugePlugin.m; sourceTree = "<group>"; };
 		AA000029AAAA002900000002 /* GoogleOAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleOAuthPlugin.swift; sourceTree = "<group>"; };
 		AA000030AAAA003000000002 /* thalassa-anchor-alarm.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "thalassa-anchor-alarm.wav"; sourceTree = "<group>"; };
+		AA0011B1AAAA11B100000002 /* NfcTagPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NfcTagPlugin.swift; sourceTree = "<group>"; };
+		AA0011B2AAAA11B200000002 /* NfcTagPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NfcTagPlugin.m; sourceTree = "<group>"; };
 		B3A100012026080400000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
