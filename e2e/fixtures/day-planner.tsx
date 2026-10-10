@@ -11,12 +11,27 @@ if (!import.meta.env.DEV) throw new Error('The day-planner fixture is available 
 // provider or a boat. Fictional vessel, identity and places outside Queensland.
 //
 // ?mode= normal | split | over | offline | no-position | default-boat |
-// too-late | noumea | tromso | thunder. Opened at 06:30 on Thursday 8 October 2026 at
+// too-late | noumea | tromso | thunder | routed | no-route | no-chart. Opened at 06:30 on Thursday 8 October 2026 at
 // Airlie Beach, except too-late (16:00 that day) and tromso (08:00 CEST on
 // 21 June 2026, under the midnight sun). noumea and tromso are worldwide
 // starts: OpenStreetMap places only, no Queensland atlas, no coastline.
 // thunder is the default boat on a light morning with thunder in three models
 // from noon: the window headline at its longest, over the default-boat notice.
+//
+// Routing the stop she opens (127-PYD-2): ?owner=1 is the owner's account (a
+// fictional one: `io.ownerAccount`), the only one offered "Route round the
+// land" in 127. `io.routeStop` is the real routeStop over a fake provider: a
+// synthetic line bent between her pins, no network, its stages held for
+// ?hold= ms (default 1500) so the sheet can be scrolled while it "routes", and
+// a fixed 6.4 s wall time. routed is an ordinary Airlie day with Auto route
+// (trial) on; no-route the same with it off; no-chart starts at Nouméa, where
+// the provider has no chart for the stop (the global sentence); tromso, for
+// the owner, is Auto's charts-from-the-Pi refusal with no Pi paired.
+// ?draft=ask leaves her draft unconfirmed, so the tap asks first. ?refuse=bucket
+// (with ?pi=1, a Pi paired), ?refuse=fill or ?refuse=pack is one of Auto's long
+// refusals, whole: its charts-from-the-Pi sentence, a cloud fill that failed
+// (its 60 chars), or a pin far from water with the harbour water not downloaded.
+// ?coast=ring makes every estimate its longest (below).
 class FixtureStorage implements Storage {
     private entries = new Map<string, string>();
     get length() {
@@ -60,7 +75,10 @@ type Mode =
     | 'too-late'
     | 'noumea'
     | 'tromso'
-    | 'thunder';
+    | 'thunder'
+    | 'routed'
+    | 'no-route'
+    | 'no-chart';
 const MODES: Mode[] = [
     'normal',
     'split',
@@ -72,8 +90,12 @@ const MODES: Mode[] = [
     'noumea',
     'tromso',
     'thunder',
+    'routed',
+    'no-route',
+    'no-chart',
 ];
 const mode: Mode = MODES.find((m) => m === params.get('mode')) ?? 'normal';
+const owner = params.get('owner') === '1';
 const pane = params.get('pane') === 'true';
 const light = params.get('display') === 'light';
 document.documentElement.classList.toggle('display-light', light);
@@ -90,13 +112,41 @@ if (params.get('fonts') === 'wide') {
     document.head.append(wide);
 }
 
-const [{ setAuthIdentityScope }, { awaitSettingsLoaded }, { PanePortalScope }, sheetModule, data] = await Promise.all([
+const [
+    { setAuthIdentityScope },
+    { awaitSettingsLoaded, useSettingsStore },
+    { PanePortalScope },
+    sheetModule,
+    data,
+    { routeStop },
+    { DraftConfirmModal },
+] = await Promise.all([
     import('../../services/authIdentityScope'),
     import('../../stores/settingsStore'),
     import('../../context/PanePortalContext'),
     import('../../components/dayPlanner/TodaySheet'),
     import('../../tests/helpers/dayPlanFixtures'),
+    import('../../services/dayPlanner/stopRoute'),
+    import('../../components/vessel/DraftConfirmModal'),
 ]);
+if (owner) {
+    // The app's auth store (the sheet's Sources screen pulls it in) settles this session-less page to
+    // signed out a beat after load. The owner's synthetic identity is set after that, as a sign-in
+    // would be, so his sheet opens signed in. (The other modes keep the page as it always loaded.)
+    const { useAuthStore } = await import('../../stores/authStore');
+    await new Promise<void>((done) => {
+        let stop = () => {};
+        const timer = setTimeout(done, 5000);
+        const check = () => {
+            if (!useAuthStore.getState().authChecked) return;
+            clearTimeout(timer);
+            stop();
+            done();
+        };
+        stop = useAuthStore.subscribe(check);
+        check();
+    });
+}
 setAuthIdentityScope('day-planner-synthetic-fixture');
 await awaitSettingsLoaded();
 const TodaySheet = sheetModule.default;
@@ -108,8 +158,10 @@ const atlas = await realFetch('/anchorages/qld/t-22e148.geojson')
 
 const TROMSO = { lat: 69.6496, lon: 18.956 };
 const nowMs = mode === 'too-late' ? Date.UTC(2026, 9, 8, 6) : mode === 'tromso' ? Date.UTC(2026, 5, 21, 6) : data.NOW;
-const start = mode === 'noumea' ? data.NOUMEA : mode === 'tromso' ? TROMSO : data.MARINA;
-const worldwide = mode === 'noumea' || mode === 'tromso';
+// no-chart is Nouméa's day, routed by the owner.
+const at = mode === 'no-chart' ? 'noumea' : mode;
+const start = at === 'noumea' ? data.NOUMEA : at === 'tromso' ? TROMSO : data.MARINA;
+const worldwide = at === 'noumea' || at === 'tromso';
 // Tromsø's OpenStreetMap cells were cached three days ago: used, with their date.
 const mappedMs = nowMs - 72 * data.H;
 const loader = data.fakeTodayDeps({
@@ -117,13 +169,13 @@ const loader = data.fakeTodayDeps({
     nowMs,
     atlas: worldwide ? [] : atlas,
     osm:
-        mode === 'noumea'
+        at === 'noumea'
             ? [
                   data.osmAnchorage(910001, 'Fixture Anse', { lat: -22.33, lon: 166.42 }),
                   data.osmAnchorage(910002, 'Fixture Baie', { lat: -22.36, lon: 166.55 }),
                   data.osmAnchorage(910003, 'Fixture Îlot', { lat: -22.41, lon: 166.38 }),
               ]
-            : mode === 'tromso'
+            : at === 'tromso'
               ? [
                     data.osmAnchorage(920001, 'Fixture Vika', { lat: 69.7, lon: 18.83 }, mappedMs),
                     data.osmAnchorage(920002, 'Fixture Sund', { lat: 69.6, lon: 19.1 }, mappedMs),
@@ -146,6 +198,17 @@ const loader = data.fakeTodayDeps({
             }
           : {}),
 });
+// ?coast=ring: a synthetic shore ringing the start (about 1 NM out), so every straight line
+// "crosses land" and each estimate reads "(straight line, longer round land)", its longest.
+if (params.get('coast') === 'ring')
+    loader.loadCoastline = async () =>
+        Array.from({ length: 24 }, (_, i): [[number, number], [number, number]] => {
+            const at = (k: number): [number, number] => [
+                start.lon + 0.02 * Math.cos((k * Math.PI) / 12),
+                start.lat + 0.017 * Math.sin((k * Math.PI) / 12),
+            ];
+            return [at(i), at(i + 1)];
+        });
 // A day the models split, for a skipper whose own limits are high enough that
 // the split, not the gusts, is the story (her Comfort settings: 30 kn, gusts 40).
 if (mode === 'split') {
@@ -157,6 +220,31 @@ const defaultBoat = mode === 'default-boat' || mode === 'thunder';
 const vessel = defaultBoat
     ? DEFAULT_VESSEL
     : { ...DEFAULT_VESSEL, name: 'Synthetic yacht', length: 40, draft: 7.87, cruisingSpeed: 6 };
+// The owner's boat, as the app's store holds it: her draft confirmed unless ?draft=ask, and Auto route
+// (trial) on except in no-route. A tester's store is left as it loads (the switch off).
+if (owner) {
+    const settings = useSettingsStore.getState().settings;
+    useSettingsStore.setState({
+        settings: {
+            ...settings,
+            vessel:
+                params.get('draft') === 'ask' ? vessel : { ...vessel, draftConfirmedFt: vessel.draft, airDraft: 59 },
+            autorouteTrialEnabled: mode !== 'no-route',
+        },
+    });
+}
+const hold = Number(params.get('hold') ?? 1500);
+const wait = (ms: number, signal?: AbortSignal) =>
+    new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, ms);
+        signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            reject(new DOMException('Plan Your Day closed the page.', 'AbortError'));
+        });
+    });
+const { THALASSA_BUCKET_UNREACHABLE } = await import('../../services/autoroutingThalassa');
+// Each route reads 0 then 6400: "Routed in 6.4 s".
+let clockReads = 0;
 const io = {
     loader,
     readBoat: async () =>
@@ -167,10 +255,61 @@ const io = {
     geocode: async () => null,
     // Her one fictional voyage end, read "on the phone" (127-PYD-4): Cid Harbour, or Nouméa's Fixture Baie.
     voyageEnds: async () =>
-        worldwide ? (mode === 'noumea' ? [{ lat: -22.36, lon: 166.551 }] : []) : [{ lat: -20.2452, lon: 148.9484 }],
+        worldwide ? (at === 'noumea' ? [{ lat: -22.36, lon: 166.551 }] : []) : [{ lat: -20.2452, lon: 148.9484 }],
     // No chart on this fixture phone: every pin reads "depth not checked".
     pinDepths: async (points: readonly unknown[]) =>
         points.map(() => ({ covered: false, hazard: false, minDepthM: null })),
+    ownerAccount: async () => owner,
+    routeStop: (
+        req: Parameters<typeof routeStop>[0],
+        opts: { signal: AbortSignal; onProgress?: (words: string) => void },
+    ) =>
+        routeStop(req, opts, {
+            clock: () => (clockReads++ % 2) * 6400,
+            piPaired: async () => params.get('pi') === '1',
+            calculate: async (request, signal, onProgress) => {
+                // The real provider says its first words once its module and the router's have loaded.
+                await wait(400, signal);
+                onProgress?.('Following deep water…');
+                await wait(300, signal);
+                if (mode === 'no-chart') throw new Error('No installed chart covers the destination.');
+                if (mode === 'tromso' || params.get('refuse') === 'bucket')
+                    throw new Error(THALASSA_BUCKET_UNREACHABLE);
+                if (params.get('refuse') === 'pack')
+                    throw new Error(
+                        "No route by water to your destination: the nearest water Thalassa could reach is 650 m from the pin. Nothing changed. The harbour water for the destination couldn't be downloaded just now; try again shortly.",
+                    );
+                if (params.get('refuse') === 'fill')
+                    throw new Error(
+                        `Couldn't fetch the missing charts (${'Synthetic fixture: the chart shelf did not answer in time'.padEnd(60, '.')}). Check your connection and sign-in, then try again. Nothing changed.`,
+                    );
+                onProgress?.('Routing round the land…');
+                await wait(hold, signal);
+                onProgress?.('Checking the route…');
+                await wait(300, signal);
+                const { departure: a, destination: b } = request;
+                return {
+                    id: 'thalassa-fixture',
+                    // A synthetic line bent between her pins; no chart behind it.
+                    coordinates: [
+                        [a.lon, a.lat],
+                        [(a.lon + b.lon) / 2 + 0.03, (a.lat + b.lat) / 2 - 0.04],
+                        [b.lon, b.lat],
+                    ],
+                    warnings: [],
+                    createdAt: new Date(nowMs).toISOString(),
+                    provider: 'Thalassa',
+                    engine: {
+                        stateMask: ['green', 'green'],
+                        shallowRuns: [{ startSeg: 1, endSeg: 1, lengthM: 556, minDepthM: 1.9, midLat: 0, midLon: 0 }],
+                        cellsUsed: ['OC-99-SYN001'],
+                        distanceNM: 16.5,
+                        elapsedMs: 4100,
+                        backstop: 'verified',
+                    },
+                };
+            },
+        }),
 };
 
 function Fixture() {
@@ -222,6 +361,8 @@ function Fixture() {
                     )}
                 </section>
             </PanePortalScope>
+            {/* App mounts the one draft modal (127-PYD-2 asks through it). */}
+            <DraftConfirmModal />
             {/* The real tab bar's geometry (App.tsx): fixed, z-900, a 4rem row
                 above the home-indicator inset, opaque. */}
             <nav

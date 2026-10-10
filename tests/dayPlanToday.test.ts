@@ -2033,3 +2033,233 @@ describe('a free plan for every place: the area wind (127-PYD-4)', () => {
         expect(fresh!.why).toMatch(/^None of your voyages ended here/);
     });
 });
+
+// ── 127-PYD-2: the stop she opens, routed on her charts ───────
+
+describe('a routed stop (127-PYD-2): its times walk the routed line, and the pick never sees it', () => {
+    const HORTA = { lat: 38.533, lon: -28.627, name: 'Marina da Horta' };
+    const HORTA_NOW = Date.UTC(2026, 9, 8, 8);
+    const ZONE = 'Atlantic/Azores';
+    const STOP = { lat: 38.47, lon: -28.53 };
+    const hortaInput = (over: Partial<DayPlanInput> = {}): DayPlanInput =>
+        input({
+            nowMs: HORTA_NOW,
+            zone: ZONE,
+            start: HORTA,
+            atmos: trade(Math.floor(HORTA_NOW / H) * H),
+            tides: null,
+            places: gatherPlaces({
+                start: HORTA,
+                nowMs: HORTA_NOW,
+                radiusNm: 30,
+                atlas: [],
+                osm: [{ points: [osmPoint(9201, 'Baía Fictícia', STOP.lat, STOP.lon)], stale: false }],
+                coastline: null,
+            }),
+            ...over,
+        });
+    /** A dog-leg round a fictional headland, as the engine would hand it over (memory only). */
+    const DOG_LEG = [{ lat: HORTA.lat, lon: HORTA.lon }, { lat: 38.56, lon: -28.56 }, STOP];
+    const routedLeg = (points = DOG_LEG, nm = 9.37): today.RoutedLeg => ({
+        basis: 'routed',
+        factor: 1,
+        straightNm: routeLengthNm([HORTA, STOP]),
+        nm,
+        route: { name: '', points, lengthNm: routeLengthNm(points) },
+    });
+    /** The legs the sheet asks for the routed line, under `${id}#routed`. */
+    const routedLegsFor = (id: string, points: { lat: number; lon: number }[]) =>
+        legsFor({ needsLegs: [{ id: `${id}#routed`, coords: points }] } as unknown as DayPlanView, SE_TRADE, {
+            from: Math.floor(HORTA_NOW / H) * H,
+        });
+    const straightView = () => {
+        const first = planDay(hortaInput());
+        return { first, legs: legsFor(first, SE_TRADE, { from: Math.floor(HORTA_NOW / H) * H }) };
+    };
+
+    it('basis routed, factor 1, the engine’s own distance exactly; the candidate keeps its estimate', () => {
+        const { first, legs } = straightView();
+        const id = first.needsLegs[0].id;
+        const leg = routedLeg();
+        const view = planDay(
+            hortaInput({ legs: new Map([...legs, ...routedLegsFor(id, DOG_LEG)]), routes: new Map([[id, leg]]) }),
+        );
+        const row = view.rows.get(id)!;
+        expect(row.plan?.routed).toEqual(leg);
+        expect(row.plan?.routed).toMatchObject({ basis: 'routed', factor: 1, nm: 9.37 });
+        expect(row.route).toBe('routed');
+        // The routed leg lives on the plan, never on the candidate (the chart hand-over reads that).
+        expect(row.candidate.distance.basis).not.toBe('routed');
+        expect(today.plotDayAction(HORTA, row.candidate, '2h').points).toHaveLength(3);
+        // An overnight stay says the routed distance once, to the tenth, no "about".
+        const night = planDay(
+            hortaInput({
+                stay: 'overnight',
+                legs: new Map([...legs, ...routedLegsFor(id, DOG_LEG)]),
+                routes: new Map([[id, leg]]),
+            }),
+        );
+        expect(night.rows.get(id)!.line2).toMatch(/^\d\d:\d\d → \d\d:\d\d · 9\.4 NM$/);
+    });
+
+    it('a dog-leg in a fixed south-east wind takes a different time from the straight line', () => {
+        const { first, legs } = straightView();
+        const id = first.needsLegs[0].id;
+        const straight = planDay(hortaInput({ legs })).rows.get(id)!.plan!.best!;
+        const routed = planDay(
+            hortaInput({
+                legs: new Map([...legs, ...routedLegsFor(id, DOG_LEG)]),
+                routes: new Map([[id, routedLeg()]]),
+            }),
+        ).rows.get(id)!.plan!;
+        const same = routed.departures.find((d) => d.departureMs === straight.departureMs)!;
+        expect(same.out.durationMs).not.toBeNull();
+        expect(same.out.durationMs).not.toBe(straight.out.durationMs);
+        // The same line straight, walked at factor 1, is not the estimate's stretched clock either.
+        const direct = [{ lat: HORTA.lat, lon: HORTA.lon }, STOP];
+        const unstretched = planDay(
+            hortaInput({
+                legs: new Map([...legs, ...routedLegsFor(id, direct)]),
+                routes: new Map([[id, routedLeg(direct, routeLengthNm(direct))]]),
+            }),
+        ).rows.get(id)!.plan!;
+        const at = unstretched.departures.find((d) => d.departureMs === straight.departureMs)!;
+        expect(at.out.durationMs! * first.rows.get(id)!.candidate.distance.factor).toBeCloseTo(
+            straight.out.durationMs!,
+            -3,
+        );
+    });
+
+    it('until the wind along the routed line is in, the times stay the estimate’s and the row says it is updating', () => {
+        const { first, legs } = straightView();
+        const id = first.needsLegs[0].id;
+        const view = planDay(hortaInput({ legs, routes: new Map([[id, routedLeg()]]) }));
+        const row = view.rows.get(id)!;
+        expect(row.route).toBe('updating');
+        expect(row.plan?.routed).toBeUndefined();
+        expect(row.line2).toBe(planDay(hortaInput({ legs })).rows.get(id)!.line2);
+    });
+
+    it('preRank, the pick and the card are identical with and without routes: rows never reshuffle', () => {
+        const first = planDay(input());
+        const legs = legsFor(first, SE_TRADE);
+        const plain = planDay(input({ legs }));
+        const ids = plain.top.map((row) => row.id);
+        // A long dog-leg for every card stop: the rows' times change, the selection does not.
+        const routes = new Map<string, today.RoutedLeg>();
+        const all = new Map(legs);
+        for (const row of plain.top) {
+            const points = [
+                { lat: MARINA.lat, lon: MARINA.lon },
+                { lat: MARINA.lat - 0.15, lon: (MARINA.lon + row.candidate.lon) / 2 },
+                { lat: row.candidate.lat, lon: row.candidate.lon },
+            ];
+            routes.set(row.id, {
+                basis: 'routed',
+                factor: 1,
+                straightNm: row.candidate.straightNm,
+                nm: routeLengthNm(points),
+                route: { name: '', points, lengthNm: routeLengthNm(points) },
+            });
+            for (const [key, value] of legsFor(
+                { needsLegs: [{ id: `${row.id}#routed`, coords: points }] } as unknown as DayPlanView,
+                SE_TRADE,
+            ))
+                all.set(key, value);
+        }
+        const routed = planDay(input({ legs: all, routes }));
+        expect(routed.ranked.map((p) => p.candidate.id)).toEqual(plain.ranked.map((p) => p.candidate.id));
+        expect(routed.needsLegs).toEqual(plain.needsLegs);
+        expect(routed.top.map((row) => row.id)).toEqual(ids);
+        expect(routed.top.map((row) => row.tag)).toEqual(plain.top.map((row) => row.tag));
+        expect(routed.top.every((row) => row.route === 'routed')).toBe(true);
+        expect(routed.top.map((row) => row.line2)).not.toEqual(plain.top.map((row) => row.line2));
+    });
+
+    it('distanceLine says a routed leg once, to the tenth, routed on her charts', () => {
+        expect(distanceLine(routedLeg())).toBe('9.4 NM each way (routed on your charts)');
+    });
+
+    it('the stop page: the route row is the distance row, the footnote says how it was routed, home is the line turned round', () => {
+        const { first, legs } = straightView();
+        const id = first.needsLegs[0].id;
+        const view = planDay(
+            hortaInput({
+                legs: new Map([...legs, ...routedLegsFor(id, DOG_LEG)]),
+                routes: new Map([[id, routedLeg()]]),
+            }),
+        );
+        const row = view.rows.get(id)!;
+        const args: StopDetailArgs = {
+            plan: row.plan!,
+            stay: '2h',
+            window: view.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: false,
+            routed: { draftM: 2.4 },
+        };
+        const detail = stopDetail(args);
+        expect(detail.rows.some((r) => /NM each way/.test(r))).toBe(false);
+        expect(detail.footnote).toBe(
+            'Route from your charts: draft 2.40 m + 0.5 m under the keel at chart datum; tide shown, never assumed. ' +
+                'Home is the same route turned round. Times from a typical cruising polar at 6.0 kn in ECMWF wind. ' +
+                'No current. Not a clearance.',
+        );
+        // One way overnight: no home to turn round.
+        expect(stopDetail({ ...args, stay: 'overnight' }).footnote).not.toMatch(/turned round/);
+        // Unrouted, the estimate and today's footnote stay.
+        const plain = stopDetail({ ...args, routed: null });
+        expect(plain.rows.some((r) => /^About \d+ NM each way/.test(r))).toBe(true);
+        expect(plain.footnote).toMatch(/Depth and tide over the route are not checked\. Not a clearance\.$/);
+    });
+
+    it('while the routed wind loads, the leave row says it is updating for the route', () => {
+        const { first, legs } = straightView();
+        const id = first.needsLegs[0].id;
+        const view = planDay(hortaInput({ legs, routes: new Map([[id, routedLeg()]]) }));
+        const detail = stopDetail({
+            plan: view.rows.get(id)!.plan!,
+            stay: '2h',
+            window: view.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: false,
+            routed: { draftM: 2.4 },
+            updating: true,
+        });
+        expect(detail.rows.find((r) => r.startsWith('Leave '))).toMatch(
+            /^Leave \d\d:\d\d → there \d\d:\d\d \(updating for the route\)$/,
+        );
+    });
+
+    it('a routed wind that failed never replaces the estimate’s loaded times: they stay, said as the estimate', () => {
+        // Review 2026-10-11: patchy Starlink, the two calls along the routed line time out.
+        const { first, legs } = straightView();
+        const id = first.needsLegs[0].id;
+        const failed: StopLegs = { headline: null, headlineModel: 'ECMWF', spread: null, sea: null, failed: true };
+        const view = planDay(
+            hortaInput({ legs: new Map([...legs, [`${id}#routed`, failed]]), routes: new Map([[id, routedLeg()]]) }),
+        );
+        const row = view.rows.get(id)!;
+        const plain = planDay(hortaInput({ legs })).rows.get(id)!;
+        expect(row.route).toBe('estimate');
+        expect(row.plan?.weatherLoaded).toBe(true);
+        expect(row.plan?.routed).toBeUndefined();
+        expect(row.line2).toBe(plain.line2);
+        expect(row.level).toBe(plain.level);
+        const detail = stopDetail({
+            plan: row.plan!,
+            stay: '2h',
+            window: view.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: false,
+            routed: { draftM: 2.4 },
+            updating: 'estimate',
+        });
+        expect(detail.rows.find((r) => r.startsWith('Leave '))).toMatch(
+            /^Leave \d\d:\d\d → there \d\d:\d\d \(estimate: route weather didn't load\)$/,
+        );
+    });
+});

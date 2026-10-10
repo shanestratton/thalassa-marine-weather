@@ -601,7 +601,16 @@ export function todayInput(
         Partial<
             Pick<
                 DayPlanInput,
-                'date' | 'legs' | 'boatFixAgeMs' | 'nowMs' | 'windModel' | 'visited' | 'pinned' | 'pinDepth' | 'draftM'
+                | 'date'
+                | 'legs'
+                | 'boatFixAgeMs'
+                | 'nowMs'
+                | 'windModel'
+                | 'visited'
+                | 'pinned'
+                | 'pinDepth'
+                | 'draftM'
+                | 'routes'
             >
         >,
 ): DayPlanInput {
