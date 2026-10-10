@@ -262,24 +262,34 @@ test('ready only after an answer within the hour with a device to wake', async (
 });
 
 test('a timeout is unavailable: the alarm is dropped, never queued, never retried in a storm', async () => {
-    const h = relayHarness({ answer: () => 'hang', timeoutMs: 30 });
-    await h.relay.probe();
-    h.calls.length = 0;
-    assert.equal(await h.relay.raise(alarm()), 'unavailable');
-    assert.equal(h.calls.length, 1, 'one attempt');
-    assert.equal(h.relay.status().state, 'unavailable');
-    // The next passes: one sync when due, then backing off while the relay stays silent.
-    const open = [alarm()];
-    for (let i = 0; i < 24; i += 1) {
-        h.advance(5_000);
-        h.relay.afterPass(described(h.now, { alarms: open }), () => undefined);
-        await settle();
-        await new Promise((r) => setTimeout(r, 35));
+    // AbortSignal.timeout's timer is unref'd. With every request hanging, nothing else keeps a bare
+    // test process alive, and Node 22's runner then cancels this test and the rest of the file
+    // ("Promise resolution is still pending but the event loop has already resolved", CI run
+    // 38024171407). On the Pi the service's listening sockets keep the loop alive; here a ref'd
+    // interval stands in for them.
+    const keepAlive = setInterval(() => undefined, 1_000);
+    try {
+        const h = relayHarness({ answer: () => 'hang', timeoutMs: 30 });
+        await h.relay.probe();
+        h.calls.length = 0;
+        assert.equal(await h.relay.raise(alarm()), 'unavailable');
+        assert.equal(h.calls.length, 1, 'one attempt');
+        assert.equal(h.relay.status().state, 'unavailable');
+        // The next passes: one sync when due, then backing off while the relay stays silent.
+        const open = [alarm()];
+        for (let i = 0; i < 24; i += 1) {
+            h.advance(5_000);
+            h.relay.afterPass(described(h.now, { alarms: open }), () => undefined);
+            await settle();
+            await new Promise((r) => setTimeout(r, 35));
+        }
+        // Two minutes of passes: at 15 s a sync would be 8; with backoff it is far fewer.
+        const syncs = h.calls.filter((c) => c.body.action === 'sync').length;
+        assert.ok(syncs >= 1 && syncs <= 4, `syncs: ${syncs}`);
+        assert.equal(h.calls.filter((c) => c.body.action === 'raise').length, 1, 'the raise was not repeated');
+    } finally {
+        clearInterval(keepAlive);
     }
-    // Two minutes of passes: at 15 s a sync would be 8; with backoff it is far fewer.
-    const syncs = h.calls.filter((c) => c.body.action === 'sync').length;
-    assert.ok(syncs >= 1 && syncs <= 4, `syncs: ${syncs}`);
-    assert.equal(h.calls.filter((c) => c.body.action === 'raise').length, 1, 'the raise was not repeated');
 });
 
 test('an acknowledgement made ashore comes back in the sync answer and is applied like one aboard', async () => {
