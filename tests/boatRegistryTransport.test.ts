@@ -54,9 +54,9 @@ vi.mock('../services/piTls', () => ({
 vi.mock('../services/PiCacheService', () => ({
     piCache: {
         isAvailable: () => h.reachable,
-        // As the real one: _useRemote && status.reachable.
-        get viaRemoteAccess() {
-            return h.remote && h.reachable;
+        // As the real one: no lane when unreachable, else the health check's ladder.
+        get lane() {
+            return !h.reachable ? null : h.remote ? 'tailnet' : 'lan';
         },
         // The live base follows the health check's ladder, as the real one does.
         get baseUrl() {

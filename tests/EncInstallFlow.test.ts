@@ -17,6 +17,9 @@ vi.mock('../services/PiCacheService', () => ({
         get baseUrl() {
             return mocks.baseUrl;
         },
+        // On the boat's Wi-Fi: the live base is the LAN one (127-C-c).
+        lane: 'lan',
+        getLanBaseUrl: () => mocks.baseUrl,
         isAvailable: () => true,
     },
 }));
@@ -32,6 +35,8 @@ vi.mock('../services/authIdentityScope', () => ({
 // The boat registry (127-C-c): the install flow's licensed rows register in
 // memory; its state and the account flag are not the subject here.
 vi.mock('../services/enc/piCellSync', () => ({
+    // On the boat's Wi-Fi: licensed cells come from the LAN base (127-C-c).
+    boatLanBaseNow: () => mocks.baseUrl,
     noteBoatAway: vi.fn(),
     noteBoatRegistered: vi.fn(),
     withPiPullSlot: <T>(job: () => Promise<T>) => job(),

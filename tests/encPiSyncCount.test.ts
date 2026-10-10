@@ -81,7 +81,13 @@ vi.mock('../services/piTls', () => ({
     isPinnedTransportAvailable: () => true,
 }));
 vi.mock('../services/PiCacheService', () => ({
-    piCache: { isAvailable: () => true, baseUrl: 'https://pi.local:3001' },
+    // On the boat's Wi-Fi: the live base is the LAN one (127-C-c).
+    piCache: {
+        isAvailable: () => true,
+        baseUrl: 'https://pi.local:3001',
+        lane: 'lan',
+        getLanBaseUrl: () => 'https://pi.local:3001',
+    },
 }));
 vi.mock('../services/enc/EncHazardService', () => ({
     importCell: h.importCell,

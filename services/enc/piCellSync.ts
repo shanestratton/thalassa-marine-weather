@@ -163,7 +163,7 @@ async function registerBoat(): Promise<BoatRegistryState> {
     try {
         if (!piCache.isAvailable()) await withTimeout<unknown>(piCache.ping(), null, 3_000);
         if (!piCache.isAvailable()) return away('away');
-        if (piCache.viaRemoteAccess) return away('tailnet');
+        if (piCache.lane === 'tailnet') return away('tailnet');
         const { listPiInstalledCharts, registerFromPiIndex } = await import('../EncImportService');
         const rows = await listPiInstalledCharts();
         if (!eligible()) return 'none'; // unpaired while the index came
@@ -237,7 +237,7 @@ export function forgetBoatCharts(unpaired = false): void {
  * whenever a health check does (127-C-c review).
  */
 export function boatLanBaseNow(): string | null {
-    if (!PI_INTEGRATION_ENABLED || !BOAT_CELLS_ON_PHONE || !piCache.isAvailable() || piCache.viaRemoteAccess)
+    if (!PI_INTEGRATION_ENABLED || !BOAT_CELLS_ON_PHONE || !piCache.isAvailable() || piCache.lane !== 'lan')
         return null;
     const lan = piCache.getLanBaseUrl();
     return lan && lan === piCache.baseUrl ? lan : null;

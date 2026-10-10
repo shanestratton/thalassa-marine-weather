@@ -35,6 +35,9 @@ vi.mock('../services/PiCacheService', () => ({
         get baseUrl() {
             return mocks.baseUrl;
         },
+        // On the boat's Wi-Fi: the live base is the LAN one (127-C-c).
+        lane: 'lan',
+        getLanBaseUrl: () => mocks.baseUrl,
     },
 }));
 vi.mock('../services/authIdentityScope', () => ({
@@ -46,6 +49,7 @@ vi.mock('../services/PiPairingService', () => ({ getPairing: () => ({ publicKeyS
 vi.mock('../services/enc/piCellSync', () => ({
     boatName: () => null,
     boatChartsNow: () => null,
+    ensureBoatRegistry: async () => 'none',
     subscribeBoatRegistry: () => () => undefined,
 }));
 vi.mock('../stores/MapFitTargetStore', () => ({ requestMapFit: vi.fn() }));

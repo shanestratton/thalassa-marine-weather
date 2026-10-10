@@ -599,6 +599,17 @@ class PiCacheServiceImpl {
         return this._useRemote && this.status.reachable;
     }
 
+    /**
+     * The lane the app reaches the Pi by right now: the boat's LAN, the
+     * tailnet, or none. A transport, never a place (services/boatLink says
+     * where the phone is): licensed chart bytes may travel the LAN lane only
+     * (127-C-c).
+     */
+    get lane(): 'lan' | 'tailnet' | null {
+        if (!this.status.reachable) return null;
+        return this._useRemote ? 'tailnet' : 'lan';
+    }
+
     private adoptRemoteAccessStatus(status: PiRemoteAccessStatus): void {
         if (status.state === 'connected') {
             const ip = status.tailscaleIps?.find((candidate) => candidate.includes('.'));

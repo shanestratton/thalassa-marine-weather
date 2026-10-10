@@ -659,7 +659,7 @@ export async function syncEncFromPi(
 
     const piBase = piCache.baseUrl;
     // Read with piBase, in the same tick: the transport this index comes over (127-C-c review).
-    const indexViaTailnet = piCache.viaRemoteAccess || piBase !== piCache.getLanBaseUrl();
+    const indexViaTailnet = piCache.lane === 'tailnet' || piBase !== piCache.getLanBaseUrl();
     emit({ phase: 'fetching', progress: 0.05, step: 'asking Pi for installed charts' });
 
     let installed: PiInstalledCell[];
@@ -694,7 +694,7 @@ export async function syncEncFromPi(
         ? undefined
         : !vault.BOAT_CELLS_ON_PHONE
           ? 'off'
-          : indexViaTailnet || piCache.viaRemoteAccess
+          : indexViaTailnet || piCache.lane === 'tailnet'
             ? 'tailnet'
             : undefined;
     if (boatCharts === 'tailnet') noteBoatAway('tailnet');
@@ -835,7 +835,7 @@ export async function syncEncFromPi(
                 });
                 if (refused) {
                     // Off the boat's Wi-Fi since the run began: no licensed cell over remote access.
-                    if (piCache.viaRemoteAccess) boatCharts ??= 'tailnet';
+                    if (piCache.lane === 'tailnet') boatCharts ??= 'tailnet';
                     else
                         skipped.push({
                             filename: remote.cellId,
