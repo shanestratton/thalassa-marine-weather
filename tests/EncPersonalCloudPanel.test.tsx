@@ -5,7 +5,7 @@
  * decrypted licensed charts to the skipper's cloud folder. o-charts says no
  * unencrypted chart data in the cloud, so the card now says where charts live
  * and offers nothing to press. It must not even ask the cloud what is there:
- * no supabase, no personal-shelf module.
+ * no supabase (and the personal-shelf module is gone since 127).
  */
 import React from 'react';
 import { readFileSync } from 'node:fs';
@@ -13,10 +13,6 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 const cloud = vi.hoisted(() => ({ touched: vi.fn() }));
-vi.mock('../services/enc/personalCellSync', () => {
-    cloud.touched();
-    return {};
-});
 vi.mock('../services/supabase', () => {
     cloud.touched();
     return {};
@@ -49,7 +45,7 @@ describe('the charts line in Settings → System & Cloud', () => {
         expect(screen.queryByText(/keep new charts/i)).toBeNull();
     });
 
-    it('never loads the personal chart shelf or the cloud client to draw itself', () => {
+    it('never loads the cloud client to draw itself, and names no chart shelf module', () => {
         render(<EncPersonalCloudPanel />);
         expect(cloud.touched).not.toHaveBeenCalled();
         const source = readFileSync('components/vessel/EncPersonalCloudPanel.tsx', 'utf8');

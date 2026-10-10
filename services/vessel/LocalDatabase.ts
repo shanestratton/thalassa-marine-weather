@@ -87,13 +87,14 @@ interface AtomicTransactionJournal {
 /**
  * Directory.Library — NOT Directory.Documents, and NOT Directory.Data.
  *
- * Info.plist turns on UIFileSharingEnabled and LSSupportsOpeningDocumentsInPlace
- * so the S-63 chart fingerprint is findable in the Files app — a deliberate
- * export. That setting makes the WHOLE Documents folder browsable, and this
- * database was writing inventory, maintenance history, ship documents, crew
- * profiles and the sync queue there as plaintext JSON: "On My iPhone >
- * Thalassa" listed a skipper's private vessel records beside the one file
- * meant to be there (external audit, 2026-09-05, item 10).
+ * Info.plist turns on UIFileSharingEnabled and LSSupportsOpeningDocumentsInPlace.
+ * That was first so the S-63 chart fingerprint could be found in the Files app;
+ * the export went with the S-63 Licensing card in 127, and SatLinkClient and
+ * nativeStorage still write to Documents. The setting makes the WHOLE Documents
+ * folder browsable, and this database was writing inventory, maintenance
+ * history, ship documents, crew profiles and the sync queue there as plaintext
+ * JSON: "On My iPhone > Thalassa" listed a skipper's private vessel records
+ * beside the fingerprint file (external audit, 2026-09-05, item 10).
  *
  * Build 102 chose Directory.Data for the fix, believing it to be the app's
  * Library. On iOS it is not: @capacitor/filesystem resolves DATA, DOCUMENTS,

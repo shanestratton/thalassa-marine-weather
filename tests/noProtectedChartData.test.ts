@@ -1,8 +1,7 @@
 // @vitest-environment node
 /**
- * No protected chart data in git (127-C-a, first version: the path and
- * content rules; the provenance manifest and the local real-cell suites join
- * in Phase 1).
+ * No protected chart data in git (127-C-a: the path, content and id rules
+ * from Phase 0; the provenance manifest and the real-cell rule from Phase 1).
  *
  * o-charts, 2026-10-10: "Storing unencrypted data on any medium, and
  * especially in the cloud, is strictly prohibited by the terms of the licenses
@@ -22,8 +21,24 @@
  * coordinates must declare `_meta.licence` 'public-domain' (NOAA, what the
  * capture tool stamps) or 'synthetic', and name only US*, ZZ* or OC-99-*
  * cells. A binary grid has no text to read: the path rule refuses every
- * *.bin under tests/, and a renamed grid elsewhere waits for Phase 1's
- * PROVENANCE manifest.
+ * *.bin under tests/, and the provenance manifest catches a renamed one.
+ *
+ * The manifest (tests/fixtures/PROVENANCE.json) names every data file under
+ * tests/fixtures/ and e2e/fixtures/ (anything that is not test code or a
+ * harness page) with where it came from and an open licence: public-domain,
+ * cc0, cc-by-4.0, odbl, synthetic, own, wmo-res40 (a partner's observations
+ * on the WMO exchange, owner credited), or third-party-replace (named, with
+ * the package that replaces it). There is no value for protected data, so a
+ * file that is not open cannot be listed, and a file that is not listed fails.
+ * Fixture data may not name a proprietary chart as the source of a value.
+ *
+ * The real-cell rule: nothing in the tree may read the real-cells directory
+ * variables the retired local suites took, and no test, tool or script may
+ * fetch the Pi's installed cells and write a disk (the old diag cache kept
+ * every cell as a file between runs), because decrypted cells on a Mac's disk
+ * are a medium the ruling forbids. A diag holds fetched cells in memory;
+ * real-chart parity checks run on the Pi, in memory (vision §5). The corridor
+ * capture tool is the one writer, and it refuses every id that is not NOAA's.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -148,6 +163,86 @@ function dataFileProblems(file: string, text: string): string[] {
     return problems;
 }
 
+/** The provenance manifest, itself exempt from listing. */
+const MANIFEST = 'tests/fixtures/PROVENANCE.json';
+const FIXTURE_DIR = /^(tests|e2e)\/fixtures\//;
+/** Test code and harness pages that live beside the fixtures. Everything else there is data. */
+const FIXTURE_CODE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|html)$/i;
+/** The licences a fixture may carry. There is deliberately no value for protected data. */
+const FIXTURE_LICENCES: readonly string[] = [
+    'public-domain',
+    'cc0',
+    'cc-by-4.0',
+    'odbl',
+    'synthetic',
+    'own',
+    'wmo-res40',
+    'third-party-replace',
+];
+/** Licences whose holder must be credited by name. */
+const CREDITED_LICENCES: readonly string[] = ['cc-by-4.0', 'odbl', 'wmo-res40'];
+
+/** True for a tracked data file the manifest must name. */
+function isFixtureData(path: string): boolean {
+    return FIXTURE_DIR.test(path) && !FIXTURE_CODE.test(path) && path !== MANIFEST;
+}
+
+/** A proprietary chart: a value copied from one is not open, whatever licence the file declares. */
+const PROPRIETARY_CHART = /\b(?:navionics|c-map|bluechart|chartworld|o-?charts|oe-?senc)\b/i;
+
+/** Fixture data that names a proprietary chart (the old marker file's "retagged ... per Navionics" fix). */
+function fixtureSourceProblems(file: string, text: string): string[] {
+    return isFixtureData(file) && PROPRIETARY_CHART.test(text)
+        ? [`${file}: names a proprietary chart as the source of a value`]
+        : [];
+}
+
+/** Every data file listed with an open licence and its source; no entry for a file that is not there. */
+function manifestProblems(trackedFiles: readonly string[], manifest: unknown): string[] {
+    const files = (manifest as { files?: unknown } | null)?.files;
+    if (!files || typeof files !== 'object' || Array.isArray(files)) return [`${MANIFEST}: no "files" object`];
+    const entries = files as Record<string, unknown>;
+    const data = trackedFiles.filter(isFixtureData);
+    const problems = data.filter((file) => !(file in entries)).map((file) => `${file}: not in ${MANIFEST}`);
+    for (const [file, raw] of Object.entries(entries)) {
+        if (!data.includes(file)) {
+            problems.push(`${MANIFEST}: ${file} is not a tracked fixture data file`);
+            continue;
+        }
+        const entry = (raw ?? {}) as { licence?: unknown; source?: unknown; credit?: unknown; replacement?: unknown };
+        const licence = typeof entry.licence === 'string' ? entry.licence : '';
+        if (!FIXTURE_LICENCES.includes(licence)) problems.push(`${file}: licence "${licence}" is not an open licence`);
+        if (typeof entry.source !== 'string' || entry.source.trim().length < 8)
+            problems.push(`${file}: no source named`);
+        const credit = typeof entry.credit === 'string' ? entry.credit : '';
+        if (CREDITED_LICENCES.includes(licence) && !credit) problems.push(`${file}: ${licence} needs a credit`);
+        if (licence === 'odbl' && !/OpenStreetMap contributors/.test(credit))
+            problems.push(`${file}: odbl credit must name OpenStreetMap contributors`);
+        if (licence === 'third-party-replace' && (typeof entry.replacement !== 'string' || !entry.replacement.trim()))
+            problems.push(`${file}: third-party-replace needs the package that replaces it`);
+    }
+    return problems;
+}
+
+/** The real-cells directory variables the retired local suites read (built, so this file never names them). */
+const REAL_CELLS_ENV = new RegExp(`\\b${['THALASSA', 'REAL', '(?:CELLS|BNE)', 'DIR'].join('_')}\\b`);
+/** The Pi route that serves an installed cell's decrypted data (built, so this file never names it). */
+const PI_CELL_ROUTE = new RegExp(['', 'api', 'enc', 'installed'].join('\\/') + '\\b');
+/** A write to the local disk. */
+const DISK_WRITE = /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|copyFileSync|createWriteStream)\s*\(/;
+/** Test and tool code, which runs on a Mac. The Pi's own server keeps its store on the boat. */
+const MAC_CODE = /^(tests|e2e|tools|scripts)\//;
+/** The corridor capture tool refuses every id that is not a NOAA one (its own test, below). */
+const CELL_WRITE_ALLOWED: readonly string[] = ['tools/capture-corridor-fixture.mjs'];
+
+function realCellProblems(file: string, text: string): string[] {
+    const problems: string[] = [];
+    if (REAL_CELLS_ENV.test(text)) problems.push(`${file}: reads decrypted chart cells from a disk`);
+    if (MAC_CODE.test(file) && !CELL_WRITE_ALLOWED.includes(file) && PI_CELL_ROUTE.test(text) && DISK_WRITE.test(text))
+        problems.push(`${file}: fetches the Pi's installed cells and writes to a disk`);
+    return problems;
+}
+
 // ── The tree ─────────────────────────────────────────────────────────────
 
 function tracked(...paths: string[]): string[] {
@@ -226,6 +321,19 @@ describe('no protected chart data in git', () => {
 
     it('data-file allowlist: every S-57 extract is public domain or synthetic, from US/ZZ/OC-99 cells', () => {
         expect(texts.flatMap(({ file, text }) => dataFileProblems(file, text))).toEqual([]);
+    });
+
+    it('manifest rule: every data file under tests/fixtures and e2e/fixtures has an open licence and a source', () => {
+        const all = tracked('tests/fixtures', 'e2e/fixtures');
+        expect(all.filter(isFixtureData).length, 'the fixture dirs hold data').toBeGreaterThan(5);
+        const manifest = readText(MANIFEST);
+        expect(manifest, `${MANIFEST} is tracked`).not.toBeNull();
+        expect(manifestProblems(all, JSON.parse(manifest ?? 'null'))).toEqual([]);
+        expect(texts.flatMap(({ file, text }) => fixtureSourceProblems(file, text))).toEqual([]);
+    });
+
+    it('real-cell rule: nothing reads decrypted chart cells from a disk or writes them to one', () => {
+        expect(texts.flatMap(({ file, text }) => realCellProblems(file, text))).toEqual([]);
     });
 
     it('id rule: every quoted OC- id beside geometry is in the ledger, and the ledger only shrinks', () => {
@@ -375,5 +483,114 @@ describe('the guard itself (fictional data, built in memory)', () => {
         expect(idRuleHits('x.ts', `// cell '${id}'\n${ring}`)).toEqual([]);
         expect(idRuleHits('x.ts', ` * read '${id}' here\n${ring}`)).toEqual([]);
         expect(idRuleHits('x.ts', `const a = 1; // '${id}'\n${ring}`)).toEqual([]);
+    });
+
+    it('manifest rule: an unlisted file, a stale entry and every closed or half-stated licence fail', () => {
+        const files = [
+            'tests/fixtures/harbour-osm.json.gz',
+            'tests/fixtures/buoys/zz-feed.txt',
+            'e2e/fixtures/clip.mp4',
+            'e2e/fixtures/page.tsx',
+            'e2e/fixtures/page.html',
+            MANIFEST,
+            'tests/other/notAFixture.json',
+        ];
+        const good = {
+            'tests/fixtures/harbour-osm.json.gz': {
+                licence: 'odbl',
+                source: 'OpenStreetMap overlay (fictional bbox)',
+                credit: '© OpenStreetMap contributors (ODbL)',
+            },
+            'tests/fixtures/buoys/zz-feed.txt': { licence: 'public-domain', source: 'NOAA NDBC (fictional station)' },
+            'e2e/fixtures/clip.mp4': { licence: 'synthetic', source: 'ffmpeg testsrc2, one second' },
+        };
+        expect(manifestProblems(files, { files: good })).toEqual([]);
+        // Code, harness pages, the manifest itself and files outside the fixture dirs need no entry.
+        expect(isFixtureData('e2e/fixtures/page.tsx')).toBe(false);
+        expect(isFixtureData(MANIFEST)).toBe(false);
+        expect(isFixtureData('tests/other/notAFixture.json')).toBe(false);
+        // A data file with no entry: the shape a captured chart would arrive in.
+        expect(manifestProblems([...files, 'tests/fixtures/OC-99-ZZTEST.corridor.json.gz'], { files: good })).toEqual([
+            'tests/fixtures/OC-99-ZZTEST.corridor.json.gz: not in tests/fixtures/PROVENANCE.json',
+        ]);
+        // An entry for a file that is gone (how a deleted Mapbox tile would linger).
+        expect(
+            manifestProblems(files, {
+                files: { ...good, 'tests/fixtures/zz-tile.mvt': { licence: 'synthetic', source: 'fictional tile' } },
+            }),
+        ).toHaveLength(1);
+        const one = (entry: Record<string, string>) =>
+            manifestProblems(files, { files: { ...good, 'e2e/fixtures/clip.mp4': entry } });
+        // There is no protected licence, and no licence at all is not one either.
+        expect(one({ licence: 'protected', source: 'o-charts capture (fictional)' })).toHaveLength(1);
+        expect(one({ licence: '', source: 'somewhere (fictional)' })).toHaveLength(1);
+        expect(one({ licence: 'synthetic', source: '' })).toHaveLength(1);
+        expect(one({ licence: 'cc-by-4.0', source: 'a fictional agency feed' })).toHaveLength(1);
+        expect(one({ licence: 'odbl', source: 'OSM (fictional)', credit: 'OSM' })).toHaveLength(1);
+        expect(one({ licence: 'third-party-replace', source: 'a fictional vendor tile' })).toHaveLength(1);
+        expect(
+            one({ licence: 'third-party-replace', source: 'a fictional vendor tile', replacement: '199-ZZ' }),
+        ).toEqual([]);
+        // A partner's buoy that NDBC only redistributes: WMO Resolution 40, owner credited by name.
+        expect(one({ licence: 'wmo-res40', source: 'a fictional partner buoy, via NDBC' })).toHaveLength(1);
+        expect(
+            one({ licence: 'wmo-res40', source: 'a fictional partner buoy, via NDBC', credit: 'ZZ Met Service' }),
+        ).toEqual([]);
+        expect(manifestProblems(files, null)).toHaveLength(1);
+        expect(manifestProblems(files, { files: [] })).toHaveLength(1);
+    });
+
+    it('manifest rule: fixture data that names a proprietary chart as a source fails, whatever its licence', () => {
+        const marker = (note: string) =>
+            JSON.stringify({ type: 'Feature', properties: { _class: 'isolated', _fix: `ZZ Reef beacon ${note}` } });
+        for (const chart of ['Navionics', 'C-MAP', 'BlueChart', 'ChartWorld', 'o-charts', 'oeSENC'])
+            expect(
+                fixtureSourceProblems('tests/fixtures/zz-markers.json.gz', marker(`retagged per ${chart}`)),
+                chart,
+            ).toHaveLength(1);
+        expect(fixtureSourceProblems('tests/fixtures/zz-markers.json.gz', marker('as OpenStreetMap tags it'))).toEqual(
+            [],
+        );
+        // Test code and prose outside the fixture dirs may name the charts they refuse.
+        expect(fixtureSourceProblems('tests/zz.test.ts', marker('retagged per Navionics'))).toEqual([]);
+        expect(fixtureSourceProblems('e2e/fixtures/zz.tsx', marker('retagged per Navionics'))).toEqual([]);
+    });
+
+    it('real-cell rule: a test reading the real-cells directories fails; other env reads pass', () => {
+        const cells = ['THALASSA', 'REAL', 'CELLS', 'DIR'].join('_');
+        const bne = ['THALASSA', 'REAL', 'BNE', 'DIR'].join('_');
+        expect(realCellProblems('x.test.ts', `const DIR = process.env.${cells} ?? '';`)).toHaveLength(1);
+        expect(realCellProblems('x.test.ts', `const dir = process.env['${bne}'];`)).toHaveLength(1);
+        expect(realCellProblems('x.test.ts', `// point ${cells} at a scratch folder`)).toHaveLength(1);
+        expect(realCellProblems('x.test.ts', `const osm = process.env.THALASSA_REAL_OSM_FILE;`)).toEqual([]);
+        expect(realCellProblems('x.test.ts', `const dir = process.env.${cells}_EXTRA;`)).toEqual([]);
+    });
+
+    it("real-cell rule: test or tool code that fetches the Pi's installed cells and writes a disk fails", () => {
+        const route = ['', 'api', 'enc', 'installed'].join('/');
+        const fetch = `const out = execFileSync('curl', ['-s', \`http://pi.invalid:3001${route}/\${id}/data\`]);`;
+        // The retired diag cache: every fetched cell kept as a file between runs.
+        for (const write of [
+            `writeFileSync(\`/tmp/zzCells/\${id}.json\`, out);`,
+            `await writeFile(path, out);`,
+            `fs.appendFileSync(path, out);`,
+            `copyFileSync(tmp, path);`,
+            `out.pipe(createWriteStream(path));`,
+        ])
+            for (const file of [
+                'tests/repro/zz.diag.test.ts',
+                'tools/zz-capture.mjs',
+                'scripts/zz.mjs',
+                'e2e/zz.spec.ts',
+            ])
+                expect(realCellProblems(file, `${fetch}\n${write}`), `${file} ${write}`).toHaveLength(1);
+        // Held in memory, it passes; so does a write with no Pi cell fetch.
+        expect(realCellProblems('tests/repro/zz.diag.test.ts', `${fetch}\nmemory.set(id, out);`)).toEqual([]);
+        expect(realCellProblems('tests/zz.test.ts', `writeFileSync(path, report);`)).toEqual([]);
+        // The Pi's own server keeps its store on the boat, and the capture tool is NOAA-only.
+        expect(realCellProblems('pi-cache/src/routes/zz.ts', `${fetch}\nwriteFileSync(path, out);`)).toEqual([]);
+        expect(realCellProblems('tools/capture-corridor-fixture.mjs', `${fetch}\nwriteFileSync(path, out);`)).toEqual(
+            [],
+        );
     });
 });

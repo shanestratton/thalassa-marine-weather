@@ -6,15 +6,15 @@
  * A SENC stores AREA features as a pre-tessellated triangle mesh — that IS the
  * format; it is a render cache, not a topology store. `featureParser` (the
  * oeSENC path) recovers real polygon rings from the edge-vector index the
- * oeSENC ships alongside. The S-63 path in `s63SencParser` has no such index
- * and never attempted rings at all, so every area feature reached the app as
- * raw triangles.
+ * oeSENC ships alongside. A SENC with no such index reaches the app as raw
+ * triangles unless something rebuilds the rings, which is what this does.
+ * (It was written for the S-63 parser, retired in 127: S-63 opens in OpenCPN
+ * only. It stays as a general mesh tool with its own tests.)
  *
- * Measured on FR466870 (Nouméa) 2026-08-07: DEPARE arrived as 722 features
- * made of 101,033 triangles and ZERO rings, against 5,788 real rings for a
- * comparable o-charts cell. Rendered, that is 101k separately-antialiased
- * fills — the shattered, streaky water Shane reported — plus 3,514 near-zero
- * slivers and 41 zero-area triangles.
+ * Measured on a mesh-only cell in 2026-08: DEPARE arrived as hundreds of
+ * features made of ~100k triangles and ZERO rings. Rendered, that is ~100k
+ * separately-antialiased fills (shattered, streaky water) plus thousands of
+ * near-zero slivers and some zero-area triangles.
  *
  * How it works
  * ────────────
@@ -110,7 +110,7 @@ export function meshToPolygons(triangles: Tri[]): PolygonRings[] | null {
         //
         // Winding is normalised per triangle rather than assumed: the SENC
         // ships GL_TRIANGLE_STRIP and _FAN primitives, and a strip alternates
-        // orientation every other triangle. s63SencParser already swaps odd
+        // orientation every other triangle. A parser may already swap odd
         // strip triangles, but normalising here means this module is correct
         // for any mesh handed to it rather than relying on that.
         const [i0, i1, i2] = a2 > 0 ? [0, 1, 2] : [0, 2, 1];

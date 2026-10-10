@@ -14,7 +14,6 @@
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import type { FeatureCollection, Feature, Position } from 'geojson';
 import { routeInshore, type InshoreLayers, type RouteResult } from '../../services/inshoreRouterEngine';
 import { shadowingCells, featureIsShadowed } from '../../services/enc/scaleShadow';
@@ -32,7 +31,8 @@ function piReachable(): boolean {
     }
 }
 const PI_UP = piReachable();
-const CACHE_DIR = '/tmp/baySweepCells';
+/** Cells fetched from the Pi, held in memory for this run only: a decrypted cell never lands on this disk (127-C-a). */
+const CELL_MEMORY = new Map<string, RawCell>();
 
 // ── Endpoints + via ──────────────────────────────────────────────────
 const MOOLOOLABA_WHARF: [number, number] = [153.1203, -26.6839]; // Shane's actual marina berth start (inside the marina, among the pens)
@@ -59,23 +59,16 @@ function listInstalled(): CellMeta[] {
 }
 
 function fetchCell(cellId: string): RawCell | null {
-    mkdirSync(CACHE_DIR, { recursive: true });
-    const path = `${CACHE_DIR}/${cellId}.json`;
-    if (!existsSync(path)) {
-        try {
-            const out = execFileSync(
-                'curl',
-                ['-s', '-f', `http://calypso.local:3001/api/enc/installed/${cellId}/data`],
-                { maxBuffer: 128 * 1024 * 1024 },
-            );
-            writeFileSync(path, out);
-        } catch {
-            return null;
-        }
-    }
+    const held = CELL_MEMORY.get(cellId);
+    if (held) return held;
     try {
-        const blob = JSON.parse(readFileSync(path, 'utf8')) as { cells?: RawCell[] };
-        return blob.cells?.find((c) => c.cellId === cellId) ?? blob.cells?.[0] ?? null;
+        const out = execFileSync('curl', ['-s', '-f', `http://calypso.local:3001/api/enc/installed/${cellId}/data`], {
+            maxBuffer: 128 * 1024 * 1024,
+        });
+        const blob = JSON.parse(out.toString('utf8')) as { cells?: RawCell[] };
+        const cell = blob.cells?.find((c) => c.cellId === cellId) ?? blob.cells?.[0] ?? null;
+        if (cell) CELL_MEMORY.set(cellId, cell);
+        return cell;
     } catch {
         return null;
     }

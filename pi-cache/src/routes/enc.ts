@@ -70,8 +70,6 @@ import { installOChartsDelivery, verifyArchiveSha256 } from '../oChartsInstaller
 import { piChartLicence } from '../chartLicence.js';
 import { getSourceReconvertStatus } from '../encSourceReconvert.js';
 import { listEncJobReceipts, restoredEncJobReceipt, saveEncJobReceipt, type EncJobReceipt } from '../encJobJournal.js';
-import { pollChartworldOnce } from '../chartworldSync.js';
-import { generateFingerprint, s63Status, savePermits } from '../s63Setup.js';
 import {
     ENC_ARCHIVE_POLICY,
     ENC_DOWNLOAD_POLICY,
@@ -762,14 +760,44 @@ const SGLOCK_USB_VENDOR_ID = '1547';
 /** Chart directory the o-charts decrypt watcher polls (encWatcher's ENC_WATCH_DIR). */
 const OESU_CHART_DIR = process.env.ENC_WATCH_DIR || path.join(os.homedir(), 'Charts');
 
-const CHARTWORLD_INBOX = process.env.ENC_CHARTWORLD_DIR || path.join(os.homedir(), 'Charts', 'chartworld');
+/**
+ * What a ChartWorld S-63 delivery dropped into Thalassa is told (127). S-63
+ * opens in OpenCPN only (the o-charts shop terms), so Thalassa unpacks nothing
+ * past recognising it, keeps nothing, and points at OpenCPN's own S-63 import.
+ */
+export const S63_OPENCPN_ONLY = 'ChartWorld S-63 charts open in OpenCPN on your Pi (Remote screen), not in Thalassa.';
+/** The job's errorCode for that answer, so a receipt can say it without offering a retry. */
+export const S63_OPENCPN_ONLY_CODE = 's63-opencpn-only';
+
+/**
+ * A ChartWorld link or file by its name alone: a chartworld.* host, or the
+ * `.S63.ZIP` / `.prm.zip` names its exchange sets and permit bundles carry.
+ * Used where the bytes cannot say (an ePORTAL link that returns its sign-in
+ * page), so the skipper is not sent off to download a file that is refused.
+ */
+export function looksLikeChartworld(installUrl: string | undefined, filename: string): boolean {
+    let host = '';
+    try {
+        host = installUrl ? new URL(installUrl).hostname : '';
+    } catch {
+        host = '';
+    }
+    return /(^|\.)chartworld\.[a-z]{2,}$/i.test(host) || /\.(s63|prm)\.zip$/i.test(filename);
+}
+
+/** Keep nothing of an S-63 delivery: the job's work dir goes at once, then the OpenCPN answer. */
+async function refuseS63(job: EncJob): Promise<ChartInstallError> {
+    if (job.workDir) await fs.rm(job.workDir, { recursive: true, force: true });
+    return new ChartInstallError(S63_OPENCPN_ONLY_CODE, S63_OPENCPN_ONLY);
+}
 
 /**
  * Which half of a ChartWorld S-63 delivery this archive is, if either.
  *
  * S-63 arrives in two parts that are useless apart: an exchange set whose cells
  * are encrypted, and a permit bundle that unlocks them. Neither can go through
- * ogr2ogr.
+ * ogr2ogr, and since 127 neither is installed here: recognising them is what
+ * lets the skipper be told where they do open.
  *
  * `SERIAL.ENC` is the S-63 media marker. A plain, unencrypted S-57 exchange set
  * also carries ENC_ROOT and CATALOG.031, so neither of those distinguishes the
@@ -787,31 +815,6 @@ export async function detectChartworldArchive(root: string): Promise<'permit' | 
     if (names.has('PERMIT.TXT')) return 'permit';
     if (names.has('SERIAL.ENC')) return 'exchange';
     return null;
-}
-
-/**
- * Put the original archive where chartworldSync looks for it.
- *
- * The installer works from the zip rather than our unpacked copy, so that its
- * own archive limits and extraction remain the only boundary the S-63 payload
- * crosses. It selects files by extension, so the name has to match even when
- * the download URL handed us something else entirely.
- */
-async function dropIntoChartworldInbox(
-    archivePath: string,
-    filename: string,
-    kind: 'permit' | 'exchange',
-): Promise<string> {
-    await fs.mkdir(CHARTWORLD_INBOX, { recursive: true });
-    const safe = path.basename(filename).replace(/[^A-Za-z0-9._-]/g, '_');
-    const base =
-        safe
-            .replace(/\.S63\.zip$/i, '')
-            .replace(/\.prm\.zip$/i, '')
-            .replace(/\.zip$/i, '') || 'chartworld';
-    const target = path.join(CHARTWORLD_INBOX, kind === 'permit' ? `${base}.prm.zip` : `${base}.S63.ZIP`);
-    await fs.copyFile(archivePath, target);
-    return target;
 }
 
 /** How many `.oesu` files are in the tree — i.e. is this an o-charts set? */
@@ -834,6 +837,9 @@ async function runConversion(job: EncJob, installOCharts = installOChartsDeliver
     // here, rather than failing further down with a parser error about missing
     // cell files that gives the skipper nothing to act on.
     if (magic.length > 0 && magic[0] === 0x3c) {
+        // Unless the link is ChartWorld's: downloading it in a browser only
+        // leads to the OpenCPN answer below, so give that answer now.
+        if (looksLikeChartworld(job.installUrl, job.filename)) throw await refuseS63(job);
         throw new Error(
             'That link returned a web page, not a chart file — it most likely requires being ' +
                 'signed in, so the Pi cannot fetch it. Download it in your browser, then import ' +
@@ -894,31 +900,15 @@ async function runConversion(job: EncJob, installOCharts = installOChartsDeliver
             return;
         }
 
-        // ChartWorld S-63 is a two-part delivery and neither half is any use on
-        // its own, so hand the archive to the installer that already knows how to
-        // pair an exchange set with the newest permit bundle. Dropping it into the
-        // same inbox means a link pasted into the app and a file copied in by hand
-        // take one identical path.
-        const chartworldKind = await detectChartworldArchive(unzipDir);
-        if (chartworldKind) {
-            const label = chartworldKind === 'permit' ? 'permit bundle' : 'S-63 exchange set';
-            job.step = `installing ChartWorld ${label}`;
-            const dropped = await dropIntoChartworldInbox(inputPath, job.filename, chartworldKind);
-            // This job already owns the single conversion lane — its lease was
-            // transferred in. Taking it again inside the poll would queue behind
-            // ourselves and never resolve.
-            const outcome = await pollChartworldOnce({ conversionLeaseHeld: true });
-            job.resultKind = 'staged';
-            job.status = 'done';
-            job.progress = 1;
-            job.step = `ChartWorld ${label} accepted as ${path.basename(dropped)} — ${outcome}`;
-            job.completedAt = Date.now();
-            return;
-        }
+        // A ChartWorld S-63 exchange set or permit bundle (either half) opens
+        // in OpenCPN, never here (127). Say so, keep nothing: the job's work
+        // dir, with the upload and its unpacked copy, goes at once rather than
+        // waiting out the job's hour, and nothing is written anywhere else.
+        if (await detectChartworldArchive(unzipDir)) throw await refuseS63(job);
 
         const cellPaths = await findEncCells(unzipDir);
         if (cellPaths.length === 0) {
-            throw new Error('No .000, .oesu or ChartWorld S-63 content found in ZIP');
+            throw new Error('No .000 or .oesu chart content found in ZIP');
         }
         job.cellCount = cellPaths.length;
         job.cellsDone = 0;
@@ -1933,57 +1923,6 @@ export function createEncRoutes(
                 detail: err instanceof Error ? err.message : String(err),
                 sourceReconvert: getSourceReconvertStatus(),
             });
-        }
-    });
-
-    /**
-     * S-63 licensing, for a skipper with no terminal.
-     *
-     * Encrypted charts identify a boat in two different ways and the difference
-     * decides what someone has to do: o-charts go by the SG-Lock dongle and are
-     * portable, while ChartWorld S-63 goes by a fingerprint of this machine and
-     * costs one of five InstallPermits to move. `status` says which world the Pi
-     * is in so nobody spends a permit to find out.
-     */
-    router.get('/s63/status', async (_req: Request, res: Response) => {
-        try {
-            return res.json(await s63Status());
-        } catch (err) {
-            return res.status(500).json({ error: (err as Error).message });
-        }
-    });
-
-    /**
-     * Make the fingerprint for this machine and hand it back, so it can reach
-     * the o-charts shop from a phone rather than over ssh.
-     */
-    router.post('/s63/fingerprint', async (_req: Request, res: Response) => {
-        try {
-            return res.json(await generateFingerprint());
-        } catch (err) {
-            return res.status(400).json({ error: (err as Error).message });
-        }
-    });
-
-    /**
-     * Store the two codes the shop gives back — but only after checking them
-     * against this machine, so a permit issued for different hardware is caught
-     * while the skipper is still looking at the screen rather than at chart-build
-     * time. Permits are never logged.
-     */
-    router.post('/s63/permits', async (req: Request, res: Response) => {
-        const body = req.body as { userPermit?: unknown; installPermit?: unknown };
-        const userPermit = typeof body?.userPermit === 'string' ? body.userPermit : '';
-        const installPermit = typeof body?.installPermit === 'string' ? body.installPermit : '';
-        if (!userPermit || !installPermit) {
-            return res.status(400).json({ error: 'Both a UserPermit and an InstallPermit are required.' });
-        }
-        try {
-            const result = await savePermits(userPermit, installPermit);
-            if (!result.valid) return res.status(400).json({ error: result.problem });
-            return res.json({ saved: true, ...(await s63Status()) });
-        } catch (err) {
-            return res.status(500).json({ error: (err as Error).message });
         }
     });
 

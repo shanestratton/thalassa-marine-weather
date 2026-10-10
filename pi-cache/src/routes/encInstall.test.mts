@@ -11,7 +11,13 @@ import { type installOChartsDelivery } from '../oChartsInstaller.js';
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'enc-route-test-'));
 process.env.ENC_CHART_DIR = path.join(root, 'store');
-const { createEncRoutes } = await import('./enc.js');
+// Where the retired ChartWorld path used to drop an S-63 delivery (and its
+// poller's config). Pointed into the test's own folder so the test can show
+// nothing is written there; neither exists after 127.
+const CHARTWORLD_INBOX = path.join(root, 'chartworld');
+process.env.ENC_CHARTWORLD_DIR = CHARTWORLD_INBOX;
+process.env.ENC_CHARTWORLD_CONFIG = path.join(root, 'no-chartworld-config.json');
+const { createEncRoutes, looksLikeChartworld } = await import('./enc.js');
 after(async () => {
     await fs.rm(root, { recursive: true, force: true });
 });
@@ -78,6 +84,104 @@ test('o-charts job remains converting until publication and exposes installed re
     assert.deepEqual(ready.packageSummary, { new: 1, updated: 0, unchanged: 0, total: 1 });
     const recent = (await (await fetch(`${h.base}/jobs`)).json()) as { jobs: Record<string, unknown>[] };
     assert.ok(recent.jobs.some((job) => job.id === jobId && job.resultKind === 'installed'));
+});
+
+/** What a ChartWorld S-63 delivery looks like unpacked: fictional cell ids, no chart content. */
+function chartworldArchive(kind: 'exchange' | 'permit'): Buffer {
+    const zip = new AdmZip();
+    if (kind === 'exchange') {
+        zip.addFile('ZZ_ORDER_01/SERIAL.ENC', Buffer.from('fictional serial'));
+        zip.addFile('ZZ_ORDER_01/ENC_ROOT/CATALOG.031', Buffer.from('fictional catalogue'));
+        zip.addFile('ZZ_ORDER_01/ENC_ROOT/ZZ/ZZ5TEST1/1/0/ZZ5TEST1.000', Buffer.from('fictional encrypted cell'));
+    } else {
+        zip.addFile('PERMIT.TXT', Buffer.from(':DATE 20261011 00:00\n:VERSION 3\n:ENC\nZZ5TEST1fictional\n'));
+    }
+    return zip.toBuffer();
+}
+
+const OPENCPN_ONLY = 'ChartWorld S-63 charts open in OpenCPN on your Pi (Remote screen), not in Thalassa.';
+
+for (const kind of ['exchange', 'permit'] as const) {
+    test(`a ChartWorld S-63 ${kind} upload gets the OpenCPN answer, writes nothing and leaves no work dir (127)`, async (t) => {
+        const h = harness(t, async () => {
+            throw new Error('an S-63 delivery must never reach the o-charts installer');
+        });
+        const response = await fetch(`${h.base}/convert`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/octet-stream',
+                'X-Filename': `ZZ_ORDER_01.${kind === 'exchange' ? 'S63.zip' : 'prm.zip'}`,
+            },
+            body: new Uint8Array(chartworldArchive(kind)),
+        });
+        assert.equal(response.status, 200);
+        const { jobId } = (await response.json()) as { jobId: string };
+        const finished = await poll(h.base, jobId, (job) => job.status === 'done' || job.status === 'error');
+        assert.equal(finished.status, 'error');
+        assert.equal(finished.error, OPENCPN_ONLY);
+        // Its own code, so the Recent installs receipt says this and offers no retry.
+        assert.equal(finished.errorCode, 's63-opencpn-only');
+        assert.equal(finished.resultUrl, undefined);
+        assert.equal(finished.persistedCellIds, undefined);
+        // Nothing unpacked or kept: no inbox, no work dir, nothing in the store.
+        await assert.rejects(fs.stat(CHARTWORLD_INBOX), { code: 'ENOENT' });
+        await assert.rejects(fs.stat(path.join(os.tmpdir(), 'thalassa-enc-conversion', jobId)), { code: 'ENOENT' });
+        const { cells } = await readChartIndex(process.env.ENC_CHART_DIR!);
+        assert.equal(
+            cells.some((cell) => cell.cellId === 'ZZ5TEST1'),
+            false,
+        );
+    });
+}
+
+/** A sign-in page where a chart file should be: what an ePORTAL link hands a Pi with no session. */
+const SIGN_IN_PAGE = Buffer.from('<!doctype html><html><body>Sign in (fictional)</body></html>');
+
+test('a web page named as a ChartWorld delivery gets the OpenCPN answer, not "download it in your browser" (127)', async (t) => {
+    const h = harness(t);
+    for (const [filename, opencpn] of [
+        ['ZZ_ORDER_01.S63.ZIP', true],
+        ['ZZ_ORDER_01.prm.zip', true],
+        ['charts.zip', false],
+    ] as const) {
+        const response = await fetch(`${h.base}/convert`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': filename },
+            body: new Uint8Array(SIGN_IN_PAGE),
+        });
+        const { jobId } = (await response.json()) as { jobId: string };
+        const failed = await poll(h.base, jobId, (job) => job.status === 'error');
+        if (opencpn) {
+            assert.equal(failed.error, OPENCPN_ONLY, filename);
+            assert.equal(failed.errorCode, 's63-opencpn-only', filename);
+            await assert.rejects(fs.stat(path.join(os.tmpdir(), 'thalassa-enc-conversion', jobId)), {
+                code: 'ENOENT',
+            });
+        } else {
+            assert.match(String(failed.error), /signed in/, filename);
+            assert.equal(failed.errorCode, undefined, filename);
+        }
+    }
+});
+
+test('a ChartWorld link is known by its host or its S-63 file names, and nothing else', () => {
+    for (const url of [
+        'https://eportal.chartworld.com/download/ZZ01',
+        'https://www.chartworld.de/x',
+        'https://chartworld.com',
+    ])
+        assert.equal(looksLikeChartworld(url, 'charts.zip'), true, url);
+    for (const url of [
+        'https://charts.example/chartworld',
+        'https://notchartworld.com/x',
+        'https://chartworld.com.example',
+        'not a url',
+        undefined,
+    ])
+        assert.equal(looksLikeChartworld(url, 'charts.zip'), false, String(url));
+    assert.equal(looksLikeChartworld(undefined, 'ZZ_ORDER_01.S63.ZIP'), true);
+    assert.equal(looksLikeChartworld(undefined, 'ZZ_ORDER_01.prm.zip'), true);
+    assert.equal(looksLikeChartworld(undefined, 'US5ZZ01M.000'), false);
 });
 
 test('conversion failures surface actionable code and never become done-on-copy', async (t) => {

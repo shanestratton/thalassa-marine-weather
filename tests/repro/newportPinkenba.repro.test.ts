@@ -53,8 +53,6 @@
  */
 
 import { describe, expect, it, beforeAll, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { Feature, FeatureCollection, LineString, MultiPolygon, Polygon, Position } from 'geojson';
 import { pointInGeometry, geometryBbox } from '../../services/engine/geometry';
 
@@ -91,14 +89,16 @@ const CELLS = [
 const REGIONAL_MARKERS_URL =
     'https://pcisdplnodrphauixcau.supabase.co/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson';
 
-// ── Newport exit-gate centres. They are computed from the licensed cell's
-//    lateral marks, so they are never committed: when this repro is ported it
-//    reads them from THALASSA_REAL_CELLS_DIR/newport-gate-centres.json
-//    ([{ name: '7/8', lat, lon }, … '1/2']), next to the real cells. ──────
+// ── Newport exit-gate centres ([{ name: '7/8', lat, lon }, … '1/2']). They
+//    were computed from the licensed cell's lateral marks, so they are never
+//    committed, and since 127 they are not read from a disk either (the
+//    guard's real-cell rule). The block that uses them is gated; its port to
+//    the synthetic harbour kit derives gates from the kit's own marks. ──────
 function newportGateCentres(): { name: string; lat: number; lon: number }[] {
-    const dir = process.env.THALASSA_REAL_CELLS_DIR;
-    if (!dir) throw new Error('newportGateCentres: set THALASSA_REAL_CELLS_DIR (holds newport-gate-centres.json)');
-    return JSON.parse(readFileSync(join(dir, 'newport-gate-centres.json'), 'utf8'));
+    throw new Error(
+        'newportGateCentres: the Newport gate centres came from a licensed cell and were retired ' +
+            '2026-10-10 under the o-charts ruling: derive gates from the synthetic harbour kit instead',
+    );
 }
 
 // ── Geometry helpers ────────────────────────────────────────────────

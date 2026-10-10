@@ -299,7 +299,7 @@ What's deferred to Phase 13.x:
   build a centerline-distance penalty, which would hug the marked
   channel even more strictly.
 
-### Phase 14 — Encrypted ENC import (BLOCKED on IHO OEM license)
+### Phase 14 — Encrypted ENC import (BLOCKED on IHO OEM license; S-63 retired in 127)
 
 NOAA cells are public-domain `.000` files — drop them on the Pi, GDAL
 parses them, done. AHO (Australian Hydrographic Office) and most
@@ -400,31 +400,19 @@ o-charts is the loaded chart source. If yes, it's an interesting
 fallback for personal use; if no, we know definitively that path
 is closed and can stop revisiting it.
 
-#### What gets reserved for this phase regardless
+#### What was reserved for this phase (retired in 127)
 
-If we eventually pursue Path (1) or Path (2) succeeds, the
-implementation work below stays roughly the same — the M_KEY
-unblocks the **decryption**, but everything downstream is the same
-pipeline as Phase 13.
+**Retired in 127: S-63 opens in OpenCPN only** (the o-charts shop terms;
+127 vision §4.1 rule 1). OpenCPN's own S-63 plugin on the Pi (Remote
+screen) takes the delivery and handles the fingerprint and the permits.
+Thalassa has no S-63 route, build flag, permit store or import button,
+and must not grow one: an S-63 delivery handed to the Pi gets the
+OpenCPN answer and nothing is kept. The items once planned here (a GDAL
+build with the S-63 driver, an M_KEY and userPermit store on the Pi, a
+`/api/enc/s63/*` permit route, an S-63 install route that wrote
+decrypted GeoJSON to the chart store, and an "Install S-63" button in
+`EncCellManager.tsx`) are not to be built.
 
-- [ ] **Pi: GDAL S-63 driver** — build GDAL from source with
-      `-DGDAL_USE_S63=ON` since stock `gdal-bin` doesn't include
-      it. Script into `install.sh` behind a `--with-s63` flag so
-      default installs stay fast.
-- [ ] **Pi: M_KEY storage** — once we have one, drop into
-      `${INSTALL_DIR}/.s63/m_key` (mode 0600). NEVER served via
-      HTTP, NEVER logged, NEVER returned by any endpoint.
-- [ ] **Pi: userPermit storage** — separately stored at
-      `${INSTALL_DIR}/.s63/userPermit.txt` (mode 0600). Endpoint
-      `POST /api/enc/s63/userpermit` validates and writes it.
-- [ ] **Pi: `POST /api/enc/install-s63`** — accepts a ZIP
-      containing the cell files + `PERMIT.TXT` + `SERIAL.ENC`.
-      Calls `ogr2ogr` with the M_KEY + userPermit + cell permits.
-      Same downstream pipeline as NOAA — writes decrypted GeoJSON
-      to the chart store.
-- [ ] **Device: import UI** — extend `EncCellManager.tsx` with an
-      "Install S-63 (encrypted)" button. First-run prompts for the
-      userPermit; subsequent imports just need the cell ZIP.
 - [ ] **Source attribution** — IHO contract requires displaying
       "Source: AHO" (or whichever HO) when a chart's data is
       shown. The route-results panel already tracks `sourceHO`,

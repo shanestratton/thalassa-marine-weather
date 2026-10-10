@@ -177,6 +177,23 @@ describe('useAppBootstrap', () => {
         localStorage.removeItem('thalassa_unrelated_setting');
     });
 
+    it("clears every account's personal chart-shelf manifest version at launch, and nothing else (127)", () => {
+        // The shelf is deleted; its continuity keys, one per account that ever
+        // signed in on this device, would otherwise sit in storage for ever.
+        localStorage.setItem('thalassa_enc_personal_manifest_version_user-zz', '4');
+        localStorage.setItem('thalassa_enc_personal_manifest_version_00000000-0000-4000-8000-00000000zz01', '9');
+        localStorage.setItem('thalassa_enc_cloud_manifest_version', '3');
+        localStorage.setItem('thalassa_unrelated_setting', '1');
+        renderHook(() => useAppBootstrap());
+        const left = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i));
+        expect(left.filter((key) => key?.startsWith('thalassa_enc_personal_manifest_version_'))).toEqual([]);
+        // The NOAA shelf's own continuity key is not the personal shelf's.
+        expect(localStorage.getItem('thalassa_enc_cloud_manifest_version')).toBe('3');
+        expect(localStorage.getItem('thalassa_unrelated_setting')).toBe('1');
+        localStorage.removeItem('thalassa_enc_cloud_manifest_version');
+        localStorage.removeItem('thalassa_unrelated_setting');
+    });
+
     it('moves inline Documents to files once the sync engine has started, when the app is idle', async () => {
         vault.tidy.mockResolvedValue(undefined);
         renderHook(() => useAppBootstrap());

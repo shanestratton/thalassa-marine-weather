@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import type { FeatureCollection } from 'geojson';
+import type { FeatureCollection, MultiPolygon, Polygon, Position } from 'geojson';
 import lineIntersect from '@turf/line-intersect';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import { buildCanalDepartureGeometry, canalDepartureBbox } from '../services/canalDepartureGeometry';
 import { decodeWaterFromTile } from '../services/mapboxWater';
+import { encodeWaterTile } from './helpers/handMvt';
 import { describe, expect, it } from 'vitest';
 import {
     loadRegionalOverlay,
@@ -27,13 +28,15 @@ const mutatePayload = (change: (o: any) => void) => {
 };
 
 describe('controlled Newport canal data', () => {
-    it('routes the real Newport bend with the regional obstacles, without bank or pontoon crossings', async () => {
-        const features = decodeWaterFromTile(
-            readFileSync('tests/fixtures/mapbox-water-16-60637-37918.mvt'),
-            16,
-            60637,
-            37918,
+    it('routes the Newport bend inside the bundle’s own OSM water, with its obstacles, without bank or pontoon crossings', async () => {
+        // The water came from a real Mapbox tile until 127 (Mapbox's data, gone
+        // from the repo). The bundle's own OpenStreetMap water (ODbL) now goes
+        // through a hand-encoded tile, so the decode stays in the path.
+        const water = JSON.parse(raw.overlayJson).water.features as { geometry: Polygon | MultiPolygon }[];
+        const polygons: Position[][][] = water.flatMap(({ geometry }) =>
+            geometry.type === 'MultiPolygon' ? geometry.coordinates : [geometry.coordinates],
         );
+        const features = decodeWaterFromTile(encodeWaterTile(polygons, 16, 60637, 37918), 16, 60637, 37918);
         const a = { lon: 153.0922886, lat: -27.2102277 },
             b = { lon: 153.0927659, lat: -27.2069373 };
         const bbox = canalDepartureBbox(a, b);

@@ -361,10 +361,11 @@ describe('o-charts Pi installation and phone-copy receipts', () => {
         );
     });
 
-    it('a Pi sync sends nothing to the cloud, even with the old Auto-publish flag on (126-20)', async () => {
+    it('a Pi sync sends nothing to the cloud, even with the old Auto-publish flag on (126-20, 127)', async () => {
         // Before 126 the end of every Pi sync uploaded the new cells to the
         // skipper's cloud folder once Auto-publish was on. Licensed charts
-        // never go to the cloud now: the hook finds the shelf switched off.
+        // never go to the cloud now: 126 switched the shelf off and 127
+        // deletes it and the hook with it.
         const cellId = 'ZZ5TEST1';
         localStorage.setItem('thalassa_enc_auto_publish', '1');
         try {

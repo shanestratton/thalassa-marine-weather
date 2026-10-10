@@ -246,7 +246,7 @@ export function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
             //
             // Fall back to the triangle safety net per-feature when the rings
             // either weren't assembled or failed the sanity check.
-            // Disjoint polygons (S-63 mesh reconstruction) first: this is the
+            // Disjoint polygons (mesh reconstruction) first: this is the
             // only form that can carry more than one outer ring, so collapsing
             // it into `rings` would turn a second island into a hole.
             if (f.geometry.polygons && f.geometry.polygons.length > 0) {

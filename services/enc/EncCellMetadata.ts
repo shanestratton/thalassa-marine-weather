@@ -340,7 +340,7 @@ export function putCell(cell: EncCell, options: { allowAuthorityUpgrade?: boolea
     const serialized = JSON.stringify(classified);
 
     // TRUE upsert (kill #41, 2026-08-12): a byte-identical re-record must
-    // not write or notify. The sync passes (personalCellSync/cloud) re-assert
+    // not write or notify. The sync passes (the Pi and the cloud) re-assert
     // every cell's metadata on each lap; notify() bumps the registry version,
     // the version is baked into the merge cache key, so each no-op lap
     // invalidated EVERY cached merge — the fatal trail shows the same

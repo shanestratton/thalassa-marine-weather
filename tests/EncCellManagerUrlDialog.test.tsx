@@ -425,6 +425,35 @@ describe('easy chart delivery dialog', () => {
         expect(mocks.resumeEncInstall).not.toHaveBeenCalled();
     });
 
+    it('answers a refused ChartWorld S-63 receipt with OpenCPN, and offers no retry (127)', async () => {
+        mocks.listRecentEncInstalls.mockResolvedValue([
+            {
+                id: 's63-job',
+                status: 'error',
+                error: first,
+                errorCode: 's63-opencpn-only',
+                startedAt: 2000,
+            },
+            { id: 'failed-job', status: 'error', error: first, step: first, startedAt: 1000 },
+        ]);
+        render(<EncCellManager />);
+        fireEvent.click(screen.getByRole('button', { name: /ENC Charts/i }));
+        const recent = await screen.findByRole('region', { name: 'Recent chart installs' });
+        await waitFor(() => expect(recent).toHaveTextContent('Recent install 2'));
+        const [s63, other] = within(recent)
+            .getAllByText(/^Recent install \d$/)
+            .map((title) => title.parentElement as HTMLElement);
+        expect(s63).toHaveTextContent(
+            'ChartWorld S-63 charts open in OpenCPN on your Pi (Remote screen), not in Thalassa.',
+        );
+        expect(s63).not.toHaveTextContent(/retry|Paste the delivery again/);
+        expect(within(s63).queryByRole('button')).toBeNull();
+        // Any other failure still offers the retry, and neither shows the Pi's own error text.
+        expect(other).toHaveTextContent('Paste the delivery again to retry.');
+        expect(within(other).getByRole('button', { name: 'Paste delivery again' })).toBeInTheDocument();
+        expect(recent).not.toHaveTextContent('private-token');
+    });
+
     it('surfaces unavailable recent receipts without guessing that there were no installs', async () => {
         mocks.listRecentEncInstalls.mockRejectedValue(new Error(first));
         render(<EncCellManager />);

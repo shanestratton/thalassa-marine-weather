@@ -19,7 +19,8 @@
  * marks on the bank's edge beside the channel, and an overview chart whose
  * coastline paint covers the upper river. Serene Summer: 2.4 m draft, 0.5 m
  * under-keel clearance (2.9 m), 18 m air draft. The local-only real-chart
- * check is tests/repro/newportRivergateRealCells.local.test.ts.
+ * check that used to sit beside it was retired in 127 (no decrypted cells on
+ * a Mac's disk); real-chart checks move to the Pi's in-memory parity harness.
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { Feature, FeatureCollection, Polygon } from 'geojson';

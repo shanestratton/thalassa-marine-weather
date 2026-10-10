@@ -1,0 +1,94 @@
+{
+    "about": "Where every data file under tests/fixtures/ and e2e/fixtures/ came from, and its licence. tests/noProtectedChartData.test.ts fails on a data file with no entry, an entry for a file that is gone, or a licence outside the list below, or data that names a proprietary chart as its source. There is no value for protected data: a licensed chart extract cannot be listed, so it cannot be committed (127-C-a, o-charts ruling 2026-10-10).",
+    "licences": {
+        "public-domain": "US Government work (NOAA) or otherwise free of copyright",
+        "cc0": "Creative Commons Zero",
+        "cc-by-4.0": "Creative Commons Attribution 4.0; the credit below must be shown wherever the data is",
+        "odbl": "Open Database Licence (OpenStreetMap); credit: © OpenStreetMap contributors",
+        "synthetic": "made up for the test, by hand or by a script in this repo",
+        "own": "Thalassa's own data or Shane's own recordings",
+        "wmo-res40": "WMO Resolution 40 essential data: a partner's observations shared on the WMO Global Telecommunication System for free and unrestricted exchange; the owner is named in the credit",
+        "third-party-replace": "someone else's data, kept only until the named package replaces it"
+    },
+    "files": {
+        "e2e/fixtures/diary-compose-clip.mp4": {
+            "licence": "synthetic",
+            "source": "One second of plain blue at 64x36, no sound, made with ffmpeg (see e2e/fixtures/diary-compose.tsx)."
+        },
+        "tests/fixtures/buoys/irish-mi-iwbnetwork-latest-2026-10-07T1700Z.json": {
+            "licence": "cc-by-4.0",
+            "source": "Marine Institute (Ireland) ERDDAP, Irish Weather Buoy Network wave dataset, latest rows fetched 2026-10-07 17:00 UTC.",
+            "credit": "Marine Institute, Ireland (CC BY 4.0)"
+        },
+        "tests/fixtures/buoys/ndbc-5day-spec-42035-2026-10-07.txt": {
+            "licence": "public-domain",
+            "source": "NOAA National Data Buoy Center, five-day spectral wave summary for station 42035, fetched 2026-10-07."
+        },
+        "tests/fixtures/buoys/ndbc-5day-spec-46013-2026-10-07.txt": {
+            "licence": "public-domain",
+            "source": "NOAA National Data Buoy Center, five-day spectral wave summary for station 46013, fetched 2026-10-07."
+        },
+        "tests/fixtures/buoys/ndbc-5day-spec-46026-2026-10-07.txt": {
+            "licence": "public-domain",
+            "source": "NOAA National Data Buoy Center, five-day spectral wave summary for station 46026, fetched 2026-10-07."
+        },
+        "tests/fixtures/buoys/ndbc-5day-spec-46041-2026-10-07.txt": {
+            "licence": "public-domain",
+            "source": "NOAA National Data Buoy Center, five-day spectral wave summary for station 46041, fetched 2026-10-07."
+        },
+        "tests/fixtures/buoys/ndbc-5day-spec-62107-2026-10-07.txt": {
+            "licence": "wmo-res40",
+            "source": "UK Met Office buoy 62107 (Seven Stones), as NOAA's National Data Buoy Center redistributes it in its five-day spectral wave summary, fetched 2026-10-07. The station is the Met Office's, not a US Government work.",
+            "credit": "UK Met Office, via NOAA NDBC"
+        },
+        "tests/fixtures/buoys/ndbc-latest-obs-2026-10-07T1655Z.txt": {
+            "licence": "public-domain",
+            "source": "NOAA National Data Buoy Center latest_obs file, fetched 2026-10-07 16:55 UTC. NDBC's file also carries rows from partner stations it redistributes; their owners are named in services/weather/buoys/providers/ndbc.ts."
+        },
+        "tests/fixtures/buoys/ndbc-latest-obs-neighbourhoods-2026-10-07T1658Z.txt": {
+            "licence": "public-domain",
+            "source": "NOAA National Data Buoy Center latest_obs rows for the test neighbourhoods, fetched 2026-10-07 16:58 UTC. NDBC's file also carries rows from partner stations it redistributes; their owners are named in services/weather/buoys/providers/ndbc.ts."
+        },
+        "tests/fixtures/buoys/qld-des-ckan-hsig-objects-2026-10-07T0440Z.json": {
+            "licence": "cc-by-4.0",
+            "source": "Queensland Government open data (data.qld.gov.au), coastal wave data DataStore, records fetched 2026-10-07 04:40 UTC.",
+            "credit": "© State of Queensland (CC BY 4.0)"
+        },
+        "tests/fixtures/buoys/qld-des-ckan-latest-2026-10-07T1705Z.json": {
+            "licence": "cc-by-4.0",
+            "source": "Queensland Government open data (data.qld.gov.au), coastal wave data DataStore, latest records fetched 2026-10-07 17:05 UTC.",
+            "credit": "© State of Queensland (CC BY 4.0)"
+        },
+        "tests/fixtures/customs-same-country-baseline.json": {
+            "licence": "own",
+            "source": "A snapshot of Thalassa's own customs guide (data/customsDb.ts at 058ba16e), kept as a regression baseline."
+        },
+        "tests/fixtures/gmgsi-tropical-histograms-2026-10-07.json": {
+            "licence": "public-domain",
+            "source": "NOAA nowCOAST GMGSI longwave mosaic, 2026-10-07, reduced to per-frame brightness histograms; no imagery is kept."
+        },
+        "tests/fixtures/newport-canal-osm.json.gz": {
+            "licence": "odbl",
+            "source": "OpenStreetMap overlay for the Newport canal bbox, as the Pi's /api/osm/overlay served it (Overpass), captured 2026-07-31.",
+            "credit": "© OpenStreetMap contributors (ODbL)"
+        },
+        "tests/fixtures/newport-pinkenba-osm.json.gz": {
+            "licence": "odbl",
+            "source": "OpenStreetMap overlay for the Newport to Pinkenba bbox, as the Pi's /api/osm/overlay served it (Overpass), captured 2026-07-31.",
+            "credit": "© OpenStreetMap contributors (ODbL)"
+        },
+        "tests/fixtures/se-qld-nav-markers.json.gz": {
+            "licence": "odbl",
+            "source": "Thalassa's SE-QLD regional marker file: OpenStreetMap seamark nodes with the seamark: prefix stripped (scripts/extract_seamarks.py). Every class is OpenStreetMap's own; the one hand retag the file once carried, taken from a commercial chart, was put back to OpenStreetMap's tags in 127.",
+            "credit": "© OpenStreetMap contributors (ODbL)"
+        },
+        "tests/fixtures/trim-h264.mp4": {
+            "licence": "synthetic",
+            "source": "ffmpeg testsrc2 picture and a 440 Hz sine, 130 s, H.264 (scripts/make-trim-fixtures.sh)."
+        },
+        "tests/fixtures/trim-hevc.mov": {
+            "licence": "synthetic",
+            "source": "ffmpeg testsrc2 picture and a 440 Hz sine, 130 s, HEVC (scripts/make-trim-fixtures.sh)."
+        }
+    }
+}
