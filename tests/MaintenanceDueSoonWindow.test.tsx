@@ -227,9 +227,18 @@ describe('the R&M card and the Log service sheet', () => {
     }
 
     it('says when the task was already logged today, and still lets it be logged again', () => {
+        // In the phone's own clock (126-B7a): 'en-AU' was hard-coded, so a
+        // sailor in Lisbon or Seattle read '7:34 pm' however their phone is set.
+        const clock = vi.spyOn(Date.prototype, 'toLocaleTimeString');
         renderSheet(at(0, 19, 34));
-        expect(screen.getByText(/^Already logged today at 7:34\spm$/)).toBeInTheDocument();
+        const phone = new Date(at(0, 19, 34))
+            .toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+            .replace(/\s+/g, ' ');
+        expect(screen.getByText(`Already logged today at ${phone}`)).toBeInTheDocument();
+        expect(clock).toHaveBeenCalledWith(undefined, { hour: 'numeric', minute: '2-digit' });
+        expect(clock).not.toHaveBeenCalledWith('en-AU', expect.anything());
         expect(screen.getByRole('button', { name: 'Log service' })).toBeEnabled();
+        clock.mockRestore();
     });
 
     it('says nothing of the kind for a task last logged yesterday', () => {

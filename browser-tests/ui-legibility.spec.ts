@@ -389,3 +389,114 @@ for (const width of [320, 390, 669]) {
         expect(unexpectedRequests).toEqual([]);
     });
 }
+
+/**
+ * R&M's delete question and service sheet (126-B7a) on the smallest phones,
+ * with wide fonts (Verdana on a Mac measures like CI's DejaVu Sans). Both are
+ * centred overlays above the app's chrome: what must hold is that every
+ * choice is in view without scrolling, and that the card sits clear of the
+ * tab bar (4rem; these phones have no bottom safe area).
+ */
+/** The tab bar is 4rem (h-16), and the root size scales with phone width: 52 px at 320. */
+const tabBarPx = (page: Page) =>
+    page.evaluate(() => 4 * parseFloat(getComputedStyle(document.documentElement).fontSize));
+
+async function openWithWideFonts(page: Page, width: number, height: number, open: string) {
+    await page.setViewportSize({ width, height });
+    await page.addInitScript(() => {
+        document.addEventListener('DOMContentLoaded', () => {
+            const wide = document.createElement('style');
+            wide.textContent = ":root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; }";
+            document.head.append(wide);
+        });
+    });
+    await page.goto(`/e2e/fixtures/ui-legibility.html?open=${open}`);
+}
+
+/** The card is centred in the screen above the tab bar, and nothing inside it needs a scroll. */
+async function expectCentredAboveTabBar(card: Locator, width: number, height: number) {
+    const tabBarTop = height - (await tabBarPx(card.page()));
+    const box = (await card.boundingBox())!;
+    expect(box.y, 'card top on screen').toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height, 'card bottom clear of the tab bar').toBeLessThanOrEqual(tabBarTop);
+    expect(Math.abs(box.x - (width - box.x - box.width)), 'centred across').toBeLessThanOrEqual(1);
+    // Centred in the space above the tab bar, not over it (the card's own
+    // 1rem margin above, and 1rem over the bar below).
+    expect(Math.abs(box.y + box.height / 2 - tabBarTop / 2), 'centred above the tab bar').toBeLessThanOrEqual(2);
+    expect(
+        await card.evaluate((element) => element.scrollHeight - element.clientHeight),
+        'nothing scrolled out of view',
+    ).toBeLessThanOrEqual(0);
+}
+
+async function expectInViewAboveTabBar(button: Locator, height: number) {
+    await expect(button).toBeInViewport({ ratio: 1 });
+    const box = (await button.boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(height - (await tabBarPx(button.page())));
+    expect(box.height).toBeGreaterThanOrEqual(43.5);
+}
+
+for (const [width, height] of [
+    [320, 568],
+    [375, 667],
+] as const) {
+    test(`R&M's delete question shows all three choices, centred above the tab bar, at ${width}x${height}`, async ({
+        page,
+    }) => {
+        await openWithWideFonts(page, width, height, 'delete-ask');
+        const dialog = page.getByRole('dialog', { name: 'Delete “Raw-water impeller and strainer, port engine”?' });
+        await expect(dialog).toBeVisible();
+        await settleFiniteAnimations(page);
+        const card = dialog.locator('[data-pane-dialog-panel]');
+        await expect(card).toHaveCSS('opacity', '1');
+        await expectCentredAboveTabBar(card, width, height);
+        for (const name of ['Pause instead', 'Keep', 'Delete task and records']) {
+            await expectInViewAboveTabBar(dialog.getByRole('button', { name, exact: true }), height);
+        }
+        await expectUnclipped(dialog.locator('.ui-dialog-title, p, button'));
+        await expect(dialog.getByRole('button', { name: 'Keep', exact: true })).toBeFocused();
+        // Pause instead is the prominent, readable primary.
+        await expectActionGradientReadable(
+            dialog.getByRole('button', { name: 'Pause instead', exact: true }),
+            `${width}px pause instead`,
+        );
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    });
+}
+
+for (const state of ['active', 'paused'] as const) {
+    test(`R&M's ${state} service sheet at 320x568: one-line secondary buttons, the primary in view`, async ({
+        page,
+    }) => {
+        await openWithWideFonts(page, 320, 568, `service-${state}`);
+        const sheet = page.getByRole('dialog', { name: 'Raw-water impeller and strainer, port engine' });
+        await expect(sheet).toBeVisible();
+        await settleFiniteAnimations(page);
+        await expectCentredAboveTabBar(sheet, 320, 568);
+
+        const secondary = state === 'active' ? ['History', 'Edit task', 'Pause'] : ['History', 'Edit task'];
+        for (const name of secondary) {
+            const button = sheet.getByRole('button', { name, exact: true });
+            await expectInViewAboveTabBar(button, 568);
+            // One line, and the whole label inside its button.
+            const fit = await button.evaluate((element) => {
+                const tops = new Set<number>();
+                const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+                for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+                    const range = document.createRange();
+                    range.selectNodeContents(node);
+                    for (const rect of range.getClientRects()) if (rect.height > 0) tops.add(Math.round(rect.top));
+                }
+                return { lines: tops.size, overflow: element.scrollWidth - element.clientWidth };
+            });
+            expect(fit, name).toEqual({ lines: 1, overflow: 0 });
+        }
+        await expect(sheet.getByRole('button', { name: 'Pause', exact: true })).toHaveCount(state === 'active' ? 1 : 0);
+        await expectInViewAboveTabBar(
+            sheet.getByRole('button', { name: state === 'active' ? 'Log service' : 'Resume', exact: true }),
+            568,
+        );
+        await expect(sheet.getByRole('button', { name: state === 'active' ? 'Resume' : 'Log service' })).toHaveCount(0);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+    });
+}

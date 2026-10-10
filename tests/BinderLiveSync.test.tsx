@@ -32,6 +32,8 @@ const rt = vi.hoisted(() => ({
 const sync = vi.hoisted(() => ({
     completeListeners: [] as ((result: Record<string, unknown>) => void)[],
     requestCatchUpSync: vi.fn(),
+    /** A full reconciliation is still bringing a shared binder in. */
+    reconciliationPending: false,
 }));
 
 const shimmer = vi.hoisted(() => ({ mounts: 0 }));
@@ -64,7 +66,7 @@ vi.mock('../services/vessel/SyncService', () => ({
         };
     },
     onStatusChange: () => () => undefined,
-    isFullReconciliationPending: () => false,
+    isFullReconciliationPending: () => sync.reconciliationPending,
     requestFullReconciliation: vi.fn().mockResolvedValue({ pushed: 0, pulled: 0, errors: [] }),
     requestCatchUpSync: sync.requestCatchUpSync,
     syncNow: vi.fn().mockResolvedValue({ pushed: 0, pulled: 0, errors: [] }),
@@ -285,6 +287,7 @@ beforeEach(() => {
     rt.removeChannel.mockClear();
     sync.completeListeners = [];
     sync.requestCatchUpSync.mockClear();
+    sync.reconciliationPending = false;
     shimmer.mounts = 0;
     accountCounter += 1;
 });
@@ -772,6 +775,45 @@ describe('R&M never seeds 40 suggestions on a device that already had tasks', ()
         await firstFullPullDone();
         syncCompletes(0);
         await waitFor(() => expect(queuedTaskInserts().length).toBeGreaterThan(20));
+    });
+
+    /**
+     * Pause (126-B7a) must never read as "no tasks": an account whose every
+     * task is paused, on a new device, would otherwise get the 40 suggestions
+     * on top of them, on every device. Fictional tasks on a boat out of Horta.
+     */
+    it('a new device whose account has every task paused seeds nothing once its first full pull is in', async () => {
+        const me = `user-${accountCounter}`;
+        await signIn(me);
+        confirmNoShares(me);
+        await mergePulledRecords('maintenance_tasks', [
+            { ...task('t-impeller', me, 'Raw-water impeller'), is_active: false },
+            { ...task('t-antifoul', me, 'Antifouling'), category: 'Hull', is_active: false },
+        ]);
+        await firstFullPullDone();
+        render(<MaintenanceHub onBack={vi.fn()} />);
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+
+        expect(queuedTaskInserts()).toHaveLength(0);
+        expect(await screen.findByRole('button', { name: 'Paused (2)' })).toBeInTheDocument();
+        expect(screen.queryByText(/suggested task/)).not.toBeInTheDocument();
+        expect(screen.queryByText('No maintenance tasks')).not.toBeInTheDocument();
+    });
+
+    it("a shared R&M with every task paused is the skipper's binder, not one still being brought in", async () => {
+        await signIn('crew-1');
+        share([{ ownerId: 'skipper-1', registers: { maintenance: true } }]);
+        await mergePulledRecords('maintenance_tasks', [
+            { ...task('s1-impeller', 'skipper-1', 'Raw-water impeller'), is_active: false },
+            { ...task('s1-rig', 'skipper-1', 'Rig inspection'), is_active: false },
+        ]);
+        sync.reconciliationPending = true;
+        render(<MaintenanceHub onBack={vi.fn()} />);
+
+        expect(await screen.findByRole('button', { name: 'Paused (2)' })).toBeInTheDocument();
+        expect(screen.queryByText(/^Bringing in/)).not.toBeInTheDocument();
     });
 
     it('a first-time account on this device still gets the suggested tasks once', async () => {

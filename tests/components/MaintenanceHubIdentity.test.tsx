@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../services/vessel/LocalMaintenanceService', () => ({
     LocalMaintenanceService: {
         getTasks: mocks.getTasks,
+        // R&M loads paused tasks too (126-B7a): the same load.
+        getAllTasks: mocks.getTasks,
         seedDefaults: mocks.seedDefaults,
         logService: mocks.logService,
         createTask: mocks.createTask,
@@ -201,7 +203,8 @@ describe('MaintenanceHub identity isolation', () => {
         mocks.logService.mockResolvedValue({});
         mocks.createTask.mockResolvedValue(task('a-new', 'A new task'));
         mocks.updateTask.mockResolvedValue(task('a-task', 'Updated A maintenance'));
-        mocks.getHistory.mockResolvedValue([]);
+        // Synchronous, as the local service is: the delete question counts it at once.
+        mocks.getHistory.mockReturnValue([]);
         mocks.deleteTask.mockResolvedValue(undefined);
         mocks.initLocalDatabase.mockResolvedValue(undefined);
         mocks.exportChecklist.mockResolvedValue(undefined);
@@ -256,7 +259,8 @@ describe('MaintenanceHub identity isolation', () => {
         logged.resolve({});
         await act(async () => logged.promise);
 
-        expect(mocks.toastSuccess).not.toHaveBeenCalledWith('Service logged');
+        // With or without its Undo action (126-B7a).
+        expect(mocks.toastSuccess.mock.calls.map(([message]) => message)).not.toContain('Service logged');
         expect(mocks.flash).not.toHaveBeenCalled();
         expect(screen.queryByText('Private A maintenance')).not.toBeInTheDocument();
 

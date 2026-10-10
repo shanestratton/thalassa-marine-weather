@@ -2,7 +2,7 @@
  * Tests for ConfirmDialog component
  */
 import { describe, it, expect, vi } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import { ConfirmDialog, confirmProgressLabel } from '../components/ui/ConfirmDialog';
 
 describe('ConfirmDialog', () => {
@@ -118,6 +118,60 @@ describe('ConfirmDialog', () => {
         expect(busy).toHaveTextContent('Deleting…');
         await act(async () => finish());
         expect(screen.getByRole('button', { name: 'Delete profile' })).toHaveTextContent('Delete profile');
+    });
+
+    /**
+     * A third, gentler choice (126-B7a): R&M's "Pause instead" in front of
+     * "Delete task and records". Full width and primary, above the Cancel /
+     * confirm row; focus still starts on Cancel ('Keep').
+     */
+    it('an alternative renders a third, full-width button above the row and calls onSelect', async () => {
+        const onSelect = vi.fn();
+        const onConfirm = vi.fn();
+        const onCancel = vi.fn();
+        render(
+            <ConfirmDialog
+                {...baseProps}
+                title="Delete “Raw-water impeller”?"
+                message="Its 3 service records go with it, on every device."
+                confirmLabel="Delete task and records"
+                cancelLabel="Keep"
+                destructive
+                alternative={{ label: 'Pause instead', onSelect }}
+                onConfirm={onConfirm}
+                onCancel={onCancel}
+            />,
+        );
+        const dialog = screen.getByRole('dialog', { name: 'Delete “Raw-water impeller”?' });
+        const buttons = within(dialog).getAllByRole('button');
+        expect(buttons.map((button) => button.textContent)).toEqual([
+            'Pause instead',
+            'Keep',
+            'Delete task and records',
+        ]);
+        const pause = buttons[0];
+        expect(pause).toHaveClass('w-full', 'ui-confirm-action', 'from-sky-600');
+        // Not inside the Keep / Delete row.
+        expect(pause.parentElement).not.toBe(buttons[1].parentElement);
+        expect(screen.getByRole('button', { name: 'Keep' })).toHaveFocus();
+
+        fireEvent.click(pause);
+        expect(onSelect).toHaveBeenCalledOnce();
+        expect(onConfirm).not.toHaveBeenCalled();
+        expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it("without an alternative the buttons are exactly today's two (pinned DOM)", () => {
+        render(<ConfirmDialog {...baseProps} confirmLabel="Delete" cancelLabel="Keep" destructive />);
+        const dialog = screen.getByRole('dialog');
+        expect(within(dialog).getAllByRole('button')).toHaveLength(2);
+        expect(dialog.className).toBe('fixed inset-0 z-1100 flex items-center justify-center p-4');
+        const row = screen.getByRole('button', { name: 'Keep' }).parentElement!;
+        // Captured on b126 350bb4fe2, before the alternative existed.
+        expect(row.outerHTML).toBe(
+            '<div class="flex gap-3"><button type="button" class="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm font-bold transition-all active:scale-[0.97] flex items-center justify-center gap-2 min-h-[44px] focus:outline-hidden flex-1 text-gray-400">Keep</button><button class="ui-confirm-action flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-bold text-white shadow-lg transition-all active:scale-[0.97] disabled:opacity-50 bg-linear-to-r from-red-600 to-red-600 shadow-red-500/20 hover:from-red-500 hover:to-red-500">Delete</button></div>',
+        );
+        expect(row.previousElementSibling?.tagName).toBe('P');
     });
 
     it('takes the busy verb from the label, or says Working…', () => {
