@@ -331,14 +331,14 @@ describe('Plan Your Day route chart (127-PYD-3)', () => {
     const LEAVE = Date.parse('2026-09-12T21:30:00Z');
     async function openDayPlan(
         proposal: AutoroutingTrialRoute = { ...route, departureMs: LEAVE },
-        { onReviewChange = vi.fn(), onClose = vi.fn(), onUseOnMainChart = vi.fn() } = {},
+        { onReviewChange = vi.fn(), onClose = vi.fn(), onUseOnMainChart = vi.fn(), onRefused = vi.fn() } = {},
     ) {
         const view = render(
             <AutoroutingTrialWorkspace
                 mapboxToken="fixture-token"
                 initialDraftM={1.6}
                 initialSpeedKts={6}
-                dayPlan={{ proposal, stopName: 'Cid Harbour', onUseOnMainChart }}
+                dayPlan={{ proposal, onUseOnMainChart, onRefused }}
                 onReviewChange={onReviewChange}
                 onClose={onClose}
             />,
@@ -346,7 +346,7 @@ describe('Plan Your Day route chart (127-PYD-3)', () => {
         await waitFor(() => expect(mocks.maps).toHaveLength(1));
         act(() => mocks.maps[0].handlers.get('load')!());
         await screen.findByRole('region', { name: 'Trial proposal' });
-        return { ...view, proposal, onReviewChange, onClose, onUseOnMainChart };
+        return { ...view, proposal, onReviewChange, onClose, onUseOnMainChart, onRefused };
     }
 
     const expectNoRouteSetup = () => {
@@ -396,7 +396,9 @@ describe('Plan Your Day route chart (127-PYD-3)', () => {
         fireEvent.click(move);
         tapChart(154, -28);
         expect(screen.queryByRole('button', { name: 'Confirm move' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Undo last move/ })).not.toBeInTheDocument();
         expect(routeLine()).toEqual(route.coordinates);
+        expect(mocks.review).toHaveBeenCalledTimes(1);
         expect(mocks.calculate).not.toHaveBeenCalled();
         expectNoRouteSetup();
     });
@@ -438,6 +440,37 @@ describe('Plan Your Day route chart (127-PYD-3)', () => {
         fireEvent.click(within(check).getByRole('button', { name: 'Retry satellite check' }));
         await waitFor(() => expect(mocks.recheck).toHaveBeenCalledWith(unavailable));
         expect(mocks.calculate).not.toHaveBeenCalled();
+    });
+
+    // Both PYD-3 reviews (2026-10-10, HIGH): a satellite check retried here that
+    // finds land must never leave the refused line one tap from the plotter.
+    it('a retried satellite check that finds land: the route is gone, nothing to send, Plan Your Day is told', async () => {
+        const words =
+            'Satellite relief shows land near 27.100° S, 153.300° E. The route is not shown. Nothing changed.';
+        const unavailable: AutoroutingTrialRoute = {
+            ...route,
+            departureMs: LEAVE,
+            engine: {
+                ...route.engine!,
+                backstop: 'unavailable',
+                backstopReason: 'timed out',
+                backstopCharts: ['land', 'land'],
+            },
+        };
+        mocks.recheck.mockRejectedValue(new BackstopLandRefusal(words));
+        const { onUseOnMainChart, onRefused } = await openDayPlan(unavailable);
+        fireEvent.click(screen.getByRole('button', { name: 'Retry satellite check' }));
+        expect(await screen.findByText(words)).toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Trial proposal' })).not.toBeInTheDocument();
+        // No way to send it on, and no setup to start editing ends from.
+        expect(screen.queryByRole('button', { name: 'Use on the main chart' })).not.toBeInTheDocument();
+        expectNoRouteSetup();
+        expect(onUseOnMainChart).not.toHaveBeenCalled();
+        expect(onRefused).toHaveBeenCalledWith(words);
+        // A chart tap edits nothing.
+        tapChart(154, -28);
+        expect(screen.queryByLabelText('departure latitude')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Back to Plan Your Day' })).toBeEnabled();
     });
 
     it("shows Auto's Save card only while 127-C-b keeps the chart facts aboard; else points to the main chart", async () => {

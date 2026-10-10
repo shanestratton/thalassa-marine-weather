@@ -55,6 +55,7 @@ import {
     stopRouteGate,
     stopRouteKey,
     stopRouteQueue,
+    chartLeave,
     type StopRouteRequest,
     type StopRouteResult,
 } from '../services/dayPlanner/stopRoute';
@@ -434,6 +435,29 @@ describe('one route at a time, memory only, nothing stale', () => {
         expect(started[1].signal.aborted).toBe(false);
     });
 
+    // PYD-3 review: a route Auto's chart then refused (satellite land) is no route, with Auto's words.
+    it('a kept route refused afterwards becomes no-route with the refusal; only a routed one changes', async () => {
+        const { started, queue, onChange } = setup();
+        queue.request('a', request({ id: 'a' }));
+        started[0].settle({ kind: 'routed', proposal: proposal(), leg: {} as never, wallMs: 10 });
+        await flush();
+        const calls = onChange.mock.calls.length;
+        queue.refuse('a', 'Satellite relief shows land. The route is not shown.');
+        expect(queue.states.get('a')).toEqual({
+            id: 'a',
+            kind: 'no-route',
+            words: 'Satellite relief shows land. The route is not shown.',
+            wallMs: 10,
+        });
+        expect(onChange.mock.calls.length).toBe(calls + 1);
+        // Nothing else is touched: an unknown or not-routed key stays as it is.
+        queue.refuse('b', 'x');
+        expect(queue.states.has('b')).toBe(false);
+        // A refused route can be asked for again (charts or relief may have changed).
+        queue.request('a', request({ id: 'a' }));
+        expect(started).toHaveLength(2);
+    });
+
     it('a route that finishes is kept for the sheet: closing its page leaves it, a second tap asks nothing', async () => {
         const { started, queue } = setup();
         queue.request('a', request({ id: 'a' }));
@@ -564,5 +588,20 @@ describe("through the real provider: Auto's charted-land refusal, and no line", 
         expect(result).not.toHaveProperty('leg');
         // The leave she chose reached the engine through the provider.
         expect(m.tryInshoreRoute.mock.calls[0][5].departureMs).toBe(DEPART);
+    });
+});
+
+describe("the hour Auto's chart shows a routed stop at (127-PYD-3)", () => {
+    const NOW = Date.parse('2026-10-08T20:30:00Z');
+    const H = 3_600_000;
+    it('her chosen leave, not the one it was routed at: the same line, another hour', () => {
+        expect(chartLeave(NOW + 5 * H, NOW + 2 * H, NOW)).toBe(NOW + 5 * H);
+    });
+    it('a leave gone by while the sheet stayed open is now, as routing asks it', () => {
+        expect(chartLeave(NOW - 3 * H, NOW + 2 * H, NOW)).toBe(NOW);
+    });
+    it('none chosen (no route weather): the leave it was routed for; with neither, none', () => {
+        expect(chartLeave(null, NOW + 2 * H, NOW)).toBe(NOW + 2 * H);
+        expect(chartLeave(null, undefined, NOW)).toBeNull();
     });
 });

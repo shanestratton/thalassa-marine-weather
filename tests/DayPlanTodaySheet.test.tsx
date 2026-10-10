@@ -54,6 +54,14 @@ vi.mock('../components/autorouting/AutoroutingTrialWorkspace', () => ({
                 <button type="button" onClick={props.onClose}>
                     Back to Plan Your Day
                 </button>
+                <button
+                    type="button"
+                    onClick={() =>
+                        props.dayPlan!.onRefused('Satellite relief shows land near the reef. The route is not shown.')
+                    }
+                >
+                    Fixture: satellite finds land
+                </button>
             </div>
         );
     },
@@ -855,16 +863,18 @@ describe('Route round the land (127-PYD-2)', () => {
     const CONFIRMED: VesselProfile = { ...OWN_BOAT, draftConfirmedFt: 7.87, airDraft: 59 };
 
     /** A routed line from the request's own pins, bent round a fictional headland. */
-    const routedProposal = ({ departure: a, destination: b }: AutoroutingTrialRequest): AutoroutingTrialRoute => ({
+    const routedProposal = (req: AutoroutingTrialRequest): AutoroutingTrialRoute => ({
         id: 'thalassa-fixture',
         coordinates: [
-            [a.lon, a.lat],
-            [(a.lon + b.lon) / 2, Math.min(a.lat, b.lat) - 0.06],
-            [b.lon, b.lat],
+            [req.departure.lon, req.departure.lat],
+            [(req.departure.lon + req.destination.lon) / 2, Math.min(req.departure.lat, req.destination.lat) - 0.06],
+            [req.destination.lon, req.destination.lat],
         ],
         warnings: [],
         createdAt: new Date(NOW).toISOString(),
         provider: 'Thalassa',
+        // As Auto's provider does: the leave it was routed for.
+        ...(req.departureMs !== undefined ? { departureMs: req.departureMs } : {}),
         engine: {
             stateMask: ['green', 'green'],
             shallowRuns: [{ startSeg: 1, endSeg: 1, lengthM: 556, minDepthM: 1.9, midLat: 0, midLon: 0 }],
@@ -1175,20 +1185,17 @@ describe('Route round the land (127-PYD-2)', () => {
 
     it("routed: Show route on chart opens Auto's chart over the sheet at her leave; Back returns to her stop", async () => {
         dayChart.props.length = 0;
-        const { detail, dialog, name } = await openStop();
+        const { detail, dialog, route } = await openStop();
         fireEvent.click(await within(detail).findByRole('button', { name: 'Route round the land' }));
         const show = await within(detail).findByRole('button', { name: 'Show route on chart' });
+        const routedAt = route.calls[0].req.departureMs!;
         expect(show).toHaveClass('today-primary');
-        // Her chosen leave: tap a later chip, then open the chart.
-        const chips = within(within(detail).getByRole('group', { name: 'Leave at' })).getAllByRole('button');
-        const later = chips[chips.length - 1];
-        fireEvent.click(later);
         fireEvent.click(show);
         const chart = await screen.findByRole('dialog', { name: 'Plan Your Day route chart' });
         const props = dayChart.props.at(-1) as AutoroutingTrialWorkspaceProps;
-        expect(props.dayPlan!.stopName).toBe(name.split(' · ')[0]);
         expect(props.dayPlan!.proposal.coordinates).toHaveLength(3);
-        expect(props.dayPlan!.proposal.departureMs).toBeGreaterThan(NOW);
+        // Her chosen leave (the rule itself: chartLeave in tests/dayPlanStopRoute.test.ts).
+        expect(props.dayPlan!.proposal.departureMs).toBe(routedAt);
         expect(props.mapboxToken).toBe('fixture-mapbox-token');
         expect(props.initialDraftM).toBeCloseTo(2.4, 2);
         // Plan Your Day's own screens are hidden, not closed, and trap no focus behind the chart.
@@ -1209,6 +1216,7 @@ describe('Route round the land (127-PYD-2)', () => {
         fireEvent.click(await within(detail).findByRole('button', { name: 'Route round the land' }));
         fireEvent.click(await within(detail).findByRole('button', { name: 'Show route on chart' }));
         const chart = await screen.findByRole('dialog', { name: 'Plan Your Day route chart' });
+        const leave = (dayChart.props.at(-1) as AutoroutingTrialWorkspaceProps).dayPlan!.proposal.departureMs;
         fireEvent.click(within(chart).getByRole('button', { name: 'Use on the main chart' }));
         expect(onPlot).toHaveBeenCalledOnce();
         const action = onPlot.mock.calls[0][0];
@@ -1217,8 +1225,28 @@ describe('Route round the land (127-PYD-2)', () => {
         expect(action.points).toHaveLength(5);
         expect(action.points[1].lat).toBeLessThan(Math.min(action.points[0].lat, action.points[2].lat));
         expect(action.frame).toBeUndefined();
+        // The main chart gets the very hour the chart's tide chips used.
         const stored = sessionStorage.getItem(authScopedStorageKey(PLAN_DEPARTURE_KEY, getAuthIdentityScope()));
-        expect(Number(stored)).toBeGreaterThan(NOW);
+        expect(Number(stored)).toBe(leave);
+    });
+
+    it('a satellite check in the chart that finds land: back on her stop it is no route, and Plot by hand says why', async () => {
+        const { detail, onPlot } = await openStop();
+        fireEvent.click(await within(detail).findByRole('button', { name: 'Route round the land' }));
+        fireEvent.click(await within(detail).findByRole('button', { name: 'Show route on chart' }));
+        const chart = await screen.findByRole('dialog', { name: 'Plan Your Day route chart' });
+        fireEvent.click(within(chart).getByRole('button', { name: 'Fixture: satellite finds land' }));
+        fireEvent.click(within(chart).getByRole('button', { name: 'Back to Plan Your Day' }));
+        await waitFor(() =>
+            expect(routeRow(detail)).toHaveTextContent(
+                'Satellite relief shows land near the reef. The route is not shown.',
+            ),
+        );
+        expect(within(detail).queryByRole('button', { name: 'Show route on chart' })).toBeNull();
+        fireEvent.click(within(detail).getByRole('button', { name: 'Plot by hand' }));
+        const action = onPlot.mock.calls[0][0];
+        expect(action.points).toEqual([]);
+        expect(action.frame.why).toBe('Satellite relief shows land near the reef. The route is not shown.');
     });
 
     // ── Review fixes, 2026-10-11 ──
@@ -1274,6 +1302,8 @@ describe('Route round the land (127-PYD-2)', () => {
         fireEvent.click(within(detail).getByRole('button', { name: 'Plot by hand' }));
         await waitFor(() => expect(onPlot).toHaveBeenCalledOnce());
         expect(onPlot.mock.calls[0][0].points).toEqual([]);
+        // Her account: the toast says what routing needs (the same words as the row).
+        expect(onPlot.mock.calls[0][0].frame.why).toMatch(/^Turn on Auto route \(trial\)/);
     });
 
     it('a draft confirmed after the whole sheet has closed starts nothing', async () => {

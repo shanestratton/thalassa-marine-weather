@@ -350,8 +350,18 @@ describe('MapHub opens a plot-day request in the Manual plotter', () => {
         );
     });
 
-    it('marks a routed line as routed for the plotter (127-C-b reads it)', () => {
+    it('marks a routed line as routed for the plotter (127-C-b reads it); other loads clear the mark', () => {
         expect(branch).toContain("if (plot.routed) setDraftSource('day-plan-route')");
+        // The proven lane, a pending route and a saved route are not Plan Your Day's line.
+        expect(code.match(/setCapturedCoords\((lane|r|t)\.points\);\s*setDraftSource\(null\)/g)).toHaveLength(3);
+    });
+
+    it("the reason and the routed note stay on the chart until she taps them away (a 1.8 s flash didn't)", () => {
+        expect(branch).toMatch(/if \(plot\.frame \|\| plot\.routed\)\s*setAutoRouteDiag\(/);
+    });
+
+    it("a Plan Your Day frame's ✕ says what it clears", () => {
+        expect(code).toContain("'Clear the start and stop marks'");
     });
 
     it('says so on the chart when it cannot use the pins (the plotter is already open)', () => {

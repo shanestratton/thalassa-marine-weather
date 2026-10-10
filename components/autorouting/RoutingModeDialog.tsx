@@ -6,7 +6,6 @@ import {
     isAuthIdentityScopeCurrent,
     subscribeAuthIdentityScope,
 } from '../../services/authIdentityScope';
-import { lazyRetry } from '../../utils/lazyRetry';
 import { LocationStore } from '../../stores/LocationStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { runWithConfirmedDraft } from '../../stores/draftConfirmStore';
@@ -18,10 +17,7 @@ import { OverlayPortal } from '../ui/OverlayPortal';
 import { MapIcon, CompassIcon, XIcon } from '../Icons';
 import type { AutoroutingTrialWorkspaceProps } from './AutoroutingTrialWorkspace';
 
-const Workspace = lazyRetry(
-    () => import('./AutoroutingTrialWorkspace').then((module) => ({ default: module.AutoroutingTrialWorkspace })),
-    'AutoroutingTrialWorkspace',
-);
+import { LazyAutoroutingWorkspace as Workspace } from './lazyAutoroutingWorkspace';
 
 const closeButtonClass =
     'flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-gray-300';

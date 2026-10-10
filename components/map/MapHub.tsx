@@ -883,13 +883,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                     lastAutoNameRef.current = '';
                     setSavedTraces(loadSavedTraces());
                     flyWhenReady(plot.frame ? [plot.frame.from, plot.frame.to] : plot.points);
-                    flashTraceFeedback(
-                        plot.frame
-                            ? `${plot.frame.why ? `${plot.frame.why} ` : ''}Drop pins round the land; Route report checks them.`
-                            : plot.routed
-                              ? `Plan Your Day's route to ${plot.stop}: Route report is checking it; Sail follows it, Save keeps it.${plot.outOnly ? ' Home: Reverse route.' : ''}`
-                              : `Your saved route to ${plot.stop}: Route report checks it against your charts`,
-                    );
+                    // The reason and the routed note stay until she taps them away (PYD-3 review):
+                    // a 1.8 s flash is gone before she can read why there is no line.
+                    if (plot.frame || plot.routed)
+                        setAutoRouteDiag(
+                            plot.frame
+                                ? `${plot.frame.why ? `${plot.frame.why} ` : ''}Drop pins round the land; Route report checks them.`
+                                : `Plan Your Day's route to ${plot.stop}: Route report is checking it; Sail follows it, Save keeps it.${plot.outOnly ? ' Home: Reverse route.' : ''}`,
+                        );
+                    else
+                        flashTraceFeedback(
+                            `Your saved route to ${plot.stop}: Route report checks it against your charts`,
+                        );
                 } else {
                     // Never a silent dead end: the plotter is open, so say why it is empty.
                     log.warn('Plan Your Day asked to plot a day with unusable pins; nothing was loaded');
@@ -4578,7 +4583,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 </span>
                                                 <button
                                                     onClick={clearCourseFrame}
-                                                    aria-label="Clear the course frame"
+                                                    aria-label={
+                                                        traceFrameKind === 'day-plan'
+                                                            ? 'Clear the start and stop marks'
+                                                            : 'Clear the course frame'
+                                                    }
                                                     className="ml-2 min-h-[44px] min-w-[44px] shrink-0 text-[10px] font-bold text-gray-500"
                                                 >
                                                     ✕
@@ -4684,6 +4693,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                         };
                                                         rebaseHistoryRef.current = true; // wholesale load → Undo floor
                                                         setCapturedCoords(lane.points);
+                                                        setDraftSource(null); // not Plan Your Day's routed line now
                                                         // Draft-relative honesty: a shared lane was proven
                                                         // by SOMEONE'S keel — the re-grade against YOURS
                                                         // happens automatically as the pins load.
@@ -5081,6 +5091,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                     triggerHaptic('light');
                                                                     rebaseHistoryRef.current = true; // load → Undo floor
                                                                     setCapturedCoords(r.points);
+                                                                    setDraftSource(null);
                                                                     const mid =
                                                                         r.points[Math.floor(r.points.length / 2)];
                                                                     if (mapRef.current)
@@ -5128,6 +5139,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                 triggerHaptic('light');
                                                                 rebaseHistoryRef.current = true; // opened a saved route → Undo floor
                                                                 setCapturedCoords(t.points);
+                                                                setDraftSource(null);
                                                                 setTraceName(t.name);
                                                                 setShowSavedTraces(false);
                                                                 // A route built on the desktop is usually

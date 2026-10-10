@@ -75,8 +75,9 @@ export interface AutoroutingTrialWorkspaceProps {
      */
     dayPlan?: {
         proposal: AutoroutingTrialRoute;
-        stopName: string;
         onUseOnMainChart: (route: AutoroutingTrialRoute) => void;
+        /** A retried satellite check found land: the route is gone, and Plan Your Day must forget it. */
+        onRefused: (words: string) => void;
     };
     onReviewChange?: (review: import('../../services/autoroutingReview').TrialRouteReview | null) => void;
 }
@@ -346,7 +347,8 @@ export function AutoroutingTrialWorkspace({
             setMoveError('');
             return;
         }
-        if (proposal && !editingEndpoints) return;
+        // Plan Your Day's ends are the stop she chose: a tap never edits them, route or no route.
+        if (dayPlan || (proposal && !editingEndpoints)) return;
         updateEndpoint(target, { lat: lat.toFixed(6), lon: lon.toFixed(6) });
         setTarget('destination');
     };
@@ -1062,6 +1064,7 @@ export function AutoroutingTrialWorkspace({
                 invalidate();
                 setError(failure.message);
                 setPanelExpanded(true);
+                dayPlan?.onRefused(failure.message);
                 return;
             }
             // Anything else is not land: the route stays, Save stays off.
@@ -1290,13 +1293,16 @@ export function AutoroutingTrialWorkspace({
                     footer={
                         dayPlan ? (
                             <div className="grid grid-cols-2 gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => dayPlan.onUseOnMainChart(shownProposal ?? dayPlan.proposal)}
-                                    className={`${buttonClass} col-span-2 bg-teal-600 text-white`}
-                                >
-                                    Use on the main chart
-                                </button>
+                                {/* Only the route on screen: a refused one is never sent on (PYD-3 review). */}
+                                {shownProposal && (
+                                    <button
+                                        type="button"
+                                        onClick={() => dayPlan.onUseOnMainChart(shownProposal)}
+                                        className={`${buttonClass} col-span-2 bg-teal-600 text-white`}
+                                    >
+                                        Use on the main chart
+                                    </button>
+                                )}
                                 <button type="button" onClick={fitRoute} className={buttonClass}>
                                     Whole route
                                 </button>
@@ -1333,7 +1339,7 @@ export function AutoroutingTrialWorkspace({
                     }
                 >
                     <div className="p-3 space-y-3">
-                        {(!proposal || panelPage === 'setup') && (
+                        {!dayPlan && (!proposal || panelPage === 'setup') && (
                             <div className="space-y-3">
                                 <p className="text-micro text-gray-400">
                                     {proposal && !editingEndpoints
@@ -1634,7 +1640,9 @@ export function AutoroutingTrialWorkspace({
                             : reviewProposal
                               ? 'Plan Your Day route · review checks, then use it on the main chart or go back.'
                               : 'Trial proposal only · open Route review to inspect checks and save.'
-                        : `Tap the chart to set ${target}.`}
+                        : dayPlan
+                          ? 'No route to use · back to Plan Your Day.'
+                          : `Tap the chart to set ${target}.`}
                 </div>
             )}
         </OverlayPortal>

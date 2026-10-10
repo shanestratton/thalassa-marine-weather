@@ -73,6 +73,7 @@ import {
     type StopRouteAction,
     type StopRouteRequest,
     type StopRouteResult,
+    chartLeave,
 } from '../../services/dayPlanner/stopRoute';
 import { isDraftConfirmed } from '../../services/draftConfirmation';
 import { requireConfirmedDraft } from '../../stores/draftConfirmStore';
@@ -105,17 +106,9 @@ import {
 } from '../../services/dayPlanner/todayLoader';
 import { TodayModal } from './TodayModal';
 import { TodayStopDetail, type LandingLoader, type StopRouteView } from './TodayStopDetail';
-import { lazyRetry } from '../../utils/lazyRetry';
 import type { AutoroutingTrialRoute } from '../../types/autorouting';
-
-// Auto's chart, over Plan Your Day for a routed stop (127-PYD-3): lazy, as RoutingModeDialog loads it.
-const DayChart = lazyRetry(
-    () =>
-        import('../autorouting/AutoroutingTrialWorkspace').then((module) => ({
-            default: module.AutoroutingTrialWorkspace,
-        })),
-    'AutoroutingTrialWorkspace',
-);
+// Auto's chart, over Plan Your Day for a routed stop (127-PYD-3): the same lazy loader as Auto's own dialog.
+import { LazyAutoroutingWorkspace as DayChart } from '../autorouting/lazyAutoroutingWorkspace';
 import {
     TodayPlacePicker,
     readPhonePosition,
@@ -456,25 +449,33 @@ export default function TodaySheet({
         onPlot(
             plotDayAction(base.start, row.candidate, stay, {
                 routed: routed?.coordinates.map(([lon, lat]) => ({ lat, lon })),
-                why: state?.kind === 'no-route' ? state.words : '',
+                // The router's own words, or (her account, blocked) what routing needs.
+                why: state?.kind === 'no-route' ? state.words : offered && !gate.ok ? (gate.words ?? '') : '',
             }),
         );
     };
     // Auto's chart over Plan Your Day: the routed proposal at her chosen leave (no re-route).
-    const [dayChart, setDayChart] = useState<{ proposal: AutoroutingTrialRoute; departureMs: number | null } | null>(
-        null,
-    );
+    // `leave` is the one hour the chart's tide chips use, and the one the main chart is given.
+    const [dayChart, setDayChart] = useState<{
+        key: string;
+        proposal: AutoroutingTrialRoute;
+        leave: number | null;
+    } | null>(null);
+    // Plan Your Day hides only once the chart is really there (the first open loads a chunk).
+    const [chartShown, setChartShown] = useState(false);
     const showRoute = (departureMs: number | null) => {
         const state = openKey ? queue.states.get(openKey) : undefined;
-        if (state?.kind !== 'routed') return;
-        const leave = departureMs ?? state.proposal.departureMs ?? null;
+        if (!openKey || state?.kind !== 'routed') return;
+        const leave = chartLeave(departureMs, state.proposal.departureMs, sources.now());
         setDayChart({
+            key: openKey,
             proposal: { ...state.proposal, ...(leave !== null ? { departureMs: leave } : {}) },
-            departureMs,
+            leave,
         });
     };
     const closeDayChart = () => {
         setDayChart(null);
+        setChartShown(false);
         // Back on her stop page, on the button that opened the chart.
         requestAnimationFrame(() =>
             document.querySelector<HTMLElement>('.today-detail .today-primary')?.focus({ preventScroll: true }),
@@ -501,6 +502,8 @@ export default function TodaySheet({
 
     // Found by id among every checked row, so a stop whose page is open never closes under her.
     const detailRow = pinned && view ? (view.rows.get(pinned) ?? null) : null;
+    // Plan Your Day is hidden only while Auto's chart is really over it: never both gone (PYD-3 review).
+    const chartOpen = chartShown && !!dayChart && !!detailRow;
 
     // ── Route round the land (127-PYD-2): her saved route still wins; a tester is offered nothing ──
     const gate = stopRouteGate({
@@ -593,7 +596,7 @@ export default function TodaySheet({
                 title="Plan Your Day"
                 layer="modal"
                 active={screen === null}
-                hidden={!!dayChart}
+                hidden={chartOpen}
                 onClose={onClose}
                 className="today-main"
                 headerBody={
@@ -854,7 +857,7 @@ export default function TodaySheet({
                     loadLanding={detailRow.candidate.reviewed?.landingTide ? loadLanding : null}
                     onPlot={(departureMs) => plot(detailRow, departureMs)}
                     onBack={() => setScreen(null)}
-                    hidden={!!dayChart}
+                    hidden={chartOpen}
                     route={
                         offered && openKey
                             ? {
@@ -875,13 +878,8 @@ export default function TodaySheet({
                 />
             )}
             {dayChart && detailRow && (
-                <Suspense
-                    fallback={
-                        <p role="status" className="today-notice">
-                            Opening chart…
-                        </p>
-                    }
-                >
+                <Suspense fallback={null}>
+                    <ChartShown onShown={setChartShown} />
                     <DayChart
                         mapboxToken={mapboxToken}
                         initialDraftM={routeDraftM}
@@ -891,17 +889,25 @@ export default function TodaySheet({
                         onClose={closeDayChart}
                         dayPlan={{
                             proposal: dayChart.proposal,
-                            stopName: detailRow.name.split(' · ')[0],
                             onUseOnMainChart: (route) => {
                                 setDayChart(null);
-                                plot(detailRow, dayChart.departureMs, route);
+                                setChartShown(false);
+                                plot(detailRow, dayChart.leave, route);
                             },
+                            // Satellite land after all: her stop is no route, in Auto's words.
+                            onRefused: (words) => queue.refuse(dayChart.key, words),
                         }}
                     />
                 </Suspense>
             )}
         </>
     );
+}
+
+/** Mounts with Auto's chart inside the same Suspense: the chart is there once this runs. */
+function ChartShown({ onShown }: { onShown: (shown: boolean) => void }) {
+    useEffect(() => onShown(true), [onShown]);
+    return null;
 }
 
 function NoticeLine({ notice, onAct }: { notice: Notice; onAct: (notice: Notice) => void }) {
