@@ -247,7 +247,11 @@ describe('the look-ahead scrubber, ghost and wind timeline', () => {
     });
 
     it('re-applies the glance when the layer set changes, and tells the scrubber which layers cannot follow', () => {
-        expect(flat(layers)).toContain('}, [windReady, windLayerOn, windForecastHours, setWindHour, activeKey]);');
+        // planMode (127-DESKMAP-b): crossing between Obs and the planner hands
+        // the shared wind timeline back to now, and the glance re-applies onto it.
+        expect(flat(layers)).toContain(
+            '}, [windReady, windLayerOn, windForecastHours, setWindHour, activeKey, planMode]);',
+        );
         expect(layers).toContain('reportPassageUnsyncedLayers(names);');
         // The time pills are the only pause buttons, and they are stood down.
         for (const stop of ['setRainPlaying(false);', 'setIsPlaying(false);', 'setCurrentsPlaying(false);']) {

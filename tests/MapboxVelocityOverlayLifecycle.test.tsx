@@ -1749,3 +1749,92 @@ describe('MapboxVelocityOverlay: her wind rides on her icon wherever the field i
         view.unmount();
     });
 });
+
+// ── The desk's Light base (127-DESKMAP-b) ────────────────────────────────
+describe('MapboxVelocityOverlay palette', () => {
+    const optionsOf = (index: number) =>
+        mocks.leaflet.velocityLayer.mock.calls[index]?.[0] as unknown as { colorScale: string[] };
+
+    it('draws Light in dark ink under a white halo; a palette change recreates the field once, a re-render never', async () => {
+        const { WIND_PARTICLE_COLORS, WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
+        mocks.releasePlugin();
+        const mapbox = createMapboxHarness();
+        const grid = windGrid(9, 'ecmwf-desk');
+        const before = mocks.leaflet.velocityLayer.mock.calls.length;
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={grid}
+                windHour={0}
+                palette="light"
+            />,
+        );
+        await waitFor(() => expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 1));
+        expect(optionsOf(before).colorScale).toEqual(WIND_PARTICLE_COLORS_LIGHT);
+        const div = () => mapbox.container.firstElementChild as HTMLElement;
+        expect(div().style.filter).toContain('rgba(255, 255, 255');
+
+        // Same palette, a new hour: the field updates in place.
+        view.rerender(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={grid}
+                windHour={1}
+                palette="light"
+            />,
+        );
+        await act(async () => Promise.resolve());
+        expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 1);
+
+        // Relief + Sat: the white streaks and the dark rim, by one recreation.
+        view.rerender(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={grid}
+                windHour={1}
+                palette="dark"
+            />,
+        );
+        await waitFor(() => expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 2));
+        expect(optionsOf(before + 1).colorScale).toEqual(WIND_PARTICLE_COLORS);
+        expect(div().style.filter).toContain('rgba(0, 0, 0');
+        view.rerender(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={grid}
+                windHour={1}
+                palette="dark"
+            />,
+        );
+        await act(async () => Promise.resolve());
+        expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 2);
+        // The old field is gone, only the new one is on the map.
+        const leafletMap = mocks.leafletMaps[mocks.leafletMaps.length - 1];
+        expect(leafletMap.__layers.size).toBe(1);
+        view.unmount();
+    });
+
+    it('Obs and every dark base are unchanged: no palette is today’s white streaks and dark rim', async () => {
+        const { WIND_PARTICLE_COLORS } = await import('../components/map/windRamp');
+        mocks.releasePlugin();
+        const mapbox = createMapboxHarness();
+        const before = mocks.leaflet.velocityLayer.mock.calls.length;
+        render(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={windGrid(7, 'obs')}
+                windHour={0}
+            />,
+        );
+        await waitFor(() => expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 1));
+        expect(optionsOf(before).colorScale).toEqual(WIND_PARTICLE_COLORS);
+        expect((mapbox.container.firstElementChild as HTMLElement).style.filter).toBe(
+            'drop-shadow(0 0 0.75px rgba(0, 0, 0, 0.55))',
+        );
+    });
+});

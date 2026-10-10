@@ -400,3 +400,20 @@ describe('CloseInWindLayer', () => {
         expect(frames.size).toBe(0);
     });
 });
+
+// The desk's Light base (127-DESKMAP-b): white streaks vanish on a pale sea.
+describe('CloseInWindLayer on a light base', () => {
+    it('draws in the light palette’s dark ink, and the warning hue from the reef line up', async () => {
+        const { WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
+        const { map } = harness();
+        const layer = new CloseInWindLayer(map, options({ reducedMotion: true, palette: 'light' }));
+        layer.show();
+        layer.setWind({ kt: 12, fromDeg: 180 });
+        expect(ctx.strokes.length).toBeGreaterThan(0);
+        expect(new Set(ctx.strokes)).toEqual(new Set([WIND_PARTICLE_COLORS_LIGHT[0]]));
+        ctx.strokes = [];
+        layer.setWind({ kt: 26, fromDeg: 180 });
+        expect(new Set(ctx.strokes)).toEqual(new Set([WIND_PARTICLE_COLORS_LIGHT[26]]));
+        layer.destroy();
+    });
+});

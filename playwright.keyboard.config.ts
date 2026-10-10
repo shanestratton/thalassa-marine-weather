@@ -140,6 +140,10 @@ export default defineConfig({
         // offline (e2e/fixtures/desk-map.tsx), a fictional NOAA-shaped chart in chart mode, and
         // the real web planner's menu and strip at 1440 to 320 px in wide fonts.
         'desk-map-light.spec.ts',
+        // Wind on the desk (127-DESKMAP-b): the menu's Wind row, the panel bottom right clear of
+        // the planner's controls, dark streaks on Light, the model credit, the models' agreement,
+        // and the wind credit on the phone's Obs, offline with a stubbed proxy-openmeteo.
+        'desk-wind-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

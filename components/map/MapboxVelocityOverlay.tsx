@@ -50,7 +50,7 @@ import {
     followedBoatSubject,
     lookUpFollowedBoatWind,
 } from './obsBoatInstruments';
-import { WIND_MAX_MS, WIND_PARTICLE_COLORS } from './windRamp';
+import { WIND_MAX_MS, WIND_PARTICLE_COLORS, WIND_PARTICLE_COLORS_LIGHT, type WindPalette } from './windRamp';
 import { windGridFrameToVelocityData, type VelocityGribRecord } from './windVelocityFrame';
 import { CloseInWindLayer } from './CloseInWindLayer';
 import {
@@ -99,6 +99,12 @@ interface MapboxVelocityOverlayProps {
      * the cloud for a chart nobody is looking at.
      */
     boatLookUp?: boolean;
+    /**
+     * The streak palette for the base under the field (127-DESKMAP-b): 'light'
+     * draws dark ink under a white rim on the desk's Light chart by day; every
+     * other base, and Obs, keeps today's white streaks and dark rim.
+     */
+    palette?: WindPalette;
 }
 
 // Speed-graded wind particle scale — blue → cyan → green → orange → red →
@@ -128,6 +134,14 @@ interface MapboxVelocityOverlayProps {
  * out now; the stroke does not have to.
  */
 const PARTICLE_LINE_WIDTH = 1;
+/**
+ * Dark ink on the desk's Light base (127-DESKMAP-b) draws a half pixel wider:
+ * leaflet-velocity's canvas is not scaled for the screen, so on a Retina or
+ * 3x display a 1 px streak is upscaled to a blur whose core only reached 2.8:1
+ * on Light's sea (browser-tests/desk-wind-layout.spec.ts). White streaks on the
+ * dark bases keep Shane's chosen 1.
+ */
+const lineWidthFor = (palette: WindPalette) => (palette === 'light' ? 1.5 : PARTICLE_LINE_WIDTH);
 
 /**
  * How much of each trail survives a frame. leaflet-velocity's `opacity` is
@@ -152,6 +166,9 @@ const PARTICLE_FADE = 0.98;
  * heavier double rim made white streaks look muddy in the shallows.
  */
 const PARTICLE_HALO = 'drop-shadow(0 0 0.75px rgba(0, 0, 0, 0.55))';
+/** The same rim for dark ink on a pale base: white, a touch stronger. */
+const haloFor = (palette: WindPalette) =>
+    palette === 'light' ? 'drop-shadow(0 0 0.75px rgba(255, 255, 255, 0.7))' : PARTICLE_HALO;
 // Direction is essential even in the broad synoptic view, so Wind begins at
 // z3 rather than falling back to a speed-only heatmap. The startup guard below
 // protects the third-party renderer from the old delayed-start zoom race.
@@ -212,8 +229,13 @@ export function zoomScaledParticleMultiplier(mapboxZoom: number): number {
 
 // ── Helper: Create velocity layer ─────────────────────────────
 
-function createVelocityLayer(data: VelocityGribRecord[], velocityScale: number, particleMultiplier: number): L.Layer {
-    const layer = (L as unknown as Record<string, (...args: unknown[]) => L.Layer>).velocityLayer({
+function createVelocityLayer(
+    data: VelocityGribRecord[],
+    velocityScale: number,
+    particleMultiplier: number,
+    palette: WindPalette,
+): L.Layer {
+    const layer = (L as unknown as Record<string, (...args: unknown[]) => MutableVelocityLayer>).velocityLayer({
         displayValues: false, // No mouse readout (overlay has pointer-events: none)
         data,
         maxVelocity: WIND_MAX_MS,
@@ -225,10 +247,13 @@ function createVelocityLayer(data: VelocityGribRecord[], velocityScale: number, 
         // panel — half of Shane's "shaky" (2026-08-21). 33 ms reads as
         // motion. Still throttled: full-rate RAF measurably warms phones.
         frameRate: 30,
-        particlelineWidth: PARTICLE_LINE_WIDTH,
-        // White below 20 kt, warning hues from the reef line up (windRamp).
-        colorScale: WIND_PARTICLE_COLORS,
+        particlelineWidth: lineWidthFor(palette),
+        // White below 20 kt, warning hues from the reef line up (windRamp);
+        // dark ink on a light base. A creation option: a palette change makes
+        // a new layer (the palette effect in the component).
+        colorScale: palette === 'light' ? WIND_PARTICLE_COLORS_LIGHT : WIND_PARTICLE_COLORS,
     });
+    layer.__palette = palette;
     // Keep the third-party delayed-start guard attached to every creation
     // path, including a replacement after an unsupported data update.
     guardVelocityLayerStartup(layer);
@@ -236,6 +261,7 @@ function createVelocityLayer(data: VelocityGribRecord[], velocityScale: number, 
 }
 
 type MutableVelocityLayer = L.Layer & {
+    __palette?: WindPalette;
     _windy?: { setData: (data: VelocityGribRecord[]) => void; velocityScale?: number; particleMultiplier?: number };
     setData?: (data: VelocityGribRecord[]) => void;
 };
@@ -297,9 +323,10 @@ function applyVelocityData(
     data: VelocityGribRecord[],
     velocityScale: number,
     particleMultiplier: number,
+    palette: WindPalette,
 ): L.Layer {
     if (!layer) {
-        const created = createVelocityLayer(data, velocityScale, particleMultiplier);
+        const created = createVelocityLayer(data, velocityScale, particleMultiplier, palette);
         created.addTo(map);
         return created;
     }
@@ -318,7 +345,7 @@ function applyVelocityData(
     }
 
     removeVelocityLayer(map, layer);
-    const replacement = createVelocityLayer(data, velocityScale, particleMultiplier);
+    const replacement = createVelocityLayer(data, velocityScale, particleMultiplier, palette);
     replacement.addTo(map);
     return replacement;
 }
@@ -511,6 +538,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     windNowIdx,
     boatInstruments = false,
     boatLookUp = false,
+    palette = 'dark',
 }) => {
     const overlayRef = useRef<HTMLDivElement | null>(null);
     const leafletMapRef = useRef<L.Map | null>(null);
@@ -538,6 +566,8 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     windGridPropRef.current = windGrid;
     windNowIdxRef.current = windNowIdx;
     boatInstrumentsRef.current = boatInstruments;
+    const paletteRef = useRef(palette);
+    paletteRef.current = palette;
 
     // The zoom gate's own memory (boatWindZoomFor's hysteresis), kept apart
     // from the source shown: a scrub away and back, a feed gap, her leaving
@@ -743,15 +773,16 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     useEffect(() => {
         if (!closeInWanted || !mapboxMap) return;
         let layer = closeInLayerRef.current;
-        if (layer && layer.map !== mapboxMap) {
+        if (layer && (layer.map !== mapboxMap || layer.palette !== palette)) {
             layer.destroy();
             layer = null;
         }
         if (!layer) {
             layer = new CloseInWindLayer(mapboxMap, {
-                filter: PARTICLE_HALO,
+                filter: haloFor(palette),
+                palette,
                 fade: PARTICLE_FADE,
-                lineWidth: PARTICLE_LINE_WIDTH,
+                lineWidth: lineWidthFor(palette),
                 tierScale: particleScale(),
                 reducedMotion: prefersReducedMotion(),
             });
@@ -801,7 +832,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 forget();
             }
         };
-    }, [closeInWanted, mapboxMap]);
+    }, [closeInWanted, mapboxMap, palette]);
 
     // A new hour, a new grid, or the scrubber leaving now: re-read the local
     // wind (in close-in) and her icon's (W1-WC, anywhere).
@@ -887,14 +918,25 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         }
 
         try {
+            // The colour scale is fixed at creation: a new base's palette
+            // (127-DESKMAP-b) replaces the layer once; the same palette never does.
+            let layer = velocityLayerRef.current as MutableVelocityLayer | null;
+            if (layer && layer.__palette !== palette) {
+                removeVelocityLayer(leafletMap, layer);
+                layer = null;
+            }
             velocityLayerRef.current = applyVelocityData(
                 leafletMap,
-                velocityLayerRef.current,
+                layer,
                 nextData,
                 zoomCompensatedVelocityScale(mapboxMap?.getZoom() ?? VELOCITY_SCALE_REF_ZOOM),
                 zoomScaledParticleMultiplier(mapboxMap?.getZoom() ?? VELOCITY_SCALE_REF_ZOOM),
+                palette,
             );
-            if (overlayRef.current) overlayRef.current.style.opacity = closeInWantedRef.current ? '0' : '1';
+            if (overlayRef.current) {
+                overlayRef.current.style.opacity = closeInWantedRef.current ? '0' : '1';
+                overlayRef.current.style.filter = haloFor(palette);
+            }
             syncRef.current?.();
         } catch (err) {
             // Never leave the previous model painted after a renderer update
@@ -905,7 +947,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             if (overlayRef.current) overlayRef.current.style.opacity = '0';
             log.error('[VelocityOverlay] Failed to apply selected wind grid:', err);
         }
-    }, [windHour, windGrid, particlesActive, mapboxMap]);
+    }, [windHour, windGrid, particlesActive, mapboxMap, palette]);
 
     // ── Create/destroy particle overlay ──────────────────────────
     useEffect(() => {
@@ -955,7 +997,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
 
             // Create overlay div on top of Mapbox
             const div = document.createElement('div');
-            div.style.cssText = `position:absolute;inset:0;z-index:400;pointer-events:none;opacity:0;transition:opacity 0.4s ease;filter:${PARTICLE_HALO};`;
+            div.style.cssText = `position:absolute;inset:0;z-index:400;pointer-events:none;opacity:0;transition:opacity 0.4s ease;filter:${haloFor(paletteRef.current)};`;
             container.appendChild(div);
             overlayRef.current = div;
 
@@ -997,6 +1039,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     initialData,
                     zoomCompensatedVelocityScale(mapboxMap.getZoom()),
                     zoomScaledParticleMultiplier(mapboxMap.getZoom()),
+                    paletteRef.current,
                 );
             }
 
