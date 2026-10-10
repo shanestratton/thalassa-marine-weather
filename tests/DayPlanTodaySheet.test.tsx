@@ -35,6 +35,9 @@ import type { VesselProfile } from '../types/vessel';
 import { DEFAULT_VESSEL } from '../utils/defaultVessel';
 import { resolveDayPlanLimits } from '../services/dayPlanner/today';
 import { H, MARINA, NOUMEA, NOW, fakeTodayDeps, type DayPlanScenario } from './helpers/dayPlanFixtures';
+import { routeStop, type StopRouteDeps, type StopRouteRequest } from '../services/dayPlanner/stopRoute';
+import type { AutoroutingTrialRequest, AutoroutingTrialRoute } from '../types/autorouting';
+import { DraftConfirmModal } from '../components/vessel/DraftConfirmModal';
 
 const QLD_TILE = JSON.parse(readFileSync('public/anchorages/qld/t-22e148.geojson', 'utf8')) as {
     features: AtlasFeature[];
@@ -813,5 +816,466 @@ describe('Different places, picked for a reason', () => {
         const why = within(detail).getByRole('list', { name: 'How the day goes' }).querySelector('[data-why]');
         expect(why?.textContent).toMatch(/\S/);
         expect(screen.getByRole('dialog', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+    });
+});
+
+// ── 127-PYD-2: Plan Your Day routes the stop she opens ─────────
+//
+// Shane, 2026-10-10: "when you select somewhere, and plot on the chart. it goes
+// direct. straight over hills. rocks, other boats, land, sea, air, you name it
+// … so can we incorporate the autorouting into the plan your day thingy." His
+// account only in 127, a "Route round the land" tap, and the routing time shown
+// to him. The provider here is a fake behind the real routeStop: its words,
+// its timing and its queue are the real ones. Fictional owner account.
+
+describe('Route round the land (127-PYD-2)', () => {
+    const CONFIRMED: VesselProfile = { ...OWN_BOAT, draftConfirmedFt: 7.87, airDraft: 59 };
+
+    /** A routed line from the request's own pins, bent round a fictional headland. */
+    const routedProposal = ({ departure: a, destination: b }: AutoroutingTrialRequest): AutoroutingTrialRoute => ({
+        id: 'thalassa-fixture',
+        coordinates: [
+            [a.lon, a.lat],
+            [(a.lon + b.lon) / 2, Math.min(a.lat, b.lat) - 0.06],
+            [b.lon, b.lat],
+        ],
+        warnings: [],
+        createdAt: new Date(NOW).toISOString(),
+        provider: 'Thalassa',
+        engine: {
+            stateMask: ['green', 'green'],
+            shallowRuns: [{ startSeg: 1, endSeg: 1, lengthM: 556, minDepthM: 1.9, midLat: 0, midLon: 0 }],
+            cellsUsed: ['OC-99-SYN001'],
+            distanceNM: 16.5,
+            elapsedMs: 4100,
+            backstop: 'verified',
+        },
+    });
+
+    type Calculate = NonNullable<StopRouteDeps['calculate']>;
+    /** The sheet's routeStop: the real one, over a fake provider and a clock that reads 6.4 s per route. */
+    function routing(calculate: Calculate) {
+        let reads = 0;
+        const calls: { req: StopRouteRequest; signal: AbortSignal }[] = [];
+        const fn = vi.fn((req: StopRouteRequest, opts: { signal: AbortSignal; onProgress?: (w: string) => void }) => {
+            calls.push({ req, signal: opts.signal });
+            return routeStop(req, opts, {
+                calculate,
+                clock: () => (reads++ % 2) * 6400,
+                piPaired: async () => false,
+            });
+        });
+        return { fn, calls };
+    }
+    const routes = (calculate: Calculate = async (r) => routedProposal(r)) => routing(calculate);
+
+    function setStore(vessel: VesselProfile | undefined, autorouteTrialEnabled = true) {
+        act(() => {
+            useSettingsStore.setState({
+                settings: { ...useSettingsStore.getState().settings, vessel, autorouteTrialEnabled },
+            });
+        });
+    }
+
+    async function openStop(
+        options: {
+            owner?: boolean;
+            route?: ReturnType<typeof routes>;
+            vessel?: VesselProfile;
+            usingDefaultVessel?: boolean;
+            routeOnOpen?: boolean;
+            extra?: React.ReactNode;
+            loader?: Partial<TodayLoaderDeps>;
+        } = {},
+    ) {
+        const route = options.route ?? routes();
+        const sheetIo = io({
+            ...(options.loader ? { loader: options.loader } : {}),
+            voyageEnds: async () => null,
+            pinDepths: async (points) => points.map(() => ({ covered: false, hazard: false, minDepthM: null })),
+            ownerAccount: async () => options.owner ?? true,
+            routeStop: route.fn,
+            ...(options.routeOnOpen !== undefined ? { routeOnOpen: options.routeOnOpen } : {}),
+        });
+        const handlers = { onClose: vi.fn(), onPlot: vi.fn(), onOpenVessel: vi.fn() };
+        render(
+            <>
+                <TodaySheet
+                    vessel={options.vessel ?? CONFIRMED}
+                    usingDefaultVessel={options.usingDefaultVessel ?? false}
+                    {...handlers}
+                    io={sheetIo}
+                />
+                {options.extra}
+            </>,
+        );
+        const dialog = screen.getByRole('dialog', { name: 'Plan Your Day' });
+        const [first] = await stopRows(dialog);
+        const name = first.querySelector('.today-stop-name')!.textContent!;
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', { name: new RegExp(`^${name}`) });
+        return { ...handlers, dialog, detail, name, route, io: sheetIo };
+    }
+    const routeRow = (detail: HTMLElement) => detail.querySelector<HTMLElement>('li[data-route]');
+
+    beforeEach(() => setStore(CONFIRMED));
+    afterEach(() => setStore(undefined, false));
+
+    it('owner: one button, a tap routes once, the row says each stage, then the route, the time and the routed times', async () => {
+        const route = routes(async (req, signal, onProgress) => {
+            await new Promise((resolve) => setTimeout(resolve, 60));
+            onProgress?.('Following deep water…');
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            onProgress?.('Routing round the land…');
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            return routedProposal(req);
+        });
+        const { detail, dialog, io: sources, name } = await openStop({ route });
+        // Before the tap: the estimate, and what routing will take.
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent('Not routed yet: takes a few seconds.'));
+        expect(within(detail).getByText(/^About \d+ NM each way/)).toBeTruthy();
+        expect(within(detail).queryByRole('button', { name: 'Plot on chart' })).toBeNull();
+        const button = within(detail).getByRole('button', { name: 'Route round the land' });
+        expect(button).toHaveClass('today-primary');
+        expect(route.fn).not.toHaveBeenCalled();
+
+        fireEvent.click(button);
+        expect(route.fn).toHaveBeenCalledOnce();
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Finding the way round the land…/));
+        // The seconds are the row's own, unspoken: VoiceOver hears the stage only.
+        expect(routeRow(detail)!.querySelector('[aria-live]')?.textContent).toBe('Finding the way round the land');
+        expect(routeRow(detail)!.querySelector('[aria-hidden="true"]')).toBeTruthy();
+        expect(within(detail).getByRole('button', { name: 'Route round the land' })).toBeDisabled();
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Routing round the land/));
+
+        await waitFor(() =>
+            expect(routeRow(detail)).toHaveTextContent('Routed on your charts · 16.5 NM each way · 0.3 NM shallow'),
+        );
+        // His account: the time it took (decision 2's reading), for the sheet's life.
+        expect(within(detail).getByText('Routed in 6.4 s · router 4.1 s')).toBeTruthy();
+        // The distance is said once: the route row is the distance row.
+        expect(within(detail).queryByText(/NM each way \(/)).toBeNull();
+        expect(
+            within(detail).getByText(/^Route from your charts: draft 2\.40 m \+ 0\.5 m under the keel/),
+        ).toBeTruthy();
+        // The chosen leave reached the provider (the best departure, as no chip was tapped).
+        expect(route.calls[0].req).toMatchObject({ draftM: expect.closeTo(2.4, 2), stopName: name.split(' · ')[0] });
+        expect(route.calls[0].req.departureMs).toBeGreaterThan(NOW);
+        // The wind along the routed line is asked for once (2 proxy calls): five stops + the route.
+        await waitFor(() => expect(sources.loader.loadRouteSpread).toHaveBeenCalledTimes(6));
+        expect(sources.loader.loadRouteSea).toHaveBeenCalledTimes(6);
+        const asked = vi.mocked(sources.loader.loadRouteSpread).mock.calls[5][0];
+        expect(asked).toHaveLength(3);
+
+        // Back on the card: the routed times, with the route mark, while the sheet is open.
+        fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
+        await waitFor(() => {
+            const row = within(within(dialog).getByRole('list', { name: 'Stops' })).getAllByRole('button')[0];
+            expect(row.querySelector('.today-route-mark')).toBeTruthy();
+        });
+        // Re-opened, the route is there at once: no second run.
+        fireEvent.click(within(within(dialog).getByRole('list', { name: 'Stops' })).getAllByRole('button')[0]);
+        const again = await screen.findByRole('dialog', { name: new RegExp(`^${name}`) });
+        expect(routeRow(again)).toHaveTextContent('Routed on your charts · 16.5 NM each way');
+        expect(route.fn).toHaveBeenCalledOnce();
+    });
+
+    it('a tester sees no route row, no button and no timing line; nothing is routed', async () => {
+        const route = routes();
+        const { detail } = await openStop({ owner: false, route });
+        expect(routeRow(detail)).toBeNull();
+        expect(within(detail).queryByRole('button', { name: 'Route round the land' })).toBeNull();
+        expect(within(detail).getByRole('button', { name: 'Plot on chart' })).toBeTruthy();
+        expect(detail.textContent).not.toMatch(/rout(e|ed|ing) round the land|Routed in/i);
+        expect(route.fn).not.toHaveBeenCalled();
+    });
+
+    it('Auto route (trial) off: the row says so and turns the same switch on in place; the page stays open', async () => {
+        setStore(CONFIRMED, false);
+        const { detail } = await openStop();
+        const link = await within(detail).findByRole('button', {
+            name: 'Turn on Auto route (trial) to route round the land. (also in Settings → Preferences)',
+        });
+        fireEvent.click(link);
+        await waitFor(() => expect(useSettingsStore.getState().settings.autorouteTrialEnabled).toBe(true));
+        expect(detail.isConnected).toBe(true);
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent('Not routed yet: takes a few seconds.'));
+    });
+
+    it('the default boat: set her draft first, and the link opens Vessel', async () => {
+        const { detail, onOpenVessel } = await openStop({ vessel: DEFAULT_VESSEL, usingDefaultVessel: true });
+        fireEvent.click(
+            await within(detail).findByRole('button', { name: "Set your boat's draft to route round the land." }),
+        );
+        expect(onOpenVessel).toHaveBeenCalledOnce();
+    });
+
+    it('a draft not confirmed: the tap asks once, above the stop page; cancelled, the row says so, and the next tap asks again', async () => {
+        setStore({ ...CONFIRMED, draftConfirmedFt: undefined });
+        const route = routes();
+        const { detail } = await openStop({ route, extra: <DraftConfirmModal /> });
+        const button = await within(detail).findByRole('button', { name: 'Route round the land' });
+        fireEvent.click(button);
+        const ask = await screen.findByRole('dialog', { name: 'Check your draft' });
+        // The stop page steps below the draft modal while it asks.
+        expect(detail.closest('[data-overlay-layer]')).toHaveAttribute('data-overlay-layer', 'modal');
+        expect(ask.closest('[data-overlay-layer]') ?? ask).toHaveAttribute('data-overlay-layer', 'nested');
+        fireEvent.click(within(ask).getByRole('button', { name: 'Close' }));
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent('Confirm your draft to route round the land.'));
+        expect(route.fn).not.toHaveBeenCalled();
+        expect(detail.closest('[data-overlay-layer]')).toHaveAttribute('data-overlay-layer', 'nested');
+
+        fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+        const again = await screen.findByRole('dialog', { name: 'Check your draft' });
+        fireEvent.click(within(again).getByRole('button', { name: /^Confirm / }));
+        await waitFor(() => expect(route.fn).toHaveBeenCalledOnce());
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Routed on your charts/));
+    });
+
+    it('a draft confirmed after her page has closed starts nothing', async () => {
+        setStore({ ...CONFIRMED, draftConfirmedFt: undefined });
+        const route = routes();
+        const { detail } = await openStop({ route, extra: <DraftConfirmModal /> });
+        fireEvent.click(await within(detail).findByRole('button', { name: 'Route round the land' }));
+        const ask = await screen.findByRole('dialog', { name: 'Check your draft' });
+        fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
+        await waitFor(() => expect(detail.isConnected).toBe(false));
+        fireEvent.click(within(ask).getByRole('button', { name: /^Confirm / }));
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Check your draft' })).toBeNull());
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(route.fn).not.toHaveBeenCalled();
+    });
+
+    it('signed out: sign in first', async () => {
+        act(() => setAuthIdentityScope(null));
+        const { detail } = await openStop();
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent('Sign in to route round the land.'));
+        expect(within(detail).queryByRole('button', { name: /Sign in/ })).toBeNull();
+    });
+
+    it('no chart at an end: the global sentence, the estimate stays, and Plot on chart comes back', async () => {
+        const route = routes(async () => {
+            throw new Error('No installed chart covers the destination.');
+        });
+        const { detail, name } = await openStop({ route });
+        fireEvent.click(await within(detail).findByRole('button', { name: 'Route round the land' }));
+        const place = name.split(' · ')[0];
+        await waitFor(() =>
+            expect(routeRow(detail)).toHaveTextContent(
+                `No chart for ${place} on this phone: add charts for this area to route round the land.`,
+            ),
+        );
+        expect(detail.textContent).not.toMatch(/\bPi\b/);
+        expect(within(detail).getByText(/^About \d+ NM each way/)).toBeTruthy();
+        expect(within(detail).getByText(/^No route after 6\.4 s$/)).toBeTruthy();
+        expect(within(detail).getByRole('button', { name: 'Plot on chart' })).toBeTruthy();
+    });
+
+    it("an engine refusal is Auto's sentence, whole", async () => {
+        const refusal = 'Route not possible: a bridge with 12.0 m clearance blocks your 18.0 m air draft.';
+        const route = routes(async () => {
+            throw new Error(refusal);
+        });
+        const { detail } = await openStop({ route });
+        fireEvent.click(await within(detail).findByRole('button', { name: 'Route round the land' }));
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent(refusal));
+    });
+
+    it('closing the page while it routes ends that route; re-opened, the button is back and a tap starts afresh', async () => {
+        const route = routes(
+            (_req, signal) =>
+                new Promise((_resolve, reject) =>
+                    signal!.addEventListener('abort', () => reject(new DOMException('stopped', 'AbortError'))),
+                ),
+        );
+        const { detail, dialog, name } = await openStop({ route });
+        fireEvent.click(await within(detail).findByRole('button', { name: 'Route round the land' }));
+        await waitFor(() => expect(route.calls).toHaveLength(1));
+        fireEvent.click(within(detail).getByRole('button', { name: 'Close' }));
+        await waitFor(() => expect(detail.isConnected).toBe(false));
+        expect(route.calls[0].signal.aborted).toBe(true);
+
+        fireEvent.click(within(within(dialog).getByRole('list', { name: 'Stops' })).getAllByRole('button')[0]);
+        const again = await screen.findByRole('dialog', { name: new RegExp(`^${name}`) });
+        expect(routeRow(again)).toHaveTextContent('Not routed yet: takes a few seconds.');
+        fireEvent.click(within(again).getByRole('button', { name: 'Route round the land' }));
+        await waitFor(() => expect(route.calls).toHaveLength(2));
+        expect(route.calls[1].signal.aborted).toBe(false);
+    });
+
+    it('her saved route that joins the two still wins: no routing call, no route row', async () => {
+        const route = routes();
+        const sheetIo = io({
+            voyageEnds: async () => null,
+            pinDepths: async (points) => points.map(() => ({ covered: false, hazard: false, minDepthM: null })),
+            ownerAccount: async () => true,
+            routeStop: route.fn,
+        });
+        // A saved route of hers from the marina to every place in the tile (fictional names).
+        vi.mocked(sheetIo.loader.savedRoutes).mockReturnValue(
+            QLD_TILE.features.map((f, i) => ({
+                name: `Fixture way ${i}`,
+                points: [
+                    { lat: MARINA.lat, lon: MARINA.lon },
+                    { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] },
+                ],
+            })),
+        );
+        render(
+            <TodaySheet
+                vessel={CONFIRMED}
+                usingDefaultVessel={false}
+                onClose={vi.fn()}
+                onPlot={vi.fn()}
+                io={sheetIo}
+            />,
+        );
+        const dialog = screen.getByRole('dialog', { name: 'Plan Your Day' });
+        const [first] = await stopRows(dialog);
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', {
+            name: new RegExp(`^${first.querySelector('.today-stop-name')!.textContent!}`),
+        });
+        expect(within(detail).getByText(/NM each way \(your saved route 'Fixture way \d+'\)$/)).toBeTruthy();
+        expect(routeRow(detail)).toBeNull();
+        expect(within(detail).getByRole('button', { name: 'Plot on chart' })).toBeTruthy();
+        expect(route.fn).not.toHaveBeenCalled();
+    });
+
+    // ── Review fixes, 2026-10-11 ──
+
+    it('a leave gone by while the sheet stayed open is asked from now, never refused for a time she did not choose', async () => {
+        // Opened at 06:30 and left open: tapped hours later, the morning's best leave is long past.
+        let clock = NOW;
+        const asked: number[] = [];
+        const route = routes(async (req) => {
+            asked.push(req.departureMs!);
+            // As Auto's provider checks it: the hour just gone to 8 days out.
+            if (req.departureMs! < clock - H || req.departureMs! > clock + 192 * H)
+                throw new Error('Choose a departure within the next 8 days.');
+            return routedProposal(req);
+        });
+        const { detail } = await openStop({ route, loader: { now: () => clock } });
+        clock = NOW + 10 * H;
+        fireEvent.click(await within(detail).findByRole('button', { name: 'Route round the land' }));
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Routed on your charts/));
+        expect(asked).toEqual([clock]);
+    });
+
+    it('no route can be tried again: re-opened, the tap is back, and the second try routes', async () => {
+        let tries = 0;
+        const route = routes(async (req) => {
+            if (++tries === 1)
+                throw new Error(
+                    "Couldn't fetch the missing charts (Failed to fetch). Check your connection and sign-in, then try again. Nothing changed.",
+                );
+            return routedProposal(req);
+        });
+        const { detail, dialog, name } = await openStop({ route });
+        fireEvent.click(await within(detail).findByRole('button', { name: 'Route round the land' }));
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Couldn't fetch the missing charts/));
+        // The estimate stays, in the route row: the distance is said once.
+        expect(routeRow(detail)).toHaveTextContent(/About \d+ NM each way \(/);
+        expect(within(detail).getAllByText(/NM each way \(/)).toHaveLength(1);
+        fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
+        await waitFor(() => expect(detail.isConnected).toBe(false));
+        fireEvent.click(within(within(dialog).getByRole('list', { name: 'Stops' })).getAllByRole('button')[0]);
+        const again = await screen.findByRole('dialog', { name: new RegExp(`^${name}`) });
+        expect(routeRow(again)).toHaveTextContent('Not routed yet: takes a few seconds.');
+        fireEvent.click(within(again).getByRole('button', { name: 'Route round the land' }));
+        await waitFor(() => expect(routeRow(again)).toHaveTextContent(/^Routed on your charts/));
+        expect(route.fn).toHaveBeenCalledTimes(2);
+    });
+
+    it('while a setting stands in the way she can still plot by hand: Plot on chart stays', async () => {
+        setStore(CONFIRMED, false);
+        const { detail, onPlot } = await openStop();
+        await within(detail).findByRole('button', { name: /^Turn on Auto route \(trial\)/ });
+        expect(within(detail).queryByRole('button', { name: 'Route round the land' })).toBeNull();
+        fireEvent.click(within(detail).getByRole('button', { name: 'Plot on chart' }));
+        await waitFor(() => expect(onPlot).toHaveBeenCalledOnce());
+    });
+
+    it('a draft confirmed after the whole sheet has closed starts nothing', async () => {
+        setStore({ ...CONFIRMED, draftConfirmedFt: undefined });
+        const route = routes();
+        const sheetIo = io({
+            voyageEnds: async () => null,
+            pinDepths: async (points) => points.map(() => ({ covered: false, hazard: false, minDepthM: null })),
+            ownerAccount: async () => true,
+            routeStop: route.fn,
+        });
+        const page = (sheet: boolean) => (
+            <>
+                {sheet && (
+                    <TodaySheet
+                        vessel={CONFIRMED}
+                        usingDefaultVessel={false}
+                        onClose={vi.fn()}
+                        onPlot={vi.fn()}
+                        io={sheetIo}
+                    />
+                )}
+                <DraftConfirmModal />
+            </>
+        );
+        const { rerender } = render(page(true));
+        const [first] = await stopRows(screen.getByRole('dialog', { name: 'Plan Your Day' }));
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', {
+            name: new RegExp(`^${first.querySelector('.today-stop-name')!.textContent!}`),
+        });
+        fireEvent.click(await within(detail).findByRole('button', { name: 'Route round the land' }));
+        await screen.findByRole('dialog', { name: 'Check your draft' });
+        // A deep link takes her elsewhere: Plan Your Day goes, the app's draft modal stays.
+        rerender(page(false));
+        const ask = await screen.findByRole('dialog', { name: 'Check your draft' });
+        fireEvent.click(within(ask).getByRole('button', { name: /^Confirm / }));
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Check your draft' })).toBeNull());
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(route.fn).not.toHaveBeenCalled();
+    });
+
+    it('the wind along the routed line failed: the times that loaded stay, and it is asked once more', async () => {
+        // Patchy Starlink: the two calls along the routed line (its 3 points) fail once.
+        const fake = fakeTodayDeps({ atlas: QLD_TILE.features });
+        let fail = true;
+        let along = 0;
+        const routedOnly = <T,>(real: (coords: never, model: never) => Promise<T>) =>
+            (async (coords: { length: number }, model: never) => {
+                if (coords.length === 3) {
+                    along++;
+                    if (fail) throw new Error('429 Too Many Requests');
+                }
+                return real(coords as never, model);
+            }) as never;
+        const { detail, dialog, name } = await openStop({
+            loader: {
+                loadRouteSpread: routedOnly(fake.loadRouteSpread as never),
+                loadRouteForecast: routedOnly(fake.loadRouteForecast as never),
+            },
+        });
+        const leave = () => within(screen.getByRole('dialog', { name: new RegExp(`^${name}`) })).getByText(/^Leave /);
+        const before = leave().textContent;
+        fireEvent.click(await within(detail).findByRole('button', { name: 'Route round the land' }));
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Routed on your charts/));
+        await waitFor(() => expect(leave()).toHaveTextContent(/\(estimate: route weather didn't load\)$/));
+        // The verdict and times that loaded, never "weather not checked".
+        expect(leave().textContent!.split(' (')[0]).toBe(before!.split(' (')[0]);
+        expect(detail.textContent).not.toMatch(/Weather not checked/);
+        const failedCalls = along;
+        fail = false;
+        fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
+        await waitFor(() => expect(along).toBeGreaterThan(failedCalls));
+        fireEvent.click(within(within(dialog).getByRole('list', { name: 'Stops' })).getAllByRole('button')[0]);
+        await screen.findByRole('dialog', { name: new RegExp(`^${name}`) });
+        await waitFor(() => expect(leave().textContent).not.toMatch(/estimate|updating/));
+    });
+
+    it('with PYD_ROUTE_ON_OPEN (a test override) opening the stop starts its route, no tap', async () => {
+        const route = routes();
+        const { detail } = await openStop({ route, routeOnOpen: true });
+        await waitFor(() => expect(route.fn).toHaveBeenCalledOnce());
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Routed on your charts/));
     });
 });

@@ -96,7 +96,8 @@ const NO_ROUTE = 'Thalassa could not route this passage. Nothing changed.';
 const WATCHDOG = 'Routing took longer than this phone allows (85 s). Try a shorter passage. Nothing changed.';
 // Licensed charts never come from the cloud since 126-20: a gap the cloud
 // can't fill is one only the boat's Pi can, and the shared shelf is NOAA only.
-const BUCKET_UNREACHABLE =
+/** Exported so Plan Your Day says it in global words with no Pi paired (127-PYD-2). */
+export const THALASSA_BUCKET_UNREACHABLE =
     "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: sync them aboard, then try again. Nothing changed.";
 const NOT_SIGNED_IN_FILL =
     "The missing charts wouldn't download. You're probably not signed in: sign in and try again. Nothing changed.";
@@ -132,6 +133,7 @@ const finiteWithin = (value: unknown, min: number, max: number): value is number
     typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
 const validPoint = (value: unknown): value is { lat: number; lon: number } =>
     record(value) && finiteWithin(value.lat, -90, 90) && finiteWithin(value.lon, -180, 180);
+const HOUR_MS = 3_600_000;
 
 /** Validate and detach the request before any asynchronous work. */
 function snapshotRequest(request: AutoroutingTrialRequest): {
@@ -140,6 +142,7 @@ function snapshotRequest(request: AutoroutingTrialRequest): {
     draftM: number;
     speedKts: number;
     vesselProfile?: AutoroutingVesselProfile;
+    departureMs?: number;
 } {
     if (
         !record(request) ||
@@ -161,12 +164,18 @@ function snapshotRequest(request: AutoroutingTrialRequest): {
         if (!vesselProfile || vesselProfile.draftStatus === 'missing')
             throw new Error('Check the stored vessel dimensions and draft in Vessel settings before calculating.');
     }
+    // A caller's leave (127-PYD-2): the hour just gone to 8 days out, as the forecasts reach.
+    const { departureMs } = request;
+    const now = Date.now();
+    if (departureMs !== undefined && !finiteWithin(departureMs, now - HOUR_MS, now + 192 * HOUR_MS))
+        throw new Error('Choose a departure within the next 8 days.');
     return {
         departure: { lat: request.departure.lat, lon: request.departure.lon },
         destination: { lat: request.destination.lat, lon: request.destination.lon },
         draftM: request.draftM,
         speedKts: request.speedKts,
         ...(vesselProfile ? { vesselProfile } : {}),
+        ...(departureMs !== undefined ? { departureMs } : {}),
     };
 }
 
@@ -299,7 +308,8 @@ export async function calculateThalassaProposal(
     // (owner decision 5). An estimated one is used as given and said so.
     const airDraftM =
         vesselProfile && vesselProfile.airDraft.status !== 'missing' ? vesselProfile.airDraft.valueM : null;
-    const departureMs = Date.now();
+    // The caller's leave (Plan Your Day's chosen one), else now (Auto).
+    const departureMs = input.departureMs ?? Date.now();
     const progress = (message: string) => {
         if (!signal?.aborted && isAuthIdentityScopeCurrent(scope)) onProgress?.(message);
     };
@@ -352,7 +362,7 @@ export async function calculateThalassaProposal(
         }
         assertCurrent();
         log.warn(`cloud fill downloaded=${fill.downloaded} needed=${fill.needed} bucket=${fill.bucketAvailable}`);
-        if (!fill.bucketAvailable) throw new Error(BUCKET_UNREACHABLE);
+        if (!fill.bucketAvailable) throw new Error(THALASSA_BUCKET_UNREACHABLE);
         if (fill.downloaded === 0 && fill.needed > 0) throw new Error(NOT_SIGNED_IN_FILL);
         if (fill.downloaded > 0) res = await run();
     }
@@ -561,6 +571,7 @@ export async function calculateThalassaProposal(
         createdAt: new Date().toISOString(),
         provider: 'Thalassa',
         ...(vesselProfile ? { vesselProfile } : {}),
+        ...(input.departureMs !== undefined ? { departureMs } : {}),
         engine,
     };
 }

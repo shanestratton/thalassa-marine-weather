@@ -16,8 +16,12 @@
  *
  * A stop's detail says how each time was worked out; "Plot on chart" sets
  * the Plan page's departure and opens the Manual plotter with straight pins
- * (both ⚡ buttons are parked). The planner never routes, never saves, never
- * expires and never blocks: cautions, not blocks.
+ * (both ⚡ buttons are parked). Since 127-PYD-2 the stop she opens can be
+ * routed round the land, on a tap, through Auto's own provider and behind
+ * Auto route (trial): his account only in 127 (pydRouting.ts), one route at a
+ * time, in this sheet's memory only (stopRoute.ts), and the owner sees how
+ * long it took. It never saves, never expires and never blocks: cautions, not
+ * blocks.
  *
  * Everything it shows is worked out by services/dayPlanner/today.ts (pure)
  * from what services/dayPlanner/todayLoader.ts fetched; times are the
@@ -34,7 +38,7 @@
  * their pins are checked against her charts and her voyage ends are read on
  * the phone, both kept in this sheet's memory only. An open stop keeps its slot.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { VesselProfile } from '../../types/vessel';
 import type { PlotDayAction } from '../../services/deepLink';
 import type { BoatFix } from '../../services/boatPositionChain';
@@ -59,7 +63,19 @@ import { officialWarningsSource } from '../../utils/officialWarningsSource';
 import { DEFAULT_VESSEL } from '../../utils/defaultVessel';
 import { PASSAGE_MODEL_CHOICES, passageModelChoice } from '../passage/PassageModelModal';
 import { DeviceIcon, LightningBoltIcon, MapPinIcon, SailBoatIcon } from '../Icons';
-import { formatLatLon, type LatLon } from '../../services/dayPlanner/places';
+import { formatLatLon, type LatLon, type RoutedLeg } from '../../services/dayPlanner/places';
+import { PYD_ROUTE_ON_OPEN, pydRoutingAudience, readOwnerAccount } from '../../services/dayPlanner/pydRouting';
+import {
+    routeStop,
+    stopRouteGate,
+    stopRouteKey,
+    stopRouteQueue,
+    type StopRouteAction,
+    type StopRouteRequest,
+    type StopRouteResult,
+} from '../../services/dayPlanner/stopRoute';
+import { isDraftConfirmed } from '../../services/draftConfirmation';
+import { requireConfirmedDraft } from '../../stores/draftConfirmStore';
 import {
     DEFAULT_STAY,
     STAY_OPTIONS,
@@ -88,7 +104,7 @@ import {
     type TodayLoaderDeps,
 } from '../../services/dayPlanner/todayLoader';
 import { TodayModal } from './TodayModal';
-import { TodayStopDetail, type LandingLoader } from './TodayStopDetail';
+import { TodayStopDetail, type LandingLoader, type StopRouteView } from './TodayStopDetail';
 import {
     TodayPlacePicker,
     readPhonePosition,
@@ -107,6 +123,15 @@ export interface TodaySheetIO extends PlacePickerIO {
     voyageEnds?: () => Promise<LatLon[] | null>;
     /** Her charts at these pins, in memory (EncHazardService.queryHazards). */
     pinDepths?: (points: readonly LatLon[]) => Promise<PinResult[]>;
+    /** Whether this is the owner's account (pydRouting.readOwnerAccount), read once per open. */
+    ownerAccount?: () => Promise<boolean>;
+    /** One stop's route (stopRoute.routeStop over Auto's provider); fixtures swap the provider. */
+    routeStop?: (
+        req: StopRouteRequest,
+        opts: { signal: AbortSignal; onProgress?: (words: string) => void },
+    ) => Promise<StopRouteResult>;
+    /** PYD_ROUTE_ON_OPEN, for a fixture or test. */
+    routeOnOpen?: boolean;
 }
 
 export interface TodaySheetProps {
@@ -148,7 +173,18 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
             io?.pinDepths ??
             ((points: readonly LatLon[]) =>
                 import('../../services/enc/EncHazardService').then((enc) => enc.queryHazards([...points]))),
+        ownerAccount: io?.ownerAccount ?? (() => readOwnerAccount(scope)),
+        routeStop: io?.routeStop ?? routeStop,
+        routeOnOpen: io?.routeOnOpen ?? PYD_ROUTE_ON_OPEN,
     }));
+    // The stop she opens, routed (127-PYD-2): one at a time, in this sheet's memory only.
+    const [owner, setOwner] = useState(false);
+    const [, routesChanged] = useReducer((n: number) => n + 1, 0);
+    const [queue] = useState(() =>
+        stopRouteQueue(sources.routeStop, routesChanged, { current: () => isAuthIdentityScopeCurrent(scope) }),
+    );
+    /** The route whose draft ask she closed: its row says so, and the next tap asks again. */
+    const [asked, setAsked] = useState<string | null>(null);
     const [boat, setBoat] = useState<BoatFix | null | 'reading'>('reading');
     const [start, setStart] = useState<PlanStart | null>(null);
     const [base, setBase] = useState<TodayBase | null>(null);
@@ -218,6 +254,12 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
             .then((ends) => {
                 if (live && isAuthIdentityScopeCurrent(scope)) setVisited(ends);
             });
+        sources
+            .ownerAccount()
+            .catch(() => false)
+            .then((yes) => {
+                if (live && isAuthIdentityScopeCurrent(scope)) setOwner(yes);
+            });
         return () => {
             live = false;
             stop();
@@ -250,14 +292,33 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
         return () => {
             controller.abort();
             legsAbort.current?.abort();
+            // A new start, or the sheet closing: its routes stop and are forgotten.
+            queue.clear();
         };
-    }, [start, sources]);
+    }, [start, sources, queue]);
 
     const boatFixAgeMs = start?.kind === 'boat' ? sources.now() - start.fix.timestamp : null;
     const pinned = screen && typeof screen === 'object' ? screen.stop : null;
     // The default boat's draft is a guess, and so is the 2.5 m stand-in for a draft she never set:
     // her pins are not checked against either.
     const draftM = usingDefaultVessel ? null : vesselDraftMetres(boatProfile, 0) || null;
+    // The boat a route is asked for: the one the draft modal confirms (the store's), else hers.
+    const routeVessel = settings.vessel ?? boatProfile;
+    const routeDraftM = vesselDraftMetres(routeVessel, 0);
+    // The routed stops for this start and draft. A new map only when one lands, never on a progress word,
+    // so the plan is worked out again only then.
+    const routed = [...queue.states].flatMap(([key, route]) =>
+        route.kind === 'routed' && start && key === stopRouteKey(route.id, start, routeDraftM)
+            ? [[route.id, route.leg] as const]
+            : [],
+    );
+    const routedKey = routed.map(([id]) => id).join('|');
+    const routes = useMemo(
+        () => new Map<string, RoutedLeg>(routed),
+        // routedKey stands for the routed stops.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [routedKey],
+    );
     const view: DayPlanView | null = useMemo(
         () =>
             base
@@ -275,6 +336,7 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                           pinned,
                           pinDepth,
                           draftM,
+                          routes,
                       }),
                   )
                 : null,
@@ -292,6 +354,7 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
             pinned,
             pinDepth,
             draftM,
+            routes,
         ],
     );
 
@@ -329,6 +392,31 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [needKey, wind, sources]);
 
+    // The wind along a routed line, once (127-PYD-2): its rows then walk the route, not the estimate.
+    // Failed, it is asked once more the next time a stop page opens or closes.
+    useEffect(() => {
+        if (!legsAbort.current) return;
+        const asked = requested.current;
+        const missing = [...routes]
+            .map(([id, leg]) => ({ id: `${id}#routed`, coords: leg.route.points }))
+            .filter((n) => !asked.has(n.id));
+        if (!missing.length) return;
+        for (const n of missing) asked.add(n.id);
+        loadStopLegs(missing, wind, {
+            signal: legsAbort.current.signal,
+            deps: sources.loader,
+            onLegs: (id, stopLegs) => {
+                if (stopLegs.failed && !asked.has(`${id}!`)) {
+                    asked.add(`${id}!`);
+                    asked.delete(id);
+                }
+                setLegs((prev) => new Map(prev).set(id, stopLegs));
+            },
+        }).catch(() => {
+            /* cancelled: the sheet closed or the place changed */
+        });
+    }, [routes, wind, sources, pinned]);
+
     const chooseStart = useCallback((next: PlanStart) => {
         setScreen(null);
         setStart(next);
@@ -365,6 +453,73 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
 
     // Found by id among every checked row, so a stop whose page is open never closes under her.
     const detailRow = pinned && view ? (view.rows.get(pinned) ?? null) : null;
+
+    // ── Route round the land (127-PYD-2): her saved route still wins; a tester is offered nothing ──
+    const gate = stopRouteGate({
+        audience: pydRoutingAudience(owner),
+        signedIn: !!scope.userId,
+        defaultBoat: usingDefaultVessel,
+        switchOn: settings.autorouteTrialEnabled === true,
+        draftConfirmed: isDraftConfirmed(settings.vessel),
+    });
+    const openKey = pinned && start ? stopRouteKey(pinned, start, routeDraftM) : null;
+    const offered = !!detailRow && (gate.ok || !!gate.words) && detailRow.candidate.distance.basis !== 'saved';
+    const startRoute = (row: StopRow, departureMs: number | null) => {
+        if (!start || !base || !(gate.ok || gate.action === 'confirm-draft')) return;
+        const key = openKey;
+        const go = () => {
+            // Read after the draft modal: a draft changed there is the one routed.
+            const vessel = useSettingsStore.getState().settings.vessel ?? boatProfile;
+            const draft = vesselDraftMetres(vessel, 0);
+            queue.request(stopRouteKey(row.id, start, draft), {
+                id: row.id,
+                start,
+                stop: row.candidate,
+                startName: base.start.name,
+                stopName: row.name.split(' · ')[0],
+                draftM: draft,
+                speedKts: speed.cruiseKts,
+                vessel,
+                // A leave gone by while the sheet stayed open is now: the line is the same, only the tide hour moves.
+                departureMs: Math.max(departureMs ?? 0, sources.now()),
+            });
+        };
+        if (gate.ok) go();
+        else
+            void requireConfirmedDraft('day-plan').then((yes) => {
+                // Nothing starts for a page or a sheet that has closed, or for another account.
+                if (!mounted.current || !isAuthIdentityScopeCurrent(scope) || pinnedRef.current !== row.id) return;
+                setAsked(yes ? null : key);
+                if (yes) go();
+            });
+    };
+    const pinnedRef = useRef(pinned);
+    pinnedRef.current = pinned;
+    const mounted = useRef(true);
+    useEffect(() => {
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+        };
+    }, []);
+    const startRef = useRef(startRoute);
+    startRef.current = startRoute;
+    const autoStart = sources.routeOnOpen && offered && gate.ok;
+    // Closing her page ends its route (127-ROUTE-W stops the worker); with route-on-open, opening starts it.
+    useEffect(() => {
+        if (!openKey) return;
+        if (autoStart && detailRow && !queue.states.has(openKey))
+            startRef.current(detailRow, detailRow.plan?.best?.departureMs ?? null);
+        return () => queue.cancel(openKey);
+        // detailRow is read at open only.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [openKey, autoStart, queue]);
+    const onRouteAction = (action: StopRouteAction) => {
+        if (action === 'vessel') onOpenVessel?.();
+        // The same Preferences switch, turned on in place: her page stays open.
+        else if (action === 'preferences')
+            void useSettingsStore.getState().updateSettings({ autorouteTrialEnabled: true });
+    };
     const allCount = view ? view.fits.length + view.unchecked.length + view.notToday.length : 0;
     // Places: still asked (none in yet), or none could be read. Never the
     // "fits" copy over an empty list that is only empty because it failed.
@@ -650,6 +805,22 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                     loadLanding={detailRow.candidate.reviewed?.landingTide ? loadLanding : null}
                     onPlot={(departureMs) => plot(detailRow, departureMs)}
                     onBack={() => setScreen(null)}
+                    route={
+                        offered && openKey
+                            ? {
+                                  state: queue.states.get(openKey),
+                                  // A draft she has not confirmed is asked on the tap; said only once she closed the ask.
+                                  blocked:
+                                      !gate.ok && (gate.action !== 'confirm-draft' || asked === openKey)
+                                          ? (gate as StopRouteView['blocked'])
+                                          : null,
+                                  owner,
+                                  draftM: routeDraftM,
+                                  onRoute: (departureMs) => startRoute(detailRow, departureMs),
+                                  onAction: onRouteAction,
+                              }
+                            : null
+                    }
                 />
             )}
         </>
@@ -697,8 +868,15 @@ function StopButton({ row, card, onOpen }: { row: StopRow; card?: boolean; onOpe
                         row.parks && <span className="today-tag">Local notes</span>
                     )}
                 </span>
-                {/* A ✕ or ? row says why where its times were (127-PYD-1). */}
-                <span className="today-stop-l2">{row.line2Reason ?? row.line2}</span>
+                {/* A ✕ or ? row says why where its times were (127-PYD-1); a routed stop's times wear the route mark. */}
+                <span className="today-stop-l2">
+                    {row.route === 'routed' && !row.line2Reason && (
+                        <span aria-hidden="true" className="today-route-mark">
+                            ↝{' '}
+                        </span>
+                    )}
+                    {row.line2Reason ?? row.line2}
+                </span>
             </span>
             <span aria-hidden="true" className="today-chevron">
                 ›

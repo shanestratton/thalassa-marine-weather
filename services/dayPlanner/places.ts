@@ -76,7 +76,8 @@ const sameNameKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export type AtlasFeature = GeoJSON.Feature<GeoJSON.Point, AnchorageProps>;
-export type DistanceBasis = 'saved' | 'clear' | 'crosses' | 'unknown';
+/** 'routed': the stop she opened, routed on her charts (127-PYD-2), on the plan only, never a candidate's. */
+export type DistanceBasis = 'saved' | 'routed' | 'clear' | 'crosses' | 'unknown';
 
 export interface LatLon {
     lat: number;
@@ -109,6 +110,9 @@ export interface DistanceEstimate {
     nm: number;
     route?: SavedRouteMatch;
 }
+
+/** A routed leg (127-PYD-2): the engine's line start → stop, its own distance; memory only. */
+export type RoutedLeg = DistanceEstimate & { basis: 'routed'; route: SavedRouteMatch };
 
 export interface PlaceClosure {
     fromDate: string;
