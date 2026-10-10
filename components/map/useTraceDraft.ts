@@ -48,7 +48,16 @@ const STORAGE_KEYS = {
     returnPlan: 'thalassa_trace_wip_return_plan',
     /** Where a reversed draft came from — its "check this direction" note. */
     reversedFrom: 'thalassa_trace_wip_reversed_from',
+    /** Whose frame origin/dest are: the course frame or Plan Your Day (127-PYD-3). */
+    frameKind: 'thalassa_trace_wip_frame_kind',
+    /** Where the draft's line came from: Plan Your Day's routed line (127-PYD-3). */
+    source: 'thalassa_trace_wip_source',
 } as const;
+
+/** 'day-plan' frames never draw the straight bearing hint (127-PYD-3 decision 6). */
+export type TraceFrameKind = 'course' | 'day-plan';
+/** Read by 127-C-b: a draft whose line Thalassa routed for Plan Your Day. */
+export type TraceDraftSource = 'day-plan-route';
 
 const subscribeIdentity = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 
@@ -124,6 +133,8 @@ interface TraceDraftData {
     traceDest: TraceFramePoint | null;
     returnPlan: ReturnPlan | null;
     reversedFrom: ReversalMark | null;
+    traceFrameKind: TraceFrameKind | null;
+    draftSource: TraceDraftSource | null;
 }
 
 interface ScopedTraceDraft {
@@ -135,16 +146,23 @@ function readDraft(scope: AuthIdentityScope): TraceDraftData {
     const storedCoords = readJson<unknown>(STORAGE_KEYS.pins, scope);
     const rawDeparture = readRaw(STORAGE_KEYS.departureMs, scope);
     const departure = rawDeparture ? Number(rawDeparture) : Number.NaN;
+    const traceOrigin = readFramePoint(STORAGE_KEYS.origin, scope);
+    const traceDest = readFramePoint(STORAGE_KEYS.destination, scope);
+    const kind = readRaw(STORAGE_KEYS.frameKind, scope);
     return {
         capturedCoords: Array.isArray(storedCoords) ? storedCoords.filter(isTracePoint) : [],
         departureMs: Number.isFinite(departure) && departure > Date.now() - 3_600_000 ? departure : null,
         traceName: readRaw(STORAGE_KEYS.name, scope) ?? '',
         autoName: readRaw(STORAGE_KEYS.autoName, scope) ?? '',
         legAnchor: readLegAnchor(scope),
-        traceOrigin: readFramePoint(STORAGE_KEYS.origin, scope),
-        traceDest: readFramePoint(STORAGE_KEYS.destination, scope),
+        traceOrigin,
+        traceDest,
         returnPlan: parseReturnPlan(readJson<unknown>(STORAGE_KEYS.returnPlan, scope)),
         reversedFrom: parseReversalMark(readJson<unknown>(STORAGE_KEYS.reversedFrom, scope)),
+        // Fail closed: a stored frame whose kind is missing or unreadable is
+        // Plan Your Day's, so the straight hint never comes back with it.
+        traceFrameKind: !traceOrigin && !traceDest ? null : kind === 'course' ? 'course' : 'day-plan',
+        draftSource: readRaw(STORAGE_KEYS.source, scope) === 'day-plan-route' ? 'day-plan-route' : null,
     };
 }
 
@@ -210,7 +228,11 @@ export function useTraceDraft() {
 
     const setCapturedCoords = useCallback<Dispatch<SetStateAction<TracePoint[]>>>(
         (action) =>
-            updateDraft((current) => ({ ...current, capturedCoords: resolveAction(action, current.capturedCoords) })),
+            updateDraft((current) => {
+                const capturedCoords = resolveAction(action, current.capturedCoords);
+                // A pin move keeps where the line came from; clearing the pins ends it.
+                return { ...current, capturedCoords, draftSource: capturedCoords.length ? current.draftSource : null };
+            }),
         [updateDraft],
     );
     const setDepartureMs = useCallback<Dispatch<SetStateAction<number | null>>>(
@@ -233,7 +255,16 @@ export function useTraceDraft() {
                 legAnchor: resolveAction(action, current.legAnchor),
                 returnPlan: null,
                 reversedFrom: null,
+                draftSource: null,
             })),
+        [updateDraft],
+    );
+    const setDraftSource = useCallback(
+        (draftSource: TraceDraftSource | null) => updateDraft((current) => ({ ...current, draftSource })),
+        [updateDraft],
+    );
+    const setTraceFrameKind = useCallback(
+        (traceFrameKind: TraceFrameKind | null) => updateDraft((current) => ({ ...current, traceFrameKind })),
         [updateDraft],
     );
     const setReturnPlan = useCallback<Dispatch<SetStateAction<ReturnPlan | null>>>(
@@ -248,8 +279,14 @@ export function useTraceDraft() {
         (action) => updateDraft((current) => ({ ...current, traceOrigin: resolveAction(action, current.traceOrigin) })),
         [updateDraft],
     );
+    // Every path that clears the frame clears its destination, so this is
+    // where the frame's kind ends too.
     const setTraceDest = useCallback<Dispatch<SetStateAction<TraceFramePoint | null>>>(
-        (action) => updateDraft((current) => ({ ...current, traceDest: resolveAction(action, current.traceDest) })),
+        (action) =>
+            updateDraft((current) => {
+                const traceDest = resolveAction(action, current.traceDest);
+                return { ...current, traceDest, traceFrameKind: traceDest ? current.traceFrameKind : null };
+            }),
         [updateDraft],
     );
     /**
@@ -316,6 +353,8 @@ export function useTraceDraft() {
                           autoName: '',
                           traceOrigin: null,
                           traceDest: null,
+                          traceFrameKind: null,
+                          draftSource: null,
                           reversedFrom: { label: slot.sourceLabel, end: { ...slot.points[slot.points.length - 1] } },
                       }
                     : current,
@@ -348,6 +387,8 @@ export function useTraceDraft() {
                 legAnchor: next.legAnchor,
                 traceOrigin: null,
                 traceDest: null,
+                traceFrameKind: null,
+                draftSource: null,
                 reversedFrom: next.reversedFrom,
                 returnPlan: next.returnPlan,
             }));
@@ -376,6 +417,13 @@ export function useTraceDraft() {
                 scopedStorageKey(STORAGE_KEYS.reversedFrom, scope),
                 JSON.stringify(draft.reversedFrom),
             );
+            for (const [k, value] of [
+                [STORAGE_KEYS.frameKind, draft.traceFrameKind],
+                [STORAGE_KEYS.source, draft.draftSource],
+            ] as const) {
+                if (value) sessionStorage.setItem(scopedStorageKey(k, scope), value);
+                else sessionStorage.removeItem(scopedStorageKey(k, scope));
+            }
         } catch {
             /* quota/private-mode — the draft just doesn't survive reloads */
         }
@@ -396,6 +444,10 @@ export function useTraceDraft() {
         setTraceOrigin,
         traceDest: draft.traceDest,
         setTraceDest,
+        traceFrameKind: draft.traceFrameKind,
+        setTraceFrameKind,
+        draftSource: draft.draftSource,
+        setDraftSource,
         reverseDirection,
         returnPlan: draft.returnPlan,
         setReturnPlan,
