@@ -231,10 +231,107 @@ for (const size of OTHER)
         expect(errors).toEqual([]);
     });
 
+// ── Plot on chart = the routed line (127-PYD-3) ──
+
+/** Auto's chart over Plan Your Day: its footer buttons whole, on screen and clear of the tab bar. */
+function dayChartIssues(page: Page) {
+    return page.evaluate(() => {
+        const issues: string[] = [];
+        const nav = document.querySelector('nav[aria-label="Main"]')!.getBoundingClientRect();
+        for (const name of ['Use on the main chart', 'Whole route', 'Back to Plan Your Day']) {
+            const button = [...document.querySelectorAll<HTMLElement>('button')].find(
+                (b) => b.textContent?.trim() === name,
+            );
+            if (!button) {
+                issues.push(`no ${name}`);
+                continue;
+            }
+            const r = button.getBoundingClientRect();
+            if (r.width < 44 - 0.5 || r.height < 44 - 0.5) issues.push(`${name} is ${r.width}×${r.height}`);
+            if (r.top < 0 || r.left < 0 || r.right > innerWidth + 0.5 || r.bottom > innerHeight + 0.5)
+                issues.push(`${name} is off screen`);
+            const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            if (!hit || !button.contains(hit)) issues.push(`${name} is covered (by ${hit?.tagName ?? 'nothing'})`);
+            if (r.bottom > nav.top + 0.5 && hit?.closest('nav')) issues.push(`${name} is under the tab bar`);
+        }
+        if (document.documentElement.scrollWidth > innerWidth) issues.push('the page scrolls sideways');
+        return issues;
+    });
+}
+
+for (const size of [AS_DRAWN.se, AS_DRAWN.mid, AS_DRAWN.shane])
+    test(`routed: Show route on chart opens Auto's chart over Plan Your Day at ${size.name}; Back returns to her stop`, async ({
+        page,
+    }) => {
+        const errors = await open(page, size, `&mode=routed&owner=1${size.query}`);
+        await openStop(page);
+        const detail = await routeIt(page);
+        await expect(detail.locator('li[data-route]')).toHaveText(ROUTED, { timeout: 10_000 });
+        const show = detail.getByRole('button', { name: 'Show route on chart' });
+        await show.click();
+        await expect(page.getByRole('region', { name: 'Plan Your Day route chart' })).toBeAttached({
+            timeout: 10_000,
+        });
+        // Plan Your Day is hidden behind it, not closed: nothing of it shows or takes a tap.
+        await expect(page.getByRole('dialog', { name: 'Plan Your Day', exact: true })).toBeHidden();
+        await expect(detail).toBeHidden();
+        await expect(page.getByRole('button', { name: 'Use on the main chart' })).toBeVisible();
+        expect(await dayChartIssues(page)).toEqual([]);
+        await page.getByRole('button', { name: 'Back to Plan Your Day' }).click();
+        await expect(page.getByRole('region', { name: 'Plan Your Day route chart' })).toHaveCount(0);
+        await expect(detail).toBeVisible();
+        await expect(detail.locator('li[data-route]')).toHaveText(ROUTED);
+        await expect(show).toBeFocused();
+        expect(errors).toEqual([]);
+    });
+
+test('routed: Use on the main chart plots the routed line, never two points, and closes the planner', async ({
+    page,
+}) => {
+    const errors = await open(page, AS_DRAWN.mid, `&mode=routed&owner=1${AS_DRAWN.mid.query}`);
+    await openStop(page);
+    const detail = await routeIt(page);
+    await expect(detail.locator('li[data-route]')).toHaveText(ROUTED, { timeout: 10_000 });
+    await detail.getByRole('button', { name: 'Show route on chart' }).click();
+    await page.getByRole('button', { name: 'Use on the main chart' }).click({ timeout: 10_000 });
+    await expect(page.getByRole('dialog', { name: 'Plan Your Day', exact: true })).toHaveCount(0);
+    const plotted = await page.evaluate(
+        () =>
+            (
+                window as unknown as {
+                    __dayPlannerFixture: { plotted: { kind: string; routed?: boolean; points: unknown[] }[] };
+                }
+            ).__dayPlannerFixture.plotted,
+    );
+    expect(plotted).toHaveLength(1);
+    expect(plotted[0]).toMatchObject({ kind: 'plot-day', routed: true });
+    expect(plotted[0].points.length).toBeGreaterThan(2);
+    expect(errors).toEqual([]);
+});
+
+test('no route (owner) and a tester: Plot by hand sends the two marks and no line', async ({ page }) => {
+    const errors = await open(page, AS_DRAWN.se2, `&mode=no-chart&owner=1${AS_DRAWN.se2.query}`);
+    await openStop(page);
+    const detail = await routeIt(page);
+    await expect(detail.locator('li[data-route] [aria-live]')).toHaveText(/^No chart for /, { timeout: 10_000 });
+    await detail.getByRole('button', { name: 'Plot by hand', exact: true }).click();
+    const plotted = await page.evaluate(
+        () =>
+            (
+                window as unknown as {
+                    __dayPlannerFixture: { plotted: { points: unknown[]; frame?: { why: string } }[] };
+                }
+            ).__dayPlannerFixture.plotted,
+    );
+    expect(plotted[0].points).toHaveLength(0);
+    expect(plotted[0].frame?.why).toMatch(/^No chart for /);
+    expect(errors).toEqual([]);
+});
+
 test('a tester sees no route row anywhere: the stop page is today’s', async ({ page }) => {
     const errors = await open(page, AS_DRAWN.mid, `&mode=routed${AS_DRAWN.mid.query}`);
     const detail = await openStop(page);
-    await expect(detail.getByRole('button', { name: 'Plot on chart', exact: true })).toBeVisible();
+    await expect(detail.getByRole('button', { name: 'Plot by hand', exact: true })).toBeVisible();
     await expect(detail.locator('li[data-route]')).toHaveCount(0);
     await expect(detail.getByRole('button', { name: 'Route round the land' })).toHaveCount(0);
     expect(await page.locator('body').textContent()).not.toMatch(/round the land|Routed in/);
@@ -276,7 +373,7 @@ for (const [mode, words] of [
         await expect(row.getByText(/^About \d+ NM each way/)).toBeVisible();
         await expect(detail.getByText(/NM each way \(/)).toHaveCount(1);
         await expect(detail.getByText(/^No route after 6\.4 s$/)).toBeVisible();
-        await expect(detail.getByRole('button', { name: 'Plot on chart', exact: true })).toBeVisible();
+        await expect(detail.getByRole('button', { name: 'Plot by hand', exact: true })).toBeVisible();
         expect(await layoutIssues(page, false)).toEqual([]);
         expect(errors).toEqual([]);
     });

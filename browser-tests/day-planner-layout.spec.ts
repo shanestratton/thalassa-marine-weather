@@ -392,7 +392,7 @@ for (const size of nestedSizes) {
         // later rows into a scroll, the first note in view as it opens. Its times
         // are Airlie Beach's, not the phone's.
         await first.click();
-        const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot on chart' }) });
+        const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot by hand' }) });
         await expect(detail.getByRole('list', { name: 'How the day goes' })).toBeVisible();
         await expect(detail.getByRole('group', { name: 'Leave at' })).toBeVisible();
         await expect(detail.locator('.today-sub')).toHaveText(/ · times in AEST$/);
@@ -431,7 +431,7 @@ for (const size of sizes.filter((s) => !s.mayScroll)) {
         const first = dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first();
         await expect(first.locator('.today-stop-l2')).toHaveText(TIMES);
         await first.click();
-        const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot on chart' }) });
+        const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot by hand' }) });
         await expect(detail.getByRole('group', { name: 'Leave at' })).toBeVisible();
         await expect(detail.locator('.today-rows li[data-parks]')).toHaveCount(0);
         expect(await layoutIssues(page, size.height < 568)).toEqual([]);
@@ -453,7 +453,7 @@ for (const size of [sizes[0], sizes[2], sizes[3], AS_DRAWN.mid, AS_DRAWN.shane])
         expect((await breathing(page)).chips).toEqual({ oneRow: true, overlapping: false, cut: [] });
 
         await first.click();
-        const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot on chart' }) });
+        const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot by hand' }) });
         await expect(detail.getByRole('list', { name: 'How the day goes' })).toContainText(
             /At anchor \d\d:\d\d → 09:00 tomorrow/,
         );
@@ -463,20 +463,25 @@ for (const size of [sizes[0], sizes[2], sizes[3], AS_DRAWN.mid, AS_DRAWN.shane])
     });
 }
 
-test('Plot on chart hands the chart straight pins there and back, and closes the planner', async ({ page }) => {
+test('Plot by hand hands the chart the two marks and no line, and closes the planner (127-PYD-3)', async ({ page }) => {
     await open(page, sizes[2], '&mode=normal');
     const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
     await dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().click();
-    await page.getByRole('button', { name: 'Plot on chart' }).click();
+    await page.getByRole('button', { name: 'Plot by hand' }).click();
     await expect(dialog).toHaveCount(0);
     const plotted = await page.evaluate(
         () =>
-            (window as unknown as { __dayPlannerFixture: { plotted: { kind: string; points: unknown[] }[] } })
-                .__dayPlannerFixture.plotted,
+            (
+                window as unknown as {
+                    __dayPlannerFixture: { plotted: { kind: string; points: unknown[]; frame?: unknown }[] };
+                }
+            ).__dayPlannerFixture.plotted,
     );
     expect(plotted).toHaveLength(1);
     expect(plotted[0].kind).toBe('plot-day');
-    expect(plotted[0].points).toHaveLength(3);
+    // Never a straight line: no pins, only the start and stop marks.
+    expect(plotted[0].points).toHaveLength(0);
+    expect(plotted[0].frame).toBeTruthy();
 });
 
 /**
@@ -1624,7 +1629,7 @@ for (const display of ['dark', 'light'] as const)
         const errors = await open(page, sizes[2], `&mode=normal${display === 'light' ? '&display=light' : ''}`);
         const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
         await dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().click();
-        const button = page.getByRole('button', { name: 'Plot on chart' });
+        const button = page.getByRole('button', { name: 'Plot by hand' });
         await expect(button).toBeVisible();
         const style = await button.evaluate((el) => {
             const cs = getComputedStyle(el);
@@ -1713,9 +1718,7 @@ for (const size of [AS_DRAWN.se, sizes[1], AS_DRAWN.shane])
             const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
             await expect(stops.first().locator('.today-stop-l2')).toHaveText(line2For(mode));
             await stops.nth(1).click();
-            const detail = page
-                .getByRole('dialog')
-                .filter({ has: page.getByRole('button', { name: 'Plot on chart' }) });
+            const detail = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot by hand' }) });
             const rows = detail.getByRole('list', { name: 'How the day goes' }).getByRole('listitem');
             const verdict = (await rows.first().getAttribute('data-level')) !== null;
             const why = rows.nth(verdict ? 1 : 0);

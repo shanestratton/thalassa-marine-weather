@@ -356,6 +356,8 @@ function Fixture() {
                                 setOpen(false);
                             }}
                             onOpenVessel={() => fixture.openedVessel++}
+                            // Auto's chart over a routed stop (127-PYD-3): no tiles load here (network is blocked).
+                            mapboxToken="fixture-token"
                             io={io}
                         />
                     )}

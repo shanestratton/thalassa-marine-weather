@@ -106,7 +106,6 @@ import {
 import { TodayModal } from './TodayModal';
 import { TodayStopDetail, type LandingLoader, type StopRouteView } from './TodayStopDetail';
 import { lazyRetry } from '../../utils/lazyRetry';
-import { snapshotAutoroutingVesselProfile } from '../../services/autoroutingVesselProfile';
 import type { AutoroutingTrialRoute } from '../../types/autorouting';
 
 // Auto's chart, over Plan Your Day for a routed stop (127-PYD-3): lazy, as RoutingModeDialog loads it.
@@ -887,7 +886,8 @@ export default function TodaySheet({
                         mapboxToken={mapboxToken}
                         initialDraftM={routeDraftM}
                         initialSpeedKts={routeVessel.cruisingSpeed}
-                        initialVesselProfile={snapshotAutoroutingVesselProfile(routeVessel)}
+                        // The boat this very route was worked out for.
+                        initialVesselProfile={dayChart.proposal.vesselProfile}
                         onClose={closeDayChart}
                         dayPlan={{
                             proposal: dayChart.proposal,
