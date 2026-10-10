@@ -528,18 +528,34 @@
 // v199 (2026-08-04): purge tile caches that predate the image content-type
 // guard — any 200-status junk cached earlier would replay into the decoder
 // forever. OFFLINE_TILE_CACHE is deliberately NOT bumped (user downloads).
+// v200 (2026-10-11, 127-H): Mapbox tiles get their own cache, dated by our own
+// stamp, and are never served or kept once 29 days old. Mapbox Product Terms
+// §2.8.1: "caching is limited to thirty (30) days on the same device making the
+// Mapping API request" — 29, so clock drift can never reach day 30. The old
+// unstamped Mapbox copies are purged at activate from RUNTIME_TILE_CACHE and
+// from OFFLINE_TILE_CACHE (its name was the v195-v197 browsing cache, which
+// kept every Mapbox answer): their age is unknowable, so none is grandfathered.
 const CACHE_NAME = 'thalassa-v199-core';
 const RUNTIME_TILE_CACHE = 'thalassa-v199-runtime-tiles';
-// MapOfflineService writes explicit web downloads here. Do not prune it from
-// the service worker: doing so would silently punch holes in an offline area.
+// MapOfflineService writes explicit web downloads here (OSM and OpenSeaMap,
+// never Mapbox). Do not prune it from the service worker: doing so would
+// silently punch holes in an offline area. Only Mapbox copies are removed.
 const OFFLINE_TILE_CACHE = 'thalassa-v195-tiles';
 const DATA_CACHE = 'thalassa-v196-data';
 // 127-C-b: no cache of AvNav/Pi chart tiles (pictures of licensed charts stay
 // on the boat); activate deletes the old LAN tile cache, not in its keep-list.
+// 127-H: Mapbox's raster imagery (satellite, the Hybrid Static Tiles), stamped
+// when stored. Only this cache ever answers a mapbox.com request.
+const MAPBOX_TILE_CACHE = 'thalassa-v200-mapbox-tiles';
+const MAPBOX_MAX_AGE_MS = 29 * 86_400_000;
+// 512 px @2x imagery is heavy: 800 tiles bound the store to ~100-200 MB.
+const MAPBOX_TILE_LIMIT = 800;
+const MAPBOX_STAMP = 'x-thalassa-cached-at';
+// activate deletes every cache not named here.
+const KEPT_CACHES = [CACHE_NAME, RUNTIME_TILE_CACHE, OFFLINE_TILE_CACHE, DATA_CACHE, MAPBOX_TILE_CACHE];
 
 const RUNTIME_TILE_LIMIT = 2000;
-const RUNTIME_TILE_PRUNE_EVERY = 64;
-let runtimeTileWritesSincePrune = RUNTIME_TILE_PRUNE_EVERY - 1;
+const TILE_PRUNE_EVERY = 64;
 
 const ASSETS = ['/', '/index.html'];
 
@@ -552,12 +568,91 @@ const pruneCacheToLimit = async (cache, limit) => {
     await Promise.all(keys.slice(0, excess).map((key) => cache.delete(key)));
 };
 
-const putRuntimeTile = async (cache, request, response) => {
-    await cache.put(request, response);
-    runtimeTileWritesSincePrune += 1;
-    if (runtimeTileWritesSincePrune < RUNTIME_TILE_PRUNE_EVERY) return;
-    runtimeTileWritesSincePrune = 0;
-    await pruneCacheToLimit(cache, RUNTIME_TILE_LIMIT);
+// A FIFO-bounded put: prunes on the first write after the worker starts, then
+// every TILE_PRUNE_EVERY writes.
+const boundedPut = (limit) => {
+    let writes = TILE_PRUNE_EVERY - 1;
+    return async (cache, request, response) => {
+        await cache.put(request, response);
+        if (++writes < TILE_PRUNE_EVERY) return;
+        writes = 0;
+        await pruneCacheToLimit(cache, limit);
+    };
+};
+const putRuntimeTile = boundedPut(RUNTIME_TILE_LIMIT);
+const putMapboxTile = boundedPut(MAPBOX_TILE_LIMIT);
+
+// Fresh means stamped by us, not in the future (a clock set back), and younger
+// than 29 days. Anything else is never served.
+const isFreshMapboxTile = (response, now) => {
+    const age = now - Number(response.headers.get(MAPBOX_STAMP));
+    return age >= 0 && age < MAPBOX_MAX_AGE_MS;
+};
+
+// Our own header on a stored copy (the body streams straight through): a CORS
+// response exposes only safelisted headers, so nothing may depend on Mapbox
+// exposing its Date.
+const stampedCopy = (response) => {
+    const headers = new Headers(response.headers);
+    headers.set(MAPBOX_STAMP, String(Date.now()));
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+};
+
+// A tile miss: fetch it, and store (via `store`) only a real image — never a
+// 200-status error body, which would replay into the decoder forever. A dead
+// network is an empty 404, never an old tile.
+const fetchTile = (event, store) =>
+    fetch(event.request)
+        .then((networkResponse) => {
+            const tileType = networkResponse.headers.get('content-type') || '';
+            if (networkResponse.ok && tileType.startsWith('image/')) {
+                event.waitUntil(
+                    store(networkResponse.clone()).catch((error) =>
+                        console.warn('[SW] tile cache write failed', error),
+                    ),
+                );
+            }
+            return networkResponse;
+        })
+        .catch(() => new Response('', { status: 404 }));
+
+// Expired bytes on disk are still caching: drop them once per worker start —
+// at activate, or else on the first request — so a skipper back after six
+// weeks is cleaned on the first request, whatever it is. A tile the page asks
+// for while the sweep runs is the fetch branch's to judge (it may already hold
+// a fresh copy under the same key), so the sweep leaves it alone; the set
+// exists only while a sweep runs.
+let mapboxSweepPending = true;
+let mapboxRequested = null;
+const sweepMapboxTiles = async () => {
+    mapboxSweepPending = false;
+    const requested = (mapboxRequested = new Set());
+    try {
+        const cache = await caches.open(MAPBOX_TILE_CACHE);
+        const now = Date.now();
+        const keys = await cache.keys();
+        await Promise.all(
+            keys.map(async (key) => {
+                const hit = await cache.match(key);
+                if (!requested.has(key.url) && !(hit && isFreshMapboxTile(hit, now))) await cache.delete(key);
+            }),
+        );
+    } catch (error) {
+        mapboxSweepPending = true; // try again on the next request
+        throw error;
+    } finally {
+        if (mapboxRequested === requested) mapboxRequested = null;
+    }
+};
+// Mapbox copies of unknown age in a cache Mapbox no longer answers from.
+const purgeMapboxEntries = async (cache) => {
+    const keys = await cache.keys();
+    await Promise.all(
+        keys
+            .filter((key) => isHostOrSubdomain(new URL(key.url).hostname, 'mapbox.com'))
+            .map((key) => cache.delete(key)),
+    );
+    return cache;
 };
 
 self.addEventListener('install', (event) => {
@@ -567,21 +662,26 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
     event.waitUntil(
-        caches.keys().then((keys) =>
-            Promise.all(
-                keys.map((key) => {
-                    if (![CACHE_NAME, RUNTIME_TILE_CACHE, OFFLINE_TILE_CACHE, DATA_CACHE].includes(key)) {
-                        return caches.delete(key);
-                    }
-                }),
-            ).then(() => caches.open(RUNTIME_TILE_CACHE).then((cache) => pruneCacheToLimit(cache, RUNTIME_TILE_LIMIT))),
-        ),
+        caches
+            .keys()
+            .then((keys) =>
+                Promise.all(keys.filter((key) => !KEPT_CACHES.includes(key)).map((key) => caches.delete(key))),
+            )
+            .then(() => caches.open(OFFLINE_TILE_CACHE))
+            .then(purgeMapboxEntries)
+            .then(() => caches.open(RUNTIME_TILE_CACHE))
+            .then(purgeMapboxEntries)
+            .then((cache) => pruneCacheToLimit(cache, RUNTIME_TILE_LIMIT))
+            .then(sweepMapboxTiles),
     );
     self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
+    if (mapboxSweepPending) {
+        event.waitUntil(sweepMapboxTiles().catch((error) => console.warn('[SW] Mapbox tile sweep failed', error)));
+    }
 
     // CacheStorage accepts GET requests only. More importantly, authenticated
     // POST responses (Edge Functions, auth, AI) must never be replayed across
@@ -596,7 +696,27 @@ self.addEventListener('fetch', (event) => {
         return; // Don't call event.respondWith — browser fetches normally
     }
 
-    // 1. CHART TILES — CACHE FIRST
+    // 1a. MAPBOX TILES — CACHE FIRST, UNDER 29 DAYS (127-H)
+    // Only MAPBOX_TILE_CACHE answers, and only with a tile we stamped less than
+    // 29 days ago. An older, unstamped or future-stamped copy is deleted and
+    // fetched again; offline it is a miss (the empty 404), never the old tile.
+    // Mapbox GL JS's own tile cache is its renderer's business (§2.8.3).
+    if (isHostOrSubdomain(url.hostname, 'mapbox.com')) {
+        mapboxRequested?.add(event.request.url);
+        event.respondWith(
+            caches.open(MAPBOX_TILE_CACHE).then(async (cache) => {
+                const cached = await cache.match(event.request);
+                if (cached) {
+                    if (isFreshMapboxTile(cached, Date.now())) return cached;
+                    await cache.delete(event.request);
+                }
+                return fetchTile(event, (tile) => putMapboxTile(cache, event.request, stampedCopy(tile)));
+            }),
+        );
+        return;
+    }
+
+    // 1b. OTHER CHART TILES — CACHE FIRST
     // Explicit Offline Area downloads live in OFFLINE_TILE_CACHE and are never
     // evicted here. Tiles picked up during ordinary browsing use the bounded
     // runtime cache so panning around the world cannot consume storage forever.
@@ -604,7 +724,6 @@ self.addEventListener('fetch', (event) => {
         isHostOrSubdomain(url.hostname, 'cartocdn.com') ||
         isHostOrSubdomain(url.hostname, 'openstreetmap.org') ||
         isHostOrSubdomain(url.hostname, 'openseamap.org') ||
-        isHostOrSubdomain(url.hostname, 'mapbox.com') ||
         // The Relief base's seafloor tiles (2026-10-04): Cloudflare R2 on
         // tiles.thalassatiles.com, immutable under a versioned prefix, so
         // cache-first is exactly right.
@@ -621,22 +740,7 @@ self.addEventListener('fetch', (event) => {
                                 return cachedResponse;
                             }
                             // Fetch and cache ordinary browsing tiles separately.
-                            return fetch(event.request)
-                                .then((networkResponse) => {
-                                    // Only cache real images — never a
-                                    // 200-status error body (durable replay
-                                    // into the decoder otherwise).
-                                    const tileType = networkResponse.headers.get('content-type') || '';
-                                    if (networkResponse.ok && tileType.startsWith('image/')) {
-                                        event.waitUntil(
-                                            putRuntimeTile(runtimeCache, event.request, networkResponse.clone()).catch(
-                                                (error) => console.warn('[SW] chart tile cache write failed', error),
-                                            ),
-                                        );
-                                    }
-                                    return networkResponse;
-                                })
-                                .catch(() => new Response('', { status: 404 }));
+                            return fetchTile(event, (tile) => putRuntimeTile(runtimeCache, event.request, tile));
                         },
                     ),
             ),
@@ -646,9 +750,9 @@ self.addEventListener('fetch', (event) => {
 
     // 2. DATA API - Network First, then Cache
     // Covers public, credential-free weather APIs only. Supabase responses are
-    // deliberately excluded because many are user-scoped or signed.
+    // deliberately excluded because many are user-scoped or signed. Open-Meteo
+    // left in 127-H: the app reaches it only through proxy-openmeteo.
     if (
-        isHostOrSubdomain(url.hostname, 'open-meteo.com') ||
         isHostOrSubdomain(url.hostname, 'stormglass.io') ||
         isHostOrSubdomain(url.hostname, 'nomads.ncep.noaa.gov') ||
         isHostOrSubdomain(url.hostname, 'gebco.net')
