@@ -36,6 +36,11 @@
  *     verdict; the marina approach gets its own line in the detail.
  *
  * Every time and distance it produces is an ESTIMATE and is shown as one.
+ *
+ * SAY WHY (build 127, 127-PYD-1): a reason is kept once, without the "over
+ * your limits: " prefix, and that prefix is added only where words need it
+ * (VoiceOver, Not today, the stop page's verdict); a ✕ or ? row shows its
+ * reason where its times were, and thunder is named in the headline.
  */
 import {
     scoreAnchorage,
@@ -647,11 +652,11 @@ function overHourBetween(
     return worst;
 }
 
-/** "over your limits: SE 29 kn in the area", or its gusts: the point block, not the route. */
+/** "SE 29 kn in the area", or its gusts: the point block, not the route. */
 function areaOverReason(h: PointHour, limits: DayPlanLimits): string {
     if (h.medianKts !== null && h.medianKts >= limits.wind.poor)
-        return `over your limits: ${h.dirDeg === null ? '' : `${compass8(h.dirDeg)} `}${Math.round(h.medianKts)} kn in the area`;
-    return `over your limits: gusts ${Math.round(h.gustMaxKts ?? 0)} kn in the area`;
+        return `${h.dirDeg === null ? '' : `${compass8(h.dirDeg)} `}${Math.round(h.medianKts)} kn in the area`;
+    return `gusts ${Math.round(h.gustMaxKts ?? 0)} kn in the area`;
 }
 
 const PART_WORD: Record<PartLevel, string> = {
@@ -686,9 +691,9 @@ export function windSpan(dirDeg: number | null, lo: number | null, hi: number | 
 /**
  * One verdict cell: "Morning" / ✓ "SE 12–15" / "Inside", and its spoken form.
  * Thunder in two or more models shows in the cell itself ("Thunder" for the
- * word it holds at Near), in whichever part it falls: appended to the
- * headline it ran to four and five lines at 320 px and pushed the card into
- * a scroll.
+ * word it holds at Near, and ⚡ for its ≈), in whichever part it falls. The
+ * headline names it too since 127-PYD-1, in place of the clause it causes
+ * (dayHeadline): appended, it ran to four and five lines at 320 px.
  */
 export function partCell(
     part: PartVerdict,
@@ -714,11 +719,12 @@ export function partCell(
     spoken.push(PART_ARIA[part.level]);
     const thunder = part.thunder >= 2 && part.level !== 'past' && part.level !== 'dark';
     if (thunder) spoken.push(`thunder in ${part.thunder}${blockModels ? ` of ${blockModels}` : ''} models`);
+    const bolt = thunder && part.level === 'near';
     return {
         label,
-        glyph: PART_GLYPH[part.level],
+        glyph: bolt ? '⚡' : PART_GLYPH[part.level],
         wind,
-        word: thunder && part.level === 'near' ? 'Thunder' : PART_WORD[part.level],
+        word: bolt ? 'Thunder' : PART_WORD[part.level],
         ariaLabel: `${label}: ${spoken.join(', ')}`,
     };
 }
@@ -729,35 +735,43 @@ export interface DayChip {
     date: string;
     /** "Today" or "Fri". */
     label: string;
-    /** "Friday 9 October, Models agree". */
+    /** "Friday 9 October, near your wind limits at best, Models agree". */
     ariaLabel: string;
     agreement: AgreementLevel | null;
-    members: number;
-    peak: number;
-    thin: boolean;
+    /** That day's best part (127-PYD-1): the chip wears her limits' glyph, not the models' agreement. */
+    best: PartLevel;
+    /** PART_GLYPH[best] when it is Inside, Near or Over; '' otherwise. */
+    glyph: string;
 }
+
+const PART_RANK: Record<PartLevel, number> = { inside: 0, near: 1, none: 2, over: 3, past: 9, dark: 9 };
+const bestPart = (parts: readonly PartVerdict[]) =>
+    [...parts].sort((a, b) => PART_RANK[a.level] - PART_RANK[b.level])[0] as PartVerdict | undefined;
 
 export function dayChips(args: {
     atmos: SpreadBlock<AtmosVar> | null;
     zone: string;
     nowMs: number;
     dates: readonly string[];
+    /** Each date's parts, in the order of `dates`. */
+    parts?: readonly (readonly PartVerdict[])[];
 }): DayChip[] {
     const { zone, nowMs } = args;
     const verdicts = windAgreementByDay(args.atmos, zone);
     const today = localDate(nowMs, zone);
-    return args.dates.map((date) => {
+    return args.dates.map((date, i) => {
         const v = verdictAt(verdicts, atNoon(date, zone));
         const agreement = v?.level ?? null;
         const isToday = date === today;
+        const best = bestPart(args.parts?.[i] ?? [])?.level ?? 'none';
+        const glyph = best === 'inside' || best === 'near' || best === 'over' ? PART_GLYPH[best] : '';
         return {
             date,
             label: isToday ? 'Today' : weekdayShort(date, zone),
-            ariaLabel: `${isToday ? 'Today, ' : ''}${longDate(date, zone)}, ${agreement ? AGREEMENT_WORDS[agreement] : 'model agreement not known'}`,
+            ariaLabel: `${isToday ? 'Today, ' : ''}${longDate(date, zone)}, ${glyph ? `${PART_ARIA[best]} at best, ` : ''}${agreement ? AGREEMENT_WORDS[agreement] : 'model agreement not known'}`,
             agreement,
-            members: v?.members ?? 0,
-            peak: v?.peak ?? 0,
-            thin: v?.thin ?? false,
+            best,
+            glyph,
         };
     });
 }
@@ -770,7 +784,14 @@ export interface Headline {
     link?: { label: string; date: string };
 }
 
-const PART_RANK: Record<PartLevel, number> = { inside: 0, near: 1, none: 2, over: 3, past: 9, dark: 9 };
+/**
+ * The longest headline before 127, the window's ("Afternoon's your window: …
+ * Evening gets near your limits.", 98 characters; the thunder day the fit
+ * specs measure). Thunder keeps within it: the window's clause replaces the
+ * one it causes, a Near day's drops its "about" where it must, and the
+ * models' spread is said only where it fits.
+ */
+const HEADLINE_ROOM = 98;
 
 function partPhrase(part: PartName, isToday: boolean, dayName: string): string {
     return isToday ? `this ${part}` : `${dayName} ${part}`;
@@ -786,6 +807,8 @@ export interface DayHeadlineArgs {
     hours: readonly PointHour[];
     limits: DayPlanLimits;
     window: DayWindow;
+    /** The models in the point block, for "thunder in 3 of 7 models". */
+    models?: number;
 }
 
 /** §4's templates, deterministic, in priority order. */
@@ -794,11 +817,14 @@ export function dayHeadline(args: DayHeadlineArgs): Headline {
     const active = parts.filter((p) => p.level !== 'past' && p.level !== 'dark');
     if (!active.length) return { text: `No daylight left ${isToday ? 'today' : `on ${dayName}`}.` };
     if (active.every((p) => p.level === 'none'))
-        return { text: `No forecast for ${dayName}: places by distance, weather not checked.` };
+        return { text: `No forecast for ${dayName}: places shown, weather not checked.` };
 
-    const best = [...active].sort((a, b) => PART_RANK[a.level] - PART_RANK[b.level])[0];
+    const best = bestPart(active)!;
     let text: string;
     let link: Headline['link'];
+    let spread = false;
+    // "in 3 of 7 models.": thunder in two or more models (127-PYD-1).
+    const of = (count: number) => `in ${count} of ${args.models || best.models} models.`;
     if (active.every((p) => p.level === 'over')) {
         const lo = Math.min(...active.flatMap((p) => (p.loKts === null ? [] : [p.loKts])));
         const hi = Math.max(...active.flatMap((p) => (p.hiKts === null ? [] : [p.hiKts])));
@@ -821,12 +847,33 @@ export function dayHeadline(args: DayHeadlineArgs): Headline {
         const until = insideUntilMs(args.hours, args.limits, from, window.lastLightMs ?? best.endMs);
         text = `${PART_TITLE[best.part]}'s your window: inside your wind limits until about ${hhmm(until, window.zone)}.`;
         const later = active.find((p) => p.startMs > best.startMs && (p.level === 'near' || p.level === 'over'));
-        if (later) text += ` ${PART_TITLE[later.part]} gets ${later.level} your limits.`;
+        // Thunder that holds the next part at Near takes the place of "… gets near your limits.", in the
+        // same 98 characters: "…until about 12:00, then thunder in 3 of 7 models." Thunder is never inside
+        // the window (an hour with it in two models is Near), so "then" holds whether it or the wind closed
+        // it; "Thunder from about 13:00 …" made 108 characters and a fourth line at 390 and 320 px.
+        if (later?.level === 'near' && later.thunder >= 2)
+            text = `${text.slice(0, -1)}, then thunder ${of(later.thunder)}`;
+        else if (later) text += ` ${PART_TITLE[later.part]} gets ${later.level} your limits.`;
+        spread = true;
     } else {
         const gust = best.gustKts === null ? 'no gust forecast' : `gusts ${Math.round(best.gustKts)}`;
         const span = windSpan(best.dirDeg, best.loKts, best.hiKts);
         text = `Near your limits at best: ${span ? `${span} kn, ` : ''}${gust}.`;
+        const count = Math.max(...active.map((p) => p.thunder));
+        const from = window.earliestLeaveMs ?? best.startMs;
+        const th =
+            count >= 2 &&
+            args.hours.find((h) => h.thunder >= 2 && h.t + HOUR > from && h.t < (window.lastLightMs ?? Infinity));
+        if (th) {
+            // Without its "about" where it would run past the room ("SW 18–24 kn, no gust forecast.").
+            const clause = ` Thunder from about ${hhmm(Math.max(th.t, from), window.zone)} ${of(count)}`;
+            text += text.length + clause.length > HEADLINE_ROOM ? clause.replace(' about', '') : clause;
+        }
+        spread = true;
     }
+    // Some spread among the models is said in words now the day chips wear her limits' glyph (a
+    // split has its own template; an all-Inside day says agreement already), never past the room.
+    if (spread && args.agreement === 'some' && text.length + 13 <= HEADLINE_ROOM) text += ` ${AGREEMENT_WORDS.some}.`;
     return link ? { text, link } : { text };
 }
 
@@ -1201,8 +1248,10 @@ export interface DepartureEval extends ScoredDeparture {
     /** Day trip only. */
     homeMs: number | null;
     level: StopLevel;
-    /** The plain reason, when Over or Unknown. */
+    /** The plain reason, when it is not Inside, kept without "over your limits: " (127-PYD-1). */
     reason: string | null;
+    /** The row's form of a long reason: "⚡ Thunder on the way home", "Chop for the stay (SE 21 kn)". */
+    short: string | null;
     out: LegSummary;
     home: LegSummary | null;
     /** Shelter over the stay, in the route forecast at the stop (with swell when known). */
@@ -1410,7 +1459,21 @@ function stopStay(
     return scoreStay(candidate, hours, perModel, zone);
 }
 
-const lowerFirst = (s: string) => (s ? s[0].toLowerCase() + s.slice(1) : s);
+/** "Open to the SE …" → "open to the SE …", inside a sentence; "SE 18 kn …" and "1.8 m …" stay as they are. */
+const lowerFirst = (s: string) => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s);
+
+/**
+ * A stay reason's row form (127-PYD-1), at most 30 characters so the row keeps
+ * its two lines: "Chop for the stay (SE 21 kn)" from "Open to the SE — SE 21
+ * kn has 15+ NM of fetch" or "SE 21 kn works across 9.5 NM — expect chop",
+ * "Swell for the stay (1.8 m SSE)" from "1.8 m SSE swell finds a way in —
+ * expect roll" (scoreAnchorage's words). The whole sentence stays for
+ * VoiceOver, Not today and the stop page.
+ */
+function stayShort(why = ''): string {
+    const m = /([A-Z]+ \d+ kn)|^([\d.]+ m [A-Z]+)/.exec(why);
+    return m ? `${m[1] ? 'Chop' : 'Swell'} for the stay (${m[1] ?? m[2]})` : 'Exposed for the stay';
+}
 
 export interface PlanStopArgs {
     pre: PreRankedStop;
@@ -1456,6 +1519,8 @@ export function planStop(args: PlanStopArgs): StopPlan {
     };
     if (!index || !homeIndex || earliest === null || last === null)
         return { ...base, departures: [], best: null, window: [], level: 'unknown' };
+    // Last light, for "home after dark (18:28)" and "home in the last of the light (18:28)".
+    const dark = ` (${hhmm(last, zone)})`;
 
     const thunderBetween = (from: number, to: number) =>
         Math.max(0, ...hours.filter((h) => h.t + HOUR > from && h.t < to).map((h) => h.thunder));
@@ -1482,8 +1547,9 @@ export function planStop(args: PlanStopArgs): StopPlan {
                 ? stopStay(c, index.totalNm, arriveMs, stayEndMs, legs, zone)
                 : null;
         const light = lightLevel(stayH === null ? arriveMs : homeMs, last);
+        const thunderOut = thunderBetween(departureMs, arriveMs ?? departureMs + LEG_MAX_MS);
         const thunder = Math.max(
-            thunderBetween(departureMs, arriveMs ?? departureMs + LEG_MAX_MS),
+            thunderOut,
             stayEndMs !== null && stayH !== null ? thunderBetween(stayEndMs, homeMs ?? stayEndMs + LEG_MAX_MS) : 0,
         );
         const legsList = home ? [out, home] : [out];
@@ -1506,39 +1572,56 @@ export function planStop(args: PlanStopArgs): StopPlan {
                 ? overHourBetween(hours, limits, stayEndMs, homeMs ?? stayEndMs + LEG_MAX_MS)
                 : null);
 
+        // Kept without "over your limits: " (127-PYD-1): the words that need it add it once. `short`
+        // is the row's form of a long one, so the row keeps its two lines.
         let reason: string | null = null;
+        let short: string | null = null;
         const dir = windiest.maxWindDir === null ? '' : `${compass8(windiest.maxWindDir)} `;
-        if (maxWind >= limits.wind.poor) reason = `over your limits: ${dir}${Math.round(maxWind)} kn on the way`;
-        else if (maxGust >= limits.gust.poor) reason = `over your limits: gusts ${Math.round(maxGust)} kn on the way`;
-        else if (maxWave >= limits.wave.poor) reason = `over your limits: ${maxWave.toFixed(1)} m sea on the way`;
+        const there = stayH === null ? 'there' : 'home';
+        const way = ' on the way';
+        const wind = `${dir}${Math.round(maxWind)} kn${way}`;
+        if (maxWind >= limits.wind.poor) reason = wind;
+        else if (maxGust >= limits.gust.poor) reason = `gusts ${Math.round(maxGust)} kn${way}`;
+        else if (maxWave >= limits.wave.poor) reason = `${maxWave.toFixed(1)} m sea${way}`;
         else if (areaOver) reason = areaOverReason(areaOver, limits);
-        else if (thunder >= 2) reason = `thunder in ${thunder} of ${args.blockModels} models on the way`;
-        else if (stayVerdict?.grade === 'poor')
-            reason = `over your limits: ${lowerFirst(stayVerdict.reasons[0] ?? 'exposed for the stay')}`;
-        else if (arriveMs === null || (stayH !== null && homeMs === null)) reason = 'more than 12 h each way';
-        else if (light === 'over')
-            reason =
-                stayH === null
-                    ? `there after dark (${hhmm(last, zone)}) at your speed`
-                    : `home after dark (${hhmm(last, zone)}) at your speed`;
+        else if (thunder >= 2) {
+            const leg = thunderOut >= 2 ? way : `${way} home`;
+            reason = `thunder in ${thunder} of ${args.blockModels} models${leg}`;
+            short = `⚡ Thunder${leg}`;
+        } else if (stayVerdict?.grade === 'poor') {
+            reason = lowerFirst(stayVerdict.reasons[0] ?? 'exposed for the stay');
+            short = stayShort(stayVerdict.reasons[0]);
+        } else if (arriveMs === null || (stayH !== null && homeMs === null)) reason = 'more than 12 h each way';
+        else if (light === 'over') reason = `${there} after dark${dark}`;
+        // Near, and why (the stop page's verdict): the first that holds it there.
+        const near =
+            maxWind >= limits.wind.good
+                ? wind
+                : memberMax >= limits.wind.poor
+                  ? `one model says ${Math.round(memberMax)} kn${way}`
+                  : split
+                    ? `models split${way}`
+                    : light === 'near'
+                      ? `${there} in the last of the light${dark}`
+                      : stayVerdict?.grade === 'tenable'
+                        ? lowerFirst(stayVerdict.reasons[0] ?? 'some chop for the stay')
+                        : !gustComplete
+                          ? `no gust forecast${way}`
+                          : seaUnread
+                            ? `no wave reading${way}`
+                            : // No shelter table (no coastline): "Shelter not known" is never Inside.
+                              !c.fetchLandNM
+                              ? 'shelter not known'
+                              : null;
         let level: StopLevel;
         if (reason) level = 'over';
         else if (unknown) {
             level = 'unknown';
             reason = weatherLoaded ? 'past the end of the forecast' : "weather didn't load";
-        } else if (
-            maxWind >= limits.wind.good ||
-            memberMax >= limits.wind.poor ||
-            split ||
-            light === 'near' ||
-            stayVerdict?.grade === 'tenable' ||
-            !gustComplete ||
-            seaUnread ||
-            // No shelter table (no coastline): "Shelter not known" is never Inside.
-            !c.fetchLandNM
-        )
+        } else if (near) {
             level = 'near';
-        else level = 'inside';
+            reason = near;
+        } else level = 'inside';
 
         return {
             departureMs,
@@ -1553,6 +1636,7 @@ export function planStop(args: PlanStopArgs): StopPlan {
             homeMs,
             level,
             reason,
+            short,
             out: summary(out),
             home: home ? summary(home) : null,
             stay: stayVerdict,
@@ -1658,6 +1742,13 @@ const STOP_ARIA: Record<StopLevel, string> = {
     over: 'over your limits',
     unknown: 'not known',
 };
+/** A reason in Not today and the like: "over your limits: SE 30 kn on the way". */
+const overWords = (reason: string) => `${STOP_ARIA.over}: ${reason}`;
+
+/** The stop page's first row (127-PYD-1): "✕ Over your limits: thunder in 3 of 7 models on the way home". */
+export function stopVerdict(level: StopLevel, reason: string | null): string {
+    return `${STOP_GLYPH[level]} ${capital(STOP_ARIA[level])}${reason ? `: ${reason}` : ''}`;
+}
 
 /** "About 14 NM each way (straight line, longer round land)", or a saved route's own length. */
 export function distanceLine(distance: DistanceEstimate): string {
@@ -1698,7 +1789,7 @@ export interface StopRow {
     id: string;
     name: string;
     candidate: PlaceCandidate;
-    /** Reviewed by Queensland Parks: the "Parks" tag. */
+    /** A reviewed stop with its own notes (Queensland Parks' here): the "Local notes" tag. */
     parks: boolean;
     shelter: string;
     /** Null: weather not checked. */
@@ -1710,6 +1801,16 @@ export interface StopRow {
     line2: string;
     /** line2 as VoiceOver reads it: "Leave 07:30, arrive 09:40, back home 15:10". */
     line2Spoken: string;
+    /**
+     * A ✕ or ? row's line 2 in place of its times (127-PYD-1): its reason,
+     * capitalised ("Home after dark (18:28)", "SE 30 kn on the way" under the
+     * ✕ that already says over), and a long one short ("⚡ Thunder on the way
+     * home", "Chop for the stay (SE 21 kn)"), so the row keeps its two lines;
+     * VoiceOver and the stop page say it whole. Null on an Inside or Near row,
+     * and with no plan.
+     */
+    line2Reason: string | null;
+    /** Over or Unknown only, without "over your limits: ". */
     reason: string | null;
     plan: StopPlan | null;
     /** Its route forecasts are still loading. */
@@ -1750,6 +1851,7 @@ function stopRow(
     spoken ??= line2;
     const line1 = `${c.name} · ${shelter}`;
     const reason = best && (best.level === 'over' || best.level === 'unknown') ? best.reason : null;
+    const line2Reason = reason && (best?.short ?? capital(reason));
     return {
         id: c.id,
         name: c.name,
@@ -1761,11 +1863,15 @@ function stopRow(
         line1,
         line2,
         line2Spoken: spoken,
+        line2Reason,
         reason,
         plan,
         pending: mode === 'pending',
         mapped: c.mappedAtMs !== undefined ? `mapped ${dayMonth(c.mappedAtMs, zone)}` : null,
-        ariaLabel: `${line1}. ${spoken}. ${level ? STOP_ARIA[level] : 'weather not checked'}${reason ? `: ${reason}` : ''}`,
+        // Each thing once (127-PYD-1): a reason row's times are not on it, and a row with no plan already says why.
+        ariaLabel: `${line1}. ${
+            level && reason ? `${STOP_ARIA[level]}: ${reason}` : level ? `${spoken}. ${STOP_ARIA[level]}` : spoken
+        }`,
     };
 }
 
@@ -1900,13 +2006,12 @@ export function planDay(input: DayPlanInput): DayPlanView {
     const weatherOk = input.weather === 'ok' && !!atmos?.models.length;
     const hours = weatherOk ? pointHours(atmos) : [];
     const parts = dayParts(window, hours, limits, nowMs);
-    const chips = dayChips({ atmos: weatherOk ? atmos : null, zone, nowMs, dates });
+    const byDate = dates.map((d) => (d === date ? parts : dayParts(windowFor(d), hours, limits, nowMs)));
+    const chips = dayChips({ atmos: weatherOk ? atmos : null, zone, nowMs, dates, parts: byDate });
     const dayName = window.isToday ? 'today' : weekdayLong(date, zone);
     const chipLabel = (d: string) => chips.find((c) => c.date === d)?.label ?? weekdayShort(d, zone);
     const lighter = weatherOk
-        ? dates.find(
-              (d) => d !== date && dayParts(windowFor(d), hours, limits, nowMs).some((p) => p.level === 'inside'),
-          )
+        ? dates.find((d, i) => d !== date && byDate[i].some((p) => p.level === 'inside'))
         : undefined;
 
     // Places: closures first, then the cheap rank, then the sweep for the top three.
@@ -1966,17 +2071,16 @@ export function planDay(input: DayPlanInput): DayPlanView {
     });
     for (const row of topRows) {
         const failed = row.plan && !row.plan.weatherLoaded;
-        if (row.level === 'over' || failed) notToday.push(notRow(row, row.reason ?? "weather didn't load"));
+        if (row.level === 'over' || failed)
+            notToday.push(notRow(row, row.level === 'over' ? overWords(row.reason!) : "weather didn't load"));
         else if (row.level === 'inside' || row.level === 'near') fits.push(row);
         else unchecked.push(row);
     }
     for (const { pre, row } of restRows) {
         const over = weatherOk ? areaVerdict(pre, window, stay, hours, limits) : null;
         if (pre.stay?.grade === 'poor')
-            notToday.push(
-                notRow(row, `over your limits: ${lowerFirst(pre.stay.reasons[0] ?? 'exposed for the stay')}`),
-            );
-        else if (over) notToday.push(notRow(row, over));
+            notToday.push(notRow(row, overWords(lowerFirst(pre.stay.reasons[0] ?? 'exposed for the stay'))));
+        else if (over) notToday.push(notRow(row, overWords(over)));
         else unchecked.push(row);
     }
     notToday.push(...missedLight, ...closed, ...(places?.excluded ?? []));
@@ -2009,6 +2113,7 @@ export function planDay(input: DayPlanInput): DayPlanView {
             hours,
             limits,
             window,
+            models: blockModels,
         });
     } else if (placesSettled && places && !places.candidates.length && !places.excluded.length) {
         state = 'no-places';
@@ -2031,6 +2136,7 @@ export function planDay(input: DayPlanInput): DayPlanView {
             hours,
             limits,
             window,
+            models: blockModels,
         });
     }
 
@@ -2162,25 +2268,29 @@ export function stopDetail(args: StopDetailArgs): StopDetail {
         return span ? `, ${span} kn` : '';
     };
     if (d) {
+        // It opens on its verdict (127-PYD-1): a ✕ or ≈ stop never opens onto an ordinary-looking plan,
+        // and a row below that would say the same (the stay's reason, the light) leaves it to the verdict.
+        if (d.reason) rows.push(stopVerdict(d.level, d.reason));
+        const said = capital(d.reason ?? '');
         rows.push(
             `Leave ${t(d.departureMs)} → there ${t(d.arriveMs)} (${d.out.durationMs === null ? 'over 12 h' : durationLabel(d.out.durationMs)}, ${d.out.how}${legWind(d.out)})`,
         );
         const shelter = shelterWord(d.stay, !!c.fetchLandNM);
-        const why = d.stay?.reasons[0] ? `: ${d.stay.reasons[0]}` : '';
+        const why = d.stay?.reasons[0] && d.stay.reasons[0] !== said ? `: ${d.stay.reasons[0]}` : '';
         rows.push(
             stay === 'overnight'
                 ? `At anchor ${t(d.arriveMs)} → ${t(d.stayEndMs)} tomorrow · ${shelter}${why}`
                 : `Ashore ${t(d.arriveMs)}–${t(d.stayEndMs)} · ${shelter}${why}`,
         );
-        if (c.reviewed?.landingTide && args.landing !== undefined) {
-            const parks = c.reviewed.parks;
-            if (args.landing && args.landing !== 'no-curve')
-                rows.push(
-                    `Landing: mid to high tide ≈ ${t(args.landing.fromMs)}–${t(args.landing.toMs)} (${parks} note, approx.)`,
-                );
-            else rows.push(`Landing: ${parks} say mid to high tide. No tide prediction here.`);
-        }
+        // The note names the landing tide; the window follows it, so the tide is said once (127-PYD-1).
+        // The note stays whole: it carries its cautions too (Chance Bay's south-easterlies).
         rows.push(...parksNotes(c));
+        if (c.reviewed?.landingTide && args.landing !== undefined)
+            rows.push(
+                args.landing && args.landing !== 'no-curve'
+                    ? `Landing window ≈ ${t(args.landing.fromMs)}–${t(args.landing.toMs)} (approx.)`
+                    : 'Landing window: no tide prediction here.',
+            );
         if (d.home) {
             const spreadNote =
                 d.home.spreadLevel === 'some' || d.home.spreadLevel === 'split'
@@ -2193,11 +2303,13 @@ export function stopDetail(args: StopDetailArgs): StopDetail {
         const last = window.lastLightMs;
         const end = stay === 'overnight' ? d.arriveMs : d.homeMs;
         const word = stay === 'overnight' ? 'There' : 'Home';
-        if (window.light === 'no-true-night') rows.push(`Light all day: ${word.toLowerCase()} by ${t(end)}`);
-        else if (d.light === 'fine' && end !== null && last !== null)
-            rows.push(`Light: ${word.toLowerCase()} ${durationLabel(last - end)} before last light (${t(last)})`);
-        else if (d.light === 'near') rows.push(`${word} in the last of the light (${t(last)})`);
-        else rows.push(`${word} after dark (${t(last)})`);
+        const light =
+            window.light === 'no-true-night'
+                ? `Light all day: ${word.toLowerCase()} by ${t(end)}`
+                : d.light === 'fine' && end !== null && last !== null
+                  ? `Light: ${word.toLowerCase()} ${durationLabel(last - end)} before last light (${t(last)})`
+                  : `${word} ${d.light === 'near' ? 'in the last of the light' : 'after dark'} (${t(last)})`;
+        if (light !== said) rows.push(light);
         const legs = d.home ? [d.out, d.home] : [d.out];
         const lo = Math.min(...legs.flatMap((l) => (l.waveLoM === null ? [] : [l.waveLoM])));
         const hi = Math.max(...legs.flatMap((l) => (l.waveHiM === null ? [] : [l.waveHiM])));

@@ -28,6 +28,12 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  * phone's own clock is set to London, half a world from Airlie and Nouméa and
  * an hour behind Tromsø, and every time a stop row shows must sit inside the
  * light on the PLACE's clock, from the earliest she can leave there.
+ *
+ * Say why (build 127, 127-PYD-1): a ✕ row shows its reason on screen where its
+ * times were ("SE 31 kn on the way", "⚡ Thunder on the way home"), whole and
+ * on one line, inside its row, with no new scroll, and the thunder day's
+ * headline (thunder now in it) takes no more lines than it did. The stop
+ * page's primary button is AA (4.5:1) in dark and in light.
  */
 
 // The phone's clock, deliberately not the place's.
@@ -40,6 +46,19 @@ test.use({ timezoneId: 'Europe/London' });
  * hears them in words, "Leave 07:00, arrive 10:28, back home 15:57".
  */
 const TIMES = /^\d\d:\d\d → \d\d:\d\d · /;
+
+/**
+ * The first stop row's line 2 once its route forecasts are in, per mode: the
+ * times, or (127-PYD-1) the reason a ✕ row is ✕, where its times were. Every
+ * stop is over the default boat's limits on the over day (the wind on the way)
+ * and on the thunder day (home in the afternoon's thunder).
+ */
+const LINE2: Partial<Record<string, RegExp>> = {
+    offline: /weather not checked$/,
+    over: /^SE \d+ kn on the way$/,
+    thunder: /^⚡ Thunder on the way home$/,
+};
+const line2For = (mode: string) => LINE2[mode] ?? /^\d\d:\d\d → \d\d:\d\d · back \d\d:\d\d$/;
 
 /**
  * Phones as the app draws them. The fixture's root is a fixed 16 px; the app's
@@ -155,6 +174,8 @@ async function placeClockIssues(page: Page, mode: Exclude<Mode, 'no-position'>):
     );
     const issues: string[] = [];
     for (const { glyph, line } of rows) {
+        // A ✕ row says why instead (127-PYD-1): "Home after dark (18:28)" names last light, not a leave.
+        if (!line.includes('→')) continue;
         const [leave, ...rest] = line.match(/\b\d\d:\d\d\b/g) ?? [];
         if (leave && (leave < from || leave > last)) issues.push(`"${line}": leaves ${leave}, outside ${from}–${last}`);
         if (glyph !== '✕')
@@ -283,9 +304,7 @@ for (const size of sizes) {
                 await expect(stops.first()).toBeVisible();
                 await expect.poll(() => visibleStops(page)).toBe(size.stops);
                 // Measured once the route forecasts are in: the rows at their longest.
-                await expect(stops.first().locator('.today-stop-l2')).toHaveText(
-                    mode === 'offline' ? /weather not checked$/ : /^\d\d:\d\d → \d\d:\d\d · back \d\d:\d\d$/,
-                );
+                await expect(stops.first().locator('.today-stop-l2')).toHaveText(line2For(mode));
                 await expect(dialog.getByTestId('day-plan-credit')).toContainText('Not a clearance');
             }
             if (mode === 'default-boat' || mode === 'thunder')
@@ -299,10 +318,10 @@ for (const size of sizes) {
                 await expect(dialog.getByText('Map data from 18 Jun', { exact: true })).toBeVisible();
             if (mode === 'over') await expect(dialog.getByTestId('day-plan-headline')).toContainText('Stay put today');
             if (mode === 'thunder') {
-                // In the cells it falls in; the headline keeps its own budget.
+                // In the cells it falls in, and in the headline in place of the clause it causes (127-PYD-1).
                 await expect(dialog.locator('.today-cell-word', { hasText: 'Thunder' })).toHaveCount(2);
                 await expect(dialog.getByTestId('day-plan-headline')).toHaveText(
-                    /^Morning's your window: inside your wind limits until about 12:00\. Afternoon gets near your limits\.$/,
+                    /^Morning's your window: inside your wind limits until about 12:00, then thunder in 3 of 7 models\.$/,
                 );
             }
             if (mode === 'split') {
@@ -989,9 +1008,21 @@ function widestIssues(page: Page) {
             ['.today-cell-label', 'Afternoon'],
             ['.today-cell-wind', '≈ NW 18–22'],
             ['.today-cell-wind', '✕ NW 88–88'],
+            // The bolt where thunder holds a part at Near (127-PYD-1), drawn as the sheet draws it.
+            ['.today-cell-wind', '<svg class="today-bolt" viewBox="0 0 24 24"></svg> NW 18–22'],
             ['.today-cell-word', 'No forecast'],
             ['.today-stop-l2', '07:00 → 10:28 · about 22 NM'],
             ['.today-stop-l2', 'About 22 NM · weather not checked'],
+            // A ✕ row's reason, where its times were (127-PYD-1): the thunder day's, and the longest each
+            // producer makes, the stay's in its row form (scoreAnchorage's 16-point compass, so three letters;
+            // its whole sentence, up to 47 characters, took a second line at 390 and 430 px, review 2026-10-10).
+            ['.today-stop-l2', '⚡ Thunder on the way home'],
+            ['.today-stop-l2', 'Past the end of the forecast'],
+            ['.today-stop-l2', 'Chop for the stay (WSW 39 kn)'],
+            ['.today-stop-l2', 'Swell for the stay (4.5 m WSW)'],
+            ['.today-stop-l2', 'Gusts 49 kn in the area'],
+            ['.today-stop-l2', 'More than 12 h each way'],
+            ['.today-stop-l2', 'There after dark (18:28)'],
         ];
         const oneLine = (el: HTMLElement) =>
             el.getClientRects().length === 1 &&
@@ -1007,7 +1038,7 @@ function widestIssues(page: Page) {
             for (const el of card.querySelectorAll<HTMLElement>(selector)) {
                 if (!el.getClientRects().length) continue;
                 const keep = [...el.childNodes];
-                el.textContent = words;
+                el.innerHTML = words;
                 // The tile's words inside its padding; a stop's times inside the row's text column.
                 const room = el.parentElement!.getBoundingClientRect();
                 const text = document.createRange();
@@ -1201,9 +1232,7 @@ for (const size of [AS_DRAWN.shane, AS_DRAWN.mid])
             const errors = await open(page, size, `&mode=${mode}${size.query}`);
             const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
             const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
-            await expect(stops.first().locator('.today-stop-l2')).toHaveText(
-                mode === 'offline' ? /weather not checked$/ : TIMES,
-            );
+            await expect(stops.first().locator('.today-stop-l2')).toHaveText(LINE2[mode] ?? TIMES);
             await expect.poll(() => visibleStops(page)).toBe(3);
             const { issues, scrolls, timeline } = await stopsScrollIssues(page);
             expect(issues).toEqual([]);
@@ -1237,7 +1266,7 @@ test('only the stops scroll on a day too long for the room, with Reduce Motion o
     const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
     await expect(
         dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
-    ).toHaveText(TIMES);
+    ).toHaveText(line2For('thunder'));
     await expect.poll(() => visibleStops(page)).toBe(3);
     const { issues, scrolls } = await stopsScrollIssues(page);
     expect(issues).toEqual([]);
@@ -1296,7 +1325,7 @@ test('only the stops scroll where no scroll timeline runs (iOS 17-18), with a fa
     const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
     await expect(
         dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
-    ).toHaveText(TIMES);
+    ).toHaveText(line2For('thunder'));
     await expect.poll(() => visibleStops(page)).toBe(3);
     expect(await withoutScrollTimelines(page)).toBeGreaterThan(0);
     const { issues, scrolls, timeline } = await stopsScrollIssues(page);
@@ -1419,5 +1448,190 @@ for (const [size, mode] of [
         await expect(stops.first()).toHaveAccessibleName(
             /\. Leave \d\d:\d\d, arrive \d\d:\d\d, (about )?[\d.]+ nautical miles\. /,
         );
+        expect(errors).toEqual([]);
+    });
+
+/**
+ * Say why (build 127, 127-PYD-1). Shane, 2026-10-10: "plan your day?? … it
+ * needs another good clean up claude … once you have made it pop a little
+ * more". A ✕ row said why only to VoiceOver; now line 2 of every ✕ row is its
+ * reason ("SE 31 kn on the way", "⚡ Thunder on the way home"), measured as
+ * drawn: the words whole, inside the row, on one line at ordinary text (the
+ * row keeps its two lines), with no new scroll of the page or the body. The
+ * thunder day's headline now names the thunder in place of "Afternoon gets
+ * near your limits." and takes no more lines than that did, at every size.
+ */
+const PRE_127_HEADLINE: Record<'over' | 'thunder', RegExp | string> = {
+    over: /^Stay put today: SE \d+(–\d+)? kn, gusts \d+, over your limits all day\.$/,
+    thunder: "Morning's your window: inside your wind limits until about 12:00. Afternoon gets near your limits.",
+};
+for (const size of [AS_DRAWN.se, sizes[0], sizes[1], AS_DRAWN.mid, AS_DRAWN.shane, sizes[4], sizes[7], sizes[8]])
+    for (const mode of ['over', 'thunder'] as const)
+        test(`a ✕ row says why on its own row at ${size.name}: ${mode}`, async ({ page }) => {
+            const errors = await open(page, size, `&mode=${mode}${size.query}`);
+            const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+            const stops = dialog.getByRole('list', { name: 'Stops' }).getByRole('button');
+            await expect(stops.first().locator('.today-stop-l2')).toHaveText(line2For(mode));
+            await expect.poll(() => visibleStops(page)).toBe(size.stops);
+            const m = await page.evaluate(
+                ({ before, wrapOk }) => {
+                    const card = document.querySelector<HTMLElement>('.today-main')!;
+                    const issues: string[] = [];
+                    for (const li of card.querySelectorAll<HTMLElement>('.today-col-b .today-stops > li')) {
+                        if (getComputedStyle(li).display === 'none') continue;
+                        const row = li.querySelector<HTMLElement>('.today-stop')!;
+                        const l2 = row.querySelector<HTMLElement>('.today-stop-l2')!;
+                        const why = l2.textContent ?? '';
+                        if (row.querySelector('.today-stop-glyph')?.textContent?.trim() !== '✕')
+                            issues.push(`"${why}" is not a ✕ row`);
+                        if (why.includes('→') || !why.trim()) issues.push(`a ✕ row shows "${why}", not its reason`);
+                        const text = document.createRange();
+                        text.selectNodeContents(l2);
+                        const words = text.getBoundingClientRect();
+                        const box = row.getBoundingClientRect();
+                        const column = l2.getBoundingClientRect();
+                        if (
+                            words.left < column.left - 0.5 ||
+                            words.right > column.right + 0.5 ||
+                            words.top < box.top - 0.5 ||
+                            words.bottom > box.bottom + 0.5
+                        )
+                            issues.push(`"${why}" is clipped`);
+                        const lines = Math.round(column.height / parseFloat(getComputedStyle(l2).lineHeight));
+                        if (!wrapOk && lines > 1) issues.push(`"${why}" takes ${lines} lines`);
+                    }
+                    const headline = card.querySelector<HTMLElement>('.today-headline')!;
+                    const lines = () =>
+                        Math.round(
+                            headline.getBoundingClientRect().height / parseFloat(getComputedStyle(headline).lineHeight),
+                        );
+                    const now = lines();
+                    const keep = [...headline.childNodes];
+                    if (before) headline.textContent = before;
+                    const was = lines();
+                    headline.replaceChildren(...keep);
+                    return {
+                        issues,
+                        headline: { now, was },
+                        pageScrolls: document.documentElement.scrollHeight > innerHeight + 0.5,
+                    };
+                },
+                {
+                    before: typeof PRE_127_HEADLINE[mode] === 'string' ? (PRE_127_HEADLINE[mode] as string) : null,
+                    wrapOk: size.mayScroll,
+                },
+            );
+            expect(m.issues).toEqual([]);
+            expect(m.pageScrolls).toBe(false);
+            if (mode === 'over')
+                await expect(dialog.getByTestId('day-plan-headline')).toHaveText(PRE_127_HEADLINE.over as RegExp);
+            expect(m.headline.now, 'headline lines').toBeLessThanOrEqual(m.headline.was);
+            expect(await layoutIssues(page, size.mayScroll)).toEqual([]);
+            expect(errors).toEqual([]);
+        });
+
+/**
+ * The longest headline each thunder template makes (127-PYD-1), drawn on the
+ * thunder day over its default-boat notice (the line every skipper without a
+ * boat set sees) and measured against the window headline it replaced, the
+ * longest before 127 (98 characters): no more lines, no more body or stop-list
+ * scroll, every house rule kept. "… 12:00. Thunder from about 13:00 in 3 of 7
+ * models." (108) took a fourth line at 390 and 320 px and clipped the third stop
+ * on a notice day (review, 2026-10-10); the engine keeps every form within 98
+ * (tests/dayPlanToday.test.ts).
+ */
+const THUNDER_HEADLINES = [
+    "Afternoon's your window: inside your wind limits until about 16:00, then thunder in 3 of 7 models.",
+    'Near your limits at best: SW 18–24 kn, no gust forecast. Thunder from 13:00 in 3 of 7 models.',
+    'Near your limits at best: NW 18–24 kn, gusts 31. Thunder from about 13:00 in 3 of 7 models.',
+];
+for (const size of [AS_DRAWN.se, sizes[0], AS_DRAWN.se2, sizes[1], AS_DRAWN.mid, sizes[2], AS_DRAWN.shane])
+    test(`thunder's longest headlines take no more room than the window's did at ${size.name}`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=thunder${size.query}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        await expect(
+            dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
+        ).toHaveText(line2For('thunder'));
+        await expect.poll(() => visibleStops(page)).toBe(size.stops);
+        await expect(dialog.getByText(/^Typical 6 kn boat/)).toBeVisible();
+        const drawn = (text: string) =>
+            page.evaluate((text) => {
+                const card = document.querySelector<HTMLElement>('.today-main')!;
+                const headline = card.querySelector<HTMLElement>('.today-headline')!;
+                const list = card.querySelector<HTMLElement>('.today-col-b .today-stops')!;
+                const body = card.querySelector<HTMLElement>('.today-body')!;
+                headline.textContent = text;
+                return {
+                    lines: Math.round(
+                        headline.getBoundingClientRect().height / parseFloat(getComputedStyle(headline).lineHeight),
+                    ),
+                    body: Math.max(0, body.scrollHeight - body.clientHeight),
+                    stops: Math.max(0, list.scrollHeight - list.clientHeight),
+                };
+            }, text);
+        const was = await drawn(PRE_127_HEADLINE.thunder as string);
+        for (const text of THUNDER_HEADLINES) {
+            expect(text.length).toBeLessThanOrEqual((PRE_127_HEADLINE.thunder as string).length);
+            const now = await drawn(text);
+            expect(now.lines, text).toBeLessThanOrEqual(was.lines);
+            expect(now.body, text).toBeLessThanOrEqual(was.body + 1);
+            expect(now.stops, text).toBeLessThanOrEqual(was.stops + 1);
+            expect(await layoutIssues(page, size.mayScroll), text).toEqual([]);
+        }
+        expect(errors).toEqual([]);
+    });
+
+/** WCAG 2 contrast of two computed colours (opaque rgb()). */
+function contrast(a: string, b: string): number {
+    const lum = (rgb: string) => {
+        const [r, g, bl] = (rgb.match(/\d+(\.\d+)?/g) ?? []).slice(0, 3).map((v) => {
+            const c = Number(v) / 255;
+            return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+    };
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+}
+
+// The stop page's primary button passes AA in dark as it did in light (127-PYD-1: #0891b2 was 3.7:1 with white).
+for (const display of ['dark', 'light'] as const)
+    test(`the primary button's words are AA on its colour, ${display}`, async ({ page }) => {
+        const errors = await open(page, sizes[2], `&mode=normal${display === 'light' ? '&display=light' : ''}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        await dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().click();
+        const button = page.getByRole('button', { name: 'Plot on chart' });
+        await expect(button).toBeVisible();
+        const style = await button.evaluate((el) => {
+            const cs = getComputedStyle(el);
+            return { color: cs.color, background: cs.backgroundColor, image: cs.backgroundImage };
+        });
+        expect(style.image).toBe('none');
+        expect(style.background).not.toMatch(/rgba\(.*, 0(\.\d+)?\)$/);
+        expect(contrast(style.color, style.background)).toBeGreaterThanOrEqual(4.5);
+        expect(errors).toEqual([]);
+    });
+
+// "Local notes" flags a reviewed note, often a caution: an amber outline and amber words, never a green "go" fill.
+for (const display of ['dark', 'light'] as const)
+    test(`a reviewed stop's tag reads "Local notes" in an amber outline, ${display}`, async ({ page }) => {
+        const errors = await open(page, sizes[2], `&mode=normal${display === 'light' ? '&display=light' : ''}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        await expect(
+            dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
+        ).toHaveText(TIMES);
+        const tag = dialog.locator('.today-tag').first();
+        await expect(tag).toHaveText('Local notes');
+        const style = await tag.evaluate((el) => {
+            const cs = getComputedStyle(el);
+            return { border: cs.borderTopColor, width: cs.borderTopWidth, color: cs.color, fill: cs.backgroundColor };
+        });
+        const amber = display === 'dark' ? 'rgb(251, 191, 36)' : 'rgb(180, 83, 9)';
+        expect(style).toEqual({
+            border: amber,
+            width: '1px',
+            color: display === 'dark' ? 'rgb(252, 211, 77)' : amber,
+            fill: 'rgba(0, 0, 0, 0)',
+        });
         expect(errors).toEqual([]);
     });

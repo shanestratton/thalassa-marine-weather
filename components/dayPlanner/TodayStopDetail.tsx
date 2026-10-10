@@ -7,6 +7,7 @@ import {
     parksNotes,
     shortDate,
     stopDetail,
+    stopVerdict,
     wallTime,
     zoneAbbrev,
     type DayPlanView,
@@ -19,8 +20,6 @@ import {
 import { TodayModal } from './TodayModal';
 
 type Landing = { fromMs: number; toMs: number } | 'no-curve';
-
-const capitalFirst = (text: string) => (text ? text[0].toUpperCase() + text.slice(1) : text);
 
 /** The landing window at a reviewed stop (todayLoader.loadLandingWindow), asked only when its detail opens. */
 export type LandingLoader = (
@@ -36,6 +35,8 @@ export type LandingLoader = (
  * where Queensland Parks name one, home, the light, the sea, the distance and
  * how it was measured, and the marina line when she starts in one. A
  * reviewed stop's own Parks notes (Cid Harbour's sharks) sit under the stay.
+ * Since 127-PYD-1 it opens on its verdict when it is not Inside ("✕ Over your
+ * limits: SE 30 kn on the way"), drawn in its level's colour.
  * The leave chips are the best departure's window; a tap recomputes in place.
  * "Plot on chart" sets the departure and opens the Manual plotter with
  * straight pins. Fits outright at normal text from 375 × 667; at 320 × 568 a
@@ -119,12 +120,13 @@ export function TodayStopDetail({
               title: row.name,
               sub: `${shortDate(window.date, zone)} · times in ${zoneAbbrev(window.firstLightMs ?? wallTime(window.date, 12, 0, zone), zone)}`,
               rows: [
+                  // Over on the wind at the place, even with no route weather: its verdict first.
+                  ...(row.level === 'over' ? [stopVerdict('over', row.reason)] : []),
                   row.pending
                       ? 'Checking the weather along the way…'
                       : plan
                         ? "Weather not checked: the forecast along the way didn't load."
                         : 'Weather not checked: no forecast loaded.',
-                  ...(row.reason && row.reason !== "weather didn't load" ? [capitalFirst(row.reason)] : []),
                   ...parksNotes(candidate),
                   distanceLine(candidate.distance),
                   ...(leavingMarina ? [LEAVING_MARINA] : []),
@@ -133,8 +135,9 @@ export function TodayStopDetail({
               chips: [] as { ms: number; label: string; best: boolean }[],
           };
 
-    // A reviewed stop's own Parks notes stand out from the times around them.
+    // A reviewed stop's own Parks notes stand out from the times around them, and the verdict in its level's colour.
     const notes = new Set(parksNotes(candidate));
+    const level = (plan?.weatherLoaded ? chosen?.level : row.level) ?? 'unknown';
 
     return (
         <TodayModal
@@ -158,8 +161,12 @@ export function TodayStopDetail({
             }
         >
             <ul aria-label="How the day goes" className="today-rows">
-                {detail.rows.map((text) => (
-                    <li key={text} data-parks={notes.has(text) || undefined}>
+                {detail.rows.map((text, i) => (
+                    <li
+                        key={text}
+                        data-parks={notes.has(text) || undefined}
+                        data-level={i === 0 && /^[✕≈?] /.test(text) ? level : undefined}
+                    >
                         {text}
                     </li>
                 ))}

@@ -22,6 +22,11 @@
  * Everything it shows is worked out by services/dayPlanner/today.ts (pure)
  * from what services/dayPlanner/todayLoader.ts fetched; times are the
  * PLACE's own clock. `io` swaps the sources for fixtures and tests only.
+ *
+ * Say why (build 127, 127-PYD-1): a ✕ or ? row shows its reason where its
+ * times were; ✓ ≈ ✕ ? always mean her limits (the day chips too, never the
+ * models' agreement glyphs); line icons, not emoji; "Local notes", not
+ * "Parks", on a reviewed stop.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { VesselProfile } from '../../types/vessel';
@@ -39,7 +44,6 @@ import { useRoutingPolar } from '../../hooks/useRoutingPolar';
 import { closeHauledDegFor } from '../../services/sailing/pointOfSail';
 import { vesselCruisingSpeedKts } from '../../services/units';
 import type { PassageSpeedModel } from '../../services/passagePlan';
-import { AGREEMENT_GLYPH } from '../../services/weather/dayAgreement';
 import { openExternalUrl } from '../../services/externalLinks';
 import { usePassageSpeedPref } from '../../stores/passageHudStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -47,6 +51,7 @@ import { WindStore } from '../../stores/WindStore';
 import { officialWarningsSource } from '../../utils/officialWarningsSource';
 import { DEFAULT_VESSEL } from '../../utils/defaultVessel';
 import { PASSAGE_MODEL_CHOICES, passageModelChoice } from '../passage/PassageModelModal';
+import { DeviceIcon, LightningBoltIcon, MapPinIcon, SailBoatIcon } from '../Icons';
 import { formatLatLon, type LatLon } from '../../services/dayPlanner/places';
 import {
     DEFAULT_STAY,
@@ -329,13 +334,20 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                         aria-haspopup="dialog"
                         aria-label={
                             start && placeName
-                                ? `Plan from: ${placeName}, ${startAge(start, nowMs)}`
+                                ? // Whose age it is (127-PYD-1): the boat line icon shows it, VoiceOver says it.
+                                  `Plan from: ${placeName}, ${start.kind === 'boat' ? 'boat ' : ''}${startAge(start, nowMs)}`
                                 : 'Plan from: choose a place'
                         }
                         disabled={locating}
                         onClick={() => openPicker()}
                     >
-                        <span aria-hidden="true">{start?.kind === 'boat' || locating ? '⛵' : '📍'}</span>
+                        {start?.kind === 'boat' || locating ? (
+                            <SailBoatIcon className="today-ico" />
+                        ) : start?.kind === 'phone' ? (
+                            <DeviceIcon className="today-ico" />
+                        ) : (
+                            <MapPinIcon className="today-ico" />
+                        )}
                         <span className="today-ellipsis">
                             {locating
                                 ? 'Finding the boat…'
@@ -384,7 +396,7 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                                 </button>
                             </div>
                             <p className="today-credit" data-testid="day-plan-credit">
-                                {shortCredit(base)}
+                                {shortCredit(base, legs)}
                             </p>
                         </div>
                     )
@@ -403,10 +415,10 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                                         aria-label={chip.ariaLabel}
                                         onClick={() => setDate(chip.date)}
                                     >
-                                        {chip.agreement && (
-                                            <svg aria-hidden="true" viewBox="0 0 24 24" className="today-glyph">
-                                                <path d={AGREEMENT_GLYPH[chip.agreement]} />
-                                            </svg>
+                                        {chip.glyph && (
+                                            <span aria-hidden="true" className="today-glyph" data-level={chip.best}>
+                                                {chip.glyph}
+                                            </span>
                                         )}
                                         {chip.label}
                                     </button>
@@ -456,7 +468,14 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                                     >
                                         <span className="today-cell-label">{cell.label}</span>
                                         <span className="today-cell-wind">
-                                            <span aria-hidden="true">{cell.glyph}</span>
+                                            {/* The bolt is drawn, not the emoji: it keeps ≈'s width in the tile. */}
+                                            <span aria-hidden="true">
+                                                {cell.glyph === '⚡' ? (
+                                                    <LightningBoltIcon className="today-bolt" />
+                                                ) : (
+                                                    cell.glyph
+                                                )}
+                                            </span>
                                             {cell.wind ? ` ${cell.wind}` : ''}
                                         </span>
                                         <span className="today-cell-word">{cell.word}</span>
@@ -606,9 +625,10 @@ function StopButton({ row, onOpen }: { row: StopRow; onOpen: () => void }) {
                         shortened here to its place; the detail shows it whole. */}
                     <span className="today-stop-name">{row.name.split(' · ')[0]}</span>
                     <span className="today-stop-shelter">&nbsp;· {row.shelter}</span>
-                    {row.parks && <span className="today-tag">Parks</span>}
+                    {row.parks && <span className="today-tag">Local notes</span>}
                 </span>
-                <span className="today-stop-l2">{row.line2}</span>
+                {/* A ✕ or ? row says why where its times were (127-PYD-1). */}
+                <span className="today-stop-l2">{row.line2Reason ?? row.line2}</span>
             </span>
             <span aria-hidden="true" className="today-chevron">
                 ›

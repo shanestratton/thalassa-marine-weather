@@ -14,6 +14,11 @@
  * The real engine and loader run against synthetic sources (seven models at
  * one point, route wind and sea, tides) and the real Whitsundays atlas tile;
  * only the I/O is fake. Times are the place's own (AEST here).
+ *
+ * Build 127 (127-PYD-1, "say why"): a ✕ row shows its reason on screen, the
+ * stop page opens on its verdict, the day chips carry her limits' glyph (never
+ * the models' agreement glyphs), line icons replace the emoji, a reviewed stop
+ * is tagged "Local notes", and the credit names only the sources that answered.
  */
 import { readFileSync } from 'node:fs';
 import React from 'react';
@@ -115,9 +120,14 @@ afterEach(() => {
 describe('Screen 1: today at the boat, with no form', () => {
     it('shows the day, one headline, the light and tide, and the best stops with leave, there and home', async () => {
         const { dialog, io: sources } = open();
-        // The place is named from the atlas and the boat's report is dated.
-        const place = await within(dialog).findByRole('button', { name: /^Plan from: .+, 2 h ago$/ });
+        // The place is named from the atlas and the boat's report is dated; whose age it is, in words for
+        // VoiceOver and by the boat's line icon on screen ("boat 2 h ago" is cut on a 390 or 430 phone).
+        const place = await within(dialog).findByRole('button', { name: /^Plan from: .+, boat 2 h ago$/ });
         expect(place).toHaveAttribute('aria-haspopup', 'dialog');
+        expect(place.textContent).toMatch(/ · 2 h ago▾$/);
+        // A line icon, not an emoji (127-PYD-1).
+        expect(place.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+        expect(place.querySelector('svg')).not.toBeNull();
 
         const day = await within(dialog).findByRole('list', { name: 'The day' });
         await waitFor(() =>
@@ -133,17 +143,26 @@ describe('Screen 1: today at the boat, with no form', () => {
                 expect.stringMatching(/^Evening: south-east/),
             ]),
         );
-        // Three day chips, each spoken with whether the models agree.
+        // Three day chips, each with that day's best part in her limits' glyph (127-PYD-1: one glyph
+        // language, never the models' agreement fork), and spoken with it and whether the models agree.
         const chips = within(within(dialog).getByRole('group', { name: 'Day' })).getAllByRole('button');
-        expect(chips.map((c) => c.textContent)).toEqual(['Today', 'Fri', 'Sat']);
+        expect(chips.map((c) => c.textContent)).toEqual(['≈Today', '≈Fri', '≈Sat']);
+        for (const chip of chips) {
+            expect(chip.querySelector('svg')).toBeNull();
+            expect(chip.querySelector('[aria-hidden="true"]')).toHaveAttribute('data-level', 'near');
+        }
         expect(chips[0]).toHaveAttribute('aria-pressed', 'true');
-        expect(chips[1]).toHaveAccessibleName('Friday 9 October, Some spread');
+        expect(chips[1]).toHaveAccessibleName('Friday 9 October, near your wind limits at best, Some spread');
 
         expect(within(dialog).getByTestId('day-plan-facts')).toHaveTextContent(
             /^☀ \d\d:\d\d–\d\d:\d\d · HW 10:52 · LW 17:03$/,
         );
         const rows = await stopRows(dialog);
         for (const row of rows) expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(TIMES_BACK);
+        // A reviewed stop's tag says what it marks, in words a skipper anywhere reads (127-PYD-1).
+        const cid = rows.find((r) => r.querySelector('.today-stop-name')!.textContent === 'Cid Harbour')!;
+        expect(cid.querySelector('.today-tag')).toHaveTextContent(/^Local notes$/);
+        expect(within(dialog).queryByText('Parks')).toBeNull();
         // Only the best three got their own route forecasts: one spread and one sea each.
         expect(sources.loader.loadRouteSpread).toHaveBeenCalledTimes(3);
         expect(sources.loader.loadRouteSea).toHaveBeenCalledTimes(3);
@@ -218,8 +237,17 @@ describe('Screen 1: today at the boat, with no form', () => {
         );
         const list = await within(dialog).findByRole('list', { name: 'Stops' });
         await waitFor(() => expect(within(list).getAllByRole('button').length).toBeGreaterThanOrEqual(2));
-        for (const row of within(list).getAllByRole('button'))
-            expect(row.getAttribute('aria-label')).toMatch(/over your limits/);
+        // Each ✕ row says why on screen, where its times were, and VoiceOver hears it once (127-PYD-1).
+        await waitFor(() => {
+            for (const row of within(list).getAllByRole('button'))
+                expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(/^SE \d+ kn on the way$/);
+        });
+        for (const row of within(list).getAllByRole('button')) {
+            const why = row.querySelector('.today-stop-l2')!.textContent!;
+            expect(row.querySelector('.today-stop-glyph')).toHaveTextContent('✕');
+            expect(row.getAttribute('aria-label')).toMatch(new RegExp(`\\. over your limits: ${why}$`));
+            expect(row.getAttribute('aria-label')!.match(/over your limits/g)).toHaveLength(1);
+        }
     });
 
     it('offline: no forecast, stops by distance with the weather not checked, the light still shown', async () => {
@@ -237,6 +265,20 @@ describe('Screen 1: today at the boat, with no form', () => {
             for (const row of rows) expect(row.textContent).toMatch(/weather not checked/);
         });
         expect(within(dialog).getByTestId('day-plan-facts')).toHaveTextContent(/^☀ \d\d:\d\d–\d\d:\d\d/);
+        expect(within(dialog).getByTestId('day-plan-headline')).toHaveTextContent(
+            'No forecast for today: places shown, weather not checked.',
+        );
+        // The credit names only what answered: no models, and no wave model either (127-PYD-1).
+        expect(within(dialog).getByTestId('day-plan-credit')).toHaveTextContent(
+            /^No forecast loaded · Not a clearance$/,
+        );
+        for (const row of within(within(dialog).getByRole('list', { name: 'Stops' })).getAllByRole('button'))
+            expect(row.getAttribute('aria-label')!.match(/weather not checked/g)).toHaveLength(1);
+        // Sources credits only what answered too: no wave model offline.
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Sources and limits' }));
+        const sources = await screen.findByRole('dialog', { name: 'Sources and limits' });
+        expect(within(sources).getByText('Light: worked out on this phone')).toBeTruthy();
+        expect(within(sources).queryByText(/MFWAM|Waves:/)).toBeNull();
     });
 
     it('a Plan page departure never hides the morning, nor makes 06:30 "too late"', async () => {
@@ -253,17 +295,25 @@ describe('Screen 1: today at the boat, with no form', () => {
         for (const row of rows) expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(/^0[7-9]:/);
     });
 
-    it('thunder shows in the part it falls in, and stays out of the headline', async () => {
+    it('thunder shows in the part it falls in, in the headline in place of the clause it causes, and on its rows', async () => {
         const { dialog } = open({ sheetIo: io({ scenario: 'thunder' }) });
         const day = await within(dialog).findByRole('list', { name: 'The day' });
         await waitFor(() => expect(within(day).getAllByRole('listitem')[1]).toHaveTextContent(/Thunder$/));
         expect(within(day).getAllByRole('listitem')[1].getAttribute('aria-label')).toMatch(
             /near your wind limits, thunder in 3 of 7 models$/,
         );
+        // The bolt, not ≈, where thunder holds the part at Near (127-PYD-1), drawn so it keeps ≈'s width.
+        expect(within(day).getAllByRole('listitem')[1].querySelector('.today-cell-wind svg.today-bolt')).not.toBeNull();
+        expect(within(day).getAllByRole('listitem')[1].querySelector('.today-cell-wind')).not.toHaveTextContent('≈');
         expect(within(day).getAllByRole('listitem')[0]).toHaveTextContent(/Inside$/);
         expect(within(dialog).getByTestId('day-plan-headline')).toHaveTextContent(
-            /^Morning's your window: inside your wind limits until about 12:00\. Afternoon gets near your limits\.$/,
+            /^Morning's your window: inside your wind limits until about 12:00, then thunder in 3 of 7 models\.$/,
         );
+        const list = await within(dialog).findByRole('list', { name: 'Stops' });
+        await waitFor(() => {
+            for (const row of within(list).getAllByRole('button'))
+                expect(row.querySelector('.today-stop-l2')!.textContent).toBe('⚡ Thunder on the way home');
+        });
     });
 
     it('places that could not be read say so: never an empty list that reads as fitting', async () => {
@@ -343,7 +393,9 @@ describe('Screen 2: a stop, and Plot on chart', () => {
         expect(within(detail).getByText(/^Thu 8 Oct · times in AEST$/)).toBeTruthy();
         const rows = within(within(detail).getByRole('list', { name: 'How the day goes' })).getAllByRole('listitem');
         const text = rows.map((r) => r.textContent);
-        expect(text[0]).toMatch(
+        // It opens on its verdict, with the reason (127-PYD-1): an ordinary-looking plan never hides a Near or a ✕.
+        expect(text[0]).toMatch(/^≈ Near your limits: SE \d+ kn on the way$/);
+        expect(text[1]).toMatch(
             /^Leave \d\d:\d\d → there \d\d:\d\d \(.+, (sailing|beating|motoring|at cruising speed)/,
         );
         expect(text.some((t) => /^Ashore \d\d:\d\d–\d\d:\d\d · /.test(t!))).toBe(true);
@@ -364,6 +416,8 @@ describe('Screen 2: a stop, and Plot on chart', () => {
         const heard: Event[] = [];
         const listen = (e: Event) => heard.push(e);
         window.addEventListener(PLAN_DEPARTURE_EVENT, listen);
+        // The primary button: AA white on its cyan in dark as in light (127-PYD-1).
+        expect(within(detail).getByRole('button', { name: 'Plot on chart' })).toHaveClass('today-primary');
         fireEvent.click(within(detail).getByRole('button', { name: 'Plot on chart' }));
         window.removeEventListener(PLAN_DEPARTURE_EVENT, listen);
 
@@ -444,10 +498,9 @@ describe('Screen 2: a stop, and Plot on chart', () => {
         await waitFor(() => {
             const rows = within(list).getAllByRole('button');
             expect(rows).toHaveLength(3);
+            // The row says why, where its times would be (127-PYD-1).
             for (const row of rows)
-                expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(
-                    /^About \d+ NM · weather not checked$/,
-                );
+                expect(row.querySelector('.today-stop-l2')!.textContent).toBe("Weather didn't load");
         });
         fireEvent.click(within(list).getAllByRole('button')[0]);
         const detail = await screen.findByRole('dialog', {
@@ -464,6 +517,33 @@ describe('Screen 2: a stop, and Plot on chart', () => {
         expect(sessionStorage.getItem(authScopedStorageKey(PLAN_DEPARTURE_KEY, getAuthIdentityScope()))).toBeNull();
     });
 
+    it('a stop over her limits in the area with no route weather opens on its verdict, then says why there are no times', async () => {
+        const fail = async () => {
+            throw new Error('proxy 503');
+        };
+        const { dialog } = open({
+            sheetIo: io({ scenario: 'over', loader: { loadRouteSpread: fail, loadRouteForecast: fail } }),
+        });
+        const list = await within(dialog).findByRole('list', { name: 'Stops' });
+        await waitFor(() => {
+            const rows = within(list).getAllByRole('button');
+            expect(rows.length).toBeGreaterThanOrEqual(2);
+            for (const row of rows)
+                expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(/^SE \d+ kn in the area$/);
+        });
+        const first = within(list).getAllByRole('button')[0];
+        const why = first.querySelector('.today-stop-l2')!.textContent!;
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', {
+            name: new RegExp(`^${first.querySelector('.today-stop-name')!.textContent}`),
+        });
+        const items = within(within(detail).getByRole('list', { name: 'How the day goes' })).getAllByRole('listitem');
+        expect(items[0]).toHaveTextContent(`✕ Over your limits: ${why}`);
+        expect(items[0]).toHaveAttribute('data-level', 'over');
+        expect(items[1]).toHaveTextContent("Weather not checked: the forecast along the way didn't load.");
+        expect(within(detail).queryByText(/^Leave \d\d:\d\d → /)).toBeNull();
+    });
+
     it('a leave chip recomputes the detail in place; Back returns to the day', async () => {
         const { dialog } = open();
         const [first] = await stopRows(dialog);
@@ -477,7 +557,8 @@ describe('Screen 2: a stop, and Plot on chart', () => {
             const at = other.textContent!.slice(0, 5);
             fireEvent.click(other);
             expect(other).toHaveAttribute('aria-pressed', 'true');
-            expect(within(detail).getAllByRole('listitem')[0].textContent).toMatch(new RegExp(`^Leave ${at} → `));
+            // Under its verdict (127-PYD-1).
+            expect(within(detail).getAllByRole('listitem')[1].textContent).toMatch(new RegExp(`^Leave ${at} → `));
         }
         fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
         await waitFor(() => expect(detail.isConnected).toBe(false));
@@ -495,9 +576,13 @@ describe('The landing tide', () => {
         fireEvent.click(cove);
         const detail = await screen.findByRole('dialog', { name: /^Maureen/ });
         await waitFor(() => expect(sources.loader.loadTideCurve).toHaveBeenCalledTimes(1));
-        expect(
-            await within(detail).findByText('Landing: Queensland Parks say mid to high tide. No tide prediction here.'),
-        ).toBeTruthy();
+        // Said once (127-PYD-1): the note names the tide, the row gives the window, or says there is none.
+        expect(await within(detail).findByText('Landing window: no tide prediction here.')).toBeTruthy();
+        const said = within(within(detail).getByRole('list', { name: 'How the day goes' }))
+            .getAllByRole('listitem')
+            .map((li) => li.textContent!)
+            .join(' ');
+        expect(said.match(/mid-? to high[- ]tide/g)).toHaveLength(1);
     });
 });
 
@@ -595,6 +680,12 @@ describe('Where from', () => {
         // Signed in but no report from her: the boat option says so.
         expect(within(picker).getByRole('button', { name: /^Boat/ })).toBeDisabled();
         expect(within(picker).getByText('No position from the boat in the last 24 h')).toBeTruthy();
+        // Line icons, not emoji (127-PYD-1).
+        for (const name of [/^Boat/, 'This phone']) {
+            const option = within(picker).getByRole('button', { name });
+            expect(option.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+            expect(option.querySelector('svg')).not.toBeNull();
+        }
         const field = within(picker).getByRole('textbox', { name: 'Type a place or lat, lon' });
         fireEvent.change(field, { target: { value: `${NOUMEA.lat}, ${NOUMEA.lon}` } });
         fireEvent.submit(field.closest('form')!);
@@ -633,7 +724,7 @@ describe('Where from', () => {
             },
         });
         const { dialog } = open();
-        fireEvent.click(await within(dialog).findByRole('button', { name: /^Plan from: .+, 2 h ago$/ }));
+        fireEvent.click(await within(dialog).findByRole('button', { name: /^Plan from: .+, boat 2 h ago$/ }));
         const picker = await screen.findByRole('dialog', { name: 'Plan from' });
         const options = within(picker)
             .getAllByRole('button')

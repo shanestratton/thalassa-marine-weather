@@ -93,6 +93,9 @@
     text-align: left;
 }
 .today-place .today-ellipsis { flex: 1; }
+/* Line icons, not emoji (127-PYD-1): the place button and the picker's boat and phone. */
+/* Inline, as the emoji were (the app's base styles make an svg a block). */
+.today-ico { display: inline-block; flex-shrink: 0; width: 1.15em; height: 1.15em; vertical-align: -0.2em; }
 .today-controls { display: flex; flex-wrap: wrap; gap: var(--today-gap-chip); }
 .today-days { display: flex; flex: 1 1 auto; gap: var(--today-gap-chip); min-width: 0; }
 .today-chip {
@@ -116,7 +119,10 @@
 .today-chip[aria-pressed='true'] { border-color: #67e8f9aa; background: #67e8f926; color: #fff; }
 .today-stay { flex: 0 0 auto; margin-left: auto; }
 .today-stay select { position: absolute; inset: -1px; opacity: 0; font-size: 1rem; }
-.today-glyph { flex-shrink: 0; width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+/* A day chip's best part, in her limits' glyph and its level's colour (127-PYD-1). */
+.today-glyph { color: var(--level); font-weight: 800; }
+/* A tile's bolt where thunder holds a part at Near: narrower than ≈, so the widest wind keeps its line. */
+.today-bolt { display: inline-block; width: 0.8em; height: 0.8em; vertical-align: -0.05em; color: var(--level); fill: currentColor; }
 .today-verdict { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--today-gap-chip); margin: 0; padding: 0; list-style: none; }
 [data-level='inside'] { --level: #4ade80; }
 [data-level='near'] { --level: #fbbf24; }
@@ -166,7 +172,8 @@
 .today-stop-shelter { flex: 0 100000 auto; min-width: 0; overflow: hidden; color: #cbd5e1; font-size: clamp(0.75rem, 0.75rem + 0.0056 * var(--today-room), 0.8125rem); text-overflow: ellipsis; }
 .today-stop-l2 { color: #cbd5e1; font-size: clamp(0.6875rem, 0.6875rem + 0.0056 * var(--today-room), 0.75rem); line-height: 1.4; }
 .today-chevron { color: #64748b; font-size: 1.125rem; }
-.today-tag { flex-shrink: 0; margin-left: 6px; padding: 0 5px; border-radius: 6px; background: #34d39926; color: #6ee7b7; font-size: 0.625rem; font-weight: 800; line-height: 1.5; }
+/* "Local notes": a reviewed note, often a caution (sharks, reef markers), so amber and outlined, never a green "go". */
+.today-tag { flex-shrink: 0; margin-left: 6px; padding: 0 5px; border: 1px solid #fbbf24; border-radius: 6px; color: #fcd34d; font-size: 0.625rem; font-weight: 800; line-height: 1.5; }
 /* Height tiers: two stops under 640 px tall, three above. */
 .today-main .today-col-b .today-stops > li:nth-child(n + 3) { display: none; }
 @media (min-height: 640px) {
@@ -184,7 +191,8 @@
 .today-icon:disabled { opacity: 0.45; }
 .today-credit { margin: 0; color: #94a3b8; font-size: 0.6875rem; line-height: 1.273; }
 .today-button { min-height: 44px; padding: 0 14px; border-radius: 12px; background: #ffffff12; font-weight: 650; }
-.today-primary { background: #0891b2; color: #fff; }
+/* AA with white in dark as in light (127-PYD-1: #0891b2 was 3.7:1). */
+.today-primary { background: #0e7490; color: #fff; }
 .today-actions { display: flex; flex-shrink: 0; gap: 8px; padding-top: clamp(4px, 4px + 0.022 * var(--today-room), 8px); }
 .today-actions .today-button { flex: 1; }
 .today-where { display: flex; flex-direction: column; gap: 6px; }
@@ -198,6 +206,8 @@
 .today-rows { margin: 0; padding: 0 4px; list-style: none; }
 .today-rows li { padding: clamp(2px, 2px + 0.017 * var(--today-room), 5px) 0; border-bottom: 1px solid #ffffff0d; font-size: 0.75rem; line-height: 1.25; }
 .today-rows li[data-parks] { color: #fcd34d; }
+/* The stop page's verdict, first, in its level's colour (127-PYD-1). */
+.today-rows li[data-level] { color: var(--level); font-weight: 700; }
 .today-leave { margin-top: clamp(4px, 4px + 0.022 * var(--today-room), 8px); }
 .today-footnote { margin: clamp(4px, 4px + 0.022 * var(--today-room), 8px) 4px 0; color: #94a3b8; font-size: 0.6875rem; line-height: 1.273; }
 .today-options { display: flex; flex-direction: column; gap: var(--today-gap-chip); margin: 0; padding: 0; list-style: none; }
@@ -344,7 +354,8 @@
         16px
     );
 }
-.today-main .today-tag { font-size: clamp(0.625rem, 0.625rem + 0.0134 * var(--today-room), 13px); }
+/* "Local notes" is twice "Parks": at most two thirds of the name's size, so a tall narrow window keeps the name whole. */
+.today-main .today-tag { font-size: max(0.625rem, min(clamp(0.625rem, 0.625rem + 0.0134 * var(--today-room), 13px), 0.66em)); }
 .today-main .today-foot { margin-top: var(--today-foot-gap); }
 .today-main .today-link { min-height: var(--today-target); font-size: clamp(0.8125rem, 0.8125rem + 0.0179 * var(--today-room), 17px); }
 .today-main .today-credit { font-size: clamp(0.6875rem, min(0.6875rem + 0.0074 * var(--today-room), var(--today-fit-times)), 13px); }
@@ -446,7 +457,7 @@
 .display-light [data-level='inside'] { --level: #15803d; }
 .display-light [data-level='near'] { --level: #b45309; }
 .display-light [data-level='over'] { --level: #b91c1c; }
-.display-light .today-tag { background: #d1fae5; color: #065f46; }
+.display-light .today-tag { border-color: #b45309; color: #b45309; }
 .display-light .today-chip[aria-pressed='true'] { border-color: #0e7490; background: #cffafe; }
 .display-light :is(.today-notice, .today-rows li[data-parks]) { color: #92400e; }
 .display-light .today-primary { background: #0e7490; color: #fff; }
