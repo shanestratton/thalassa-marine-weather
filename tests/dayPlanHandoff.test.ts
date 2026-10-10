@@ -49,31 +49,70 @@ const SAVED: SavedRouteMatch = {
     lengthNm: 14.8,
 };
 
-describe('plotDayAction: the pins Plot on chart drops', () => {
-    it('a day trip is straight out and straight home: start, stop, start', () => {
-        const action = plotDayAction(START, candidate(), '2h');
-        expect(action).toEqual({
+/** A routed line round the island (synthetic): what Auto's provider hands back. */
+const ROUTED = [START, { lat: -20.29, lon: 148.78 }, { lat: -20.3, lon: 148.86 }, { lat: -20.27, lon: 148.92 }, CID];
+const START_NAMED = { ...START, name: 'Airlie Bay' };
+const WHY = 'No chart for Cid Harbour on this phone.';
+
+describe('plotDayAction: Plot on chart never draws a straight line (127-PYD-3)', () => {
+    it('with no routed line and no saved route: the two marks and why, and no line at all', () => {
+        for (const stay of ['2h', 'overnight'] as const) {
+            const action = plotDayAction(START_NAMED, candidate(), stay, { why: WHY });
+            expect(action.points).toEqual([]);
+            expect(action.routed).toBeUndefined();
+            expect(action.frame).toEqual({
+                from: { lat: START.lat, lon: START.lon, name: 'Airlie Bay' },
+                to: { lat: CID.lat, lon: CID.lon, name: 'Cid Harbour' },
+                why: WHY,
+            });
+        }
+    });
+
+    it('a routed line is plotted as routed: out and turned round for a day trip, one way overnight', () => {
+        const day = plotDayAction(START_NAMED, candidate(), '4h', { routed: ROUTED });
+        expect(day).toMatchObject({
             kind: 'plot-day',
-            points: [START, CID, START],
+            routed: true,
             name: 'Day out: Cid Harbour',
             stop: 'Cid Harbour',
         });
+        expect(day.points).toEqual([...ROUTED, ...[...ROUTED].reverse().slice(1)]);
+        expect(day.savedRoute).toBeUndefined();
+        expect(day.frame).toBeUndefined();
+        const night = plotDayAction(START_NAMED, candidate(), 'overnight', { routed: ROUTED });
+        expect(night.points).toEqual(ROUTED);
+        expect(night.name).toBe('Overnight: Cid Harbour');
     });
 
-    it('an overnight stay is one way: start, stop', () => {
-        const action = plotDayAction(START, candidate(), 'overnight');
-        expect(action.points).toEqual([START, CID]);
-        expect(action.name).toBe('Overnight: Cid Harbour');
+    it('never returns a two-point straight line for a stop that is not her saved route', () => {
+        for (const stay of ['1h', '2h', '4h', 'overnight'] as const) {
+            for (const opts of [{}, { why: WHY }, { routed: [] }, { routed: [START] }]) {
+                const action = plotDayAction(START_NAMED, candidate(), stay, opts);
+                expect(action.points).toEqual([]);
+                expect(action.frame).toBeDefined();
+            }
+        }
+    });
+
+    it('a routed line too long to take there and back goes one way, with home by Reverse route', () => {
+        const long = Array.from({ length: 12_000 }, (_, i) => ({
+            lat: START.lat + ((CID.lat - START.lat) * i) / 11_999,
+            lon: START.lon + ((CID.lon - START.lon) * i) / 11_999,
+        }));
+        const day = plotDayAction(START_NAMED, candidate(), '2h', { routed: long });
+        expect(day.points).toHaveLength(12_000);
+        expect(day.outOnly).toBe(true);
+        expect(plotDayPins(day)).not.toBeNull();
     });
 
     it('a saved route that joins them is used as drawn, and turned round for the trip home', () => {
         const c = candidate({ distance: distanceEstimate(START, CID, null, SAVED) });
-        const day = plotDayAction(START, c, '4h');
+        const day = plotDayAction(START_NAMED, c, '4h');
         expect(day.savedRoute).toBe('Airlie → Cid');
         expect(day.points).toEqual([...SAVED.points, ...[...SAVED.points].reverse().slice(1)]);
         // The stop is not dropped twice.
         expect(day.points.filter((p) => p.lat === CID.lat && p.lon === CID.lon)).toHaveLength(1);
-        const night = plotDayAction(START, c, 'overnight');
+        const night = plotDayAction(START_NAMED, c, 'overnight');
         expect(night.points).toEqual(SAVED.points);
     });
 
@@ -86,7 +125,11 @@ describe('plotDayAction: the pins Plot on chart drops', () => {
             })),
             lengthNm: 14.8,
         };
-        const day = plotDayAction(START, candidate({ distance: distanceEstimate(START, CID, null, route) }), '2h');
+        const day = plotDayAction(
+            START_NAMED,
+            candidate({ distance: distanceEstimate(START, CID, null, route) }),
+            '2h',
+        );
         expect(day.points).toHaveLength(599);
         expect(day.savedRoute).toBe('Auto: Airlie → Cid');
         expect(plotDayPins(day)?.points).toHaveLength(599);
@@ -94,7 +137,7 @@ describe('plotDayAction: the pins Plot on chart drops', () => {
         expect(PLOT_DAY_MAX_POINTS).toBe(2 * AUTOROUTING_PROPOSAL_MAX_POINTS - 1);
     });
 
-    it('a route longer than the chart takes there and back falls back to straight pins, never a refusal', () => {
+    it('a saved route too long to take there and back gives the two marks and says so, never straight pins', () => {
         const route: SavedRouteMatch = {
             name: 'Far too long',
             points: Array.from({ length: PLOT_DAY_MAX_POINTS }, (_, i) => ({
@@ -103,48 +146,84 @@ describe('plotDayAction: the pins Plot on chart drops', () => {
             })),
             lengthNm: 14.8,
         };
-        const day = plotDayAction(START, candidate({ distance: distanceEstimate(START, CID, null, route) }), '2h');
-        expect(day.points).toEqual([START, CID, START]);
+        const day = plotDayAction(
+            START_NAMED,
+            candidate({ distance: distanceEstimate(START, CID, null, route) }),
+            '2h',
+        );
+        expect(day.points).toEqual([]);
         expect(day.savedRoute).toBeUndefined();
+        expect(day.frame?.why).toBe('Your saved route is too long to plot here: open it from Saved Routes.');
         expect(plotDayPins(day)).not.toBeNull();
     });
 
     it('copies the points, so the plan cannot be edited through the chart', () => {
         const c = candidate({ distance: distanceEstimate(START, CID, null, SAVED) });
-        const action = plotDayAction(START, c, 'overnight');
+        const action = plotDayAction(START_NAMED, c, 'overnight');
         action.points[0].lat = 0;
         expect(SAVED.points[0].lat).toBe(START.lat);
+        const routed = plotDayAction(START_NAMED, candidate(), 'overnight', { routed: ROUTED });
+        routed.points[1].lat = 0;
+        expect(ROUTED[1].lat).toBe(-20.29);
     });
 
     it('plots a place anywhere in the world the same way (Nouméa, no atlas)', () => {
-        const noumea = { lat: -22.2758, lon: 166.458 };
+        const noumea = { lat: -22.2758, lon: 166.458, name: 'Port Moselle' };
         const baie = { lat: -22.3201, lon: 166.4398 };
-        const action = plotDayAction(
-            noumea,
-            candidate({
-                id: 'osm-node99',
-                name: 'Baie de Maa',
-                source: 'osm',
-                ...baie,
-                distance: distanceEstimate(noumea, baie, null),
-            }),
-            '1h',
-        );
-        expect(action.points).toEqual([noumea, baie, noumea]);
-        expect(action.name).toBe('Day out: Baie de Maa');
+        const c = candidate({
+            id: 'osm-node99',
+            name: 'Baie de Maa',
+            source: 'osm',
+            ...baie,
+            distance: distanceEstimate(noumea, baie, null),
+        });
+        const byHand = plotDayAction(noumea, c, '1h', { why: 'No chart for Baie de Maa on this phone.' });
+        expect(byHand.points).toEqual([]);
+        expect(byHand.frame?.to.name).toBe('Baie de Maa');
+        const routed = [{ lat: noumea.lat, lon: noumea.lon }, { lat: -22.3, lon: 166.45 }, baie];
+        expect(plotDayAction(noumea, c, '1h', { routed }).points).toEqual([
+            ...routed,
+            ...[...routed].reverse().slice(1),
+        ]);
     });
 });
 
 describe('plotDayPins: what the chart accepts from a plot-day request', () => {
-    const valid = plotDayAction(START, candidate(), '2h');
+    const valid = plotDayAction(START_NAMED, candidate(), '2h', { routed: ROUTED });
+    const frame = plotDayAction(START_NAMED, candidate(), '2h', { why: WHY });
 
-    it('passes a good request through', () => {
+    it('passes a good routed request through', () => {
         expect(plotDayPins(valid)).toEqual({
-            points: [START, CID, START],
+            points: valid.points,
             name: 'Day out: Cid Harbour',
             stop: 'Cid Harbour',
             savedRoute: null,
+            routed: true,
+            outOnly: false,
+            frame: null,
         });
+    });
+
+    it('passes a frame with no points through, with both marks and why', () => {
+        expect(plotDayPins(frame)).toEqual({
+            points: [],
+            name: 'Day out: Cid Harbour',
+            stop: 'Cid Harbour',
+            savedRoute: null,
+            routed: false,
+            outOnly: false,
+            frame: frame.frame,
+        });
+    });
+
+    it('refuses a frame with a bad position, a frame with pins, and no pins without a frame', () => {
+        const bad = { ...frame.frame!, to: { ...frame.frame!.to, lat: 91 } };
+        expect(plotDayPins({ ...frame, frame: bad })).toBeNull();
+        expect(
+            plotDayPins({ ...frame, frame: { ...frame.frame!, from: { lat: 1, lon: Number.NaN, name: 'x' } } }),
+        ).toBeNull();
+        expect(plotDayPins({ ...frame, points: [START, CID] })).toBeNull();
+        expect(plotDayPins({ ...valid, points: [] })).toBeNull();
     });
 
     it('refuses fewer than two pins, a bad coordinate, or a runaway list', () => {
@@ -185,7 +264,7 @@ describe("the 'plot-day' tracer request", () => {
         setAuthIdentityScope(null);
     });
 
-    const action: TracerOpenAction = plotDayAction(START, candidate(), '2h');
+    const action: TracerOpenAction = plotDayAction(START_NAMED, candidate(), '2h', { routed: ROUTED });
 
     it('round-trips through requestTracerOpen and consumeTracerAction', () => {
         const event = captureNextTracerEvent();
