@@ -511,10 +511,8 @@ export async function downloadCloudCellsForBBox(bbox: [number, number, number, n
     await registerCloudCells(); // ensure the manifest is registered (bboxes known)
     let downloaded = 0;
     let needed = 0;
-    // A curated manifest may legitimately be absent now — an account whose only
-    // charts are its OWN published cells has nothing in the shared bucket. The
-    // old unconditional early return here reported "no bucket" for exactly that
-    // case, which reads to the caller as "sign in / you're offline".
+    // The NOAA manifest is the only shelf (the personal one was deleted in
+    // 127), so the bucket is available exactly when that manifest is.
     if (activeManifest) {
         const [west, south, east, north] = bbox;
         const covering = listRegisteredCells().filter((cell) => {
@@ -527,12 +525,5 @@ export async function downloadCloudCellsForBBox(bbox: [number, number, number, n
             if (await downloadCloudCell(c.id)) downloaded++;
         }
     }
-    // Then the skipper's own cells, which the curated filter above can never
-    // match (they carry personalManifestVersion, not cloudManifestVersion).
-    // Closed since 126-20: this answers "nothing, unavailable" without a request.
-    const { downloadPersonalCellsForBBox } = await import('./personalCellSync');
-    const personal = await downloadPersonalCellsForBBox(bbox);
-    downloaded += personal.downloaded;
-    needed += personal.needed;
-    return { downloaded, needed, bucketAvailable: Boolean(activeManifest) || personal.available };
+    return { downloaded, needed, bucketAvailable: Boolean(activeManifest) };
 }

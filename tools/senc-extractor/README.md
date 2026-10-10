@@ -21,165 +21,12 @@ GeoJSON cells (immutable cells/<cellId>-<sha256>.json, selected by index.json)
 inshoreRouterEngine.routeInshore({ from, to, draftM })
 ```
 
-## Second source: S-63 charts (`extractS63.ts`)
+## S-63 is not a source (since build 127)
 
-Areas o-charts doesn't sell — New Caledonia among them — are reachable as
-official S-63 cells from a PRIMAR reseller (we buy from ChartWorld against an
-o-charts UserPermit). Those arrive through a completely separate path:
-
-```
-S-63 exchange set (ENC_ROOT/…, cell permits in PERMIT.TXT)
-    ↓ OpenCPN s63 plugin — "Import Cell Permits" then "Import Charts/Updates"
-.es57 in ~/.opencpn/s63/s63SENC/   (plaintext SENC under a repeating XOR pad)
-    ↓ s63Decrypt.ts — OCPNsenc -n regenerates the 1024-byte pad, then XOR
-line-oriented SENC
-    ↓ s63SencParser.ts
-    ↓ geojsonEmitter.ts (shared with the .oesu path)
-GeoJSON cells → same ENC_CHART_DIR as above
-```
-
-```bash
-npx tsx src/extractS63.ts --out ./cells
-# or straight into the live chart store, alongside the AU cells:
-npx tsx src/extractS63.ts --pi-cache-store /opt/thalassa-pi-cache/enc-charts
-```
-
-Permits are read from where the plugin already put them — `Userpermit` and
-`Installpermit` in `opencpn.conf`, per-cell permits from the `cellpermit:`
-line of each `.os63` — so there is nothing to pass on the command line.
-
-### Installing a purchased exchange set (`installS63.ts`)
-
-One command takes a ChartWorld download to a chart the app can use:
-
-```bash
-npx tsx src/installS63.ts \
-    --exchange ~/Charts/DC40966ACES_ORDER_26_31_01.S63.ZIP \
-    --permit   ~/Charts/Serene_Summer_DC40966_latest.prm.zip
-```
-
-Both arguments take a `.zip` or an unpacked directory. It walks `ENC_ROOT`,
-groups each cell's base and updates, writes the `.os63`, and builds the eSENC —
-then stops. The pi-cache watcher notices the new `.es57` and publishes the
-GeoJSON within ~30 s, so the whole path is:
-
-```
-buy → download → installS63 → watcher extracts → /api/enc/installed → app
-```
-
-`--dry-run` lists what it would install without writing anything. Permits are
-read from `opencpn.conf` and the bundle's `PERMIT.TXT`, never passed on the
-command line.
-
-Verified against a GUI-imported cell: the generated `.os63` matches the one
-OpenCPN's own import wrote (all 14 updates, same order, same EDTN/UPDN), and
-the resulting chart is identical — 2804 features, 30 layers, same bbox.
-
-**Caveat worth knowing:** the `.os63` records absolute paths to the `ENC_ROOT`
-files, so the unpacked exchange set must stay where it was when you installed.
-Move or delete it and the cell can't be rebuilt (the already-built `.es57` keeps
-working until the cell is updated).
-
-### The two artefacts, if you need to do it by hand
-
-The plugin's "Import Cell Permits / Import Charts" dialogs only produce two
-artefacts, and both can be made headlessly — useful on a Pi with no screen,
-and the reason the watcher below has something to watch:
-
-1. **The `.os63` descriptor**, plain text under `s63charts/<dataserver>/`:
-
-    ```
-    cellpermit:<the cell's line from PERMIT.TXT>
-    cellbase:<abs path>/<CELL>.000;VERSION=1.0,EDTN=<n>,UPDN=0,UADT=<date>,ISDT=<date>;
-    cellupdate:<abs path>/<CELL>.001;VERSION=1.0,EDTN=<n>,UPDN=1,ISDT=<date>;   ← one per update
-    ```
-
-2. **The eSENC**, built by OCPNsenc's `-c` (create secure SENC) mode:
-
-    ```bash
-    OCPNsenc -c -i <ENC_ROOT>/<CC>/<CELL>/<ed>/0/<CELL>.000 \
-             -o ~/.opencpn/s63/s63SENC/<CELL>.es57 \
-             -p "<cell permit>" -u <UserPermit> -e <InstallPermit> \
-             -r /usr/share/opencpn/s57data -g <path to .os63> \
-             -z ~/.local/lib/opencpn/libs63_pi.so
-    ```
-
-    It prints `eSENC built OK` on success. Writing that `.es57` is what trips
-    the watcher, so extraction and publication follow on their own.
-
-Reference: bdbcat/s63_pi `s63chart.cpp` — `BuildSENCFile` builds the command
-line; the `.os63` format is parsed in the `cellpermit:` / `cellbase:` reader.
-`--pi-cache-store` writes the same wrapped-cell + index.json format
-`decryptBatch.ts` writes for `.oesu` charts (shared shapes in
-`piCacheStore.ts`), so the cell shows up in `/api/enc/installed` and the
-app's ENC sync immediately.
-
-Two things differ from the o-charts path and are worth knowing:
-
-- **No daemon.** S-63 has no `oexserverd` equivalent. The plugin's OCPNsenc
-  helper re-derives a one-time pad per file from the three permits; the eSENC
-  is that pad XORed over plaintext SENC. Pads are bound to the file's absolute
-  path — move the `.es57` and it stops decrypting.
-- **No dongle.** The o-charts SG-Lock does not cover S-63. The UserPermit binds
-  to a machine fingerprint made by the plugin (Options → Charts → S63 Charts →
-  Keys/Permits), so the fingerprinted machine must be the one that runs this.
-
-### Where line geometry actually lives
-
-The `LINESTRING` blob preceding each `LSINDEXLIST` looks like WKB and states a
-vertex count, but **its coordinate array is uninitialised heap memory** — it
-decodes to values like 4.8e34 while the trailing float32 bounding box in the
-same blob decodes correctly. OCPNsenc never fills it and the plugin never reads
-it (`AssembleLineGeometry` walks the tables instead). Do not be tempted by it.
-
-Real line vertices come from the two shared tables at the end of the file:
-
-```
-VETableStart\n  repeat{ int32 edgeIndex, int32 count, count × (double x, double y) } until index -1
-VCTableStart\n  repeat{ int32 nodeIndex, double x, double y }                       until index -1
-```
-
-Each `LSINDEXLIST` entry is four int32s — start node, edge, end node, direction
-— and a feature's line is those segments concatenated. Note the tables store
-**doubles**, unlike the binary format's float32 edge vertices, so lines come out
-more precise than the float32 triangulated areas.
-
-The direction flag is not trusted: the reference convention is `1 == forward`
-(anything else reverse), but each edge is oriented geometrically — whichever
-orientation puts its endpoints nearest the segment's connected nodes — which is
-self-validating; the flag is only the last-resort tiebreaker when neither node
-exists to measure against.
-
-A feature's entries may be legitimately **discontinuous** (70 of FR466870's
-1158 line features): S-57 lets one feature map disjoint edge runs, and OpenCPN
-renders each segment independently. Concatenating across a break would draw a
-chord the chart never asserted, so a break starts a new part and multi-part
-features emit as `MultiLineString` (single-part stays `LineString`).
-
-### How it's verified
-
-Every line feature is checked against the bounding box the chart itself recorded
-in that (otherwise junk) blob — an independent per-feature assertion, reported
-by the CLI on every run:
-
-```
-FR466870: 3457 features, 2804 emitted
-    3267 edges / 2418 nodes; lines verified against recorded extents: 1158 (70 multi-part), withheld: 0 mismatched + 0 damaged
-```
-
-Failures are **withheld from the output** — wrong geometry is worse than absent
-geometry in a navigation pipeline — so non-zero withheld counts are the only
-trace they existed; treat the cell as suspect until they're explained. The same
-policy applies to a decrypt whose plaintext doesn't open with `SENC Version=`
-(a well-formed but WRONG cell permit produces a full-length pad and high-entropy
-noise; `s63Decrypt` refuses it rather than parse garbage). Two further checks
-were run by hand on FR466870 and are worth repeating when the format shifts:
-
-- **Georeferencing** — the light at the entrance to Boulari Pass decodes as
-  Fl(2) 10s, 53 m, 20 NM: Phare Amédée's published characteristic.
-- **Internal consistency** — sampled DEPCNT contours sit ~4 m from the boundary
-  of DEPARE polygons carrying the same depth, i.e. within the float32
-  quantisation of the area triangles.
+ChartWorld S-63 charts open in OpenCPN on the Pi (Remote screen), never in
+Thalassa: the o-charts shop terms make S-63 OpenCPN-only, so the S-63 decrypt,
+parser and installer were removed from this tool in 127. OpenCPN's own S-63
+plugin takes delivery and handles the fingerprint and permits.
 
 ## Status
 
@@ -189,11 +36,7 @@ were run by hand on FR466870 and are worth repeating when the format shifts:
 - [ ] AREA geometry reconstruction via VECTOR_EDGE_NODE_TABLE / VECTOR_CONNECTED_NODE_TABLE
 - [ ] CLI for batch decrypt via `oexserverd` (port of hornang/oesenc-export protocol)
 - [ ] Pi-side daemon: watch `~/.opencpn/SENC/` and auto-extract on cache write
-- [x] S-63 path: pad-based decrypt + line-oriented SENC parser (`extractS63.ts`)
-- [x] S-63 line geometry via `LSINDEXLIST` → `VETable`/`VCTable` walk
-- [ ] S-63 area outlines: PolyTessGeo areas emit as triangle MultiPolygons.
-      The edges to assemble true rings are in the same `LSINDEXLIST` the line
-      path now walks, so `resolveAreaRings`-style output is within reach.
+- [x] Triangle mesh → polygon rings (`meshOutline.ts`), for a SENC that ships areas as a mesh only
 
 ## Setting up reference materials
 
@@ -247,7 +90,7 @@ producer from a region name or use a default country for a mixed package.
 The watcher reconciles startup files, chart modifications, key XML and this
 metadata file. `ENC_DEFAULT_SOURCE_HO` is no longer applied.
 
-Both extractors preserve SENC `updateNumber` and produce index `contentSha256`
+The extractor preserves SENC `updateNumber` and produces index `contentSha256`
 over exact UTF-8 wrapped-cell bytes. Index writers use `.index.lock`, immutable
 blobs and atomic index replacement. Older revisions are kept out of the store;
 equal revisions with different hashes require investigation unless their

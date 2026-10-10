@@ -4,7 +4,8 @@ import { featureToGeoJson } from './geojsonEmitter.js';
 import type { SencFeature } from './featureParser.js';
 
 /**
- * End-to-end wiring for the S-63 area path.
+ * End-to-end wiring for an area recovered from its triangle mesh (written for
+ * the S-63 path, retired in 127; the emitter seam stays).
  *
  * meshOutline is unit-tested on its own, but a correct algorithm that is not
  * actually reached emits exactly the same triangle soup as no algorithm at

@@ -756,17 +756,9 @@ export async function syncEncFromPi(
         cellsDone: persisted.length,
     });
 
-    // Kept the skipper's own cloud current after a Pi sync. Since 126-20 the
-    // personal shelf is closed (licensed charts never go to the cloud), so
-    // publishNewCellsIfEnabled returns before reading the old opt-in flag or
-    // touching Storage; build 127 removes this hook with the module. Not
-    // awaited: the sync is finished and reported.
-    if (persisted.length > 0) {
-        void import('./enc/personalCellSync')
-            .then(({ publishNewCellsIfEnabled }) => publishNewCellsIfEnabled())
-            .catch(() => {});
-    }
-
+    // Nothing follows a Pi sync to the cloud: the hook that published new
+    // cells to the skipper's own folder was switched off in 126-20 and
+    // deleted with the personal shelf in 127.
     return { cells: persisted, skipped };
 }
 
@@ -809,6 +801,8 @@ interface PiJobStatus {
     progress?: number;
     step?: string;
     error?: string;
+    /** The Pi's stable failure code (e.g. 's63-opencpn-only'), when it gave one. */
+    errorCode?: string;
     cellId?: string;
     bbox?: [number, number, number, number];
     cellCount?: number;

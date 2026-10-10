@@ -348,24 +348,8 @@ export const AccountTab: React.FC<AccountTabProps> = ({
                             </div>
                         </div>
                     </Row>
-                    {/*
-                     * Chart backup lives here now.
-                     *
-                     * It is pure Supabase — no Pi anywhere in it or in
-                     * personalCellSync — but its only mount was inside
-                     * EncCellManager, which renders only when Pi integration
-                     * is on. So a build without the pinning plugin, and the
-                     * web build at thalassawx.app, could DOWNLOAD your
-                     * personal cells and never publish or back one up. Paid
-                     * Nouméa and Port Vila cells had no route off the phone
-                     * they were imported on.
-                     *
-                     * It was also buried inside a collapsed card on a page
-                     * about hardware discovery, which is not where anyone
-                     * looks for a backup. This section already promises that
-                     * settings, vessel records and voyage data sync privately
-                     * across devices; charts belong in that sentence.
-                     */}
+                    {/* Where licensed charts live: one plain line (126-20), beside the
+                        sentence about what does sync across devices. */}
                     <Row>
                         <EncPersonalCloudPanel />
                     </Row>

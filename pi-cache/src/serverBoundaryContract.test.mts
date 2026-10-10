@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const source = readFileSync(new URL('./server.ts', import.meta.url), 'utf8');
@@ -11,7 +11,6 @@ const osmServiceSource = readFileSync(new URL('./services/osm.ts', import.meta.u
 const governorSource = readFileSync(new URL('./workloadGovernor.ts', import.meta.url), 'utf8');
 const resourceBoundarySource = readFileSync(new URL('./resourceBoundary.ts', import.meta.url), 'utf8');
 const watcherSource = readFileSync(new URL('./encWatcher.ts', import.meta.url), 'utf8');
-const chartworldSource = readFileSync(new URL('./chartworldSync.ts', import.meta.url), 'utf8');
 const reconvertSource = readFileSync(new URL('./encSourceReconvert.ts', import.meta.url), 'utf8');
 const installerSource = readFileSync(new URL('./oChartsInstaller.ts', import.meta.url), 'utf8');
 
@@ -210,8 +209,10 @@ test('all Pi chart conversion, installation, download and routing entry points s
         /acquireRequestWorkload\(req, res, 'conversion'\)/,
     );
     assert.match(chartRouteSource.slice(chartRouteSource.indexOf("router.post('/download'")), /submit\('conversion'/);
-    assert.equal(watcherSource.match(/admit\('conversion'\)/g)?.length, 2);
-    assert.match(chartworldSource, /admit\('conversion'\)/);
+    // One spawn site since 127: the .oesu decrypt. The S-63 extract and the
+    // ChartWorld poller are gone (S-63 opens in OpenCPN only).
+    assert.equal(watcherSource.match(/admit\('conversion'\)/g)?.length, 1);
+    assert.equal(existsSync(new URL('./chartworldSync.ts', import.meta.url)), false);
     // The re-conversion of installer-retained sources takes the same lane,
     // and only after the watcher's own startup reconcile.
     assert.match(reconvertSource, /governor\.admit\('conversion'\)/);
@@ -251,11 +252,6 @@ test('downloads and ZIP extraction cross centralized streaming resource boundari
     assert.doesNotMatch(encRouteSource, /AdmZip|extractAllTo/);
     assert.doesNotMatch(chartRouteSource, /AdmZip|entry\.getData\(\)/);
 
-    assert.match(chartworldSource, /--max-filesize/);
-    assert.match(chartworldSource, /assertDownloadDestinationCapacity/);
-    assert.match(chartworldSource, /extractZipArchive\(filePath, extractionDir, CHARTWORLD_ARCHIVE_POLICY\)/);
-    assert.match(chartworldSource, /materialiseDownloadedArchive\(exchangePath\)/);
-    assert.match(chartworldSource, /runInstall\(exchangeDir, permitDir\)/);
     assert.match(resourceBoundarySource, /ZIP contains a symlink or special file/);
     assert.match(resourceBoundarySource, /pipeline\(source, createInflateRaw\(\), integrity, output\)/);
     assert.match(resourceBoundarySource, /\.partial/);
@@ -314,7 +310,7 @@ test('background workers are NOT behind the unsafe-admin gate', () => {
     // prefetch or automatic chart decryption was to ALSO expose an unbounded
     // outbound proxy, a config writer, a cache purge, remote access and
     // arbitrary chart download/delete — on the machine holding the boat's
-    // charts, its track history and its ChartWorld credentials. So the flag
+    // charts and its track history. So the flag
     // stayed on, and the door stayed open (Shane 2026-08-30).
     //
     // Neither worker serves a request or reads one. They poll and write to

@@ -17,6 +17,10 @@ export interface InstalledCellMeta {
     featureCount: number;
     sizeBytes: number;
     installedAt: string;
+    /**
+     * 's63' is a legacy enum value. The retired S-63 path wrote its cells as
+     * 'pi-decrypt', so those cells are removed by 127-C-d's purge, not by source.
+     */
     source: 'phone-upload' | 'url' | 'pi-decrypt' | 's63';
     /** Only the origin is retained; vendor download URLs can carry credentials in their path. */
     sourceUrl?: string;

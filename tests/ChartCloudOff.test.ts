@@ -1,6 +1,6 @@
 /**
- * Chart cloud off (126-20): no licensed chart cell goes to, or comes from,
- * the cloud.
+ * Chart cloud off (126-20, and the personal shelf deleted in 127): no
+ * licensed chart cell goes to, or comes from, the cloud.
  *
  * o-charts (Roberto, 2026-10-10, pasted by Shane): "Storing unencrypted data
  * on any medium, and especially in the cloud, is strictly prohibited by the
@@ -9,13 +9,15 @@
  * The REAL supabase-js client with only fetch faked, so "no storage call"
  * means no request leaves the device: the fake Storage would happily serve a
  * personal manifest, personal cells and a mixed root manifest, and accept any
- * upload. The personal shelf must ignore all of it; the shared root shelf may
- * register and download public-domain NOAA cells, and nothing else.
+ * upload. Nothing may ask for the personal shelf (127 deletes the module); the
+ * shared root shelf may register and download public-domain NOAA cells, and
+ * nothing else.
  *
  * Fictional data only: licensed-style ZZ5TEST1 and OC-99-ZZTEST, NOAA-shaped
  * US5XX01M, account user-zz, test.invalid URLs.
  */
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EncCell, EncConversionResult } from '../services/enc/types';
 
@@ -107,15 +109,13 @@ vi.mock('../services/supabase', async () => {
 });
 vi.mock('@capacitor/filesystem', async () => (await import('./helpers/memoryFilesystem')).memoryFilesystemModule());
 // Rung 1 is the boat's Pi: off the boat in these tests.
-vi.mock('../services/enc/piCellSync', () => ({ downloadPiCell: vi.fn(async () => false) }));
+const pi = vi.hoisted(() => ({ downloadPiCell: vi.fn(async (_cellId: string) => false) }));
+vi.mock('../services/enc/piCellSync', () => pi);
 // The validated import transaction, reduced to what these paths need: the
 // bytes land in the real local store and the real registry.
 vi.mock('../services/enc/EncHazardService', () => ({
     importCell: vi.fn(
-        async (
-            blob: EncConversionResult,
-            options: { usage?: EncCell['usage']; cloudManifestVersion?: number; personalManifestVersion?: number },
-        ) => {
+        async (blob: EncConversionResult, options: { usage?: EncCell['usage']; cloudManifestVersion?: number }) => {
             const { saveCellGeoJSON } = await import('../services/enc/EncCellStore');
             const { putCell } = await import('../services/enc/EncCellMetadata');
             const { path, sizeBytes } = await saveCellGeoJSON(blob.cellId, blob);
@@ -132,9 +132,6 @@ vi.mock('../services/enc/EncHazardService', () => ({
                 sizeBytes,
                 ...(options.cloudManifestVersion !== undefined
                     ? { cloudManifestVersion: options.cloudManifestVersion }
-                    : {}),
-                ...(options.personalManifestVersion !== undefined
-                    ? { personalManifestVersion: options.personalManifestVersion }
                     : {}),
             };
             putCell(cell, { allowAuthorityUpgrade: true });
@@ -157,7 +154,6 @@ async function load() {
     storageFrom.mockClear();
     return {
         storageFrom,
-        personal: await import('../services/enc/personalCellSync'),
         cloud: await import('../services/enc/cloudCellSync'),
         store: await import('../services/enc/EncCellStore'),
         meta: await import('../services/enc/EncCellMetadata'),
@@ -215,67 +211,93 @@ async function holdPiSyncedChart(env: Awaited<ReturnType<typeof load>>): Promise
 
 const storageRequests = () => h.requests.map((request) => `${request.method} ${request.path}`);
 
+function tracked(...paths: string[]): string[] {
+    return execFileSync('git', ['ls-files', '-z', '--', ...paths], { maxBuffer: 64 * 1024 * 1024 })
+        .toString('utf8')
+        .split('\0')
+        .filter(Boolean);
+}
+
 beforeEach(() => {
     localStorage.clear();
     h.requests.length = 0;
     h.fetch.mockClear();
+    pi.downloadPiCell.mockClear();
     stockTheBucket();
 });
 
-describe('the personal chart shelf is off', () => {
-    it('is switched off in one place', async () => {
-        const { personal } = await load();
-        expect(personal.PERSONAL_CHART_CLOUD_ENABLED).toBe(false);
+describe('the personal chart shelf is gone (127)', () => {
+    // 126-20 switched it off; 127 deletes it. The fake bucket above still
+    // holds a personal shelf for user-zz, so every test below would see a
+    // request to it if any path were left.
+    it('the module is deleted', () => {
+        expect(existsSync('services/enc/personalCellSync.ts')).toBe(false);
     });
 
-    it.each([
-        ['syncPersonalCells', (p: typeof import('../services/enc/personalCellSync')) => p.syncPersonalCells(), 0],
-        [
-            'downloadPersonalCell',
-            (p: typeof import('../services/enc/personalCellSync')) => p.downloadPersonalCell('ZZ5TEST1'),
-            false,
-        ],
-        [
-            'downloadPersonalCellsForBBox',
-            (p: typeof import('../services/enc/personalCellSync')) => p.downloadPersonalCellsForBBox(ZZ_BBOX),
-            { downloaded: 0, needed: 0, available: false },
-        ],
-        [
-            'getPublishPlan',
-            (p: typeof import('../services/enc/personalCellSync')) => p.getPublishPlan(),
-            { candidates: [], bytes: 0, alreadyPublished: 0, available: false },
-        ],
-        [
-            'publishPersonalCells',
-            (p: typeof import('../services/enc/personalCellSync')) => p.publishPersonalCells(),
-            { uploaded: 0, failed: [], cancelled: false, available: false },
-        ],
-    ])('%s returns its off value and makes no storage call', async (_name, call, off) => {
+    it('no app source names the personal shelf or its owner prefix', () => {
+        const app = tracked(
+            'App.tsx',
+            'ApplicationShell.tsx',
+            'components',
+            'contexts',
+            'hooks',
+            'pages',
+            'services',
+            'stores',
+            'utils',
+            'workers',
+        ).filter((path) => /\.(ts|tsx)$/.test(path));
+        expect(app.length).toBeGreaterThan(500);
+        const offenders = app.filter((path) => {
+            const source = readFileSync(path, 'utf8');
+            // Imports and the shelf's object paths. (A comment may still tell
+            // the history: EncPersonalCloudPanel's header is 127-C-c's to reword.)
+            return /from '[^']*personalCellSync'|import\('[^']*personalCellSync'\)|enc-cells\/u\/|[`'"]u\/\$\{/.test(
+                source,
+            );
+        });
+        expect(offenders).toEqual([]);
+    });
+
+    it('the validated import no longer takes a personal manifest version', () => {
+        // The field stays on EncCell as a read-only legacy marker (old records,
+        // the Pi mirror), but nothing can write it any more.
+        expect(readFileSync('services/enc/EncHazardService.ts', 'utf8')).not.toContain('personalManifestVersion');
+    });
+
+    it('the end of a Pi sync calls no publish hook (EncInstallFlow runs the sync itself)', () => {
+        const importService = readFileSync('services/EncImportService.ts', 'utf8');
+        expect(importService).not.toMatch(/publishNewCellsIfEnabled|publishPersonalCells/);
+    });
+
+    it('a licensed chart held from the Pi is left alone by the cloud passes', async () => {
         const env = await load();
         await holdPiSyncedChart(env);
         const before = env.meta.listRegisteredCells();
 
-        await expect(call(env.personal)).resolves.toEqual(off);
+        await env.cloud.registerCloudCells();
+        await env.cloud.downloadCloudCellsForBBox(ZZ_BBOX);
 
-        expect(env.storageFrom).not.toHaveBeenCalled();
-        expect(storageRequests()).toEqual([]);
-        // Nothing registered from the cloud, nothing taken away.
-        expect(env.meta.listRegisteredCells()).toEqual(before);
-    });
-
-    it('a Pi sync uploads nothing, even with the old Auto-publish flag still on', async () => {
-        const env = await load();
-        await holdPiSyncedChart(env);
-        localStorage.setItem('thalassa_enc_auto_publish', '1');
-
-        await expect(env.personal.publishNewCellsIfEnabled()).resolves.toBeUndefined();
-
-        expect(env.storageFrom).not.toHaveBeenCalled();
-        expect(storageRequests()).toEqual([]);
+        expect(env.meta.getRegisteredCell('ZZ4TEST2')).toEqual(before.find((cell) => cell.id === 'ZZ4TEST2'));
+        expect(storageRequests().filter((request) => request.includes('/u/'))).toEqual([]);
+        expect(storageRequests().filter((request) => !request.startsWith('GET '))).toEqual([]);
     });
 });
 
 describe('loadCellGeoJSON reaches the cloud for NOAA cells only', () => {
+    it('tries the Pi, then the NOAA shelf, and stops: two rungs, no third', async () => {
+        const env = await load();
+
+        await expect(env.store.loadCellGeoJSON('OC-99-ZZTEST')).resolves.toBeNull();
+
+        expect(pi.downloadPiCell).toHaveBeenCalledExactlyOnceWith('OC-99-ZZTEST');
+        expect(storageRequests()).toEqual([]);
+        const ladder = readFileSync('services/enc/EncCellStore.ts', 'utf8');
+        const body = ladder.slice(ladder.indexOf('export async function loadCellGeoJSON'));
+        const rungs = body.slice(0, body.indexOf('\n}\n')).match(/await import\('\.\/[A-Za-z]+'\)/g);
+        expect(rungs).toEqual(["await import('./piCellSync')", "await import('./cloudCellSync')"]);
+    });
+
     it.each(['ZZ5TEST1', 'OC-99-ZZTEST'])(
         'a licensed cell missing from this device stays missing: %s is never fetched from either shelf',
         async (cellId) => {
@@ -350,6 +372,16 @@ describe('the shared root shelf registers and downloads NOAA cells only', () => 
             'GET /storage/v1/object/enc-cells/US5XX01M.json',
         ]);
         expect(env.meta.getRegisteredCell('ZZ5TEST1')).toBeNull();
+    });
+
+    it('with no root manifest the bucket is reported unavailable, whatever the personal shelf holds', async () => {
+        h.objects.delete('manifest.json');
+        const env = await load();
+
+        const fill = await env.cloud.downloadCloudCellsForBBox(ZZ_BBOX);
+
+        expect(fill).toEqual({ downloaded: 0, needed: 0, bucketAvailable: false });
+        expect(storageRequests()).toEqual(['GET /storage/v1/object/enc-cells/manifest.json']);
     });
 
     it('a device that synced the root manifest before 126 still accepts the same version', async () => {

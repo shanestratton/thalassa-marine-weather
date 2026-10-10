@@ -58,17 +58,30 @@ const LEDGER: readonly string[] = [
     'tests/routing/threeTierNewport.test.ts › four-tier wiring — Newport→Murrarie (Shane real route) (real AU chart fixture retired; port: 127-C-a)',
     'tests/noTideFixtureOffsets.test.ts › decision 11 — Newport → ${name}, destination nudged ${nudge} (real AU chart fixture retired; port: 127-C-a)',
     'tests/tier2/moretonBayFixture.test.ts › Tier-2 real-chart fixture — Moreton Bay open-bay crossing (real AU chart fixture retired; port: 127-C-a)',
-    // Retire: Phase 1 deletes these local suites; their questions move to the Pi's in-memory
+    // Retire: Phase 1 deletes this local suite; its questions move to the Pi's in-memory
     // parity harness (vision §5, 128 starter 3).
-    'tests/repro/detailedChartOverviewLandRealCells.local.test.ts › decision 1 stays between two detailed charts: the Brisbane River (local only) (real AU chart fixture retired; port: 127-C-a)',
-    'tests/repro/newportRivergateRealCells.local.test.ts › Newport → Rivergate on the real cells (app path, local only) (real AU chart fixture retired; port: 127-C-a)',
     'tests/repro/leadShadow.corpus.local.test.ts › lead-graph shadow corpus (local) (real AU chart fixture retired; port: 127-C-a)',
 ];
 
-/** The ledger's size on 2026-10-10. It can only come down. */
-const LEDGER_CEILING = 35;
+/** The ledger's size: 35 on 2026-10-10, 33 on 2026-10-11 (history below). It can only come down. */
+const LEDGER_CEILING = 33;
 
-/** History: blocks retired outright (not ported), with the reason. Empty so far. */
+/**
+ * History: blocks retired outright (not ported), with the reason.
+ *
+ * 2026-10-11, 127-C-a Phase 1 (the guard's real-cell rule: decrypted cells on
+ * a Mac's disk are a medium the o-charts ruling forbids, so no suite may read
+ * them). Deleted with the five local-only suites that read a folder of the
+ * Pi's decrypted cells; their questions move to the Pi's in-memory parity
+ * harness (vision §5, 128 starter 3):
+ *   - tests/repro/detailedChartOverviewLandRealCells.local.test.ts ›
+ *     decision 1 stays between two detailed charts: the Brisbane River (local only)
+ *   - tests/repro/newportRivergateRealCells.local.test.ts ›
+ *     Newport → Rivergate on the real cells (app path, local only)
+ * (The other three deleted suites, airlieDaydream, scaleOrderedDrawing and
+ * whitsundayFieldRoute RealCells.local, skipped without the folder and were
+ * never gated, so they had no ledger line.)
+ */
 
 const GATE =
     /\b(?:describe|it|test)\.skipIf\(([^()]*\bREAL_AU_CHART_FIXTURES_RETIRED\b[^()]*)\)\(\s*(['"`])((?:\\.|(?!\2)[\s\S])*)\2/g;
