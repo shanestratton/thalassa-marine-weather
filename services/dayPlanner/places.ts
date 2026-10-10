@@ -13,11 +13,15 @@
  *
  * ONE PLACE, ONE ROW, AND THE REVIEWED STOPS ALWAYS RANKED. The same name
  * within 2.5 NM is one place mapped twice (the atlas has Cid Harbour as an OSM
- * node and as GBRMPA's designated anchorage). Only the 40 nearest are ranked,
- * but the reviewed stops are always among them.
+ * node and as GBRMPA's designated anchorage). Every place with a baked land
+ * table is ranked (127-PYD-4: the 40-nearest cap left Butterfly, Blue Pearl,
+ * Nelly and Cateran unranked at Airlie); only OpenStreetMap points that need
+ * a coastline ray-cast are held to the 40 nearest. Reviewed stops always are.
  *
  * WHAT IS NEVER A DESTINATION: a marina (it only names the start and feeds the
- * "leaving a marina" line), a no-anchoring area or an OpenStreetMap point that
+ * "leaving a marina" line), a passage, channel, sound or flats the atlas marks
+ * as no anchorage (likelyAnchorage false; not listed at all, unless reviewed),
+ * a no-anchoring area or an OpenStreetMap point that
  * reports a restriction (both go to Not today with "no anchoring here"), an
  * approximate way/relation centre, a mooring, and anything under a mile from
  * the start. Closures depend on the planned date, so they are applied by
@@ -51,7 +55,7 @@ import {
 } from './destinations';
 import { DAY_PLANNER_REGIONS, findDayPlannerRegion, type DayPlannerRegion } from './regions';
 
-/** Only this many stops are ranked; the rest are named in All places. */
+/** Only this many OpenStreetMap points needing a ray-cast are ranked; the rest are named in All places. */
 export const PLACE_LIMIT = 40;
 /** Closer than this to the start is not a day out. */
 export const NEAR_START_NM = 1;
@@ -434,6 +438,8 @@ interface RawPlace extends LatLon {
     fetchLandNM: readonly number[] | null;
     noAnchoring: boolean;
     mappedAtMs?: number;
+    /** Its land table came with it (the atlas's, or a cached one): no ray-cast, so never capped. */
+    baked: boolean;
 }
 
 function reviewedOf(destination: DayPlannerDestination): ReviewedStop {
@@ -473,7 +479,13 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
     };
     if (!validPoint(start) || !(radiusNm > 0)) return empty;
     const region = regionAt(start, input.regions ?? DAY_PLANNER_REGIONS);
+    // A JOIN on the anchorage id: a reviewed stop needs its mapped record (the
+    // atlas ships offline, so in Queensland it is there).
+    const reviewedByAnchorage = new Map<string, DayPlannerDestination>(
+        (region?.destinations ?? []).map((destination) => [destination.anchorageId, destination]),
+    );
     const byId = new Map<string, RawPlace>();
+    const notPlaces = new Set<string>();
     const marinas: NamedPoint[] = [];
     const named: NamedPoint[] = [];
 
@@ -488,13 +500,20 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
             continue;
         }
         if (props.kind !== 'anchorage' && props.kind !== 'designated_anchorage') continue;
+        // "Molle Channel", "Unsafe Pass": the atlas's own word that they are no place to stop.
+        if (props.likelyAnchorage === false && !reviewedByAnchorage.has(props.id)) {
+            notPlaces.add(props.id);
+            continue;
+        }
         if (byId.has(props.id)) continue;
+        const fetchLandNM = table36(props.fetchLandNM);
         byId.set(props.id, {
             ...point,
             name: point.name || 'Mapped anchorage',
             source: 'atlas',
-            fetchLandNM: table36(props.fetchLandNM),
+            fetchLandNM,
             noAnchoring: !!props.noAnchoring,
+            baked: !!fetchLandNM,
         });
     }
 
@@ -511,29 +530,25 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
                 continue;
             if (point.name.trim())
                 named.push({ id: point.id, name: point.name.trim(), lat: point.lat, lon: point.lon });
-            // The atlas wins: same id, baked tables, GBRMPA areas.
-            if (byId.has(point.id)) continue;
+            // The atlas wins: same id, baked tables, GBRMPA areas (and its no-place-to-stop names).
+            if (byId.has(point.id) || notPlaces.has(point.id)) continue;
             const retrievedAt = Date.parse(point.retrievedAt);
+            const cached = table36(point.fetchLandNM);
             byId.set(point.id, {
                 id: point.id,
                 name: point.name.trim() || 'Mapped anchorage',
                 lat: point.lat,
                 lon: point.lon,
                 source: 'osm',
-                fetchLandNM: table36(point.fetchLandNM) ?? landFetchTableNm(point.lat, point.lon, coastline),
+                fetchLandNM: cached ?? landFetchTableNm(point.lat, point.lon, coastline),
                 noAnchoring: restricted(point),
+                baked: !!cached,
                 ...(Number.isFinite(retrievedAt) && nowMs - retrievedAt >= MAPPED_DATED_AFTER_MS
                     ? { mappedAtMs: retrievedAt }
                     : {}),
             });
         }
     }
-
-    // A JOIN on the anchorage id: a reviewed stop needs its mapped record (the
-    // atlas ships offline, so in Queensland it is there).
-    const reviewedByAnchorage = new Map<string, DayPlannerDestination>(
-        (region?.destinations ?? []).map((destination) => [destination.anchorageId, destination]),
-    );
 
     const excluded: PlaceExclusion[] = [];
     const anchorable: (RawPlace & { straightNm: number; mappedName: string; reviewed: boolean })[] = [];
@@ -560,13 +575,14 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
             continue;
         kept.push(place);
     }
-    // The reviewed stops are always ranked; the nearest others fill the rest
-    // (in the Whitsundays the 40 nearest mapped bays all lie inside 16 NM, and
-    // would leave Whitehaven, Tongue Bay, Chance Bay and Maureen's Cove unranked).
+    // The reviewed stops and every place with a baked table are ranked; the
+    // nearest OpenStreetMap points needing a ray-cast fill up to the 40 (in the
+    // Whitsundays the 40 nearest mapped bays all lie inside 16 NM, and left
+    // Butterfly, Blue Pearl, Nelly and Cateran "not ranked").
     kept.sort((a, b) => a.straightNm - b.straightNm || a.id.localeCompare(b.id));
-    const reviewedKept = kept.filter((p) => p.reviewed).slice(0, PLACE_LIMIT);
-    const others = kept.filter((p) => !p.reviewed);
-    const room = PLACE_LIMIT - reviewedKept.length;
+    const always = kept.filter((p) => p.reviewed || p.baked);
+    const others = kept.filter((p) => !p.reviewed && !p.baked);
+    const room = Math.max(0, PLACE_LIMIT - always.filter((p) => !p.baked).length);
     for (const place of others.slice(room)) {
         excluded.push({
             id: place.id,
@@ -575,7 +591,7 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
             straightNm: place.straightNm,
         });
     }
-    const ranked = [...reviewedKept, ...others.slice(0, room)].sort(
+    const ranked = [...always, ...others.slice(0, room)].sort(
         (a, b) => a.straightNm - b.straightNm || a.id.localeCompare(b.id),
     );
     const candidates: PlaceCandidate[] = ranked.map((place) => {

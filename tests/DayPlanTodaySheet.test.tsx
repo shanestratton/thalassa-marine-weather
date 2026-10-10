@@ -159,13 +159,14 @@ describe('Screen 1: today at the boat, with no form', () => {
         );
         const rows = await stopRows(dialog);
         for (const row of rows) expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(TIMES_BACK);
-        // A reviewed stop's tag says what it marks, in words a skipper anywhere reads (127-PYD-1).
-        const cid = rows.find((r) => r.querySelector('.today-stop-name')!.textContent === 'Cid Harbour')!;
-        expect(cid.querySelector('.today-tag')).toHaveTextContent(/^Local notes$/);
+        // A reviewed stop's tag says what it marks, in words a skipper anywhere reads (127-PYD-1): the best
+        // fit wears no pick tag (127-PYD-4), so a reviewed one there keeps "Local notes".
+        expect(rows[0].querySelector('.today-pick')).toBeNull();
+        expect(rows[0].querySelector('.today-tag')).toHaveTextContent(/^Local notes$/);
         expect(within(dialog).queryByText('Parks')).toBeNull();
-        // Only the best three got their own route forecasts: one spread and one sea each.
-        expect(sources.loader.loadRouteSpread).toHaveBeenCalledTimes(3);
-        expect(sources.loader.loadRouteSea).toHaveBeenCalledTimes(3);
+        // Five got their own route forecasts, the card's three and two backups (127-PYD-4): one spread and one sea each.
+        expect(sources.loader.loadRouteSpread).toHaveBeenCalledTimes(5);
+        expect(sources.loader.loadRouteSea).toHaveBeenCalledTimes(5);
 
         // The default boat works, and says so.
         expect(within(dialog).getByRole('button', { name: 'Typical 6 kn boat: set yours in Vessel ›' })).toBeTruthy();
@@ -309,10 +310,18 @@ describe('Screen 1: today at the boat, with no form', () => {
         expect(within(dialog).getByTestId('day-plan-headline')).toHaveTextContent(
             /^Morning's your window: inside your wind limits until about 12:00, then thunder in 3 of 7 models\.$/,
         );
+        // A stop home into the afternoon's thunder says so where its times were; one home before noon
+        // keeps its times (127-PYD-4: the card is no longer three ✕ when a short hop fits).
         const list = await within(dialog).findByRole('list', { name: 'Stops' });
         await waitFor(() => {
-            for (const row of within(list).getAllByRole('button'))
-                expect(row.querySelector('.today-stop-l2')!.textContent).toBe('⚡ Thunder on the way home');
+            const rows = within(list).getAllByRole('button');
+            expect(rows.some((row) => row.querySelector('.today-stop-glyph')!.textContent === '✕')).toBe(true);
+            for (const row of rows)
+                expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(
+                    row.querySelector('.today-stop-glyph')!.textContent === '✕'
+                        ? /^⚡ Thunder on the way home$/
+                        : TIMES_BACK,
+                );
         });
     });
 
@@ -395,7 +404,10 @@ describe('Screen 2: a stop, and Plot on chart', () => {
         const text = rows.map((r) => r.textContent);
         // It opens on its verdict, with the reason (127-PYD-1): an ordinary-looking plan never hides a Near or a ✕.
         expect(text[0]).toMatch(/^≈ Near your limits: SE \d+ kn on the way$/);
-        expect(text[1]).toMatch(
+        // Then why it is here (127-PYD-4).
+        expect(rows[1]).toHaveAttribute('data-why', 'true');
+        expect(text[1]).toMatch(/^In the lee of the SE breeze · /);
+        expect(text[2]).toMatch(
             /^Leave \d\d:\d\d → there \d\d:\d\d \(.+, (sailing|beating|motoring|at cruising speed)/,
         );
         expect(text.some((t) => /^Ashore \d\d:\d\d–\d\d:\d\d · /.test(t!))).toBe(true);
@@ -471,6 +483,9 @@ describe('Screen 2: a stop, and Plot on chart', () => {
 
     it("a reviewed stop keeps its own Parks notes, one per line under the stay: Cid Harbour's sharks", async () => {
         const { dialog } = open();
+        await stopRows(dialog);
+        // Four hours ashore in this trade, Cid Harbour is the best fit (127-PYD-4 picks by the day).
+        fireEvent.change(within(dialog).getByRole('combobox', { name: 'Stay' }), { target: { value: '4h' } });
         const rows = await stopRows(dialog);
         const cid = rows.find((r) => r.querySelector('.today-stop-name')!.textContent === 'Cid Harbour')!;
         fireEvent.click(cid);
@@ -540,7 +555,10 @@ describe('Screen 2: a stop, and Plot on chart', () => {
         const items = within(within(detail).getByRole('list', { name: 'How the day goes' })).getAllByRole('listitem');
         expect(items[0]).toHaveTextContent(`✕ Over your limits: ${why}`);
         expect(items[0]).toHaveAttribute('data-level', 'over');
-        expect(items[1]).toHaveTextContent("Weather not checked: the forecast along the way didn't load.");
+        // Why it is here, from the area wind only (no sail, no times: the weather along the way failed).
+        expect(items[1]).toHaveAttribute('data-why', 'true');
+        expect(items[1].textContent).not.toMatch(/under way|both ways/);
+        expect(items[2]).toHaveTextContent("Weather not checked: the forecast along the way didn't load.");
         expect(within(detail).queryByText(/^Leave \d\d:\d\d → /)).toBeNull();
     });
 
@@ -557,8 +575,8 @@ describe('Screen 2: a stop, and Plot on chart', () => {
             const at = other.textContent!.slice(0, 5);
             fireEvent.click(other);
             expect(other).toHaveAttribute('aria-pressed', 'true');
-            // Under its verdict (127-PYD-1).
-            expect(within(detail).getAllByRole('listitem')[1].textContent).toMatch(new RegExp(`^Leave ${at} → `));
+            // Under its verdict (127-PYD-1) and why (127-PYD-4).
+            expect(within(detail).getAllByRole('listitem')[2].textContent).toMatch(new RegExp(`^Leave ${at} → `));
         }
         fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
         await waitFor(() => expect(detail.isConnected).toBe(false));
@@ -731,5 +749,69 @@ describe('Where from', () => {
             .map((b) => b.textContent)
             .filter((t) => /Fixture|Unmapped/.test(t ?? ''));
         expect(options).toEqual(['Home port · Fixture Harbour', 'Fixture Reach']);
+    });
+});
+
+// ── Different places, picked for a reason (build 127, 127-PYD-4) ──
+
+describe('Different places, picked for a reason', () => {
+    const notCovered = async (points: readonly { lat: number; lon: number }[]) =>
+        points.map(() => ({ covered: false, hazard: false, minDepthM: null }));
+
+    it('checks the weather along the way for five, shows three, and tags every row but the best fit', async () => {
+        const pinDepths = vi.fn(notCovered);
+        const sheetIo = io({ voyageEnds: async () => null, pinDepths });
+        const { dialog } = open({ vessel: OWN_BOAT, usingDefaultVessel: false, sheetIo });
+        const rows = await stopRows(dialog);
+        await waitFor(() => expect(sheetIo.loader.loadRouteSpread).toHaveBeenCalledTimes(5));
+        expect(sheetIo.loader.loadRouteSea).toHaveBeenCalledTimes(5);
+        expect(rows[0].querySelector('.today-pick')).toBeNull();
+        for (const row of rows.slice(1))
+            expect(row.querySelector('.today-pick')?.textContent).toMatch(
+                /^(Other way|Closer|Short hop|More shelter)$/,
+            );
+        // No history on the phone: never "New to you".
+        expect(dialog.textContent).not.toMatch(/New to you/);
+        // Her charts are asked about the five pins once, in memory.
+        await waitFor(() => expect(pinDepths).toHaveBeenCalledTimes(1));
+        expect(pinDepths.mock.calls[0][0]).toHaveLength(5);
+    });
+
+    it('with her voyage ends on the phone, a place none of them ended at can be "New to you"; the default boat is not depth-checked', async () => {
+        // First without her history: the stop the other way.
+        const first = open({ sheetIo: io({ voyageEnds: async () => null, pinDepths: notCovered }) });
+        const other = (await stopRows(first.dialog))[1].querySelector('.today-stop-name')!.textContent!;
+        cleanup();
+        // Then with a voyage of hers ended there: the third is somewhere none did, and says so.
+        const at = QLD_TILE.features.find((f) => f.properties.name === other)!.geometry.coordinates;
+        const voyageEnds = vi.fn(async () => [{ lat: at[1], lon: at[0] }]);
+        const pinDepths = vi.fn(notCovered);
+        const { dialog } = open({ sheetIo: io({ voyageEnds, pinDepths }) });
+        await waitFor(async () => {
+            const rows = await stopRows(dialog);
+            expect(rows.map((r) => r.querySelector('.today-pick')?.textContent)).toContain('New to you');
+        });
+        expect(voyageEnds).toHaveBeenCalledOnce();
+        expect(pinDepths).not.toHaveBeenCalled();
+    });
+
+    it('her own boat with no draft set is not depth-checked against the 2.5 m stand-in', async () => {
+        const pinDepths = vi.fn(notCovered);
+        const sheetIo = io({ voyageEnds: async () => null, pinDepths });
+        open({ vessel: { ...OWN_BOAT, draft: 0 }, usingDefaultVessel: false, sheetIo });
+        await waitFor(() => expect(sheetIo.loader.loadRouteSpread).toHaveBeenCalledTimes(5));
+        expect(pinDepths).not.toHaveBeenCalled();
+    });
+
+    it('a stop opened from the card stays open when the backups land: its page is found by id', async () => {
+        const sheetIo = io({ voyageEnds: async () => null, pinDepths: notCovered });
+        const { dialog } = open({ vessel: OWN_BOAT, usingDefaultVessel: false, sheetIo });
+        const rows = await stopRows(dialog);
+        const name = rows[2].querySelector('.today-stop-name')!.textContent!;
+        fireEvent.click(rows[2]);
+        const detail = await screen.findByRole('dialog', { name: new RegExp(`^${name}`) });
+        const why = within(detail).getByRole('list', { name: 'How the day goes' }).querySelector('[data-why]');
+        expect(why?.textContent).toMatch(/\S/);
+        expect(screen.getByRole('dialog', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     });
 });

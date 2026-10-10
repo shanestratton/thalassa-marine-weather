@@ -36,7 +36,10 @@ export type LandingLoader = (
  * how it was measured, and the marina line when she starts in one. A
  * reviewed stop's own Parks notes (Cid Harbour's sharks) sit under the stay.
  * Since 127-PYD-1 it opens on its verdict when it is not Inside ("✕ Over your
- * limits: SE 30 kn on the way"), drawn in its level's colour.
+ * limits: SE 30 kn on the way"), drawn in its level's colour; since 127-PYD-4
+ * the next row says why it is here ("In the lee of the NE breeze · sailing
+ * both ways · 3 h 29 under way"), and a place with no local notes says what
+ * it is and what her charts say at its pin.
  * The leave chips are the best departure's window; a tap recomputes in place.
  * "Plot on chart" sets the departure and opens the Manual plotter with
  * straight pins. Fits outright at normal text from 375 × 667; at 320 × 568 a
@@ -115,6 +118,8 @@ export function TodayStopDetail({
               polar,
               leavingMarina,
               landing: loadLanding ? (landing ?? undefined) : undefined,
+              why: row.why,
+              place: row.place,
           })
         : {
               title: row.name,
@@ -122,11 +127,13 @@ export function TodayStopDetail({
               rows: [
                   // Over on the wind at the place, even with no route weather: its verdict first.
                   ...(row.level === 'over' ? [stopVerdict('over', row.reason)] : []),
+                  ...(row.why ? [row.why] : []),
                   row.pending
                       ? 'Checking the weather along the way…'
                       : plan
                         ? "Weather not checked: the forecast along the way didn't load."
                         : 'Weather not checked: no forecast loaded.',
+                  ...(row.place ? [row.place] : []),
                   ...parksNotes(candidate),
                   distanceLine(candidate.distance),
                   ...(leavingMarina ? [LEAVING_MARINA] : []),
@@ -165,6 +172,7 @@ export function TodayStopDetail({
                     <li
                         key={text}
                         data-parks={notes.has(text) || undefined}
+                        data-why={text === row.why || undefined}
                         data-level={i === 0 && /^[✕≈?] /.test(text) ? level : undefined}
                     >
                         {text}

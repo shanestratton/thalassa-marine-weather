@@ -165,6 +165,12 @@ const io = {
             : { latitude: start.lat, longitude: start.lon, timestamp: nowMs - 2 * data.H, rung: 'cloud' as const },
     readPhone: async () => null,
     geocode: async () => null,
+    // Her one fictional voyage end, read "on the phone" (127-PYD-4): Cid Harbour, or Nouméa's Fixture Baie.
+    voyageEnds: async () =>
+        worldwide ? (mode === 'noumea' ? [{ lat: -22.36, lon: 166.551 }] : []) : [{ lat: -20.2452, lon: 148.9484 }],
+    // No chart on this fixture phone: every pin reads "depth not checked".
+    pinDepths: async (points: readonly unknown[]) =>
+        points.map(() => ({ covered: false, hazard: false, minDepthM: null })),
 };
 
 function Fixture() {
