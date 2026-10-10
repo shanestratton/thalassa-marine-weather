@@ -1,0 +1,312 @@
+name: iOS TestFlight
+
+# Builds the iPhone app on a GitHub-hosted Mac and, when asked, uploads it to
+# TestFlight. It follows the owner's Mac release path (docs/BUILD_114_TESTFLIGHT.md):
+# `VITE_APP_BUILD=N npm run ship:beta` under Node 24 with Xcode 26.6, an archive
+# signed Apple Development (automatic signing), and an export re-signed with the
+# cloud-managed Apple Distribution certificate through an App Store Connect API key.
+# Setup and use: docs/IOS_TESTFLIGHT_CI.md.
+#
+# Two ways in:
+#   - a pull request that touches this file or ios/: the same web build and an
+#     unsigned compile. No signing, no Apple secret is read.
+#   - Run workflow (workflow_dispatch), owner only: builds `ref`, signs, exports
+#     and verifies the signed app; with `upload` ticked it then uploads it once.
+#
+# Rules that never bend (the release docs): an uploaded build number is never
+# reused; `build_number` must equal the CURRENT_PROJECT_VERSION committed at
+# `ref`. No app, archive or key is kept as a workflow artifact.
+
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/ios-testflight.yml'
+            - 'ios/**'
+    workflow_dispatch:
+        inputs:
+            ref:
+                description: 'Branch, tag or commit to build (for example b127)'
+                required: true
+                default: master
+            build_number:
+                description: 'Build number: the CURRENT_PROJECT_VERSION committed at that ref, never one already uploaded'
+                required: true
+            upload:
+                description: 'Upload to TestFlight (unticked: build, sign and verify only)'
+                type: boolean
+                default: false
+
+permissions:
+    contents: read
+
+concurrency:
+    # Pull requests cancel superseded runs; a release run is never cut off mid-upload.
+    group: ios-testflight-${{ github.event_name == 'pull_request' && github.ref || 'release' }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    ios:
+        name: iOS build
+        runs-on: macos-26
+        timeout-minutes: 90
+        # Only the owner may run the signing path; a pull request builds unsigned.
+        if: github.event_name == 'pull_request' || github.actor == 'shanestratton'
+        env:
+            CI: 'true'
+            HUSKY: '0'
+            NODE_OPTIONS: --max-old-space-size=4096
+            # The Xcode the 102-117 uploads were made with (docs/BUILD_114_TESTFLIGHT.md).
+            DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+            # Public client configuration only, exactly as ci.yml: every VITE_* value is
+            # inlined into the app bundle, so no secret may ever be named VITE_*.
+            VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+            VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+            VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+            VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+            VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+            SIGN: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+            TEAM_ID: D4TW8A23QZ
+            BUNDLE_ID: com.thalassa.weather
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || '' }}
+                  persist-credentials: false
+
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 24
+                  cache: 'npm'
+
+            - name: Toolchain
+              run: |
+                  set -euo pipefail
+                  xcodebuild -version
+                  case "$(xcodebuild -version | head -1)" in
+                      'Xcode 26.6'*) ;;
+                      *) echo "::error::Expected Xcode 26.6 at $DEVELOPER_DIR"; exit 1 ;;
+                  esac
+                  node --version | grep -q '^v24\.' || { echo '::error::Node 24 is required'; exit 1; }
+
+            - name: Build number and versions
+              env:
+                  INPUT_BUILD: ${{ inputs.build_number }}
+              run: |
+                  set -euo pipefail
+                  pbx=ios/App/App.xcodeproj/project.pbxproj
+                  builds=$(grep -oE 'CURRENT_PROJECT_VERSION = [0-9]+;' "$pbx" | grep -oE '[0-9]+' | sort -u)
+                  if [ "$(printf '%s\n' "$builds" | wc -l | tr -d ' ')" != 1 ]; then
+                      echo "::error::CURRENT_PROJECT_VERSION differs between configurations: $builds"; exit 1
+                  fi
+                  committed="$builds"
+                  if [ "$SIGN" = true ]; then
+                      if ! printf '%s' "$INPUT_BUILD" | grep -qE '^[0-9]+$' || [ "$INPUT_BUILD" != "$committed" ]; then
+                          echo "::error::build_number '$INPUT_BUILD' must equal the committed CURRENT_PROJECT_VERSION ($committed). Commit the bump first; never reuse an uploaded number."
+                          exit 1
+                      fi
+                  fi
+                  marketing=$(node -p "require('./package.json').version")
+                  echo "VITE_APP_BUILD=$committed" >> "$GITHUB_ENV"
+                  echo "APP_BUILD=$committed" >> "$GITHUB_ENV"
+                  echo "APP_VERSION=$marketing" >> "$GITHUB_ENV"
+                  echo "Building $BUNDLE_ID $marketing ($committed) from $(git rev-parse HEAD)"
+
+            - name: Google sign-in client matches the app's URL scheme
+              run: |
+                  set -euo pipefail
+                  # Info.plist: "Keep this in lock-step with VITE_GOOGLE_OAUTH_CLIENT_ID".
+                  # A mismatch passes every other gate and breaks Google sign-in on the phone.
+                  case "$VITE_GOOGLE_OAUTH_CLIENT_ID" in
+                      *.apps.googleusercontent.com) ;;
+                      *) echo '::error::VITE_GOOGLE_OAUTH_CLIENT_ID is not a Google OAuth client ID'; exit 1 ;;
+                  esac
+                  scheme="com.googleusercontent.apps.${VITE_GOOGLE_OAUTH_CLIENT_ID%.apps.googleusercontent.com}"
+                  grep -qF "<string>${scheme}</string>" ios/App/App/Info.plist || {
+                      echo '::error::Info.plist CFBundleURLSchemes does not hold the scheme for vars.VITE_GOOGLE_OAUTH_CLIENT_ID'; exit 1
+                  }
+
+            - name: CocoaPods through the pinned Bundler (gems outside the repo)
+              run: |
+                  set -euo pipefail
+                  # scripts/cap-sync.mjs runs `bundle` and requires exactly the Bundler in
+                  # ios/App/Gemfile.lock; the image ships a newer one. Gems and Bundler's
+                  # config stay in RUNNER_TEMP: the release gate walks the repo tree.
+                  pinned=$(awk '/^BUNDLED WITH/{getline; gsub(/ /,""); print}' ios/App/Gemfile.lock)
+                  if ! gem install bundler -v "$pinned" --no-document; then
+                      gem install bundler -v "$pinned" --no-document --user-install
+                      echo "$(ruby -e 'print Gem.user_dir')/bin" >> "$GITHUB_PATH"
+                      export PATH="$(ruby -e 'print Gem.user_dir')/bin:$PATH"
+                  fi
+                  {
+                      echo "BUNDLER_VERSION=$pinned"
+                      echo "BUNDLE_PATH=$RUNNER_TEMP/gems"
+                      echo "BUNDLE_APP_CONFIG=$RUNNER_TEMP/bundle-config"
+                      echo "BUNDLE_FROZEN=true"
+                  } >> "$GITHUB_ENV"
+                  BUNDLER_VERSION="$pinned" BUNDLE_PATH="$RUNNER_TEMP/gems" BUNDLE_APP_CONFIG="$RUNNER_TEMP/bundle-config" \
+                      BUNDLE_FROZEN=true BUNDLE_GEMFILE=ios/App/Gemfile bundle install
+                  # The project's own check: the `bundle` cap sync will use is the pinned one.
+                  BUNDLER_VERSION="$pinned" node scripts/cap-sync.mjs --check
+
+            - run: npm ci
+
+            # The owner's packaging gate, unchanged: check:beta, build, web release,
+            # bundle budget, routes, cap sync (pod install), secret and artifact checks.
+            - name: npm run ship:beta
+              run: npm run ship:beta
+
+            - name: Compile (unsigned)
+              if: env.SIGN != 'true'
+              run: |
+                  set -euo pipefail
+                  xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release \
+                      -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd" \
+                      CODE_SIGNING_ALLOWED=NO build
+
+            - name: Signing keychain and App Store Connect key
+              if: env.SIGN == 'true'
+              env:
+                  IOS_DEV_CERT_P12_BASE64: ${{ secrets.IOS_DEV_CERT_P12_BASE64 }}
+                  IOS_DEV_CERT_PASSWORD: ${{ secrets.IOS_DEV_CERT_PASSWORD }}
+                  ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+                  ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+              run: |
+                  set -euo pipefail
+                  for name in IOS_DEV_CERT_P12_BASE64 IOS_DEV_CERT_PASSWORD ASC_KEY_ID ASC_KEY_P8; do
+                      [ -n "${!name}" ] || { echo "::error::Secret $name is not set (docs/IOS_TESTFLIGHT_CI.md)"; exit 1; }
+                  done
+                  keychain="$RUNNER_TEMP/signing.keychain-db"
+                  password=$(openssl rand -hex 24)
+                  echo "::add-mask::$password"
+                  security create-keychain -p "$password" "$keychain"
+                  security set-keychain-settings -lut 21600 "$keychain"
+                  security unlock-keychain -p "$password" "$keychain"
+                  umask 077
+                  printf '%s' "$IOS_DEV_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dev.p12"
+                  security import "$RUNNER_TEMP/dev.p12" -k "$keychain" -P "$IOS_DEV_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+                  rm -f "$RUNNER_TEMP/dev.p12"
+                  security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+                  security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+                  security find-identity -v -p codesigning "$keychain" | grep -q 'Apple Development' || {
+                      echo '::error::IOS_DEV_CERT_P12_BASE64 holds no Apple Development identity'; exit 1
+                  }
+                  mkdir -p "$RUNNER_TEMP/asc"
+                  printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey.p8"
+                  echo "KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+            - name: Archive (Apple Development, automatic signing)
+              if: env.SIGN == 'true'
+              env:
+                  ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+                  ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+              run: |
+                  set -euo pipefail
+                  xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release \
+                      -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd" \
+                      -archivePath "$RUNNER_TEMP/Thalassa.xcarchive" \
+                      -allowProvisioningUpdates \
+                      -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey.p8" \
+                      -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+                      archive
+
+            - name: Export (cloud-managed Apple Distribution)
+              if: env.SIGN == 'true'
+              env:
+                  ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+                  ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+              run: |
+                  set -euo pipefail
+                  options() {
+                      cat <<PLIST
+                  <?xml version="1.0" encoding="UTF-8"?>
+                  <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+                  <plist version="1.0"><dict>
+                      <key>method</key><string>app-store-connect</string>
+                      <key>destination</key><string>$1</string>
+                      <key>teamID</key><string>$TEAM_ID</string>
+                      <key>signingStyle</key><string>automatic</string>
+                      <key>uploadSymbols</key><true/>
+                      <key>manageAppVersionAndBuildNumber</key><false/>
+                  </dict></plist>
+                  PLIST
+                  }
+                  options export > "$RUNNER_TEMP/ExportOptions-export.plist"
+                  options upload > "$RUNNER_TEMP/ExportOptions-upload.plist"
+                  plutil -lint "$RUNNER_TEMP/ExportOptions-export.plist" "$RUNNER_TEMP/ExportOptions-upload.plist"
+                  xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Thalassa.xcarchive" \
+                      -exportPath "$RUNNER_TEMP/export" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions-export.plist" \
+                      -allowProvisioningUpdates \
+                      -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey.p8" \
+                      -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+            # What the release docs verify on every package, on the signed app itself.
+            - name: Verify the signed app
+              if: env.SIGN == 'true'
+              run: |
+                  set -euo pipefail
+                  ipa=$(ls "$RUNNER_TEMP"/export/*.ipa)
+                  rm -rf "$RUNNER_TEMP/ipa" && mkdir "$RUNNER_TEMP/ipa"
+                  ditto -x -k "$ipa" "$RUNNER_TEMP/ipa"
+                  app=$(ls -d "$RUNNER_TEMP"/ipa/Payload/*.app)
+                  plist="$app/Info.plist"
+                  pb() { /usr/libexec/PlistBuddy -c "Print :$1" "$plist"; }
+                  fail() { echo "::error::$1"; exit 1; }
+                  [ "$(pb CFBundleIdentifier)" = "$BUNDLE_ID" ] || fail 'bundle identifier'
+                  [ "$(pb CFBundleShortVersionString)" = "$APP_VERSION" ] || fail 'marketing version'
+                  [ "$(pb CFBundleVersion)" = "$APP_BUILD" ] || fail 'build number'
+                  [ "$(pb MinimumOSVersion)" = '17.0' ] || fail 'minimum iOS'
+                  [ "$(pb ITSAppUsesNonExemptEncryption)" = 'false' ] || fail 'export compliance key'
+                  modes=$(pb UIBackgroundModes)
+                  for mode in audio location fetch; do printf '%s' "$modes" | grep -qw "$mode" || fail "background mode $mode"; done
+                  [ ! -e "$app/Watch" ] && [ ! -e "$app/PlugIns" ] || fail 'a Watch app or extension is embedded'
+                  codesign --verify --deep --strict "$app"
+                  sig=$(codesign -dvv "$app" 2>&1)
+                  printf '%s' "$sig" | grep -q '^Authority=Apple Distribution' || fail 'not signed Apple Distribution'
+                  printf '%s' "$sig" | grep -q "^TeamIdentifier=$TEAM_ID$" || fail 'team identifier'
+                  ent="$RUNNER_TEMP/entitlements.plist"
+                  codesign -d --entitlements - --xml "$app" > "$ent" 2>/dev/null
+                  e() { /usr/libexec/PlistBuddy -c "Print :$1" "$ent"; }
+                  [ "$(e application-identifier)" = "$TEAM_ID.$BUNDLE_ID" ] || fail 'application-identifier'
+                  [ "$(e aps-environment)" = production ] || fail 'aps-environment'
+                  [ "$(e get-task-allow)" = false ] || fail 'get-task-allow'
+                  [ "$(e beta-reports-active)" = true ] || fail 'beta-reports-active'
+                  [ "$(e com.apple.developer.weatherkit)" = true ] || fail 'WeatherKit'
+                  [ "$(e com.apple.developer.usernotifications.time-sensitive)" = true ] || fail 'time-sensitive notifications'
+                  e com.apple.developer.applesignin | grep -q Default || fail 'Sign in with Apple'
+                  e com.apple.developer.associated-domains | grep -q 'applinks:www.thalassawx.app' || fail 'associated domains'
+                  e com.apple.developer.nfc.readersession.formats | grep -q TAG || fail 'NFC tag reading'
+                  # The web app inside is the one ship:beta built and checked: byte for byte, no maps.
+                  (cd dist && find . -type f ! -name '*.map' | sort) > "$RUNNER_TEMP/dist-files.txt"
+                  while IFS= read -r file; do cmp -s "dist/$file" "$app/public/$file" || fail "public/$file differs from dist"; done < "$RUNNER_TEMP/dist-files.txt"
+                  if find "$app/public" -name '*.map' | grep -q .; then fail 'source maps in the app'; fi
+                  main=$(ls "$app"/public/assets/main-*.js)
+                  {
+                      echo "### $BUNDLE_ID $APP_VERSION ($APP_BUILD)"
+                      echo "- Commit: \`$(git rev-parse HEAD)\`"
+                      echo "- $(xcodebuild -version | tr '\n' ' ')"
+                      echo "- Signed: Apple Distribution, team $TEAM_ID; entitlements checked"
+                      echo "- Web files: $(wc -l < "$RUNNER_TEMP/dist-files.txt" | tr -d ' ') byte-identical to dist"
+                      echo "- main asset \`$(basename "$main")\` SHA-256 \`$(shasum -a 256 "$main" | cut -d' ' -f1)\`"
+                      echo "- IPA SHA-256 \`$(shasum -a 256 "$ipa" | cut -d' ' -f1)\`"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload to TestFlight (once)
+              if: env.SIGN == 'true' && inputs.upload
+              env:
+                  ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+                  ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+              run: |
+                  set -euo pipefail
+                  xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Thalassa.xcarchive" \
+                      -exportPath "$RUNNER_TEMP/upload" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions-upload.plist" \
+                      -allowProvisioningUpdates \
+                      -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey.p8" \
+                      -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+                  echo "- Uploaded to App Store Connect: build $APP_BUILD is processing. Never upload $APP_BUILD again." >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Remove the keychain and key
+              if: always() && env.SIGN == 'true'
+              run: |
+                  if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi
+                  rm -rf "$RUNNER_TEMP/asc" "$RUNNER_TEMP/dev.p12" "$RUNNER_TEMP/export" "$RUNNER_TEMP/upload" "$RUNNER_TEMP/ipa" "$RUNNER_TEMP/Thalassa.xcarchive"

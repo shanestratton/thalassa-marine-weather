@@ -567,7 +567,12 @@ check(
             );
         }) &&
         workflowRunnerRecords.length > 0 &&
-        workflowRunnerRecords.every(({ runner }) => runner === 'ubuntu-24.04') &&
+        workflowRunnerRecords.every(
+            ({ relative, runner }) =>
+                runner === 'ubuntu-24.04' ||
+                // The one macOS job: the iPhone build/TestFlight upload (docs/IOS_TESTFLIGHT_CI.md).
+                (path.basename(relative) === 'ios-testflight.yml' && runner === 'macos-26'),
+        ) &&
         workflowEntries.every(([, source]) => /^permissions:\s*(?:\{\})?\s*$/m.test(source)) &&
         !workflowEntries.some(([, source]) => /\b(?:read-all|write-all)\b/.test(source.replace(/^\s*#.*$/gm, ''))) &&
         workflowsKeepExpectedWritePermissions &&
