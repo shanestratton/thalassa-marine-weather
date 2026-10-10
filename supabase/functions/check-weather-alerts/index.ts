@@ -4,7 +4,8 @@
  * Runs every 30 minutes via pg_cron → pg_net HTTP POST.
  * For each user with ≥1 alert threshold enabled:
  *   1. Read their location (defaultLocation or Guardian last_known)
- *   2. Fetch current weather from Open-Meteo
+ *   2. Fetch current weather from Open-Meteo (commercial customer endpoint;
+ *      requires the OPEN_METEO_API_KEY secret, no free-host fallback)
  *   3. Evaluate thresholds from user_settings.settings.notifications
  *   4. Dedup against weather_alerts_log (skip if alerted in last 6h)
  *   5. Insert into push_notification_queue → triggers send-push webhook
@@ -169,18 +170,27 @@ function parseWeatherCurrent(value: Record<string, unknown>): Record<string, num
 }
 
 // ── Batch weather fetch from Open-Meteo ──
-// Groups nearby locations to minimize API calls
-async function fetchWeather(lat: number, lon: number): Promise<Record<string, number | null> | null> {
+// Groups nearby locations to minimize API calls. Commercial customer endpoint
+// only: the free tier is not licensed for App Store apps, so it is never a
+// fallback (127-H). The key rides in the query string, so the URL is never
+// logged.
+const OPEN_METEO_FORECAST = 'https://customer-api.open-meteo.com/v1/forecast';
+
+async function fetchWeather(
+    lat: number,
+    lon: number,
+    apiKey: string,
+): Promise<Record<string, number | null> | null> {
     try {
-        // Use commercial API — free tier is not licensed for App Store apps
-        const apiKey = Deno.env.get('OPEN_METEO_API_KEY') || '';
-        const base = apiKey
-            ? 'https://customer-api.open-meteo.com/v1/forecast'
-            : 'https://api.open-meteo.com/v1/forecast';
-        const keyParam = apiKey ? `&apikey=${apiKey}` : '';
-        const url =
-            `${base}?latitude=${lat}&longitude=${lon}&current=${WEATHER_VARS}&wind_speed_unit=kmh&timezone=auto${keyParam}`;
-        const res = await fetchWithTimeout(url, {}, 10_000);
+        const query = new URLSearchParams({
+            latitude: String(lat),
+            longitude: String(lon),
+            current: WEATHER_VARS,
+            wind_speed_unit: 'kmh',
+            timezone: 'auto',
+            apikey: apiKey,
+        });
+        const res = await fetchWithTimeout(`${OPEN_METEO_FORECAST}?${query}`, {}, 10_000);
         if (!res.ok) {
             console.warn(`Open-Meteo error: ${res.status}`);
             await res.body?.cancel().catch(() => undefined);
@@ -355,6 +365,15 @@ serve(async (req: Request) => {
         if (!supabaseUrl || !serviceRoleKey) {
             return jsonResponse({ error: 'Server database is not configured' }, 500);
         }
+        const openMeteoKey = Deno.env.get('OPEN_METEO_API_KEY');
+        if (!openMeteoKey) {
+            // Once per run, and without the URL. No free-host fallback.
+            console.error(
+                '[check-weather-alerts] OPEN_METEO_API_KEY is not set: no weather fetched, no alerts this run',
+            );
+            return jsonResponse({ checked: 0, error: 'Weather service unavailable' }, 503);
+        }
+        const weatherKey: string = openMeteoKey;
         const supabase = createClient(supabaseUrl, serviceRoleKey, {
             auth: { persistSession: false, autoRefreshToken: false },
         });
@@ -428,7 +447,7 @@ serve(async (req: Request) => {
             const key = `${roundCoord(lat)},${roundCoord(lon)}`;
             if (weatherCache.has(key)) return weatherCache.get(key)!;
 
-            const weather = await fetchWeather(roundCoord(lat), roundCoord(lon));
+            const weather = await fetchWeather(roundCoord(lat), roundCoord(lon), weatherKey);
             weatherCache.set(key, weather);
             return weather;
         }
