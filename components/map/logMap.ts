@@ -47,6 +47,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { piCache } from '../../services/PiCacheService';
 import { createLogger } from '../../utils/createLogger';
 import { isHttpUrlOnDomain, isLocalNetworkHostname, parseExternalHttpUrl } from '../../utils/safeUrl';
+import { OPENSEAMAP_ATTRIBUTION } from './seamarkCredit';
 import { addReliefBase, hideBaseClutter, seaBaseLayers, setReliefPalette } from './reliefBase';
 
 const log = createLogger('LogMap');
@@ -81,8 +82,8 @@ const MAPBOX_SATELLITE_TILES = 'https://api.mapbox.com/v4/mapbox.satellite/{z}/{
 const OPENSEAMAP_SEAMARK_TILES = 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png';
 const SATELLITE_CREDIT =
     '&copy; <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener noreferrer">Mapbox</a> &copy; Maxar';
-const SEAMARK_CREDIT =
-    'Map data: &copy; <a href="https://www.openseamap.org" target="_blank" rel="noopener noreferrer">OpenSeaMap contributors</a>';
+// OpenSeaMap's CC BY-SA 2.0 tiles and ODbL data (127-DESKMAP B3).
+const SEAMARK_CREDIT = OPENSEAMAP_ATTRIBUTION;
 
 /** The build's Mapbox token, the one the Log maps have always used. Empty means no map. */
 export const logMapToken = (): string => String(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN ?? '').trim();

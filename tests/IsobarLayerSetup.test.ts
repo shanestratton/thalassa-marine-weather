@@ -449,6 +449,31 @@ describe('the standalone chart on a map that settles a frame late (mapbox-gl 3.1
         expectBasemapAsLoaded(fake);
     });
 
+    // Obs with Pressure on, then the desk opens on Light (127-DESKMAP): MapHub's
+    // base pass inks the town names dark on white before the weather pass hands
+    // the basemap back, and its palette memo never paints them again.
+    it('leaves town-name ink that a base pass wrote since the ghost (Light), and puts back only the ghost', () => {
+        stubCanvas();
+        const fake = mapboxLike();
+        const saved = new Map<string, unknown>();
+        weatherPass(fake, saved, ['pressure']);
+        fake.frame();
+        expectGhosted(fake);
+        fake.map.setPaintProperty('settlement-major-label', 'text-color', '#1e2b38');
+        fake.map.setPaintProperty('settlement-major-label', 'text-halo-color', 'rgba(255,255,255,0.9)');
+
+        weatherPass(fake, saved, []);
+        expect(fake.paint('settlement-major-label', 'text-color')).toBe('#1e2b38');
+        expect(fake.paint('settlement-major-label', 'text-halo-color')).toBe('rgba(255,255,255,0.9)');
+        // Everything still ghosted goes back exactly as before.
+        expect(fake.paint('state-label', 'text-opacity')).toBe(0.5);
+        expect(fake.paint('national-park', 'fill-color')).toBe('#333b45');
+        // The record is spent: a later pass never writes the old white back.
+        fake.frame();
+        weatherPass(fake, saved, ['rain']);
+        expect(fake.paint('settlement-major-label', 'text-color')).toBe('#1e2b38');
+    });
+
     it('never touches a label or land layer on the weather passes where pressure was never on', () => {
         stubCanvas();
         const fake = mapboxLike();

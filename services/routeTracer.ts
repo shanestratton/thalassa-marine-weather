@@ -136,6 +136,10 @@ export interface TraceLegVerdict {
      *  leg) — lets the UI drop a draggable GHOST waypoint there to route the
      *  line through it (Shane 2026-07-16). null when there's no nudge. */
     nudgeTo: TracePoint | null;
+    /** Set only by the two no-chart verdicts (traceGrading): nothing on this
+     *  device could check the leg, so it is drawn as a grey "sketch, not
+     *  checked" (127-DESKMAP C3). The grade stays 'caution' for every consumer. */
+    unchecked?: true;
 }
 
 export interface GatePair {
@@ -438,6 +442,8 @@ export function mergeSubLegVerdicts(parts: readonly (TraceLegVerdict | null)[]):
         needsTide: good.some((p) => p.needsTide),
         nudge: worst.nudge,
         nudgeTo: worst.nudgeTo,
+        // A sketch only when no piece of it was checked.
+        ...(good.length === parts.length && good.every((p) => p.unchecked) ? { unchecked: true as const } : {}),
     };
 }
 

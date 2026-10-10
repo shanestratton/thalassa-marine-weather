@@ -17,6 +17,12 @@
  *    style's composite source and are gone by z9, because overzoomed they draw
  *    false straight depth edges. terrain-v2 shades the land. There is no new
  *    source and there are no seams.
+ *  - Light (the web desk planner only, 127-DESKMAP): Relief's layers in a
+ *    paper-chart palette, buff land, a pale sea and a dark OSM coastline
+ *    (Shane 2026-10-10: "the underlying map is dark and very hard to see what
+ *    is water and what isnt"). Its world tint fades out at z11-12, so a
+ *    harbour with no depth data reads as flat grey-blue water; white is kept
+ *    for charted water.
  *
  * Relief's fallback is the Ocean sea. The depth bands draw BENEATH the relief
  * layers, so relief tiles that are failing, missing (a 404 means an all-land
@@ -25,7 +31,7 @@
  * single owner of visibility. Not for navigation.
  */
 import type mapboxgl from 'mapbox-gl';
-import type { ObsChartBase } from '../../types/settings';
+import type { MapBaseKind } from './MapBaseSelector';
 
 /**
  * The public URL of the relief tiles, with its version prefix: bucket
@@ -65,10 +71,14 @@ export const RELIEF_AU_BOUNDS: [number, number, number, number] = [142, -29.5, 1
  * the map's credit carries all of it.
  */
 export const GBR30_DATASET_URL = 'https://pid.geoscience.gov.au/dataset/ga/115066';
+/** eCat 115066's catalogue title (checked 2026-10-10; the record was renamed
+ *  from "Great Barrier Reef Bathymetry 2020 30 m"). The tiles use its grids
+ *  A-D, "Version 10 Nov 2020". */
+export const GBR30_TITLE = 'AusBathyTopo (Great Barrier Reef) 30m 2017 - A regional-scale depth model (20170025C)';
 export const CC_BY_4_URL = 'https://creativecommons.org/licenses/by/4.0/';
 export const RELIEF_ATTRIBUTION =
     'Seafloor relief derived from <a href="https://doi.org/10.5285/4f68d5c7-45eb-f999-e063-7086abc036fa" target="_blank" rel="noopener noreferrer">GEBCO Compilation Group (2026) GEBCO 2026 Grid</a>; ' +
-    `based on <a href="${GBR30_DATASET_URL}" target="_blank" rel="noopener noreferrer">Great Barrier Reef Bathymetry 2020 30 m</a> by Geoscience Australia, &copy; Commonwealth of Australia, ` +
+    `based on <a href="${GBR30_DATASET_URL}" target="_blank" rel="noopener noreferrer">${GBR30_TITLE}</a>, version 10 Nov 2020, by Geoscience Australia, &copy; Commonwealth of Australia, ` +
     `<a href="${CC_BY_4_URL}" target="_blank" rel="noopener noreferrer license">CC BY 4.0</a> (subject to its section 5 disclaimer of warranties); ` +
     'coastline &copy; OpenStreetMap contributors. Not for navigation.';
 
@@ -107,6 +117,16 @@ export const HIDDEN_BASE_GEOMETRY = /^(road|tunnel)-|^(aeroway|building)/;
  * they vanish into it.
  */
 export const LAND_STRUCTURE = /^(land-structure|bridge)-/;
+/**
+ * The base style's fills and labels useMapInit's load pass recolours, one
+ * regex each, shared with setReliefPalette so the two can never disagree about
+ * which layers are land and which are water (a landcover, wood or sand fill
+ * the palette missed stayed a slate patch on Light's buff land).
+ */
+export const BASE_WATER_FILL = /water|ocean|sea(?!rch)|bathymetr/i;
+export const BASE_LAND_FILL = /(^|[-_])land($|[-_])|landcover|landuse|national.?park|wood|forest|grass|sand|glacier/i;
+export const BASE_LABEL =
+    /country.?label|state.?label|continent.?label|place.?label|settlement|water.?point|City|Town|Village|Place|label/i;
 
 /**
  * Hide what only ever showed through gaps in imagery (roads, tunnels,
@@ -126,7 +146,7 @@ export function hideBaseClutter(map: mapboxgl.Map): void {
     }
 }
 
-export type ReliefPalette = 'day' | 'night' | 'enc';
+export type ReliefPalette = 'day' | 'night' | 'enc' | 'light';
 type Ramp = ReadonlyArray<readonly [number, string]>;
 
 /** Depth (m, positive down) → the 8-bit index the tiles carry: 0 = land or under 0.3 m, 1..254 log-scaled water. */
@@ -159,6 +179,8 @@ const DAY = {
     coast: 'rgba(196,222,240,0.55)',
     land: '#333b45',
     water: '#1f5a85',
+    // The load pass's own label ink (useMapInit), white on black.
+    label: { ink: '#ffffff', halo: 'rgba(0, 0, 0, 0.9)', width: 2 },
 };
 const NIGHT: typeof DAY = {
     ramp: [
@@ -178,6 +200,37 @@ const NIGHT: typeof DAY = {
     coast: 'rgba(150,60,60,0.55)',
     land: '#141518',
     water: '#0c1822',
+    label: DAY.label,
+};
+/**
+ * Light (127-DESKMAP A1), held to its numbers in tests/reliefBase.test.ts:
+ * land is the ENC land fill (EncVectorLayer), so charted land meets it with no
+ * seam; the 2, 5 and 10 m stops are the ENC depth bands; the ramp climbs
+ * lighter offshore and never reaches white (charted deep water). Land and
+ * water part by hue and the coastline, as on a paper chart: ΔE2000 ≥ 15 for
+ * every colour vision, coastline ≥ 4.5:1 on every colour it borders.
+ */
+export const LIGHT_PALETTE: typeof DAY = {
+    ramp: [
+        [0, 'rgba(139,188,221,0)'],
+        [0.6, 'rgba(139,188,221,0.95)'],
+        [2, '#8bbcdd'],
+        [5, '#a6cce6'],
+        [10, '#c0dcee'],
+        [20, '#c9e1f0'],
+        [50, '#cfe4f1'],
+        [200, '#d2e5f1'],
+        [1000, '#d4e6f2'],
+    ],
+    bands: ['#c9e1f0', '#d2e5f1', '#d4e6f2', '#d4e6f2', '#d4e6f2'],
+    shadow: 'rgba(40,80,110,0.30)',
+    highlight: 'rgba(255,255,255,0.35)',
+    coast: '#4a3b22',
+    land: '#d6c590',
+    // Flat water where no depth tint draws: neutral, so "no depth here" never
+    // reads as a depth.
+    water: '#c9d0d6',
+    label: { ink: '#1e2b38', halo: 'rgba(255,255,255,0.9)', width: 1.5 },
 };
 
 /** The index ramp. Stops climb strictly, so a log-squeezed pair can never collide. */
@@ -205,6 +258,11 @@ const tintFade = (f0: number, f1: number, damp: number) => zoomFade([f0, damp, f
 const shadeFade = (f0: number, f1: number) => zoomFade([5, 0.4, 9, 0.7, f0, 0.7, f1, 0]);
 
 const painted = new WeakMap<object, ReliefPalette>();
+/** Maps that have shown Light since their style loaded: from then on every
+ *  palette paints the whole base style, labels included, to undo it. A map
+ *  that never shows Light (the Log maps, the Ocean page, every phone chart) is
+ *  painted exactly as before. */
+const whole = new WeakSet<object>();
 
 /**
  * Add the sea once per style load, right after the satellite source exists
@@ -216,6 +274,7 @@ export function addReliefBase(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE
     if (waterAt < 0 || !map.getSource('composite')) return;
     const above = layers[waterAt + 1]?.id;
     painted.delete(map);
+    whole.delete(map);
     const add = (layer: Record<string, unknown>, before: string | undefined) => {
         if (!map.getLayer(layer.id as string))
             map.addLayer({ ...layer, layout: { visibility: 'none' } } as mapboxgl.AnyLayer, before);
@@ -326,8 +385,8 @@ export function addReliefBase(map: mapboxgl.Map, base: string = RELIEF_TILE_BASE
 }
 
 /** The sea layers a base shows, as [layer id, visible]. Satellite and Hybrid show none. */
-export function seaBaseLayers(base: ObsChartBase): Array<[string, boolean]> {
-    const relief = base === 'relief' || base === 'reliefSat';
+export function seaBaseLayers(base: MapBaseKind): Array<[string, boolean]> {
+    const relief = base === 'relief' || base === 'reliefSat' || base === 'light';
     const sea = relief || base === 'ocean';
     return [
         ...RELIEF_LAYER_IDS.map((id): [string, boolean] => [id, relief]),
@@ -340,22 +399,33 @@ export function seaBaseLayers(base: ObsChartBase): Array<[string, boolean]> {
 
 /**
  * Recolour the sea for night (a native dim palette under the app's red
- * scrim) or damp the relief tint while the ENC glaze is drawn, so two depth
- * colour codes don't fight. The ENC glaze itself is untouched. Writes only
- * when the palette changes (the styledata-loop rule, 2026-07-12) and returns
- * whether it wrote.
+ * scrim), for Light, or damp the relief tint while the ENC glaze is drawn, so
+ * two depth colour codes don't fight. The ENC glaze itself is untouched.
+ * Writes only when the palette changes (the styledata-loop rule, 2026-07-12)
+ * and returns whether it wrote.
+ *
+ * Light also paints every land and water fill the load pass paints and the
+ * base style's own labels (source 'composite', never an app-owned layer), and
+ * ends the world tint at z12; once a map has shown Light, every palette does
+ * the same, so leaving it restores the whole style.
  */
 export function setReliefPalette(map: mapboxgl.Map, mode: ReliefPalette): boolean {
     if (painted.get(map) === mode || !map.getLayer(SEA_BASE_BANDS)) return false;
     painted.set(map, mode);
-    const p = mode === 'night' ? NIGHT : DAY;
+    if (mode === 'light') whole.add(map);
+    const p = mode === 'night' ? NIGHT : mode === 'light' ? LIGHT_PALETTE : DAY;
     const set = (id: string, prop: string, value: unknown) => {
         if (map.getLayer(id)) map.setPaintProperty(id, prop as 'fill-color', value as string);
     };
     for (const [setName, , , t0, t1] of SETS) {
         const tint = `relief-${setName}-tint`;
+        // Light's world tint ends at z12 (GA's keeps its own fade): past it a
+        // harbour shows flat water, never 450 m blobs or a tile seam.
+        const [f0, f1] = mode === 'light' && setName === 'global' ? [11, 12] : [t0, t1];
+        const layer = map.getLayer(tint) as { minzoom?: number; maxzoom?: number } | undefined;
+        if (layer && layer.maxzoom !== f1) map.setLayerZoomRange(tint, layer.minzoom ?? 0, f1);
         set(tint, 'raster-color', indexRamp(p.ramp));
-        set(tint, 'raster-opacity', tintFade(t0, t1, mode === 'enc' ? 0.7 : 1));
+        set(tint, 'raster-opacity', tintFade(f0, f1, mode === 'enc' ? 0.7 : 1));
         set(tint, 'raster-saturation', mode === 'enc' ? -0.5 : 0);
         set(`relief-${setName}-shade`, 'hillshade-shadow-color', p.shadow);
         set(`relief-${setName}-shade`, 'hillshade-highlight-color', p.highlight);
@@ -367,8 +437,20 @@ export function setReliefPalette(map: mapboxgl.Map, mode: ReliefPalette): boolea
     set('national-park', 'fill-color', p.land);
     set('water', 'fill-color', p.water);
     set('waterway', 'line-color', p.water);
-    for (const layer of map.getStyle()?.layers ?? [])
-        if (LAND_STRUCTURE.test(layer.id) && (layer.type === 'line' || layer.type === 'fill'))
-            set(layer.id, `${layer.type}-color`, p.land);
+    const all = whole.has(map);
+    for (const layer of map.getStyle()?.layers ?? []) {
+        const { id, type } = layer;
+        if (LAND_STRUCTURE.test(id) && (type === 'line' || type === 'fill')) set(id, `${type}-color`, p.land);
+        if (!all) continue;
+        const base = (layer as { source?: string }).source === 'composite' && !/^(sea-base|relief)-/.test(id);
+        if (type === 'background') set(id, 'background-color', p.land);
+        else if (base && type === 'fill' && BASE_WATER_FILL.test(id)) set(id, 'fill-color', p.water);
+        else if (base && type === 'fill' && BASE_LAND_FILL.test(id)) set(id, 'fill-color', p.land);
+        else if (base && type === 'symbol' && BASE_LABEL.test(id)) {
+            set(id, 'text-color', p.label.ink);
+            set(id, 'text-halo-color', p.label.halo);
+            set(id, 'text-halo-width', p.label.width);
+        }
+    }
     return true;
 }

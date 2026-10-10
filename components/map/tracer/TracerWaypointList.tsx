@@ -106,13 +106,18 @@ export const TracerWaypointList: React.FC<TracerWaypointListProps> = ({
                                 </div>
                             );
                         const v = legVerdicts[i - 1];
+                        // A sketch leg (no chart for here on this device) is slate
+                        // with a neutral dash, as the chart draws it: never the
+                        // needs-tide amber ⚠ (127-DESKMAP C3).
                         const dot = !v
                             ? 'text-gray-500'
-                            : v.grade === 'danger'
-                              ? 'text-red-400'
-                              : v.grade === 'caution'
-                                ? 'text-amber-300'
-                                : 'text-emerald-300';
+                            : v.unchecked
+                              ? 'text-slate-400'
+                              : v.grade === 'danger'
+                                ? 'text-red-400'
+                                : v.grade === 'caution'
+                                  ? 'text-amber-300'
+                                  : 'text-emerald-300';
                         // A clear leg normally reads "clear — N m least",
                         // but a green 'info' note (e.g. "Red mark to your
                         // port — correct side heading in") takes its place
@@ -151,7 +156,13 @@ export const TracerWaypointList: React.FC<TracerWaypointListProps> = ({
                             >
                                 <div className="flex items-start gap-1.5 text-[11px] leading-tight">
                                     <span className={`${dot} font-black`}>
-                                        {v?.grade === 'danger' ? '⛔' : v?.grade === 'caution' ? '⚠' : '●'}
+                                        {v?.unchecked
+                                            ? '–'
+                                            : v?.grade === 'danger'
+                                              ? '⛔'
+                                              : v?.grade === 'caution'
+                                                ? '⚠'
+                                                : '●'}
                                     </span>
                                     <span className="text-gray-200">
                                         <span className="font-mono text-gray-400">

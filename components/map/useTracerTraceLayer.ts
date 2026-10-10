@@ -6,7 +6,7 @@
  * unit in the tracer, and the one where a mechanical error is caught by no
  * automated gate in this repo — there is no test that renders MapHub.
  *
- * CALL POSITION IS THE ENTIRE Z-ORDER STORY. The six trace layers are added
+ * CALL POSITION IS THE ENTIRE Z-ORDER STORY. The eight trace layers are added
  * with NO beforeId, so they land wherever the top of the style happened to be
  * at install time. This hook must be called:
  *   - AFTER useTracerGhostLanes (a real data dependency — ghostLanes feeds the
@@ -25,7 +25,7 @@
  * reading line numbers, and it is why a throw in the issue loop costs the dest
  * hint and the promote but not the line itself.
  *
- * layersUp() must keep checking exactly three of the six layers. Stricter
+ * layersUp() must keep checking exactly three of the eight layers. Stricter
  * risks reopening the ~8 Hz styledata self-feeding loop, because sync's own
  * setData emits styledata. Looser and nothing heals after a style switch.
  *
@@ -62,7 +62,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type mapboxgl from 'mapbox-gl';
+import { Capacitor } from '@capacitor/core';
 import { promoteTraceLayers } from './isobarLayerSetup';
+import { SKETCH_LEG_DASH, TRACE_CASING } from './traceLegInk';
 import { createLogger } from '../../utils/createLogger';
 import type { TraceLegVerdict, GhostLane } from '../../services/routeTracer';
 
@@ -151,32 +153,57 @@ export function useTracerTraceLayer({
                         data: { type: 'FeatureCollection', features: [] },
                     });
                 }
-                for (const [id, width, blur, opacity] of [
-                    ['trace-line-glow', 10, 8, 0.5],
-                    ['trace-line-core', 3.5, 0, 0.95],
+                // Glow, the dark casing, the graded core, and the grey "sketch,
+                // not checked" dashes for a leg with no chart on this device
+                // (127-DESKMAP A4/C3). A separate sketch layer because
+                // line-dasharray is not reliably data-driven; the coloured
+                // layers leave sketch legs out, so one is never green or amber.
+                // On the web every leg rides the casing, so it reads on Light's
+                // pale sea; the phone's planner is unchanged in 127, so there
+                // only the sketch dashes sit on it.
+                const sketch = ['==', ['get', 'sketch'], true];
+                const notSketch = ['!=', ['get', 'sketch'], true];
+                const grade = [
+                    'match',
+                    ['get', 'grade'],
+                    'clear',
+                    '#00e676',
+                    'caution',
+                    '#ffb300',
+                    'danger',
+                    '#ff1744',
+                    '#94a3b8', // pending — verdict still computing
+                ];
+                for (const [id, filter, paint] of [
+                    [
+                        'trace-line-glow',
+                        notSketch,
+                        { 'line-color': grade, 'line-width': 10, 'line-blur': 8, 'line-opacity': 0.5 },
+                    ],
+                    [
+                        'trace-line-casing',
+                        Capacitor.isNativePlatform() ? sketch : null,
+                        { 'line-color': TRACE_CASING, 'line-width': 6.5, 'line-opacity': 0.8 },
+                    ],
+                    ['trace-line-core', notSketch, { 'line-color': grade, 'line-width': 3.5, 'line-opacity': 0.95 }],
+                    [
+                        'trace-line-sketch',
+                        sketch,
+                        {
+                            'line-color': SKETCH_LEG_DASH.ink,
+                            'line-width': 3.5,
+                            'line-dasharray': [...SKETCH_LEG_DASH.dasharray],
+                        },
+                    ],
                 ] as const) {
                     if (!map.getLayer(id)) {
                         map.addLayer({
                             id,
                             type: 'line',
                             source: 'trace-line',
+                            ...(filter ? { filter: filter as mapboxgl.FilterSpecification } : {}),
                             layout: { 'line-join': 'round', 'line-cap': 'round' },
-                            paint: {
-                                'line-color': [
-                                    'match',
-                                    ['get', 'grade'],
-                                    'clear',
-                                    '#00e676',
-                                    'caution',
-                                    '#ffb300',
-                                    'danger',
-                                    '#ff1744',
-                                    '#94a3b8', // pending — verdict still computing
-                                ],
-                                'line-width': width,
-                                'line-blur': blur,
-                                'line-opacity': opacity,
-                            },
+                            paint: paint as mapboxgl.LinePaint,
                         });
                     }
                 }
@@ -252,7 +279,7 @@ export function useTracerTraceLayer({
                 }
                 const feats: Array<{
                     type: 'Feature';
-                    properties: { grade: string };
+                    properties: { grade: string; sketch: boolean };
                     geometry: { type: 'LineString'; coordinates: [number, number][] };
                 }> = [];
                 const issueFeats: Array<{
@@ -266,7 +293,10 @@ export function useTracerTraceLayer({
                         const b = capturedCoords[i];
                         feats.push({
                             type: 'Feature',
-                            properties: { grade: legVerdicts[i - 1]?.grade ?? 'pending' },
+                            properties: {
+                                grade: legVerdicts[i - 1]?.grade ?? 'pending',
+                                sketch: legVerdicts[i - 1]?.unchecked === true,
+                            },
                             geometry: {
                                 type: 'LineString',
                                 coordinates: [
@@ -381,13 +411,13 @@ export function useTracerTraceLayer({
                 // which early-returns on `activeLayers.size === 0` before it —
                 // so with no weather layer up, which is now always the case on
                 // the plan page, ordering was simply never enforced. The tracer
-                // adds all six layers with no beforeId, so they sat wherever
+                // adds all eight layers with no beforeId, so they sat wherever
                 // the top of the style was at creation time and every ENC and
                 // imagery layer added afterwards went over them. The pins are
                 // DOM markers above the canvas, so they never showed the
                 // problem — hence "waypoints but no line".
                 //
-                // Cheap and idempotent: six guarded moveLayer calls, run once
+                // Cheap and idempotent: eight guarded moveLayer calls, run once
                 // per pin edit, not on a timer.
                 const buried = promoteTraceLayers(map);
                 if (coordCaptureMode && feats.length > 0 && buried.length > 0) {

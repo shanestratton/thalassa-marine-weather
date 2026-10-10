@@ -216,9 +216,6 @@ export const LAYER_FRAME_ZOOM: Partial<Record<WeatherLayer, number>> = {
  * layers.
  */
 export const TILE_SOURCE_MAX_ZOOM: Partial<Record<WeatherLayer, number>> = {
-    // NOT capped: OpenSeaMap seamarks are genuine detail all the way in, and
-    // they are the one layer here a skipper reads at berthing zoom.
-    sea: 18,
     temperature: 9,
     clouds: 9,
     waves: 9,
@@ -309,8 +306,9 @@ const OWM_TILE_PROXY = `${API_BASE}/owm-tile`;
 // (typically by skipping the layer mount). The CMEMS WebGL layers don't
 // route through getTileUrl at all so they keep working.
 
+// No 'sea' (127-DESKMAP B4): Sea marks draw through useMapInit's credited
+// 'openseamap-permanent' raster alone, never a second copy.
 export const STATIC_TILES: Record<string, string> = {
-    sea: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
     satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
 };
 

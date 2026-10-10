@@ -136,6 +136,10 @@ export default defineConfig({
         // A phone without Thalassa held to a box tag (126-11b): public/box.html fits 320 × 568
         // and 430 × 932, light and dark, and loads nothing but itself.
         'box-fallback-page.spec.ts',
+        // The desk chart (127-DESKMAP): Light base, Relief seabed and OpenSeaMap seamarks drawn
+        // offline (e2e/fixtures/desk-map.tsx), a fictional NOAA-shaped chart in chart mode, and
+        // the real web planner's menu and strip at 1440 to 320 px in wide fonts.
+        'desk-map-light.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

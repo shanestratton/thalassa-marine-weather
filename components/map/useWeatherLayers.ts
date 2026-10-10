@@ -2170,8 +2170,11 @@ export function useWeatherLayers(
         const cmemsSstEnabled = import.meta.env.VITE_CMEMS_SST_ENABLED === 'true';
         // Note: chlorophyll isn't in this gate — it's a net-new CMEMS
         // layer with no Xweather tile equivalent to replace.
+        // No 'sea' (127-DESKMAP B4): it drew OpenSeaMap a SECOND time, as an
+        // uncredited raster outside the ENC hide (the Mooloolaba doubled icon,
+        // alive through this path) and asking OpenSeaMap's free server for
+        // every tile twice. Sea marks draw through 'openseamap-permanent' alone.
         const TILE_LAYERS: WeatherLayer[] = [
-            'sea',
             'temperature',
             'clouds',
             ...(cmemsWavesEnabled ? [] : (['waves'] as WeatherLayer[])),
@@ -2239,10 +2242,11 @@ export function useWeatherLayers(
             }
         }
 
-        // Sync permanent sea marks layers with the 'sea' toggle
+        // Sync permanent sea marks layers with the 'sea' toggle. Not the
+        // OpenSeaMap raster: useOpenSeaMapRasterHide is its one owner (127-
+        // DESKMAP B1), so a plan-layer change (the desk's wind) never blinks it.
         const seaVisible = activeLayers.has('sea') ? 'visible' : 'none';
         for (const lid of [
-            'openseamap-permanent',
             'harbour-seamarks-circle',
             'harbour-seamarks-label',
             'nav-markers-glow',
@@ -2787,7 +2791,6 @@ export function useWeatherLayers(
                 // Per-layer opacity: sea marks stay solid, weather heatmaps
                 // are translucent so coastlines/countries remain visible.
                 const LAYER_OPACITY: Partial<Record<WeatherLayer, number>> = {
-                    sea: 1.0,
                     temperature: 0.6,
                     // Clouds take the SHARED density knobs from cloudOverlay —
                     // the storm page and the Sky menu must be one cloud, one

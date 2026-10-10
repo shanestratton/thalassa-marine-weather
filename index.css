@@ -4482,6 +4482,70 @@ main:has(.thalassa-chart-controls-panel)
     }
 }
 
+/* The desk map's strip under its menu (127-DESKMAP B2): the radar pill's
+   look, here rather than as utility classes so the words cost the JS bundle
+   nothing. Slots stack in a fixed order; each line wraps on its own. */
+.thalassa-desk-strip {
+    z-index: 509;
+    display: flex;
+    width: min(300px, calc(100vw - 152px));
+    flex-direction: column;
+    align-items: center;
+    gap: 0.125rem;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.375;
+    color: var(--color-slate-300);
+    pointer-events: none;
+}
+.thalassa-desk-strip > * {
+    width: fit-content;
+    max-width: 100%;
+    border-radius: 0.375rem;
+    background-color: color-mix(in oklab, var(--color-slate-950) 70%, transparent);
+    padding: 0.25rem 0.5rem;
+    text-align: center;
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+}
+.thalassa-desk-strip > [data-map-credit] {
+    pointer-events: auto;
+}
+
+/* The desk map (127-DESKMAP). On a window narrower than 744px the tracer's
+   compass rose (Shane 2026-07-15: locked top left, centred on the plotting
+   card) holds the top centre, so while tracing the desk menu becomes an icon
+   pill under the mic. The strip keeps only its seamark line, one line in the
+   band between the rose (bottom at inset + 124px) and the tracer card (top at
+   156px), right-aligned: wherever OpenSeaMap's buoys draw, the words saying
+   they are unverified community data stay on screen. The tracer card says
+   when there is no chart. */
+@media (max-width: 743px) {
+    .thalassa-desk-tracing .thalassa-desk-menu,
+    .thalassa-desk-tracing .thalassa-desk-strip {
+        left: auto;
+        right: max(16px, env(safe-area-inset-right));
+        top: calc(env(safe-area-inset-top) + 64px) !important;
+        translate: none;
+        transform: none;
+        align-items: flex-end;
+    }
+    .thalassa-desk-tracing .thalassa-desk-strip {
+        top: calc(env(safe-area-inset-top) + 127px) !important;
+        width: auto;
+        max-width: calc(100vw - 32px);
+        white-space: nowrap;
+    }
+    .thalassa-desk-tracing .thalassa-desk-menu .thalassa-map-base-label,
+    .thalassa-desk-tracing .thalassa-desk-strip > :not([data-map-credit]),
+    .thalassa-desk-tracing .thalassa-desk-wide {
+        display: none;
+    }
+    .thalassa-desk-tracing .thalassa-desk-menu .thalassa-map-base-menu {
+        max-height: calc(100dvh - env(safe-area-inset-top) - 72px - 3.5rem - 4rem - 1px - env(safe-area-inset-bottom));
+    }
+}
+
 /* ── Bottom sheets and the on-screen keyboard ──────────────────────
    USE THIS on any bottom-anchored panel that contains a text field and
    scrolls internally. Add the class, delete the hard-coded max-h.

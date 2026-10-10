@@ -31,7 +31,9 @@ test.use({
     },
 });
 
-const EMPTY_ENC_NOTICE = 'No verified ENC charts installed. Library imports are reference-only.';
+// The web's no-charts words (127-DESKMAP C2): a browser holds only the open
+// charts, and this fixture's account has no licensed charts aboard.
+const EMPTY_ENC_NOTICE = 'No chart for this area. Open charts (NOAA) show here in US waters.';
 type TideFixture = 'none' | 'available';
 /** A real long credit (Relief's, components/map/reliefBase.ts, as plain text):
  *  with the Anchorages credit it wraps the opened card to five lines in a

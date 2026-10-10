@@ -3,6 +3,7 @@ import { CAUTION_CLASS_COLOURS, CAUTION_DEFAULT_COLOUR } from './encPopup';
 import { seamarkIconDataUri } from './seamarkIcons';
 import { LIGHT_COLOUR_HEX } from '../../services/enc/types';
 import { BLOCKED_LEAD_DASH, NEEDS_TIDE_AMBER, SURVEY_DASH, UNVERIFIED_ROUTE_DASH } from './inshoreRouteState';
+import { SKETCH_LEG_DASH } from './traceLegInk';
 
 /**
  * The planned route's colours (owner decision 10, Shane 2026-09-30: "Amber if
@@ -13,6 +14,11 @@ import { BLOCKED_LEAD_DASH, NEEDS_TIDE_AMBER, SURVEY_DASH, UNVERIFIED_ROUTE_DASH
  * overlay's own needs-tide dash — which the survey stretches used to share —
  * is keyed apart from the route.
  */
+/** Dashes on a dark edge, the way a cased dashed line draws: the router's
+ *  unverified line and the tracer's sketch legs (127-DESKMAP C3). */
+const edgedDash = (casing: string, ink: string, gap: string) =>
+    `linear-gradient(${casing}, ${casing}) top / 100% 1px no-repeat, linear-gradient(${casing}, ${casing}) bottom / 100% 1px no-repeat, repeating-linear-gradient(90deg, ${ink} 0 5px, ${gap} 5px 8px)`;
+
 const ROUTE_KEY: readonly { swatch: string; label: string }[] = [
     { swatch: '#2dd4bf', label: 'Clear water' },
     { swatch: '#facc15', label: 'Marked channel' },
@@ -30,12 +36,14 @@ const ROUTE_KEY: readonly { swatch: string; label: string }[] = [
         // and white DASHES on a dark edge — not checked, where the solid red
         // above is checked and dangerous (2026-10-03; amber dashes until
         // then). The white gaps keep it apart from the blocked lead below.
-        swatch: [
-            `linear-gradient(${UNVERIFIED_ROUTE_DASH.casing}, ${UNVERIFIED_ROUTE_DASH.casing}) top / 100% 1px no-repeat`,
-            `linear-gradient(${UNVERIFIED_ROUTE_DASH.casing}, ${UNVERIFIED_ROUTE_DASH.casing}) bottom / 100% 1px no-repeat`,
-            `repeating-linear-gradient(90deg, ${UNVERIFIED_ROUTE_DASH.ink} 0 5px, ${UNVERIFIED_ROUTE_DASH.gap} 5px 8px)`,
-        ].join(', '),
+        swatch: edgedDash(UNVERIFIED_ROUTE_DASH.casing, UNVERIFIED_ROUTE_DASH.ink, UNVERIFIED_ROUTE_DASH.gap),
         label: 'Not checked yet — red and white dashes; it can’t be saved',
+    },
+    {
+        // A tracer leg with no chart behind it on this device (127-DESKMAP C3):
+        // grey dashes on the dark edge, worded apart from the router's line above.
+        swatch: edgedDash(SKETCH_LEG_DASH.casing, SKETCH_LEG_DASH.ink, SKETCH_LEG_DASH.casing),
+        label: 'Sketch, not checked: no chart for here on this device',
     },
     { swatch: '#1e40af', label: 'Offshore' },
     {

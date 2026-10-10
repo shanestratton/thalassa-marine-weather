@@ -2,7 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { ObsChartBase } from '../../types/settings';
 import { triggerHaptic } from '../../utils/system';
 
-export type MapBaseKind = ObsChartBase;
+/** 'light' is the web desk planner's own base (127-DESKMAP), never an Obs pick. */
+export type MapBaseKind = ObsChartBase | 'light';
 
 /**
  * Which layer groups a base lights. The imagery bases stay exclusive.
@@ -11,7 +12,7 @@ export type MapBaseKind = ObsChartBase;
  */
 export function mapBaseVisibility(value: MapBaseKind) {
     return {
-        relief: value === 'relief' || value === 'reliefSat',
+        relief: value === 'relief' || value === 'reliefSat' || value === 'light',
         landImagery: value === 'reliefSat',
         ocean: value === 'ocean',
         satellite: value === 'satellite',
@@ -37,6 +38,23 @@ export const MAP_BASE_OPTIONS: ReadonlyArray<{
     { id: 'hybrid', label: 'Hybrid', description: 'Imagery with roads and names' },
 ];
 
+/* The web desk planner's bases (127-DESKMAP A2): Light first, and none of the
+   dark ones. GA and GEBCO are both mean sea level, hence the row's words. */
+export const DESK_MAP_BASE_OPTIONS: typeof MAP_BASE_OPTIONS = [
+    { id: 'light', label: 'Light', description: 'Easiest to read · seabed is a guide, mean sea level' },
+    MAP_BASE_OPTIONS[1],
+    MAP_BASE_OPTIONS[3],
+];
+
+/** An on/off row drawn on top of the base, after it (the desk's Seamarks). */
+export interface MapBaseToggle {
+    id: string;
+    label: string;
+    detail: string;
+    on: boolean;
+    onToggle: () => void;
+}
+
 export interface MapBaseSelectorProps {
     visible: boolean;
     value: MapBaseKind;
@@ -45,6 +63,14 @@ export interface MapBaseSelectorProps {
     encCellCount: number;
     encVisible: boolean;
     onToggleEnc: () => void;
+    /** The bases offered; Obs passes none and gets MAP_BASE_OPTIONS. */
+    options?: typeof MAP_BASE_OPTIONS;
+    /** The ENC master row (Obs). The desk passes false: the tracer raises its own chart floors. */
+    encRow?: boolean;
+    /** On/off rows after a separator, in the ENC row's style. */
+    toggles?: readonly MapBaseToggle[];
+    /** Extra classes on the root (the desk's narrow-window placement, index.css). */
+    className?: string;
 }
 
 /**
@@ -59,17 +85,21 @@ export function MapBaseSelector({
     encCellCount,
     encVisible,
     onToggleEnc,
+    options = MAP_BASE_OPTIONS,
+    encRow = true,
+    toggles = [],
+    className = '',
 }: MapBaseSelectorProps) {
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
     const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
     const menuId = useId();
-    const selected = MAP_BASE_OPTIONS.find((option) => option.id === value) ?? MAP_BASE_OPTIONS[0];
-    /* The ENC row is a menu item too, so the arrow keys have to know about it
-       or the one control a skipper reaches for under memory pressure would be
-       the one item they cannot reach without a mouse. */
-    const itemCount = MAP_BASE_OPTIONS.length + 1;
+    const selected = options.find((option) => option.id === value) ?? options[0];
+    /* The ENC row and the switches are menu items too, so the arrow keys have
+       to know about them or the one control a skipper reaches for under memory
+       pressure would be the one item they cannot reach without a mouse. */
+    const itemCount = options.length + (encRow ? 1 : 0) + toggles.length;
     const noCharts = encCellCount === 0;
     /* With nothing installed and the layer off, 'OFF' was a state for charts
        that don't exist, with no hint that the tap leads to getting some: it
@@ -82,6 +112,35 @@ export function MapBaseSelector({
           ? 'Safety layers above the base'
           : 'Hidden — base map only';
     const encName = `ENC charts, ${encDetail.toLowerCase()}${offerAdd ? ', tap to add charts' : ''}`;
+    /* ── ENC MASTER SWITCH, then the desk's switches ──
+       The ENC row lives here rather than floating on the chart (Shane
+       2026-09-05: "move the enc button up into that drop down box... put it
+       at the bottom after ocean"). A CHECKBOX, not another radio: the bases
+       are one exclusive choice, and ENC is a separate stack drawn ABOVE
+       whichever of those is showing; a menuitemradio would tell a screen
+       reader that turning charts on turns the base map off. Always offered,
+       including with no charts installed: browse charts start off on every
+       fresh OBS (Release 119), and the no-charts notice (with its Library
+       button, the one Add Charts route) only shows while charts are on.
+       Gating this row on an installed cell left a fresh install no way to
+       reach either (Shane 2026-09-27). The desk passes encRow={false} and its
+       own switches (127-DESKMAP B1: Seamarks), drawn the same way. */
+    const checks: Array<MapBaseToggle & { name?: string; add?: boolean }> = [
+        ...(encRow
+            ? [
+                  {
+                      id: 'enc',
+                      label: 'ENC charts',
+                      detail: encDetail,
+                      on: encVisible,
+                      onToggle: onToggleEnc,
+                      name: encName,
+                      add: offerAdd,
+                  },
+              ]
+            : []),
+        ...toggles,
+    ];
 
     useEffect(() => {
         if (!visible) setOpen(false);
@@ -89,14 +148,14 @@ export function MapBaseSelector({
 
     useEffect(() => {
         if (!open) return;
-        optionRefs.current[MAP_BASE_OPTIONS.findIndex((option) => option.id === value)]?.focus({ preventScroll: true });
+        optionRefs.current[options.findIndex((option) => option.id === value)]?.focus({ preventScroll: true });
 
         const closeOnOutsidePointer = (event: PointerEvent) => {
             if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
         };
         document.addEventListener('pointerdown', closeOnOutsidePointer);
         return () => document.removeEventListener('pointerdown', closeOnOutsidePointer);
-    }, [open, value]);
+    }, [open, value, options]);
 
     if (!visible) return null;
 
@@ -112,7 +171,7 @@ export function MapBaseSelector({
             // The closed trigger shares the zoom readout's z-700, so the layer
             // menu (z-700, later in the tree) dims it with the rest of the
             // chart's controls instead of leaving it lit (UX scorecard run 7).
-            className={`absolute left-1/2 flex -translate-x-1/2 flex-col items-center ${open ? 'z-9998' : 'z-700'}`}
+            className={`absolute left-1/2 flex -translate-x-1/2 flex-col items-center ${open ? 'z-9998' : 'z-700'} ${className}`}
             style={{ top: 'calc(env(safe-area-inset-top) + 8px)' }}
             onKeyDown={(event) => {
                 if (event.key === 'Escape') {
@@ -143,7 +202,9 @@ export function MapBaseSelector({
                 aria-controls={open ? menuId : undefined}
             >
                 <MapBaseIcon />
-                <span className="text-[10px] font-black uppercase tracking-wider">{selected.label}</span>
+                <span className="thalassa-map-base-label text-[10px] font-black uppercase tracking-wider">
+                    {selected.label}
+                </span>
                 {/* No beta badge here (Shane 2026-08-06: "completely remove the
                     Free Beta wording from the OBS page altogether"). The chart
                     is the working surface; the beta framing belongs in the app
@@ -170,7 +231,7 @@ export function MapBaseSelector({
                     // bar open the ENC row sat under the Plan tab.
                     className="thalassa-popover-solid thalassa-map-base-menu mt-2 w-[min(280px,calc(100vw-152px))] rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl"
                 >
-                    {MAP_BASE_OPTIONS.map((option, index) => {
+                    {options.map((option, index) => {
                         const checked = option.id === value;
                         return (
                             <button
@@ -224,48 +285,49 @@ export function MapBaseSelector({
                         charts are on. Gating this row on an installed cell
                         left a fresh install no way to reach either
                         (Shane 2026-09-27). */}
-                    <>
-                        <div role="separator" className="mx-2 my-1 h-px bg-white/10" />
-                        {/* Named for the layer and its state, not for the tap:
-                            'Turn ENC charts on' with aria-checked=false read as
-                            "Turn ENC charts on, unchecked" and dropped 'None
-                            installed yet' (UX scorecard run 9). aria-checked
-                            carries on/off. */}
+                    {checks.length > 0 && <div role="separator" className="mx-2 my-1 h-px bg-white/10" />}
+                    {/* Named for the layer and its state, not for the tap:
+                        'Turn ENC charts on' with aria-checked=false read as
+                        "Turn ENC charts on, unchecked" and dropped 'None
+                        installed yet' (UX scorecard run 9). aria-checked
+                        carries on/off. */}
+                    {checks.map((row, index) => (
                         <button
+                            key={row.id}
                             ref={(element) => {
-                                optionRefs.current[MAP_BASE_OPTIONS.length] = element;
+                                optionRefs.current[options.length + index] = element;
                             }}
                             type="button"
                             role="menuitemcheckbox"
-                            aria-checked={encVisible}
-                            aria-label={encName}
+                            aria-checked={row.on}
+                            aria-label={row.name ?? `${row.label}, ${row.detail}`}
                             onClick={() => {
                                 triggerHaptic('light');
-                                onToggleEnc();
+                                row.onToggle();
                                 setOpen(false);
                                 triggerRef.current?.focus({ preventScroll: true });
                             }}
                             className={`flex min-h-[52px] w-full items-center justify-between rounded-xl px-3 text-left transition-colors active:scale-[0.98] ${
-                                encVisible
+                                row.on
                                     ? 'border border-emerald-400/35 bg-emerald-500/15 text-emerald-200'
                                     : 'border border-white/10 text-slate-400'
                             }`}
                         >
                             <span>
-                                <span className="block text-xs font-black">ENC charts</span>
-                                <span className="block text-[10px] font-medium text-slate-400">{encDetail}</span>
+                                <span className="block text-xs font-black">{row.label}</span>
+                                <span className="block text-[10px] font-medium text-slate-400">{row.detail}</span>
                             </span>
                             {/* The state, not just what tapping does, while there
                                 are charts to show; with none, the next step. */}
                             <span
                                 className={`shrink-0 pl-2 text-[10px] font-black uppercase tracking-wider ${
-                                    encVisible ? 'text-emerald-300' : offerAdd ? 'text-sky-300' : 'text-slate-500'
+                                    row.on ? 'text-emerald-300' : row.add ? 'text-sky-300' : 'text-slate-500'
                                 }`}
                             >
-                                {encVisible ? 'ON' : offerAdd ? 'Add ›' : 'OFF'}
+                                {row.on ? 'ON' : row.add ? 'Add ›' : 'OFF'}
                             </span>
                         </button>
-                    </>
+                    ))}
                 </div>
             )}
         </div>

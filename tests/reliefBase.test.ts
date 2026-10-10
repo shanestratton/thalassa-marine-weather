@@ -1,10 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type mapboxgl from 'mapbox-gl';
+import { DEPARE_BAND_COLORS } from '../components/map/encDepthStyle';
+import { contrast, deltaE, VISIONS } from './helpers/colourScience';
 import {
     addReliefBase,
+    BASE_LABEL,
+    BASE_LAND_FILL,
+    BASE_WATER_FILL,
     depthIndex,
+    GBR30_TITLE,
     HIDDEN_BASE_GEOMETRY,
+    LIGHT_PALETTE,
     LAND_IMAGERY_LAYER,
     LAND_STRUCTURE,
     RELIEF_ATTRIBUTION,
@@ -82,6 +89,11 @@ function fakeMap(
             writes.push([id, prop, value]);
             const layer = layers.find((l) => l.id === id);
             if (layer) layer.paint = { ...layer.paint, [prop]: value };
+        },
+        setLayerZoomRange: (id: string, minzoom: number, maxzoom: number) => {
+            writes.push([id, 'zoom-range', [minzoom, maxzoom]]);
+            const layer = layers.find((l) => l.id === id);
+            if (layer) Object.assign(layer, { minzoom, maxzoom });
         },
     };
     return map;
@@ -185,9 +197,13 @@ describe('relief tiles', () => {
         // Geoscience Australia's wording for derivative material (Copyright@ga.gov.au,
         // 2026-10-07): based on the titled, linked material, by GA, © Commonwealth
         // of Australia, the licence named and linked, and its section 5 disclaimer.
+        // The grid's catalogue title (eCat 115066, checked 2026-10-10; the
+        // record was renamed from "Great Barrier Reef Bathymetry 2020 30 m"),
+        // with the version of grids A-D the tiles are built from (127-DESKMAP A5).
         expect(RELIEF_ATTRIBUTION).toContain(
-            'based on <a href="https://pid.geoscience.gov.au/dataset/ga/115066" target="_blank" rel="noopener noreferrer">Great Barrier Reef Bathymetry 2020 30 m</a> by Geoscience Australia',
+            'based on <a href="https://pid.geoscience.gov.au/dataset/ga/115066" target="_blank" rel="noopener noreferrer">AusBathyTopo (Great Barrier Reef) 30m 2017 - A regional-scale depth model (20170025C)</a>, version 10 Nov 2020, by Geoscience Australia',
         );
+        expect(RELIEF_ATTRIBUTION).not.toContain('Great Barrier Reef Bathymetry 2020');
         expect(RELIEF_ATTRIBUTION).toContain('&copy; Commonwealth of Australia');
         expect(RELIEF_ATTRIBUTION).toMatch(
             /<a href="https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/"[^>]*>CC BY 4\.0<\/a>/,
@@ -438,8 +454,205 @@ describe('MapHub wiring', () => {
         expect(hub).toMatch(
             /for \(const \[id, on\] of seaBaseLayers\(shownBase\)\)[\s\S]{0,80}setVis\(id, on \? 'visible' : 'none'\)/,
         );
-        expect(hub).toMatch(/setReliefPalette\(map, nightMode \? 'night' : encDrawn \? 'enc' : 'day'\)/);
+        // Light is never damped to 'enc' (127-DESKMAP A1): its chart mode draws
+        // the ENC opaque over it, and the dark ramp must never come back.
+        expect(hub).toMatch(
+            /setReliefPalette\(\s*map,\s*nightMode \? 'night' : shownBase === 'light' \? 'light' : encDrawn \? 'enc' : 'day',?\s*\)/,
+        );
         // No unconditional paint write sneaks in beside them.
         expect(hub).not.toMatch(/setPaintProperty\(\s*'relief-/);
+    });
+});
+
+/**
+ * The Light base (127-DESKMAP A1): the relief sea in a paper-chart palette
+ * for the desk. Shane 2026-10-10: "the underlying map is dark and very hard to
+ * see what is water and what isnt."
+ */
+describe('the Light base (127-DESKMAP A1)', () => {
+    /** A dark-v11-shaped style: the fills and labels the load pass paints, plus
+     *  one label layer that is not the base style's (an app-owned source). */
+    const STYLE: FakeLayer[] = [
+        { id: 'land', type: 'background' },
+        { id: 'landcover', type: 'fill', source: 'composite' },
+        { id: 'landcover-wood', type: 'fill', source: 'composite' },
+        { id: 'sand', type: 'fill', source: 'composite' },
+        { id: 'national-park', type: 'fill', source: 'composite' },
+        { id: 'landuse', type: 'fill', source: 'composite' },
+        { id: 'water-shadow', type: 'fill', source: 'composite' },
+        { id: 'waterway', type: 'line', source: 'composite' },
+        { id: 'water', type: 'fill', source: 'composite' },
+        { id: 'land-structure-polygon', type: 'fill', source: 'composite' },
+        { id: 'land-structure-line', type: 'line', source: 'composite' },
+        { id: 'water-point-label', type: 'symbol', source: 'composite' },
+        { id: 'settlement-major-label', type: 'symbol', source: 'composite' },
+        { id: 'country-label', type: 'symbol', source: 'composite' },
+        { id: 'enc-vec-lndare-label', type: 'symbol', source: 'enc-vec-source' },
+    ];
+    function styled() {
+        const map = fakeMap([]);
+        for (const layer of STYLE) map.layers.push({ ...layer });
+        addReliefBase(asMap(map), BASE);
+        return map;
+    }
+    const paint = (map: ReturnType<typeof fakeMap>, id: string, prop: string) =>
+        map.layers.find((l) => l.id === id)?.paint?.[prop];
+    /** The fills the load pass paints, by the same exported regexes. */
+    const loadPassLand = STYLE.filter((l) => l.type === 'fill' && BASE_LAND_FILL.test(l.id)).map((l) => l.id);
+    const loadPassWater = STYLE.filter((l) => l.type === 'fill' && BASE_WATER_FILL.test(l.id)).map((l) => l.id);
+    const baseLabels = STYLE.filter((l) => l.type === 'symbol' && l.source === 'composite' && BASE_LABEL.test(l.id));
+    const L = LIGHT_PALETTE;
+
+    it('lights what Relief lights: relief over the vector sea and coastline; no land imagery, no land shade', () => {
+        const on = new Map(seaBaseLayers('light'));
+        expect(seaBaseLayers('light')).toEqual(seaBaseLayers('relief'));
+        expect(on.get(LAND_IMAGERY_LAYER)).toBe(false);
+        expect(on.get(SEA_BASE_LAND_SHADE)).toBe(false);
+        for (const id of [...RELIEF_LAYER_IDS, SEA_BASE_BANDS, SEA_BASE_COAST]) expect(on.get(id), id).toBe(true);
+    });
+
+    it('paints every load-pass land fill buff and every water fill the flat grey-blue', () => {
+        expect(loadPassLand).toEqual([
+            'landcover',
+            'landcover-wood',
+            'sand',
+            'national-park',
+            'landuse',
+            'land-structure-polygon',
+        ]);
+        expect(loadPassWater).toEqual(['water-shadow', 'water']);
+        const map = styled();
+        expect(setReliefPalette(asMap(map), 'light')).toBe(true);
+        expect(paint(map, 'land', 'background-color')).toBe(L.land);
+        for (const id of loadPassLand) expect(paint(map, id, 'fill-color'), id).toBe(L.land);
+        for (const id of loadPassWater) expect(paint(map, id, 'fill-color'), id).toBe('#c9d0d6');
+        expect(paint(map, 'waterway', 'line-color')).toBe(L.water);
+        expect(paint(map, 'land-structure-polygon', 'fill-color')).toBe(L.land);
+        expect(paint(map, 'land-structure-line', 'line-color')).toBe(L.land);
+        expect(paint(map, SEA_BASE_COAST, 'line-color')).toBe(L.coast);
+        // Our own sea layers keep their own paint: the bands are a ramp, never the flat fill.
+        expect(paint(map, SEA_BASE_BANDS, 'fill-color')).not.toBe(L.water);
+        expect(paint(map, SEA_BASE_LAND_SHADE, 'fill-color')).not.toBe(L.land);
+    });
+
+    it('paints the base style’s labels dark on a white halo, and never an app-owned label', () => {
+        const map = styled();
+        setReliefPalette(asMap(map), 'light');
+        expect(baseLabels.map((l) => l.id)).toEqual(['water-point-label', 'settlement-major-label', 'country-label']);
+        for (const { id } of baseLabels) {
+            expect(paint(map, id, 'text-color'), id).toBe('#1e2b38');
+            expect(paint(map, id, 'text-halo-color'), id).toBe('rgba(255,255,255,0.9)');
+            expect(paint(map, id, 'text-halo-width'), id).toBe(1.5);
+        }
+        expect(map.writes.some(([id]) => id === 'enc-vec-lndare-label')).toBe(false);
+    });
+
+    it('day after Light restores slate land and white labels; Light after night restores dark labels', () => {
+        const map = styled();
+        setReliefPalette(asMap(map), 'light');
+        setReliefPalette(asMap(map), 'day');
+        expect(paint(map, 'land', 'background-color')).toBe('#333b45');
+        for (const id of loadPassLand) expect(paint(map, id, 'fill-color'), id).toBe('#333b45');
+        for (const id of loadPassWater) expect(paint(map, id, 'fill-color'), id).toBe('#1f5a85');
+        for (const { id } of baseLabels) {
+            expect(paint(map, id, 'text-color'), id).toBe('#ffffff');
+            expect(paint(map, id, 'text-halo-color'), id).toBe('rgba(0, 0, 0, 0.9)');
+            expect(paint(map, id, 'text-halo-width'), id).toBe(2);
+        }
+        setReliefPalette(asMap(map), 'night');
+        for (const id of loadPassLand) expect(paint(map, id, 'fill-color'), id).toBe('#141518');
+        for (const { id } of baseLabels) expect(paint(map, id, 'text-color'), id).toBe('#ffffff');
+        setReliefPalette(asMap(map), 'light');
+        for (const { id } of baseLabels) expect(paint(map, id, 'text-color'), id).toBe('#1e2b38');
+        for (const id of loadPassLand) expect(paint(map, id, 'fill-color'), id).toBe(L.land);
+    });
+
+    it('writes nothing on a repeat Light call (the styledata-loop rule)', () => {
+        const map = styled();
+        expect(setReliefPalette(asMap(map), 'light')).toBe(true);
+        const settled = map.writes.length;
+        expect(setReliefPalette(asMap(map), 'light')).toBe(false);
+        expect(map.writes.length).toBe(settled);
+    });
+
+    // A map that never shows Light (the Log maps, the Ocean page, every phone
+    // chart) is painted exactly as before: labels and landcover untouched.
+    it('leaves labels and the extra land fills alone on a map that has never been Light', () => {
+        const map = styled();
+        setReliefPalette(asMap(map), 'day');
+        setReliefPalette(asMap(map), 'night');
+        setReliefPalette(asMap(map), 'day');
+        const touched = new Set(map.writes.map(([id]) => id));
+        for (const id of ['landcover', 'landcover-wood', 'sand', 'water-shadow', ...baseLabels.map((l) => l.id)])
+            expect(touched.has(id), id).toBe(false);
+    });
+
+    it('on Light the world tint ends at z12 (flat water past it); other bases restore it; the GA fade is unchanged', () => {
+        const map = styled();
+        const layer = (id: string) => map.layers.find((l) => l.id === id)!;
+        const fade = (id: string) => (layer(id).paint?.['raster-opacity'] as unknown[]).slice(3);
+        setReliefPalette(asMap(map), 'light');
+        expect(layer('relief-global-tint').maxzoom).toBe(12);
+        expect(fade('relief-global-tint')).toEqual([11, 1, 12, 0]);
+        expect(layer('relief-global-shade').maxzoom).toBeLessThanOrEqual(12);
+        expect(layer('relief-au-tint').maxzoom).toBe(14.5);
+        expect(fade('relief-au-tint')).toEqual([13.5, 1, 14.5, 0]);
+        setReliefPalette(asMap(map), 'day');
+        expect(layer('relief-global-tint').maxzoom).toBe(14.5);
+        expect(fade('relief-global-tint')).toEqual([13.5, 1, 14.5, 0]);
+        expect(layer('relief-au-tint').maxzoom).toBe(14.5);
+    });
+
+    describe('colour bars', () => {
+        const ramp = L.ramp.filter(([d]) => d >= 2).map(([, c]) => c);
+        const waters = [...new Set([...ramp, L.water])];
+
+        it('the 2, 5 and 10 m stops are the ENC band colours; land is the ENC land fill', () => {
+            const at = (d: number) => L.ramp.find(([depth]) => depth === d)?.[1];
+            expect(at(2)).toBe(DEPARE_BAND_COLORS.b0to2);
+            expect(at(5)).toBe(DEPARE_BAND_COLORS.b2to5);
+            expect(at(10)).toBe(DEPARE_BAND_COLORS.b5to10);
+            const enc = readFileSync('components/map/EncVectorLayer.ts', 'utf8');
+            expect(enc).toMatch(new RegExp(`LNDARE[\\s\\S]{0,1200}'fill-color': '${L.land}'`));
+        });
+
+        it('coastline ≥ 4.5:1 against land and every water; labels ≥ 7:1 on their halo', () => {
+            expect(contrast(L.coast, L.land)).toBeGreaterThanOrEqual(4.5);
+            for (const w of waters) expect(contrast(L.coast, w), w).toBeGreaterThanOrEqual(4.5);
+            expect(contrast(L.label.ink, '#ffffff')).toBeGreaterThanOrEqual(7);
+        });
+
+        it('land against every water ΔE2000 ≥ 15, for normal, deutan, protan and tritan vision', () => {
+            for (const vision of VISIONS)
+                for (const w of waters) expect(deltaE(L.land, w, vision), `${vision} ${w}`).toBeGreaterThanOrEqual(15);
+        });
+
+        it('never reaches white: flat water ≥ 10 and the deepest stop ≥ 8 from charted white; flat ≥ 5 from every stop', () => {
+            expect(deltaE(L.water, '#ffffff')).toBeGreaterThanOrEqual(10);
+            expect(deltaE(ramp[ramp.length - 1], '#ffffff')).toBeGreaterThanOrEqual(8);
+            for (const stop of ramp) expect(deltaE(L.water, stop), stop).toBeGreaterThanOrEqual(5);
+        });
+    });
+
+    it('credits the GA grid by its catalogue title, version and link, beside GEBCO, OSM and Not for navigation', () => {
+        expect(GBR30_TITLE).toBe(
+            'AusBathyTopo (Great Barrier Reef) 30m 2017 - A regional-scale depth model (20170025C)',
+        );
+        const credits = readFileSync('src/ocean/Credits.tsx', 'utf8').replace(/\s+/g, ' ');
+        const readme = readFileSync('tools/relief/README.md', 'utf8');
+        for (const text of [RELIEF_ATTRIBUTION, credits]) {
+            expect(text).toContain(GBR30_TITLE);
+            expect(text).toContain('10 Nov 2020');
+            expect(text).toContain('https://pid.geoscience.gov.au/dataset/ga/115066');
+            expect(text).toContain('https://doi.org/10.5285/4f68d5c7-45eb-f999-e063-7086abc036fa');
+            expect(text).toContain('https://creativecommons.org/licenses/by/4.0/');
+            expect(text).toContain('section 5');
+            expect(text).toContain('OpenStreetMap');
+            expect(text).toMatch(/Not for navigation/);
+            expect(text).not.toContain('Great Barrier Reef Bathymetry 2020');
+        }
+        expect(readme).toContain(GBR30_TITLE);
+        expect(readme).toContain('10 Nov 2020');
+        expect(readme).not.toContain('Great Barrier Reef Bathymetry 2020');
     });
 });

@@ -23,6 +23,7 @@ import type { TrackPoint, GhostShipState } from '../../types/spatiotemporal';
 import { WindParticleLayer } from '../map/WindParticleLayer';
 import { WindStore } from '../../stores/WindStore';
 import { FONT, SIZE } from '../../styles/typeScale';
+import { OPENSEAMAP_ATTRIBUTION } from '../map/seamarkCredit';
 import '../../styles/bioluminescent.css';
 
 // ── Dark Ocean Style ────────────────────────────────────────────
@@ -52,8 +53,7 @@ const OCEAN_STYLE: StyleSpecification = {
             tiles: ['https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'],
             tileSize: 256,
             maxzoom: 18,
-            attribution:
-                'Map data: &copy; <a href="https://www.openseamap.org" rel="noopener noreferrer" referrerpolicy="no-referrer">OpenSeaMap</a> contributors',
+            attribution: OPENSEAMAP_ATTRIBUTION,
         },
     },
     layers: [

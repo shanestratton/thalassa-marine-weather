@@ -123,13 +123,20 @@ function ghostPlaceLabelInk(map: mapboxgl.Map, layerId: string): void {
     map.setPaintProperty(layerId, 'text-halo-color', halo);
 }
 
-/** Put back the colours ghostPlaceLabelInk saved. Needs no style walk, so it never waits for tiles. */
+/**
+ * Put back the colours ghostPlaceLabelInk saved, only where the ghost is still
+ * what is drawn: a base pass that inked the labels since (Light's dark names,
+ * 127-DESKMAP) keeps its ink. Needs no style walk, so it never waits for tiles.
+ */
 function restorePlaceLabelInk(map: mapboxgl.Map): void {
     const saved = savedPlaceLabelInk.get(map);
     if (!saved) return;
     for (const [layerId, ink] of saved) {
         try {
-            if (map.getLayer(layerId)) {
+            if (
+                map.getLayer(layerId) &&
+                sameValue(map.getPaintProperty(layerId, 'text-color'), ghostInk(ink.color, '#000000'))
+            ) {
                 map.setPaintProperty(layerId, 'text-color', ink.color as string);
                 map.setPaintProperty(layerId, 'text-halo-color', ink.halo as string);
             }
@@ -1038,6 +1045,8 @@ export const NAV_LAYER_IDS = [
     // The solid line's dark edge (2026-10-05, inshoreRouteLineLayers).
     'route-casing',
     'route-line-layer',
+    // The harbour dashes' dark edge (127-DESKMAP A4), under them.
+    'route-harbour-casing',
     'route-harbour-dash',
     // An unverified line: bright red and white dashes on a dark edge
     // (2026-10-03, inshoreRouteState unverifiedRouteDashLayers), bottom to top.
@@ -1069,7 +1078,11 @@ export const NAV_LAYER_IDS = [
     'trace-ghost-line',
     'trace-dest-hint-line',
     'trace-line-glow',
+    // The legs' dark edge, and the grey "sketch, not checked" dashes on it
+    // (127-DESKMAP A4/C3).
+    'trace-line-casing',
     'trace-line-core',
+    'trace-line-sketch',
     'trace-line-arrows',
     'trace-issues-icons',
     // ── Armed anchor watch (useAnchorSwingLayer) ── added with no beforeId
@@ -1089,7 +1102,9 @@ export const TRACE_LAYER_IDS = [
     'trace-ghost-line',
     'trace-dest-hint-line',
     'trace-line-glow',
+    'trace-line-casing',
     'trace-line-core',
+    'trace-line-sketch',
     'trace-line-arrows',
     'trace-issues-icons',
 ] as const;

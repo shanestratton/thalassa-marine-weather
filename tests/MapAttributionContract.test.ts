@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
@@ -38,7 +38,8 @@ describe('map provider attribution contract', () => {
         expect(voyageMap).toMatch(/id="bathy-ocean"[\s\S]*?url="mapbox:\/\/mapbox\.mapbox-bathymetry-v2"/);
         expect(offlineMap).toMatch(/<Map[\s\S]*?attributionControl/);
         expect(offlineMap).toMatch(/attribution:[\s\S]*?OpenStreetMap/);
-        expect(offlineMap).toMatch(/attribution:[\s\S]*?OpenSeaMap/);
+        // OpenSeaMap's credit is one constant since 127-DESKMAP B3 (seamarkCredit.ts).
+        expect(offlineMap).toMatch(/attribution: OPENSEAMAP_ATTRIBUTION/);
     });
 
     it('does not hide provider attribution controls or logos in global CSS', () => {
@@ -239,7 +240,7 @@ describe('map provider attribution contract', () => {
         expect(logMap).toContain('attributionControl: false');
         expect(logMap).toContain('addReliefBase(map)');
         expect(logMap).toMatch(/SATELLITE_CREDIT =[\s\S]*?Mapbox[\s\S]*?Maxar/);
-        expect(logMap).toMatch(/SEAMARK_CREDIT =[\s\S]*?OpenSeaMap/);
+        expect(logMap).toMatch(/SEAMARK_CREDIT = OPENSEAMAP_ATTRIBUTION/);
         expect(logMap).toMatch(/attribution: SATELLITE_CREDIT/);
         expect(logMap).toMatch(/attribution: SEAMARK_CREDIT/);
         expect(read('components/LiveMiniMapGL.tsx')).toContain('createLogMap(');
@@ -247,5 +248,69 @@ describe('map provider attribution contract', () => {
         // the same control and the same credited sources.
         expect(read('components/TrackMapViewerGL.tsx')).toContain('createLogMap(');
         expect(read('components/TrackMapViewerGL.tsx')).not.toMatch(/attributionControl|AttributionControl/);
+    });
+
+    // OpenSeaMap's tiles are CC BY-SA 2.0 and its data ODbL (openseamap.org
+    // FAQ). None of the seven sites named either until 127-DESKMAP B3, and the
+    // desk turns the seamarks on by default for everyone.
+    it('credits OpenSeaMap’s licences on every source that draws its seamark tiles', async () => {
+        const { OPENSEAMAP_ATTRIBUTION, OPENSEAMAP_CREDIT_TEXT } = await import('../components/map/seamarkCredit');
+        for (const text of [OPENSEAMAP_ATTRIBUTION, OPENSEAMAP_CREDIT_TEXT]) {
+            expect(text).toContain('OpenSeaMap');
+            expect(text).toContain('CC BY-SA 2.0');
+            expect(text).toContain('OpenStreetMap');
+            expect(text).toContain('ODbL');
+        }
+        expect(OPENSEAMAP_ATTRIBUTION).toContain('href="https://creativecommons.org/licenses/by-sa/2.0/"');
+        expect(OPENSEAMAP_ATTRIBUTION).toContain('href="https://www.openstreetmap.org/copyright"');
+        expect(OPENSEAMAP_ATTRIBUTION).toContain('href="https://www.openseamap.org"');
+        // The credit module pulls in nothing (logMap and the chat viewer import it).
+        expect(read('components/map/seamarkCredit.ts')).not.toMatch(/^import /m);
+
+        const credited = [
+            'components/map/useMapInit.ts',
+            'components/map/logMap.ts',
+            'components/map/ThalassaMap.tsx',
+            'components/passage/SpatiotemporalMap.tsx',
+            'components/chat/PinMapViewer.tsx',
+            'components/map/useOfflineBaseLayer.ts',
+        ];
+        for (const path of credited) {
+            const source = read(path);
+            expect(source, path).toContain('OPENSEAMAP_ATTRIBUTION');
+            expect(source, path).not.toMatch(/Map data: &copy; <a href="https:\/\/www\.openseamap\.org"/);
+            expect(source, path).not.toContain("attribution: '© OpenSeaMap contributors'");
+        }
+        expect(read('components/map/useMapInit.ts')).toMatch(
+            /map\.addSource\('openseamap-permanent',[\s\S]{0,300}attribution: OPENSEAMAP_ATTRIBUTION/,
+        );
+        expect(read('components/chat/PinMapViewer.tsx')).toMatch(
+            /tiles\.openseamap\.org[\s\S]{0,200}attribution: OPENSEAMAP_ATTRIBUTION/,
+        );
+        expect(read('components/map/logMap.ts')).toMatch(/SEAMARK_CREDIT = OPENSEAMAP_ATTRIBUTION/);
+
+        // A grep guard: the app names OpenSeaMap's tile host only where it is
+        // credited, plus the fail-closed offline list and the Pi tile proxy.
+        const allowed = new Set([...credited, 'services/MapOfflineService.ts', 'services/PiCacheService.ts']);
+        const roots = ['components', 'services', 'hooks', 'utils', 'stores', 'context', 'contexts', 'src', 'pages'];
+        const files: string[] = [];
+        const walk = (dir: string) => {
+            for (const name of readdirSync(resolve(process.cwd(), dir))) {
+                const path = join(dir, name);
+                if (statSync(resolve(process.cwd(), path)).isDirectory()) walk(path);
+                else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) files.push(path);
+            }
+        };
+        for (const root of roots) {
+            try {
+                walk(root);
+            } catch {
+                /* a root this repo does not have */
+            }
+        }
+        files.push('App.tsx');
+        const naming = files.filter((path) => read(path).includes('tiles.openseamap.org'));
+        expect(naming.filter((path) => !allowed.has(path))).toEqual([]);
+        expect(naming).toContain('services/MapOfflineService.ts');
     });
 });

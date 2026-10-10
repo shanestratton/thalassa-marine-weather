@@ -19,6 +19,7 @@ import { useUI } from '../../context/UIContext';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { triggerHaptic } from '../../utils/system';
 import { isHttpUrlOnDomain, parseExternalHttpUrl } from '../../utils/safeUrl';
+import { OPENSEAMAP_ATTRIBUTION } from '../map/seamarkCredit';
 import { DownloadIcon, MapPinIcon, RouteIcon } from '../Icons';
 
 interface PinMapViewerProps {
@@ -133,6 +134,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                 tiles: ['https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'],
                 tileSize: 256,
                 maxzoom: 18,
+                attribution: OPENSEAMAP_ATTRIBUTION,
             });
             map.addLayer(
                 {

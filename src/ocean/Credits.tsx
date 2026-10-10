@@ -30,12 +30,12 @@ export function Credits({ context }: { context: ContextFile | null }) {
                 </a>
                 ; and based on{' '}
                 <a href="https://pid.geoscience.gov.au/dataset/ga/115066" rel="noopener noreferrer">
-                    Great Barrier Reef Bathymetry 2020 30 m
-                </a>{' '}
-                by Geoscience Australia which is © Commonwealth of Australia and is provided under a{' '}
-                <Licence name="CC BY 4.0" url="https://creativecommons.org/licenses/by/4.0/" /> (Creative Commons
-                Attribution 4.0 International) licence and is subject to the disclaimer of warranties in section 5 of
-                that licence. Both recoloured and shaded into map tiles by Thalassa. Coastline © OpenStreetMap
+                    AusBathyTopo (Great Barrier Reef) 30m 2017 - A regional-scale depth model (20170025C)
+                </a>
+                , version 10 Nov 2020, by Geoscience Australia which is © Commonwealth of Australia and is provided
+                under a <Licence name="CC BY 4.0" url="https://creativecommons.org/licenses/by/4.0/" /> (Creative
+                Commons Attribution 4.0 International) licence and is subject to the disclaimer of warranties in section
+                5 of that licence. Both recoloured and shaded into map tiles by Thalassa. Coastline © OpenStreetMap
                 contributors. Base map ©{' '}
                 <a href="https://www.mapbox.com/about/maps/" rel="noopener noreferrer">
                     Mapbox

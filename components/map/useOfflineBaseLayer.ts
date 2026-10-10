@@ -4,6 +4,7 @@ import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
 import { getOfflineTileTemplates } from '../../services/MapOfflineService';
 import { cloudOverlayBeforeId } from './imageryOrder';
+import { OPENSEAMAP_ATTRIBUTION } from './seamarkCredit';
 
 const log = createLogger('OfflineBaseLayer');
 const SOURCE_ID = 'osm-offline-fallback';
@@ -58,7 +59,7 @@ export function useOfflineBaseLayer(
                         tiles: [templates.openseamap],
                         tileSize: 256,
                         maxzoom: 18,
-                        attribution: '© OpenSeaMap contributors',
+                        attribution: OPENSEAMAP_ATTRIBUTION,
                     });
                 if (!map.getLayer(SEAMARK_LAYER_ID))
                     map.addLayer(
