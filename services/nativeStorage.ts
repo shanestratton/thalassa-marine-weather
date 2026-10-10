@@ -41,9 +41,23 @@ interface EncryptedLargeStoragePlugin {
     get(options: { key: string }): Promise<{ value: string | null }>;
     set(options: { key: string; value: string }): Promise<void>;
     remove(options: { key: string }): Promise<void>;
+    /** 127-C-c: Library/Application Support/enc-open, excluded from backup; its path relative to Library. */
+    prepareChartStore(): Promise<{ path: string }>;
+    /** 127-C-c: WebKit's HTTP disk and memory caches only (old chart pictures). */
+    purgeWebDiskCache(): Promise<void>;
 }
 
 const NativeEncryptedLargeStorage = registerPlugin<EncryptedLargeStoragePlugin>('EncryptedLargeStorage');
+
+/** The open (NOAA) chart folder on iOS, made once with backup exclusion (127-C-c decision 4). */
+export function prepareChartStore() {
+    return NativeEncryptedLargeStorage.prepareChartStore();
+}
+
+/** Chart pictures older builds may have left in WebKit's HTTP cache (127-C-c decision 5c). */
+export function purgeWebDiskCache() {
+    return NativeEncryptedLargeStorage.purgeWebDiskCache();
+}
 
 export function usesNativeEncryptedLargeStorage(): boolean {
     return Capacitor.getPlatform() === 'ios';

@@ -72,3 +72,65 @@ describe('iOS encrypted large-storage source contract', () => {
         expect(typescript).toContain('return null;');
     });
 });
+
+/**
+ * 127-C-c decisions 4 and 5(c): the two chart methods on this plugin. Open
+ * (NOAA) cells move out of Documents into Library/Application Support/enc-open,
+ * excluded from backup; chart pictures older builds left in WebKit's HTTP
+ * cache are purged once. Never local storage, IndexedDB, cookies, or the
+ * Fetch Cache (Mapbox's own Cache API store of Mapbox tiles).
+ */
+describe('iOS chart store methods (127-C-c)', () => {
+    const swift = read('ios/App/App/EncryptedLargeStoragePlugin.swift');
+    const body = (name: string) => {
+        const start = swift.indexOf(`@objc func ${name}(`);
+        expect(start, `${name} is an @objc plugin method`).toBeGreaterThan(-1);
+        const next = swift.indexOf('@objc func ', start + 10);
+        return swift.slice(start, next > -1 ? next : swift.indexOf('// MARK: - Install and device boundary'));
+    };
+
+    it('registers prepareChartStore and purgeWebDiskCache as promise methods', () => {
+        expect(swift).toContain('CAPPluginMethod(name: "prepareChartStore", returnType: CAPPluginReturnPromise)');
+        expect(swift).toContain('CAPPluginMethod(name: "purgeWebDiskCache", returnType: CAPPluginReturnPromise)');
+        expect(swift).toContain('import WebKit');
+    });
+
+    it('prepareChartStore runs on workQueue, makes enc-open with first-unlock protection and excludes it from backup', () => {
+        const method = body('prepareChartStore');
+        expect(method).toContain('workQueue.async');
+        const onQueue = swift.slice(swift.indexOf('private func prepareChartStoreOnQueue'));
+        const fn = onQueue.slice(0, onQueue.indexOf('\n    }\n') + 6);
+        expect(fn).toContain('for: .applicationSupportDirectory');
+        expect(fn).toContain('"enc-open"');
+        expect(fn).toContain('FileProtectionType.completeUntilFirstUserAuthentication');
+        expect(fn).toContain('try excludeFromBackup(');
+        expect(fn).toContain('"Application Support/enc-open"');
+        expect(fn).not.toContain('.documentDirectory');
+    });
+
+    it('purgeWebDiskCache names exactly the disk and memory caches and runs on the main queue', () => {
+        const method = body('purgeWebDiskCache');
+        expect(method).toContain('DispatchQueue.main.async');
+        expect(method).toContain('WKWebsiteDataStore.default().removeData(');
+        expect(method).toContain('WKWebsiteDataTypeDiskCache');
+        expect(method).toContain('WKWebsiteDataTypeMemoryCache');
+        expect(method).toContain('modifiedSince: .distantPast');
+        for (const never of [
+            'WKWebsiteDataTypeLocalStorage',
+            'WKWebsiteDataTypeIndexedDBDatabases',
+            'WKWebsiteDataTypeCookies',
+            'WKWebsiteDataTypeFetchCache',
+            'allWebsiteDataTypes',
+            'WKWebsiteDataTypeSessionStorage',
+        ])
+            expect(method).not.toContain(never);
+    });
+
+    it('the JS bindings sit beside the existing plugin registration', () => {
+        const typescript = read('services/nativeStorage.ts');
+        expect(typescript).toContain('prepareChartStore(): Promise<{ path: string }>;');
+        expect(typescript).toContain('purgeWebDiskCache(): Promise<void>;');
+        expect(typescript).toContain('export function prepareChartStore()');
+        expect(typescript).toContain('export function purgeWebDiskCache()');
+    });
+});

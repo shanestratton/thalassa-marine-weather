@@ -57,6 +57,8 @@ vi.mock('../services/enc/EncHazardService', () => ({
 }));
 
 import { syncEncFromPi } from '../services/EncImportService';
+import * as vault from '../services/enc/boatCellVault';
+import { clearAllCellMetadata } from '../services/enc/EncCellMetadata';
 
 /** Serve the installed-cell list, then per-cell data for any cell requested. */
 function wireHttp(): void {
@@ -122,6 +124,8 @@ describe('syncEncFromPi — explicit cellIds', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         h.getCoverage.mockReturnValue([]);
+        vault.clear();
+        clearAllCellMetadata();
         wireHttp();
     });
 
@@ -154,7 +158,10 @@ describe('syncEncFromPi — explicit cellIds', () => {
     });
 
     it('still skips a cell the device already holds at the same edition and size', async () => {
+        // A licensed chart is "held" when its bytes are in this phone's memory
+        // (127-C-c): the registry alone is the Pi's index, not the chart.
         h.getCoverage.mockReturnValue([{ id: 'FR466870', edition: 6, sizeBytes: 200 }]);
+        vault.put('FR466870', '{"cellId":"FR466870"}');
         await syncEncFromPi(undefined, { cellIds: ['FR466870'] });
         expect(fetchedCellIds()).toEqual([]);
     });

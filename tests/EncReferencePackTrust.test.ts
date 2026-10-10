@@ -128,6 +128,9 @@ describe('unsigned ENC reference-pack trust boundary', () => {
 
         expect(listCells()).toEqual([]);
         expect(getCell('VU5REF01')).toBeNull();
-        expect(listDisplayCells()).toEqual([expect.objectContaining({ id: 'vu5ref01', usage: 'reference' })]);
+        // Since 127 (127-C-c) a stored reference or licensed record is never
+        // read at all: the ENC Library is retired and the launch sweep removes
+        // them, so neither alias paints either.
+        expect(listDisplayCells()).toEqual([]);
     });
 });

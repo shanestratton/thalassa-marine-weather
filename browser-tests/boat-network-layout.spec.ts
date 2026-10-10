@@ -377,3 +377,92 @@ for (const size of chartSizes) {
         });
     });
 }
+
+/**
+ * The Charts card says where licensed charts are (127-C-c): the real
+ * EncCellManager header for a boat with a long fictional name, ashore (paired,
+ * her licensed charts not here) and aboard (1,031 fictional licensed records
+ * in the in-memory registry). Opened, its foot line says they stay on the Pi.
+ * No horizontal overflow, and the card's lines stay whole inside the pane.
+ */
+const encSizes = [
+    { name: '320x568', width: 320, height: 568 },
+    { name: '375x667', width: 375, height: 667 },
+    { name: '1024x768 half pane', width: 1024, height: 768, pane: true },
+];
+async function expectEncCardWhole(page: Page) {
+    const problems = await page.evaluate(() => {
+        const errors: string[] = [];
+        const scroll = document
+            .querySelector<HTMLElement>('[data-testid="boat-network-scroll"]')!
+            .getBoundingClientRect();
+        const card = document.querySelector<HTMLElement>('[data-testid="enc-card"]')!;
+        for (const element of [document.documentElement, document.body, card])
+            if (element.scrollWidth > element.clientWidth + 1)
+                errors.push(
+                    `Horizontal overflow: ${element.tagName} (${element.scrollWidth} > ${element.clientWidth})`,
+                );
+        for (const element of card.querySelectorAll<HTMLElement>('p, button, span')) {
+            if (!element.getClientRects().length) continue;
+            const rect = element.getBoundingClientRect();
+            if (rect.left < scroll.left - 1 || rect.right > scroll.right + 1)
+                errors.push(`escapes the pane: ${element.textContent?.slice(0, 60)}`);
+            // A cell id row ends in a deliberate ellipsis (truncate); every other line is whole.
+            if (
+                element.tagName === 'P' &&
+                !element.classList.contains('truncate') &&
+                element.scrollWidth > element.clientWidth + 1
+            )
+                errors.push(`clipped: ${element.textContent?.slice(0, 60)}`);
+        }
+        return errors;
+    });
+    expect(problems).toEqual([]);
+}
+
+for (const size of encSizes) {
+    for (const mode of ['dark', 'light'] as const) {
+        for (const look of ['system', 'wide fonts', 'large text'] as const) {
+            test(`the Charts card fits ${size.name} in ${mode} (${look}), ashore and aboard`, async ({
+                page,
+            }, testInfo) => {
+                test.setTimeout(60_000);
+                const errors: string[] = [];
+                page.on('pageerror', (error) => errors.push(error.message));
+                await page.route('**/*', (route) =>
+                    ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname)
+                        ? route.continue()
+                        : route.abort(),
+                );
+                if (look === 'wide fonts') await applyWideFonts(page);
+                await page.setViewportSize({ width: size.width, height: size.height });
+                const extra = look === 'large text' ? '&largeText' : '';
+                for (const enc of ['ashore', 'aboard'] as const) {
+                    await page.goto(
+                        `/e2e/fixtures/boat-network-layout.html?mode=${mode}&pane=${!!size.pane}&enc=${enc}${extra}`,
+                    );
+                    const card = page.getByTestId('enc-card');
+                    await expect(
+                        card.getByText(
+                            enc === 'aboard'
+                                ? "1,031 charts aboard L'Étoile du Pacifique · opened in memory, never saved on this phone"
+                                : "L'Étoile du Pacifique's charts open on the boat's Wi-Fi.",
+                        ),
+                    ).toBeVisible();
+                    if (look === 'wide fonts') await expectWideFaceDrawn(card.getByText(/ENC Charts/));
+                    await expectEncCardWhole(page);
+                    await card.getByRole('button', { name: /ENC Charts/ }).click();
+                    await expect(card.getByText(/Licensed charts stay on your boat's Pi\./)).toBeVisible();
+                    await expect(card.getByText(/stored on this phone/)).toHaveCount(0);
+                    if (enc === 'aboard') {
+                        await expect(card.getByText('aboard', { exact: true }).first()).toBeVisible();
+                        await expect(card.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0);
+                    }
+                    await expectEncCardWhole(page);
+                    await screenshot(page, testInfo, `enc-card-${enc}-${size.width}-${mode}-${look.replace(' ', '-')}`);
+                }
+                expect(errors).toEqual([]);
+            });
+        }
+    }
+}

@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { boatChartsLine } from '../../services/enc/boatChartsWords';
+import { boatChartsLine, type BoatChartsState } from '../../services/enc/boatChartsWords';
 import type { TideOffsetRead } from '../../services/TideOffsetService';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
@@ -30,12 +30,12 @@ export interface ChartDepthControlsProps {
     nightDim: boolean;
     onNightDimChange: (enabled: boolean) => void;
     onToggleChartKey: () => void;
-    /** Opens the Pi-independent ENC Library when this viewport has no coverage. */
-    onOpenEncLibrary: () => void;
     /** settings.boatCharts.licensed: this account's paired Pi holds licensed charts. Web words only. */
     boatChartsLicensed?: boolean;
-    /** The skipper's own boat, for the web words of a licensed account. */
+    /** The boat the words name: the account's vessel on the web, the paired boat on the phone. */
     boatName?: string | null;
+    /** The phone: where her licensed charts are when none show (127-C-c); null when not paired. */
+    boatChartsState?: BoatChartsState | null;
 }
 
 /**
@@ -60,9 +60,9 @@ export function ChartDepthControls({
     nightDim,
     onNightDimChange,
     onToggleChartKey,
-    onOpenEncLibrary,
     boatChartsLicensed = false,
     boatName = null,
+    boatChartsState = null,
 }: ChartDepthControlsProps) {
     const showCoverageNotice =
         encNoCoverage && encReferenceCellCount === 0 && encHydration.remaining === 0 && encVisible && surfaceVisible;
@@ -210,17 +210,6 @@ export function ChartDepthControls({
                         Unverified reference ENC installed — it cannot establish chart coverage, and route checks ignore
                         it.
                     </span>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            triggerHaptic('light');
-                            onOpenEncLibrary();
-                        }}
-                        className="min-h-[44px] shrink-0 rounded-xl border border-amber-400/35 bg-amber-400/15 px-3 text-[10px] font-black uppercase tracking-wider text-amber-100 transition-colors hover:bg-amber-400/25 active:scale-95"
-                        aria-label="Manage unverified reference ENCs"
-                    >
-                        Manage
-                    </button>
                 </div>
             )}
 
@@ -232,41 +221,23 @@ export function ChartDepthControls({
                     aria-live="polite"
                 >
                     <span className="leading-snug">
-                        {/* A browser only ever holds the open charts (127-DESKMAP C2): it
-                            says so, and names the boat only for an account whose
-                            Pi holds licensed charts. */}
+                        {/* One helper for every surface (127-C-c decision 11, 127-DESKMAP
+                            C2): a browser holds the open charts only and names the boat
+                            only for an account whose Pi holds licensed charts; a phone
+                            says where her licensed charts open. The ENC Library that
+                            used to sit here is retired (127-C-c Q1). */}
                         {encCellCount > 0
                             ? `You have ${encCellCount} ENC chart${encCellCount === 1 ? '' : 's'}, none covering here.`
-                            : Capacitor.isNativePlatform()
-                              ? 'No verified ENC charts installed. Library imports are reference-only.'
-                              : boatChartsLine(boatChartsLicensed ? 'web' : 'web-open', boatName, 'notice')}
+                            : boatChartsLine(
+                                  Capacitor.isNativePlatform()
+                                      ? (boatChartsState ?? 'web-open')
+                                      : boatChartsLicensed
+                                        ? 'web'
+                                        : 'web-open',
+                                  boatName,
+                                  'notice',
+                              )}
                     </span>
-                    {/* The Library button is offered ONLY when there are no
-                            charts at all.
-                            
-                            With charts installed but none covering the view,
-                            this used to send the skipper to a page that greets
-                            them with "No reference ENC cells are installed" —
-                            because the Library lists hand-imported REFERENCE
-                            packs, and every Pi and cloud import is tagged
-                            navigation. So the one banner shown to a punter who
-                            already owns charts led to an empty screen about a
-                            different kind of chart. Saying how many they have
-                            and where the gap is answers the question the banner
-                            actually raises. */}
-                    {encCellCount === 0 && (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onOpenEncLibrary();
-                            }}
-                            className="min-h-[44px] shrink-0 rounded-xl border border-amber-400/35 bg-amber-400/15 px-3 text-[10px] font-black uppercase tracking-wider text-amber-200 transition-colors hover:bg-amber-400/25 active:scale-95"
-                            aria-label="Open on-device ENC Library"
-                        >
-                            ENC Library
-                        </button>
-                    )}
                 </div>
             )}
         </>

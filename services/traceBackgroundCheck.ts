@@ -36,9 +36,17 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { vesselDraftIsAssumed, vesselDraftMetres } from './units';
 import { createLogger } from '../utils/createLogger';
 import { awaitHeapHeadroom, heapHeadroomOk, heapTag } from '../utils/heapGauge';
+import {
+    boatHasLicensedCharts,
+    boatRegistryState,
+    subscribeBoatRegistry,
+    whenBoatRegistrySettled,
+} from './enc/piCellSync';
 
 const log = createLogger('traceBackgroundCheck');
 const RETRY_UNAVAILABLE_MS = 30 * 60_000;
+/** How long a check waits for the boat registry (127-C-c decision 7a). */
+const BOAT_SETTLE_MS = 20_000;
 const REPORTS_KEPT = 8;
 
 /**
@@ -137,6 +145,10 @@ function wire(): void {
     };
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('online', onOnline);
+    // Her licensed charts opened: the checks that waited for them run now.
+    const unsubscribeBoat = subscribeBoatRegistry(() => {
+        if (boatRegistryState() === 'loaded' && unavailable.size) onOnline();
+    });
     const unsubscribe = subscribeAuthIdentityScope(() => {
         cancelTraceChecks('account changed');
         states = new Map();
@@ -150,6 +162,7 @@ function wire(): void {
         document.removeEventListener('visibilitychange', onVisibility);
         window.removeEventListener('online', onOnline);
         unsubscribe();
+        unsubscribeBoat();
     };
 }
 
@@ -224,6 +237,11 @@ async function run(job: Job): Promise<void> {
     try {
         const trace = loadSavedTraces(scope).find((candidate) => candidate.id === id);
         if (!trace) return finish(id, 'gone', 'route no longer saved on this device');
+        // The boat registry first (127-C-c decision 7a): before her licensed
+        // charts register, a check over them would record 'nochart', and the
+        // registry landing would recheck every route again.
+        const boat = await whenBoatRegistrySettled(BOAT_SETTLE_MS);
+        if (signal.aborted) return settleAborted(job);
         const vessel = useSettingsStore.getState().settings?.vessel;
         const draftM = vesselDraftMetres(vessel);
         const draftAssumed = vesselDraftIsAssumed(vessel);
@@ -236,6 +254,10 @@ async function run(job: Job): Promise<void> {
         );
         if (status.tone === 'checked') return finish(id, 'checked', 'already checked');
         if (draftAssumed) return finish(id, 'nodraft', 'no draft set; a guessed keel is never graded');
+        if ((boat === 'pending' || boat === 'away') && boatHasLicensedCharts()) {
+            unavailable.add(id);
+            return finish(id, 'unavailable', "the boat's licensed charts are not open here; retried when they are");
+        }
 
         const [{ recheckTrace, inheritableAcks }, { getRegistryFingerprint }] = await Promise.all([
             import('./traceRecheck'),

@@ -34,6 +34,11 @@ import { piCache } from './PiCacheService';
 import { fetchVerifiedFromPi, getPairing, pinnedPiRequest } from './PiPairingService';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
 import * as EncHazardService from './enc/EncHazardService';
+import * as cellMeta from './enc/EncCellMetadata';
+import * as vault from './enc/boatCellVault';
+import { dropIndex } from './enc/encIndexCache';
+import { isProtectedChart } from './enc/chartLicence';
+import { boatLanBaseNow, noteBoatAway, noteBoatRegistered, withPiPullSlot } from './enc/piCellSync';
 import { canonicalEncCellId, ENC_CELL_BLOB_MAX_BYTES, ENC_CELL_ID_PATTERN, encCellStorageIdentity } from './enc/types';
 import type { ChartLicence, EncCell, EncConversionBatch, EncConversionResult } from './enc/types';
 import {
@@ -86,6 +91,8 @@ export interface EncImportSummary {
     skipped: EncImportSkipped[];
     installedOnPi?: boolean;
     packageSummary?: { new: number; updated: number; unchanged: number; total: number };
+    /** Why no licensed chart was opened this run (127-C-c): remote access, or the switch off. */
+    boatCharts?: 'tailnet' | 'off';
 }
 
 /** Accepted by the Pi, but no terminal receipt confirmed. Retry polling, not downloading. */
@@ -555,6 +562,82 @@ export interface SyncEncFromPiOptions {
  */
 export { encCellSyncKey } from './enc/piSyncPlan';
 
+/** The licensed cells pre-warmed into memory per run: the 20 nearest (127-C-c decision 7). */
+const BOAT_PREWARM_CELLS = 20;
+
+const isProtectedRow = (row: PiInstalledCell): boolean =>
+    isProtectedChart({ id: row.cellId, sourceHO: row.sourceHO, licence: row.licence });
+
+/** The held record is the revision this Pi row describes. */
+const sameRevision = (held: EncCell, row: PiInstalledCell): boolean =>
+    held.edition === row.edition &&
+    held.updateNumber === row.updateNumber &&
+    (row.contentSha256
+        ? held.contentSha256 === row.contentSha256
+        : (held.piSizeBytes ?? held.sizeBytes) === row.sizeBytes);
+
+/**
+ * Register the Pi's licensed cells in memory, from its index (127-C-c
+ * decision 7): metadata only, every row in one batch (one notify, one
+ * registry bump, one merge), so the cells are in listCells() and the
+ * fingerprint before any blob arrives. A record's size IS the Pi's size, so
+ * importing the bytes later leaves the fingerprint as it was. A held revision
+ * is not written again (kill #41). Then the account flag (127-DESKMAP C1).
+ */
+export function registerFromPiIndex(installed: readonly PiInstalledCell[]): number {
+    const rows = installed.filter(isProtectedRow);
+    let changed = 0;
+    if (vault.BOAT_CELLS_ON_PHONE) {
+        cellMeta.suspendNotifications();
+        try {
+            // One read of the registry, not one per row: this runs on every
+            // 10-min poll with a thousand rows, on the main thread.
+            const heldBy = new Map(
+                cellMeta.listRegisteredCells().map((cell) => [encCellStorageIdentity(cell.id), cell]),
+            );
+            // A revision this phone refused for having no depth areas could never be read.
+            for (const row of planPiCellSync(rows, []).pending) {
+                const identity = encCellStorageIdentity(row.cellId);
+                const held = heldBy.get(identity);
+                if (held && sameRevision(held, row)) continue;
+                if (held) {
+                    // The bytes in memory are the old revision's.
+                    vault.drop(row.cellId);
+                    dropIndex(row.cellId);
+                    void import('./enc/EncCellStore').then((store) => store.deleteCellGeoJSON(row.cellId));
+                }
+                const record: EncCell = {
+                    id: row.cellId,
+                    sourceHO: row.sourceHO,
+                    ...(row.sourceCellId ? { sourceCellId: row.sourceCellId } : {}),
+                    edition: row.edition,
+                    ...(row.updateNumber !== undefined ? { updateNumber: row.updateNumber } : {}),
+                    ...(row.contentSha256 ? { contentSha256: row.contentSha256 } : {}),
+                    issued: row.issued,
+                    importedAt: row.installedAt,
+                    bbox: row.bbox,
+                    geojsonPath: 'vault',
+                    // Refined to the real count when the bytes are imported.
+                    hazardCount: row.featureCount,
+                    usage: 'navigation',
+                    sizeBytes: row.sizeBytes,
+                    piSizeBytes: row.sizeBytes,
+                    licence: 'protected',
+                };
+                cellMeta.putCell(record, { allowAuthorityUpgrade: true });
+                heldBy.set(identity, record);
+                changed += 1;
+            }
+            cellMeta.markBoatRegistryLoaded();
+        } finally {
+            cellMeta.resumeNotifications();
+        }
+        log.warn(`registered ${rows.length} from the Pi (${changed} new or changed), in memory only`);
+    }
+    noteBoatRegistered(rows.length > 0);
+    return changed;
+}
+
 export async function syncEncFromPi(
     onProgress?: (p: EncImportProgress) => void,
     options: SyncEncFromPiOptions = {},
@@ -575,6 +658,8 @@ export async function syncEncFromPi(
     }
 
     const piBase = piCache.baseUrl;
+    // Read with piBase, in the same tick: the transport this index comes over (127-C-c review).
+    const indexViaTailnet = piCache.viaRemoteAccess || piBase !== piCache.getLanBaseUrl();
     emit({ phase: 'fetching', progress: 0.05, step: 'asking Pi for installed charts' });
 
     let installed: PiInstalledCell[];
@@ -588,6 +673,8 @@ export async function syncEncFromPi(
         installed = validatePiInstalledCells(data);
         assertAuthority();
     } catch (err) {
+        // Not "opening" for the rest of the session: the index was asked for and did not come.
+        noteBoatAway('away');
         const error = `Failed to list Pi charts: ${err instanceof Error ? err.message : String(err)}`;
         emit({ phase: 'error', progress: 0, error });
         throw new Error(error);
@@ -601,13 +688,25 @@ export async function syncEncFromPi(
             );
         }
     }
+    // Licensed rows open in memory only, and never over remote access (127-C-c).
+    const protectedRows = installed.filter(isProtectedRow);
+    let boatCharts: EncImportSummary['boatCharts'] = !protectedRows.length
+        ? undefined
+        : !vault.BOAT_CELLS_ON_PHONE
+          ? 'off'
+          : indexViaTailnet || piCache.viaRemoteAccess
+            ? 'tailnet'
+            : undefined;
+    if (boatCharts === 'tailnet') noteBoatAway('tailnet');
+    else registerFromPiIndex(installed);
+
     if (installed.length === 0) {
         emit({ phase: 'done', progress: 1, step: 'Pi has no charts installed' });
         return { cells: [], skipped: [] };
     }
 
-    // Skip cells we already have locally at the same edition AND same
-    // sizeBytes. The sizeBytes guard catches re-extraction with a new
+    // Open rows: skip cells we already have locally at the same edition AND
+    // same sizeBytes. The sizeBytes guard catches re-extraction with a new
     // emitter (e.g. SCAMIN baking, rogue-triangle filter): the cell's
     // chart-edition stays unchanged but the byte count shifts. Without
     // this guard, iOS would never pick up the cleaner version.
@@ -617,39 +716,13 @@ export async function syncEncFromPi(
     // is the same plan the ENC sheet counts from, so the count and the sync
     // cannot disagree.
     const localCells = EncHazardService.getCoverage();
-    const plan = planPiCellSync(installed, localCells);
+    const openRows = installed.filter((row) => !isProtectedRow(row));
+    const plan = planPiCellSync(openRows, localCells);
+    const boatPlan = planPiCellSync(protectedRows, []);
     let toFetch = plan.pending;
+    // Licensed: held means its bytes are in memory now.
+    let warm = boatCharts ? [] : boatPlan.pending;
     const skipped: EncImportSkipped[] = [];
-
-    // Explicit selection wins over both proximity ordering and the cap — the
-    // caller asked for specific cells, so give them exactly those.
-    if (options.cellIds && options.cellIds.length > 0) {
-        const wanted = new Set(options.cellIds.map((id) => id.toUpperCase()));
-        const before = toFetch.length;
-        toFetch = toFetch.filter((c) => wanted.has(c.cellId.toUpperCase()));
-        log.warn(
-            `explicit cell selection: ${toFetch.length} of ${before} pending cells matched ${[...wanted].join(', ')}`,
-        );
-        // A requested chart this phone already refused at this revision is
-        // reported with the refusal, not downloaded and refused again.
-        for (const refused of plan.withoutDepthAreas.filter((c) => wanted.has(c.cellId.toUpperCase()))) {
-            skipped.push({
-                filename: refused.cellId,
-                error: `${refused.cellId}: no DEPARE/DRGARE depth-area coverage; the pack cannot verify water depths.`,
-            });
-        }
-    }
-
-    if (toFetch.length === 0) {
-        emit({
-            phase: 'done',
-            progress: 1,
-            step: `already in sync (${installed.length} cells)`,
-            cellCount: installed.length,
-            cellsDone: installed.length,
-        });
-        return { cells: [], skipped };
-    }
 
     // Priority ordering — nearest-cell-first when the caller passed a centre
     // (typically current GPS). Each cell's distance is computed against its
@@ -660,7 +733,8 @@ export async function syncEncFromPi(
     //
     // Without a priority centre we keep the Pi's listing order (alphabetic),
     // which is fine for "give me everything" manual syncs.
-    if (options.priorityCenter && !options.cellIds?.length) {
+    const nearest = (cells: PiInstalledCell[]): PiInstalledCell[] => {
+        if (!options.priorityCenter) return cells;
         const { lat: pLat, lon: pLon } = options.priorityCenter;
         const distance = (c: PiInstalledCell): number => {
             const [wLon, sLat, eLon, nLat] = c.bbox;
@@ -671,13 +745,48 @@ export async function syncEncFromPi(
             const dLon = (pLon - cLon) * 111 * Math.cos((pLat * Math.PI) / 180);
             return Math.hypot(dLat, dLon);
         };
-        toFetch = [...toFetch].sort((a, b) => distance(a) - distance(b));
+        return [...cells].sort((a, b) => distance(a) - distance(b));
+    };
+
+    // Explicit selection wins over both proximity ordering and the cap — the
+    // caller asked for specific cells, so give them exactly those.
+    if (options.cellIds && options.cellIds.length > 0) {
+        const wanted = new Set(options.cellIds.map((id) => id.toUpperCase()));
+        const before = toFetch.length + warm.length;
+        toFetch = toFetch.filter((c) => wanted.has(c.cellId.toUpperCase()));
+        warm = warm.filter((c) => wanted.has(c.cellId.toUpperCase()) && !vault.has(c.cellId));
         log.warn(
-            `priority-sorted ${toFetch.length} cells around (${pLat.toFixed(3)}, ${pLon.toFixed(3)}); first 3: ${toFetch
-                .slice(0, 3)
-                .map((c) => c.cellId)
-                .join(', ')}`,
+            `explicit cell selection: ${toFetch.length + warm.length} of ${before} pending cells matched ${[...wanted].join(', ')}`,
         );
+        // A requested chart this phone already refused at this revision is
+        // reported with the refusal, not downloaded and refused again.
+        for (const refused of [...plan.withoutDepthAreas, ...boatPlan.withoutDepthAreas].filter((c) =>
+            wanted.has(c.cellId.toUpperCase()),
+        )) {
+            skipped.push({
+                filename: refused.cellId,
+                error: `${refused.cellId}: no DEPARE/DRGARE depth-area coverage; the pack cannot verify water depths.`,
+            });
+        }
+    } else {
+        toFetch = nearest(toFetch);
+        // The nearest 20 licensed cells, manual sync or auto: never "every
+        // cell into memory". Already in memory: nothing to pull.
+        warm = nearest(warm)
+            .slice(0, Math.min(options.maxCells || BOAT_PREWARM_CELLS, BOAT_PREWARM_CELLS))
+            .filter((c) => !vault.has(c.cellId));
+        if (options.priorityCenter) log.warn(`priority-sorted ${toFetch.length + warm.length} cells around the boat`);
+    }
+
+    if (toFetch.length === 0 && warm.length === 0) {
+        emit({
+            phase: 'done',
+            progress: 1,
+            step: `already in sync (${installed.length} cells)`,
+            cellCount: installed.length,
+            cellsDone: installed.length,
+        });
+        return { cells: [], skipped, ...(boatCharts ? { boatCharts } : {}) };
     }
 
     // Soft cap — caller can ask "give me the nearest N and we'll get the rest
@@ -688,61 +797,87 @@ export async function syncEncFromPi(
         );
         toFetch = toFetch.slice(0, options.maxCells);
     }
+    // Her licensed charts first: they are the ones this boat routes on.
+    toFetch = [...warm, ...toFetch];
 
     const persisted: EncCell[] = [];
-
-    for (let i = 0; i < toFetch.length; i++) {
-        assertAuthority();
-        const remote = toFetch[i];
-        emit({
-            phase: 'fetching',
-            progress: 0.1 + ((i + 1) / toFetch.length) * 0.85,
-            step: `pulling ${remote.cellId} (${i + 1}/${toFetch.length})`,
-            cellCount: toFetch.length,
-            cellsDone: i,
-            cellId: remote.cellId,
-            bbox: remote.bbox,
-        });
-        try {
-            const blob = await fetchVerifiedFromPi<EncConversionBatch>({
-                url: `${piBase}/api/enc/installed/${encodeURIComponent(remote.cellId)}/data`,
-                connectTimeout: 10000,
-                readTimeout: 120000,
-                maxResponseBytes: ENC_CELL_BLOB_MAX_BYTES + 1024 * 1024,
-                expectedSha256: remote.contentSha256,
+    // One merge per wave of eight, not one per cell (the hydration walk's rule).
+    cellMeta.suspendNotifications();
+    try {
+        for (let i = 0; i < toFetch.length; i++) {
+            assertAuthority();
+            const remote = toFetch[i];
+            if (i > 0 && i % 8 === 0) cellMeta.flushNotifications();
+            emit({
+                phase: 'fetching',
+                progress: 0.1 + ((i + 1) / toFetch.length) * 0.85,
+                step: `pulling ${remote.cellId} (${i + 1}/${toFetch.length})`,
+                cellCount: toFetch.length,
+                cellsDone: i,
+                cellId: remote.cellId,
+                bbox: remote.bbox,
             });
-            const { validateLocalEncPack } = await import('./enc/localEncPackImport');
-            const cells = validateLocalEncPack(blob).cells;
-            if (
-                cells.length !== 1 ||
-                encCellStorageIdentity(cells[0].cellId) !== encCellStorageIdentity(remote.cellId) ||
-                cells[0].edition !== remote.edition ||
-                cells[0].updateNumber !== remote.updateNumber ||
-                cells[0].sourceHO !== remote.sourceHO ||
-                cells[0].sourceCellId !== remote.sourceCellId ||
-                !bboxesMatch(cells[0].bbox, remote.bbox)
-            ) {
-                throw new Error('Pi cell payload did not match its signed index/path');
+            const licensed = isProtectedRow(remote);
+            let refused = false;
+            try {
+                const blob = await withPiPullSlot(() => {
+                    // A licensed cell: the boat's LAN address, asked at its own pull.
+                    const base = licensed ? boatLanBaseNow() : piBase;
+                    refused = !base;
+                    if (!base) return Promise.resolve(null);
+                    return fetchVerifiedFromPi<EncConversionBatch>({
+                        url: `${base}/api/enc/installed/${encodeURIComponent(remote.cellId)}/data`,
+                        connectTimeout: 10000,
+                        readTimeout: 120000,
+                        maxResponseBytes: ENC_CELL_BLOB_MAX_BYTES + 1024 * 1024,
+                        expectedSha256: remote.contentSha256,
+                    });
+                });
+                if (refused) {
+                    // Off the boat's Wi-Fi since the run began: no licensed cell over remote access.
+                    if (piCache.viaRemoteAccess) boatCharts ??= 'tailnet';
+                    else
+                        skipped.push({
+                            filename: remote.cellId,
+                            error: 'The Pi is not reachable on the boat’s Wi-Fi.',
+                        });
+                    continue;
+                }
+                const { validateLocalEncPack } = await import('./enc/localEncPackImport');
+                const cells = validateLocalEncPack(blob).cells;
+                if (
+                    cells.length !== 1 ||
+                    encCellStorageIdentity(cells[0].cellId) !== encCellStorageIdentity(remote.cellId) ||
+                    cells[0].edition !== remote.edition ||
+                    cells[0].updateNumber !== remote.updateNumber ||
+                    cells[0].sourceHO !== remote.sourceHO ||
+                    cells[0].sourceCellId !== remote.sourceCellId ||
+                    !bboxesMatch(cells[0].bbox, remote.bbox)
+                ) {
+                    throw new Error('Pi cell payload did not match its signed index/path');
+                }
+                assertAuthority();
+                persisted.push(
+                    await EncHazardService.importCell(cells[0], {
+                        contentSha256: remote.contentSha256,
+                        // The Pi's own size for this revision: a legacy row with no
+                        // contentSha256 is matched on it (see piSyncPlan).
+                        piSizeBytes: remote.sizeBytes,
+                        licence: remote.licence,
+                        assertAuthority,
+                    }),
+                );
+                forgetPiCellWithoutDepthAreas(remote.cellId);
+            } catch (err) {
+                assertAuthority();
+                const msg = err instanceof Error ? err.message : String(err);
+                log.warn(`[SyncFromPi] cell ${remote.cellId} failed`, err);
+                if (isEncMissingDepthAreaError(err)) rememberPiCellWithoutDepthAreas(remote);
+                skipped.push({ filename: remote.cellId, error: msg });
             }
-            assertAuthority();
-            persisted.push(
-                await EncHazardService.importCell(cells[0], {
-                    contentSha256: remote.contentSha256,
-                    // The Pi's own size for this revision: a legacy row with no
-                    // contentSha256 is matched on it (see piSyncPlan).
-                    piSizeBytes: remote.sizeBytes,
-                    licence: remote.licence,
-                    assertAuthority,
-                }),
-            );
-            forgetPiCellWithoutDepthAreas(remote.cellId);
-        } catch (err) {
-            assertAuthority();
-            const msg = err instanceof Error ? err.message : String(err);
-            log.warn(`[SyncFromPi] cell ${remote.cellId} failed`, err);
-            if (isEncMissingDepthAreaError(err)) rememberPiCellWithoutDepthAreas(remote);
-            skipped.push({ filename: remote.cellId, error: msg });
         }
+    } finally {
+        cellMeta.resumeNotifications();
     }
 
     emit({
@@ -759,7 +894,7 @@ export async function syncEncFromPi(
     // Nothing follows a Pi sync to the cloud: the hook that published new
     // cells to the skipper's own folder was switched off in 126-20 and
     // deleted with the personal shelf in 127.
-    return { cells: persisted, skipped };
+    return { cells: persisted, skipped, ...(boatCharts ? { boatCharts } : {}) };
 }
 
 /**

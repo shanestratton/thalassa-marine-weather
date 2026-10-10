@@ -31,6 +31,8 @@ const NAMES = ['Fixture Boat', 'L’Étoile du Pacifique', 'Nordlys av Tromsø']
 const OPEN_STRIP = 'No chart for this area';
 const OPEN_NOTICE = 'No chart for this area. Open charts (NOAA) show here in US waters.';
 const TODAY = 'No verified ENC charts installed. Library imports are reference-only.';
+// The phone's words since 127-C-c (one helper; the ENC Library is retired).
+const PHONE_AWAY = "Fixture Boat's licensed charts open on the boat's Wi-Fi. Open charts only here.";
 
 beforeEach(() => {
     platform.native = false;
@@ -130,7 +132,6 @@ function props(overrides: Partial<ChartDepthControlsProps> = {}): ChartDepthCont
         nightDim: false,
         onNightDimChange: vi.fn(),
         onToggleChartKey: vi.fn(),
-        onOpenEncLibrary: vi.fn(),
         ...overrides,
     };
 }
@@ -149,24 +150,34 @@ describe('the web Obs no-charts notice (127-DESKMAP C2)', () => {
         const notice = screen.getByRole('status', { name: 'ENC coverage' });
         expect(notice).toHaveTextContent(OPEN_NOTICE);
         expect(notice).not.toHaveTextContent(/Licensed|Fixture Boat/);
-        // The Library button is unchanged (127-C-c owns its future).
-        expect(screen.getByRole('button', { name: 'Open on-device ENC Library' })).toBeInTheDocument();
+        // The ENC Library is retired (127-C-c, Shane's Q1 "yes").
+        expect(screen.queryByRole('button', { name: 'Open on-device ENC Library' })).not.toBeInTheDocument();
     });
 
-    it('native keeps today’s sentence', () => {
+    it('the phone says where her licensed charts are, from the same helper (127-C-c)', () => {
         platform.native = true;
-        render(<ChartDepthControls {...props({ boatChartsLicensed: true, boatName: 'Fixture Boat' })} />);
-        expect(screen.getByRole('status', { name: 'ENC coverage' })).toHaveTextContent(TODAY);
+        render(
+            <ChartDepthControls
+                {...props({ boatChartsLicensed: true, boatName: 'Fixture Boat', boatChartsState: 'away' })}
+            />,
+        );
+        const notice = screen.getByRole('status', { name: 'ENC coverage' });
+        expect(notice).toHaveTextContent(PHONE_AWAY);
+        expect(notice).not.toHaveTextContent(TODAY);
     });
 
     it('takes its web sentences from the helper, with no second string in the component', () => {
         const controls = readFileSync('components/map/ChartDepthControls.tsx', 'utf8');
-        expect(controls).toContain("import { boatChartsLine } from '../../services/enc/boatChartsWords'");
+        expect(controls).toMatch(/import \{ boatChartsLine\b[^}]*\} from '\.\.\/\.\.\/services\/enc\/boatChartsWords'/);
         expect(controls).not.toContain('Open charts (NOAA) show here');
         expect(controls).not.toContain('Licensed charts stay');
         const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
         const call = hub.match(/<ChartDepthControls\b[\s\S]*?\/>/)?.[0] ?? '';
         expect(call).toContain('boatChartsLicensed={boatChartsLicensed}');
-        expect(call).toContain('boatName={ownBoatName}');
+        // The web words name the account's vessel; the phone's name the paired boat (127-C-c).
+        expect(call).toContain('boatName={chartsBoatName}');
+        expect(hub).toContain('const chartsBoatName = boatChartsNow ? boatName() : ownBoatName;');
+        expect(call).toContain('boatChartsState={boatChartsNow}');
+        expect(controls).not.toContain("licensed charts open on the boat's Wi-Fi");
     });
 });

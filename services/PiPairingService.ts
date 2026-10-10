@@ -104,6 +104,9 @@ export function savePairing(record: PiPairingRecord): void {
 export function forgetPairing(): void {
     localStorage.removeItem(PAIRING_KEY);
     dropChartDevice();
+    // Her licensed charts leave this phone's memory, and the account's
+    // boatCharts flag clears (127-C-c decisions 7 and 9).
+    void import('./enc/piCellSync').then(({ forgetBoatCharts }) => forgetBoatCharts(true)).catch(() => undefined);
 }
 
 /** Hosts that have ever advertised pairing support — the no-downgrade list. */

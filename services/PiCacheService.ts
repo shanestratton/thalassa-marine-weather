@@ -522,6 +522,12 @@ class PiCacheServiceImpl {
         return `https://${host}:${this.config.port}`;
     }
 
+    /** The boat-LAN base URL, never the tailnet one: licensed cells come only from here (127-C-c). */
+    getLanBaseUrl(): string | null {
+        if (!PI_INTEGRATION_ENABLED || !this.config.host) return null;
+        return `https://${this.config.host}:${this.config.port}`;
+    }
+
     /** Is the Pi Cache enabled AND reachable right now? */
     isAvailable(): boolean {
         return PI_INTEGRATION_ENABLED && this.config.enabled && this.status.reachable;

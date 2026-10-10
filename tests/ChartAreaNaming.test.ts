@@ -69,11 +69,12 @@ describe('the no-coverage banner', () => {
         );
     });
 
-    it('only offers the reference Library when there are no charts at all', () => {
-        // With charts installed it used to open a page that greets you with
-        // "No reference ENC cells are installed" — a different kind of chart
-        // entirely, and a dead end.
-        expect(banner).toContain('{encCellCount === 0 && (');
+    it('offers no reference Library at all: it is retired (127-C-c)', () => {
+        // It used to open, with charts installed, a page that greets you with
+        // "No reference ENC cells are installed" — a dead end. Since 127 the
+        // Library is gone and the banner is its sentence alone.
+        expect(banner).not.toContain('onOpenEncLibrary');
+        expect(banner).not.toContain('ENC Library</');
     });
 });
 

@@ -1,10 +1,10 @@
 /**
  * Auto-sync ENC cells from the user's Bosun Pi — runs on app mount AND
  * periodically (every 10 min while the app is foregrounded), in the
- * background, no UI required. If the Pi is reachable and has cells the
- * device doesn't already have at the same edition + sizeBytes, they're
- * pulled and `importCell()`d. The user just sees more cells appear in
- * the layer FAB count and the chart rendering.
+ * background, no UI required. Each run registers the boat's licensed cells
+ * from the Pi's index (metadata, in memory only) and pre-warms the 20 nearest
+ * into this phone's memory; open (NOAA) cells the device lacks are pulled to
+ * disk (127-C-c). The user just sees the cells appear in the chart.
  *
  * If the Pi is unreachable (away from the boat, on cellular, offline),
  * the function fails silently — never blocks the app. Manual sync via
@@ -17,6 +17,7 @@
  */
 import { createLogger } from '../../utils/createLogger';
 import { syncEncFromPi } from '../EncImportService';
+import { ensureBoatRegistry } from './piCellSync';
 import { piCache } from '../PiCacheService';
 import { GpsService } from '../GpsService';
 import { PI_INTEGRATION_ENABLED } from '../piPublicBetaBoundary';
@@ -25,9 +26,9 @@ const log = createLogger('autoSyncFromPi');
 
 /**
  * Cells pulled per auto-sync run. A typical AU fleet has 900+ decrypted
- * cells; pulling all of them on first launch is minutes of wifi + ~600 MB
- * of storage. We cap at 20 nearest-to-user — enough to cover a cruising
- * region of a few hundred nautical miles — and let later polls fill out.
+ * cells: licensed ones open in memory only (the 20 nearest are pre-warmed;
+ * the chart and routing fetch the rest on demand), open ones go to disk, the
+ * 20 nearest per run.
  */
 const AUTO_SYNC_MAX_CELLS = 20;
 
@@ -55,7 +56,9 @@ let pollHandle: ReturnType<typeof setInterval> | null = null;
  * Same reasoning as the 10 s boot deferral above (z10-boot audit #8): the sync
  * is not urgent, so it waits for calm water rather than competing with the
  * surface the user is actually using. Skipping does NOT consume the throttle
- * slot, so the next poll after Done runs normally.
+ * slot, so the next poll after Done runs normally. The boat registry is the
+ * tracer's own call (ensureBoatRegistry, metadata only), so it never waits
+ * on this deferral; only blob pulls do (127-C-c decision 7a).
  */
 let tracerActive = false;
 if (typeof window !== 'undefined') {
@@ -111,6 +114,9 @@ async function runAutoSyncOnce(): Promise<void> {
     try {
         if (!piCache.isAvailable()) {
             log.info('auto-sync skipped — Pi not reachable (probe failed or disabled)');
+            // Settle the boat registry ('away' after a ping), so nothing says
+            // "opening her charts" for a Pi that is not here (127-C-c).
+            void ensureBoatRegistry();
             return;
         }
 
