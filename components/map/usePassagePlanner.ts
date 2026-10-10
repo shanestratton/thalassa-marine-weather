@@ -231,6 +231,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     // decision 8 — and a pin off the water). Its own line in PassageBanner:
     // no later notice replaces it (fix-up, 2026-09-30). Cleared with the route.
     const [routeCaveats, setRouteCaveats] = useState<string[]>([]);
+    // The charts those caveats were worked out on: a saved plan's chart notes
+    // stay off the disk over licensed charts only (services/chartFacts, 127-C-b).
+    const routeCellsRef = useRef<string[]>([]);
     // Which polar the shown ETA was sailed on (services/routingPolar label),
     // for PassageBanner's "Polar:" line. Null for a route no polar sailed
     // (inshore, short hops). Cleared with the route.
@@ -911,6 +914,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         ntmLockBanner,
                     };
                     dispatchPassageNotice(inshoreRouteNotice(noticeInput));
+                    routeCellsRef.current = inshoreRes.cellsUsed;
                     setRouteCaveats(inshoreRouteCaveats(noticeInput));
                     // [BAYLEG] render-truth (2026-06-23): fires ONLY when the inshore route survives
                     // the land backstop and is actually drawn — teal/tier-coloured, with the
@@ -3045,6 +3049,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         routeVerification,
         routeActionsAvailable,
         routeCaveats,
+        routeCellsRef,
         routingPolarLabel,
         settingPoint,
         setSettingPoint,

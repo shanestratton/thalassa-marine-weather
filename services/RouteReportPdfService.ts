@@ -16,6 +16,7 @@ import type { TraceLegVerdict, TracePoint } from './routeTracer';
 import { traceHealth } from './routeTracer';
 import { traceVerificationSummary, type TraceVerification } from './traceVerification';
 import { windCompass, type WaypointWeather } from './routeReportWeather';
+import { chartFactsKeeper, PDF_FIGURES_ABOARD, TRACE_LAND_CROSSING_MESSAGE } from './chartFacts';
 
 type RGB = [number, number, number];
 const COLORS = {
@@ -261,25 +262,39 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
     doc.setTextColor(...COLORS.muted);
     doc.text('LEGS', margin, y + 4);
     y += 8;
+    // A PDF is a file she shares (127-C-b): over licensed charts it prints each
+    // leg's grade, "needs tide" and the times, never charted depths, mark names
+    // or reasons. NOAA legs print as they always have.
+    const keepFacts = chartFactsKeeper(data.verification?.encRegistryFingerprint ?? '');
+    let aboardOnly = false;
     data.verdicts.forEach((v, i) => {
         if (!v) return; // still grading — skip
         const col = v.grade === 'danger' ? COLORS.red : v.grade === 'caution' ? COLORS.amber : COLORS.green;
+        const facts = !!data.pins[i + 1] && keepFacts(data.pins[i], data.pins[i + 1]);
+        aboardOnly ||= !facts;
         // On a clear leg an 'info' note (correct mark pass) replaces "clear — N m least".
         const infoNote = v.issues.find((iss) => iss.severity === 'info');
         const problem = v.issues.find((iss) => iss.severity !== 'info');
-        const msg =
-            v.grade === 'clear'
-                ? infoNote
-                    ? infoNote.message
-                    : v.minDepthM != null
-                      ? `clear - ${v.minDepthM.toFixed(1)} m least`
-                      : 'clear'
-                : (problem?.message ?? v.grade);
+        const msg = !facts
+            ? problem?.message === TRACE_LAND_CROSSING_MESSAGE
+                ? TRACE_LAND_CROSSING_MESSAGE
+                : `${v.grade === 'danger' ? 'no-go' : v.grade}${v.needsTide ? ' - needs tide' : ''}`
+            : v.grade === 'clear'
+              ? infoNote
+                  ? infoNote.message
+                  : v.minDepthM != null
+                    ? `clear - ${v.minDepthM.toFixed(1)} m least`
+                    : 'clear'
+              : (problem?.message ?? v.grade);
+        // The window's times stay; the tide height it needs is a chart figure.
+        const label = data.tideLabels[i];
+        const tideWords = label && !facts ? label.replace(/needs \+\d+(?:\.\d+)? m/, 'needs tide') : label;
         doc.setFontSize(8.5);
         const lines = doc.splitTextToSize(pdfSafe(msg), contentW - 20) as string[];
-        const tide = data.tideLabels[i]
-            ? (doc.splitTextToSize(pdfSafe(data.tideLabels[i]), contentW - 20) as string[])
-            : [];
+        const tide =
+            tideWords && (facts || !/\d\s?m\b/.test(tideWords))
+                ? (doc.splitTextToSize(pdfSafe(tideWords), contentW - 20) as string[])
+                : [];
         const rowH = Math.max(5.4, lines.length * 3.6 + tide.length * 3.2 + 1.6);
         ensure(rowH);
         doc.setFillColor(...col);
@@ -301,6 +316,7 @@ export function generateRouteReportPdf(data: RouteReportPdfData): Blob {
     // ── Footer (current page) ──
     doc.setFontSize(6.5);
     doc.setTextColor(...COLORS.dim);
+    if (aboardOnly) doc.text(PDF_FIGURES_ABOARD, margin, H - 10.5);
     doc.text('Advisory only - always cross-check against official charts and Notices to Mariners.', margin, H - 7);
 
     return doc.output('blob');

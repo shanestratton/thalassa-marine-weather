@@ -32,7 +32,7 @@ export const MINIFIED_PUBLIC_DATA = Object.freeze(['data/marine-place-names-qld.
 
 /** Text each dist copy must still contain (verify-web-release.mjs greps CACHE_NAME). */
 export const REQUIRED_PUBLIC_SCRIPT_TOKENS = Object.freeze({
-    'sw.js': ['CACHE_NAME', 'RUNTIME_TILE_CACHE', 'OFFLINE_TILE_CACHE', 'DATA_CACHE', 'LAN_TILE_CACHE'],
+    'sw.js': ['CACHE_NAME', 'RUNTIME_TILE_CACHE', 'OFFLINE_TILE_CACHE', 'DATA_CACHE'],
     'pcm-worklet.js': ['registerProcessor', 'pcm-processor', 'AudioWorkletProcessor'],
 });
 

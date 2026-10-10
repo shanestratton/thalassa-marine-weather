@@ -31,6 +31,8 @@ export interface InstalledCellMeta {
     sourceUrl?: string;
     contentSha256?: string;
     blobPath?: string;
+    /** 127-C-b: every decrypted cell is 'protected' (pi-cache/src/chartLicence.ts). */
+    licence?: 'protected' | 'open';
 }
 
 export interface InstalledIndex {
@@ -121,6 +123,7 @@ export function cellStoreRecord(cell: CellOutput): { json: string; meta: Install
             sizeBytes: Buffer.byteLength(json, 'utf8'),
             installedAt: new Date().toISOString(),
             source: 'pi-decrypt',
+            licence: 'protected',
             contentSha256,
             blobPath: `cells/${cell.cellId}-${contentSha256}.json`,
         },

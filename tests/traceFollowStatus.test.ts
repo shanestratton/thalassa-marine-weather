@@ -18,7 +18,11 @@ import {
     traceFollowStatus,
     traceGeometryKey,
 } from '../services/traceVerification';
-import type { TraceCheckOutcomeRecord } from '../services/traceCheckOutcomes';
+import {
+    getTraceCheckOutcome,
+    recordTraceCheckOutcome,
+    type TraceCheckOutcomeRecord,
+} from '../services/traceCheckOutcomes';
 
 const solent: TracePoint[] = [
     { lat: 50.766, lon: -1.297 },
@@ -326,5 +330,40 @@ describe('traceAutoBankSignature — the tracer auto-bank rule', () => {
         const refused = { allowed: false, reason: 'Wait for every leg check to finish.', verification: null };
         expect(traceAutoBankSignature({ id: 'trace-solent' }, refused, ctx, new Set(), graded)).toBeNull();
         expect(traceAutoBankSignature(undefined, allowed(), ctx, new Set(), graded)).toBeNull();
+    });
+});
+
+/**
+ * The stored finding over licensed charts (127-C-b, C10 store 5): a danger
+ * leg's words are kept only when they are the land words, else "no-go leg",
+ * so the red row never names a charted depth or a mark. NOAA records are
+ * unchanged. The Solent and Nouméa are fictional routes; GB4X0001 and
+ * OC-99-ZZTEST are protected, US5XX01M open.
+ */
+describe('traceFollowStatus — a finding over licensed charts carries no chart figures', () => {
+    const legs = [
+        { from: 2, to: 3, message: 'thin water — 1.6 m charted at low tide (LAT)' },
+        { from: 3, to: 4, message: 'crosses charted land' },
+    ];
+
+    it('says "no-go leg" for the depth, keeps the land words, and no digit from the chart survives', () => {
+        localStorage.clear();
+        recordTraceCheckOutcome('route-gb', outcome('finding', { legs }));
+        const stored = getTraceCheckOutcome('route-gb')!;
+        expect(stored.legs).toEqual([
+            { from: 2, to: 3, message: 'no-go leg' },
+            { from: 3, to: 4, message: 'crosses charted land' },
+        ]);
+        const red = traceFollowStatus(undefined, solent, ctx, stored);
+        expect(red.reason).toBe('Pins 2→3: no-go leg and 1 more');
+        expect(red.reason).not.toMatch(/1\.6|LAT/);
+        localStorage.clear();
+    });
+
+    it('a NOAA finding keeps its words', () => {
+        localStorage.clear();
+        recordTraceCheckOutcome('route-us', outcome('finding', { encFingerprint: 'US5XX01M@1', legs }));
+        expect(getTraceCheckOutcome('route-us')?.legs).toEqual(legs);
+        localStorage.clear();
     });
 });

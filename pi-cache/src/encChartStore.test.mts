@@ -473,3 +473,75 @@ test('a refresh of owned cells keeps every ordinary same-revision rule', async (
     });
     assert.deepEqual(older.changedCellIds, []);
 });
+
+// ── 127-C-b (C7): the licence provenance flag on the Pi's index ─────────
+// Fictional cells: OC-99-ZZTEST and ZZ5TEST* are protected, US5XX0*M open.
+
+test('a legacy index without licence reads protected for the Pi decrypts, open only for a NOAA url cell, and is not rewritten', async (t) => {
+    const f = await fixture(t);
+    await fs.mkdir(f.storeDir, { recursive: true });
+    const row = (cellId: string, sourceHO: string, source: string, extra: Record<string, unknown> = {}) => ({
+        cellId,
+        sourceHO,
+        edition: 1,
+        issued: '2026-09-01',
+        bbox: [165, -23, 167, -21],
+        featureCount: 1,
+        sizeBytes: 10,
+        installedAt: '2026-09-27T00:00:00.000Z',
+        source,
+        ...extra,
+    });
+    const raw = JSON.stringify(
+        {
+            version: 1,
+            cells: [
+                row('OC-99-ZZTEST', 'FR', 'pi-decrypt'),
+                row('ZZ5TEST1', 'ZZ', 's63'),
+                row('US5XX01M', 'US', 'url'),
+                row('ZZ5TEST2', 'ZZ', 'url'),
+                row('US5XX02M', 'US', 'phone-upload'),
+                row('US5XX03M', 'US', 'pi-decrypt'),
+                row('US5XX04M', 'US', 'url', { licence: 'protected' }),
+                row('OC-99-ZZOPEN', 'FR', 'url', { licence: 'open' }),
+            ],
+        },
+        null,
+        2,
+    );
+    await fs.writeFile(path.join(f.storeDir, 'index.json'), raw);
+    const index = await readChartIndex(f.storeDir);
+    assert.deepEqual(
+        index.cells.map((c) => [c.cellId, c.licence]),
+        [
+            ['OC-99-ZZTEST', 'protected'],
+            ['ZZ5TEST1', 'protected'],
+            ['US5XX01M', 'open'],
+            ['ZZ5TEST2', 'protected'],
+            ['US5XX02M', 'open'],
+            ['US5XX03M', 'protected'],
+            ['US5XX04M', 'protected'],
+            ['OC-99-ZZOPEN', 'protected'],
+        ],
+    );
+    // Filled on read only: the index is never written just to add the field.
+    assert.equal(await fs.readFile(path.join(f.storeDir, 'index.json'), 'utf8'), raw);
+});
+
+test('writing a delivery stamps the licence on every cell in the index', async (t) => {
+    const f = await fixture(t);
+    const licensed = await f.cell('OC-99-ZZTEST');
+    const noaa = await f.cell('US5XX01M');
+    noaa.meta.source = 'url';
+    await publishChartDelivery(f.storeDir, [licensed, noaa]);
+    const written = JSON.parse(await fs.readFile(path.join(f.storeDir, 'index.json'), 'utf8')) as {
+        cells: Array<{ cellId: string; licence?: string }>;
+    };
+    assert.deepEqual(
+        written.cells.map((c) => [c.cellId, c.licence]),
+        [
+            ['OC-99-ZZTEST', 'protected'],
+            ['US5XX01M', 'open'],
+        ],
+    );
+});

@@ -71,3 +71,47 @@ describe('Pi installed-chart index validation', () => {
         expect(validatePiInstalledCellsForTest({ cells: [auOChartsCell, s57Cell] })).toHaveLength(2);
     });
 });
+
+/**
+ * 127-C-b (C7): the Pi stamps a `licence` on each row. A new field must never
+ * be able to reject an index (the gate above once threw away 345 charts over
+ * one unknown source value): an unknown value reads as 'protected', a missing
+ * one is accepted and classified on the phone, and the Pi's own decrypts are
+ * protected whatever the row says. Fictional cells.
+ */
+describe('Pi installed-chart index: the licence field', () => {
+    const noaaUrlCell = {
+        cellId: 'US5XX01M',
+        sourceHO: 'US',
+        edition: 3,
+        issued: '2026-09-01',
+        bbox: [-76.5, 38.9, -76.3, 39.1],
+        featureCount: 120,
+        sizeBytes: 90_000,
+        installedAt: '2026-09-27T00:00:00.000Z',
+        source: 'url',
+    };
+    const ocCell = { ...auOChartsCell, cellId: 'OC-99-ZZTEST', sourceHO: 'FR' };
+
+    it("accepts an unknown licence value and reads that cell as 'protected'", () => {
+        const [weird, open] = validatePiInstalledCellsForTest({
+            cells: [
+                { ...noaaUrlCell, licence: 'weird' },
+                { ...noaaUrlCell, cellId: 'US5XX02M', licence: 'open' },
+            ],
+        });
+        expect(weird.licence).toBe('protected');
+        expect(open.licence).toBe('open');
+    });
+
+    it('accepts an index with no licence field at all', () => {
+        const cells = validatePiInstalledCellsForTest({ cells: [noaaUrlCell, ocCell] });
+        expect(cells).toHaveLength(2);
+        expect(cells[0].licence).toBeUndefined();
+    });
+
+    it("never takes 'open' from a row the Pi decrypted", () => {
+        const [cell] = validatePiInstalledCellsForTest({ cells: [{ ...ocCell, licence: 'open' }] });
+        expect(cell.licence).toBe('protected');
+    });
+});

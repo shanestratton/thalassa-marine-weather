@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { chartBlobExtractorSchema } from './encLayerContract.js';
+import { piChartLicence, type ChartLicence } from './chartLicence.js';
 
 export interface InstalledCellMeta {
     cellId: string;
@@ -23,6 +24,9 @@ export interface InstalledCellMeta {
     /** Immutable version, relative to the store. Absent on legacy installations. */
     blobPath?: string;
     packageId?: string;
+    /** 127-C-b: 'protected' for o-charts, S-63 and anything not NOAA. Filled on
+     *  read for older indexes (never written just to add it), stamped on write. */
+    licence?: ChartLicence;
 }
 
 export interface InstalledIndex {
@@ -106,6 +110,7 @@ export async function readChartIndex(storeDir: string): Promise<InstalledIndex> 
         ids.add(cell.cellId);
         chartBlobPath(storeDir, cell);
         cell.sourceUrl = redactChartSourceUrl(cell.sourceUrl);
+        cell.licence = piChartLicence(cell);
     }
     return index;
 }
@@ -270,6 +275,7 @@ export async function publishChartDelivery(
                 contentSha256: hash,
                 sizeBytes: bytes.length,
                 blobPath: `cells/${safeId}-${hash}.json`,
+                licence: piChartLicence(candidate.meta),
             };
             const previous = byId.get(meta.cellId);
             if (refresh !== undefined) {

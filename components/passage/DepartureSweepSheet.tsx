@@ -43,6 +43,7 @@ import { requireConfirmedDraft } from '../../stores/draftConfirmStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { savedInshoreRouteCaveats } from '../map/inshoreRouteNotice';
+import { TIDE_GATES_ABOARD } from '../../services/chartFacts';
 
 const log = createLogger('DepartureSweepSheet');
 
@@ -147,11 +148,15 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
     // feature. Rehydrate them defensively: a saved passage can legitimately
     // pre-date this field, but malformed cloud data must never break the
     // departure sheet.
-    const persistedShallowRuns = useMemo(() => {
-        const properties = (voyagePlan?.routeGeoJSON as { properties?: { shallowRuns?: unknown } } | undefined)
-            ?.properties;
-        return readPersistedShallowRuns(properties?.shallowRuns);
-    }, [voyagePlan?.routeGeoJSON]);
+    const properties = (
+        voyagePlan?.routeGeoJSON as
+            | { properties?: { shallowRuns?: unknown; chartFacts?: unknown; tideGates?: unknown } }
+            | undefined
+    )?.properties;
+    const persistedShallowRuns = useMemo(() => readPersistedShallowRuns(properties?.shallowRuns), [properties]);
+    // Its tide gates stayed aboard (127-C-b): never "tide-clear" by omission.
+    const gatesAboard =
+        properties?.chartFacts === 'aboard-only' && properties.tideGates === true && persistedShallowRuns.length === 0;
 
     // The saved route's own caveats (round 3, 2026-09-30).
     const savedCaveats = useMemo(() => savedInshoreRouteCaveats(voyagePlan), [voyagePlan]);
@@ -167,7 +172,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
     // the sweep starts the moment the draft is confirmed, and closing the
     // modal closes the sheet with nothing run. Already confirmed: no ask.
     const draftConfirmed = useSettingsStore((state) => isDraftConfirmed(state.settings.vessel));
-    const hasRoute = polyline !== null;
+    const hasRoute = polyline !== null && !gatesAboard;
     const onCloseRef = useRef(onClose);
     onCloseRef.current = onClose;
     useEffect(() => {
@@ -183,7 +188,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
     const waitingForDraft = open && hasRoute && !draftConfirmed;
 
     useEffect(() => {
-        if (!open || !polyline || !draftConfirmed) return;
+        if (!open || !polyline || !draftConfirmed || gatesAboard) return;
         let cancelled = false;
         const currentSequenceAbort = new AbortController();
         setLoading(true);
@@ -201,8 +206,12 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
             // in a different estuary with a different phase.
             let tide: TideField | null = null;
             try {
-                const { fetchTideCurve } = await import('../../services/TideHeightService');
-                const curve = await fetchTideCurve(tidePoint.lat, tidePoint.lon, startMs, horizonMs + 24 * 3_600_000);
+                const { fetchTideCurve, TIDE_CURVE_MAX_DAYS } = await import('../../services/TideHeightService');
+                // A whole-span curve, asked for at its 0.25° bucket centre:
+                // never a charted shallow spot off the device (127-C-b).
+                const curve = await fetchTideCurve(tidePoint.lat, tidePoint.lon, startMs, horizonMs + 24 * 3_600_000, {
+                    days: TIDE_CURVE_MAX_DAYS,
+                });
                 if (curve) tide = tideFieldFromCurve(curve);
             } catch (e) {
                 log.warn('tide curve unavailable for sweep:', e);
@@ -253,7 +262,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
             cancelled = true;
             currentSequenceAbort.abort(new Error('departure sweep closed or superseded'));
         };
-    }, [open, polyline, shallowSpots, tideAnchor, vessel, draftConfirmed]);
+    }, [open, polyline, shallowSpots, tideAnchor, vessel, draftConfirmed, gatesAboard]);
 
     if (!open) return null;
 
@@ -333,10 +342,11 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                             ))}
                         </div>
                     )}
+                    {gatesAboard && <p className="mt-2 text-xs text-amber-200/90">{TIDE_GATES_ABOARD}</p>}
                     {!busy && tideProvenance === 'EXTREMES_INTERP' && (
                         <p className="mt-2 text-xs text-amber-300/80">Tide approx ±0.3 m (interpolated extremes)</p>
                     )}
-                    {!busy && tideProvenance === 'NONE' && (
+                    {!busy && !gatesAboard && tideProvenance === 'NONE' && (
                         <p className="mt-2 text-xs text-slate-400">
                             Tide data unavailable here — times shown without tidal gating.
                         </p>
@@ -398,7 +408,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                             ))}
                         </ul>
                     )}
-                    {!busy && options.length === 0 && (
+                    {!busy && !gatesAboard && options.length === 0 && (
                         <div className="px-3 py-12 text-center text-xs text-slate-500">
                             No inshore route to sweep — plan a route first.
                         </div>

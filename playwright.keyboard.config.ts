@@ -140,6 +140,11 @@ export default defineConfig({
         // offline (e2e/fixtures/desk-map.tsx), a fictional NOAA-shaped chart in chart mode, and
         // the real web planner's menu and strip at 1440 to 320 px in wide fonts.
         'desk-map-light.spec.ts',
+        // Charts stay on the boat (127-C-b): the tracer's stub rows, the departure planner's
+        // "tide gates need your boat's charts" and a saved plan's number-free notes fit 320 to the
+        // iPad split, landscape and large text, in the system face and wide fonts
+        // (e2e/fixtures/chart-words.tsx); NOAA keeps its figures.
+        'chart-words-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

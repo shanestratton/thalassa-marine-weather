@@ -348,6 +348,19 @@ describe('o-charts Pi installation and phone-copy receipts', () => {
         );
     });
 
+    it("hands the Pi row's licence to the import, stricter for the Pi's own decrypts (127-C-b)", async () => {
+        const cellId = 'OC-99-ZZTEST';
+        mocks.fetchVerifiedFromPi
+            .mockResolvedValueOnce({ cells: [{ ...installed(cellId), sourceHO: 'FR', licence: 'open' }] })
+            .mockResolvedValueOnce({ cells: [{ ...conversion(cellId), sourceHO: 'FR' }] });
+        const result = await syncEncFromPi(undefined, { cellIds: [cellId] });
+        expect(result.skipped).toEqual([]);
+        expect(mocks.importCell).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ cellId }),
+            expect.objectContaining({ licence: 'protected' }),
+        );
+    });
+
     it('a Pi sync sends nothing to the cloud, even with the old Auto-publish flag on (126-20)', async () => {
         // Before 126 the end of every Pi sync uploaded the new cells to the
         // skipper's cloud folder once Auto-publish was on. Licensed charts

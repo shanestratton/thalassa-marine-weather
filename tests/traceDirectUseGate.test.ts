@@ -6,6 +6,7 @@ vi.mock('../stores/settingsStore', () => ({
 }));
 vi.mock('../services/enc/EncCellMetadata', () => ({
     getRegistryFingerprint: () => 'chart-set-v1',
+    listRegisteredCells: () => [],
 }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
@@ -59,7 +60,9 @@ describe('traced route direct-use gate', () => {
             geometryKey: traceGeometryKey(points),
             draftM: 1.8,
             draftAssumed: false,
-            encFingerprint: 'chart-set-v1',
+            // An open (NOAA) chart keeps its words; over licensed charts the
+            // record says "no-go leg" (127-C-b, tests/traceFollowStatus).
+            encFingerprint: 'US5XX01M@1',
             at: new Date().toISOString(),
             kind: 'finding',
             reason: 'Pins 1→2: charted wreck',
