@@ -8,7 +8,7 @@
     },
     "scripts": {
         "dev": "vite",
-        "build": "npm run check:client-secrets && NODE_OPTIONS=--max-old-space-size=4096 tsc && vite build && npm run check:client-secrets -- --dist",
+        "build": "npm run check:client-secrets && NODE_OPTIONS=--max-old-space-size=4096 tsc -p tsconfig.build.json && vite build && npm run check:client-secrets -- --dist",
         "check:bundle": "node scripts/check-bundle-size.js",
         "check:ios-injector": "node scripts/debug-ais-injector-fence.mjs ios/App/App/public",
         "check:beta": "node scripts/check-beta-readiness.mjs",

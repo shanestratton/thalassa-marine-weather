@@ -1,0 +1,37 @@
+{
+    "extends": "./tsconfig.json",
+    "_scopeNote": [
+        "Release roots only. Keep the ordinary strict/noEmit compiler options.",
+        "CI still checks tests and browser fixtures with the root tsconfig.",
+        "Research, Deno, native projects and development fixtures have separate runtimes.",
+        "Imports from these roots remain type-checked, including shared Supabase wave types."
+    ],
+    "include": [
+        "index.tsx",
+        "App.tsx",
+        "ApplicationShell.tsx",
+        "viewRegistry.tsx",
+        "middleware.ts",
+        "theme.ts",
+        "types.ts",
+        "utils.ts",
+        "env.d.ts",
+        "vite.config.ts",
+        "api/**/*",
+        "components/**/*",
+        "context/**/*",
+        "contexts/**/*",
+        "data/**/*",
+        "hooks/**/*",
+        "managers/**/*",
+        "modules/**/*",
+        "pages/**/*",
+        "services/**/*",
+        "src/**/*",
+        "stores/**/*",
+        "styles/**/*",
+        "types/**/*",
+        "utils/**/*"
+    ],
+    "exclude": ["**/*.test.*", "**/*.spec.*"]
+}
