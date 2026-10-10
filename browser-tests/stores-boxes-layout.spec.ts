@@ -248,6 +248,13 @@ for (const size of SIZES) {
         await expect(form.getByLabel('Exact spot')).toHaveValue('Εργαλειοθήκη κόκπιτ');
         await shot(page, `new-item-here-${size.width}x${size.height}`);
         expect(await sheetIssues(form)).toEqual([]);
+        // The sheet's focus trap puts the cursor in Item name, and the global
+        // keyboard guard re-centres that field at 0, 120 and 360 ms after it
+        // takes focus. Scrolled to sooner, Add item is pulled back out of view
+        // by the 360 ms pass (WebKit 320 x 568, first run: scrollTop 486 -> 243),
+        // so scroll to it as a skipper would, once the guard has settled.
+        await expect(form.getByPlaceholder('e.g. Racor 2010PM-OR Fuel Filter')).toBeFocused();
+        await page.waitForTimeout(420);
         await expectReachable(form.getByRole('button', { name: 'Add item' }));
         expect(errors).toEqual([]);
     });
