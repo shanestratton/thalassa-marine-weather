@@ -174,6 +174,19 @@ const GLYPH_HALO = 'drop-shadow(0 0 0.8px rgba(2, 6, 23, 0.95)) drop-shadow(0 1p
 let vesselElementSeq = 0;
 
 /**
+ * How the marker sits on the chart: on her fix, and upright on screen however
+ * the chart is turned (127-11a, audit A4). Mapbox turned a 'map'-aligned root
+ * by minus the bearing, and everything inside it: at 90° 'Stopped' read
+ * vertically above the boat. turnOwnshipArrows turns her arrows instead.
+ * Exported for the layout specs, which draw the production marker.
+ */
+export const OWNSHIP_MARKER_OPTIONS = {
+    anchor: 'center',
+    rotationAlignment: 'viewport',
+    pitchAlignment: 'map',
+} as const;
+
+/**
  * Build the vessel marker DOM element: the boat, its halo, the status badge
  * beside it and the fix-age chip above.
  */
@@ -315,7 +328,7 @@ export function createVesselElement(): HTMLDivElement {
         display: none;
     `;
     // The arrow points north at rest and turns to where the wind blows TO, the
-    // way the streaks fly. It turns with the chart, as the marker does.
+    // way the streaks fly, less the chart's bearing (turnOwnshipArrows).
     windChip.innerHTML =
         '<span class="vessel-wind-arrow" aria-hidden="true" style="display:block;width:12px;height:12px;flex:none">' +
         '<svg viewBox="0 0 12 12" width="12" height="12" fill="currentColor" style="display:block">' +
@@ -333,7 +346,7 @@ export function createVesselElement(): HTMLDivElement {
  * tick, and a marker repainting per tick is the WebContent memory history this
  * app has. Exported for the layout spec.
  */
-export function presentOwnshipWind(el: HTMLElement, chip: BoatWindChip | null): string {
+export function presentOwnshipWind(el: HTMLElement, chip: BoatWindChip | null, mapBearing = 0): string {
     const node = el.querySelector<HTMLElement>('.vessel-wind-chip');
     if (!node) return '';
     const spoken = chip ? chip.label.charAt(0).toLowerCase() + chip.label.slice(1) : '';
@@ -351,7 +364,8 @@ export function presentOwnshipWind(el: HTMLElement, chip: BoatWindChip | null): 
     if (text && text.textContent !== chip.text) text.textContent = chip.text;
     if (arrow) {
         arrow.style.display = chip.arrowDeg === null ? 'none' : 'block';
-        arrow.style.transform = chip.arrowDeg === null ? '' : `rotate(${chip.arrowDeg}deg)`;
+        arrow.dataset.deg = chip.arrowDeg === null ? '' : String(chip.arrowDeg);
+        turnOwnshipArrows(el, mapBearing);
     }
     const tone = chip.stale ? 'stale' : 'live';
     if (node.dataset.tone !== tone) {
@@ -460,18 +474,23 @@ export function presentOwnshipStatus(el: HTMLElement, status: OwnshipStatusPrese
 }
 
 /**
- * Keep the side-on boat upright on screen. The marker turns with the map
- * (rotationAlignment 'map': Mapbox rotates it by minus the bearing), which
- * would tip a side-on drawing over; this turns it back by the bearing.
+ * The marker's root stands upright on screen (OWNSHIP_MARKER_OPTIONS), so her
+ * words never turn with the chart (127-11a, audit A4). Only her two arrows
+ * do: the hull by its true bearing and her wind by where it blows to, each
+ * less the chart's bearing. Each holds its true bearing in data-deg (empty:
+ * no direction, so upright); this writes only a transform that changed.
  */
-export function uprightOwnshipNeutral(el: HTMLElement, mapBearing: number): void {
-    const neutral = el.querySelector('.vessel-neutral-shape');
-    if (!neutral) return;
-    const bearing = Number.isFinite(mapBearing) ? Math.round(mapBearing * 10) / 10 : 0;
-    const next = bearing ? `rotate(${bearing} 12 12)` : '';
-    if ((neutral.getAttribute('transform') ?? '') === next) return;
-    if (next) neutral.setAttribute('transform', next);
-    else neutral.removeAttribute('transform');
+export function turnOwnshipArrows(el: HTMLElement, mapBearing: number): void {
+    const bearing = Number.isFinite(mapBearing) ? mapBearing : 0;
+    for (const arrow of el.querySelectorAll<HTMLElement>('.vessel-arrow, .vessel-wind-arrow')) {
+        const deg = arrow.dataset.deg;
+        const next = deg
+            ? `rotate(${Number(deg) - bearing}deg)`
+            : arrow.classList.contains('vessel-arrow')
+              ? 'rotate(0deg)'
+              : '';
+        if (arrow.style.transform !== next) arrow.style.transform = next;
+    }
 }
 
 /**
@@ -483,12 +502,12 @@ export function presentOwnshipDirection(el: HTMLElement, direction: OwnshipDirec
     const arrow = el.querySelector('.vessel-arrow') as HTMLElement | null;
     if (!arrow) return 'heading unavailable';
     el.dataset.directionSource = direction.source;
-    arrow.style.transform = `rotate(${direction.degrees ?? 0}deg)`;
+    arrow.dataset.deg = direction.degrees === null ? '' : String(direction.degrees);
+    turnOwnshipArrows(el, mapBearing);
     const shape = arrow.querySelector('.vessel-directional-shape') as SVGElement | null;
     const neutral = arrow.querySelector('.vessel-neutral-shape') as SVGElement | null;
     if (shape) shape.style.display = direction.degrees === null ? 'none' : '';
     if (neutral) neutral.style.display = direction.degrees === null ? '' : 'none';
-    uprightOwnshipNeutral(el, mapBearing);
     return direction.source === 'heading'
         ? `bow heading ${Math.round(direction.degrees)}° true`
         : direction.source === 'course'
@@ -565,8 +584,8 @@ export function syncOwnshipObstacle(map: mapboxgl.Map, lngLat: [number, number] 
                     // label, without touching collisions or layer order.
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': false,
-                    // The marker turns and tilts with the map; so does its box.
-                    'icon-rotation-alignment': 'map',
+                    // The marker stands upright on a turned chart (127-11a); so does its box.
+                    'icon-rotation-alignment': 'viewport',
                     'icon-pitch-alignment': 'map',
                 },
             });
@@ -1357,9 +1376,10 @@ export function useVesselTracker(
         spokenWindRef.current = presentOwnshipWind(
             el,
             boatWindChipFor(getBoatWindReadout(), subjectRef.current, windUnitRef.current),
+            mapBearing(),
         );
         nameMarker(el);
-    }, [nameMarker]);
+    }, [nameMarker, mapBearing]);
 
     const updateMarker = useCallback(
         (
@@ -1395,12 +1415,7 @@ export function useVesselTracker(
             if (!markerRef.current) {
                 const el = createVesselElement();
                 elementRef.current = el;
-                markerRef.current = new mapboxgl.Marker({
-                    element: el,
-                    anchor: 'center',
-                    rotationAlignment: 'map',
-                    pitchAlignment: 'map',
-                })
+                markerRef.current = new mapboxgl.Marker({ element: el, ...OWNSHIP_MARKER_OPTIONS })
                     .setLngLat([longitude, latitude])
                     .addTo(map);
                 log.info('Vessel marker created');
@@ -1945,9 +1960,9 @@ export function useVesselTracker(
         const unsubScope = subscribeAuthIdentityScope(onAccountChange);
         const unsubBinders = subscribeSharedBinders(onFollowChange);
 
-        // The side-on boat stays upright while the chart turns.
+        // Her arrows stay true while the chart turns; her words stay upright.
         const onRotate = () => {
-            if (elementRef.current) uprightOwnshipNeutral(elementRef.current, mapBearing());
+            if (elementRef.current) turnOwnshipArrows(elementRef.current, mapBearing());
         };
         if (map && typeof map.on === 'function') map.on('rotate', onRotate);
 

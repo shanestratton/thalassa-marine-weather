@@ -256,7 +256,11 @@ export function createLogMap(options: LogMapOptions): mapboxgl.Map | null {
         log.warn('Log map not drawn: Mapbox could not start (no WebGL context in this web view?)', error);
         return null;
     }
-    if (free) map.touchZoomRotate?.disableRotation();
+    if (free) {
+        map.touchZoomRotate?.disableRotation();
+        // Shift+left/right would turn it (127-11a): the arrows pan, nothing turns.
+        map.keyboard?.disableRotation();
+    }
     map.addControl(
         new mapboxgl.AttributionControl({ compact: true }),
         credits === 'top' ? 'top-right' : 'bottom-right',

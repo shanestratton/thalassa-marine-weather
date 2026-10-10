@@ -65,12 +65,12 @@ function harness(size = { w: 390, h: 844 }) {
     Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => size.h });
     document.body.appendChild(container);
     const listeners = new Map<string, Set<Listener>>();
-    const camera = { x: 0, y: 0, zoom: 14 };
+    const camera = { x: 0, y: 0, zoom: 14, bearing: 0 };
     const map: CloseInWindMap & { emit: (event: string) => void; listenerTotal: () => number } = {
         getContainer: () => container,
         getCenter: () => ({ lng: 148.72, lat: -20.27 }),
         getZoom: () => camera.zoom,
-        getBearing: () => 0,
+        getBearing: () => camera.bearing,
         // A fixed screen point for the anchor, shifted by the camera pan.
         project: () => ({ x: 195 + camera.x, y: 422 + camera.y }),
         on: (event: string, fn: Listener) => {
@@ -172,6 +172,24 @@ describe('CloseInWindLayer', () => {
             expect(Math.hypot(dx, dy)).toBeLessThanOrEqual(perFrame * 1.15 + 1e-9);
         }
         layer.destroy();
+    });
+
+    it('the chart turns: the flow re-aims at once, from the same wind, with no new reading (127-11a, A2)', () => {
+        const { map, camera } = harness();
+        const layer = new CloseInWindLayer(map, options());
+        layer.show();
+        layer.setWind({ kt: 8, fromDeg: 135 }); // from the SE: up-left on a north-up chart
+        const setWind = vi.spyOn(layer, 'setWind');
+        const perFrame = closeInScreenSpeed(8) / 30;
+        // Turned to 90° (east at the top), the NW-going air runs down-left on screen.
+        camera.bearing = 90;
+        map.emit('rotate');
+        for (let i = 0; i < 60; i += 1) layer.stepFrame();
+        expect(setWind).not.toHaveBeenCalled();
+        expect(layer.velocity.x).toBeCloseTo(-perFrame * Math.SQRT1_2, 3);
+        expect(layer.velocity.y).toBeCloseTo(perFrame * Math.SQRT1_2, 3);
+        layer.destroy();
+        expect(map.listenerTotal()).toBe(0);
     });
 
     it('mirrors leaflet-velocity frame by frame: 0.98 fade at its carried 0.882 alpha, then additive strokes', () => {

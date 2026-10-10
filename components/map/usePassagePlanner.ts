@@ -70,6 +70,7 @@ import {
     landBackstopTitle,
 } from '../../services/routing/landBackstopWords';
 import { CAUTION_WHY } from '../../services/engine/types';
+import { chartFitBearing } from './chartOrientation';
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
 
@@ -864,7 +865,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     // Fit bounds to the route extent.
                     const bounds = new mapboxgl.LngLatBounds();
                     for (const [lon, lat] of inshoreRes.polyline) bounds.extend([lon, lat]);
-                    map.fitBounds(bounds, { padding: 80, duration: 1000, retainPadding: false });
+                    map.fitBounds(bounds, {
+                        padding: 80,
+                        duration: 1000,
+                        retainPadding: false,
+                        bearing: chartFitBearing(map),
+                    });
 
                     // Surface a route-summary event so PassageBanner can show
                     // distance/cells used. Same shape as deep-water route, just
@@ -1691,7 +1697,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         const bounds = new mapboxgl.LngLatBounds();
         bounds.extend([departure.lon, departure.lat]);
         bounds.extend([arrival.lon, arrival.lat]);
-        map.fitBounds(bounds, { padding: 80, duration: 1000, retainPadding: false });
+        map.fitBounds(bounds, { padding: 80, duration: 1000, retainPadding: false, bearing: chartFitBearing(map) });
 
         // Background: isochrone weather routing upgrade
         setTimeout(async () => {

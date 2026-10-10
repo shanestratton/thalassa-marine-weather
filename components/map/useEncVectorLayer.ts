@@ -53,6 +53,7 @@ import {
 } from '../../services/enc/EncHazardService';
 import { encDisplayScale, ENC_MERGE_MIN_ZOOM } from './encDisplayScale';
 import { setEncDisplayState } from './encDisplayState';
+import { chartTurning } from './chartOrientation';
 
 const log = createLogger('useEncVectorLayer');
 
@@ -65,11 +66,32 @@ let lastPrewarmAt = 0;
 
 type Bbox = [number, number, number, number];
 
-function windowFor(map: mapboxgl.Map, plotting = false): Bbox {
+/**
+ * The merge window round the view. North up, and while plotting: the view's
+ * box x the window factor about its centre. In a turning mode (127-11a, audit
+ * A7) getBounds is the box round the TURNED view, so that window grew with
+ * the bearing (about 2.3x the area at 45° on a portrait phone, against the
+ * 2 GB WebContent cap), and a turn alone could carry the view out of it and
+ * start a merge, the kill chain's expensive step. There it is a square on
+ * the camera instead, side max(1.05 x the view's diagonal, factor x
+ * sqrt(w x h)) px: today's area, with every bearing inside it.
+ */
+export function windowFor(map: mapboxgl.Map, plotting = false): Bbox {
+    const factor = encDisplayScale(map.getZoom(), plotting).windowFactor;
+    if (chartTurning() && !plotting) {
+        const box = map.getContainer();
+        const w = box.clientWidth;
+        const h = box.clientHeight;
+        const c = map.getCenter();
+        // Half the side in mercator units (Mapbox's world is 512 x 2^zoom px).
+        const half = Math.max(1.05 * Math.hypot(w, h), factor * Math.sqrt(w * h)) / (1024 * Math.pow(2, map.getZoom()));
+        const y = 0.5 - Math.log(Math.tan(Math.PI / 4 + (c.lat * Math.PI) / 360)) / (2 * Math.PI);
+        const lat = (my: number) => (360 / Math.PI) * Math.atan(Math.exp((0.5 - my) * 2 * Math.PI)) - 90;
+        return [c.lng - half * 360, Math.max(lat(y + half), -85), c.lng + half * 360, Math.min(lat(y - half), 85)];
+    }
     const b = map.getBounds()!;
     const cx = (b.getWest() + b.getEast()) / 2;
     const cy = (b.getSouth() + b.getNorth()) / 2;
-    const factor = encDisplayScale(map.getZoom(), plotting).windowFactor;
     const hw = ((b.getEast() - b.getWest()) / 2) * factor;
     const hh = ((b.getNorth() - b.getSouth()) / 2) * factor;
     return [cx - hw, Math.max(cy - hh, -85), cx + hw, Math.min(cy + hh, 85)];

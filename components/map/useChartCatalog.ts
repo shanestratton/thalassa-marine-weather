@@ -21,6 +21,7 @@ import mapboxgl from 'mapbox-gl';
 import { ChartCatalogService, type ChartSource, type ChartSourceId } from '../../services/ChartCatalogService';
 import { LocationStore } from '../../stores/LocationStore';
 import { createLogger } from '../../utils/createLogger';
+import { chartFitBearing } from './chartOrientation';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -249,7 +250,7 @@ export function useChartCatalog(
                         [src.bounds[0], src.bounds[1]],
                         [src.bounds[2], src.bounds[3]],
                     ],
-                    { padding: 40, duration: 1500, retainPadding: false },
+                    { padding: 40, duration: 1500, retainPadding: false, bearing: chartFitBearing(map) },
                 );
                 return;
             }

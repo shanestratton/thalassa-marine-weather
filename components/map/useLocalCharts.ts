@@ -15,6 +15,7 @@ import { MBTilesService, type OpenChart } from '../../services/MBTilesService';
 import { ChartLockerService } from '../../services/ChartLockerService';
 import { LocationStore } from '../../stores/LocationStore';
 import { createLogger } from '../../utils/createLogger';
+import { chartFitBearing } from './chartOrientation';
 
 const log = createLogger('LocalCharts');
 
@@ -222,7 +223,7 @@ export function useLocalCharts(
                         [west, south],
                         [east, north],
                     ],
-                    { padding: 40, duration: 1500, retainPadding: false },
+                    { padding: 40, duration: 1500, retainPadding: false, bearing: chartFitBearing(map) },
                 );
                 return;
             }

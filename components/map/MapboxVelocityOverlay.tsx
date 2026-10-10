@@ -68,6 +68,7 @@ import {
     type LocalWind,
 } from './closeInWind';
 import { getBoatWindReadout, resolveBoatWindReadout, setBoatWindReadout } from './boatWindReadout';
+import { chartBearing, chartTurning, subscribeChartTurning } from './chartOrientation';
 
 const log = createLogger('MapboxVelocityOverlay');
 import L from 'leaflet';
@@ -500,21 +501,51 @@ interface SeenAt {
     lon: number;
     centre: { lat: number; lng: number };
     zoom: number;
+    /** A turn alone moves her on screen (127-11a, A3). */
+    bearing: number;
 }
 
 /** About 20 m: GPS jitter at a berth, a few pixels at z14. Any real move waits for a measurement. */
 const SEEN_AT_SLACK_DEG = 0.0002;
 
-/** She is where she was, under the same camera (a resize keeps centre and zoom); another boat followed is elsewhere. */
-function sameSeenAt(a: SeenAt, b: SeenAt): boolean {
+/** She is where she was, under the same camera (a resize keeps centre, zoom and bearing); another boat followed is elsewhere. */
+export function sameSeenAt(a: SeenAt, b: SeenAt): boolean {
     const near = (x: number, y: number) => Math.abs(x - y) <= SEEN_AT_SLACK_DEG;
     return (
         near(a.lat, b.lat) &&
         near(a.lon, b.lon) &&
         near(a.centre.lat, b.centre.lat) &&
         near(a.centre.lng, b.centre.lng) &&
-        Math.abs(a.zoom - b.zoom) < 1e-6
+        Math.abs(a.zoom - b.zoom) < 1e-6 &&
+        Math.abs(a.bearing - b.bearing) < 1e-6
     );
+}
+
+/**
+ * The Leaflet field's CSS transform on a chart that may be turned (127-11a,
+ * audit A1). Leaflet is always north-up, so the div is turned by minus the
+ * bearing about its centre O, the camera centre: `translate(T) rotate(-B)
+ * scale(s)` with T = anchor - O - R(-B) s r, where `anchor` is where Mapbox
+ * draws the last synced centre now and `r` is where Leaflet drew it relative
+ * to O. At bearing 0 this is exactly the translate (and scale) the overlay
+ * always wrote, so a north-up chart is untouched.
+ */
+export function velocityOverlayTransform(f: {
+    anchor: { x: number; y: number };
+    origin: { x: number; y: number };
+    r: { x: number; y: number };
+    s: number;
+    bearing: number;
+}): string {
+    const { anchor, origin, r, s, bearing } = f;
+    const scale = Math.abs(s - 1) > 0.001 ? ` scale(${s})` : '';
+    if (!bearing) return `translate(${anchor.x - origin.x - s * r.x}px, ${anchor.y - origin.y - s * r.y}px)${scale}`;
+    const a = (-bearing * Math.PI) / 180;
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    const tx = anchor.x - origin.x - s * (r.x * cos - r.y * sin);
+    const ty = anchor.y - origin.y - s * (r.x * sin + r.y * cos);
+    return `translate(${tx}px, ${ty}px) rotate(${-bearing}deg)${scale}`;
 }
 
 function onScreen(map: mapboxgl.Map, lat: number, lon: number): boolean {
@@ -568,6 +599,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     boatInstrumentsRef.current = boatInstruments;
     const paletteRef = useRef(palette);
     paletteRef.current = palette;
+    // A turned chart's square field (127-11a) holds today's density only up to
+    // 1.6x today's particle count: 1 north up, below 1 on a portrait phone.
+    const densityRef = useRef(1);
 
     // The zoom gate's own memory (boatWindZoomFor's hysteresis), kept apart
     // from the source shown: a scrub away and back, a feed gap, her leaving
@@ -726,7 +760,13 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         if (!moving) boatZoomRef.current = boatWindZoomFor(boatZoomRef.current, zoom);
         const scrubAtNow = isWindScrubAtNow(windHourRef.current, windNowIdxRef.current);
         const seenAt: SeenAt | null = position
-            ? { lat: position.lat, lon: position.lon, centre: { lat: centre.lat, lng: centre.lng }, zoom }
+            ? {
+                  lat: position.lat,
+                  lon: position.lon,
+                  centre: { lat: centre.lat, lng: centre.lng },
+                  zoom,
+                  bearing: chartBearing(mapboxMap),
+              }
             : null;
         let boatInView = false;
         if (!chartUnmeasured(mapboxMap)) {
@@ -930,7 +970,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 layer,
                 nextData,
                 zoomCompensatedVelocityScale(mapboxMap?.getZoom() ?? VELOCITY_SCALE_REF_ZOOM),
-                zoomScaledParticleMultiplier(mapboxMap?.getZoom() ?? VELOCITY_SCALE_REF_ZOOM),
+                zoomScaledParticleMultiplier(mapboxMap?.getZoom() ?? VELOCITY_SCALE_REF_ZOOM) * densityRef.current,
                 palette,
             );
             if (overlayRef.current) {
@@ -957,6 +997,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         let snapTimer: ReturnType<typeof setTimeout> | null = null;
         let sizeObserver: ResizeObserver | null = null;
         let lateBootTimer: ReturnType<typeof setTimeout> | null = null;
+        let stopTurning = () => {};
 
         const setup = async () => {
             // Ensure Leaflet is on window BEFORE the plugin loads
@@ -994,6 +1035,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             if (cancelled) return;
 
             const container = mapboxMap.getContainer();
+            // Each field starts north up: no square, so no density cap left
+            // over from one torn down while the chart was turned.
+            densityRef.current = 1;
 
             // Create overlay div on top of Mapbox
             const div = document.createElement('div');
@@ -1038,7 +1082,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     null,
                     initialData,
                     zoomCompensatedVelocityScale(mapboxMap.getZoom()),
-                    zoomScaledParticleMultiplier(mapboxMap.getZoom()),
+                    zoomScaledParticleMultiplier(mapboxMap.getZoom()) * densityRef.current,
                     paletteRef.current,
                 );
             }
@@ -1055,6 +1099,15 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             // The Leaflet view the canvas was last truly projected at, plus
             // the sub-pixel residual Leaflet rendered it off-centre by.
             let lastSync: { lat: number; lng: number; zoom: number; rx: number; ry: number } | null = null;
+            // The square's side while the chart may turn (127-11a, A1), else 0:
+            // today's inset:0 div. Leaflet's field is north-up, so on a turned
+            // chart the div turns by minus the bearing about its centre, and a
+            // square of the view's diagonal covers the view at any bearing.
+            let side = 0;
+            // The chart size the square was centred for: a phone turned on
+            // its side swaps w and h and keeps the diagonal, but not the centre.
+            let placedW = 0;
+            let placedH = 0;
 
             // Full sync — expensive, only at gesture end
             const syncFull = () => {
@@ -1063,6 +1116,28 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 try {
                     const c = mapboxMap.getCenter();
                     const zRaw = mapboxMap.getZoom();
+                    const bearing = chartBearing(mapboxMap);
+                    const w = container.clientWidth;
+                    const h = container.clientHeight;
+                    const want = chartTurning() || bearing ? Math.ceil(Math.hypot(w, h)) : 0;
+                    if (w && h && (want !== side || (want && (w !== placedW || h !== placedH)))) {
+                        side = want;
+                        placedW = w;
+                        placedH = h;
+                        const st = overlayRef.current.style;
+                        if (side) {
+                            st.inset = '';
+                            st.left = `${(w - side) / 2}px`;
+                            st.top = `${(h - side) / 2}px`;
+                            st.width = st.height = `${side}px`;
+                        } else {
+                            st.width = st.height = '';
+                            st.inset = '0';
+                        }
+                        // The same density on the bigger canvas, up to 1.6x today's count.
+                        densityRef.current = side ? Math.min(1, (1.6 * w * h) / (side * side)) : 1;
+                        leafletMapRef.current.invalidateSize();
+                    }
                     // The restart this setView triggers re-reads velocityScale,
                     // so hand it the zoom-compensated value first.
                     const windy = (velocityLayerRef.current as MutableVelocityLayer | null)?._windy;
@@ -1072,15 +1147,19 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                         // ramp has to be handed over in the same breath as the
                         // speed one — otherwise zooming in thins the motion
                         // but leaves the swarm.
-                        windy.particleMultiplier = zoomScaledParticleMultiplier(zRaw);
+                        windy.particleMultiplier = zoomScaledParticleMultiplier(zRaw) * densityRef.current;
                     }
                     leafletMapRef.current.setView([c.lat, c.lng], zRaw + 1, { animate: false });
 
-                    // Measure residual error and correct
+                    // Measure residual error and correct. The square sits
+                    // centred on the chart, so in its own pixels the centre
+                    // is that much further in.
                     const mapboxPx = mapboxMap.project([c.lng, c.lat]);
+                    const lx = side ? mapboxPx.x + (side - w) / 2 : mapboxPx.x;
+                    const ly = side ? mapboxPx.y + (side - h) / 2 : mapboxPx.y;
                     const leafletPx = leafletMapRef.current.latLngToContainerPoint([c.lat, c.lng]);
-                    let dx = mapboxPx.x - leafletPx.x;
-                    let dy = mapboxPx.y - leafletPx.y;
+                    let dx = lx - leafletPx.x;
+                    let dy = ly - leafletPx.y;
                     if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
                         // A genuine sub-pixel residual is <1 px. Tens of px
                         // means Leaflet is projecting against a STALE cached
@@ -1096,10 +1175,18 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                         leafletMapRef.current.invalidateSize();
                         leafletMapRef.current.setView([c.lat, c.lng], zRaw + 1, { animate: false });
                         const healedPx = leafletMapRef.current.latLngToContainerPoint([c.lat, c.lng]);
-                        dx = mapboxPx.x - healedPx.x;
-                        dy = mapboxPx.y - healedPx.y;
+                        dx = lx - healedPx.x;
+                        dy = ly - healedPx.y;
                     }
-                    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+                    if (bearing) {
+                        overlayRef.current.style.transform = velocityOverlayTransform({
+                            anchor: mapboxPx,
+                            origin: mapboxPx,
+                            r: { x: -dx, y: -dy },
+                            s: 1,
+                            bearing,
+                        });
+                    } else if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
                         overlayRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
                     } else {
                         overlayRef.current.style.transform = '';
@@ -1119,17 +1206,15 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 if (!leafletMapRef.current || !mapboxMap || !overlayRef.current || !lastSync) return;
                 try {
                     const cam = mapboxMap.getCenter();
-                    const camPx = mapboxMap.project([cam.lng, cam.lat]);
-                    const anchorPx = mapboxMap.project([lastSync.lng, lastSync.lat]);
-                    const s = Math.pow(2, mapboxMap.getZoom() - lastSync.zoom);
-                    const tx = anchorPx.x - camPx.x - s * lastSync.rx;
-                    const ty = anchorPx.y - camPx.y - s * lastSync.ry;
                     // transform-origin is the div centre, which is exactly
-                    // where the camera centre projects (the div is inset:0).
-                    overlayRef.current.style.transform =
-                        Math.abs(s - 1) > 0.001
-                            ? `translate(${tx}px, ${ty}px) scale(${s})`
-                            : `translate(${tx}px, ${ty}px)`;
+                    // where the camera centre projects (the div is centred).
+                    overlayRef.current.style.transform = velocityOverlayTransform({
+                        anchor: mapboxMap.project([lastSync.lng, lastSync.lat]),
+                        origin: mapboxMap.project([cam.lng, cam.lat]),
+                        r: { x: lastSync.rx, y: lastSync.ry },
+                        s: Math.pow(2, mapboxMap.getZoom() - lastSync.zoom),
+                        bearing: chartBearing(mapboxMap),
+                    });
                 } catch (_) {
                     /* ok */
                 }
@@ -1169,6 +1254,8 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             };
             mapboxMap.on('zoomend', onViewEnd);
             mapboxMap.on('moveend', onViewEnd);
+            // A turning mode on or off re-shapes the div once, at once.
+            stopTurning = subscribeChartTurning(syncFull);
 
             syncRef.current = syncFull;
             moveRef.current = trackCamera;
@@ -1219,6 +1306,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 sizeObserver.disconnect();
                 sizeObserver = null;
             }
+            stopTurning();
 
             try {
                 if (moveRef.current) {

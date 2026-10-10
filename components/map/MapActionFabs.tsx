@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { triggerHaptic } from '../../utils/system';
 import { chartMapBeside, onChartMapsChanged } from './chartMapRegistry';
+import { isOrientationEvent } from './chartOrientation';
 import { PHONE_GLYPH_PATHS } from './phoneMarker';
 
 // PARKED (Shane 2026-07-17: "remove that bottom right fab, and replace it
@@ -172,8 +173,9 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({
             };
             watching = stop;
             function onMoveStart(event: unknown) {
-                // The skipper panning meanwhile is not the answer.
-                if (isGesture(event) || answerComing) return;
+                // The skipper panning meanwhile is not the answer, nor the
+                // chart turning to its orientation mode (127-11a).
+                if (isGesture(event) || isOrientationEvent(event) || answerComing) return;
                 stop();
                 setLocate('idle');
                 setAnnouncement('Chart centred on your position.');

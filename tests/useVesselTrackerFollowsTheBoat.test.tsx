@@ -49,10 +49,12 @@ const deps = vi.hoisted(() => ({
 const markers = vi.hoisted(() => {
     class Marker {
         element: HTMLElement;
+        options: Record<string, unknown>;
         lngLat: [number, number] | null = null;
         removed = false;
         constructor(options: { element: HTMLElement }) {
             this.element = options.element;
+            this.options = options;
             all.push(this);
         }
         setLngLat = vi.fn((lngLat: [number, number]) => {
@@ -249,7 +251,13 @@ async function settle() {
 
 function fakeMap() {
     const listeners = new Map<string, Set<(event?: unknown) => void>>();
+    const camera = { bearing: 0 };
     return {
+        /** Turn the chart, as an orientation mode would (127-11a): the bearing, then 'rotate'. */
+        turn(bearing: number) {
+            camera.bearing = bearing;
+            for (const listener of [...(listeners.get('rotate') ?? [])]) listener({ type: 'rotate' });
+        },
         jumpTo: vi.fn(),
         flyTo: vi.fn(),
         on: vi.fn((name: string, listener: (event?: unknown) => void) => {
@@ -261,7 +269,7 @@ function fakeMap() {
             listeners.get(name)?.delete(listener);
         }),
         once: vi.fn(),
-        getBearing: () => 0,
+        getBearing: () => camera.bearing,
         getSource: () => undefined,
         getLayer: () => undefined,
         addSource: vi.fn(),
@@ -1112,5 +1120,81 @@ describe('source guards', () => {
         // And the marker does not hold the cloud lane open: that would put the row into
         // NmeaStore, where the arbiter would hand it to Guardian, AIS and the diary as 'nmea'.
         expect(source).not.toMatch(/CloudTelemetryService\.retain\(/);
+    });
+});
+
+/**
+ * The chart turns (127-11a, audit A4; Shane 2026-10-10: "oh, um add in the
+ * course up and north up etc. that is cool to see as well"). Mapbox turns a
+ * 'map'-aligned marker root by minus the bearing, and everything inside it
+ * with it: at 90° 'Stopped' and '6.2 kts' read vertically above the boat and
+ * her wind chip hangs beside her. The root stands upright now; only her hull
+ * and her wind arrow turn, each by its own true bearing minus the chart's.
+ */
+describe('the chart turned: her words stay upright, her arrows stay true', () => {
+    const HERS: BoatWindReadout = {
+        wind: { kt: 14, fromDeg: 200, stale: false },
+        boat: { crewOwnerId: null },
+        fieldShowsHers: false,
+    };
+    beforeEach(() => {
+        follow('boat');
+        deps.piBaseUrl = 'https://pi.test:3001';
+    });
+    afterEach(() => setBoatWindReadout(null));
+
+    const hull = () => (vesselMarker()!.element.querySelector('.vessel-arrow') as HTMLElement).style.transform;
+    const windArrow = () =>
+        (vesselMarker()!.element.querySelector('.vessel-wind-arrow') as HTMLElement).style.transform;
+
+    it('the marker is created upright on screen (viewport-aligned), never turned with the chart', async () => {
+        cloudRow(cloudFixAt(BOAT, NOW - 4_000, { sogKts: 6.2, cogDeg: 135 }));
+        mountObs();
+        await settle();
+        act(() => vi.advanceTimersByTime(1_000));
+        expect(vesselMarker()!.options).toMatchObject({ rotationAlignment: 'viewport' });
+    });
+
+    it('her hull turns by course minus bearing, repainted on every turn of the chart', async () => {
+        cloudRow(cloudFixAt(BOAT, NOW - 4_000, { sogKts: 6.2, cogDeg: 135 }));
+        const { map } = mountObs();
+        await settle();
+        act(() => vi.advanceTimersByTime(1_000));
+        expect(hull()).toBe('rotate(135deg)');
+        act(() => map.turn(60));
+        expect(hull()).toBe('rotate(75deg)');
+        act(() => map.turn(180));
+        expect(hull()).toBe('rotate(-45deg)');
+        // Her words never turn: the badge carries no rotation of its own.
+        expect(badge()).toBe('6.2 kts');
+        expect((vesselMarker()!.element.querySelector('.vessel-sog-badge') as HTMLElement).style.transform).toBe(
+            'translateY(-50%)',
+        );
+    });
+
+    it('her wind arrow turns by where the wind blows to, minus the bearing', async () => {
+        cloudRow(cloudFixAt(BOAT, NOW - 5_000, { sogKts: 0.1 }));
+        const { map } = mountObs();
+        await settle();
+        act(() => vi.advanceTimersByTime(1_000));
+        act(() => setBoatWindReadout(HERS));
+        expect(windArrow()).toBe('rotate(20deg)'); // from 200°: it blows to 020°
+        act(() => map.turn(60));
+        expect(windArrow()).toBe('rotate(-40deg)');
+    });
+
+    it('the side-on boat (no bow bearing) is simply upright: no counter-turn is needed', async () => {
+        cloudRow(cloudFixAt(BOAT, NOW - 5_000, { sogKts: 0.1 }));
+        const { map } = mountObs();
+        await settle();
+        act(() => vi.advanceTimersByTime(1_000));
+        act(() => map.turn(60));
+        expect(hull()).toBe('rotate(0deg)');
+        expect(vesselMarker()!.element.querySelector('.vessel-neutral-shape')!.getAttribute('transform')).toBeNull();
+    });
+
+    it('uprightOwnshipNeutral is gone: nothing counter-turns inside an upright marker', async () => {
+        const tracker = await import('../components/map/useVesselTracker');
+        expect('uprightOwnshipNeutral' in tracker).toBe(false);
     });
 });

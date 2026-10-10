@@ -229,7 +229,7 @@ describe('useAisStreamLayer request lifecycle', () => {
         });
 
         const clickHandler = map.on.mock.calls.find(
-            ([event, layer]) => event === 'click' && layer === 'ais-targets-circle',
+            ([event, layer]) => event === 'click' && [layer].flat().includes('ais-targets-circle'),
         )?.[2] as ((event: unknown) => void) | undefined;
         expect(clickHandler).toBeTypeOf('function');
 
@@ -260,7 +260,7 @@ describe('useAisStreamLayer request lifecycle', () => {
         const { map } = makeMap();
         const { unmount } = renderHook(() => useAisStreamLayer(map as never, true));
         const clickHandler = map.on.mock.calls.find(
-            ([event, layer]) => event === 'click' && layer === 'ais-targets-circle',
+            ([event, layer]) => event === 'click' && [layer].flat().includes('ais-targets-circle'),
         )?.[2] as ((event: unknown) => void) | undefined;
 
         vi.useFakeTimers();
@@ -273,5 +273,26 @@ describe('useAisStreamLayer request lifecycle', () => {
 
         unmount();
         expect(document.getElementById('vessel-detail-modal')).toBeNull();
+    });
+});
+
+// A distress beacon draws on its own upright layer (127-11a, A5): a tap on it
+// must still open the target, once, as a tap on a boat does.
+describe('useAisStreamLayer taps on a distress beacon', () => {
+    it('listens for taps, hover in and hover out on the boat and beacon layers together, and lets go of both', () => {
+        mocks.fetchNearby.mockResolvedValue({ type: 'FeatureCollection', features: [] });
+        const { map } = makeMap();
+        const { unmount } = renderHook(() => useAisStreamLayer(map as never, true));
+        for (const event of ['click', 'mouseenter', 'mouseleave']) {
+            const call = map.on.mock.calls.find(([name]) => name === event);
+            expect(call?.[1]).toEqual(['ais-targets-circle', 'ais-targets-sart']);
+        }
+        unmount();
+        for (const event of ['click', 'mouseenter', 'mouseleave']) {
+            const on = map.on.mock.calls.find(([name]) => name === event);
+            const off = map.off.mock.calls.find(([name]) => name === event);
+            expect(off?.[1]).toEqual(['ais-targets-circle', 'ais-targets-sart']);
+            expect(off?.[2]).toBe(on?.[2]);
+        }
     });
 });

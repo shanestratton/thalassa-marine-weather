@@ -3,7 +3,7 @@
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import '../../index.css';
-import { createVesselElement } from '../../components/map/useVesselTracker';
+import { OWNSHIP_MARKER_OPTIONS, createVesselElement } from '../../components/map/useVesselTracker';
 import { buildFlagElement } from '../../components/map/useDestinationFlag';
 import { buildMobElement } from '../../components/map/useMobMarker';
 import { createRouteGhostEl } from '../../components/map/useRouteGhostMarker';
@@ -32,12 +32,7 @@ const markers = [
     new mapboxgl.Marker({ element: buildFlagElement('Test destination'), anchor: 'bottom' }),
     new mapboxgl.Marker({ element: createRouteGhostEl().root, anchor: 'center' }),
     new mapboxgl.Marker({ element: buildMobElement().el, anchor: 'center' }),
-    new mapboxgl.Marker({
-        element: createVesselElement(),
-        anchor: 'center',
-        rotationAlignment: 'map',
-        pitchAlignment: 'map',
-    }),
+    new mapboxgl.Marker({ element: createVesselElement(), ...OWNSHIP_MARKER_OPTIONS }),
 ];
 for (const marker of markers) marker.setLngLat(coordinate).addTo(map);
 let busy = false;

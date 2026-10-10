@@ -149,6 +149,9 @@ export default defineConfig({
         // the planner's controls, dark streaks on Light, the model credit, the models' agreement,
         // and the wind credit on the phone's Obs, offline with a stubbed proxy-openmeteo.
         'desk-wind-layout.spec.ts',
+        // The chart can turn (127-11a): the wind field, her marker and a distress
+        // beacon stay true at a fixed bearing (e2e/fixtures/chart-orientation.tsx).
+        'chart-orientation.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
