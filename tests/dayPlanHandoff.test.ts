@@ -322,7 +322,8 @@ describe('MapHub opens a plot-day request in the Manual plotter', () => {
         expect(branch).toContain('setCapturedCoords(plot.points)');
         expect(branch).toContain('setTraceName(plot.name)');
         expect(branch).toContain('setSavedTraces(loadSavedTraces())');
-        expect(branch).toContain('fitTraceBounds(mapRef.current, plot.points)');
+        expect(branch).toContain('fitTraceBounds(mapRef.current, points)');
+        expect(branch).toContain('flyWhenReady(plot.frame ? [plot.frame.from, plot.frame.to] : plot.points)');
         expect(branch).toContain('tracerHandoffTimersRef.current.add(timer)');
         expect(branch).toContain('1_200');
         expect(branch).toContain('isAuthIdentityScopeCurrent(requestScope)');
@@ -330,11 +331,28 @@ describe('MapHub opens a plot-day request in the Manual plotter', () => {
         expect(branch).not.toMatch(/\bsaveTrace\(|commitTraceSave\(|decideTraceSave\(/);
     });
 
-    it('tells the skipper what the straight lines are, and what checks them', () => {
+    it('never says "straight lines": a routed line, her saved route, or two marks and why', () => {
+        expect(branch).not.toMatch(/Straight lines/);
         expect(branch).toContain(
-            '`Straight lines to ${plot.stop}: drag pins round the land, then Route report checks your charts`',
+            "`Plan Your Day's route to ${plot.stop}: Route report is checking it; Sail follows it, Save keeps it.${plot.outOnly ? ' Home: Reverse route.' : ''}`",
         );
         expect(branch).toContain('`Your saved route to ${plot.stop}: Route report checks it against your charts`');
+        expect(branch).toContain('Drop pins round the land; Route report checks them.');
+    });
+
+    it('a Plan Your Day frame sets the two marks with its kind, so no straight hint is drawn', () => {
+        expect(branch).toContain('setTraceOrigin(plot.frame?.from ?? null)');
+        expect(branch).toContain('setTraceDest(plot.frame?.to ?? null)');
+        expect(branch).toContain("if (plot.frame) setTraceFrameKind('day-plan')");
+        expect(code).toContain("destHint: traceFrameKind !== 'day-plan'");
+        // The parked course frame still says it is the course frame.
+        expect(code).toMatch(
+            /setTraceDest\(\{ lat: d\.lat, lon: d\.lon, name: d\.name \}\);\s*setTraceFrameKind\('course'\)/,
+        );
+    });
+
+    it('marks a routed line as routed for the plotter (127-C-b reads it)', () => {
+        expect(branch).toContain("if (plot.routed) setDraftSource('day-plan-route')");
     });
 
     it('says so on the chart when it cannot use the pins (the plotter is already open)', () => {

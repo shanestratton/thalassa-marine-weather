@@ -433,6 +433,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         setTraceOrigin,
         traceDest,
         setTraceDest,
+        traceFrameKind,
+        setTraceFrameKind,
+        setDraftSource,
         reverseDirection,
         returnPlan,
         setReturnPlan,
@@ -843,28 +846,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                     );
                 }
             } else if (action?.kind === 'plot-day') {
-                // Plan Your Day's "Plot on chart" (build 124): straight pins
-                // start → stop (→ start for a day trip), or the skipper's own
-                // saved route, as an UNSAVED draft in the Manual plotter. Both
-                // ⚡ buttons are parked, so the skipper drags the pins round
-                // the land and the Route report checks them against the
-                // charts. The departure was set before the request
-                // (services/planDeparture), so the tide windows follow it.
+                // Plan Your Day's "Plot on chart", as an UNSAVED draft in the
+                // Manual plotter. Never a straight line (127-PYD-3): the line
+                // Thalassa routed round the land, her own saved route, or no
+                // line at all, only the start and stop marks (a Plan Your Day
+                // frame, whose bearing hint is never drawn). The departure was
+                // set before the request (services/planDeparture), so the tide
+                // windows follow it.
                 const plot = plotDayPins(action);
-                if (plot) {
-                    setLegAnchor(null); // a new route, edited standalone
-                    clearReturnContext(); // …and not part of a trip home
-                    setSelectedPin(null);
-                    setOverwriteArm(null);
-                    setTraceOrigin(null);
-                    setTraceDest(null);
-                    rebaseHistoryRef.current = true; // a different route → Undo floor
-                    setCapturedCoords(plot.points);
-                    // Our name, kept as the skipper's: moving a pin does not retitle it.
-                    setTraceName(plot.name);
-                    lastAutoNameRef.current = '';
-                    setSavedTraces(loadSavedTraces());
-                    const fly = () => mapRef.current && fitTraceBounds(mapRef.current, plot.points);
+                const flyWhenReady = (points: { lat: number; lon: number }[]) => {
+                    const fly = () => mapRef.current && fitTraceBounds(mapRef.current, points);
                     if (mapRef.current) {
                         if (isAuthIdentityScopeCurrent(requestScope)) fly();
                     } else {
@@ -874,10 +865,30 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }, 1_200);
                         tracerHandoffTimersRef.current.add(timer);
                     }
+                };
+                if (plot) {
+                    setLegAnchor(null); // a new route, edited standalone
+                    clearReturnContext(); // …and not part of a trip home
+                    setSelectedPin(null);
+                    setOverwriteArm(null);
+                    setTraceOrigin(plot.frame?.from ?? null);
+                    setTraceDest(plot.frame?.to ?? null);
+                    if (plot.frame) setTraceFrameKind('day-plan');
+                    rebaseHistoryRef.current = true; // a different route → Undo floor
+                    setCapturedCoords(plot.points);
+                    // Read by 127-C-b: this line was routed on her charts.
+                    if (plot.routed) setDraftSource('day-plan-route');
+                    // Our name, kept as the skipper's: moving a pin does not retitle it.
+                    setTraceName(plot.name);
+                    lastAutoNameRef.current = '';
+                    setSavedTraces(loadSavedTraces());
+                    flyWhenReady(plot.frame ? [plot.frame.from, plot.frame.to] : plot.points);
                     flashTraceFeedback(
-                        plot.savedRoute
-                            ? `Your saved route to ${plot.stop}: Route report checks it against your charts`
-                            : `Straight lines to ${plot.stop}: drag pins round the land, then Route report checks your charts`,
+                        plot.frame
+                            ? `${plot.frame.why ? `${plot.frame.why} ` : ''}Drop pins round the land; Route report checks them.`
+                            : plot.routed
+                              ? `Plan Your Day's route to ${plot.stop}: Route report is checking it; Sail follows it, Save keeps it.${plot.outOnly ? ' Home: Reverse route.' : ''}`
+                              : `Your saved route to ${plot.stop}: Route report checks it against your charts`,
                     );
                 } else {
                     // Never a silent dead end: the plotter is open, so say why it is empty.
@@ -1086,6 +1097,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         ghostLanes,
         traceOrigin,
         traceDest,
+        // A Plan Your Day frame never draws the straight bearing hint (127-PYD-3).
+        destHint: traceFrameKind !== 'day-plan',
     });
     // START / 🏁 ghost rings for the course frame —
     // components/map/useTracerFrameMarkers.ts. Called BEFORE the pin markers
@@ -2823,6 +2836,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             const d = await parseLocation(to, { lat: o.lat, lon: o.lon });
             setTraceOrigin({ lat: o.lat, lon: o.lon, name: o.name });
             setTraceDest({ lat: d.lat, lon: d.lon, name: d.name });
+            setTraceFrameKind('course');
             if (mapRef.current) tracerFlyTo(mapRef.current, o, 14.5, 1400);
             // Geocoder sanity flash — "Mooloolaba Marina" once matched
             // Marina del Rey, California (proximity bias lost to the word
@@ -2841,7 +2855,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         } finally {
             setFrameBusy(false);
         }
-    }, [fromQuery, toQuery, frameBusy, flashTraceFeedback, setTraceDest, setTraceOrigin]);
+    }, [fromQuery, toQuery, frameBusy, flashTraceFeedback, setTraceDest, setTraceOrigin, setTraceFrameKind]);
 
     const clearCourseFrame = useCallback(() => {
         setTraceOrigin(null);
