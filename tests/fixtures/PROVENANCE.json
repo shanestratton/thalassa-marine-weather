@@ -77,6 +77,38 @@
             "source": "OpenStreetMap overlay for the Newport to Pinkenba bbox, as the Pi's /api/osm/overlay served it (Overpass), captured 2026-07-31.",
             "credit": "© OpenStreetMap contributors (ODbL)"
         },
+        "tests/fixtures/routeJob/archipelago-12nm.json": {
+            "licence": "synthetic",
+            "source": "Route-job golden (a sha256 and a short summary of the router's answer), captured on the unchanged 127 code from the synthetic archipelago in tests/helpers/routeJobScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids). 127-ROUTE-W1."
+        },
+        "tests/fixtures/routeJob/archipelago-20nm.json": {
+            "licence": "synthetic",
+            "source": "Route-job golden (a sha256 and a short summary of the router's answer), captured on the unchanged 127 code from the synthetic archipelago in tests/helpers/routeJobScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids). 127-ROUTE-W1."
+        },
+        "tests/fixtures/routeJob/archipelago-5nm.json": {
+            "licence": "synthetic",
+            "source": "Route-job golden (a sha256 and a short summary of the router's answer), captured on the unchanged 127 code from the synthetic archipelago in tests/helpers/routeJobScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids). 127-ROUTE-W1."
+        },
+        "tests/fixtures/routeJob/atlantic-promoted.json": {
+            "licence": "synthetic",
+            "source": "Route-job golden (a sha256 and a short summary of the router's answer), captured on the unchanged 127 code from the synthetic open North Atlantic buoyed channel and land wall in tests/helpers/routeJobScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids). 127-ROUTE-W1."
+        },
+        "tests/fixtures/routeJob/noaa-permissive-engine.json": {
+            "licence": "public-domain",
+            "source": "Route-job golden (a sha256 and a short summary of the router's answer), captured on the unchanged 127 code over NOAA ENC US5GA22M (public domain; the public/enc-samples copy) in tests/helpers/routeJobScenes.ts. 127-ROUTE-W1."
+        },
+        "tests/fixtures/routeJob/noaa-strict-refusal.json": {
+            "licence": "public-domain",
+            "source": "Route-job golden (a sha256 and a short summary of the router's answer), captured on the unchanged 127 code over NOAA ENC US5GA22M (public domain; the public/enc-samples copy) in tests/helpers/routeJobScenes.ts. 127-ROUTE-W1."
+        },
+        "tests/fixtures/routeJob/provider-archipelago-5nm-verified.json": {
+            "licence": "synthetic",
+            "source": "Route-job golden (a sha256 and a short summary of the router's answer), captured on the unchanged 127 code from the synthetic archipelago in tests/helpers/routeJobScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids). 127-ROUTE-W1."
+        },
+        "tests/fixtures/routeJob/provider-atlantic-unavailable.json": {
+            "licence": "synthetic",
+            "source": "Route-job golden (a sha256 and a short summary of the router's answer), captured on the unchanged 127 code from the synthetic open North Atlantic buoyed channel and land wall in tests/helpers/routeJobScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids). 127-ROUTE-W1."
+        },
         "tests/fixtures/se-qld-nav-markers.json.gz": {
             "licence": "odbl",
             "source": "Thalassa's SE-QLD regional marker file: OpenStreetMap seamark nodes with the seamark: prefix stripped (scripts/extract_seamarks.py). Every class is OpenStreetMap's own; the one hand retag the file once carried, taken from a commercial chart, was put back to OpenStreetMap's tags in 127.",
