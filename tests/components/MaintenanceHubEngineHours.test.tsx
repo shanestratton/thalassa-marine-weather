@@ -45,8 +45,10 @@ vi.mock('../../services/vessel/LocalDatabase', () => ({
 vi.mock('../../services/vessel/LocalMaintenanceService', () => ({
     LocalMaintenanceService: {
         getTasks: vi.fn(async () => mocks.tasks),
+        // R&M loads paused tasks too (126-B7a).
+        getAllTasks: vi.fn(async () => mocks.tasks),
         seedDefaults: vi.fn().mockResolvedValue(0),
-        getHistory: vi.fn().mockResolvedValue([]),
+        getHistory: vi.fn().mockReturnValue([]),
         logService: mocks.logService,
         scheduleHourTasksFromFirstReading: mocks.schedule,
         createTask: vi.fn(),
@@ -379,8 +381,12 @@ describe('engine hours schedule the hour tasks from the first reading', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Log service' }));
 
         await waitFor(() => expect(mocks.logService).toHaveBeenCalledWith('task-hours', null, null, null));
+        // The skipper's own binder: with its Undo (126-B7a).
         await waitFor(() =>
-            expect(toast.success).toHaveBeenCalledWith('Service logged. Enter engine hours to schedule the next one.'),
+            expect(toast.success).toHaveBeenCalledWith(
+                'Service logged. Enter engine hours to schedule the next one.',
+                expect.objectContaining({ label: 'Undo' }),
+            ),
         );
     });
 });

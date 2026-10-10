@@ -16,10 +16,9 @@ import {
     canSeedOwnBinder,
 } from './sharedBinders';
 import { getAuthIdentityScope } from '../authIdentityScope';
-import { calculateStatus, sortByUrgency, type TaskWithStatus } from '../MaintenanceService';
 import { LocalEngineHoursService } from './LocalEngineHoursService';
 import { DATA_EVENTS, dispatchDataChange } from '../../utils/dataChangeEvents';
-import type { MaintenanceTask, MaintenanceHistory, MaintenanceCategory } from '../../types';
+import type { MaintenanceTask, MaintenanceHistory } from '../../types';
 
 const TASKS_TABLE = 'maintenance_tasks';
 const HISTORY_TABLE = 'maintenance_history';
@@ -39,6 +38,36 @@ function writableTask(id: string): MaintenanceTask | null {
     return task;
 }
 
+/**
+ * What one logged service changed on its task, so its Undo can put it back
+ * (126-B7a): the record it added, the three fields it wrote, and their values
+ * before it.
+ */
+export interface LoggedService {
+    historyId: string;
+    taskId: string;
+    nextDueDate: string | null;
+    nextDueHours: number | null;
+    /** last_completed as this log wrote it. */
+    loggedAt: string;
+    previous: Pick<MaintenanceTask, 'next_due_date' | 'next_due_hours' | 'last_completed'>;
+}
+
+/**
+ * The same moment, or both unset. Once the log syncs, the server's copy
+ * ("...+00:00", trailing zeros trimmed) replaces this device's "...Z" text.
+ */
+function sameInstant(a: string | null | undefined, b: string | null | undefined): boolean {
+    return (a ?? null) === (b ?? null) || (!!a && !!b && Date.parse(a) === Date.parse(b));
+}
+
+/** Pause or resume, refusing (before anything is queued) a change the share forbids. */
+async function setActive(id: string, isActive: boolean): Promise<void> {
+    writableTask(id);
+    await updateLocal<MaintenanceTask>(TASKS_TABLE, id, { is_active: isActive });
+    dispatchDataChange(DATA_EVENTS.MAINTENANCE);
+}
+
 export class LocalMaintenanceService {
     // ── TASKS (READ) ──
 
@@ -51,18 +80,6 @@ export class LocalMaintenanceService {
     /** Get all tasks including paused */
     static getAllTasks(): MaintenanceTask[] {
         return query<MaintenanceTask>(TASKS_TABLE, binderRowFilter(REGISTER));
-    }
-
-    /** Get tasks by category */
-    static getByCategory(category: MaintenanceCategory): MaintenanceTask[] {
-        const inBinder = binderRowFilter(REGISTER);
-        return query<MaintenanceTask>(TASKS_TABLE, (t) => inBinder(t) && t.category === category && t.is_active);
-    }
-
-    /** Get tasks with traffic light status, sorted by urgency */
-    static getTasksWithStatus(engineHours: number): TaskWithStatus[] {
-        const tasks = LocalMaintenanceService.getTasks();
-        return sortByUrgency(tasks.map((t) => calculateStatus(t, engineHours)));
     }
 
     // ── TASKS (WRITE) ──
@@ -94,13 +111,17 @@ export class LocalMaintenanceService {
         return updated;
     }
 
-    /** Soft-delete (pause) a task */
-    static async deactivateTask(id: string): Promise<void> {
-        writableTask(id);
-        await updateLocal<MaintenanceTask>(TASKS_TABLE, id, {
-            is_active: false,
-        } as Partial<MaintenanceTask>);
-        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
+    /**
+     * Pause a task: it leaves the list and every due count, and keeps its
+     * service history. Crew on a writable share may pause and resume.
+     */
+    static deactivateTask(id: string): Promise<void> {
+        return setActive(id, false);
+    }
+
+    /** Resume a paused task (126-B7a). */
+    static resumeTask(id: string): Promise<void> {
+        return setActive(id, true);
     }
 
     /** Hard-delete a task */
@@ -125,7 +146,7 @@ export class LocalMaintenanceService {
         engineHours: number | null,
         notes: string | null,
         cost: number | null,
-    ): Promise<{ historyId: string; nextDueDate: string | null; nextDueHours: number | null }> {
+    ): Promise<LoggedService> {
         const task = writableTask(taskId);
         if (!task) throw new Error('Task not found');
 
@@ -188,9 +209,42 @@ export class LocalMaintenanceService {
 
         return {
             historyId: historyRecord.id,
+            taskId,
             nextDueDate,
             nextDueHours,
+            loggedAt: now,
+            previous: {
+                next_due_date: task.next_due_date,
+                next_due_hours: task.next_due_hours,
+                last_completed: task.last_completed,
+            },
         };
+    }
+
+    /**
+     * Take back a logged service (126-B7a): its record goes, and the task's
+     * next due and last serviced come back, but only while the task still
+     * holds what that log wrote. A service logged since, here or on another
+     * device, keeps its newer due and only this log's record goes. Deletes
+     * are the binder owner's (RLS), so crew are refused before anything is
+     * queued. `restored` says whether the task was put back.
+     */
+    static async undoLogService(logged: LoggedService): Promise<{ restored: boolean }> {
+        const record = getById<MaintenanceHistory>(HISTORY_TABLE, logged.historyId);
+        const task = getById<MaintenanceTask>(TASKS_TABLE, logged.taskId);
+        assertBinderDeletable(REGISTER, record ?? task);
+        const untouched =
+            task &&
+            sameInstant(task.next_due_date, logged.nextDueDate) &&
+            (task.next_due_hours ?? null) === (logged.nextDueHours ?? null) &&
+            sameInstant(task.last_completed, logged.loggedAt)
+                ? task
+                : null;
+        if (untouched) writableTask(untouched.id);
+        await deleteLocal(HISTORY_TABLE, logged.historyId);
+        if (untouched) await updateLocal<MaintenanceTask>(TASKS_TABLE, untouched.id, logged.previous);
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
+        return { restored: !!untouched };
     }
 
     /**
@@ -233,7 +287,7 @@ export class LocalMaintenanceService {
         return scheduled;
     }
 
-    // ── HISTORY (READ) ──
+    // ── HISTORY ──
 
     /** Get service history for a specific task */
     static getHistory(taskId: string): MaintenanceHistory[] {
@@ -242,35 +296,16 @@ export class LocalMaintenanceService {
         return items.sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
     }
 
-    /** Get all history (recent first) */
-    static getAllHistory(limit: number = 50): MaintenanceHistory[] {
-        return query<MaintenanceHistory>(HISTORY_TABLE, binderRowFilter(REGISTER))
-            .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime())
-            .slice(0, limit);
+    /**
+     * Remove one mistaken record (126-B7a). The task's next due is left as it
+     * is. Owner only: crew are refused before anything is queued.
+     */
+    static async deleteHistory(id: string): Promise<void> {
+        assertBinderDeletable(REGISTER, getById<MaintenanceHistory>(HISTORY_TABLE, id));
+        await deleteLocal(HISTORY_TABLE, id);
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
     }
 
-    // ── STATS ──
-
-    /** Get maintenance overview stats */
-    static getStats(engineHours: number): {
-        totalTasks: number;
-        overdue: number;
-        dueSoon: number;
-        ok: number;
-        totalSpent: number;
-    } {
-        const statuses = LocalMaintenanceService.getTasksWithStatus(engineHours);
-        const history = LocalMaintenanceService.getAllHistory(500);
-        const totalSpent = history.reduce((sum, h) => sum + (h.cost || 0), 0);
-
-        return {
-            totalTasks: statuses.length,
-            overdue: statuses.filter((t) => t.status === 'red').length,
-            dueSoon: statuses.filter((t) => t.status === 'yellow').length,
-            ok: statuses.filter((t) => t.status === 'green').length,
-            totalSpent,
-        };
-    }
     // ── SEED DEFAULTS (Offline) ──
 
     /**

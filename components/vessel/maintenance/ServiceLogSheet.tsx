@@ -21,20 +21,36 @@ interface ServiceLogSheetProps {
     onLog: () => void;
     onHistory: () => void;
     onEdit: () => void;
+    /** Pause an active task (126-B7a); the button shows when given. */
+    onPause?: () => void;
+    /** A paused task's primary action, in place of Log service. */
+    onResume?: () => void;
     onClose: () => void;
 }
 
 /**
- * '7:34 pm' when the task was last logged earlier today (local day), else
- * null. Logging again stays allowed: this only says it has been done, which
- * the sheet never did (a daily check was logged nine times on 2026-10-02).
- * The clock form is the one FoundingSkipperInbox uses ('Updated 7:34 pm').
+ * The phone's own clock for an instant: '7:34 pm', '7:34 PM' or '19:34', as
+ * the device's region and language set it, never one country's form (126-B7a).
+ */
+export function clockTime(iso: string): string | null {
+    const at = new Date(iso);
+    return Number.isNaN(at.getTime()) ? null : at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+/**
+ * The clock time when the task was last logged earlier today (local day),
+ * else null. Logging again stays allowed: this only says it has been done,
+ * which the sheet never did (a daily check was logged nine times on
+ * 2026-10-02), and Service logged · Undo takes a mistaken one back.
  */
 function loggedTodayAt(lastCompleted: string | null | undefined): string | null {
-    if (!lastCompleted || !isLocalToday(lastCompleted)) return null;
-    const at = new Date(lastCompleted);
-    return Number.isNaN(at.getTime()) ? null : at.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' });
+    return lastCompleted && isLocalToday(lastCompleted) ? clockTime(lastCompleted) : null;
 }
+
+/** The secondary row's buttons: equal thirds that never wrap at 320 pt. */
+const SECONDARY =
+    'flex min-h-[44px] flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border px-2 py-3 text-xs font-bold transition-colors';
+const NEUTRAL = `${SECONDARY} border-white/10 bg-white/5 text-gray-300 hover:bg-white/10`;
 
 export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
     task,
@@ -45,6 +61,8 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
     onLog,
     onHistory,
     onEdit,
+    onPause,
+    onResume,
     onClose,
 }) => {
     const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -53,10 +71,18 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
         initialFocusRef: closeButtonRef,
         onEscape: onClose,
     });
-    const alreadyLoggedAt = loggedTodayAt(task.last_completed);
+    const paused = !task.is_active;
+    const alreadyLoggedAt = paused ? null : loggedTodayAt(task.last_completed);
 
     return (
-        <OverlayPortal className="flex items-center justify-center p-4" onClick={onClose} role="presentation">
+        // Centred in the screen above the tab bar, scrolling inside only when it
+        // must: the 12rem margin left Log service under the fold at 320x568
+        // once it had a row of its own (126-B7a).
+        <OverlayPortal
+            className="flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)]"
+            onClick={onClose}
+            role="presentation"
+        >
             {/* Backdrop */}
             <div className="absolute inset-0 bg-black/60" />
 
@@ -66,7 +92,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="service-log-title"
-                className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 animate-in fade-in zoom-in-95 duration-300 max-h-[calc(100dvh-12rem)] overflow-y-auto"
+                className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl p-5 animate-in fade-in zoom-in-95 duration-300 max-h-full overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Close X */}
@@ -103,8 +129,14 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                     </div>
                 </div>
 
+                {paused && (
+                    <p className="mb-4 text-sm text-gray-300">
+                        Paused: it isn&apos;t counted as due until you resume it.
+                    </p>
+                )}
+
                 {/* Engine hours snapshot — only for engine-based tasks */}
-                {task.trigger_type === 'engine_hours' && (
+                {!paused && task.trigger_type === 'engine_hours' && (
                     <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4">
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest mb-1">
                             Engine hours at service
@@ -122,22 +154,24 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                     </div>
                 )}
 
-                {/* Notes */}
-                <div className="mb-4">
-                    <label
-                        htmlFor={notesId}
-                        className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1"
-                    >
-                        Notes (optional)
-                    </label>
-                    <textarea
-                        id={notesId}
-                        value={notes}
-                        onChange={(e) => onNotesChange(e.target.value)}
-                        placeholder="Found slight weeping on raw water pump gasket..."
-                        className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white placeholder-gray-500 resize-none h-20 outline-hidden focus:border-sky-500/30"
-                    />
-                </div>
+                {/* Notes: nothing to log while paused */}
+                {!paused && (
+                    <div className="mb-4">
+                        <label
+                            htmlFor={notesId}
+                            className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1"
+                        >
+                            Notes (optional)
+                        </label>
+                        <textarea
+                            id={notesId}
+                            value={notes}
+                            onChange={(e) => onNotesChange(e.target.value)}
+                            placeholder="Found slight weeping on raw water pump gasket..."
+                            className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white placeholder-gray-500 resize-none h-20 outline-hidden focus:border-sky-500/30"
+                        />
+                    </div>
+                )}
 
                 {alreadyLoggedAt && (
                     <p className="mb-3 text-xs font-semibold text-emerald-400">
@@ -145,40 +179,46 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                     </p>
                 )}
 
-                {/* Action buttons */}
-                <div className="flex gap-3">
-                    <button
-                        type="button"
-                        onClick={onHistory}
-                        className="min-h-[44px] px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-gray-300 hover:bg-white/10 transition-colors"
-                    >
+                {/* History · Edit · Pause, then the one primary action under
+                    them, full width: Log service, or Resume for a paused task
+                    (126-B7a). */}
+                <div className="flex gap-2">
+                    <button type="button" onClick={onHistory} className={NEUTRAL}>
                         History
                     </button>
                     <button
                         type="button"
                         aria-label="Edit task"
                         onClick={onEdit}
-                        className="flex min-h-[44px] items-center gap-1.5 px-4 py-3 bg-sky-500/10 border border-sky-500/20 rounded-xl text-xs font-bold text-sky-400 hover:bg-sky-500/20 transition-colors"
+                        className={`${SECONDARY} border-sky-500/20 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20`}
                     >
                         <EditIcon className="h-3.5 w-3.5 shrink-0" />
                         Edit
                     </button>
-                    <button
-                        aria-label={saving ? 'Logging service' : 'Log service'}
-                        onClick={onLog}
-                        disabled={saving}
-                        className="flex flex-1 min-h-[44px] items-center justify-center gap-2 py-3.5 bg-linear-to-r from-emerald-600 to-emerald-600 rounded-xl text-sm font-black text-white shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.97] disabled:opacity-50"
-                    >
-                        {saving ? (
-                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
-                        ) : (
-                            <>
-                                <CheckIcon className="h-4 w-4 shrink-0" />
-                                Log service
-                            </>
-                        )}
-                    </button>
+                    {!paused && onPause && (
+                        <button type="button" onClick={onPause} className={NEUTRAL}>
+                            Pause
+                        </button>
+                    )}
                 </div>
+                <button
+                    type="button"
+                    aria-label={paused ? undefined : saving ? 'Logging service' : 'Log service'}
+                    onClick={paused ? onResume : onLog}
+                    disabled={saving}
+                    className="mt-3 flex w-full min-h-[44px] items-center justify-center gap-2 py-3.5 bg-linear-to-r from-emerald-600 to-emerald-600 rounded-xl text-sm font-black text-white shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.97] disabled:opacity-50"
+                >
+                    {paused ? (
+                        'Resume'
+                    ) : saving ? (
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
+                    ) : (
+                        <>
+                            <CheckIcon className="h-4 w-4 shrink-0" />
+                            Log service
+                        </>
+                    )}
+                </button>
             </div>
         </OverlayPortal>
     );

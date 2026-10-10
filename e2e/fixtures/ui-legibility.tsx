@@ -7,12 +7,76 @@ import { Section, Row } from '../../components/settings/SettingsPrimitives';
 import { Button } from '../../components/ui/Button';
 import { ModalSheet } from '../../components/ui/ModalSheet';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { ServiceLogSheet } from '../../components/vessel/maintenance/ServiceLogSheet';
+import type { TaskWithStatus } from '../../services/MaintenanceService';
 import { NIGHT_SCRIM_Z_INDEX } from '../../components/ui/OverlayPortal';
 import { useThemeStore } from '../../stores/themeStore';
 import { getThemeForEnvironment } from '../../theme';
 import '../../index.css';
 // Passage styles can load after shared UI in the app.
 import '../../styles/bioluminescent.css';
+
+/**
+ * R&M's delete question and service sheet (126-B7a), opened by ?open=, so the
+ * shared-UI pass above measures the page exactly as before. A fictional task
+ * with a long name, as a sailor might type it.
+ */
+const OPEN = new URLSearchParams(window.location.search).get('open');
+const IMPELLER: TaskWithStatus = {
+    id: 'fixture-impeller',
+    user_id: 'fixture-skipper',
+    title: 'Raw-water impeller and strainer, port engine',
+    description: null,
+    category: 'Engine',
+    trigger_type: 'engine_hours',
+    interval_value: 100,
+    next_due_date: null,
+    next_due_hours: 1450,
+    last_completed: '2026-08-01T09:30:00.000Z',
+    is_active: OPEN !== 'service-paused',
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    status: OPEN === 'service-paused' ? 'grey' : 'yellow',
+    statusLabel: OPEN === 'service-paused' ? 'Paused' : 'Due in 12 hrs',
+    daysRemaining: null,
+    hoursRemaining: 12,
+};
+
+function MaintenanceOverlays() {
+    const [open, setOpen] = useState(OPEN);
+    const close = () => setOpen(null);
+    if (open === 'delete-ask') {
+        return (
+            <ConfirmDialog
+                isOpen={true}
+                title={`Delete “${IMPELLER.title}”?`}
+                message="Its 3 service records go with it, on every device."
+                confirmLabel="Delete task and records"
+                cancelLabel="Keep"
+                destructive
+                alternative={{ label: 'Pause instead', onSelect: close }}
+                onConfirm={close}
+                onCancel={close}
+            />
+        );
+    }
+    if (open !== 'service-active' && open !== 'service-paused') return null;
+    return (
+        <ServiceLogSheet
+            task={IMPELLER}
+            engineHours={1438}
+            notes=""
+            onNotesChange={() => {}}
+            saving={false}
+            onLog={close}
+            onHistory={() => {}}
+            onEdit={() => {}}
+            onPause={close}
+            onResume={close}
+            onClose={close}
+        />
+    );
+}
 
 function Fixture() {
     const [mode, setMode] = useState<'light' | 'dark' | 'night'>('light');
@@ -139,6 +203,7 @@ function Fixture() {
                 onConfirm={() => setConfirmOpen(false)}
                 onCancel={() => setConfirmOpen(false)}
             />
+            <MaintenanceOverlays />
             {mode === 'night' && (
                 <div
                     data-testid="night-scrim"

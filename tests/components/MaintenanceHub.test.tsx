@@ -18,10 +18,12 @@ vi.mock('../../services/vessel/LocalMaintenanceService', () => ({
     LocalMaintenanceService: {
         getAll: vi.fn().mockResolvedValue([]),
         getTasks: vi.fn().mockResolvedValue([]),
+        // R&M loads paused tasks too (126-B7a).
+        getAllTasks: vi.fn().mockResolvedValue([]),
         create: vi.fn().mockResolvedValue({ id: '1' }),
         update: vi.fn().mockResolvedValue({}),
         delete: vi.fn().mockResolvedValue(undefined),
-        getHistory: vi.fn().mockResolvedValue([]),
+        getHistory: vi.fn().mockReturnValue([]),
         logService: vi.fn().mockResolvedValue(undefined),
         getEngineHours: vi.fn().mockResolvedValue(0),
         setEngineHours: vi.fn().mockResolvedValue(undefined),

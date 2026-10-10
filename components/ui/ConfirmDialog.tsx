@@ -75,7 +75,18 @@ interface ConfirmDialogProps {
     onConfirm: () => void | Promise<void>;
     /** Called when user cancels */
     onCancel: () => void;
+    /**
+     * A gentler third choice, offered first: full width and primary, above
+     * the cancel / confirm row (R&M's 'Pause instead' before 'Delete task and
+     * records'). Focus still starts on cancel.
+     */
+    alternative?: { label: string; onSelect: () => void };
 }
+
+const SKY = 'bg-linear-to-r from-sky-600 to-sky-600 shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500';
+/** The confirm button's classes, shared by the alternative (where flex-1 does nothing and w-full widens it). */
+const ACTION =
+    'ui-confirm-action flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-bold text-white shadow-lg transition-all active:scale-[0.97] disabled:opacity-50';
 
 export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     isOpen,
@@ -87,6 +98,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     destructive = false,
     onConfirm,
     onCancel,
+    alternative,
 }) => {
     const [loading, setLoading] = useState(false);
     const titleId = useId();
@@ -109,11 +121,12 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
     const confirmBg = destructive
         ? 'bg-linear-to-r from-red-600 to-red-600 shadow-red-500/20 hover:from-red-500 hover:to-red-500'
-        : 'bg-linear-to-r from-sky-600 to-sky-600 shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500';
+        : SKY;
 
     return (
         <OverlayPortal
-            className="flex items-center justify-center p-4"
+            // The taller three-button card keeps clear of the tab bar (centred above it).
+            className={`flex items-center justify-center p-4${alternative ? ' pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)]' : ''}`}
             onClick={onCancel}
             role="dialog"
             aria-modal="true"
@@ -166,6 +179,16 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                 </h3>
                 <p className="text-sm text-gray-300 text-center mb-6">{message}</p>
 
+                {alternative && (
+                    <button
+                        type="button"
+                        onClick={alternative.onSelect}
+                        disabled={loading}
+                        className={`${ACTION} mb-3 w-full ${SKY}`}
+                    >
+                        {alternative.label}
+                    </button>
+                )}
                 <div className="flex gap-3">
                     <Button ref={cancelRef} onClick={onCancel} className="flex-1 text-gray-400">
                         {cancelLabel}
@@ -182,7 +205,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                         aria-busy={loading || undefined}
                         onClick={handleConfirm}
                         disabled={loading}
-                        className={`ui-confirm-action flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-bold text-white shadow-lg transition-all active:scale-[0.97] disabled:opacity-50 ${confirmBg}`}
+                        className={`${ACTION} ${confirmBg}`}
                     >
                         {loading ? (
                             <>
