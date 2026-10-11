@@ -29,6 +29,7 @@ import { compositeTile, fixtureStyle, imageryTile, reliefTile, seamarkTile } fro
 import { ONBOARDED_STORAGE } from '../e2e/helpers/storageState';
 import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
 import { contrast } from '../tests/helpers/colourScience';
+import { waitForChartCaptureReady } from './helpers/chartCaptureReady';
 
 const SHOTS = process.env.DESK_WIND_SHOTS_DIR?.trim() || '';
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
@@ -263,6 +264,7 @@ async function shot(page: Page, info: TestInfo, name: string) {
  */
 async function streakPixels(page: Page, clip: Box) {
     const grab = async () => {
+        await waitForChartCaptureReady(page);
         const png = decode(await page.screenshot({ clip, animations: 'allow' }));
         return { data: png.data, channels: png.channels, width: png.width };
     };

@@ -1868,7 +1868,7 @@ describe('MapboxVelocityOverlay palette', () => {
         );
         await waitFor(() => expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 1));
         expect(optionsOf(before).colorScale).toEqual(WIND_PARTICLE_COLORS_LIGHT);
-        expect(optionsOf(before)).toMatchObject({ particlelineWidth: 2 });
+        expect(optionsOf(before)).toMatchObject({ particlelineWidth: 3 });
         const div = () => mapbox.container.firstElementChild as HTMLElement;
         expect(div().style.filter).toContain('rgba(255, 255, 255');
 
