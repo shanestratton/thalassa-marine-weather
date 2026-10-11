@@ -65,10 +65,10 @@ Current research is not ready for master or production activation.
 Cleaned master subsequently advanced to `59c5f7eae` with the owner's other
 repository/CI work. Reconciliation into the already published clean continuation
 preserves history without a force-push. The fresh HTTPS source inputs are
-unchanged, but App dependencies changed: prior web/Window acceptance is not
-automatically acceptance of this newer combined graph. Refresh that evidence
-before the current protected native full-App fixture. No master push or primary
-checkout update is implied by this branch-local reconciliation.
+unchanged, but App dependencies changed: prior web/Window acceptance was not
+automatically acceptance of this newer combined graph. The current-source proof
+below refreshes both the web/Window and protected native fixture evidence.
+No master push or primary checkout update is implied by this reconciliation.
 
 Shane resumed development on 11 October after the pause and licensed-chart
 history cleanup. The active branch is
@@ -88,14 +88,13 @@ cover newer Auth, local-data and GPS classifier interfaces without evaluating
 production modules. The overlapping tests and four retained build failures are
 separate evidence, not an aggregate or an encryption pass.
 
-The eleven native fixture/harness WIP paths remain local and unpublished. Native
-v4 preflight found a missing original completed-exchange receipt; cached artifact
-hash matching does not replace that execution record. No native build, signing,
-resource or simulator action occurred and no passed receipt was reconstructed.
-Recover exact evidence or regenerate the legitimate provider/relay evidence chain
-before native execution. Earlier startup acceptance remains historical, not
-current protected-exchange acceptance. Physical, lifecycle/prekey/recovery,
-production cutover, licence/provenance and independent-assessment gates remain open.
+The earlier native-v4 preflight found a missing original completed-exchange
+receipt. At that point the eleven WIP paths were unpublished and no native build,
+signing, resource or simulator action occurred. Cached hash matching did not
+replace execution evidence, and no passed receipt was reconstructed. The later
+bootstrap/HTTPS chain below legitimately regenerated that prerequisite before
+the current protected full-App run. Retain the initial refusal as historical
+evidence; it is not a current missing-receipt blocker.
 
 The later [fresh cached-provider bootstrap](../experiments/scuttlebutt-e2ee/review/cached-provider-bootstrap-2026-10-11.json)
 now records current Swift compilation, 18 completed native simulator phases,
@@ -108,8 +107,8 @@ Auth is synthetic; the three known canaries were absent from decision rows,
 not necessarily every storage or memory surface. The separate 110 schema tests,
 strict types and named checks do not replace native execution or an audit.
 The original missing exchange receipt was not reconstructed, and no full-App
-gate was weakened. An explicit new prerequisite consumer and fresh completed
-HTTPS exchange are next; the eleven native-v4 paths remain unpublished. Failure
+gate was weakened. The later explicit prerequisite consumer and fresh completed
+HTTPS exchange below followed this bootstrap. Failure
 diagnostics need an operation snapshot before cleanup overwrites the driver's
 last-operation fields. This known reporting limitation does not promote any
 remaining release gate.
@@ -127,9 +126,34 @@ Auth remains synthetic; the actual HTTPS messages use the direct research
 client, while the private-message adapter phase uses URLProtocol fixtures.
 This legitimately regenerates the completed-exchange prerequisite without
 reconstructing the missing historical record or weakening the full-App gate.
-Current full-App protected native execution is next. The receipt retains false
+The later protected full-App execution below consumes this exact receipt.
+The HTTPS receipt retains false
 physical, live-Auth, Rust-provenance and independent-assessment flags. Human
 devices, hosted services, primary targets and production were untouched.
+
+The [current full-App protected integration summary](../experiments/scuttlebutt-e2ee/review/full-app-protected-integration-2026-10-11.json)
+now records a fresh combined-source web build, actual unsupported Chrome Window
+checks and a new source-bound native compilation on base `23a7581beb` plus the
+eleven inventoried fixture changes. In an owned iOS 27.0 simulator, the actual
+main-App responder-role private chat sent and received using real native
+provider/Keychain/sealed storage and native-issued admission. Auth and URLProtocol
+relay remain synthetic. The run passed 14 cases, 196 UI assertions, 12 terminal
+assertions and 55 protected-exchange assertions, with three relay accepts and
+stable one-outgoing/two-incoming history. It preserves unknown time/read status
+and truthful acceptance, and finishes credential-fenced after synthetic
+pagehide/remount. The 61 source/contract tests are a separate evidence category.
+
+Read-only local verification matched the current source/artifact/framework/
+entitlement/prerequisite/web inputs and exact simulator absence. Private nonce
+and raw resources were not copied into the repository. The evidence retains six
+Window console errors, the corrected private-runner `DOM.Iterable` omission and
+verifier-only framework-path refusal. A failed-child wait-summary reporting
+caveat does not affect this passed zero-wait run. These are agent/local checks,
+not the independent security assessment. No actual OS lifecycle, opposite
+main-App role, full-App HTTPS/live Auth or current physical case is established.
+Shipping cutover, device/prekey/retention/recovery, reproducible provider
+provenance, licence obligations and external assessment still gate merge/release.
+The old human Research install and ordinary Thalassa remain untouched.
 
 The new ordinary text-only native port shares the existing Research Auth host,
 requires a complete confirmed native peer snapshot, and preserves original-owner

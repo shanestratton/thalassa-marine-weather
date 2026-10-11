@@ -69,6 +69,10 @@ final class ResearchLocalUiFixture: NSObject, WKScriptMessageHandler, @unchecked
     // Fixed launch-stage diagnostics in this fresh simulator only. No native
     // errors, request/options, credentials or DOM contents are serialized.
     static func notePhase(_ phase: String) {
+#if E2EE_FULL_APP_PROTECTED_UI_FIXTURE
+        ResearchFullAppProtectedUiFixture.notePhase(phase)
+        return
+#endif
 #if targetEnvironment(simulator)
         let phases = ["application-launched", "scene-connected", "bridge-created", "fixture-installed",
                "fixture-install-failed", "script-installed", "dom-ready", "cold-ready", "signed-in",
@@ -100,6 +104,10 @@ final class ResearchLocalUiFixture: NSObject, WKScriptMessageHandler, @unchecked
     }
 
     private func loadBundled() throws {
+#if E2EE_FULL_APP_PROTECTED_UI_FIXTURE
+        try ResearchFullAppProtectedUiFixture.requireResource()
+        return
+#endif
         lock.lock(); defer { lock.unlock() }
         if runID != nil, script != nil { return }
 #if targetEnvironment(simulator)
@@ -148,7 +156,9 @@ final class ResearchLocalUiFixture: NSObject, WKScriptMessageHandler, @unchecked
     static func authenticator(publicApiKey: String) throws -> VodozemacSupabaseAuth {
         guard publicApiKey == Self.publicApiKey else { throw ResearchLocalUiFixtureError.unavailable }
         try shared.loadBundled()
-#if E2EE_PROTECTED_UI_FIXTURE
+#if E2EE_FULL_APP_PROTECTED_UI_FIXTURE
+        return try ResearchProtectedUiRelay.authenticator()
+#elseif E2EE_PROTECTED_UI_FIXTURE
         return try ResearchProtectedUiRelay.authenticator()
 #else
         return try VodozemacSupabaseAuth(projectOrigin: ResearchAuthConfiguration.origin,
@@ -162,7 +172,9 @@ final class ResearchLocalUiFixture: NSObject, WKScriptMessageHandler, @unchecked
 
     static func relayTransport() throws -> VodozemacRelayTransport {
         try shared.loadBundled()
-#if E2EE_PROTECTED_UI_FIXTURE
+#if E2EE_FULL_APP_PROTECTED_UI_FIXTURE
+        return try ResearchProtectedUiRelay.transport()
+#elseif E2EE_PROTECTED_UI_FIXTURE
         return try ResearchProtectedUiRelay.transport()
 #else
         return try VodozemacRelayTransport(serviceOrigin: ResearchAuthConfiguration.origin,
@@ -182,6 +194,10 @@ final class ResearchLocalUiFixture: NSObject, WKScriptMessageHandler, @unchecked
 
     static func attach(_ facade: VodozemacSessionFacade) throws {
         try shared.loadBundled()
+#if E2EE_FULL_APP_PROTECTED_UI_FIXTURE
+        try ResearchFullAppProtectedUiFixture.attach(facade)
+        return
+#endif
         shared.lock.lock(); defer { shared.lock.unlock() }
         guard shared.facade == nil || shared.facade === facade else { throw ResearchLocalUiFixtureError.unavailable }
         shared.facade = facade
@@ -190,6 +206,9 @@ final class ResearchLocalUiFixture: NSObject, WKScriptMessageHandler, @unchecked
     // Called before option validation. Only fixed method names/counts are kept;
     // never a CAPPluginCall, options, bearer, password or diagnostic description.
     static func allow(method: String) -> Bool {
+#if E2EE_FULL_APP_PROTECTED_UI_FIXTURE
+        return ResearchFullAppProtectedUiFixture.allow(method: method)
+#endif
         shared.lock.lock(); defer { shared.lock.unlock() }
         let known = shared.counters[method] != nil
         if known { shared.increment(method) }

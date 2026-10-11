@@ -1,10 +1,25 @@
 # Scuttlebutt private message E2EE device test plan
 
-Updated 6 October 2026 for execution with the owner's iPhone 15 Pro Max and iPad 9th generation, using different test-project accounts. This plan defines evidence for an isolated native pilot. The owner reports an opening message, reply and post-restart successors on both devices, plus offline-recipient catch-up and repeat scans with one displayed copy in both directions, on candidate `4005833a`. An iPhone screenshot captures a committed incoming row. **D01 and D02 have partial physical evidence; no full acceptance case is passed, and the remaining controlled procedures are unrun.** The new installed candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c`; the [checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md) separates its source/signing/in-place update checks and owner-reported sign-ins from the earlier candidate's message observations.
+Updated 11 October 2026 for execution with the owner's iPhone 15 Pro Max and iPad 9th generation, using different test-project accounts. This plan defines evidence for an isolated native pilot. The owner reports an opening message, reply and post-restart successors on both devices, plus offline-recipient catch-up and repeat scans with one displayed copy in both directions, on historical candidate `4005833a`. An iPhone screenshot captures a committed incoming row. **D01 and D02 have partial physical evidence; no full acceptance case is passed, and the remaining controlled procedures are unrun.** The last installed human Research candidate remains `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c`; the [checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md) separates its source/signing/in-place update checks and owner-reported sign-ins from the earlier candidate's message observations.
 
 Two independent physical endpoints can expose custody, lifecycle and transport failures that one simulator cannot. The iPad provides iPadOS coverage, not a substitute for testing every supported iPhone/OS combination. Read-only checks on 4 October found iOS 27.0.1 on the iPhone and iPadOS 26.5 on the iPad, both paired with Developer Mode enabled. This is device inventory, not supported-build eligibility or research-app execution evidence.
 
 ## Prerequisites and current blocks
+
+The [11 October current-source full-App simulator proof](../experiments/scuttlebutt-e2ee/review/full-app-protected-integration-2026-10-11.json)
+passes actual main-App responder-role private-chat send/receive in a new owned
+simulator, with real native provider/Keychain/sealed storage and synthetic SDK
+Auth/URLProtocol relay. It records 14 cases, three accepted sends, 196 UI and 12
+terminal assertions, truthful unknown incoming time/read status, deduplication,
+and terminal native credential fencing. Fresh web/unsupported Window checks and
+the source-bound native compilation are separately recorded. Synthetic
+pagehide/remount is not physical lock/background/kill/restart evidence, and the
+opposite actual main-App role and full-App HTTPS/live Auth remain unrun.
+**No D01–D17 physical case is upgraded by this result.** The older human Research
+candidate, accounts, registrations, keys and histories remain unchanged; no
+signing/install/reset on a human device was performed. Current physical
+acceptance must use a separately frozen, authorized candidate and correlated
+receipts, not the old screenshots' counts.
 
 The [8 October protected UI fixture](../experiments/scuttlebutt-e2ee/review/protected-window-2026-10-08.json)
 passes an actual responder-role UI round trip in one new simulator with real

@@ -1,0 +1,347 @@
+{
+    "schemaVersion": 1,
+    "kind": "current-source-full-app-protected-simulator-summary",
+    "recordedDate": "2026-10-11",
+    "sourceBase": "23a7581beb1c4c3d542ad3423e1920bb17da20b0",
+    "branch": "codex/scuttlebutt-e2ee-integration-clean-2026-10-11",
+    "reconciledUpstream": "59c5f7eae52adde3cadc40d864ee979af15ab274",
+    "status": "passed-scoped-simulator-acceptance-not-merge-ready",
+    "node": {
+        "path": "/opt/homebrew/Cellar/node@24/24.21.0_2/bin/node",
+        "version": "v24.21.0",
+        "sha256": "798d7f9c0d38051608d11ba87a12fbb01e92bfa457cd77ec612b5bad2a73a05e"
+    },
+    "scope": "Actual main-App Research private-message UI with real native provider/Keychain/sealed store and native-issued admission; synthetic SDK Auth and URLProtocol relay. One responder-role host in one owned disposable simulator.",
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs": "64c6fa26b499b783ab53356236d91e663c66f44ebcc011a2b3594aeb781fb7e0",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiContract.mjs": "68e88f9bc97d4950f6262cba0e393015ac75a551e965a7e0e228406d2fd74ec5",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppUiContract.mjs": "37abf394d524118e191d4036dac77f3854350e4a72104f41c428bc12cc164313",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppUiResumeContract.mjs": "1cc1039feeea9836b9a69d4410b7c9b78cfabf13179ada54dd2bbedcd2cb426b",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "3fc5f7e06fa547b4bc4ad17c6d1e50c83c9a0341a6cdde682cd45f146c31a283",
+        "experiments/scuttlebutt-e2ee/bridge-native/generate_project.rb": "d96ddddad8b5b633d482dd32a83204b821e146db975e8c88acbd6b718192c329",
+        "experiments/scuttlebutt-e2ee/bridge-native/machOEntitlementEvidence.mjs": "5c84c1f38049420b0a3137d31834bffbe084b61e6d331105cc7cb0efc5df3040",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchApp.swift": "38443a9b8e348672112bb37225b26b4341634a46078ea800466bc723f59e6596",
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "c8abe95038bfa14973cd5e18f36c2dde1f0a7d609600caa56cfc4d5b690b0eec",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchAuthHost.swift": "3a56713041ba5fd77aa488ee105bcaaacf2803cc5f243b52682cb3b31bc83bf2",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchLocalUiFixture.swift": "f2ffe3273ec3b32e0727b4bb1888ae8fdf57fff8e16bef854234b591c015ef0c",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "eeee6a2545a82390b3bc1bc258df189fd81c466fe079caf952e64d8160d6a088",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedHttpFence.swift": "18516b408ae2a1e38d0c014a744d2101cdba8c84f0fa6c06b1ae1c8ab21924a4",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiFixture.swift": "da48c8d6951685581d6c8cf25e126a7f9b32e76cef827a9aca2d4fb92dfc8651",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiRelay.swift": "479663fb9b843c7f563c024f2e32c52ef51facb4ddde7288782090ea2c1312ec",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeProtectedUiFixture.js": "0f87f3bb2b65c55522799fdc88cf3af64c0b448f3d2a14ad043e697cfeee293a"
+    },
+    "checkSourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchApp.swift": "38443a9b8e348672112bb37225b26b4341634a46078ea800466bc723f59e6596",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchLocalUiFixture.swift": "f2ffe3273ec3b32e0727b4bb1888ae8fdf57fff8e16bef854234b591c015ef0c",
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "c8abe95038bfa14973cd5e18f36c2dde1f0a7d609600caa56cfc4d5b690b0eec",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "3fc5f7e06fa547b4bc4ad17c6d1e50c83c9a0341a6cdde682cd45f146c31a283",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedHttpFence.swift": "18516b408ae2a1e38d0c014a744d2101cdba8c84f0fa6c06b1ae1c8ab21924a4",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "eeee6a2545a82390b3bc1bc258df189fd81c466fe079caf952e64d8160d6a088",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiContract.mjs": "68e88f9bc97d4950f6262cba0e393015ac75a551e965a7e0e228406d2fd74ec5",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs": "64c6fa26b499b783ab53356236d91e663c66f44ebcc011a2b3594aeb781fb7e0",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeProtectedUiFixture.js": "0f87f3bb2b65c55522799fdc88cf3af64c0b448f3d2a14ad043e697cfeee293a",
+        "tests/E2eeProtectedUiFixture.test.ts": "6efbe799b82c9419c7ab60ebc9f5e1b2fa8c63c1037a06761b93c779d3edf9c8",
+        "tests/E2eeFullAppProtectedNativeContract.test.ts": "c736fce965a1f53420d0ac424ccc94e4e1421e9960a0cf0ec3a7af48bdbfb5f5"
+    },
+    "nativeSwiftSourceHashes": {
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/bridge-native/ResearchApp.swift": "38443a9b8e348672112bb37225b26b4341634a46078ea800466bc723f59e6596",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "c8abe95038bfa14973cd5e18f36c2dde1f0a7d609600caa56cfc4d5b690b0eec",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/bridge-native/ResearchAuthHost.swift": "3a56713041ba5fd77aa488ee105bcaaacf2803cc5f243b52682cb3b31bc83bf2",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift": "cb3bd8fb92e8f922462007e12f228ee9fc7f10875bb32cd134d3646dd93ae4d1",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/bridge-native/ResearchPrivateMessageAdapter.swift": "ec0597684d323ed061e40cf81d3f8238adb78afdd100ef663133be0753d88c36",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacSealedStore.swift": "08a8c821035eca23e5730006c6c8989221eeb292e8637c14960d5444945e352f",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacDmFrame.swift": "f584998cd8e0cdc0ae6e22557b6d01e20a3081596f7198996a2a12c6699d7887",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacDmCoordinator.swift": "690d8ee170f9aed212317eb76d8d51cd930c3e18832012c11a7164062464b489",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacMessageOperations.swift": "bb6101fcc468ccee3c52c5d23c70e9ebf51785e9771610a9d7ba07c1caab56d9",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayCodec.swift": "b1ff7f6df1988bcde00dbd21ba571f1060d683d60624778c9e55bf7b19f340ec",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayTransport.swift": "32522d35d2b009a6ab4ffa63b1ee8a099f6cd8253efb46aa2f11eff7e13c02fe",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayResult.swift": "5603d96eee328194c8bd73990027cacc5f68d474a9b49ae0d90501d21e287e26",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayPolicy.swift": "1ff34288ffe3f92733effd1540858e50048d313ee36248ab1f4c7abe4cd1db5e",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacScopedRelayClient.swift": "28408a37cb00f98a194c27b2fcebc18b0528f5c8dc6d30c667d9331c09b340e8",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacSupabaseAuth.swift": "103cfe325fcd57342e8c5b0fe9601acfa6441977f860a8d499af193f195adc10",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacAuthSession.swift": "1db48cad76d4d4b1bc6c958fab675a8b9cafcc8ea771a2d2aaccadf2ecb243fe",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacAccountDirectory.swift": "8d229dd4e68b61e72c071440b2f70eb3a0c60cb25465e4e2daa30a4bbd49181b",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacSessionFacade.swift": "d53cbd065d4b3ba5cae11ded3284d5f3703fc8c9aa1522e7c0c2772d5dbc2dcc",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/bridge-native/ResearchLocalUiFixture.swift": "f2ffe3273ec3b32e0727b4bb1888ae8fdf57fff8e16bef854234b591c015ef0c",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedHttpFence.swift": "18516b408ae2a1e38d0c014a744d2101cdba8c84f0fa6c06b1ae1c8ab21924a4",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "eeee6a2545a82390b3bc1bc258df189fd81c466fe079caf952e64d8160d6a088",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiRelay.swift": "479663fb9b843c7f563c024f2e32c52ef51facb4ddde7288782090ea2c1312ec",
+        "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiFixture.swift": "da48c8d6951685581d6c8cf25e126a7f9b32e76cef827a9aca2d4fb92dfc8651"
+    },
+    "prerequisites": {
+        "completedNativeHttps": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/review/fresh-native-https-2026-10-11.json",
+            "sha256": "19e7c0b7208d890365c0bddaab4c9e309d5cd2d6be4bb0ec3502004d0ec56016"
+        },
+        "cachedProviderBootstrap": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/review/cached-provider-bootstrap-2026-10-11.json",
+            "sha256": "372a05bd5b04efcea1574fcd2471d450f42242dcfeed47dca4498460f6c110f3"
+        },
+        "frameworks": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-ui-frameworks-rPrCRB/frameworks-receipt.json",
+            "sha256": "75a2e8e774d4b57429f247b7f745f7756e0a28e458b6255ad2b1778a03381626"
+        }
+    },
+    "web": {
+        "coordinatorReceipt": {
+            "path": "/private/tmp/thalassa-reconciled-web-window.jJuwg5/coordinator-receipt.json",
+            "sha256": "fc693565c4ca0d9b2e5865cacb4b63ed9876f2f652159bf01baf7ec4871561ac"
+        },
+        "buildReceipt": {
+            "path": "/private/tmp/thalassa-reconciled-web-window.jJuwg5/build-receipt.json",
+            "sha256": "3b68210a37245f24b5283a4e8fa20537e31e39b7433ad2ac2438ef4d6d710282"
+        },
+        "windowReceipt": {
+            "path": "/private/tmp/thalassa-full-app-window-gGjHsU/window-receipt.json",
+            "sha256": "e53a7d82b7eaa039d3850917112d3fdd65dbdf02455e12173dea4025cbca27ad"
+        },
+        "moduleInputCount": 1734,
+        "explicitAssetInputCount": 1,
+        "proofInputCount": 6,
+        "outputCount": 296,
+        "moduleSourceHashOmissions": [],
+        "workerGraphCount": 3,
+        "inheritedCanariesAbsent": true,
+        "actualUnsupportedWindow": true,
+        "coldChatClosureRemountCspPassed": true,
+        "counters": {
+            "documents": 1,
+            "assets": 49,
+            "faviconControls": 1,
+            "cspControls": 0,
+            "refusedRequests": 0,
+            "serverDocuments": 1,
+            "serverAssets": 49,
+            "serverFaviconControls": 1,
+            "serverCspEscapes": 0,
+            "serverRefusals": 0,
+            "requestGateFailures": 0,
+            "pageErrors": 0,
+            "consoleErrors": 6,
+            "expectedCspViolations": 2,
+            "unexpectedCspViolations": 0
+        },
+        "cleanup": {
+            "browserClosed": true,
+            "serverClosed": true,
+            "ownedProfileRemoved": true
+        },
+        "coordinatorInventoryScope": "4288 frozen source rows at execution start; broader inventory is historical after native harness edits. Compiled module, proof and output inputs were separately reverified current.",
+        "realSdkLogin": false,
+        "nativeExecution": false,
+        "encryptedExchange": false,
+        "physicalDeviceExecution": false,
+        "realOsLifecycleOrBfCacheProved": false
+    },
+    "focusedChecks": {
+        "receipt": {
+            "path": "/private/tmp/thalassa-protected-native-final-checks.Npdibh/checks-receipt.json",
+            "sha256": "e076d2a7915e0500c897c81690815a3380eacfc795117c8050f79058c5cbc6a0"
+        },
+        "checks": {
+            "syntax": {
+                "exitCode": 0,
+                "timedOut": false
+            },
+            "format": {
+                "exitCode": 0,
+                "timedOut": false
+            },
+            "lint": {
+                "exitCode": 0,
+                "timedOut": false
+            },
+            "types": {
+                "exitCode": 0,
+                "timedOut": false
+            },
+            "tests": {
+                "exitCode": 0,
+                "timedOut": false
+            }
+        },
+        "totalTests": 61,
+        "passedTests": 61,
+        "failedTests": 0,
+        "scope": "synthetic-contract-source-preservation-and-static-checks-only",
+        "nativeEncryptionTestCountClaimed": false,
+        "initialRefusal": {
+            "receipt": {
+                "path": "/private/tmp/thalassa-protected-native-checks.D7oq3l/checks-receipt.json",
+                "sha256": "7c997268522c0505115aaf8a99e64e941eeef9715eff643300ab24257e01c873"
+            },
+            "stage": "narrow-types",
+            "cause": "Private runner omitted DOM.Iterable; corrected runner flag before final pass, no source change.",
+            "testsExecuted": false
+        }
+    },
+    "native": {
+        "runReceipt": {
+            "path": "/private/tmp/thalassa-full-root-protected-MeZehs/run-receipt.json",
+            "sha256": "97b5c9ae51666929e9dcc74c63aac3f67451cc997314d1ce8b6ba567941d7f4e"
+        },
+        "unsignedBuildReceipt": {
+            "path": "/private/tmp/thalassa-messaging-build-STUjtw/build-receipt.json",
+            "sha256": "5aeea09b32cd5d643c77cf37a1f1c0ea58eec2e0c815ce853c4490b21174ca6f"
+        },
+        "privateNativeEnvelopeSha256": "6915f0db9def4dbd77dbd9a31d48f4f940705a974cc66da707d8779015823378",
+        "rawEnvelopeAndResourceCopied": false,
+        "resourceNonceKeptPrivate": true,
+        "verificationReceipt": {
+            "path": "/private/tmp/thalassa-full-root-protected-verifier.ziOj5X/verification.json",
+            "sha256": "4de41d739cb26a7513122f11fd0339949f3471fe558b07cf4824075b583c982a"
+        },
+        "verificationHelper": {
+            "path": "/private/tmp/thalassa-full-root-protected-verifier.ziOj5X/verify.mjs",
+            "sha256": "f8f7174a1c438e6d383dd50d86758e0ccc0ebbcac0154cecd994d2972aa3b356"
+        },
+        "uiAssertions": 196,
+        "nativeTerminalAssertions": 12,
+        "protectedExchangeAssertions": 55,
+        "completedCases": 14,
+        "caseLabels": [
+            "native-http-refusals",
+            "cold-root-closed",
+            "sdk-native-auth-browse-only",
+            "unknown-admission-no-private-open",
+            "explicit-owned-peer-setup",
+            "native-admission-readiness",
+            "actual-app-chat-pm-open",
+            "actual-native-pm-send",
+            "actual-native-pm-receive",
+            "dedup-truthful-status",
+            "native-exchange-proof-captured",
+            "synthetic-terminal-pagehide",
+            "fresh-root-no-restored-authority",
+            "final-root-closed"
+        ],
+        "hostRole": "responder",
+        "simulatedRelayAccepts": 3,
+        "messageFacts": {
+            "outgoingRows": 1,
+            "incomingRows": 2,
+            "openerRows": 1,
+            "outgoingAccepted": true,
+            "incomingReceived": true,
+            "incomingTimeUnknown": true,
+            "incomingReadUnknown": true,
+            "outgoingNotDeliveredOrRead": true,
+            "composeEmpty": true,
+            "dedupStable": true
+        },
+        "finalNativeState": {
+            "status": "credential-fenced",
+            "accountPresent": false,
+            "originalSnapshotCurrent": false
+        },
+        "pmCompletionCounters": {
+            "privateMessagePermissions:ok": 4,
+            "privateMessagePermissions:unavailable": 0,
+            "privateMessageInbox:ok": 3,
+            "privateMessageInbox:unavailable": 0,
+            "privateMessageSendText:ok": 1,
+            "privateMessageSendText:unavailable": 0,
+            "privateMessageRetryPending:ok": 0,
+            "privateMessageRetryPending:unavailable": 0
+        },
+        "nativeAttemptCounters": {
+            "configuration": 2,
+            "fenceSession": 5,
+            "authenticate": 1,
+            "currentAccount": 11,
+            "messagePrivateAdmission": 2,
+            "privateMessageIssue": 1,
+            "privateMessageReadiness": 45,
+            "privateMessagePermissions": 8,
+            "privateMessageInbox": 3,
+            "privateMessageThread": 4,
+            "privateMessageSendText": 2,
+            "nativeAuthRequests": 2,
+            "unexpectedNativeRequests": 0,
+            "relayRequests": 0,
+            "unexpectedMethods": 0,
+            "fixtureSetupControls": 1,
+            "fixtureReplyControls": 1
+        },
+        "sdkCounts": {
+            "password": 1,
+            "unexpected": 0
+        },
+        "repositorySwiftInputs": 23,
+        "cachedGeneratedBindings": 3,
+        "unsignedArtifactFiles": 344,
+        "signedArtifactFiles": 347,
+        "frameworkFiles": {
+            "Capacitor": 19,
+            "Cordova": 22
+        },
+        "currentHttpsSourceInputs": 61,
+        "providerCacheArtifacts": 4,
+        "allCurrentHashesMatch": true,
+        "unsignedAndSignedEntitlementsMeasured": true,
+        "measuredSignedEntitlementSections": {
+            "__entitlements": "5b1fc3f8da05827e0ecaaab9bfffb032cb75bf308ff59994c4e858ef536791dd",
+            "__ents_der": "d44bc2e12d1e26a3debae0f003ba7e0045e71da99b8ae9c4897ee83a4f054df5"
+        },
+        "unsignedOriginalPreserved": true,
+        "signedOnlyOwnedCopy": true,
+        "hostCodesignEntitlementsSupplied": false,
+        "runtimeVersion": "27.0",
+        "runtimeBuild": "24A434",
+        "controlLaunchBoundMs": 120000,
+        "researchLaunchBoundMs": 30000,
+        "controlAndResearchPIDGates": true,
+        "ownedSimulatorAbsent": true,
+        "cleanup": {
+            "idAbsent": true,
+            "nameAbsent": true,
+            "sourcesUnchanged": true
+        },
+        "initialVerifierRefusal": {
+            "stage": "current-source-prerequisites",
+            "cause": "private-verifier-constructed-Frameworks-path-one-parent-too-high",
+            "nativeExecutionFailure": false,
+            "producerRerun": false
+        },
+        "syntheticPagehide": true,
+        "realOsLifecycleOrBfCacheProved": false,
+        "liveHttpsThroughApp": false,
+        "liveAuth": false,
+        "physicalDeviceExecution": false
+    },
+    "sharedSlotWaiting": {
+        "cumulativeBudgetMs": 120000,
+        "coordinatorWaitMs": 0,
+        "sourceCheckWaitMs": 0,
+        "nativeWaitMs": 0,
+        "verifierWaitMs": 0,
+        "concurrentHeavyJobs": false
+    },
+    "retainedLimitations": [
+        "Window receipt retains six console errors; zero page errors and two expected/zero unexpected CSP violations are not console-error-free acceptance.",
+        "The new child-wait contract accounts passed/queued results; a failed child build can omit its spent wait in the parent's summary, though the child retains it. This passed run had zero waiting.",
+        "Agent/read-only verification is not an independent security assessment.",
+        "Three accepted sends use synthetic Auth and URLProtocol relay; the separate prior four-message HTTPS result uses the direct research client, not the full-App adapter.",
+        "Only main-App responder role and synthetic pagehide/remount were exercised. Actual OS lock/background/process restart, opposite role and physical acceptance remain unrun.",
+        "Provider cache matches the executed prerequisite chain; current Rust source-to-binary provenance is not established."
+    ],
+    "remainingGates": [
+        "Actual full-App initiator-role proof and actual OS lifecycle/protected navigation",
+        "Actual adapter HTTPS/current hosted Auth and correlated physical iPhone-iPad acceptance",
+        "Fail-closed server/old-client/queue/push cutover and rollback",
+        "Shipping device/prekey replacement/replenishment/rotation/recovery policy",
+        "Retention and scalable sync",
+        "Reproducible provider binary provenance and dependency/licence notices",
+        "Independent security assessment and owner release approval"
+    ],
+    "productionTouched": false,
+    "hostedActorsChanged": false,
+    "humanDevicesChanged": false,
+    "primaryCapSyncExecuted": false,
+    "ordinaryProductionIntegrationEnabled": false,
+    "freshRustBuild": false,
+    "sourceBinaryProvenance": false,
+    "independentSecurityAssessment": false,
+    "mergeReady": false,
+    "releaseReady": false
+}

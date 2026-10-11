@@ -35,6 +35,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { inspectSimulatorEntitlementSections } from './machOEntitlementEvidence.mjs';
 import { inspectFullAppNativeResource } from './fullAppUiContract.mjs';
+import { inspectFullAppProtectedNativeResource } from './fullAppProtectedUiContract.mjs';
 import { inspectWindowBuildReceipt } from '../full-app-pilot/windowProofContract.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -192,6 +193,12 @@ async function reserveBuildSlot(maxWaitMs = Infinity) {
     }
     let announced = false;
     for (;;) {
+        if (waited > maxWaitMs || (waited > 0 && waited >= maxWaitMs)) {
+            receipt.status = 'queued-unrun';
+            receipt.queuedStage = 'shared-build-slot';
+            saveReceipt();
+            throw new Error('Shared build opportunity expired');
+        }
         try {
             mkdirSync(slot, { mode: 0o700 });
             slotNonce = randomUUID();
@@ -317,16 +324,25 @@ try {
     let localUi;
     let protectedUi = false;
     let fullAppUi = false;
+    let fullAppProtectedUi = false;
+    let fullAppComposition = false;
     let fullAppWeb;
     if (localUiFile) {
         regular(localUiFile, 128 * 1024);
         localUi = JSON.parse(readFileSync(localUiFile, 'utf8'));
         fullAppUi = localUi.version === 3;
-        if (fullAppUi) {
-            localUi = inspectFullAppNativeResource(
-                localUi,
-                readFileSync(join(EXPERIMENT, 'full-app-pilot/nativeUiFixture.js'), 'utf8'),
-            );
+        fullAppProtectedUi = localUi.version === 4;
+        fullAppComposition = fullAppUi || fullAppProtectedUi;
+        if (fullAppComposition) {
+            localUi = fullAppProtectedUi
+                ? inspectFullAppProtectedNativeResource(
+                      localUi,
+                      readFileSync(join(EXPERIMENT, 'full-app-pilot/nativeProtectedUiFixture.js'), 'utf8'),
+                  )
+                : inspectFullAppNativeResource(
+                      localUi,
+                      readFileSync(join(EXPERIMENT, 'full-app-pilot/nativeUiFixture.js'), 'utf8'),
+                  );
             assert(fullAppWebReceiptFile && platform === 'iphonesimulator');
             regular(fullAppWebReceiptFile, 16 * 1024 * 1024);
             fullAppWeb = inspectWindowBuildReceipt(JSON.parse(readFileSync(fullAppWebReceiptFile, 'utf8')), CHECKOUT);
@@ -362,8 +378,14 @@ try {
             );
         }
     }
-    assert(fullAppUi ? !!fullAppWebReceiptFile : !fullAppWebReceiptFile, 'Full App web evidence is scenario-bound');
-    assert(fullAppUi || !seen.has('--slot-wait-ms'), 'Shared remaining budget belongs only to the full App fixture');
+    assert(
+        fullAppComposition ? !!fullAppWebReceiptFile : !fullAppWebReceiptFile,
+        'Full App web evidence is scenario-bound',
+    );
+    assert(
+        fullAppComposition || !seen.has('--slot-wait-ms'),
+        'Shared remaining budget belongs only to a full App fixture',
+    );
     const cache = directory(cacheArg),
         products = directory(productsArg),
         dist = directory(distArg);
@@ -532,6 +554,13 @@ try {
     if (fullAppUi) sourcePaths.push(join(HERE, 'ResearchFullAppHttpFence.swift'));
     if (protectedUi)
         sourcePaths.push(join(HERE, 'ResearchProtectedUiRelay.swift'), join(HERE, 'ResearchProtectedUiFixture.swift'));
+    if (fullAppProtectedUi)
+        sourcePaths.push(
+            join(HERE, 'ResearchFullAppProtectedHttpFence.swift'),
+            join(HERE, 'ResearchFullAppProtectedUiFixture.swift'),
+            join(HERE, 'ResearchProtectedUiRelay.swift'),
+            join(HERE, 'ResearchProtectedUiFixture.swift'),
+        );
     sourcePaths.forEach((path) => regular(path, 1024 * 1024));
     scratch = mkdtempSync(join(tmpdir(), 'thalassa-messaging-build-'));
     chmodSync(scratch, 0o700);
@@ -556,7 +585,9 @@ try {
         priorNativeResearchReceiptSha256: priorEvidenceSha256,
         cachedEvidenceKind: priorBuildFile
             ? 'hash-matched-prior-unsigned-platform-build'
-            : 'completed-native-relay-proof-cache',
+            : localUiFile
+              ? 'completed-native-https-exchange'
+              : 'completed-native-relay-proof-cache',
         freshRustBuild: false,
         independentlyVerifiedCachedArtifactProvenance: false,
         providerProvenanceLimit:
@@ -582,9 +613,13 @@ try {
         localUiFixture: !!localUiFile,
         protectedUiFixture: protectedUi,
         fullAppUiFixture: fullAppUi,
-        requestedSharedSlotWaitMs: fullAppUi ? fullAppSlotWaitMs : null,
-        fullAppWebReceiptSha256: fullAppUi ? hash(fullAppWebReceiptFile) : null,
-        fullAppFixtureContractSha256: hash(join(HERE, 'fullAppUiContract.mjs')),
+        fullAppProtectedUiFixture: fullAppProtectedUi,
+        sharedSlotWaitMs: 0,
+        requestedSharedSlotWaitMs: fullAppComposition ? fullAppSlotWaitMs : null,
+        fullAppWebReceiptSha256: fullAppComposition ? hash(fullAppWebReceiptFile) : null,
+        fullAppFixtureContractSha256: hash(
+            join(HERE, fullAppProtectedUi ? 'fullAppProtectedUiContract.mjs' : 'fullAppUiContract.mjs'),
+        ),
         localUiFixtureResourceSha256: localUiFile ? hash(localUiFile) : null,
         localUiFrameworksReceiptSha256: localUiFile ? hash(frameworkReceiptFile) : null,
     };
@@ -621,7 +656,7 @@ try {
                 webDir: 'public',
                 loggingBehavior: 'none',
                 ios: { loggingBehavior: 'none', webContentsDebuggingEnabled: false },
-                ...(fullAppUi ? { plugins: { CapacitorHttp: { enabled: false } } } : {}),
+                ...(fullAppComposition ? { plugins: { CapacitorHttp: { enabled: false } } } : {}),
             },
             null,
             2,
@@ -638,7 +673,7 @@ try {
     // fail closed; do not put pilot keys/configuration in its static web assets.
     assert(!existsSync(join(dist, 'research-config.json')) && !existsSync(join(dist, 'capacitor.config.json')));
     receipt.publicDistInputHashes = snapshotTree(dist, join(projectRoot, 'public'));
-    if (fullAppUi) {
+    if (fullAppComposition) {
         const html = join(projectRoot, 'public/index.html');
         const original = readFileSync(html, 'utf8');
         const permitted = 'connect-src ' + ORIGIN;
@@ -741,7 +776,7 @@ try {
     receipt.bundledConfigSha256 = hash(join(projectRoot, 'research-config.json'));
     saveReceipt();
     stage = 'shared build slot';
-    await reserveBuildSlot(fullAppUi ? fullAppSlotWaitMs : Infinity);
+    await reserveBuildSlot(fullAppComposition ? fullAppSlotWaitMs : Infinity);
     stage = 'unsigned isolated compile';
     receipt.status = 'building';
     saveReceipt();
@@ -790,7 +825,8 @@ try {
                 ? [
                       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=E2EE_LOCAL_UI_FIXTURE' +
                           (protectedUi ? ' E2EE_PROTECTED_UI_FIXTURE' : '') +
-                          (fullAppUi ? ' E2EE_FULL_APP_UI_FIXTURE' : ''),
+                          (fullAppUi ? ' E2EE_FULL_APP_UI_FIXTURE' : '') +
+                          (fullAppProtectedUi ? ' E2EE_FULL_APP_PROTECTED_UI_FIXTURE' : ''),
                   ]
                 : []),
             'build',

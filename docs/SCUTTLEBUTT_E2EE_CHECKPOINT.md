@@ -11,6 +11,99 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
+## Current full-App protected simulator acceptance on 11 October
+
+The [current-source evidence summary](../experiments/scuttlebutt-e2ee/review/full-app-protected-integration-2026-10-11.json)
+records encrypted send and receive through **Thalassa's actual main-App private
+chat screen**, not just the separate Research screen. This is one responder-role
+host in one newly owned iOS 27.0 / 24A434 simulator, compiled from base
+`23a7581beb1c4c3d542ad3423e1920bb17da20b0` with the eleven explicitly inventoried
+native-v4 changes. Real native provider, Keychain, sealed storage, native-issued
+admission and the PM adapter run behind synthetic SDK Auth and URLProtocol relay.
+Ordinary builds, human devices, hosted services, primary targets and production
+remain unchanged and unactivated.
+The sanitized summary's SHA-256 is
+`7c433c676fa5126ad9afe69369a4d3ccc49359df0197a66b48e1713de1111ed9`.
+
+First, a fresh combined-source isolated web build passed after the upstream
+`59c5f7eae` reconciliation: 1,734 module inputs, one explicit asset, six proof
+inputs, 296 outputs and three ES workers, with no source-hash omissions or
+inherited canaries. Its actual unsupported Chrome Window then passed cold
+startup, Chat, synthetic closure/remount, CSP and final terminal checks. It
+retains **six console errors**, zero page errors and two expected/zero unexpected
+CSP violations; it is not console-error-free or encryption acceptance. The
+browser, server and owned profile were removed. The broad 4,288-row coordinator
+inventory is historical after native harness edits; the compiled module/proof
+inputs and outputs were separately reverified current.
+
+The native-v4 harness preserves the exact completed-exchange prerequisite; it
+neither reconstructs the lost historical receipt nor relaxes the gate. New
+contracts refuse scheduling after exhausted/overshot shared waiting, retain
+queued child overshoot without clamping, and accept the run only after exact
+owned-simulator ID/name absence and unchanged sources. Signing affects only an
+owned copy; the unsigned original and measured entitlement sections are retained.
+The System Settings control required a positive PID within 120 seconds before
+the unchanged 30-second Research launch bound.
+
+The fresh 23-source native compilation and actual bridge/UI run passed **14
+cases, 196 UI assertions, 12 native terminal assertions and 55 protected-exchange
+assertions**. These are separate groups, not an aggregate test count. Three
+synthetic relay accepts cover a peer opener, the actual UI send and a peer reply.
+The screen contains one accepted outgoing row and two received incoming rows,
+with stable deduplication, unknown incoming time/read status and no invented
+delivery/read confirmation. Successful PM completions (permissions 4, inbox 3,
+send 1) are distinct from attempted method counts. Final native authority is
+credential-fenced, the account absent and its original snapshot no longer
+current. Synthetic pagehide/remount is **not** actual OS background, lock,
+process-death or BFCache evidence.
+
+Exact receipts and SHA-256 references:
+
+- Web build: `/private/tmp/thalassa-reconciled-web-window.jJuwg5/build-receipt.json`,
+  `3b68210a37245f24b5283a4e8fa20537e31e39b7433ad2ac2438ef4d6d710282`.
+- Actual Window: `/private/tmp/thalassa-full-app-window-gGjHsU/window-receipt.json`,
+  `e53a7d82b7eaa039d3850917112d3fdd65dbdf02455e12173dea4025cbca27ad`.
+- Native run: `/private/tmp/thalassa-full-root-protected-MeZehs/run-receipt.json`,
+  `97b5c9ae51666929e9dcc74c63aac3f67451cc997314d1ce8b6ba567941d7f4e`.
+- Unsigned native build: `/private/tmp/thalassa-messaging-build-STUjtw/build-receipt.json`,
+  `5aeea09b32cd5d643c77cf37a1f1c0ea58eec2e0c815ce853c4490b21174ca6f`.
+- Read-only local verification:
+  `/private/tmp/thalassa-full-root-protected-verifier.ziOj5X/verification.json`,
+  `4de41d739cb26a7513122f11fd0339949f3471fe558b07cf4824075b583c982a`.
+
+The verifier checked all 16 driver/source inputs, 23 Swift inputs, 344 unsigned
+and 347 signed artifact files, the frameworks, measured entitlements, 61 HTTPS
+prerequisite inputs, four provider cache artifacts and current web inputs. One
+read-only simulator inventory confirmed exact ID/name absence. Raw native JSON
+and the resource retain a fixture nonce privately; only their hashes and bounded
+facts enter the repository summary. Local/agent verification is not an
+independent security assessment.
+Full private receipts/resources remain local; if lost, hashes alone cannot
+recreate acceptance. Re-execute the applicable evidence chain rather than
+manufacturing a replacement receipt.
+
+The two focused source/contract suites passed **61/61 cases**, narrow strict
+types, named zero-warning lint, syntax and formatting. Their receipt is
+`/private/tmp/thalassa-protected-native-final-checks.Npdibh/checks-receipt.json`,
+SHA-256 `e076d2a7915e0500c897c81690815a3380eacfc795117c8050f79058c5cbc6a0`.
+These are synthetic contracts/static/source-preservation tests, not 61 native
+encryption tests. The initial private typecheck runner omitted `DOM.Iterable`;
+it stopped before tests and was corrected without a source change. The local
+verifier's initial wrong-parent framework path was also corrected without a
+native rerun. Shared waiting was **0/120,000 ms** throughout. A retained reporting
+caveat is that a failed child build can omit child waiting from the parent's
+summary while retaining it in its own receipt; this passed zero-wait run is
+unaffected. Do not edit accepted runtime sources without new source-bound proof.
+
+Next advance actual OS lifecycle/protected navigation and the opposite actual
+main-App role, then adapter HTTPS/current Auth and physical acceptance. Shipping
+cutover/old-client/queue/push enforcement and rollback, device/prekey lifecycle,
+retention/scalable sync and recovery policy remain technical gates. Reproducible
+Rust source-to-binary provenance, dependency/licence obligations and independent
+assessment remain separate gates. **This milestone is not merge or release
+readiness.** Never reset the already registered human Research devices or use
+their older observations as acceptance of these sources.
+
 ## Clean upstream reconciliation on 11 October
 
 During the HTTPS proof, cleaned master advanced normally from `b4cb3211` to
@@ -46,8 +139,9 @@ to the already restored files or push any stash, backup or all refs.
 The new HTTPS proof's 61 inputs do not overlap upstream's changed files; retain
 its original executed hashes rather than relabelling any broader App acceptance.
 Upstream did change App dependencies, so the earlier isolated web/Window result
-is historical for that combined graph. Next refresh the web/Window proof on the
-reconciled sources, then run the current protected native full-App fixture.
+is historical for that combined graph. The later acceptance section above
+records the refreshed web/Window and protected native full-App proof; this
+reconciliation receipt itself does not establish either.
 
 ## Fresh native HTTPS exchange on 11 October
 
@@ -104,11 +198,10 @@ the producer. There was no native execution failure or second simulator attempt.
 The new runner snapshots failing operation/exit/timeout before cleanup; the
 historical bootstrap driver's reporting limitation remains unchanged.
 
-Next refresh the combined web/Window evidence and then compile and execute the
-current protected full-App native fixture using this legitimately regenerated
-completed-exchange prerequisite. The eleven WIP
-paths remain local, unpublished and hash-unchanged at this checkpoint; no
-protected full-App native build or exchange has run yet. Current physical
+At the time of this HTTPS receipt the eleven WIP paths remained unpublished
+and no protected full-App native build or exchange had run. The subsequent
+acceptance section above records that execution using this legitimately
+regenerated prerequisite, without changing these 61 HTTPS inputs. Current physical
 acceptance, real OS lifecycle, shipping prekey/device/retention/recovery policies,
 production cutover, reproducible Rust provenance, dependency/licence obligations
 and independent security assessment still gate merge/release. Master, production

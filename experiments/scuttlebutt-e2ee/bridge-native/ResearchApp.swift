@@ -7,7 +7,20 @@ final class ResearchBridgeViewController: CAPBridgeViewController {
     private var localUiFixtureReady = false
 #endif
     override func capacitorDidLoad() {
-#if E2EE_FULL_APP_UI_FIXTURE
+#if E2EE_FULL_APP_PROTECTED_UI_FIXTURE
+        ResearchLocalUiFixture.notePhase("bridge-created")
+        guard let bridge, let webView else {
+            ResearchLocalUiFixture.notePhase("fixture-install-failed")
+            return
+        }
+        do {
+            let httpFence = try ResearchFullAppProtectedHttpFence.install(on: bridge)
+            bridge.registerPluginInstance(ScuttlebuttResearchAuthPlugin())
+            try ResearchFullAppProtectedUiFixture.install(in: webView, httpFence: httpFence)
+            localUiFixtureReady = true
+            ResearchLocalUiFixture.notePhase("fixture-installed")
+        } catch { ResearchLocalUiFixture.notePhase("fixture-install-failed") }
+#elseif E2EE_FULL_APP_UI_FIXTURE
         ResearchLocalUiFixture.notePhase("bridge-created")
         guard let bridge, let webView else {
             ResearchLocalUiFixture.notePhase("fixture-install-failed")

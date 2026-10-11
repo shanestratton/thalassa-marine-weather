@@ -461,10 +461,10 @@ describe('actual protected fixture JS — jsdom SDK/control/PM DOM fakes only', 
     });
 });
 
-// Source contracts only. Respect nested #if/#else boundaries; a greedy regex
+// Source contracts only. Respect nested #if/#elseif/#else boundaries; a greedy regex
 // would accidentally erase simulator refusal or the cold scenario branch.
 function scenario(source: string, flags: Record<string, boolean>) {
-    const stack: Array<{ parent: boolean; condition: boolean; seenElse: boolean }> = [];
+    const stack: Array<{ parent: boolean; matched: boolean; seenElse: boolean }> = [];
     let active = true;
     const output: string[] = [];
     for (const line of source.split('\n')) {
@@ -472,24 +472,71 @@ function scenario(source: string, flags: Record<string, boolean>) {
         if (directive.startsWith('#if ')) {
             const condition = directive.slice(4);
             if (!Object.hasOwn(flags, condition)) throw new Error('Unknown source-contract condition');
-            stack.push({ parent: active, condition: flags[condition], seenElse: false });
+            stack.push({ parent: active, matched: flags[condition], seenElse: false });
             active = active && flags[condition];
+        } else if (directive.startsWith('#elseif ')) {
+            const frame = stack.at(-1),
+                condition = directive.slice(8);
+            if (!frame || frame.seenElse) throw new Error('Invalid source-contract elseif');
+            if (!Object.hasOwn(flags, condition)) throw new Error('Unknown source-contract condition');
+            active = frame.parent && !frame.matched && flags[condition];
+            frame.matched = frame.matched || flags[condition];
         } else if (directive === '#else') {
             const frame = stack.at(-1);
             if (!frame || frame.seenElse) throw new Error('Invalid source-contract else');
             frame.seenElse = true;
-            active = frame.parent && !frame.condition;
+            active = frame.parent && !frame.matched;
         } else if (directive === '#endif') {
             const frame = stack.pop();
             if (!frame) throw new Error('Unbalanced source-contract endif');
             active = frame.parent;
-        } else if (active) output.push(line);
+        } else if (directive.startsWith('#')) throw new Error('Unsupported source-contract directive');
+        else if (active) output.push(line);
     }
     if (stack.length) throw new Error('Unclosed source-contract condition');
     return output.join('\n');
 }
-const FLAGS = { E2EE_LOCAL_UI_FIXTURE: true, E2EE_PROTECTED_UI_FIXTURE: true, 'targetEnvironment(simulator)': true };
+const FLAGS = {
+    E2EE_LOCAL_UI_FIXTURE: true,
+    E2EE_PROTECTED_UI_FIXTURE: true,
+    E2EE_FULL_APP_UI_FIXTURE: false,
+    E2EE_FULL_APP_PROTECTED_UI_FIXTURE: false,
+    'targetEnvironment(simulator)': true,
+};
 describe('protected fixture source contracts — no compilation/native execution', () => {
+    it('refuses unknown, unsupported and malformed conditional directives', () => {
+        for (const source of [
+            '#if UNKNOWN\n#endif',
+            '#if E2EE_LOCAL_UI_FIXTURE\n#elseif UNKNOWN\n#endif',
+            '#warning unavailable',
+            '#if E2EE_LOCAL_UI_FIXTURE\n#else\n#elseif E2EE_PROTECTED_UI_FIXTURE\n#endif',
+            '#else',
+            '#endif',
+            '#if E2EE_LOCAL_UI_FIXTURE',
+        ])
+            expect(() => scenario(source, FLAGS)).toThrow();
+        const source =
+            '#if E2EE_FULL_APP_UI_FIXTURE\nstartup\n#elseif E2EE_PROTECTED_UI_FIXTURE\nold-protected\n#else\ncold\n#endif';
+        expect(scenario(source, FLAGS)).toBe('old-protected');
+        expect(scenario(source, { ...FLAGS, E2EE_FULL_APP_UI_FIXTURE: true })).toBe('startup');
+        expect(scenario(source, { ...FLAGS, E2EE_PROTECTED_UI_FIXTURE: false })).toBe('cold');
+    });
+    it('keeps v4 wiring explicit and separate from the preserved v1/v2/v3 branches', () => {
+        const flags = { ...FLAGS, E2EE_PROTECTED_UI_FIXTURE: false, E2EE_FULL_APP_PROTECTED_UI_FIXTURE: true };
+        const app = scenario(readFileSync(join(NATIVE, 'ResearchApp.swift'), 'utf8'), flags);
+        expect(app).toContain('ResearchFullAppProtectedHttpFence.install(on: bridge)');
+        expect(app).toContain('ResearchFullAppProtectedUiFixture.install(in: webView, httpFence: httpFence)');
+        expect(app).not.toContain('ResearchFullAppHttpFence.install(on: bridge)');
+        const local = scenario(readFileSync(join(NATIVE, 'ResearchLocalUiFixture.swift'), 'utf8'), flags);
+        expect(local).toContain('ResearchFullAppProtectedUiFixture.allow(method: method)');
+        expect(local).not.toContain('startProtectedControl');
+        expect(local).not.toContain('coldAllowed.union(');
+        const build = readFileSync(join(NATIVE, 'build.mjs'), 'utf8');
+        expect(build).toContain('fullAppUi = localUi.version === 3');
+        expect(build).toContain('fullAppProtectedUi = localUi.version === 4');
+        expect(build).toContain('protectedUi = localUi.version === 2');
+        expect(build).toContain("(fullAppProtectedUi ? ' E2EE_FULL_APP_PROTECTED_UI_FIXTURE' : '')");
+    });
     it('keeps v2 protected scenario and cold v1 scenario separate under nested flags', () => {
         const source = readFileSync(join(NATIVE, 'ResearchLocalUiFixture.swift'), 'utf8');
         const protectedSource = scenario(source, FLAGS);
