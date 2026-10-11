@@ -222,8 +222,8 @@ describe('trusted release asset proxy', () => {
         );
         expect(response.status).toBe(200);
         expect(fetchSpy.mock.calls.map((call) => call[0])).toEqual([
-            'https://github.com/shanestratton/thalassa-marine-weather/releases/download/cmems-currents-latest/manifest-v2-a.json',
-            'https://github.com/shanestratton/thalassa-marine-weather/releases/download/cmems-currents-latest/manifest-v2-b.json',
+            'https://github.com/shanestratton/thalassa-ocean-data/releases/download/cmems-currents-latest/manifest-v2-a.json',
+            'https://github.com/shanestratton/thalassa-ocean-data/releases/download/cmems-currents-latest/manifest-v2-b.json',
         ]);
         expect(fetchSpy.mock.calls.every((call) => call[1]?.cache === 'no-store')).toBe(true);
         expect(response.headers.get('cache-control')).toBe('no-store');
@@ -459,7 +459,7 @@ describe('trusted release asset proxy', () => {
         );
         expect(first.status).toBe(200);
         expect(fetchSpy.mock.calls[0]?.[0]).toBe(
-            `https://github.com/shanestratton/thalassa-marine-weather/releases/download/cmems-currents-latest-assets-2026-W32/${filename}`,
+            `https://github.com/shanestratton/thalassa-ocean-data/releases/download/cmems-currents-latest-assets-2026-W32/${filename}`,
         );
         expect(first.headers.get('cache-control')).toContain('immutable');
         expect(first.headers.get('x-thalassa-generation')).toBe(generation);

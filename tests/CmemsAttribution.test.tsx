@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { CmemsAttribution, CMEMS_PRODUCT_ATTRIBUTIONS } from '../components/map/CmemsAttribution';
+import { MARINE_DATASET_CONTRACTS } from '../services/weather/api/marineManifestContract';
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
@@ -84,16 +85,14 @@ describe('CmemsAttribution', () => {
             "currentsVisible && isCmemsCurrentsEnabled() && cmemsAttributionLayers.push('currents')",
         );
 
-        expect(read('scripts/cmems-currents-pipeline/pipeline.py')).toContain(
-            'cmems_mod_glo_phy_anfc_merged-uv_PT1H-i',
-        );
-        expect(read('scripts/cmems-waves-pipeline/pipeline.py')).toContain('cmems_mod_glo_wav_anfc_0.083deg_PT3H-i');
-        expect(read('scripts/cmems-sst-pipeline/pipeline.py')).toContain(
-            'cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m',
-        );
-        expect(read('scripts/cmems-chl-pipeline/pipeline.py')).toContain('cmems_mod_glo_bgc-pft_anfc_0.25deg_P1D-m');
-        for (const path of ['scripts/cmems-seaice-pipeline/pipeline.py', 'scripts/cmems-mld-pipeline/pipeline.py']) {
-            expect(read(path)).toContain('cmems_mod_glo_phy_anfc_0.083deg_P1D-m');
-        }
+        // The products the attribution names are the ones every manifest must carry.
+        // The publishers pin the same IDs in shanestratton/thalassa-ocean-data
+        // (scripts/publisher-tests/test_release_gate.py).
+        expect(MARINE_DATASET_CONTRACTS.currents.id).toBe('cmems_mod_glo_phy_anfc_merged-uv_PT1H-i');
+        expect(MARINE_DATASET_CONTRACTS.waves.id).toBe('cmems_mod_glo_wav_anfc_0.083deg_PT3H-i');
+        expect(MARINE_DATASET_CONTRACTS.sst.id).toBe('cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m');
+        expect(MARINE_DATASET_CONTRACTS.chl.id).toBe('cmems_mod_glo_bgc-pft_anfc_0.25deg_P1D-m');
+        expect(MARINE_DATASET_CONTRACTS.seaice.id).toBe('cmems_mod_glo_phy_anfc_0.083deg_P1D-m');
+        expect(MARINE_DATASET_CONTRACTS.mld.id).toBe('cmems_mod_glo_phy_anfc_0.083deg_P1D-m');
     });
 });

@@ -197,10 +197,9 @@ describe('public-beta release gate contract', () => {
             ['mapbox', 'tilesets'].join('-'),
             ['thalassa', 'currents', 'h'].join('-'),
         ];
-        const retiredPublisherSurfaces = [
-            read('scripts/cmems-currents-pipeline/README.md'),
-            read('src/components/vite-env.d.ts'),
-        ];
+        // The currents publisher README moved to shanestratton/thalassa-ocean-data,
+        // which checks it for these markers itself (test_release_gate.py).
+        const retiredPublisherSurfaces = [read('src/components/vite-env.d.ts')];
 
         for (const source of retiredPublisherSurfaces) {
             for (const marker of obsoleteMarkers) expect(source).not.toContain(marker);
@@ -349,49 +348,15 @@ describe('public-beta release gate contract', () => {
         );
     });
 
-    it('makes marine producer, publisher, and proxy trust source release gates', () => {
+    it('keeps the proxy trust gates here and the publisher gates with the publishers', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
-        const publisherWorkflows = ['currents', 'waves', 'sst', 'chl', 'seaice', 'mld']
-            .map((dataset) => read(`.github/workflows/cmems-${dataset}-pipeline.yml`))
-            .concat(read('.github/workflows/mpa-pipeline.yml'));
-
-        for (const workflow of publisherWorkflows) {
-            const start = workflow.indexOf('- name: Run offline publisher');
-            const end = workflow.indexOf('\n            - name:', start + 1);
-            const offlineStep = workflow.slice(start, end);
-            expect(offlineStep).toContain("NO_PROXY: '127.0.0.1,localhost,::1'");
-            for (const variable of ['HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY']) {
-                expect(offlineStep).toContain(`${variable}: 'http://127.0.0.1:9'`);
-            }
-            expect(offlineStep).toContain('export no_proxy="$NO_PROXY"');
-            expect(offlineStep).toContain('export https_proxy="$HTTPS_PROXY"');
-            expect(offlineStep).toContain('export http_proxy="$HTTP_PROXY"');
-            expect(offlineStep).toContain('export all_proxy="$ALL_PROXY"');
-            expect(offlineStep).not.toMatch(/^\s+(?:no_proxy|https_proxy|http_proxy|all_proxy):/gm);
-            expect(workflow).not.toMatch(/^\s*no_proxy:\s*['"]?\*/gim);
-            expect(offlineStep).not.toMatch(/export\s+no_proxy=['"]?\*/i);
-            expect(offlineStep).not.toContain('${{ secrets.');
-        }
-
-        expect(gate).toContain(
-            'marine publishers use reviewed-master, run-stable sealed artifacts and an isolated dual-slot writer',
-        );
-        expect(gate).toContain("python-version: '3.11.15'");
-        expect(gate).toContain("!workflow.includes('3.11.11')");
-        expect(gate).toContain(
-            'marine producer contract validates source science and immutable weekly shards before dual-slot discovery publication',
-        );
-        // 60, was 56: the pin is a no-tests-deleted tripwire, and 2357d9c9
-        // (2026-08-26) deliberately ADDED four bounded-superset mask tests
-        // to test_cmems_science.py (before that, c6c4f438 added three
-        // publish-flow regressions). The count only ever moves up, and only
-        // with a commit that says why — same contract, new floor.
-        expect(gate).toContain('marinePublisherTestCount === 60');
+        // The publisher workflows, producers and their offline-fixture network fence
+        // moved to shanestratton/thalassa-ocean-data with the checks that read them
+        // (scripts/publisher-tests/test_release_gate.py, test count pinned at 66).
+        expect(gate).toContain('marine publishers live in the public data repository, not in this one');
+        expect(gate).toContain("releaseAssetProxy.includes('const OWNER_REPO = MARINE_RELEASE_REPOSITORY;')");
         expect(gate).toContain('12-hourly waves use one exact three-hour source-age margin without weakening currents');
-        expect(gate).toContain('offline marine publisher fixtures have a localhost-only dead-proxy network fence');
-        expect(gate).toContain('!/^\\s+(?:no_proxy|https_proxy|http_proxy|all_proxy):/gm.test(offlineStep)');
-        expect(gate).toContain('!/^\\s*no_proxy:\\s*[\'"]?\\*/gim.test(workflow)');
-        expect(gate).toContain('!/export\\s+no_proxy=[\'"]?\\*/i.test(offlineStep)');
+        expect(gate).not.toContain('marinePublisherTestCount');
         expect(gate).toContain(
             'marine release proxy streams verified weekly-shard assets and preserves dotted Vercel API routes',
         );
