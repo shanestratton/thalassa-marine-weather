@@ -1,0 +1,289 @@
+name: Thalassa b127 passive chart-state diagnostic (NOT release proof)
+
+# PREPARED ONLY until root reviews/publishes. Based on f051e9217 fixed-wire workflow.
+# Actual ec App; original three repetitions per engine, profiles, 150s budget and
+# assertions unchanged. No readPixels/bitmap mask/DPR/pause/paint modification.
+# Extra passive page reads/console facts alter diagnostic timing; not a cure.
+on:
+    push:
+        branches: ['codex/testflight-127-passive-facts-diagnostic-2026-10-12']
+        paths: ['.github/workflows/testflight-127-passive-facts-diagnostic.yml']
+
+permissions:
+    contents: read
+
+concurrency:
+    group: testflight-127-passive-wind-facts
+    cancel-in-progress: false
+
+env:
+    CANDIDATE_SHA: 'ec0aaa363493496673f3cfdfe31e82d40813c663'
+    CI: 'true'
+    HUSKY: '0'
+    NODE_OPTIONS: --max-old-space-size=4096
+    PUPPETEER_SKIP_DOWNLOAD: 'true'
+    VITE_APP_BUILD: '127'
+    VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+    VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+    VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+    VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+    VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+    VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+
+jobs:
+    focused-wind:
+        name: passive state capture (${{ matrix.browser }})
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        strategy:
+            fail-fast: false
+            matrix:
+                browser: [chromium, webkit]
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 'ec0aaa363493496673f3cfdfe31e82d40813c663'
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Assert exact application and unchanged original config before any diagnostic copy
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  git merge-base --is-ancestor 6c60882fd39a87a6c00e1a327455903182293baa HEAD
+                  test "$(git rev-parse HEAD:playwright.keyboard.config.ts)" = 4c06d1c48d42f7529904b27f50e2455305d23606
+                  test "$(git rev-parse HEAD:browser-tests/desk-wind-layout.spec.ts)" = be5c5ab28d1a84eff4077f5e47186abcbddd39b6
+                  git diff --exit-code -- playwright.keyboard.config.ts browser-tests/desk-wind-layout.spec.ts browser-tests/helpers/chartCaptureReady.ts components/map/MapboxVelocityOverlay.tsx
+            - run: npm ci
+            - name: Make source-pinned owned passive clone with unchanged acceptance
+              id: prepare
+              run: |
+                  node --input-type=module <<'NODE'
+                  // Cloud preparation only: exact ec application source -> private passive clone.
+                  import { readFileSync, writeFileSync, mkdirSync, lstatSync, realpathSync, symlinkSync } from 'node:fs';
+                  import { join, resolve } from 'node:path';
+                  import { createHash } from 'node:crypto';
+                  import { execFileSync } from 'node:child_process';
+                  const candidate = 'ec0aaa363493496673f3cfdfe31e82d40813c663';
+                  const sourcePins = {
+                    "browser-tests/desk-wind-layout.spec.ts": "cf8284ae7634668f64db05fccfc080a432f6ef57b0304b8121047589df859b40",
+                    "browser-tests/helpers/chartCaptureReady.ts": "02ffb464cd22d0d8eb3c67c08be3bd96f788328405cb0e6bec5f16a71a69b1e9",
+                    "playwright.keyboard.config.ts": "3213abfde7ee7461d475c7b630a3c485551bb5ed2c402018fb7fd5d9132f218a",
+                    "components/map/MapboxVelocityOverlay.tsx": "bd2765c24dd9c1f95952c002ca90b2554d1bd28a7278527472ac24e5deeae79e",
+                    "components/map/MapHub.tsx": "4cb24cdf1fc8d50e984048bdd5bb10048e00a366f0813c0c7d609710774d384a",
+                    "components/map/reliefBase.ts": "9ce10e0afdbec2bc4dcfa597f879cf184ad78691e0339c4dabe7bed54b0ceb45",
+                    "components/map/useMapInit.ts": "4124705ad87fb5d72d4fa0a842fc3622cb39dedfa2fd1f47ad140a7b25e8f302",
+                    "components/map/useWeatherLayers.ts": "d0dc8cf1f950bf4dbf992fe77f527c8e0764663fe3fc346dfc361f164afa1cad",
+                    "components/map/CloseInWindLayer.ts": "a9cf00c32e477b32f1d891c4f603aa35dc0311e59dc25827acd09e7a0e665b4c",
+                    "components/map/windRamp.ts": "22770f25d075fde7d7c9fae92fab4e62117428349723bf5379174716bb1e34ed",
+                    "e2e/helpers/syntheticChartTiles.ts": "72d467f3722cfeb93aac4eef37cadafd1bed7b9160f5617a4c5bd8f73433f393",
+                    "vite.config.ts": "f090b650baae6f0e34c2c96438547f415c9636e112b1569c4c350cb186d093e4",
+                    "package-lock.json": "7161c835db167d3ced265e6ab8624577b4d99454be9b1326a887b5549bd1e12f",
+                    "package.json": "df367eb5ef952430c9780d570fdc0ae34d55984b1be376d5606c05e282442454"
+                  };
+                  const assets = {
+                    "facts": "// Passive, private diagnostics only. No readiness flag or rendering mutation.\nexport function readChartCaptureFacts() {\n    const finite = (value: unknown, low: number, high: number) =>\n        typeof value === 'number' && Number.isFinite(value) && value >= low && value <= high\n            ? Math.round(value * 1000) / 1000 : null;\n    const bool = (value: unknown) => typeof value === 'boolean' ? value : null;\n    const safely = (read: () => unknown) => { try { return read(); } catch { return null; } };\n    const map = (window as unknown as { __thalassaMap?: any }).__thalassaMap;\n    const container = safely(() => map?.getContainer()) as HTMLElement | null;\n    const rect = container?.getBoundingClientRect();\n    const style = container ? getComputedStyle(container) : null;\n    const visible = (element: Element) => {\n        const box = element.getBoundingClientRect();\n        const css = getComputedStyle(element);\n        return box.width > 0 && box.height > 0 && css.display !== 'none' && css.visibility !== 'hidden';\n    };\n    const maps = Array.from(document.querySelectorAll('.mapboxgl-map'));\n    const centre = safely(() => map?.getCenter()) as { lng?: unknown; lat?: unknown } | null;\n    const layers = safely(() => map?.getStyle()?.layers) as Array<{ id?: string }> | null;\n    const order = Array.isArray(layers) && layers.length <= 2048 ? {\n        layerCount: layers.length,\n        land: layers.findIndex((value) => value.id === 'land'),\n        water: layers.findIndex((value) => value.id === 'water'),\n        satelliteLand: layers.findIndex((value) => value.id === 'satellite-land-layer'),\n        satelliteBase: layers.findIndex((value) => value.id === 'satellite-base-layer'),\n        hybridBase: layers.findIndex((value) => value.id === 'hybrid-base-layer'),\n    } : null;\n    const landLayer = safely(() => map?.getLayer('satellite-land-layer'));\n    const visibility = landLayer ? safely(() => map.getLayoutProperty('satellite-land-layer', 'visibility')) : null;\n    const cache = safely(() => map?.style?.getOwnSourceCache('satellite-base')) as any;\n    const tiles = cache && cache._tiles && typeof cache._tiles === 'object' ? Object.values(cache._tiles) as any[] : null;\n    const now = performance.now();\n    const tileFacts = tiles && tiles.length <= 512 ? {\n        observed: true, tileCount: tiles.length,\n        states: { loading: 0, loaded: 0, errored: 0, reloading: 0, expired: 0, unloaded: 0, unknown: 0 },\n        texturePresentCount: 0, fadeEndDefinedCount: 0, fadeActiveCount: 0, fadeExpiredCount: 0,\n        maximumFadeRemainingMs: 0,\n    } : null;\n    if (tileFacts && tiles) for (const tile of tiles) {\n        const state = ['loading', 'loaded', 'errored', 'reloading', 'expired', 'unloaded'].includes(tile?.state) ? tile.state : 'unknown';\n        tileFacts.states[state as keyof typeof tileFacts.states]++;\n        if (tile?.texture) tileFacts.texturePresentCount++;\n        if (typeof tile?.fadeEndTime === 'number' && Number.isFinite(tile.fadeEndTime)) {\n            tileFacts.fadeEndDefinedCount++;\n            if (tile.fadeEndTime >= now) {\n                tileFacts.fadeActiveCount++;\n                tileFacts.maximumFadeRemainingMs = Math.max(tileFacts.maximumFadeRemainingMs, Math.min(60_000, tile.fadeEndTime - now));\n            } else tileFacts.fadeExpiredCount++;\n        }\n    }\n    if (tileFacts) tileFacts.maximumFadeRemainingMs = Math.round(tileFacts.maximumFadeRemainingMs);\n    return {\n        version: 1, mapPresent: !!map,\n        devicePixelRatio: finite(window.devicePixelRatio, 0.1, 16),\n        visibleMapCount: maps.length <= 32 ? maps.filter(visible).length : null,\n        exposedMapVisible: container ? visible(container) : null,\n        containerRect: rect ? { x: finite(rect.x, -1_000_000, 1_000_000), y: finite(rect.y, -1_000_000, 1_000_000), width: finite(rect.width, 0, 1_000_000), height: finite(rect.height, 0, 1_000_000) } : null,\n        display: style ? (['none', 'block', 'flex', 'grid', 'inline-block'].includes(style.display) ? style.display : 'other') : null,\n        centre: centre ? { lng: finite(centre.lng, -1080, 1080), lat: finite(centre.lat, -90, 90) } : null,\n        zoom: finite(safely(() => map?.getZoom()), -10, 30),\n        isMoving: bool(safely(() => map?.isMoving())),\n        loaded: bool(safely(() => map?.loaded())),\n        frameReady: bool(safely(() => map?.frameReady())),\n        satelliteSourceLoaded: bool(safely(() => map?.isSourceLoaded('satellite-base'))),\n        satelliteLandVisibility: ['visible', 'none'].includes(visibility as string) ? visibility : null,\n        satelliteLandRasterOpacity: finite(landLayer ? safely(() => map.getPaintProperty('satellite-land-layer', 'raster-opacity')) : null, 0, 1),\n        layerOrder: order, diagnosticTileFacts: tileFacts,\n        internalTexturePresenceIsNotDrawProof: true,\n    };\n}\n",
+                    "ready": "import type { Page } from '@playwright/test';\n\n/**\n * A paired pixel measurement needs a completed, still basemap frame, not just\n * visible controls. Request a real repaint and await Mapbox's own idle event\n * (tiles, camera and style transitions finished). Never pause the wind, retry\n * a capture, change a paint value or manufacture a readiness flag.\n */\nexport async function waitForChartCaptureReady(page: Page): Promise<void> {\n    await page.evaluate(\n        () =>\n            new Promise<void>((resolve) => {\n// Passive, private diagnostics only. No readiness flag or rendering mutation.\nfunction readChartCaptureFacts() {\n    const finite = (value: unknown, low: number, high: number) =>\n        typeof value === 'number' && Number.isFinite(value) && value >= low && value <= high\n            ? Math.round(value * 1000) / 1000 : null;\n    const bool = (value: unknown) => typeof value === 'boolean' ? value : null;\n    const safely = (read: () => unknown) => { try { return read(); } catch { return null; } };\n    const map = (window as unknown as { __thalassaMap?: any }).__thalassaMap;\n    const container = safely(() => map?.getContainer()) as HTMLElement | null;\n    const rect = container?.getBoundingClientRect();\n    const style = container ? getComputedStyle(container) : null;\n    const visible = (element: Element) => {\n        const box = element.getBoundingClientRect();\n        const css = getComputedStyle(element);\n        return box.width > 0 && box.height > 0 && css.display !== 'none' && css.visibility !== 'hidden';\n    };\n    const maps = Array.from(document.querySelectorAll('.mapboxgl-map'));\n    const centre = safely(() => map?.getCenter()) as { lng?: unknown; lat?: unknown } | null;\n    const layers = safely(() => map?.getStyle()?.layers) as Array<{ id?: string }> | null;\n    const order = Array.isArray(layers) && layers.length <= 2048 ? {\n        layerCount: layers.length,\n        land: layers.findIndex((value) => value.id === 'land'),\n        water: layers.findIndex((value) => value.id === 'water'),\n        satelliteLand: layers.findIndex((value) => value.id === 'satellite-land-layer'),\n        satelliteBase: layers.findIndex((value) => value.id === 'satellite-base-layer'),\n        hybridBase: layers.findIndex((value) => value.id === 'hybrid-base-layer'),\n    } : null;\n    const landLayer = safely(() => map?.getLayer('satellite-land-layer'));\n    const visibility = landLayer ? safely(() => map.getLayoutProperty('satellite-land-layer', 'visibility')) : null;\n    const cache = safely(() => map?.style?.getOwnSourceCache('satellite-base')) as any;\n    const tiles = cache && cache._tiles && typeof cache._tiles === 'object' ? Object.values(cache._tiles) as any[] : null;\n    const now = performance.now();\n    const tileFacts = tiles && tiles.length <= 512 ? {\n        observed: true, tileCount: tiles.length,\n        states: { loading: 0, loaded: 0, errored: 0, reloading: 0, expired: 0, unloaded: 0, unknown: 0 },\n        texturePresentCount: 0, fadeEndDefinedCount: 0, fadeActiveCount: 0, fadeExpiredCount: 0,\n        maximumFadeRemainingMs: 0,\n    } : null;\n    if (tileFacts && tiles) for (const tile of tiles) {\n        const state = ['loading', 'loaded', 'errored', 'reloading', 'expired', 'unloaded'].includes(tile?.state) ? tile.state : 'unknown';\n        tileFacts.states[state as keyof typeof tileFacts.states]++;\n        if (tile?.texture) tileFacts.texturePresentCount++;\n        if (typeof tile?.fadeEndTime === 'number' && Number.isFinite(tile.fadeEndTime)) {\n            tileFacts.fadeEndDefinedCount++;\n            if (tile.fadeEndTime >= now) {\n                tileFacts.fadeActiveCount++;\n                tileFacts.maximumFadeRemainingMs = Math.max(tileFacts.maximumFadeRemainingMs, Math.min(60_000, tile.fadeEndTime - now));\n            } else tileFacts.fadeExpiredCount++;\n        }\n    }\n    if (tileFacts) tileFacts.maximumFadeRemainingMs = Math.round(tileFacts.maximumFadeRemainingMs);\n    return {\n        version: 1, mapPresent: !!map,\n        devicePixelRatio: finite(window.devicePixelRatio, 0.1, 16),\n        visibleMapCount: maps.length <= 32 ? maps.filter(visible).length : null,\n        exposedMapVisible: container ? visible(container) : null,\n        containerRect: rect ? { x: finite(rect.x, -1_000_000, 1_000_000), y: finite(rect.y, -1_000_000, 1_000_000), width: finite(rect.width, 0, 1_000_000), height: finite(rect.height, 0, 1_000_000) } : null,\n        display: style ? (['none', 'block', 'flex', 'grid', 'inline-block'].includes(style.display) ? style.display : 'other') : null,\n        centre: centre ? { lng: finite(centre.lng, -1080, 1080), lat: finite(centre.lat, -90, 90) } : null,\n        zoom: finite(safely(() => map?.getZoom()), -10, 30),\n        isMoving: bool(safely(() => map?.isMoving())),\n        loaded: bool(safely(() => map?.loaded())),\n        frameReady: bool(safely(() => map?.frameReady())),\n        satelliteSourceLoaded: bool(safely(() => map?.isSourceLoaded('satellite-base'))),\n        satelliteLandVisibility: ['visible', 'none'].includes(visibility as string) ? visibility : null,\n        satelliteLandRasterOpacity: finite(landLayer ? safely(() => map.getPaintProperty('satellite-land-layer', 'raster-opacity')) : null, 0, 1),\n        layerOrder: order, diagnosticTileFacts: tileFacts,\n        internalTexturePresenceIsNotDrawProof: true,\n    };\n}\n                const enteredAt = performance.now();\n                const emit = (kind: 'readiness-entered' | 'idle-callback') => {\n                    try {\n                        console.info('__THALASSA_WIND_CAPTURE_FACTS__' + JSON.stringify({ version: 1, kind, elapsedMs: Math.round(performance.now() - enteredAt), facts: readChartCaptureFacts() }));\n                    } catch { /* Passive diagnostics cannot change readiness acceptance. */ }\n                };\n                const map = (\n                    window as unknown as {\n                        __thalassaMap?: {\n                            once(event: string, callback: () => void): void;\n                            triggerRepaint(): void;\n                        };\n                    }\n                ).__thalassaMap;\n                if (!map || typeof map.once !== 'function' || typeof map.triggerRepaint !== 'function') {\n                    throw new Error('A real chart is required before paired pixel measurement');\n                }\n                emit('readiness-entered');\n                map.once('idle', () => { emit('idle-callback'); resolve(); });\n                map.triggerRepaint();\n            }),\n    );\n}\n",
+                    "preamble": "const diagnosticCaptures: any[] = [];\nconst diagnosticEvents: unknown[] = [];\nconst diagnosticPages = new WeakSet<Page>();\ntest.beforeEach(() => { diagnosticCaptures.length = 0; diagnosticEvents.length = 0; });\ntest.afterEach(async ({}, info) => {\n    const prefix = info.outputPath('passive-capture-facts');\n    for (const capture of diagnosticCaptures) {\n        if (capture.wire) writeFileSync(`${prefix}-${capture.index}.png`, capture.wire, { flag: 'wx', mode: 0o600 });\n    }\n    writeFileSync(`${prefix}.json`, JSON.stringify({ version: 1, project: info.project.name, status: info.status, events: diagnosticEvents, captures: diagnosticCaptures.map(({ wire, ...facts }) => facts), noAdditionalScreenshot: true, passiveDiagnosticsChangeTiming: true }, null, 2), { flag: 'wx', mode: 0o600 });\n});\n\n",
+                    "grab": "    const grab = async () => {\n        if (!diagnosticPages.has(page)) {\n            diagnosticPages.add(page);\n            page.on('console', (message) => {\n                const prefix = '__THALASSA_WIND_CAPTURE_FACTS__';\n                const text = message.text();\n                if (!text.startsWith(prefix) || text.length > 24_000 || diagnosticEvents.length >= 24) return;\n                try { const value = JSON.parse(text.slice(prefix.length)); if (value.version === 1 && ['readiness-entered', 'idle-callback'].includes(value.kind)) diagnosticEvents.push(value); } catch { /* Unknown output is not exported. */ }\n            });\n        }\n        const capture: any = { index: diagnosticCaptures.length + 1, startedAtElapsedMs: Math.round(performance.now()) };\n        diagnosticCaptures.push(capture);\n        await waitForChartCaptureReady(page);\n        capture.readyReturnedAtElapsedMs = Math.round(performance.now());\n        capture.before = await page.evaluate(readChartCaptureFacts);\n        capture.screenshotEnteredAtElapsedMs = Math.round(performance.now());\n        const wire = await page.screenshot({ clip, animations: 'allow' });\n        capture.screenshotReturnedAtElapsedMs = Math.round(performance.now());\n        capture.wire = wire;\n        capture.after = await page.evaluate(readChartCaptureFacts);\n        const png = decode(wire);\n        capture.decoded = { width: png.width, height: png.height, channels: png.channels, depth: png.depth };\n        return { data: png.data, channels: png.channels, width: png.width };\n    };"
+                  };
+                  const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+                  const workspace = process.env.GITHUB_WORKSPACE, runner = process.env.RUNNER_TEMP;
+                  for (const path of [workspace,runner]) {
+                      if (!path || path !== resolve(path) || realpathSync(path) !== path) throw Error('Canonical owned root required');
+                      const stat = lstatSync(path);
+                      if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid()) throw Error('Root ownership refused');
+                  }
+                  if (execFileSync('git',['rev-parse','HEAD'],{cwd:workspace,encoding:'utf8'}).trim() !== candidate) throw Error('Application commit mismatch');
+                  const sourceInputs = Object.entries(sourcePins).map(([path,sha256]) => {
+                      const absolute = join(workspace,path), stat = lstatSync(absolute);
+                      if (!stat.isFile() || stat.isSymbolicLink() || digest(readFileSync(absolute)) !== sha256) throw Error('Application source pin mismatch');
+                      return {path,sha256};
+                  });
+                  const original = readFileSync(join(workspace,'browser-tests/desk-wind-layout.spec.ts'),'utf8');
+                  const acceptance = (source) => {
+                      const start = source.indexOf("test('Light: dark streaks"), end = source.indexOf("test('where the models disagree");
+                      if (start < 0 || end <= start) throw Error('Acceptance boundaries absent');
+                      return source.slice(start,end);
+                  };
+                  const originalSpan = acceptance(original);
+                  if (digest(originalSpan) !== 'ecaf23c3e352d5d2654c6978d36d9ac1689ac6822b684dabe78f92a2b49821a0' ||
+                      !originalSpan.includes('test.setTimeout(150_000);')) throw Error('Original acceptance/deadline mismatch');
+                  const diagnosticRoot = join(runner,'wind-passive-facts');
+                  mkdirSync(diagnosticRoot,{mode:0o700});
+                  mkdirSync(join(diagnosticRoot,'artifacts'),{mode:0o700});
+                  mkdirSync(join(diagnosticRoot,'raw-output'),{mode:0o700});
+                  const owned = (name,source) => {
+                      const path = join(diagnosticRoot,name);
+                      writeFileSync(path,source,{mode:0o600,flag:'wx'});
+                      return {name,sha256:digest(readFileSync(path))};
+                  };
+                  let clone = original.replace("import { mkdirSync } from 'node:fs';", "import { mkdirSync, writeFileSync } from 'node:fs';");
+                  const imports = [
+                   ['../e2e/helpers/syntheticChartTiles','e2e/helpers/syntheticChartTiles'],
+                   ['../e2e/helpers/storageState','e2e/helpers/storageState'],
+                   ['../e2e/helpers/wideFonts','e2e/helpers/wideFonts'],
+                   ['../tests/helpers/colourScience','tests/helpers/colourScience'],
+                  ];
+                  for (const [from,to] of imports) {
+                      const literal = "'" + from + "'";
+                      if (clone.split(literal).length !== 2) throw Error('Import cardinality mismatch');
+                      clone = clone.replace(literal,JSON.stringify(join(workspace,to)));
+                  }
+                  const helperImport = "import { waitForChartCaptureReady } from './helpers/chartCaptureReady';";
+                  if (clone.split(helperImport).length !== 2) throw Error('Helper import cardinality mismatch');
+                  clone = clone.replace(helperImport, "import { waitForChartCaptureReady } from './chartCaptureReady';\nimport { readChartCaptureFacts } from './readChartCaptureFacts';\n\n" + assets.preamble);
+                  const grabStart = clone.indexOf("    const grab = async () => {",clone.indexOf('async function streakPixels'));
+                  const grabEnd = clone.indexOf("\n    const on = await grab();",grabStart);
+                  if (grabStart < 0 || grabEnd < 0) throw Error('Capture boundaries absent');
+                  clone = clone.slice(0,grabStart) + assets.grab + clone.slice(grabEnd);
+                  if (acceptance(clone) !== originalSpan) throw Error('Private clone changed original acceptance');
+                  const generatedInputs = [
+                      owned('readChartCaptureFacts.ts',assets.facts),
+                      owned('chartCaptureReady.ts',assets.ready),
+                      owned('wind-capture-facts.spec.ts',clone),
+                  ];
+                  const config = [
+                      'import original from ' + JSON.stringify(join(workspace,'playwright.keyboard.config.ts')) + ';',
+                      'export default {...original, webServer:{...original.webServer,cwd:' + JSON.stringify(workspace) + '},',
+                      'testDir:' + JSON.stringify(diagnosticRoot) + ',testMatch:["wind-capture-facts.spec.ts"],',
+                      'outputDir:' + JSON.stringify(join(diagnosticRoot,'raw-output')) + ',workers:1,retries:0,reporter:"line"};',
+                  ].join('\n');
+                  generatedInputs.push(owned('playwright.config.mjs',config));
+                  symlinkSync(join(workspace,'node_modules'),join(diagnosticRoot,'node_modules'),'dir');
+                  // The cloud workspace/node_modules is freshly installed and runner-owned.
+                  // Keep the ORIGINAL Vite command/configLoader/cache behavior. No app writes.
+                  const preparation = {
+                      version:1,diagnosticOnly:true,candidate,workflowCommit:process.env.GITHUB_SHA,
+                      sourceInputs,generatedInputs,rootAcceptanceSpanSha256:digest(originalSpan),
+                      acceptanceBodyByteIdentical:true,originalDeadlineMs:150000,repetitions:3,retries:0,workers:1,
+                      originalProjectsUnchanged:true,originalViteCommandUnchanged:true,originalConfigLoaderUnchanged:true,
+                      cacheScope:'fresh runner-owned npm-ci workspace, not the local shared node_modules',
+                      diagnostics:'readiness-entered/idle and before/after six original captures; no extra screenshot/paint/wind mutation',
+                      noDprImplementation:true,noReadPixels:true,readinessIsOriginalEventBarrier:true,
+                      node:{version:process.version,executableSha256:digest(readFileSync(process.execPath))},
+                  };
+                  owned('preparation-receipt.json',JSON.stringify(preparation,null,2)+'\n');
+                  writeFileSync(process.env.GITHUB_OUTPUT,'diagnostic_root='+diagnosticRoot+'\n',{flag:'a'});
+                  console.log('Pinned ec application and unchanged acceptance copied into owned passive diagnostics.');
+                  NODE
+            - name: Install the selected original browser engine
+              run: npx playwright install --with-deps ${{ matrix.browser }}
+            - name: Three original acceptance repetitions with passive facts
+              id: proof
+              env:
+                  PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ steps.prepare.outputs.diagnostic_root }}/private-playwright-results.json
+              run: >-
+                  npx playwright test --config "${{ steps.prepare.outputs.diagnostic_root }}/playwright.config.mjs"
+                  "${{ steps.prepare.outputs.diagnostic_root }}/wind-capture-facts.spec.ts" --grep 'Light: dark streaks'
+                  --project=${{ matrix.browser }} --workers=1 --repeat-each=3 --retries=0 --reporter=line,json
+            - name: Package only bounded facts, source-bound receipts and unchanged original PNG wires
+              if: always() && steps.prepare.outcome == 'success'
+              env:
+                  BROWSER: ${{ matrix.browser }}
+                  PROOF_OUTCOME: ${{ steps.proof.outcome }}
+              run: |
+                  node --input-type=module <<'NODE'
+                  // Package only bounded synthetic UI diagnostics; never upload raw reports/logs.
+                  import {readFileSync,writeFileSync,readdirSync,lstatSync,realpathSync,copyFileSync} from 'node:fs';
+                  import {join,resolve,basename} from 'node:path';
+                  import {createHash} from 'node:crypto';
+                  const workspace=process.env.GITHUB_WORKSPACE,runner=process.env.RUNNER_TEMP,browser=process.env.BROWSER;
+                  if (!['webkit','chromium'].includes(browser)) throw Error('Browser binding refused');
+                  const root=join(runner,'wind-passive-facts'),artifactRoot=join(root,'artifacts');
+                  const hash=(bytes)=>createHash('sha256').update(bytes).digest('hex');
+                  const preparation=JSON.parse(readFileSync(join(root,'preparation-receipt.json'),'utf8'));
+                  let sourceStable=true;
+                  for (const row of preparation.sourceInputs) if (hash(readFileSync(join(workspace,row.path)))!==row.sha256) sourceStable=false;
+                  for (const row of preparation.generatedInputs) if (hash(readFileSync(join(root,row.name)))!==row.sha256) sourceStable=false;
+                  const numeric=(value,lo=0,hi=2_000_000_000)=>typeof value==='number'&&Number.isFinite(value)&&value>=lo&&value<=hi?value:null;
+                  const flag=(value)=>typeof value==='boolean'?value:null;
+                  const enumValue=(value,list)=>list.includes(value)?value:null;
+                  const facts=(raw)=>{
+                   if (!raw||raw.version!==1) return null;
+                   const t=raw.diagnosticTileFacts,states=['loading','loaded','errored','reloading','expired','unloaded','unknown'];
+                   const keys=['observed','tileCount','texturePresentCount','fadeEndDefinedCount','fadeActiveCount','fadeExpiredCount','maximumFadeRemainingMs'];
+                   const tileFacts=t?Object.fromEntries([...keys.map(key=>[key,key==='observed'?flag(t[key]):numeric(t[key],0,key==='maximumFadeRemainingMs'?60000:512)]),['states',Object.fromEntries(states.map(key=>[key,numeric(t.states?.[key],0,512)]))]]):null;
+                   const order=raw.layerOrder?Object.fromEntries(['layerCount','land','water','satelliteLand','satelliteBase','hybridBase'].map(key=>[key,numeric(raw.layerOrder[key],-1,2048)])):null;
+                   return {version:1,mapPresent:flag(raw.mapPresent),devicePixelRatio:numeric(raw.devicePixelRatio,0.1,16),visibleMapCount:numeric(raw.visibleMapCount,0,32),exposedMapVisible:flag(raw.exposedMapVisible),
+                    containerRect:raw.containerRect?Object.fromEntries(['x','y','width','height'].map(key=>[key,numeric(raw.containerRect[key],key==='x'||key==='y'?-1000000:0,1000000)])):null,
+                    display:enumValue(raw.display,['none','block','flex','grid','inline-block','other']),centre:raw.centre?{lng:numeric(raw.centre.lng,-1080,1080),lat:numeric(raw.centre.lat,-90,90)}:null,
+                    zoom:numeric(raw.zoom,-10,30),isMoving:flag(raw.isMoving),loaded:flag(raw.loaded),frameReady:flag(raw.frameReady),satelliteSourceLoaded:flag(raw.satelliteSourceLoaded),
+                    satelliteLandVisibility:enumValue(raw.satelliteLandVisibility,['visible','none']),satelliteLandRasterOpacity:numeric(raw.satelliteLandRasterOpacity,0,1),layerOrder:order,diagnosticTileFacts:tileFacts,internalTexturePresenceIsNotDrawProof:true};
+                  };
+                  function inventory(directory) {
+                   if (!directory||!lstatSync(directory).isDirectory()) return [];
+                   const files=[];
+                   for(const item of readdirSync(directory,{withFileTypes:true})) {
+                    const path=join(directory,item.name);
+                    if (item.isSymbolicLink()) throw Error('Diagnostic output symlink refused');
+                    if(item.isDirectory()) files.push(...inventory(path)); else if(item.isFile()) files.push(path);
+                    if(files.length>1024) throw Error('Diagnostic output inventory bound exceeded');
+                   }
+                   return files;
+                  }
+                  const groups=[];
+                  for(const [index,path] of inventory(join(root,'raw-output')).filter(path=>basename(path)==='passive-capture-facts.json').sort().entries()) {
+                   if(index>=3||lstatSync(path).size>262144) throw Error('Diagnostic group bound refused');
+                   const raw=JSON.parse(readFileSync(path,'utf8'));
+                   if(raw.version!==1||raw.project!==browser||!Array.isArray(raw.events)||raw.events.length>24||!Array.isArray(raw.captures)||raw.captures.length>6) throw Error('Diagnostic group binding refused');
+                   const events=raw.events.map(event=>({version:1,kind:enumValue(event.kind,['readiness-entered','idle-callback']),elapsedMs:numeric(event.elapsedMs,0,600000),facts:facts(event.facts)}));
+                   const captures=[];
+                   for(const capture of raw.captures) {
+                    if(!Number.isSafeInteger(capture.index)||capture.index<1||capture.index>6) throw Error('Capture index refused');
+                    const originalPng=join(resolve(path,'..'),'passive-capture-facts-'+capture.index+'.png');
+                    let wire=null;
+                    try {
+                     const stat=lstatSync(originalPng);
+                     if(stat.isSymbolicLink()||!stat.isFile()||stat.size>16777216) throw Error('Capture file refused');
+                     const bytes=readFileSync(originalPng);
+                     if(!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||bytes.subarray(12,16).toString('ascii')!=='IHDR') throw Error('PNG header refused');
+                     const file='group-'+String(index+1).padStart(3,'0')+'-capture-'+capture.index+'.png';
+                     copyFileSync(originalPng,join(artifactRoot,file),1);
+                     if(hash(readFileSync(join(artifactRoot,file)))!==hash(bytes)) throw Error('Wire copy differs');
+                     wire={file,sha256:hash(bytes),bytes:bytes.length,pngHeader:{width:bytes.readUInt32BE(16),height:bytes.readUInt32BE(20),bitDepth:bytes[24],colourType:bytes[25]}};
+                    } catch(error) {if(error.code!=='ENOENT') throw error;}
+                    captures.push({index:capture.index,startedAtElapsedMs:numeric(capture.startedAtElapsedMs),readyReturnedAtElapsedMs:numeric(capture.readyReturnedAtElapsedMs),
+                     screenshotEnteredAtElapsedMs:numeric(capture.screenshotEnteredAtElapsedMs),screenshotReturnedAtElapsedMs:numeric(capture.screenshotReturnedAtElapsedMs),
+                     before:facts(capture.before),after:facts(capture.after),decoded:capture.decoded?{width:numeric(capture.decoded.width,1,8192),height:numeric(capture.decoded.height,1,8192),channels:numeric(capture.decoded.channels,1,4),depth:numeric(capture.decoded.depth,1,16)}:null,wire});
+                   }
+                   const chosen={version:1,diagnosticOnly:true,browser,status:enumValue(raw.status,['passed','failed','timedOut','skipped','interrupted']),events,captures,noAdditionalScreenshot:true,passiveDiagnosticsChangeTiming:true};
+                   const file='group-'+String(index+1).padStart(3,'0')+'-facts.json';
+                   writeFileSync(join(artifactRoot,file),JSON.stringify(chosen,null,2)+'\n',{flag:'wx',mode:0o600});
+                   groups.push({file,sha256:hash(readFileSync(join(artifactRoot,file))),captureCount:captures.length,wireCount:captures.filter(row=>row.wire).length,status:chosen.status});
+                  }
+                  let observedResults=null;
+                  try {
+                   const report=JSON.parse(readFileSync(join(root,'private-playwright-results.json'),'utf8'));
+                   observedResults=Object.fromEntries(['expected','unexpected','flaky','skipped'].map(key=>[key,numeric(report.stats?.[key],0,100)]));
+                  } catch { /* Missing raw report is explicitly unavailable; never invent pass. */ }
+                  const result={version:1,diagnosticOnly:true,browser,candidate:preparation.candidate,workflowCommit:preparation.workflowCommit,
+                   proofOutcome:enumValue(process.env.PROOF_OUTCOME,['success','failure','cancelled','skipped']),observedResults,groups,sourceStable,
+                   sourceInputs:preparation.sourceInputs,generatedInputs:preparation.generatedInputs,originalAcceptanceSpanSha256:preparation.rootAcceptanceSpanSha256,
+                   originalAcceptanceBodyByteIdentical:preparation.acceptanceBodyByteIdentical,originalDeadlineMs:150000,repetitionsRequested:3,retries:0,
+                   node:preparation.node,profile:'unchanged original ec playwright.keyboard.config.ts projects',
+                   originalViteCommandUnchanged:true,ordinaryRunnerOwnedDependencyCache:true,noReadPixels:true,noDprChange:true,noPauseOrPaintMutation:true,
+                   rawLogsReportsEnvironmentOrResourcesPackaged:false,limitation:'Passive before/after/event reads change diagnostic timing; no cure or uninstrumented acceptance inferred.'};
+                  writeFileSync(join(artifactRoot,'diagnostic-receipt.json'),JSON.stringify(result,null,2)+'\n',{flag:'wx',mode:0o600});
+                  console.log(JSON.stringify({browser,sourceStable,groups:groups.length,captures:groups.reduce((n,g)=>n+g.captureCount,0),wirePngs:groups.reduce((n,g)=>n+g.wireCount,0),observedResults,diagnosticOnly:true}));
+                  if(!sourceStable || groups.length!==3 || groups.every(group=>group.wireCount===0) || observedResults===null) process.exitCode=1;
+                  NODE
+            - name: Record result scope
+              if: always() && steps.prepare.outcome == 'success'
+              env:
+                  BROWSER: ${{ matrix.browser }}
+                  PROOF_OUTCOME: ${{ steps.proof.outcome }}
+              run: |
+                  echo "$BROWSER passive state diagnostic: $PROOF_OUTCOME on $CANDIDATE_SHA; three repetitions, zero retries, original 150s budget/thresholds/profile. Extra passive reads affect timing; NOT release proof or diagnosed cure." >> "$GITHUB_STEP_SUMMARY"
+            - name: Preserve synthetic UI PNG/facts/receipt artifacts only
+              if: always() && steps.prepare.outcome == 'success'
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: build127-passive-chart-state-${{ matrix.browser }}
+                  path: ${{ runner.temp }}/wind-passive-facts/artifacts/
+                  retention-days: 7
+                  if-no-files-found: warn
