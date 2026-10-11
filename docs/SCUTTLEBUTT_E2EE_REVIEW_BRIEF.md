@@ -62,6 +62,14 @@ must be included in that decision. Production database activation, primary sync,
 reviewer contact, payment and source sharing retain separate unapproved authority.
 Current research is not ready for master or production activation.
 
+Cleaned master subsequently advanced to `59c5f7eae` with the owner's other
+repository/CI work. Reconciliation into the already published clean continuation
+preserves history without a force-push. The fresh HTTPS source inputs are
+unchanged, but App dependencies changed: prior web/Window acceptance is not
+automatically acceptance of this newer combined graph. Refresh that evidence
+before the current protected native full-App fixture. No master push or primary
+checkout update is implied by this branch-local reconciliation.
+
 Shane resumed development on 11 October after the pause and licensed-chart
 history cleanup. The active branch is
 `codex/scuttlebutt-e2ee-integration-clean-2026-10-11`, starting at `9e24986f` on

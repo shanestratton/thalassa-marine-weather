@@ -24,7 +24,11 @@ import {
     createPublicBetaFeatureArtifact,
     readPublicBetaFeatureProfile,
 } from '../scripts/public-beta-feature-profile.mjs';
-import { MARINE_DATASET_CONTRACTS, canonicalMarineGeneration } from '../services/weather/api/marineManifestContract';
+import {
+    MARINE_DATASET_CONTRACTS,
+    MARINE_RELEASE_REPOSITORY,
+    canonicalMarineGeneration,
+} from '../services/weather/api/marineManifestContract';
 import { isTrustedThalassaVercelPreviewOrigin } from '../utils/vercelPreviewTrust';
 
 const read = (relative: string) => readFileSync(resolve(process.cwd(), relative), 'utf8');
@@ -338,12 +342,15 @@ describe('web release verification', () => {
         );
     });
 
-    it('schedules alternating marine publishers with freshness headroom', () => {
-        const currentsPublisher = read('.github/workflows/cmems-currents-pipeline.yml');
-        expect(currentsPublisher).toContain("- cron: '20 */6 * * *'");
-        expect(currentsPublisher).toContain("- cron: '20 3,9,15,21 * * *'");
-        expect(read('.github/workflows/cmems-sst-pipeline.yml')).toContain("- cron: '17 3,15 * * *'");
-        expect(read('.github/workflows/cmems-chl-pipeline.yml')).toContain("- cron: '47 4,16 * * *'");
+    it('reads marine releases from the public data repository the publishers run in', () => {
+        // The publisher schedules (currents every 3 h, SST and chlorophyll twice a
+        // day) and their headroom against these freshness limits are pinned where
+        // the publishers live: shanestratton/thalassa-ocean-data, scripts/
+        // publisher-tests/test_source_gates.py and test_release_gate.py.
+        expect(MARINE_RELEASE_REPOSITORY).toBe('shanestratton/thalassa-ocean-data');
+        const verifier = read('scripts/verify-web-release.mjs');
+        expect(verifier).toContain('const RELEASE_OWNER_REPO = MARINE_RELEASE_REPOSITORY;');
+        expect(verifier).not.toContain('shanestratton/thalassa-marine-weather');
     });
 
     it('accepts the complete Vercel routing, security, and cache contract', () => {

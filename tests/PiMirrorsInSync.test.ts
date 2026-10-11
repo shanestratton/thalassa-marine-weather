@@ -119,8 +119,9 @@ describe("the Pi's copies of the phone's code are in sync", () => {
 
 describe('CI runs both checks on every push', () => {
     const ci = fs.readFileSync(path.join(REPO, '.github/workflows/ci.yml'), 'utf8');
-    // The root `check` job: the only one with the root prettier the router check needs.
-    const checkJob = ci.slice(ci.indexOf('\n    check:\n'), ci.indexOf('\n    browser-regressions:\n'));
+    // The root `check` job: the only one with the root prettier the router check needs
+    // (and, since the 2026-10 split, the only job in ci.yml).
+    const checkJob = ci.slice(ci.indexOf('\n    check:\n'));
 
     it('in the root check job, after the root install', () => {
         expect(checkJob.length).toBeGreaterThan(0);

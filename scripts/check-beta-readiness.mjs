@@ -283,11 +283,12 @@ function pngHeader(relative) {
 
 const pkg = JSON.parse(read('package.json') || '{}');
 const ciWorkflow = read('.github/workflows/ci.yml');
-const lighthouseWorkflow = read('.github/workflows/lighthouse.yml');
+const fullChecksWorkflow = read('.github/workflows/full-checks.yml');
+const packagesWorkflow = read('.github/workflows/packages.yml');
 const previewSmokeWorkflow = read('.github/workflows/preview-smoke.yml');
 const vercelPreviewTrust = read('utils/vercelPreviewTrust.ts');
 const primaryCiJob = workflowJobSource(ciWorkflow, 'check');
-const releaseWorkflowSources = `${ciWorkflow}\n${lighthouseWorkflow}\n${previewSmokeWorkflow}`;
+const releaseWorkflowSources = `${ciWorkflow}\n${fullChecksWorkflow}\n${previewSmokeWorkflow}`;
 const workflowEntries = regularFilesRecursively(absolute('.github/workflows'))
     .filter((relative) => /\.ya?ml$/i.test(relative))
     .map((relative) => [
@@ -308,13 +309,8 @@ const workflowUseRecords = workflowEntries.flatMap(([relative, source]) =>
 const reviewedWorkflowActionPins = new Map([
     ['actions/checkout', '3d3c42e5aac5ba805825da76410c181273ba90b1'],
     ['actions/setup-node', '820762786026740c76f36085b0efc47a31fe5020'],
-    ['actions/setup-python', '5fda3b95a4ea91299a34e894583c3862153e4b97'],
     ['actions/upload-artifact', '043fb46d1a93c77aae656e7c1c64a875d1fc6a0a'],
-    ['actions/download-artifact', '3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c'],
     ['denoland/setup-deno', '22d081ff2d3a40755e97629de92e3bcbfa7cf2ed'],
-    ['github/codeql-action/init', '5595ccaf912efad79be6eef63a5619ff05969be3'],
-    ['github/codeql-action/autobuild', '5595ccaf912efad79be6eef63a5619ff05969be3'],
-    ['github/codeql-action/analyze', '5595ccaf912efad79be6eef63a5619ff05969be3'],
 ]);
 const workflowRunnerRecords = workflowEntries.flatMap(([relative, source]) =>
     [...source.matchAll(/^\s*runs-on:\s*([^\s#]+)\s*$/gm)].map((match) => ({ relative, runner: match[1] })),
@@ -323,12 +319,7 @@ const workflowsKeepExpectedWritePermissions = workflowEntries.every(([relative, 
     const executableSource = source.replace(/^\s*#.*$/gm, '');
     const actual = [...executableSource.matchAll(/([A-Za-z0-9_-]+):\s*write\b/g)].map((match) => match[1]).sort();
     const filename = path.basename(relative);
-    const expected =
-        filename === 'codeql.yml'
-            ? ['security-events']
-            : /^(?:cmems-(?:currents|waves|sst|chl|seaice|mld)|mpa)-pipeline\.yml$/.test(filename)
-              ? ['contents']
-              : [];
+    const expected = [];
     return JSON.stringify(actual) === JSON.stringify(expected);
 });
 const lighthouseRunner = read('scripts/run-lighthouse-audit.mjs');
@@ -455,52 +446,6 @@ const radialHelmMenuAccessibilityTest = read('tests/RadialHelmMenuAccessibility.
 const cmemsGridRefreshTest = read('tests/CmemsGridRefresh.test.tsx');
 const cmemsCurrentFieldTest = read('tests/cmemsCurrentField.test.ts');
 const restoreActiveLayersTest = read('tests/restoreActiveLayers.test.ts');
-const marinePublisherWorkflowEntries = [
-    ['currents', read('.github/workflows/cmems-currents-pipeline.yml')],
-    ['waves', read('.github/workflows/cmems-waves-pipeline.yml')],
-    ['sst', read('.github/workflows/cmems-sst-pipeline.yml')],
-    ['chl', read('.github/workflows/cmems-chl-pipeline.yml')],
-    ['seaice', read('.github/workflows/cmems-seaice-pipeline.yml')],
-    ['mld', read('.github/workflows/cmems-mld-pipeline.yml')],
-    ['mpa', read('.github/workflows/mpa-pipeline.yml')],
-];
-const marineProducerSources = [
-    read('scripts/cmems-currents-pipeline/pipeline.py'),
-    read('scripts/cmems-waves-pipeline/pipeline.py'),
-    read('scripts/cmems-sst-pipeline/pipeline.py'),
-    read('scripts/cmems-chl-pipeline/pipeline.py'),
-    read('scripts/cmems-seaice-pipeline/pipeline.py'),
-    read('scripts/cmems-mld-pipeline/pipeline.py'),
-    read('scripts/mpa-pipeline/pipeline.py'),
-];
-const marineCmemsProducerSources = marineProducerSources.slice(0, 6);
-const mpaProducerSource = marineProducerSources[6];
-const marinePublisherContract = read('scripts/publisher_contract.py');
-const cmemsProducerContract = read('scripts/cmems_contract.py');
-const isolatedDatasetPublisher = read('scripts/publish_dataset.py');
-const cmemsRequirementsLock = read('scripts/cmems-requirements.lock');
-const mpaRequirementsLock = read('scripts/mpa-pipeline/requirements.txt');
-const marinePublisherContractTest = read('scripts/publisher-tests/test_contracts.py');
-const marinePublisherSourceGateTest = read('scripts/publisher-tests/test_source_gates.py');
-const mpaTransportTest = read('scripts/publisher-tests/test_mpa_transport.py');
-const cmemsScienceTest = read('scripts/publisher-tests/test_cmems_science.py');
-const waveMathTest = read('scripts/publisher-tests/test_wave_math.py');
-const marinePublishFlowTest = read('scripts/publisher-tests/test_publish_flow.py');
-const marinePublisherTestSources = [
-    marinePublisherContractTest,
-    marinePublisherSourceGateTest,
-    mpaTransportTest,
-    cmemsScienceTest,
-    waveMathTest,
-    marinePublishFlowTest,
-];
-const marinePublisherTestCount = marinePublisherTestSources.reduce(
-    (count, source) => count + (source.match(/^\s*def test_/gm) ?? []).length,
-    0,
-);
-const currentsPipelineReadme = read('scripts/cmems-currents-pipeline/README.md');
-const wavesPipelineReadme = read('scripts/cmems-waves-pipeline/README.md');
-const mpaPipelineReadme = read('scripts/mpa-pipeline/README.md');
 const releaseAssetProxy = read('api/_releaseAssetProxy.ts');
 const releaseAssetProxyTest = read('tests/ReleaseAssetProxy.test.ts');
 const marineDevProxyContractTest = read('tests/MarineDevProxyContract.test.ts');
@@ -532,9 +477,9 @@ check(
     pkg.engines?.node === '24.x' &&
         read('.nvmrc').trim() === '24' &&
         primaryCiJob.includes('node-version: 24') &&
-        lighthouseWorkflow.includes('node-version: 24') &&
+        fullChecksWorkflow.includes('node-version: 24') &&
         previewSmokeWorkflow.includes('node-version: 24') &&
-        !/node-version:\s*(?:20|22)\b/.test(`${primaryCiJob}\n${lighthouseWorkflow}\n${previewSmokeWorkflow}`),
+        !/node-version:\s*(?:20|22)\b/.test(`${primaryCiJob}\n${fullChecksWorkflow}\n${previewSmokeWorkflow}`),
 );
 check(
     'CI gives the complete beta verification job at least 45 minutes',
@@ -543,12 +488,15 @@ check(
 );
 check(
     'CI blocks high and critical dependency vulnerabilities',
-    ciWorkflow.includes('npm audit --audit-level=high') &&
-        !/npm audit --audit-level=high\s*\|\||High-severity vulnerabilities found/.test(ciWorkflow),
+    ciWorkflow.includes('run: node scripts/audit-gate.mjs') &&
+        packagesWorkflow.includes('npm audit --audit-level=high') &&
+        !/npm audit --audit-level=high\s*\|\||High-severity vulnerabilities found/.test(
+            `${ciWorkflow}\n${packagesWorkflow}`,
+        ),
 );
 check(
     'release workflows use strict lockfile installs without hidden peer overrides',
-    [ciWorkflow, lighthouseWorkflow, previewSmokeWorkflow].every((workflow) => workflow.includes('run: npm ci')) &&
+    [ciWorkflow, fullChecksWorkflow, previewSmokeWorkflow].every((workflow) => workflow.includes('run: npm ci')) &&
         ciWorkflow.includes('npm ls --all') &&
         legacyPeerOverrideFiles.length === 0,
     legacyPeerOverrideFiles.join(', '),
@@ -594,9 +542,56 @@ check(
         pkg.scripts?.['ship:beta']?.includes('npm run check:bundle') &&
         pkg.scripts?.['ship:beta']?.includes('npm run lint:routes'),
 );
+const fullChecksPlanJob = workflowJobSource(fullChecksWorkflow, 'plan');
+const fullChecksUnitJob = workflowJobSource(fullChecksWorkflow, 'unit');
+const fullChecksE2eJob = workflowJobSource(fullChecksWorkflow, 'e2e');
+const fullChecksBrowserJob = workflowJobSource(fullChecksWorkflow, 'browser-regressions');
+// The 2026-10 split moved the slow suites off every push. Pin that they still
+// run somewhere, completely, so a later "save minutes" edit cannot quietly drop
+// the only E2E and layout coverage with everything else green.
+check(
+    'quick checks gate every push; the full suites stay scheduled, dispatchable and complete',
+    includesAll(ciWorkflow, ['\n    push:', '\n    pull_request:', '\n    workflow_dispatch:']) &&
+        !/^ {8}if:/m.test(primaryCiJob) &&
+        includesAll(primaryCiJob, [
+            'run: npm run build',
+            'tests/noProtectedChartData.test.ts',
+            'tests/retiredChartFixtures.ledger.test.ts',
+        ]) &&
+        (pkg.scripts?.build ?? '').includes('tsc && vite build') &&
+        includesAll(fullChecksWorkflow, [
+            "- cron: '23 16 * * 1-6'",
+            "- cron: '23 16 * * 0'",
+            '\n    workflow_dispatch:',
+        ]) &&
+        includesAll(fullChecksPlanJob, ['if [ "$EVENT" != workflow_dispatch ]; then', 'unit=true', 'browsers=true']) &&
+        fullChecksUnitJob.includes('npx vitest run --reporter=verbose --coverage') &&
+        includesInOrder(fullChecksE2eJob, [
+            'run: npm ci',
+            'run: npm run build',
+            'npx playwright install --with-deps chromium webkit',
+            'npx playwright test --project=chromium --project=mobile-safari',
+        ]) &&
+        includesAll(fullChecksBrowserJob, [
+            'shard: 1/3',
+            'shard: 2/3',
+            'shard: 3/3',
+            'suite: plan-your-day',
+            '--config playwright.keyboard.config.ts --shard=${{ matrix.shard }}',
+            '--config playwright.day-planner.config.ts',
+        ]) &&
+        [
+            [fullChecksUnitJob, 'unit'],
+            [fullChecksE2eJob, 'browsers'],
+            [fullChecksBrowserJob, 'browsers'],
+        ].every(
+            ([job, output]) =>
+                (job.match(/^ {8}if:.*$/gm) ?? []).join('\n') === `        if: needs.plan.outputs.${output} == 'true'`,
+        ),
+);
 check(
     'CI production builds require the complete public client configuration',
-    [ciWorkflow, lighthouseWorkflow].every(
+    [ciWorkflow, fullChecksWorkflow].every(
         (workflow) =>
             includesAll(workflow, [
                 'VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}',
@@ -1208,256 +1203,39 @@ check(
             'cannot repopulate parsed GeoJSON after the overlay releases during a fetch',
         ]),
 );
+// The publishers (workflows, producers, publisher contract, Python fixtures and
+// their science claims) moved to the public data repository
+// shanestratton/thalassa-ocean-data, where scripts/publisher-tests/
+// test_release_gate.py carries the checks that used to read them here. This gate
+// keeps the app's side of each contract.
 check(
-    'marine publishers use reviewed-master, run-stable sealed artifacts and an isolated dual-slot writer',
-    marinePublisherWorkflowEntries.every(([dataset, workflow]) => {
-        const generateJob = workflowJobSource(workflow, 'generate');
-        const publishJob = workflowJobSource(workflow, 'publish');
-        const actionRefs = [...workflow.matchAll(/^\s*uses:\s*[^@\s]+@([^\s#]+)/gm)].map((match) => match[1]);
-        const runStableArtifactName = `${dataset}-\${{ github.run_id }}`;
-        const attemptedArtifactName = `${runStableArtifactName}-\${{ github.run_attempt }}`;
-        return (
-            includesAll(workflow, [
-                'runs-on: ubuntu-24.04',
-                "python-version: '3.11.15'",
-                'cancel-in-progress: false',
-                'persist-credentials: false',
-                '--require-hashes --only-binary=:all:',
-                'Run offline publisher',
-                'Generate and validate immutable bundle',
-                'Seal generated bundle as workflow artifact',
-                'Restore sealed bundle',
-                'overwrite: true',
-            ]) &&
-            workflow.split(runStableArtifactName).length - 1 >= 2 &&
-            !workflow.includes(attemptedArtifactName) &&
-            !workflow.includes('3.11.11') &&
-            (workflow.match(/if: github\.ref == 'refs\/heads\/master'/g) ?? []).length === 2 &&
-            actionRefs.length >= 5 &&
-            actionRefs.length === (workflow.match(/^\s*uses:/gm) ?? []).length &&
-            actionRefs.every((ref) => /^[0-9a-f]{40}$/.test(ref)) &&
-            includesAll(generateJob, ['contents: read']) &&
-            !generateJob.includes('contents: write') &&
-            includesAll(publishJob, [
-                'contents: write',
-                `python scripts/publish_dataset.py --dataset ${dataset} --bundle /tmp/publisher-bundle`,
-            ]) &&
-            !publishJob.includes('pip install') &&
-            !publishJob.includes('COPERNICUS_') &&
-            workflow.indexOf('Run offline publisher') < workflow.indexOf('Generate and validate immutable bundle')
-        );
-    }) &&
-        marinePublisherWorkflowEntries
-            .find(([dataset]) => dataset === 'currents')?.[1]
-            .includes("cron: '20 */6 * * *'") === true &&
-        [cmemsRequirementsLock, mpaRequirementsLock].every(
-            (lock) =>
-                lock.includes('--python-version 3.11.15') &&
-                !lock.includes('--python-version 3.11.11') &&
-                (lock.match(/^[-A-Za-z0-9_.]+==[^\n]+/gm) ?? []).length >= 5 &&
-                (lock.match(/--hash=sha256:/g) ?? []).length >= (lock.match(/^[-A-Za-z0-9_.]+==[^\n]+/gm) ?? []).length,
+    'marine publishers live in the public data repository, not in this one',
+    !fs.existsSync(absolute('scripts/publish_dataset.py')) &&
+        !fs.existsSync(absolute('scripts/publisher-tests')) &&
+        !fs
+            .readdirSync(absolute('.github/workflows'))
+            .some((name) => /^(?:cmems-(?:currents|waves|sst|chl|seaice|mld)|mpa)-pipeline\.yml$/.test(name)) &&
+        marineManifestContract.includes(
+            "export const MARINE_RELEASE_REPOSITORY = 'shanestratton/thalassa-ocean-data';",
+        ) &&
+        // One source for the release repository: the proxy and the hosted verifier cannot drift apart.
+        releaseAssetProxy.includes('const OWNER_REPO = MARINE_RELEASE_REPOSITORY;') &&
+        webReleaseVerifier.includes('const RELEASE_OWNER_REPO = MARINE_RELEASE_REPOSITORY;') &&
+        ![releaseAssetProxy, webReleaseVerifier].some((source) =>
+            source.includes('shanestratton/thalassa-marine-weather'),
         ),
 );
-const wavesPublisherWorkflow = marinePublisherWorkflowEntries.find(([dataset]) => dataset === 'waves')?.[1] ?? '';
 check(
     '12-hourly waves use one exact three-hour source-age margin without weakening currents',
-    wavesPublisherWorkflow.includes("cron: '0 7,19 * * *'") &&
-        includesAll(cmemsGridTrust, [
-            'maxSourceAgeHours: 12 | 15 | 48',
-            'The publisher runs every 12h; one 3h product-cadence margin',
-            'maxSourceAgeHours: 15',
-        ]) &&
-        marinePublisherContract.includes('maximum_source_age = 15 if dataset_key == "waves" else 12') &&
-        includesAll(marinePublisherContractTest, [
-            'test_wave_freshness_allows_one_native_step_of_schedule_margin',
-            'timedelta(hours=15, seconds=1)',
-        ]) &&
+    includesAll(cmemsGridTrust, [
+        'maxSourceAgeHours: 12 | 15 | 48',
+        'The publisher runs every 12h; one 3h product-cadence margin',
+        'maxSourceAgeHours: 15',
+    ]) &&
         includesAll(marinePublisherTrustTest, [
             'gives 12-hourly waves one honest 3-hour cadence margin without weakening currents',
             'expect(CMEMS_DATASETS.waves.maxSourceAgeHours).toBe(15)',
             'expect(CMEMS_DATASETS.currents.maxSourceAgeHours).toBe(12)',
-        ]) &&
-        includesAll(wavesPipelineReadme, [
-            'Schedule: `07:00` and `19:00` UTC, exactly 12 hours apart',
-            'Maximum source age: 15 hours',
-            'one exact three-hour native-cadence margin',
-        ]),
-);
-check(
-    'offline marine publisher fixtures have a localhost-only dead-proxy network fence',
-    marinePublisherWorkflowEntries.every(([, workflow]) => {
-        const offlineStep = workflowStepSource(workflow, 'Run offline publisher');
-        return (
-            includesAll(offlineStep, [
-                "NO_PROXY: '127.0.0.1,localhost,::1'",
-                "HTTPS_PROXY: 'http://127.0.0.1:9'",
-                "HTTP_PROXY: 'http://127.0.0.1:9'",
-                "ALL_PROXY: 'http://127.0.0.1:9'",
-                'export no_proxy="$NO_PROXY"',
-                'export https_proxy="$HTTPS_PROXY"',
-                'export http_proxy="$HTTP_PROXY"',
-                'export all_proxy="$ALL_PROXY"',
-                "python -m unittest discover -s scripts/publisher-tests -p 'test_*.py'",
-            ]) &&
-            !/^\s+(?:no_proxy|https_proxy|http_proxy|all_proxy):/gm.test(offlineStep) &&
-            !/^\s*no_proxy:\s*['"]?\*/gim.test(workflow) &&
-            !/export\s+no_proxy=['"]?\*/i.test(offlineStep) &&
-            !/\$\{\{\s*secrets\.|COPERNICUS_|\bcurl\b|\bwget\b/.test(offlineStep)
-        );
-    }),
-);
-const isolatedPublisherPublishBoundary = isolatedDatasetPublisher.slice(
-    isolatedDatasetPublisher.indexOf('def publish('),
-    isolatedDatasetPublisher.indexOf('def main()'),
-);
-check(
-    'marine producer contract validates source science and immutable weekly shards before dual-slot discovery publication',
-    marineProducerSources.every(
-        (source) =>
-            !source.includes('GH_TOKEN') &&
-            !source.includes('GITHUB_TOKEN') &&
-            !source.includes('gh release') &&
-            !source.includes('--clobber') &&
-            !source.includes('upload_to_github_release'),
-    ) &&
-        marineCmemsProducerSources.every((source) =>
-            includesInOrder(source, ['validate_cmems_source(', 'validate_thcu_payloads(', 'build_cmems_bundle(']),
-        ) &&
-        includesInOrder(mpaProducerSource, [
-            'fetch_capad_marine()',
-            'normalise_features(raw)',
-            'write_validated_geojson(normalised)',
-            'build_mpa_bundle(',
-        ]) &&
-        includesAll(marinePublisherContract, [
-            'SCHEMA_VERSION = 2',
-            'max_file_bytes": 16 * 1024 * 1024',
-            'manifest is missing, non-regular or oversized',
-            'generation digest does not match source time and assets',
-            'same generation has altered immutable core metadata',
-            'candidate source start time regressed',
-            'validate_legacy_v1_bootstrap',
-            'legacy CMEMS manifest fields are not the known v1 shape',
-            'Australian external territories',
-            'SHARD_TAG_RE',
-            'def asset_shard_tag(',
-            'def validate_shard_inventory(',
-            'shard capacity guard must leave headroom below 1,000',
-            'asset shard would exceed the conservative',
-        ]) &&
-        includesAll(cmemsProducerContract, [
-            'source cadence is not exactly',
-            'CF_METADATA_CONTRACT',
-            'require_invariant_finite_mask',
-            'implausible finite-ocean/land-mask fraction',
-            'refusing to fabricate ocean values',
-            'land mask contains values other than 0/1',
-            'encoded land mask changed between forecast steps',
-        ]) &&
-        includesAll(isolatedDatasetPublisher, [
-            'publisher refuses to run with Copernicus credentials',
-            'remote immutable asset hash collision',
-            'uploaded asset cannot be downloaded',
-            'V2_MANIFEST_SLOTS = ("manifest-v2-a.json", "manifest-v2-b.json")',
-            'inactive manifest slot upload failed verification',
-            'target_slots = publication_manifest_slots(active_slot, target_slot)',
-            'validate_same_generation_core(current, draft)',
-            'validate_legacy_v1_bootstrap(legacy, dataset_key)',
-            'validate_mpa_feature_count_review_bound(',
-            '"--latest=false"',
-        ]) &&
-        (isolatedDatasetPublisher.match(/upload_args\.append\("--clobber"\)/g) ?? []).length === 1 &&
-        includesInOrder(isolatedPublisherPublishBoundary, [
-            'validate_manifest(draft,',
-            'validate_bundle_layout(bundle_dir, draft)',
-            'validate_publish_context(draft, repo)',
-            'validate_publication_freshness(draft)',
-            'inventory = release_assets(shard_tag, repo)',
-            'existing = validate_shard_inventory(',
-            'remote immutable asset hash collision',
-            'validate_publication_freshness(draft)',
-            'ensure_release(discovery_tag,',
-            'ensure_release(shard_tag,',
-            '["release", "upload", shard_tag,',
-            'final["published_at"] =',
-            'target_slots = publication_manifest_slots(active_slot, target_slot)',
-            'for slot in target_slots:',
-            'upload_manifest_slot(discovery_tag, repo, slot,',
-            'Published verified generation %s to discovery slot(s)',
-        ]) &&
-        // 60, was 56: 2357d9c9 (2026-08-26) added four bounded-superset
-        // mask tests to test_cmems_science.py with the VMDR fringe fix
-        // (was 53 before c6c4f438's three gh missing-asset regressions).
-        // The pin is a no-tests-deleted tripwire, so a deliberate ADDITION
-        // moves it up.
-        marinePublisherTestCount === 60 &&
-        includesAll(marinePublisherContractTest, [
-            'test_weekly_shard_derivation_and_iso_year_boundary',
-            'test_shard_capacity_and_collision_guard_runs_before_mutation',
-            'test_generation_digest_is_bound_to_ordered_hashes',
-            'test_freshness_rejects_stale_and_future_sources',
-            'test_consumer_metadata_size_and_coordinate_contracts_match_publisher_authority',
-            'test_wave_freshness_allows_one_native_step_of_schedule_margin',
-            'test_same_generation_refresh_allows_new_health_provenance_only',
-            'test_real_shaped_legacy_bootstrap_and_arbitrary_legacy_rejection',
-            'test_nonfinite_mask_domain_and_wave_magnitude_fail',
-            'test_representative_external_territory_bounds_and_exact_properties',
-        ]) &&
-        includesAll(marinePublisherSourceGateTest, [
-            'test_workflows_have_exact_trust_boundary',
-            'test_schedule_interval_is_shorter_than_forecast_coverage',
-            'test_producers_cannot_publish_or_clobber_stable_assets',
-            'test_api_only_exposes_manifest_or_immutable_generation_names',
-            'test_vercel_spa_rewrite_does_not_capture_dotted_release_assets',
-            'self.assertEqual(4 * 7 * 13, 364)',
-            'self.assertEqual(2 * 7 * 17, 238)',
-        ]) &&
-        includesAll(mpaTransportTest, [
-            'test_valid_json_is_streamed_and_closed',
-            'test_oversized_declared_body_is_rejected_before_iteration',
-            'test_oversized_chunked_body_is_rejected_incrementally',
-            'test_aggregate_page_budget_blocks_multi_page_memory_growth',
-            'test_unsimplified_fallback_omits_offset_and_coordinate_rounding',
-            'test_gis_area_hectares_are_converted_without_losing_tiny_positive_area',
-        ]) &&
-        includesAll(cmemsScienceTest, [
-            'test_official_cf_metadata_is_accepted_for_every_field_and_axis',
-            'test_convertible_but_unhandled_units_are_rejected_for_every_field_and_axis',
-            'test_wrong_standard_names_and_coordinate_directions_are_rejected',
-            'test_time_varying_nan_mask_is_rejected',
-            'test_chlorophyll_floor_midpoint_and_ceiling_are_exact',
-        ]) &&
-        includesAll(waveMathTest, [
-            'test_wraparound_359_and_1_average_to_zero_not_180',
-            'test_height_weighting_preserves_mean_height_as_vector_magnitude',
-            'test_equal_maxima_use_lowest_normalized_bearing_not_array_order',
-            'test_grid_fallback_uses_same_stable_tie_rule',
-        ]) &&
-        includesAll(marinePublishFlowTest, [
-            'test_missing_release_is_created_at_validated_producer_commit',
-            'test_release_lookup_failure_does_not_mutate_remote_state',
-            'test_legacy_mpa_bootstrap_accepts_feature_count_within_review_bound',
-            'test_legacy_mpa_bootstrap_rejects_feature_count_outside_review_bound_before_mutation',
-            'test_absent_asset_reports_false_rather_than_raising',
-            'test_real_failures_still_raise',
-            'test_first_v2_publish_can_bootstrap_with_neither_slot_present',
-        ]) &&
-        includesAll(currentsPipelineReadme, [
-            'exactly 13 hourly snapshots',
-            'deterministic UTC ISO-week shard',
-            '364 current assets',
-        ]) &&
-        includesAll(wavesPipelineReadme, [
-            '17 snapshots at three-hour cadence',
-            '12-hour publish interval plus',
-            'one exact three-hour native-cadence margin',
-            'fail closed after that 15-hour boundary',
-            'height-weighted circular mean',
-        ]) &&
-        includesAll(mpaPipelineReadme, [
-            'GIS_AREA` is hectares and is explicitly divided by 100',
-            'classification_source: indicative_heuristic',
-            'UTC ISO-week release shard',
         ]),
 );
 check(
@@ -1649,7 +1427,7 @@ check(
         Object.hasOwn(pkg.devDependencies ?? {}, 'puppeteer') &&
         !Object.hasOwn(pkg.devDependencies ?? {}, '@lhci/cli') &&
         !denoLock.includes('@lhci/cli') &&
-        [ciWorkflow, lighthouseWorkflow].every(
+        [ciWorkflow].every(
             (workflow) =>
                 workflow.includes('scripts/run-lighthouse-audit.mjs') &&
                 workflow.includes('scripts/assert-lighthouse-audited-app.mjs') &&
@@ -1672,12 +1450,12 @@ check(
             "'--strictPort'",
         ]) &&
         !lighthouseRunner.includes("spawn('npm'") &&
-        [ciWorkflow, lighthouseWorkflow].every(
+        [ciWorkflow].every(
             (workflow) =>
                 workflow.includes('id: lighthouse-audit') &&
                 workflow.includes("if: ${{ always() && steps.lighthouse-audit.outcome != 'skipped' }}"),
         ) &&
-        [ciWorkflow, lighthouseWorkflow].every(
+        [ciWorkflow].every(
             (workflow) =>
                 workflow.includes(
                     `actions/upload-artifact@${reviewedWorkflowActionPins.get('actions/upload-artifact')}`,
@@ -1690,7 +1468,7 @@ check(
 );
 check(
     'release workflows keep read-only repository permissions',
-    [ciWorkflow, lighthouseWorkflow, previewSmokeWorkflow].every(
+    [ciWorkflow, fullChecksWorkflow, packagesWorkflow, previewSmokeWorkflow].every(
         (workflow) => workflow.includes('contents: read') && !/[\w-]+:\s*write|write-all/.test(workflow),
     ),
 );
@@ -1746,6 +1524,7 @@ check(
         !playwrightConfig.includes("command: 'npm run dev'") &&
         previewSmokeWorkflow.includes("REQUIRE_HOSTED_PREVIEW: 'true'") &&
         !ciWorkflow.includes('--reporter=list') &&
+        !fullChecksWorkflow.includes('--reporter=list') &&
         !previewSmokeWorkflow.includes('--reporter=list'),
 );
 check(
@@ -2318,7 +2097,7 @@ check(
             "' true '",
             "'TRUE'",
         ]) &&
-        includesAll(ciWorkflow, ['ais-ingest:', 'working-directory: workers/ais-ingest', 'run: npm test']),
+        includesAll(packagesWorkflow, ['ais-ingest:', 'working-directory: workers/ais-ingest', 'run: npm test']),
 );
 
 const accountService = read('services/accountDeletion.ts');

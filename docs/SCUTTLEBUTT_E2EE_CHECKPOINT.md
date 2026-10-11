@@ -11,6 +11,42 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
+## Clean upstream reconciliation on 11 October
+
+During the HTTPS proof, cleaned master advanced normally from `b4cb3211` to
+`59c5f7eae52adde3cadc40d864ee979af15ab274`, bringing Claude's private-repository
+CI split and public marine-data repository changes. This is a forward extension
+of the same cleaned graph, not another licensed-chart history rewrite. The
+published continuation is being reconciled by merging that exact upstream into
+the isolated branch, preserving its published commits without force-push.
+Master and the primary checkout are not changed by this operation.
+
+The sole merge conflict is `.vercelignore`: retain upstream's explanatory
+comment and all of this branch's test/browser/story/Research exclusions. The
+build-scope test now locates unit coverage in upstream's scheduled/on-demand
+`full-checks.yml`, while still requiring types, Deno checks and production build
+in per-push CI. No production compiler or security check is removed.
+
+The [focused reconciliation checks](../experiments/scuttlebutt-e2ee/review/upstream-reconciliation-2026-10-11.json)
+passed 17/17 cases across production build scope and protected chart-data guards,
+plus named zero-warning lint and formatting, with 0/120,000 ms waiting. The 70
+staged upstream/resolution names matched the independently calculated upstream
+delta plus the three local resolution/documentation paths. All 61 HTTPS inputs
+remained byte-identical. Receipt SHA-256 is
+`32c329cfcdb26dca513cf8d15738977f2296306a3aeceed95800111fc14d91f0`.
+Only documentation and packaging of this exact receipt followed those checks;
+no new web, Window, native or full-suite acceptance is claimed.
+
+The eleven native WIP files were saved under the exact managed local stash
+`97de46d0006d08c950712a582e3eee7f2fef2b28` before reconciliation. Restore them
+byte-identically from that ref after the merge, verify their previous hash
+inventory and leave them unstaged. Never push this stash or any backup/all refs.
+The new HTTPS proof's 61 inputs do not overlap upstream's changed files; retain
+its original executed hashes rather than relabelling any broader App acceptance.
+Upstream did change App dependencies, so the earlier isolated web/Window result
+is historical for that combined graph. Next refresh the web/Window proof on the
+reconciled sources, then run the current protected native full-App fixture.
+
 ## Fresh native HTTPS exchange on 11 October
 
 The [completed HTTPS receipt](../experiments/scuttlebutt-e2ee/review/fresh-native-https-2026-10-11.json)
@@ -66,8 +102,9 @@ the producer. There was no native execution failure or second simulator attempt.
 The new runner snapshots failing operation/exit/timeout before cleanup; the
 historical bootstrap driver's reporting limitation remains unchanged.
 
-Next compile and execute the current protected full-App native fixture using
-this legitimately regenerated completed-exchange prerequisite. The eleven WIP
+Next refresh the combined web/Window evidence and then compile and execute the
+current protected full-App native fixture using this legitimately regenerated
+completed-exchange prerequisite. The eleven WIP
 paths remain local, unpublished and hash-unchanged at this checkpoint; no
 protected full-App native build or exchange has run yet. Current physical
 acceptance, real OS lifecycle, shipping prekey/device/retention/recovery policies,

@@ -1,5 +1,6 @@
 import {
     canonicalMarineGeneration,
+    MARINE_RELEASE_REPOSITORY,
     marineAssetShardTag,
     validateMarineManifest,
 } from '../services/weather/api/marineManifestContract';
@@ -14,7 +15,7 @@ type DatasetProxySpec = {
     maxAssetBytes: number;
 };
 
-const OWNER_REPO = 'shanestratton/thalassa-marine-weather';
+const OWNER_REPO = MARINE_RELEASE_REPOSITORY;
 const MANIFEST_MAX_BYTES = 256 * 1024;
 const LEGACY_MANIFEST_NAME = 'manifest.json';
 const V2_MANIFEST_NAME = 'manifest-v2.json';

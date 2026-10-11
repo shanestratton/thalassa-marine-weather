@@ -105,9 +105,13 @@ describe('production build scope', () => {
         expect(files).toContain('e2e/fixtures/day-planner.tsx');
         expect(files).toContain('tests/ProductionBuildScope.test.ts');
         const ci = read('.github/workflows/ci.yml');
+        const fullChecks = read('.github/workflows/full-checks.yml');
         expect(ci).toContain('run: npx tsc --noEmit');
         expect(ci).toContain('run: deno check */index.ts');
-        expect(ci).toContain('run: npx vitest run --reporter=verbose --coverage');
+        expect(fullChecks).toContain('run: npx vitest run --reporter=verbose --coverage');
+        expect(fullChecks).toContain('workflow_dispatch:');
+        expect(fullChecks).toContain('schedule:');
+        expect(ci).not.toContain('run: npx vitest run --reporter=verbose --coverage');
         expect(ci).toContain('run: npm run build');
     });
 

@@ -19,6 +19,25 @@ With no environment flags, the server:
 `/status` never returns prefetch coordinates, user/owner IDs, Pi identity, diary relay configuration or queue detail,
 filesystem paths, or credentials.
 
+## Install and update (owner only)
+
+The source repository is private (2026-10) and Pi setup is by invitation during the beta, so the app no longer shows an
+install command. `install.sh` downloads `pi-cache/` with a fine-grained GitHub token that has read-only **Contents**
+access to `thalassa-marine-weather`. That token reads the whole private repository, so only the owner's own Pis get one,
+one token per Pi. It is asked for once, with nothing echoed, and kept in a root-only file, `/etc/thalassa/github-token`.
+The token never appears in a URL or on a command line. On Raspberry Pi OS the login user usually has passwordless sudo,
+so the real protection is that the token is read-only, single-repository, expiring and revocable.
+
+- **First install**, and the first update of a Pi set up before 2026-10 (its old installer has no token support), from a
+  Mac with this repository: `scp pi-cache/install.sh <user>@<pi>:/tmp/ && ssh -t <user>@<pi> sudo bash /tmp/install.sh`
+- **Update** on the Pi: `sudo thalassa-pi-cache-install`, a root-owned copy of the installer that every download
+  refreshes. It never runs the copy in `/opt`, which the service user can write.
+- **Rebuild in place** without downloading: `sudo bash /opt/thalassa-pi-cache/install.sh`
+- **Wrong or expired token:** `sudo rm /etc/thalassa/github-token`, then update again to paste a new one.
+
+A Pi that runs from a full checkout (`~/thalassa-marine-weather`, updated with `git pull` and `redeploy.sh`) needs the
+same kind of token for `git pull`: see `docs/GOING_PRIVATE.md`.
+
 ## Runtime
 
 Node.js `>=20.18.1` is required by the pinned HTTP transport. `install.sh` upgrades an older Pi runtime through the

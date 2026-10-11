@@ -917,16 +917,10 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                             <>
                                 <div className="flex gap-3 items-start">
                                     <span className="text-emerald-400 font-bold text-sm shrink-0">1</span>
-                                    <div>
-                                        <p>Open a terminal on your Raspberry Pi and run:</p>
-                                        <div className="mt-2 p-3 rounded-lg bg-black/40 border border-white/10 font-mono text-[11px] text-emerald-300 break-all select-all">
-                                            bash &lt;(curl -sSL
-                                            https://raw.githubusercontent.com/shanestratton/thalassa-marine-weather/master/pi-cache/install.sh)
-                                        </div>
-                                        <p className="text-gray-500 text-[10px] mt-1">
-                                            One command. Takes about 2 minutes. Runs automatically on boot after that.
-                                        </p>
-                                    </div>
+                                    <p>
+                                        Setting up the weather cache on a Pi is by invitation during the beta. If
+                                        Thalassa invited you, follow the setup guide you were sent.
+                                    </p>
                                 </div>
                                 <div className="flex gap-3 items-start">
                                     <span className="text-emerald-400 font-bold text-sm shrink-0">2</span>
