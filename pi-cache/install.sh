@@ -7,11 +7,15 @@
 # in pi-cache/README.md.
 #
 #   sudo bash install.sh            first install, or rebuild in place
-#   sudo bash install.sh --update   download the latest pi-cache, then rebuild
+#   sudo thalassa-pi-cache-install   update: download the latest pi-cache, rebuild
 #
 # The source repository is private (2026-10). Downloading uses a read-only
-# GitHub token, asked for once and kept root-only in /etc/thalassa/github-token.
-# First install from the owner's Mac:
+# GitHub token, asked for once and kept in a root-only file,
+# /etc/thalassa/github-token. Every download also installs a root-owned copy of
+# this script as /usr/local/sbin/thalassa-pi-cache-install, so an update never
+# runs the copy in /opt, which the service user can write.
+# First install (and the first update of a Pi set up before 2026-10), from the
+# owner's Mac:
 #   scp pi-cache/install.sh <user>@<pi>:/tmp/ && ssh -t <user>@<pi> sudo bash /tmp/install.sh
 #
 # The Thalassa app on your phone will do the rest.
@@ -72,6 +76,7 @@ else
     INSTALL_DIR="${THALASSA_INSTALL_DIR:-/opt/thalassa-pi-cache}"
     REPO_URL="${THALASSA_REPO_URL:-https://github.com/shanestratton/thalassa-marine-weather.git}"
     TOKEN_FILE="${THALASSA_TOKEN_FILE:-/etc/thalassa/github-token}"
+    UPDATER="${THALASSA_UPDATER:-/usr/local/sbin/thalassa-pi-cache-install}"
     IS_FRESH_INSTALL=0
     [[ ! -d "$INSTALL_DIR" ]] || [[ ! -f "$INSTALL_DIR/package.json" ]] && IS_FRESH_INSTALL=1
 
@@ -85,9 +90,11 @@ else
     fi
 
     # A fine-grained GitHub token with read-only Contents access to
-    # thalassa-marine-weather. Root-only, so the cache service (which runs as
-    # the login user) can never read it. Never put it in a URL or on a command
-    # line: both are visible to every process on the Pi.
+    # thalassa-marine-weather: it reads the whole private repository, so only
+    # the owner's own Pis get one. The file is root-only, which keeps it from
+    # the cache service but not from a login user with sudo (Raspberry Pi OS
+    # gives the default user passwordless sudo). Never put it in a URL or on a
+    # command line: both are visible to every process on the Pi.
     if [[ ! -s "$TOKEN_FILE" ]]; then
         GITHUB_TOKEN=""
         if [[ -r /dev/tty ]]; then
@@ -145,8 +152,13 @@ else
         rsync -a --exclude='node_modules' --exclude='dist' \
             "$CLONE_DIR/repo/pi-cache/" "$INSTALL_DIR/"
     else
+        # cp writes in place; if this very script is the one being replaced,
+        # bash would read the new bytes mid-run. Unlink it first.
+        rm -f "$INSTALL_DIR/install.sh"
         cp -r "$CLONE_DIR/repo/pi-cache/." "$INSTALL_DIR/"
     fi
+    # Updates run this root-owned copy, never the service-writable one in /opt.
+    install -D -m 0755 -o root -g root "$CLONE_DIR/repo/pi-cache/install.sh" "$UPDATER"
     rm -rf "$CLONE_DIR"
     trap - EXIT
 fi

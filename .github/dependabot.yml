@@ -3,8 +3,9 @@ version: 2
 updates:
     # npm dependencies
     # Monthly since 2026-10: every update pull request runs the quick CI, and on
-    # a private repository those minutes are billed. Security updates are not
-    # affected by this schedule; Dependabot raises them as soon as they exist.
+    # a private repository those minutes are billed. Security updates are a
+    # separate repository setting with no schedule (off as of 2026-10; see
+    # docs/GOING_PRIVATE.md).
     - package-ecosystem: 'npm'
       directory: '/'
       schedule:
