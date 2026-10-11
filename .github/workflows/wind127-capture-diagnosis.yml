@@ -1,0 +1,105 @@
+name: Build 127 wind capture diagnosis (no release)
+
+# Compare a paused, already-drawn frame with its own background. This only
+# changes a runner workspace. No source commit, Apple key, signing or upload.
+on:
+    push:
+        branches: ['codex/thalassa-127-release']
+        paths: ['.github/workflows/wind127-capture-diagnosis.yml']
+permissions:
+    contents: read
+concurrency:
+    group: wind127-capture-diagnosis
+    cancel-in-progress: false
+jobs:
+    capture:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - width: '1.5'
+                      browser: chromium
+                    - width: '2'
+                      browser: chromium
+                    - width: '2'
+                      browser: webkit
+        env:
+            CI: 'true'
+            HUSKY: '0'
+            NODE_OPTIONS: --max-old-space-size=4096
+            PUPPETEER_SKIP_DOWNLOAD: 'true'
+            WIDTH: ${{ matrix.width }}
+            VITE_APP_BUILD: '127'
+            VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+            VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+            VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+            VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+            VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 31f97f1f369981be3917b2a8450006ba272b7650
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Apply controlled rendering and capture variants without changing assertions
+              run: |
+                  node --input-type=module <<'NODE'
+                  import {readFileSync,writeFileSync} from 'node:fs';
+                  const renderer='components/map/MapboxVelocityOverlay.tsx';
+                  let text=readFileSync(renderer,'utf8');
+                  const from="const lineWidthFor = (palette: WindPalette) => (palette === 'light' ? 1.5 : PARTICLE_LINE_WIDTH);";
+                  if(text.split(from).length!==2 || !['1.5','2'].includes(process.env.WIDTH)) throw new Error('Unexpected renderer or variant');
+                  writeFileSync(renderer,text.replace(from,from.replace('? 1.5 :',`? ${process.env.WIDTH} :`)));
+                  const spec='browser-tests/desk-wind-layout.spec.ts';
+                  const original=readFileSync(spec,'utf8');
+                  text=original.replaceAll('const page = await context.newPage();', 'const page = await context.newPage();\n        await page.clock.install();');
+                  const start='async function streakPixels(page: Page, clip: Box) {\n';
+                  if(text.split(start).length!==2) throw new Error('Capture helper changed');
+                  text=text.replace(start,start+'    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));\n');
+                  const end="    const out: Array<{ ink: string; ground: string; change: number; contrast: number }> = [];";
+                  if(text.split(end).length!==2) throw new Error('Capture boundary changed');
+                  text=text.replace(end,'    await page.clock.resume();\n'+end);
+                  const protectedBlock=s=>s.slice(s.indexOf("        expect(calm.all.length, 'the 12 kt streaks draw')"));
+                  // Clock install was added to later unrelated tests too; compare the
+                  // entire target's assertions through its close, byte-for-byte.
+                  const targetAssertions=s=>protectedBlock(s).split('        await context.close();')[0];
+                  if(targetAssertions(text)!==targetAssertions(original)) throw new Error('A visual assertion changed');
+                  if(text.match(/test.setTimeout\(150_000\)/g)?.length!==original.match(/test.setTimeout\(150_000\)/g)?.length)
+                      throw new Error('The original test budget changed');
+                  writeFileSync(spec,text);
+                  NODE
+                  git diff > "$RUNNER_TEMP/capture-variant.patch"
+            - run: npm ci
+            - name: Install browser
+              run: npx playwright install --with-deps ${{ matrix.browser }}
+            - name: Original visual assertions, paused-frame capture, three samples without retries
+              id: measure
+              continue-on-error: true
+              env:
+                  PLAYWRIGHT_JSON_OUTPUT_NAME: capture-results.json
+              run: >-
+                  npx playwright test --config playwright.keyboard.config.ts
+                  browser-tests/desk-wind-layout.spec.ts --grep 'Light: dark streaks'
+                  --project=${{ matrix.browser }} --workers=1 --repeat-each=3 --retries=0
+                  --reporter=line,json
+            - name: State the experiment result, not release success
+              env:
+                  OUTCOME: ${{ steps.measure.outcome }}
+              run: echo "Paused-frame experiment $OUTCOME; inspect actual test results. No release validation, signing or upload." >> "$GITHUB_STEP_SUMMARY"
+            - name: Preserve the experiment and visual evidence
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: wind127-capture-${{ matrix.width }}-${{ matrix.browser }}
+                  path: |
+                      capture-results.json
+                      test-results/
+                      ${{ runner.temp }}/capture-variant.patch
+                  retention-days: 3
