@@ -1,0 +1,104 @@
+name: Thalassa TestFlight status (READ ONLY)
+
+# One-time setup check. Reads only this app's identity and existing iOS 1.2.0
+# build metadata. No checkout, package install, signing, upload, or Apple writes.
+# API tokens live for two minutes and are scoped to the exact GET being made.
+on:
+    push:
+        branches: ['codex/thalassa-signing-dry-run']
+        paths: ['.github/workflows/testflight-status-readonly.yml']
+
+permissions:
+    contents: read
+
+jobs:
+    read-status:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  package-manager-cache: false
+            - name: Read existing builds without uploading or modifying anything
+              shell: bash
+              env:
+                  ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+                  ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+                  ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+              run: |
+                  node --input-type=module <<'NODE'
+                  import { createPrivateKey, sign } from 'node:crypto';
+                  import { appendFileSync } from 'node:fs';
+                  const origin = 'https://api.appstoreconnect.apple.com';
+                  const bundleId = 'com.thalassa.weather';
+                  const marketingVersion = '1.2.0';
+                  const keyId = process.env.ASC_KEY_ID;
+                  const issuerId = process.env.ASC_ISSUER_ID;
+                  if (!keyId || !issuerId || !process.env.ASC_KEY_P8) throw new Error('An Apple API secret is missing');
+                  const key = createPrivateKey(process.env.ASC_KEY_P8);
+                  delete process.env.ASC_KEY_ID;
+                  delete process.env.ASC_ISSUER_ID;
+                  delete process.env.ASC_KEY_P8;
+                  const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+                  async function get(url) {
+                    if (url.origin !== origin || !['/v1/apps', '/v1/builds'].includes(url.pathname)) throw new Error('Unexpected API destination');
+                    const now = Math.floor(Date.now() / 1000);
+                    const content = encode({ alg: 'ES256', kid: keyId, typ: 'JWT' }) + '.' + encode({
+                      iss: issuerId, iat: now, exp: now + 120, aud: 'appstoreconnect-v1',
+                      scope: [`GET ${url.pathname}${url.search}`],
+                    });
+                    const token = content + '.' + sign('sha256', Buffer.from(content), {key, dsaEncoding:'ieee-p1363'}).toString('base64url');
+                    // Neither the key nor the token is printed, persisted, or added to an artifact.
+                    const response = await fetch(url, {
+                      method: 'GET', redirect: 'error', signal: AbortSignal.timeout(30000),
+                      headers: {Authorization: `Bearer ${token}`, Accept: 'application/json'},
+                    });
+                    if (!response.ok) throw new Error(`Apple status read failed: HTTP ${response.status}`);
+                    const json = await response.json();
+                    if (!Array.isArray(json.data)) throw new Error('Unexpected Apple response');
+                    return json;
+                  }
+                  async function main() {
+                    const appUrl = new URL('/v1/apps', origin);
+                    appUrl.search = new URLSearchParams({'filter[bundleId]':bundleId, 'fields[apps]':'bundleId', limit:'2'}).toString();
+                    const apps = await get(appUrl);
+                    if (apps.data.length !== 1 || apps.data[0].attributes?.bundleId !== bundleId) throw new Error('Thalassa app was not uniquely resolved');
+                    const appId = apps.data[0].id;
+                    let url = new URL('/v1/builds', origin);
+                    url.search = new URLSearchParams({
+                      'filter[app]':appId, 'filter[preReleaseVersion.version]':marketingVersion,
+                      'filter[preReleaseVersion.platform]':'IOS',
+                      'fields[builds]':'version,uploadedDate,processingState,expired', sort:'-uploadedDate', limit:'200',
+                    }).toString();
+                    const builds=[];
+                    const seen=new Set();
+                    for (let page=0; url && page<10; page++) {
+                      if (url.pathname !== '/v1/builds' || url.searchParams.get('filter[app]') !== appId ||
+                          url.searchParams.get('filter[preReleaseVersion.version]') !== marketingVersion ||
+                          url.searchParams.get('filter[preReleaseVersion.platform]') !== 'IOS' || seen.has(url.href)) throw new Error('Unexpected build pagination');
+                      seen.add(url.href);
+                      const data=await get(url);
+                      for (const build of data.data) {
+                        const {version, uploadedDate, processingState, expired}=build.attributes;
+                        builds.push({build:version, uploadedDate, processingState, expired});
+                      }
+                      url=data.links?.next ? new URL(data.links.next, origin) : null;
+                    }
+                    if (url) throw new Error('Build listing limit exceeded; no complete build-number conclusion');
+                    const integers=builds.filter(b=>/^\d+$/.test(b.build)).map(b=>BigInt(b.build));
+                    const highest=integers.length ? integers.reduce((a,b)=>a>b?a:b).toString() : null;
+                    const summary={
+                      observedAt:new Date().toISOString(), bundleId, appId, marketingVersion,
+                      totalBuildsListed:builds.length, highestIntegerBuild:highest,
+                      build126AlreadyListed:builds.some(b=>b.build==='126'), newestBuilds:builds.slice(0,10),
+                      operation:'GET only; no upload, signing, tester changes, or app changes',
+                    };
+                    console.log(JSON.stringify(summary,null,2));
+                    appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+                      '# Existing TestFlight builds — read only\n\n```json\n'+JSON.stringify(summary,null,2)+'\n```\n\n'+
+                      'Re-check before choosing an upload number: this snapshot does not reserve a build number.\n');
+                  }
+                  main().catch(error=>{console.error(error.message);process.exitCode=1;});
+                  NODE
