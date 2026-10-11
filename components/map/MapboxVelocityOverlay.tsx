@@ -277,10 +277,14 @@ type MutableVelocityLayer = L.Layer & {
  *
  * The plugin does not expose a lifecycle hook for this, so guard its private
  * startup seam at the one place we create a velocity layer. Once `start()`
- * has run, the original stop implementation remains completely unchanged.
+ * has run, keep its original particle/bucket cleanup, but correct its RAF
+ * ownership: stop() uses clearTimeout, and repeated starts can overwrite the
+ * one pending RAF handle without cancelling it.
  */
 type VelocityWindyInternals = {
     animationBucket?: { clear?: () => void };
+    animationLoop?: number | null;
+    start?: (...args: unknown[]) => unknown;
     stop?: () => void;
     __thalassaSafeStop?: boolean;
 };
@@ -305,7 +309,28 @@ export function guardVelocityLayerStartup(layer: L.Layer): void {
 
         const originalStop = windy.stop;
         windy.__thalassaSafeStop = true;
+        const cancelOwnedFrame = () => {
+            // leaflet-velocity-ts 1.2.0 schedules RAF but stops it with
+            // clearTimeout. Cancel its own pending frame, then clear the
+            // handle before delegating so no unrelated timer ID is cleared.
+            // Palette replacements/disable/unmount must not leave a detached
+            // field self-scheduling behind the current chart.
+            if (typeof windy.animationLoop === 'number') {
+                window.cancelAnimationFrame(windy.animationLoop);
+                windy.animationLoop = null;
+            }
+        };
+        const originalStart = windy.start;
+        if (typeof originalStart === 'function') {
+            windy.start = (...startArgs: unknown[]) => {
+                // clearAndRestart can start this same Windy again without a
+                // stop. Keep one frame chain rather than losing its old handle.
+                cancelOwnedFrame();
+                return originalStart.apply(windy, startArgs);
+            };
+        }
         windy.stop = () => {
+            cancelOwnedFrame();
             // Before the plugin's delayed `start()` call there is no running
             // animation to stop. Returning here avoids its unsafe clear().
             if (!windy.animationBucket) return;

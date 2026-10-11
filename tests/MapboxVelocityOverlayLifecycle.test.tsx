@@ -333,6 +333,102 @@ afterEach(() => {
 });
 
 describe('MapboxVelocityOverlay React lifecycle', () => {
+    it('keeps one pending RAF across repeated library starts, including frame ID zero', () => {
+        let id = 0;
+        const pending = new Map<number, FrameRequestCallback>();
+        const request = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+            pending.set(id, callback);
+            return id++;
+        });
+        const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((frame) => {
+            pending.delete(frame);
+        });
+        const windy = {
+            animationBucket: { clear: vi.fn() },
+            animationLoop: null as number | null,
+            start: vi.fn(function (this: { animationLoop: number | null }, ...args: unknown[]) {
+                expect(this).toBe(windy);
+                windy.animationLoop = window.requestAnimationFrame(() => {});
+                return args;
+            }),
+            stop: () => {},
+        };
+        const originalStart = windy.start;
+        const layer = { _windy: windy, onDrawLayer: vi.fn() };
+        try {
+            guardVelocityLayerStartup(layer as never);
+            layer.onDrawLayer();
+            const startArgs = [[0, 1, 2, 3], 1440, 900, [[-1.4, 50.76]]];
+            expect(windy.start(...startArgs)).toEqual(startArgs);
+            expect([...pending.keys()]).toEqual([0]);
+            windy.start();
+            expect([...pending.keys()]).toEqual([1]);
+            expect(cancel).toHaveBeenCalledWith(0);
+            windy.stop();
+            expect(pending.size).toBe(0);
+            windy.start();
+            expect([...pending.keys()]).toEqual([2]);
+            windy.stop();
+            windy.stop();
+            expect(pending.size).toBe(0);
+            expect(cancel.mock.calls.map(([frame]) => frame)).toEqual([0, 1, 2]);
+            expect(originalStart).toHaveBeenNthCalledWith(1, ...startArgs);
+        } finally {
+            request.mockRestore();
+            cancel.mockRestore();
+        }
+    });
+
+    it('cancels an owned RAF even when the delayed animation bucket is still absent', () => {
+        const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+        const originalStop = vi.fn();
+        const windy = { animationLoop: 0 as number | null, stop: originalStop };
+        const layer = { _windy: windy, onDrawLayer: vi.fn() };
+        try {
+            guardVelocityLayerStartup(layer as never);
+            layer.onDrawLayer();
+            windy.stop();
+            expect(cancel).toHaveBeenCalledExactlyOnceWith(0);
+            expect(windy.animationLoop).toBeNull();
+            expect(originalStop).not.toHaveBeenCalled();
+        } finally {
+            cancel.mockRestore();
+        }
+    });
+
+    it('cancels the library RAF before stop, without clearing an unrelated timer with the same ID', () => {
+        const bucket = { clear: vi.fn() };
+        const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+        const clearTimer = vi.spyOn(window, 'clearTimeout');
+        const windy = {
+            animationBucket: bucket,
+            animationLoop: 4242 as number | null,
+            stop: () => {},
+        };
+        const originalStop = vi.fn(() => {
+            // leaflet-velocity-ts 1.2.0 schedules RAF, but its stop calls
+            // clearTimeout with that handle. It neither cancels RAF nor owns
+            // a potentially equal timer ID belonging to another renderer.
+            bucket.clear();
+            if (windy.animationLoop !== null) window.clearTimeout(windy.animationLoop);
+        });
+        windy.stop = originalStop;
+        const layer = { _windy: windy, onDrawLayer: vi.fn() };
+        try {
+            guardVelocityLayerStartup(layer as never);
+            layer.onDrawLayer();
+            windy.stop();
+            expect(cancel).toHaveBeenCalledExactlyOnceWith(4242);
+            expect(windy.animationLoop).toBeNull();
+            expect(clearTimer).not.toHaveBeenCalledWith(4242);
+            expect(originalStop).toHaveBeenCalledOnce();
+            expect(bucket.clear).toHaveBeenCalledOnce();
+        } finally {
+            cancel.mockRestore();
+            clearTimer.mockRestore();
+        }
+    });
+
     it('does not let the velocity plugin stop before its delayed animation bucket exists', () => {
         const bucket = { clear: vi.fn() };
         const originalStop = vi.fn(() => {
