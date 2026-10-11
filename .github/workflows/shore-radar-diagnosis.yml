@@ -1,7 +1,9 @@
-name: Shore radar fix validation
+name: Thalassa full pre-TestFlight validation
 
-# Temporary validation branch, no signing secrets or app artifacts.
-# Test the actual four-line commit, not a browser shim or a weakened test.
+# Temporary validation branch only. The current master moved the slow suites
+# into full-checks.yml; a green quick CI is not evidence those suites ran.
+# Run the same complete suites against the exact PR #57 merge candidate.
+# No application changes, Apple signing secrets, merges, or TestFlight uploads.
 on:
     push:
         branches: ['codex/thalassa-radar-ci-diagnosis']
@@ -11,113 +13,119 @@ permissions:
     contents: read
 
 concurrency:
-    group: shore-radar-ci-diagnosis
-    cancel-in-progress: true
+    group: thalassa-full-validation-c64ac932
+    cancel-in-progress: false
+
+env:
+    CI: 'true'
+    HUSKY: '0'
+    NODE_OPTIONS: --max-old-space-size=4096
+    PUPPETEER_SKIP_DOWNLOAD: 'true'
+    VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+    VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+    VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+    VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+    VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+    VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+    SOURCE_SHA: c64ac932fea0e248caa12648c94b20cb015cabce
 
 jobs:
-    validate:
+    suites:
+        name: Full validation (${{ matrix.suite }})
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton'
         runs-on: ubuntu-24.04
-        timeout-minutes: 15
-        env:
-            CI: 'true'
-            HUSKY: '0'
-            PUPPETEER_SKIP_DOWNLOAD: 'true'
-            NODE_OPTIONS: --max-old-space-size=4096
-            VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-            VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
-            VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
-            VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
-            VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
-            VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+        timeout-minutes: 150
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - suite: unit-coverage
+                      kind: unit
+                      shard: ''
+                    - suite: two-browser-e2e
+                      kind: e2e
+                      shard: ''
+                    - suite: keyboard-1
+                      kind: keyboard
+                      shard: 1/3
+                    - suite: keyboard-2
+                      kind: keyboard
+                      shard: 2/3
+                    - suite: keyboard-3
+                      kind: keyboard
+                      shard: 3/3
+                    - suite: plan-your-day
+                      kind: planner
+                      shard: ''
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: 7f4edee04c9d47351a48814139ef1fdfb27dc3e9
+                  ref: c64ac932fea0e248caa12648c94b20cb015cabce
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
               with:
                   node-version: 24
                   cache: npm
+            - name: Confirm the exact candidate being tested
+              run: |
+                  set -euo pipefail
+                  [ "$(git rev-parse HEAD)" = "$SOURCE_SHA" ]
+                  {
+                      echo '## Full release-suite validation, no upload'
+                      echo "Candidate: \`$SOURCE_SHA\`"
+                      echo 'PR #57 is not merged by this job. No Apple signing secrets are read.'
+                  } >> "$GITHUB_STEP_SUMMARY"
             - run: npm ci
-            - run: npx playwright install --with-deps chromium webkit
-            - name: Validate formatting and pinned source
-              run: |
-                  set -euo pipefail
-                  test "$(git rev-parse HEAD)" = 7f4edee04c9d47351a48814139ef1fdfb27dc3e9
-                  npx prettier --check components/anchor-watch/SwingCircleCanvas.tsx
-                  mkdir -p "$RUNNER_TEMP/shore-radar-validation"
-            - name: Original WebKit regression, 20 repetitions with no retries
-              timeout-minutes: 4
-              run: |
-                  set -euo pipefail
-                  npx playwright test --config playwright.keyboard.config.ts shore-watch-layout.spec.ts \
-                      --grep 'draws her trail across the antimeridian' --project=webkit \
-                      --repeat-each=20 --retries=0 --workers=1 --reporter=json \
-                      --output "$RUNNER_TEMP/shore-radar-validation/webkit-output" \
-                      > "$RUNNER_TEMP/shore-radar-validation/webkit.json"
-                  echo '- Original WebKit Taveuni pixel regression: 20 repetitions passed, no retries; iPhone 13 remains at 3x.' >> "$GITHUB_STEP_SUMMARY"
-            - name: Original Chromium regression, 10 repetitions with no retries
-              timeout-minutes: 3
-              run: |
-                  set -euo pipefail
-                  npx playwright test --config playwright.keyboard.config.ts shore-watch-layout.spec.ts \
-                      --grep 'draws her trail across the antimeridian' --project=chromium \
-                      --repeat-each=10 --retries=0 --workers=1 --reporter=json \
-                      --output "$RUNNER_TEMP/shore-radar-validation/chromium-output" \
-                      > "$RUNNER_TEMP/shore-radar-validation/chromium.json"
-                  echo '- Original Chromium Taveuni pixel regression: 10 repetitions passed, no retries.' >> "$GITHUB_STEP_SUMMARY"
-            - name: Removing only the fix must reproduce the original WebKit assertion
-              timeout-minutes: 2
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  target=components/anchor-watch/SwingCircleCanvas.tsx
-                  cp "$target" "$RUNNER_TEMP/shore-radar-original.tsx"
-                  trap 'cp "$RUNNER_TEMP/shore-radar-original.tsx" "$target"' EXIT
-                  python3 - <<'PY'
-                  from pathlib import Path
-                  path = Path('components/anchor-watch/SwingCircleCanvas.tsx')
-                  source = path.read_text()
-                  needle = '            ctx.resetTransform();\n'
-                  assert source.count(needle) == 1, 'Unexpected resetTransform occurrences'
-                  path.write_text(source.replace(needle, ''))
-                  PY
-                  set +e
-                  npx playwright test --config playwright.keyboard.config.ts shore-watch-layout.spec.ts \
-                      --grep 'draws her trail across the antimeridian' --project=webkit \
-                      --retries=0 --workers=1 --reporter=json \
-                      --output "$RUNNER_TEMP/shore-radar-validation/negative-output" \
-                      > "$RUNNER_TEMP/shore-radar-validation/negative.json"
-                  result=$?
-                  set -e
-                  [ "$result" -ne 0 ] || { echo '::error::Negative control unexpectedly passed'; exit 1; }
-                  python3 - <<'PY'
-                  import json, os
-                  from pathlib import Path
-                  report = json.loads((Path(os.environ['RUNNER_TEMP']) / 'shore-radar-validation/negative.json').read_text())
-                  messages = []
-                  def walk(value):
-                      if isinstance(value, dict):
-                          if isinstance(value.get('message'), str):
-                              messages.append(value['message'])
-                          for child in value.values():
-                              walk(child)
-                      elif isinstance(value, list):
-                          for child in value:
-                              walk(child)
-                  walk(report)
-                  assert report['stats']['unexpected'] == 1, 'Expected exactly one failed regression'
-                  assert not report.get('errors'), 'Infrastructure errors invalidate the negative control'
-                  assert any('the red N is read above the circle' in message for message in messages), 'Different failure: not the original radar regression'
-                  print('Negative control reproduced the original red-N assertion with only resetTransform removed.')
-                  PY
-                  echo '- Negative control: removing only resetTransform reproduced the original WebKit red-N assertion.' >> "$GITHUB_STEP_SUMMARY"
-                  echo '- This focused validation does not replace the full PR checks or real-device verification. No app upload occurred.' >> "$GITHUB_STEP_SUMMARY"
-            - name: Save test reports and failure images only
+            - name: Public beta source contract
+              run: npm run check:beta:source
+            - name: All unit tests with coverage
+              if: matrix.kind == 'unit'
+              run: npx vitest run --reporter=verbose --coverage
+            - name: Release configuration for the E2E app
+              if: matrix.kind == 'e2e'
+              run: npm run check:beta
+            - name: Build the real production app for E2E
+              if: matrix.kind == 'e2e'
+              env:
+                  VITE_APP_BUILD: ${{ vars.VITE_APP_BUILD }}
+              run: GITHUB_SHA="$SOURCE_SHA" npm run build
+            - name: Install both browser engines
+              if: matrix.kind != 'unit'
+              run: npx playwright install --with-deps chromium webkit
+            - name: All Chromium and mobile Safari E2E tests
+              if: matrix.kind == 'e2e'
+              run: npx playwright test --project=chromium --project=mobile-safari
+            - name: Complete keyboard, daylight and split-pane shard
+              if: matrix.kind == 'keyboard'
+              env:
+                  SHARD: ${{ matrix.shard }}
+              run: npx playwright test --config playwright.keyboard.config.ts --shard="$SHARD"
+            - name: Complete Plan Your Day fit suite
+              if: matrix.kind == 'planner'
+              run: npx playwright test --config playwright.day-planner.config.ts
+            - name: Record suite result
               if: always()
+              env:
+                  SUITE: ${{ matrix.suite }}
+                  RESULT: ${{ job.status }}
+              run: |
+                  echo "- Suite $SUITE: $RESULT (see individual test logs and reports)." >> "$GITHUB_STEP_SUMMARY"
+                  echo '- No TestFlight upload or Apple signing was performed.' >> "$GITHUB_STEP_SUMMARY"
+            - name: Preserve unit coverage only
+              if: always() && matrix.kind == 'unit'
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
               with:
-                  name: shore-radar-fix-validation
-                  path: ${{ runner.temp }}/shore-radar-validation/
-                  retention-days: 3
+                  name: full-validation-unit-coverage
+                  path: coverage/
+                  retention-days: 7
+                  if-no-files-found: warn
+            - name: Preserve browser failure evidence only
+              if: failure() && matrix.kind != 'unit'
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: full-validation-${{ matrix.suite }}
+                  path: |
+                      playwright-report/
+                      test-results/
+                  retention-days: 7
                   if-no-files-found: warn
