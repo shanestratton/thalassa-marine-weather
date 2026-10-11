@@ -6,7 +6,7 @@ Two independent physical endpoints can expose custody, lifecycle and transport f
 
 ## Prerequisites and current blocks
 
-The [11 October current-source full-App simulator proof](../experiments/scuttlebutt-e2ee/review/full-app-protected-integration-2026-10-11.json)
+The [11 October previous source-bound full-App simulator proof](../experiments/scuttlebutt-e2ee/review/full-app-protected-integration-2026-10-11.json)
 passes actual main-App responder-role private-chat send/receive in a new owned
 simulator, with real native provider/Keychain/sealed storage and synthetic SDK
 Auth/URLProtocol relay. It records 14 cases, three accepted sends, 196 UI and 12
@@ -20,6 +20,15 @@ candidate, accounts, registrations, keys and histories remain unchanged; no
 signing/install/reset on a human device was performed. Current physical
 acceptance must use a separately frozen, authorized candidate and correlated
 receipts, not the old screenshots' counts.
+
+The later [driver-control regression](../experiments/scuttlebutt-e2ee/review/full-app-driver-controls-2026-10-11.json)
+passed 135 synthetic contract/callsite checks and completed a fresh unsigned
+native build, but its owned Research launch timed out within 30 seconds with no
+PID, app-phase file or native receipt. Exact disposable simulator cleanup was
+recorded. This unknown launch failure does not upgrade a physical case or replace
+the preceding scoped acceptance. Actual OS transitions require a separate native
+callback/process observer; synthetic pagehide, a launch request or recreated
+enrollment cannot stand in for lifecycle or same-store recovery evidence.
 
 The [8 October protected UI fixture](../experiments/scuttlebutt-e2ee/review/protected-window-2026-10-08.json)
 passes an actual responder-role UI round trip in one new simulator with real

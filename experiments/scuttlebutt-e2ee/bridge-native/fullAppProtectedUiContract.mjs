@@ -199,14 +199,16 @@ export function inspectFullAppProtectedWait(raw) {
     });
 }
 
+/** Save failed-child accounting before stopping; failure is never queued-only. */
 export function addFullAppProtectedChildWait(raw) {
     return guarded(() => {
         const row = exact(raw, ['limitMs', 'spentMs', 'childSpentMs', 'childStatus']);
         integer(row.limitMs, 120000);
         integer(row.spentMs, row.limitMs);
         integer(row.childSpentMs, Number.MAX_SAFE_INTEGER - row.spentMs);
-        require(row.childStatus === 'passed' || row.childStatus === 'queued-unrun');
+        require(row.childStatus === 'passed' || row.childStatus === 'queued-unrun' || row.childStatus === 'failed');
         const spentMs = row.spentMs + row.childSpentMs;
+        if (row.childStatus === 'failed') return Object.freeze({ spentMs, queued: false, outcome: 'failed' });
         if (row.childStatus === 'queued-unrun') return Object.freeze({ spentMs, queued: true });
         require(row.childSpentMs <= row.limitMs - row.spentMs);
         return Object.freeze({ spentMs, queued: spentMs > 0 && spentMs >= row.limitMs });

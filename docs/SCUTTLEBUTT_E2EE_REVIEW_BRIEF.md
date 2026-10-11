@@ -131,8 +131,8 @@ The HTTPS receipt retains false
 physical, live-Auth, Rust-provenance and independent-assessment flags. Human
 devices, hosted services, primary targets and production were untouched.
 
-The [current full-App protected integration summary](../experiments/scuttlebutt-e2ee/review/full-app-protected-integration-2026-10-11.json)
-now records a fresh combined-source web build, actual unsupported Chrome Window
+The [previous full-App protected integration summary](../experiments/scuttlebutt-e2ee/review/full-app-protected-integration-2026-10-11.json)
+records a fresh combined-source web build, actual unsupported Chrome Window
 checks and a new source-bound native compilation on base `23a7581beb` plus the
 eleven inventoried fixture changes. In an owned iOS 27.0 simulator, the actual
 main-App responder-role private chat sent and received using real native
@@ -154,6 +154,20 @@ main-App role, full-App HTTPS/live Auth or current physical case is established.
 Shipping cutover, device/prekey/retention/recovery, reproducible provider
 provenance, licence obligations and external assessment still gate merge/release.
 The old human Research install and ordinary Thalassa remain untouched.
+
+The later [driver-control slice](../experiments/scuttlebutt-e2ee/review/full-app-driver-controls-2026-10-11.json)
+fixes failed-child wait accounting and terminal failure propagation. Its 135
+focused contract/callsite cases, syntax, formatting, lint and narrow strict types
+passed. The callsite checks use mocked process/filesystem responses; they are not
+native encryption or OS-lifecycle tests. A fresh source-bound unsigned native
+build completed, but Research launch timed out at the unchanged 30-second bound,
+with no PID, app-phase file or native acceptance receipt. Settings control launch
+succeeded and exact disposable simulator cleanup was recorded. The launch cause
+is unknown; no previous passing exchange counts are assigned to this attempt.
+Only the harness contract/driver/test changed, not native provider, Swift or app
+runtime sources. Actual OS lifecycle and opposite-role acceptance remain unrun;
+the separate observer/scenario is not implemented. Production and human devices
+remain untouched. Independent review and all merge/release gates remain open.
 
 The new ordinary text-only native port shares the existing Research Auth host,
 requires a complete confirmed native peer snapshot, and preserves original-owner

@@ -206,6 +206,11 @@ function quiet(bin, args, timeout = 30000, maxBuffer = 8 * 1024 * 1024, input) {
             });
             waited = accounting.spentMs;
             receipt.sharedSlotWaitMs = waited;
+            if (accounting.outcome === 'failed') {
+                receipt.status = 'failed';
+                save();
+                throw new Error('Owned child build failed');
+            }
             if (accounting.queued) receipt.status = 'queued-unrun';
         }
     }

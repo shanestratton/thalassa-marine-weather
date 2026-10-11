@@ -1,0 +1,124 @@
+{
+    "schemaVersion": 1,
+    "kind": "full-app-driver-failed-child-accounting-and-launch-attempt",
+    "recordedDate": "2026-10-11",
+    "sourceBase": "bb7ac68b863cc86e16cc9138440986e30a8c6cea",
+    "branch": "codex/scuttlebutt-e2ee-integration-clean-2026-10-11",
+    "reconciledUpstream": "59c5f7eae52adde3cadc40d864ee979af15ab274",
+    "status": "focused-controls-passed-fresh-native-launch-failed-not-merge-ready",
+    "sourceChanges": [
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiContract.mjs",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs",
+        "tests/E2eeFullAppProtectedNativeContract.test.ts"
+    ],
+    "checkSourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiContract.mjs": "57c7ac329de49926c6c4d977fc200e20f1aa9a827cccee1d52b5d97c083bdf38",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs": "8b10ab1b404ed0db05fcdb12bbee2e20a6709950b62fa5ecf7c433f6df6dd86e",
+        "tests/E2eeProtectedUiFixture.test.ts": "6efbe799b82c9419c7ab60ebc9f5e1b2fa8c63c1037a06761b93c779d3edf9c8",
+        "tests/E2eeFullAppProtectedNativeContract.test.ts": "8b3250989f471a95b7598c2aaea52de9a006cb19d44907c727f24b5952ea9d8c",
+        "tests/E2eeFullAppNativeResume.test.ts": "db0118742145779db80f73d2f073fd6efc4566a246fdff7b5c7e1b7029c5c359"
+    },
+    "node": {
+        "path": "/opt/homebrew/Cellar/node@24/24.21.0_2/bin/node",
+        "version": "v24.21.0",
+        "sha256": "798d7f9c0d38051608d11ba87a12fbb01e92bfa457cd77ec612b5bad2a73a05e"
+    },
+    "focusedChecks": {
+        "receipt": {
+            "path": "/private/tmp/thalassa-protected-child-accounting.tYV8FV/checks-receipt.json",
+            "sha256": "1219d0e78d4ea92615bf098be3be9af653fd69d515b1e36d395d027d6870365e"
+        },
+        "syntax": "passed",
+        "format": "passed",
+        "namedZeroWarningLint": "passed",
+        "narrowStrictTypes": "passed",
+        "suiteCount": 3,
+        "totalTests": 135,
+        "passedTests": 135,
+        "failedTests": 0,
+        "scope": "Synthetic scheduling/cleanup contracts and the current driver callsite executed with mocked process/filesystem responses; no native encryption or lifecycle acceptance.",
+        "failedChildWaitPreservedIncludingOvershoot": true,
+        "failedChildStopsBeforeDownstreamDispatchEvenOnExitZero": true,
+        "passedAndQueuedBehaviorPreserved": true,
+        "nativeExecution": false,
+        "sharedSlotWaitMs": 0,
+        "sharedSlotBudgetMs": 120000
+    },
+    "freshNativeAttempt": {
+        "parentReceipt": {
+            "path": "/private/tmp/thalassa-full-root-protected-Pf1oWX/run-receipt.json",
+            "sha256": "4306ec96e6666b81e264a6b655e5bb47d2fc9536fd9a449df35abf69b3421a7e"
+        },
+        "unsignedBuildReceipt": {
+            "path": "/private/tmp/thalassa-messaging-build-4p5IT0/build-receipt.json",
+            "sha256": "ee7e6919b9db8d901538d575f50fbd3c38f5aa96103eb47cc80f96f9925f2c4a"
+        },
+        "status": "failed",
+        "phase": "actual-full-root-protected",
+        "unsignedBuildCompleted": true,
+        "failedOperation": "owned-app-launch",
+        "failedExitStatus": null,
+        "failedTimedOut": true,
+        "researchLaunchBoundMs": 30000,
+        "ownedLaunchPID": null,
+        "nativeLaunchPhase": null,
+        "appPhaseFilePresent": false,
+        "nativeReceiptFilePresent": false,
+        "nativeProtectedExchangeAccepted": false,
+        "cause": "unknown",
+        "settingsControl": {
+            "exitStatus": 0,
+            "timedOut": false,
+            "pid": 74363,
+            "nativeResearchAcceptanceProved": false
+        },
+        "cleanup": {
+            "idAbsent": true,
+            "nameAbsent": true,
+            "sourcesUnchanged": true,
+            "ownedSimulatorRemoved": true
+        },
+        "sharedSlotWaitMs": 0,
+        "sharedSlotBudgetMs": 120000,
+        "interpretation": "No observed app-start receipt. This attempt establishes neither an encrypted exchange nor an encryption defect; previous accepted counts are not transferred. No unchanged retry or deadline widening followed."
+    },
+    "readOnlyAgentVerification": {
+        "parentAndBuildReceiptHashesMatched": true,
+        "driverSourceInputCount": 16,
+        "currentDriverSourcesMatched": true,
+        "swiftSourceInputCount": 23,
+        "swiftSourcesMatchCurrentAndPreviousAcceptedRun": true,
+        "unsignedArtifactFileCount": 344,
+        "signedArtifactFileCount": 347,
+        "frameworkArtifactFileCounts": [19, 22],
+        "artifactsFrameworksAndMeasuredEntitlementsMatched": true,
+        "httpsBootstrapCacheAndWebInputsMatched": true,
+        "exactSimulatorInventoryAbsenceConfirmed": true,
+        "privateVerifierReceiptSaved": false,
+        "independentSecurityAssessment": false,
+        "scope": "Bounded inline read-only agent verification. Missing app observations do not prove the app never executed; execution and cause remain unknown."
+    },
+    "previousAcceptedRun": {
+        "slice": "bb7ac68b863cc86e16cc9138440986e30a8c6cea",
+        "summaryPath": "experiments/scuttlebutt-e2ee/review/full-app-protected-integration-2026-10-11.json",
+        "summarySha256": "7c433c676fa5126ad9afe69369a4d3ccc49359df0197a66b48e1713de1111ed9",
+        "isAcceptanceOfChangedDriver": false,
+        "retainedWithoutModification": true
+    },
+    "queuedWork": {
+        "separateNativeSceneProcessObserverImplemented": false,
+        "actualOsLifecycleProtectedNavigationExecuted": false,
+        "oppositeActualMainAppRoleExecuted": false,
+        "fullAdapterHttpsCurrentAuthExecuted": false
+    },
+    "safety": {
+        "humanDevicesAccountsKeysChanged": false,
+        "primaryCheckoutOrIosSynced": false,
+        "productionOrHostedServicesChanged": false,
+        "rawNonceOrResourcesPublished": false,
+        "ordinaryBuildEncryptionEnabled": false,
+        "independentSecurityAssessment": false,
+        "mergeReady": false,
+        "releaseReady": false
+    }
+}

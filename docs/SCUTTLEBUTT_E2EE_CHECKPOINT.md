@@ -11,9 +11,62 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
-## Current full-App protected simulator acceptance on 11 October
+## Latest driver controls and failed fresh launch on 11 October
 
-The [current-source evidence summary](../experiments/scuttlebutt-e2ee/review/full-app-protected-integration-2026-10-11.json)
+The [driver-control evidence](../experiments/scuttlebutt-e2ee/review/full-app-driver-controls-2026-10-11.json)
+fixes the failed-child waiting caveat below: the parent now saves the exact
+parent-plus-child wait, including overshoot, and stops before downstream dispatch
+when the child receipt says failed, even if its process exit status is zero.
+Passed and queued-child behavior is preserved. **135/135 focused cases** passed
+across three suites, with syntax, formatting, named zero-warning lint and narrow
+strict types. These are synthetic contracts and the actual driver callsite with
+mocked process/filesystem responses, not native encryption tests.
+The sanitized evidence summary's SHA-256 is
+`cfc91fed95a72cf3635a720a2b6b82e7107cf692a781229dc9b2baf89c0e718b`.
+
+The checks receipt is
+`/private/tmp/thalassa-protected-child-accounting.tYV8FV/checks-receipt.json`,
+SHA-256 `1219d0e78d4ea92615bf098be3be9af653fd69d515b1e36d395d027d6870365e`.
+A fresh changed-driver regression then completed its unsigned native build but
+**timed out at owned-app-launch within the unchanged 30-second bound**. Research
+launch returned neither an exit status nor a PID; no app-phase file, native
+receipt or protected-exchange acceptance was captured. The preceding System
+Settings control returned PID 74363 successfully. The cause is unknown: this is
+an unobserved app launch, not a demonstrated encryption failure. Do not widen
+the deadline, retry unchanged inputs blindly or transfer the previous passing
+run's counts to this attempt.
+
+The failed parent receipt is
+`/private/tmp/thalassa-full-root-protected-Pf1oWX/run-receipt.json`, SHA-256
+`4306ec96e6666b81e264a6b655e5bb47d2fc9536fd9a449df35abf69b3421a7e`;
+the completed unsigned build receipt is
+`/private/tmp/thalassa-messaging-build-4p5IT0/build-receipt.json`, SHA-256
+`ee7e6919b9db8d901538d575f50fbd3c38f5aa96103eb47cc80f96f9925f2c4a`.
+Bounded read-only agent verification matched the 16 driver inputs, all 23 Swift
+inputs against both current files and the previous accepted run, 344 unsigned
+and 347 signed artifact files, frameworks/entitlements and prerequisite/web
+inputs. This inline check has no separate saved verifier receipt and is not an
+independent security assessment. Missing app observations do not prove that the
+app never executed; its execution and launch cause remain unknown.
+Exact owned-simulator ID/name absence and unchanged sources were recorded;
+shared waiting was **0/120,000 ms**. Human devices, accounts, keys, primary targets,
+hosted services and production were untouched. No new actual OS lifecycle,
+opposite-role, physical or live full-App Auth/HTTPS acceptance is claimed.
+
+Next prepare a separate simulator-only scene/process observer and lifecycle
+scenario. Existing UIKit scene hooks cover the view, while native credential
+fencing depends on WebKit visibility delivery that has not been measured across
+actual OS transitions. Observe real callbacks, cover state and native authority;
+do not inject pagehide or permission changes merely to pass. Same-process
+background/foreground and fresh-process cold refusal need distinct receipts.
+The current fixture intentionally rejects existing stores on relaunch; keep that
+guard until any narrow run-bound restart protocol has its own reviewed contract.
+The observer/scenario is **not implemented or executed** in this slice. Safe
+unblocked work continues; this is not merge or release readiness.
+
+## Previous accepted full-App protected simulator run on 11 October
+
+The [previous source-bound evidence summary](../experiments/scuttlebutt-e2ee/review/full-app-protected-integration-2026-10-11.json)
 records encrypted send and receive through **Thalassa's actual main-App private
 chat screen**, not just the separate Research screen. This is one responder-role
 host in one newly owned iOS 27.0 / 24A434 simulator, compiled from base
@@ -91,9 +144,11 @@ encryption tests. The initial private typecheck runner omitted `DOM.Iterable`;
 it stopped before tests and was corrected without a source change. The local
 verifier's initial wrong-parent framework path was also corrected without a
 native rerun. Shared waiting was **0/120,000 ms** throughout. A retained reporting
-caveat is that a failed child build can omit child waiting from the parent's
-summary while retaining it in its own receipt; this passed zero-wait run is
-unaffected. Do not edit accepted runtime sources without new source-bound proof.
+caveat at that revision was that a failed child build could omit child waiting
+from the parent's summary while retaining it in its own receipt; this passed
+zero-wait run was unaffected. The later driver-control slice above fixes that
+reporting path, but its fresh app launch failed before execution evidence.
+Do not relabel this earlier accepted receipt as a pass for the changed driver.
 
 Next advance actual OS lifecycle/protected navigation and the opposite actual
 main-App role, then adapter HTTPS/current Auth and physical acceptance. Shipping

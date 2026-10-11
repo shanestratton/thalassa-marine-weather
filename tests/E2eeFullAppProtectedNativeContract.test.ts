@@ -3,6 +3,7 @@
  * provider, credentials, simulator, transport or encryption execution. */
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import {
     createFullAppProtectedNativeResource,
@@ -73,6 +74,117 @@ describe('protected fixture driver controls — synthetic scheduling and cleanup
             }),
         ).toEqual({ spentMs: 120003, queued: true });
     });
+    it.each([
+        [0, 0, 0, 0],
+        [120000, 100000, 10000, 110000],
+        [120000, 100000, 20000, 120000],
+        [120000, 115000, 5003, 120003],
+        [120000, 115000, Number.MAX_SAFE_INTEGER - 115000, Number.MAX_SAFE_INTEGER],
+    ])(
+        'preserves failed child waiting as terminal failure: limit %s, parent %s, child %s, total %s',
+        (limitMs, spentMs, childSpentMs, expectedSpentMs) => {
+            const accounting = addFullAppProtectedChildWait({
+                limitMs,
+                spentMs,
+                childSpentMs,
+                childStatus: 'failed',
+            });
+            expect(accounting).toEqual({ spentMs: expectedSpentMs, queued: false, outcome: 'failed' });
+            expect(Object.isFrozen(accounting)).toBe(true);
+        },
+    );
+    it.each([
+        [0, 0, 0, 0],
+        [120000, 100000, 10000, 110000],
+    ])(
+        'preserves passed child waiting below exhaustion: limit %s, parent %s, child %s, total %s',
+        (limitMs, spentMs, childSpentMs, expectedSpentMs) => {
+            expect(addFullAppProtectedChildWait({ limitMs, spentMs, childSpentMs, childStatus: 'passed' })).toEqual({
+                spentMs: expectedSpentMs,
+                queued: false,
+            });
+        },
+    );
+    it.each(['preparing', 'running', 'failure', '', null, true])('refuses unknown child status %s', (childStatus) => {
+        expect(() =>
+            addFullAppProtectedChildWait({ limitMs: 120000, spentMs: 0, childSpentMs: 0, childStatus }),
+        ).toThrow('contract refused');
+    });
+    it('refuses malformed failed-child accounting without truncation or coercion', () => {
+        const facts = { limitMs: 120000, spentMs: 1, childSpentMs: 0, childStatus: 'failed' };
+        for (const raw of [
+            null,
+            [],
+            { ...facts, limitMs: 120001 },
+            { ...facts, spentMs: 120001 },
+            { ...facts, childSpentMs: -1 },
+            { ...facts, childSpentMs: 0.5 },
+            { ...facts, childSpentMs: '1' },
+            { ...facts, childSpentMs: Number.NaN },
+            { ...facts, childSpentMs: Number.POSITIVE_INFINITY },
+            { ...facts, childSpentMs: Number.MAX_SAFE_INTEGER },
+            { ...facts, childSpentMs: Number.MAX_SAFE_INTEGER + 1 },
+            { ...facts, childError: 'private-canary' },
+            { limitMs: 120000, spentMs: 1, childSpentMs: 0 },
+        ])
+            expect(() => addFullAppProtectedChildWait(raw)).toThrow('contract refused');
+    });
+    it.each(['limitMs', 'spentMs', 'childSpentMs', 'childStatus'])(
+        'refuses accessor child accounting %s without invoking it',
+        (key) => {
+            const getter = vi.fn(() => {
+                throw new Error('private-canary');
+            });
+            const facts = { limitMs: 120000, spentMs: 0, childSpentMs: 0, childStatus: 'failed' };
+            Object.defineProperty(facts, key, { get: getter });
+            expect(() => addFullAppProtectedChildWait(facts)).toThrow('contract refused');
+            expect(getter).not.toHaveBeenCalled();
+        },
+    );
+    it.each([0, 1])(
+        'saves failed child wait before refusing actual driver return (synthetic exit %s)',
+        (exitStatus) => {
+            const source = readFileSync(
+                'experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs',
+                'utf8',
+            );
+            const start = source.indexOf('function quiet('),
+                end = source.indexOf('\nfunction own()', start);
+            expect(start).toBeGreaterThan(0);
+            expect(end).toBeGreaterThan(start);
+            const saved: Array<{ status?: string; sharedSlotWaitMs?: number }> = [];
+            const receipt: { phase: string; status?: string; sharedSlotWaitMs?: number } = { phase: 'native-build' };
+            const child = { status: 'failed', sharedSlotWaitMs: 5003 };
+            // Execute only the current driver's child-result callsite against fake
+            // process/fs responses. No child build, native runtime or file I/O runs.
+            const context = {
+                receipt,
+                operationName: () => 'native-build',
+                spawnSync: () => ({
+                    status: exitStatus,
+                    stdout: 'Nonsecret research messaging build receipt: /synthetic/build-receipt.json\n',
+                    error: undefined,
+                }),
+                save: () => saved.push({ status: receipt.status, sharedSlotWaitMs: receipt.sharedSlotWaitMs }),
+                existsSync: () => true,
+                regular: () => undefined,
+                hash: () => 'a'.repeat(64),
+                readFileSync: () => JSON.stringify(child),
+                addFullAppProtectedChildWait,
+                waitBudget: 120000,
+                waited: 115000,
+            };
+            expect(() =>
+                runInNewContext(source.slice(start, end) + "\nquiet('/synthetic/owned-child', []);", context, {
+                    timeout: 1000,
+                }),
+            ).toThrow('Owned child build failed');
+            expect(context.waited).toBe(120003);
+            expect(receipt.status).toBe('failed');
+            expect(receipt.sharedSlotWaitMs).toBe(120003);
+            expect(saved.at(-1)).toEqual({ status: 'failed', sharedSlotWaitMs: 120003 });
+        },
+    );
     it.each(['idAbsent', 'nameAbsent', 'sourcesUnchanged'])('refuses incomplete cleanup %s', (key) => {
         const facts = { idAbsent: true, nameAbsent: true, sourcesUnchanged: true };
         expect(requireFullAppProtectedCleanup(facts)).toBe(true);
