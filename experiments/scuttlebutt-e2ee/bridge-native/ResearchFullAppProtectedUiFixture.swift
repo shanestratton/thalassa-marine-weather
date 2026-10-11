@@ -4,6 +4,9 @@
 import Foundation
 import CoreFoundation
 import WebKit
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+import CryptoKit
+#endif
 
 private enum ResearchFullAppProtectedUiError: Error { case unavailable }
 
@@ -42,6 +45,11 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
     private var httpFence: ResearchFullAppProtectedHttpFenceAttachment?
     private var original: DmNativeMessageSnapshot?
     private var originalFenceCount: Int?
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+    // Separate from attempted plugin-method counters. Never reset during a run.
+    private var sceneVerifyFenceCompletions: Int? = 0
+    private var sceneProtectedResourceSHA256: String?
+#endif
     private var counters = Dictionary(uniqueKeysWithValues: (ResearchFullAppProtectedUiFixture.methods +
         ["nativeAuthRequests", "unexpectedNativeRequests", "relayRequests", "unexpectedMethods", "fixtureSetupControls", "fixtureReplyControls"]).map { ($0, 0) })
     private var pmResults = Dictionary(uniqueKeysWithValues: ResearchFullAppProtectedUiFixture.pmNames.flatMap { method in
@@ -62,6 +70,50 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
     private override init() { super.init() }
 
     static func requireResource() throws { try shared.loadResource() }
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+    static func sceneResourceBinding() throws -> (runID: String, nonce: String, resourceSHA256: String) {
+        try shared.loadResource(); shared.lock.lock(); defer { shared.lock.unlock() }
+        guard let runID = shared.runID, let nonce = shared.nonce, let hash = shared.sceneProtectedResourceSHA256 else { throw ResearchFullAppProtectedUiError.unavailable }
+        return (runID, nonce, hash)
+    }
+    static func noteSceneVerifyCompletion(_ candidate: VodozemacSessionFacade) {
+        shared.lock.lock(); defer { shared.lock.unlock() }
+        guard shared.facade === candidate, let count = shared.sceneVerifyFenceCompletions else { return }
+        // Overflow becomes unknown/refused evidence, never a fabricated total.
+        shared.sceneVerifyFenceCompletions = count < 10000 ? count + 1 : nil
+    }
+    @MainActor static func sceneAuthorityFacts() -> ResearchSceneLifecycleEvidence.AuthorityFacts {
+        shared.lock.lock()
+        let facade = shared.facade, original = shared.original, completions = shared.sceneVerifyFenceCompletions
+        shared.lock.unlock()
+        guard let facade else { return .unavailable }
+        let accountPresent = facade.currentAccount() != nil
+        let current = original.map { facade.currentMessageContext(snapshot: $0) == $0.context }
+        shared.lock.lock(); defer { shared.lock.unlock() }
+        guard shared.facade === facade, shared.original?.context == original?.context,
+              shared.sceneVerifyFenceCompletions == completions else { return .unavailable }
+        return .init(observationStatus: .observed, facadeObserved: true,
+            originalSnapshotObserved: original != nil, accountPresent: accountPresent,
+            originalSnapshotCurrent: current, verifyFenceCompletions: completions)
+    }
+    @MainActor static func sceneWindowEvidence(_ raw: Any?, runID: String) throws -> [String: Any] {
+        guard let window = try fullAppWindow(raw, runID: runID) else { throw ResearchFullAppProtectedUiError.unavailable }
+        return window
+    }
+    @MainActor static func sceneClosureEvidence() throws -> [String: Any] {
+        shared.lock.lock(); defer { shared.lock.unlock() }
+        guard let resourceHash = shared.sceneProtectedResourceSHA256, let proof = shared.capturedProof else { throw ResearchFullAppProtectedUiError.unavailable }
+        // Hash the original sanitized proof only; never recollect helper.evidence.
+        let proofBytes = try JSONSerialization.data(withJSONObject: proof, options: [.sortedKeys])
+        let proofHash = SHA256.hash(data: proofBytes).map { String(format: "%02x", $0) }.joined()
+        let native = try counts(shared.copiedCounters(), methods + ["nativeAuthRequests", "unexpectedNativeRequests", "relayRequests", "unexpectedMethods", "fixtureSetupControls", "fixtureReplyControls"])
+        let pm = try counts(shared.pmResults, pmNames.flatMap { method in ["ok", "unavailable"].map { method + ":" + $0 } })
+        let relay = try ResearchProtectedUiRelay.evidence()
+        let live = try counts(relay["methodCounters"], ["auth", "register", "dispatch", "unexpected"])
+        return ["protectedResourceSHA256": resourceHash, "protectedProofSHA256": proofHash,
+            "nativeCounters": native, "pmResultCounters": pm, "relayCounters": live]
+    }
+#endif
     private func loadResource() throws {
         lock.lock(); defer { lock.unlock() }
         if runID != nil, nonce != nil, script != nil { return }
@@ -76,7 +128,16 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
               let source = row["script"] as? String, (1...65536).contains(source.utf8.count),
               source.contains("const runID = '" + id + "'"), source.contains("const nonce = '" + n + "'"),
               !source.contains("__RESEARCH_FULL_APP_PROTECTED_RUN_ID__"), !source.contains("__RESEARCH_FULL_APP_PROTECTED_NONCE__") else { throw ResearchFullAppProtectedUiError.unavailable }
+        guard source.components(separatedBy: "const sceneLifecycleProof = ").count == 2 else { throw ResearchFullAppProtectedUiError.unavailable }
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+        guard source.contains("const sceneLifecycleProof = true;"), !source.contains("const sceneLifecycleProof = false;") else { throw ResearchFullAppProtectedUiError.unavailable }
+#else
+        guard source.contains("const sceneLifecycleProof = false;"), !source.contains("const sceneLifecycleProof = true;") else { throw ResearchFullAppProtectedUiError.unavailable }
+#endif
         runID = id; nonce = n; script = source
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+        sceneProtectedResourceSHA256 = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+#endif
 #else
         throw ResearchFullAppProtectedUiError.unavailable
 #endif
@@ -266,11 +327,16 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
     private func parse(_ value: Any) throws -> Report {
         let r = try Self.row(value, ["version", "runID", "nonce", "scenario", "status", "phase", "assertions", "sdkCounts", "cases",
             "windowEvidence", "domFacts", "messageFacts", "syntheticPagehide", "realOsLifecycleOrBfCacheProved"])
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+        let syntheticPagehide = false
+#else
+        let syntheticPagehide = true
+#endif
         guard let runID, let nonce, Self.integer(r["version"], 3...3) == 3, r["runID"] as? String == runID,
               r["nonce"] as? String == nonce, r["scenario"] as? String == Self.scenario,
               let status = r["status"] as? String, ["progress", "control", "passed", "failed"].contains(status),
               let phase = r["phase"] as? String, let a = Self.integer(r["assertions"], 0...10000),
-              Self.boolean(r["syntheticPagehide"]) == true, Self.boolean(r["realOsLifecycleOrBfCacheProved"]) == false,
+              Self.boolean(r["syntheticPagehide"]) == syntheticPagehide, Self.boolean(r["realOsLifecycleOrBfCacheProved"]) == false,
               let cases = r["cases"] as? [String] else { throw ResearchFullAppProtectedUiError.unavailable }
         if status == "failed" { guard phase == "fixture-failed", cases == ["fixture-failed"] else { throw ResearchFullAppProtectedUiError.unavailable } }
         else {
@@ -389,11 +455,18 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
                       counters["privateMessageThread"] == thread + 1,
                       Self.boolean(report.messages["dedupStable"]) == true else { throw ResearchFullAppProtectedUiError.unavailable }
             }
-            if report.phase == "native-proof-captured" { guard capturedProof != nil else { throw ResearchFullAppProtectedUiError.unavailable } }
+            if report.phase == "native-proof-captured" {
+                guard capturedProof != nil else { throw ResearchFullAppProtectedUiError.unavailable }
+            }
             if report.phase == "terminal-closed" { guard capturedProof != nil else { throw ResearchFullAppProtectedUiError.unavailable }; lock.lock(); terminal = true; lock.unlock() }
             progressIndex += 1; Self.notePhase(report.phase)
             try write(status: "running", phase: report.phase, report: report, nativeAssertions: 0,
                 state: fenced() ? ["status": "credential-fenced", "accountPresent": false, "originalSnapshotCurrent": false] : ["status": "running"], initial: false)
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+            // Persist the real protected prefix before announcing readiness to
+            // the lifecycle driver/JS. No stale earlier prefix can authorize it.
+            if report.phase == "native-proof-captured" { try ResearchFullAppSceneUiFixture.protectedReady() }
+#endif
         } catch { finish(report, passing: false) }
     }
     @MainActor private func control(_ report: Report) throws {
@@ -476,13 +549,18 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
     }
     @MainActor private func write(status: String, phase: String, report: Report?, nativeAssertions: Int, state: [String: Any], initial: Bool) throws {
         guard let runID, let nonce else { throw ResearchFullAppProtectedUiError.unavailable }
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+        let syntheticPagehide = false
+#else
+        let syntheticPagehide = true
+#endif
         let body: [String: Any] = ["version": 3, "runID": runID, "nonce": nonce, "scenario": Self.scenario, "status": status, "phase": phase,
             "assertions": report?.assertions ?? 0, "nativeAssertions": nativeAssertions, "sdkCounts": report.map { $0.sdkCounts as Any } ?? NSNull(),
             "cases": status == "failed" ? ["fixture-failed"] : report?.cases ?? [], "nativeCounters": copiedCounters(), "nativeState": state,
             "nativeHttpFence": httpFence.map { $0.copiedEvidence() as Any } ?? NSNull(), "windowEvidence": report?.window.map { $0 as Any } ?? NSNull(),
             "domFacts": report.map { $0.dom as Any } ?? NSNull(), "messageFacts": report.map { $0.messages as Any } ?? NSNull(),
             "protectedExchange": capturedProof.map { $0 as Any } ?? NSNull(), "pmResultCounters": pmResults,
-            "syntheticPagehide": true, "realOsLifecycleOrBfCacheProved": false]
+            "syntheticPagehide": syntheticPagehide, "realOsLifecycleOrBfCacheProved": false]
         let data = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]); guard data.count <= 65536 else { throw ResearchFullAppProtectedUiError.unavailable }
         let manager = FileManager.default, documents = try manager.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let info = try documents.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]); guard info.isDirectory == true, info.isSymbolicLink != true else { throw ResearchFullAppProtectedUiError.unavailable }

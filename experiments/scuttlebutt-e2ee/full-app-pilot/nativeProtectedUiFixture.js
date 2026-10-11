@@ -7,6 +7,7 @@
 (() => {
     const runID = '__RESEARCH_FULL_APP_PROTECTED_RUN_ID__';
     const nonce = '__RESEARCH_FULL_APP_PROTECTED_NONCE__';
+    const sceneLifecycleProof = false;
     const scenario = 'full-app-native-protected-exchange';
     const origin = 'https://kmtupdvwdgbhtssqqova.supabase.co';
     const owner = '93000000-0000-4000-8000-000000000001';
@@ -118,6 +119,9 @@
         hostInitiates = null,
         dedupStable = false,
         capturedMessages = null;
+    let sceneProtectedReady = false,
+        sceneForegroundObserved = false,
+        sceneUiClosed = false;
     const refuse = () => {
         throw new Error('Full App native fixture refused');
     };
@@ -316,7 +320,7 @@
                 windowEvidence: lastEvidence,
                 domFacts: domFacts(),
                 messageFacts: messages(),
-                syntheticPagehide: true,
+                syntheticPagehide: !sceneLifecycleProof,
                 realOsLifecycleOrBfCacheProved: false,
             });
         } catch {
@@ -577,6 +581,24 @@
                 controlFailed = true;
             }
         });
+        if (sceneLifecycleProof)
+            window.addEventListener('research-full-app-scene-ui-step', (event) => {
+                try {
+                    const detail = exact(event.detail, ['phase']);
+                    if (detail.phase === 'protected-ready' && !sceneProtectedReady) sceneProtectedReady = true;
+                    else if (
+                        detail.phase === 'foreground-active-observed' &&
+                        sceneProtectedReady &&
+                        !sceneForegroundObserved
+                    )
+                        sceneForegroundObserved = true;
+                    else if (detail.phase === 'foreground-ui-closed' && sceneForegroundObserved && !sceneUiClosed)
+                        sceneUiClosed = true;
+                    else controlFailed = true;
+                } catch {
+                    controlFailed = true;
+                }
+            });
         post('progress', 'script-installed');
         document.addEventListener(
             'DOMContentLoaded',
@@ -691,6 +713,46 @@
                     await wait(() => proofCaptured);
                     cases.push('native-exchange-proof-captured');
                     post('progress', 'native-proof-captured');
+                    if (sceneLifecycleProof) {
+                        // Pause at real native baseline. Only the owned OS driver
+                        // changes foreground state; no pagehide/fence is injected.
+                        await wait(() => sceneProtectedReady && sceneForegroundObserved);
+                        observed = await wait(
+                            (value, facts) =>
+                                ['unavailable', 'signed_out'].includes(value?.auth.status) &&
+                                !facts.privateOpenEnabled &&
+                                facts.unavailablePrivateView &&
+                                facts.messageLogAbsent &&
+                                facts.passwordEmpty &&
+                                facts.legacyControlsAbsent &&
+                                (!document.querySelector('input[aria-label="Message Paired sailor"]') ||
+                                    document.querySelector('input[aria-label="Message Paired sailor"]').value === ''),
+                        );
+                        const facts = domFacts();
+                        const compose = document.querySelector('input[aria-label="Message Paired sailor"]');
+                        const handler = window.webkit?.messageHandlers?.researchFullAppSceneUiFixture;
+                        require(handler && typeof handler.postMessage === 'function');
+                        handler.postMessage({
+                            version: 1,
+                            runID,
+                            nonce,
+                            phase: 'foreground-ui-closed',
+                            windowEvidence: observed,
+                            domFacts: {
+                                actualAppNavigation: facts.actualAppNavigation,
+                                privateOpenEnabled: facts.privateOpenEnabled,
+                                logPresent: !facts.messageLogAbsent,
+                                composeEmpty: !compose || compose.value === '',
+                                passwordEmpty: facts.passwordEmpty,
+                                legacyControlsAbsent: facts.legacyControlsAbsent,
+                            },
+                            sdkCounts: { ...sdkCounts },
+                        });
+                        await wait(() => sceneUiClosed);
+                        // Separate native scene receipt/driver decides acceptance.
+                        // Never emit the old synthetic terminal/remount cases.
+                        return;
+                    }
                     window.dispatchEvent(new window.PageTransitionEvent('pagehide', { persisted: false }));
                     observed = await wait(
                         (value, facts) =>
@@ -746,7 +808,8 @@
                     // Only the existing controller's lifecycle path is used to close.
                     // No fixture sign-out, enrollment, account or key reset is created.
                     try {
-                        window.dispatchEvent(new window.PageTransitionEvent('pagehide', { persisted: false }));
+                        if (!sceneLifecycleProof)
+                            window.dispatchEvent(new window.PageTransitionEvent('pagehide', { persisted: false }));
                     } catch {
                         /* fixed failure still reported; no fallback */
                     }

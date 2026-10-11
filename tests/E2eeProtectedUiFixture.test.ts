@@ -464,6 +464,9 @@ describe('actual protected fixture JS — jsdom SDK/control/PM DOM fakes only', 
 // Source contracts only. Respect nested #if/#elseif/#else boundaries; a greedy regex
 // would accidentally erase simulator refusal or the cold scenario branch.
 function scenario(source: string, flags: Record<string, boolean>) {
+    // Existing v1-v4 source scenarios leave the newly isolated scene lane off.
+    // Unknown conditions still refuse; do not default arbitrary flags to false.
+    flags = { E2EE_FULL_APP_SCENE_UI_FIXTURE: false, ...flags };
     const stack: Array<{ parent: boolean; matched: boolean; seenElse: boolean }> = [];
     let active = true;
     const output: string[] = [];

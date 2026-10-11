@@ -1,6 +1,6 @@
 # Scuttlebutt private message E2EE review brief
 
-Updated 11 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work. Commit IDs in the historical evidence below predate the 10 October licensed-chart history cleanup and must not be used as push bases or relabelled as current acceptance.
+Updated 12 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work. Commit IDs in the historical evidence below predate the 10 October licensed-chart history cleanup and must not be used as push bases or relabelled as current acceptance.
 
 The installed isolated Research candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c` on `codex/scuttlebutt-e2ee-foundation`. It passed 1,069 tests across 15 isolated suites, focused strict TypeScript, named lint, formatting and separate web/unsigned physical-iOS builds before local signing and in-place installation on both devices. Research entitlements match the previous candidate, and identical 11-file metadata inventories were retained across each update. Normal Thalassa's compared bundle/version/build metadata is unchanged. Launch requests succeeded; the owner subsequently reported signing into both. These are fixture/build/update checks and an owner report; the later bounded new-candidate message observations below are separate, not a full acceptance pass or an audit.
 
@@ -50,6 +50,26 @@ were inspected, no reset or re-enrollment occurred, and no primary build/sync,
 production or server changes accompanied the update.
 
 ## Current integration candidate
+
+The [12 October current scene run](../experiments/scuttlebutt-e2ee/review/scene-wiring-background-failure-2026-10-12.json)
+has a fresh combined-App web build, 25-source unsigned native build and measured
+owned simulator launch. The actual main-App initiator exchange prefix passed
+11 cases, 126 UI assertions and 47 native protected-exchange assertions with two synthetic relay
+accepts; 270 synthetic/source/callsite checks are separate. Actual UIKit background
+then failed: the opaque cover worked, but the account/original snapshot remained
+current and successful verify completions stayed 2. Foreground/cold actions were
+not dispatched. The failed sample remains immutable; no expiry grace or fake
+pagehide is credited as fencing. Read-only saved internal verification checked
+source/artifact/resource/prerequisite pins and exact simulator removal, not an
+external audit. Normal apps, human devices and production are unchanged.
+
+The next native owner fix needs a suspended admission/generation latch before
+synchronous fencing of the already-open host, including delayed Auth completion
+and queued verification races. Foreground must stay covered until same-generation
+actual closed-UI acknowledgement; bounded native invalidation/read replay must
+not acquire SDK tokens, create hosts, logout or reset history. Observer remains
+passive. The fix is not implemented, and OS/physical/production/review gates remain
+open. This source-bound failure supersedes any suggestion of merge readiness.
 
 On 9 October the owner renewed autonomous development through a justified
 conditional merge, and the existing four-hour heartbeat no longer expires on
@@ -180,8 +200,10 @@ snapshot and continuity through foreground return; actual driver/UI evidence is
 still required. Agent review corrected a missing intermediate transition check.
 The first Mac output-path refusal remains recorded; exact POSIX canonical/symlink
 validation corrected Foundation normalization without broadening ownership or
-reuse. Scene wiring, actual OS transitions, native Documents-root execution and
-all physical/release gates remain open. Existing app/runtime sources are unchanged.
+reuse. At that preparation, scene wiring, actual OS transitions, native
+Documents-root execution and physical/release gates remained open; existing
+runtime sources were unchanged. The later 12 October section records the wired
+candidate's real background failure.
 
 The separate [upstream reconciliation](../experiments/scuttlebutt-e2ee/review/scene-upstream-reconciliation-2026-10-11.json)
 incorporates cleaned master `b8ef21d96`, including its canvas and TestFlight-workflow

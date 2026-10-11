@@ -1,6 +1,6 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 11 October 2026, Australia/Brisbane. Active branch:
+Updated: 12 October 2026, Australia/Brisbane. Active branch:
 `codex/scuttlebutt-e2ee-integration-clean-2026-10-11`, starting at
 `9e24986f1b1646a7112ab0433811cdf265fdab40` on cleaned master
 `b4cb321167e27c4cf592786bd576abd841e57821`.
@@ -11,7 +11,65 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
-## Current upstream reconciliation for scene preparation
+## Actual scene wiring and unsafe background observation on 12 October
+
+The [current source-bound scene run](../experiments/scuttlebutt-e2ee/review/scene-wiring-background-failure-2026-10-12.json)
+compiled and launched the new **25-source** isolated native app, then observed an
+actual main-App **initiator-role** encrypted PM exchange. Its protected-ready
+prefix passed **11 cases, 126 UI assertions and 47 native protected-exchange assertions**, with two
+synthetic relay accepts. These are separate evidence groups, not a whole-run pass
+or the old responder counts. Provider/Keychain/sealed store/admission/adapter are
+real; SDK Auth and URLProtocol relay are synthetic. Independent launch PID: 94258.
+
+The real UIKit background transition **failed the native authority gate**.
+All six cover facts were true at will-resign-active and did-enter-background,
+but the account and original snapshot were still current. Successful verify
+completions remained **2**, unchanged from the active baseline. The driver stopped
+at `scene-background-validate`, retained that unsafe sample and never dispatched
+foreground or cold-process recovery. No timeout, expiry grace, synthetic pagehide
+or replacement sample occurred. The view was covered; native admission was not
+fenced. **This is a lifecycle defect in the isolated candidate, not OS acceptance
+or merge readiness.**
+
+Parent receipt:
+`/private/tmp/thalassa-full-root-protected-K766Nj/run-receipt.json`, SHA-256
+`ad263fccc5d138927107922aac79242a553ba1f31ff46d2c0616baa04b668380`.
+Successful unsigned build:
+`/private/tmp/thalassa-messaging-build-PPbylD/build-receipt.json`, SHA-256
+`9d379638ac62c74bc28cdf11f15633dcdfb76c268fa65b5dfc8023219ff41093`.
+Current web build passed with 1,734 module inputs, one asset, six proof inputs,
+296 outputs and three ES workers, receipt SHA-256
+`18fe0ff56f449f05789b767e1b1e4dfa3a46e34e8fac97da706770a5c8fd34a9`.
+No unsupported Chrome Window proof was repeated. **270/270** synthetic contract,
+source and driver-callsite cases passed with syntax/Ruby syntax/formatting/named
+zero-warning lint/narrow strict types, receipt SHA-256
+`c339b5d48fe14ab516412cc58c90a3c85e54b7be17f86c43525d44f52b710164`.
+Retained lint/type/source-test failures and corrections, including a premature
+unchanged lint repeat, are recorded in the summary rather than hidden as progress.
+
+Saved read-only internal verification matched 20 driver inputs, 25 Swift/copied
+inputs, 345 unsigned/348 signed files, frameworks/entitlements, provider cache,
+prerequisites, both resources and current web/copies. Verifier receipt SHA-256:
+`51a22e86a15ac73a5ab8ec96fdfa98df617624e72ba5073917d9ebd6cc7d39ec`.
+A verifier-only framework path refusal was corrected without changing/rerunning
+the native proof. This is not an independent security assessment. Exact owned
+simulator ID/name absence and unchanged run sources were verified. Waiting was
+**0/120,000 ms**; human devices/accounts/keys, hosted services, primary targets and
+production are untouched. Raw nonce/resources/observer output remain private.
+
+Diagnosis: native fencing depends on WebKit visibility delivery and a queued JS
+bridge promise. Next fix the **native owner/scene boundary**, not the observer:
+close an admission-generation latch before synchronously verify-fencing the
+already-open host; refuse new/late Auth and PM work while inactive. Use one bounded
+current lifecycle descriptor with nonretaining invalidation and explicit state
+replay. Keep foreground covered until same-generation actual closed-DOM
+acknowledgement, then allow explicit fresh verification only. Never create a host,
+sign out, quarantine/reset/enroll, restore an old lease or inject pagehide for a
+pass. Repeated retained Capacitor notifications can accumulate; do not use them
+as an unbounded queue. This fix is **not implemented**. Preserve this failed run
+before advancing it.
+
+## Previous upstream reconciliation for scene preparation
 
 Cleaned master advanced normally from `59c5f7eae` to
 `b8ef21d96a699a240b0378db7d7fcdc0e93810cd`, adding the radar rendering fix and

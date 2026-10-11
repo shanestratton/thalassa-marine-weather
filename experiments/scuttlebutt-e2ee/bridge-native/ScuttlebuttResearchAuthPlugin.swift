@@ -117,7 +117,13 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         do {
             // Durable native fence completes before the SDK is allowed to get a
             // token. No lock remains held across the later authentication await.
-            let fence = try facade().fenceSession(mode: mode == "verify" ? .verify : .signOut)
+            let ownedFacade = try facade()
+            let fence = try ownedFacade.fenceSession(mode: mode == "verify" ? .verify : .signOut)
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+            // Synchronous success only, after the existing durable fence returns.
+            // No Task may reorder the completion relative to UIKit observations.
+            if mode == "verify" { ResearchFullAppProtectedUiFixture.noteSceneVerifyCompletion(ownedFacade) }
+#endif
             call.resolve(["status": "fenced", "authFence": fence.authFence])
         } catch { call.resolve(Self.unavailable) }
     }

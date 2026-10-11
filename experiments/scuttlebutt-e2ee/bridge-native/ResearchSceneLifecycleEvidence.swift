@@ -180,8 +180,14 @@ final class ResearchSceneLifecycleEvidence {
             guard try Self.permissions(root) == 0o700 else { throw ResearchSceneLifecycleEvidenceError.unavailable }
 #else
             let native = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
-                appropriateFor: nil, create: false).resolvingSymlinksInPath()
-            guard root.path == native.path else { throw ResearchSceneLifecycleEvidenceError.unavailable }
+                appropriateFor: nil, create: false)
+            // Only the native sandbox locator may be canonicalized. The supplied
+            // root already passed exact POSIX canonical/ancestor validation.
+            guard let resolved = native.path.withCString({ realpath($0, nil) }) else {
+                throw ResearchSceneLifecycleEvidenceError.unavailable
+            }
+            defer { free(resolved) }
+            guard root.path == String(cString: resolved) else { throw ResearchSceneLifecycleEvidenceError.unavailable }
 #endif
             let directory = root.appendingPathComponent("research-scene-lifecycle-" + runID + "-" + processEpoch,
                 isDirectory: true)

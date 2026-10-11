@@ -11,17 +11,31 @@ begin
   base_keys = %w[bindingSwift bundleId moduleMap platform projectRoot sources].sort
   raise 'Unsupported generator inputs' unless manifest.keys.sort == base_keys ||
     (manifest.keys.sort == (base_keys + ['localUiFixture']).sort &&
-      [true, false].include?(manifest['localUiFixture']))
+      [true, false].include?(manifest['localUiFixture'])) ||
+    (manifest.keys.sort == (base_keys + %w[localUiFixture sceneUiFixture]).sort &&
+      manifest['localUiFixture'] == true && manifest['sceneUiFixture'] == true)
   root = File.realpath(manifest.fetch('projectRoot'))
   raise 'Unexpected bundle or platform' unless manifest['bundleId'] == 'app.thalassa.research.scuttlebutt-auth' &&
     %w[iphoneos iphonesimulator].include?(manifest['platform'])
   raise 'Local UI fixture is simulator-only' if manifest['localUiFixture'] && manifest['platform'] != 'iphonesimulator'
+  raise 'Scene observations require a local simulator fixture' if manifest['sceneUiFixture'] &&
+    !(manifest['localUiFixture'] == true && manifest['platform'] == 'iphonesimulator')
   raise 'Manifest must be local to project' unless File.dirname(manifest_path) == root
   raise 'Private project required' unless File.stat(root).uid == Process.uid && (File.stat(root).mode & 0777) == 0700
   project_path = File.join(root, 'ScuttlebuttResearchAuth.xcodeproj')
   raise 'Never overwrite an existing project' if File.exist?(project_path)
   sources = manifest.fetch('sources')
-  raise 'Bounded native sources required' unless sources.is_a?(Array) && sources.length.between?(3, 24) &&
+  scene_sources = %w[ResearchApp.swift ScuttlebuttResearchAuthPlugin.swift ResearchAuthHost.swift
+    ResearchMessagingAdapter.swift ResearchPrivateMessageAdapter.swift VodozemacSealedStore.swift
+    VodozemacDmFrame.swift VodozemacDmCoordinator.swift VodozemacMessageOperations.swift
+    VodozemacRelayCodec.swift VodozemacRelayTransport.swift VodozemacRelayResult.swift
+    VodozemacRelayPolicy.swift VodozemacScopedRelayClient.swift VodozemacSupabaseAuth.swift
+    VodozemacAuthSession.swift VodozemacAccountDirectory.swift VodozemacSessionFacade.swift
+    ResearchLocalUiFixture.swift ResearchFullAppProtectedHttpFence.swift ResearchFullAppProtectedUiFixture.swift
+    ResearchProtectedUiRelay.swift ResearchProtectedUiFixture.swift ResearchSceneLifecycleEvidence.swift
+    ResearchFullAppSceneUiFixture.swift].sort
+  raise 'Bounded native sources required' unless sources.is_a?(Array) &&
+    (manifest['sceneUiFixture'] ? sources.sort == scene_sources : sources.length.between?(3, 24)) &&
     sources.uniq.length == sources.length
   sources.each do |name|
     raise 'Only local Swift snapshots' unless name.is_a?(String) && name.match?(/\A[A-Za-z0-9_-]+\.swift\z/) &&
@@ -51,6 +65,11 @@ begin
   if manifest['localUiFixture']
     fixture = File.join(root, 'research-local-ui-fixture.json')
     raise 'Fixture resource missing' unless File.file?(fixture) && !File.symlink?(fixture)
+    target.resources_build_phase.add_file_reference(resources.new_file(fixture))
+  end
+  if manifest['sceneUiFixture']
+    fixture = File.join(root, 'research-scene-lifecycle.json')
+    raise 'Scene resource missing' unless File.file?(fixture) && !File.symlink?(fixture)
     target.resources_build_phase.add_file_reference(resources.new_file(fixture))
   end
   public_ref = resources.new_file(File.join(root, 'public'))

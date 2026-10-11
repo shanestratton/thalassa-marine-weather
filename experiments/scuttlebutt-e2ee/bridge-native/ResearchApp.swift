@@ -16,6 +16,9 @@ final class ResearchBridgeViewController: CAPBridgeViewController {
         do {
             let httpFence = try ResearchFullAppProtectedHttpFence.install(on: bridge)
             bridge.registerPluginInstance(ScuttlebuttResearchAuthPlugin())
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+            try ResearchFullAppSceneUiFixture.install(in: webView)
+#endif
             try ResearchFullAppProtectedUiFixture.install(in: webView, httpFence: httpFence)
             localUiFixtureReady = true
             ResearchLocalUiFixture.notePhase("fixture-installed")
@@ -68,11 +71,21 @@ final class ResearchBridgeViewController: CAPBridgeViewController {
 final class ResearchApp: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+        do { try ResearchFullAppSceneUiFixture.startApplication() }
+        catch { ResearchLocalUiFixture.notePhase("fixture-install-failed"); return false }
+#endif
 #if E2EE_LOCAL_UI_FIXTURE
         ResearchLocalUiFixture.notePhase("application-launched")
 #endif
         return true
     }
+
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+    func applicationWillTerminate(_ application: UIApplication) {
+        ResearchFullAppSceneUiFixture.observeTermination()
+    }
+#endif
 
     func application(_ application: UIApplication,
                      configurationForConnecting connectingSceneSession: UISceneSession,
@@ -106,6 +119,10 @@ final class ResearchSceneDelegate: UIResponder, UIWindowSceneDelegate {
         let window = UIWindow(windowScene: windowScene)
         window.rootViewController = ResearchBridgeViewController()
         self.window = window
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+        do { try ResearchFullAppSceneUiFixture.attachScene(scene, delegate: self) }
+        catch { ResearchLocalUiFixture.notePhase("fixture-install-failed"); return }
+#endif
         window.makeKeyAndVisible()
     }
 
@@ -113,14 +130,44 @@ final class ResearchSceneDelegate: UIResponder, UIWindowSceneDelegate {
     // visibility event before covering an inactive scene's sensitive content.
     func sceneWillResignActive(_ scene: UIScene) {
         showPrivacyCover()
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+        ResearchFullAppSceneUiFixture.observe(.willResignActive, scene: scene, delegate: self)
+#endif
     }
 
     func sceneDidEnterBackground(_ scene: UIScene) {
         showPrivacyCover()
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+        ResearchFullAppSceneUiFixture.observe(.didEnterBackground, scene: scene, delegate: self)
+#endif
     }
+
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        ResearchFullAppSceneUiFixture.observe(.willEnterForeground, scene: scene, delegate: self)
+    }
+
+    func sceneDidDisconnect(_ scene: UIScene) {
+        ResearchFullAppSceneUiFixture.observe(.sceneDisconnected, scene: scene, delegate: self)
+    }
+
+    func sceneLifecycleCoverFacts() -> ResearchSceneLifecycleEvidence.CoverFacts {
+        guard let window else { return .absent }
+        let cover = privacyCover
+        return .init(present: cover != nil && cover?.isHidden == false,
+            opaque: cover?.isOpaque == true && cover?.alpha == 1 && cover?.backgroundColor?.cgColor.alpha == 1,
+            attachedToOwnedWindow: cover?.superview === window,
+            coversOwnedWindowBounds: cover?.frame == window.bounds,
+            accessibilityModal: cover?.accessibilityViewIsModal == true,
+            contentAccessibilityHidden: window.rootViewController?.viewIfLoaded?.accessibilityElementsHidden == true)
+    }
+#endif
 
     func sceneDidBecomeActive(_ scene: UIScene) {
         hidePrivacyCover()
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+        ResearchFullAppSceneUiFixture.observe(.didBecomeActive, scene: scene, delegate: self)
+#endif
     }
 
     private func showPrivacyCover() {

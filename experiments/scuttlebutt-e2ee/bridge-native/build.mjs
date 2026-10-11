@@ -36,6 +36,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { inspectSimulatorEntitlementSections } from './machOEntitlementEvidence.mjs';
 import { inspectFullAppNativeResource } from './fullAppUiContract.mjs';
 import { inspectFullAppProtectedNativeResource } from './fullAppProtectedUiContract.mjs';
+import {
+    inspectResearchSceneLifecycleResource,
+    inspectResearchSceneProtectedUiResource,
+} from './researchSceneLifecycleContract.mjs';
 import { inspectWindowBuildReceipt } from '../full-app-pilot/windowProofContract.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -281,7 +285,8 @@ try {
         localUiFile,
         priorExchangeFile,
         frameworkReceiptFile,
-        fullAppWebReceiptFile;
+        fullAppWebReceiptFile,
+        sceneResourceFile;
     let fullAppSlotWaitMs = 120000;
     const seen = new Set();
     for (let index = 0; index < options.length; index += 2) {
@@ -313,6 +318,9 @@ try {
         } else if (flag === '--slot-wait-ms') {
             assert(/^(?:0|[1-9][0-9]{0,5})$/.exec(value)?.[0] === value && Number(value) <= 120000);
             fullAppSlotWaitMs = Number(value);
+        } else if (flag === '--scene-lifecycle-resource') {
+            assert(isAbsolute(value));
+            sceneResourceFile = value;
         } else assert(false, 'Unsupported isolated build argument');
     }
     assert(
@@ -327,6 +335,12 @@ try {
     let fullAppProtectedUi = false;
     let fullAppComposition = false;
     let fullAppWeb;
+    let sceneResource;
+    if (sceneResourceFile) {
+        assert(localUiFile && platform === 'iphonesimulator' && !keyFile && !priorBuildFile);
+        regular(sceneResourceFile, 4096);
+        sceneResource = inspectResearchSceneLifecycleResource(JSON.parse(readFileSync(sceneResourceFile, 'utf8')));
+    }
     if (localUiFile) {
         regular(localUiFile, 128 * 1024);
         localUi = JSON.parse(readFileSync(localUiFile, 'utf8'));
@@ -335,7 +349,7 @@ try {
         fullAppComposition = fullAppUi || fullAppProtectedUi;
         if (fullAppComposition) {
             localUi = fullAppProtectedUi
-                ? inspectFullAppProtectedNativeResource(
+                ? (sceneResource ? inspectResearchSceneProtectedUiResource : inspectFullAppProtectedNativeResource)(
                       localUi,
                       readFileSync(join(EXPERIMENT, 'full-app-pilot/nativeProtectedUiFixture.js'), 'utf8'),
                   )
@@ -385,6 +399,11 @@ try {
     assert(
         fullAppComposition || !seen.has('--slot-wait-ms'),
         'Shared remaining budget belongs only to a full App fixture',
+    );
+    assert(
+        !sceneResource ||
+            (fullAppProtectedUi && sceneResource.runID === localUi.runID && sceneResource.nonce === localUi.nonce),
+        'Scene observations require the exact protected run binding',
     );
     const cache = directory(cacheArg),
         products = directory(productsArg),
@@ -561,6 +580,11 @@ try {
             join(HERE, 'ResearchProtectedUiRelay.swift'),
             join(HERE, 'ResearchProtectedUiFixture.swift'),
         );
+    if (sceneResource)
+        sourcePaths.push(
+            join(HERE, 'ResearchSceneLifecycleEvidence.swift'),
+            join(HERE, 'ResearchFullAppSceneUiFixture.swift'),
+        );
     sourcePaths.forEach((path) => regular(path, 1024 * 1024));
     scratch = mkdtempSync(join(tmpdir(), 'thalassa-messaging-build-'));
     chmodSync(scratch, 0o700);
@@ -614,6 +638,9 @@ try {
         protectedUiFixture: protectedUi,
         fullAppUiFixture: fullAppUi,
         fullAppProtectedUiFixture: fullAppProtectedUi,
+        fullAppSceneUiFixture: !!sceneResource,
+        sceneFixtureResourceSha256: sceneResource ? hash(sceneResourceFile) : null,
+        sceneFixtureContractSha256: sceneResource ? hash(join(HERE, 'researchSceneLifecycleContract.mjs')) : null,
         sharedSlotWaitMs: 0,
         requestedSharedSlotWaitMs: fullAppComposition ? fullAppSlotWaitMs : null,
         fullAppWebReceiptSha256: fullAppComposition ? hash(fullAppWebReceiptFile) : null,
@@ -643,6 +670,10 @@ try {
             mode: 0o600,
             flag: 'wx',
         });
+    if (sceneResource) {
+        copyFileSync(sceneResourceFile, join(projectRoot, 'research-scene-lifecycle.json'), 1);
+        assert(hash(join(projectRoot, 'research-scene-lifecycle.json')) === receipt.sceneFixtureResourceSha256);
+    }
     writeFileSync(join(projectRoot, 'research-config.json'), JSON.stringify(nativeConfig, null, 2) + '\n', {
         mode: 0o600,
         flag: 'wx',
@@ -766,6 +797,7 @@ try {
             bindingSwift: relative(bindingRoot, swift[0]),
             moduleMap: relative(bindingRoot, maps[0]),
             localUiFixture: !!localUiFile,
+            ...(sceneResource ? { sceneUiFixture: true } : {}),
         }) + '\n',
         { mode: 0o600, flag: 'wx' },
     );
@@ -826,7 +858,8 @@ try {
                       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=E2EE_LOCAL_UI_FIXTURE' +
                           (protectedUi ? ' E2EE_PROTECTED_UI_FIXTURE' : '') +
                           (fullAppUi ? ' E2EE_FULL_APP_UI_FIXTURE' : '') +
-                          (fullAppProtectedUi ? ' E2EE_FULL_APP_PROTECTED_UI_FIXTURE' : ''),
+                          (fullAppProtectedUi ? ' E2EE_FULL_APP_PROTECTED_UI_FIXTURE' : '') +
+                          (sceneResource ? ' E2EE_FULL_APP_SCENE_UI_FIXTURE E2EE_SCENE_LIFECYCLE_EVIDENCE' : ''),
                   ]
                 : []),
             'build',

@@ -32,7 +32,17 @@ import {
     inspectFullAppProtectedWait,
     addFullAppProtectedChildWait,
     requireFullAppProtectedCleanup,
+    inspectFullAppSceneProtectedEnvelope,
+    inspectFullAppSceneProtectedPrefix,
 } from './fullAppProtectedUiContract.mjs';
+import {
+    createResearchSceneLifecycleResource,
+    createResearchSceneProtectedUiResource,
+    inspectResearchSceneLifecycleEvidence,
+    researchSceneProtectedProofHash,
+    requireResearchSceneProtectedDriverStage,
+    RESEARCH_SCENE_LIFECYCLE_SCENARIO,
+} from './researchSceneLifecycleContract.mjs';
 import {
     inspectCachedRuntimeSelection,
     inspectControlLaunchMetadata,
@@ -78,6 +88,13 @@ const save = () => writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) +
 save();
 console.info('Nonsecret full-root protected native receipt: ' + receiptPath);
 let simulator, ownedName, statusFile, phaseFile, web, webReceipt, expectedWebHash;
+let sceneProof = false,
+    sceneFixtureFile,
+    protectedFixtureFile,
+    protectedTemplate,
+    ownedDocuments,
+    scenePins,
+    sceneBaseline;
 let waited = 0,
     waitBudget = 120000;
 let prerequisiteInputs = [],
@@ -239,12 +256,96 @@ function readPhase() {
 function copyNativeEnvelope() {
     if (!statusFile || !existsSync(statusFile)) return null;
     const raw = JSON.parse(readFileSync(regular(statusFile, 65536), 'utf8'));
-    const native = inspectFullAppProtectedNativeEnvelope(raw, runID, nonce);
+    const native = (sceneProof ? inspectFullAppSceneProtectedEnvelope : inspectFullAppProtectedNativeEnvelope)(
+        raw,
+        runID,
+        nonce,
+    );
     const copy = join(scratch, 'native-receipt.json');
     assert(!existsSync(copy));
     writeFileSync(copy, JSON.stringify(native, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
     receipt.nativeReceipt = { path: copy, sha256: hash(copy) };
     return native;
+}
+function sceneFiles() {
+    if (!ownedDocuments || !existsSync(ownedDocuments)) return null;
+    assert(!lstatSync(ownedDocuments).isSymbolicLink() && lstatSync(ownedDocuments).isDirectory());
+    const prefix = 'research-scene-lifecycle-' + runID + '-';
+    const directories = readdirSync(ownedDocuments).filter((name) => name.startsWith(prefix));
+    assert(directories.length <= 1);
+    if (!directories.length) return null;
+    const epoch = directories[0].slice(prefix.length);
+    assert(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(epoch));
+    const directory = join(ownedDocuments, directories[0]);
+    assert(lstatSync(directory).isDirectory() && !lstatSync(directory).isSymbolicLink());
+    return { observer: join(directory, 'scene-observer.json'), closure: join(directory, 'scene-ui-closure.json') };
+}
+function sceneObservation(diagnostic = false) {
+    const files = sceneFiles();
+    if (!files || !existsSync(files.observer)) return null;
+    const raw = JSON.parse(readFileSync(regular(files.observer, 65536), 'utf8'));
+    const independentPid = scenePins?.pid ?? receipt.ownedLaunchPID;
+    // A file-supplied PID is used only to validate an explicitly unaccepted
+    // diagnostic shape. It can NEVER supply the driver's launch identity.
+    const expectedPid = diagnostic && !Number.isSafeInteger(independentPid) ? raw.process?.pid : independentPid;
+    const observed = inspectResearchSceneLifecycleEvidence(raw, {
+        runID,
+        nonce,
+        resourceSHA256: hash(sceneFixtureFile),
+        pid: expectedPid,
+    });
+    if (scenePins) assert(observed.process.epoch === scenePins.epoch && observed.process.pid === scenePins.pid);
+    return observed;
+}
+function sceneSourceBindings() {
+    const names = {
+        driver: 'bridge-native/fullAppProtectedUiProof.mjs',
+        builder: 'bridge-native/build.mjs',
+        projectGenerator: 'bridge-native/generate_project.rb',
+        contract: 'bridge-native/researchSceneLifecycleContract.mjs',
+        observer: 'bridge-native/ResearchSceneLifecycleEvidence.swift',
+        coordinator: 'bridge-native/ResearchFullAppSceneUiFixture.swift',
+        application: 'bridge-native/ResearchApp.swift',
+        plugin: 'bridge-native/ScuttlebuttResearchAuthPlugin.swift',
+        protectedFixture: 'bridge-native/ResearchFullAppProtectedUiFixture.swift',
+        protectedScript: 'full-app-pilot/nativeProtectedUiFixture.js',
+    };
+    return Object.fromEntries(Object.entries(names).map(([key, name]) => [key, hash(join(here, '..', name))]));
+}
+function sceneStage(stage) {
+    const observer = sceneObservation();
+    assert(observer && scenePins && sceneBaseline);
+    const files = sceneFiles();
+    const closure =
+        stage === 'foreground-closed' ? JSON.parse(readFileSync(regular(files.closure, 16384), 'utf8')) : null;
+    const observation = requireResearchSceneProtectedDriverStage(
+        {
+            stage,
+            observerEvidence: observer,
+            observerResourceBytes: readFileSync(sceneFixtureFile, 'utf8'),
+            protectedResourceBytes: readFileSync(protectedFixtureFile, 'utf8'),
+            protectedTemplate,
+            protectedReport: sceneBaseline,
+            protectedUiClosure: closure,
+            sourceBindings: sceneSourceBindings(),
+        },
+        scenePins,
+    );
+    const destination = join(scratch, 'scene-' + stage + '.json');
+    assert(!existsSync(destination));
+    writeFileSync(destination, JSON.stringify({ observer, closure }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    receipt.sceneStages ??= [];
+    receipt.sceneStages.push({ stage, observation, receipt: { path: destination, sha256: hash(destination) } });
+    save();
+}
+async function waitScene(predicate) {
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+        const observed = sceneObservation();
+        if (observed && predicate(observed)) return observed;
+        await delay(100);
+    }
+    throw new Error('Owned scene observation incomplete');
 }
 try {
     assert(checkout === '/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather');
@@ -268,6 +369,12 @@ try {
             /^(?:0x[0-9a-fA-F]+|[0-9]+)(?::(?:0x[0-9a-fA-F]+|[0-9]+)){2}$/.test(process.env.__CF_USER_TEXT_ENCODING),
         );
     const args = process.argv.slice(2);
+    if (args.at(-1) === '--os-scene-proof') {
+        sceneProof = true;
+        args.pop();
+        receipt.scenario = RESEARCH_SCENE_LIFECYCLE_SCENARIO;
+        receipt.sceneUiFixture = true;
+    }
     assert(args.length === 5 || args.length === 6);
     const [cache, frameworksPath, priorPath] = args;
     [webReceipt, expectedWebHash] = args.slice(3, 5);
@@ -328,15 +435,36 @@ try {
         'bridge-native/ResearchProtectedUiRelay.swift',
         'full-app-pilot/nativeProtectedUiFixture.js',
     ];
+    if (sceneProof)
+        names.push(
+            'bridge-native/researchSceneLifecycleContract.mjs',
+            'bridge-native/ResearchSceneLifecycleEvidence.swift',
+            'bridge-native/ResearchFullAppSceneUiFixture.swift',
+            'full-app-pilot/windowProofContract.mjs',
+        );
     receipt.sourceHashes = Object.fromEntries(
         names.map((n) => ['experiments/scuttlebutt-e2ee/' + n, hash(join(here, '..', n))]),
     );
     const template = readFileSync(join(here, '../full-app-pilot/nativeProtectedUiFixture.js'), 'utf8');
-    const resource = createFullAppProtectedNativeResource(template, runID, nonce);
-    inspectFullAppProtectedNativeResource(resource, template);
+    protectedTemplate = template;
+    const resource = (sceneProof ? createResearchSceneProtectedUiResource : createFullAppProtectedNativeResource)(
+        template,
+        runID,
+        nonce,
+    );
+    if (!sceneProof) inspectFullAppProtectedNativeResource(resource, template);
     const fixture = join(scratch, 'fixture-resource.json');
     writeFileSync(fixture, JSON.stringify(resource), { mode: 0o600, flag: 'wx' });
     receipt.fixtureResource = { path: fixture, sha256: hash(fixture) };
+    protectedFixtureFile = fixture;
+    if (sceneProof) {
+        sceneFixtureFile = join(scratch, 'scene-resource.json');
+        writeFileSync(sceneFixtureFile, JSON.stringify(createResearchSceneLifecycleResource(runID, nonce)), {
+            mode: 0o600,
+            flag: 'wx',
+        });
+        receipt.sceneFixtureResource = { path: sceneFixtureFile, sha256: hash(sceneFixtureFile) };
+    }
     stable();
     await slot();
     stable();
@@ -362,11 +490,18 @@ try {
             webReceipt,
             '--slot-wait-ms',
             String(Math.max(0, waitBudget - waited)),
+            ...(sceneProof ? ['--scene-lifecycle-resource', sceneFixtureFile] : []),
         ],
         450000,
     );
     assert(receipt.buildReceipt);
     const build = JSON.parse(readFileSync(receipt.buildReceipt.path, 'utf8'));
+    if (sceneProof)
+        assert(
+            build.fullAppSceneUiFixture === true &&
+                build.sceneFixtureResourceSha256 === hash(sceneFixtureFile) &&
+                build.sceneFixtureContractSha256 === hash(join(here, 'researchSceneLifecycleContract.mjs')),
+        );
     assert(
         build.status === 'passed' &&
             build.platform === 'iphonesimulator' &&
@@ -448,6 +583,7 @@ try {
     quiet('/usr/bin/xcrun', ['simctl', 'install', simulator, app], 180000);
     const container = quiet('/usr/bin/xcrun', ['simctl', 'get_app_container', simulator, bundle, 'data']);
     assert(isAbsolute(container));
+    ownedDocuments = join(container, 'Documents');
     statusFile = join(container, 'Documents/research-full-app-protected-ui-status-' + runID + '.json');
     phaseFile = join(container, 'Documents/research-full-app-protected-ui-phase.json');
     assert(!existsSync(statusFile));
@@ -464,19 +600,64 @@ try {
     while (Date.now() < deadline) {
         if (existsSync(statusFile)) {
             const parsed = JSON.parse(readFileSync(regular(statusFile, 65536), 'utf8'));
-            const checked = inspectFullAppProtectedNativeEnvelope(parsed, runID, nonce);
+            const checked = (sceneProof ? inspectFullAppSceneProtectedEnvelope : inspectFullAppProtectedNativeEnvelope)(
+                parsed,
+                runID,
+                nonce,
+            );
             status = checked.status;
+            if (sceneProof && checked.phase === 'native-proof-captured') break;
             if (status !== 'running') break;
         }
         await delay(250);
     }
-    receipt.nativeStatusDeadlineReached = status === null || status === 'running';
+    receipt.nativeStatusDeadlineReached = Date.now() >= deadline && (status === null || status === 'running');
     receipt.nativeLaunchPhase = readPhase();
     const native = copyNativeEnvelope();
     save();
     receipt.lastOperation = 'native-final-validate';
     save();
-    inspectFullAppProtectedNativeReceipt(native, runID, nonce);
+    if (sceneProof) {
+        sceneBaseline = inspectFullAppSceneProtectedPrefix(native, runID, nonce);
+        const baseline = await waitScene((observed) => observed.events.at(-1).event === 'protected-ready');
+        scenePins = {
+            runID,
+            nonce,
+            resourceSHA256: hash(sceneFixtureFile),
+            protectedResourceSHA256: hash(protectedFixtureFile),
+            protectedProofSHA256: researchSceneProtectedProofHash(sceneBaseline, runID, nonce),
+            pid: receipt.ownedLaunchPID,
+            epoch: baseline.process.epoch,
+            sourceBindings: sceneSourceBindings(),
+        };
+        receipt.lastOperation = 'scene-baseline-validate';
+        save();
+        sceneStage('protected-ready');
+        receipt.initialOwnedLaunchPID = scenePins.pid;
+        quiet(
+            '/usr/bin/xcrun',
+            ['simctl', 'launch', simulator, FULL_APP_CONTROL_BUNDLE],
+            FULL_APP_CONTROL_LAUNCH_BOUND_MS,
+            4096,
+        );
+        receipt.lastOperation = 'owned-background-observation';
+        save();
+        await waitScene((observed) => observed.events.some((event) => event.event === 'did-enter-background'));
+        // Validate the immediate callback before returning to foreground. A
+        // later expired lease cannot replace this unsafe or missing sample.
+        receipt.lastOperation = 'scene-background-validate';
+        save();
+        sceneStage('background-fenced');
+        quiet('/usr/bin/xcrun', ['simctl', 'launch', simulator, bundle]);
+        assert(receipt.ownedLaunchPID === scenePins.pid);
+        receipt.lastOperation = 'owned-foreground-observation';
+        save();
+        await waitScene((observed) => observed.events.at(-1).event === 'foreground-ui-closed');
+        receipt.lastOperation = 'scene-foreground-validate';
+        save();
+        sceneStage('foreground-closed');
+        receipt.realOsLifecycleObservedCleanupPending = true;
+    } else inspectFullAppProtectedNativeReceipt(native, runID, nonce);
     stable();
     for (const [p, h] of Object.entries(build.sourceHashes)) assert(hash(p) === h);
     nativeObservationPassed = true;
@@ -499,6 +680,27 @@ try {
             copyNativeEnvelope();
         } catch {
             /* Fixed presence/refusal only; no arbitrary JSON retained. */
+        }
+    }
+    if (sceneProof) {
+        try {
+            const observed = sceneObservation(true);
+            receipt.sceneDiagnosticStatus = observed ? 'observed-unaccepted' : 'no-file';
+            if (observed) {
+                const path = join(scratch, 'failed-scene-observer.json');
+                writeFileSync(path, JSON.stringify(observed, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+                receipt.sceneDiagnostic = {
+                    path,
+                    sha256: hash(path),
+                    lastEvent: observed.events.at(-1).event,
+                    independentlyMeasuredLaunchPIDAvailable: Number.isSafeInteger(
+                        receipt.initialOwnedLaunchPID ?? receipt.ownedLaunchPID,
+                    ),
+                    wholeRunAccepted: false,
+                };
+            }
+        } catch {
+            receipt.sceneDiagnosticStatus = 'refused';
         }
     }
     process.exitCode = 1;
@@ -531,6 +733,7 @@ try {
         receipt.status = 'passed';
         receipt.phase = 'complete';
         receipt.nativeProtectedExchangeAccepted = true;
+        if (sceneProof) receipt.realOsLifecycleProved = true;
     }
     receipt.sharedSlotWaitMs = waited;
     receipt.completedAtUTC = new Date().toISOString();
@@ -538,5 +741,7 @@ try {
 }
 if (receipt.status === 'passed')
     console.info(
-        'PASS scoped native-provider full-root exchange over synthetic Auth/relay; no physical, OS-lifecycle or release acceptance.',
+        sceneProof
+            ? 'PASS scoped owned same-process UIKit scene roundtrip over synthetic Auth/relay; no physical or release acceptance.'
+            : 'PASS scoped native-provider full-root exchange over synthetic Auth/relay; no physical, OS-lifecycle or release acceptance.',
     );

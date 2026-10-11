@@ -1,10 +1,21 @@
 # Scuttlebutt private message E2EE device test plan
 
-Updated 11 October 2026 for execution with the owner's iPhone 15 Pro Max and iPad 9th generation, using different test-project accounts. This plan defines evidence for an isolated native pilot. The owner reports an opening message, reply and post-restart successors on both devices, plus offline-recipient catch-up and repeat scans with one displayed copy in both directions, on historical candidate `4005833a`. An iPhone screenshot captures a committed incoming row. **D01 and D02 have partial physical evidence; no full acceptance case is passed, and the remaining controlled procedures are unrun.** The last installed human Research candidate remains `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c`; the [checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md) separates its source/signing/in-place update checks and owner-reported sign-ins from the earlier candidate's message observations.
+Updated 12 October 2026 for execution with the owner's iPhone 15 Pro Max and iPad 9th generation, using different test-project accounts. This plan defines evidence for an isolated native pilot. The owner reports an opening message, reply and post-restart successors on both devices, plus offline-recipient catch-up and repeat scans with one displayed copy in both directions, on historical candidate `4005833a`. An iPhone screenshot captures a committed incoming row. **D01 and D02 have partial physical evidence; no full acceptance case is passed, and the remaining controlled procedures are unrun.** The last installed human Research candidate remains `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c`; the [checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md) separates its source/signing/in-place update checks and owner-reported sign-ins from the earlier candidate's message observations.
 
 Two independent physical endpoints can expose custody, lifecycle and transport failures that one simulator cannot. The iPad provides iPadOS coverage, not a substitute for testing every supported iPhone/OS combination. Read-only checks on 4 October found iOS 27.0.1 on the iPhone and iPadOS 26.5 on the iPad, both paired with Developer Mode enabled. This is device inventory, not supported-build eligibility or research-app execution evidence.
 
 ## Prerequisites and current blocks
+
+The [12 October scene attempt](../experiments/scuttlebutt-e2ee/review/scene-wiring-background-failure-2026-10-12.json)
+passes a current-source actual main-App initiator exchange prefix in one owned
+simulator, not a complete device case. Real UIKit background has a verified
+privacy cover but still-current native account/original snapshot and unchanged
+successful verify count. The driver correctly refuses that sample and does not
+dispatch foreground or cold continuation. Native admission/lifecycle fencing and
+closed-DOM acknowledgement must be implemented and retested before physical
+lifecycle acceptance. The simulator was removed exactly; human installs/accounts/
+keys remain untouched. No D01–D17 case is upgraded by its 270 synthetic checks,
+25-source build or bounded initiator exchange observations.
 
 The [11 October previous source-bound full-App simulator proof](../experiments/scuttlebutt-e2ee/review/full-app-protected-integration-2026-10-11.json)
 passes actual main-App responder-role private-chat send/receive in a new owned
@@ -31,7 +42,7 @@ callback/process observer; synthetic pagehide, a launch request or recreated
 enrollment cannot stand in for lifecycle or same-store recovery evidence.
 
 The [passive scene observer](../experiments/scuttlebutt-e2ee/review/scene-observer-preparation-2026-10-11.json)
-is now compiled and directly tested but remains unwired. Its 66 synthetic schema
+was compiled and directly tested but remained unwired at the 11 October preparation. Its 66 synthetic schema
 cases, 30 Mac direct-call assertions and single-file simulator typecheck supply
 no OS or physical case. Future execution must correlate genuine callbacks,
 native PID/epoch and a pre-background current original snapshot with successful

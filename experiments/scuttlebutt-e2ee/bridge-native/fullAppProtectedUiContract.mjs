@@ -485,7 +485,7 @@ const prefixes = {
     'fixture-complete': 14,
 };
 
-export function inspectFullAppProtectedNativeEnvelope(raw, runID, runNonce) {
+function inspectProtectedEnvelope(raw, runID, runNonce, sceneLifecycle) {
     return guarded(() => {
         require(uuid(runID) && nonce(runNonce));
         const row = exact(raw, reportKeys);
@@ -494,9 +494,9 @@ export function inspectFullAppProtectedNativeEnvelope(raw, runID, runNonce) {
                 row.runID === runID &&
                 row.nonce === runNonce &&
                 row.scenario === FULL_APP_PROTECTED_NATIVE_SCENARIO &&
-                ['running', 'passed', 'failed'].includes(row.status) &&
+                (sceneLifecycle ? ['running', 'failed'] : ['running', 'passed', 'failed']).includes(row.status) &&
                 FULL_APP_PROTECTED_NATIVE_PHASES.includes(row.phase) &&
-                row.syntheticPagehide === true &&
+                row.syntheticPagehide === !sceneLifecycle &&
                 row.realOsLifecycleOrBfCacheProved === false,
         );
         require(
@@ -506,6 +506,7 @@ export function inspectFullAppProtectedNativeEnvelope(raw, runID, runNonce) {
                   ? row.phase === 'fixture-failed'
                   : Object.hasOwn(prefixes, row.phase) && row.phase !== 'fixture-complete',
         );
+        if (sceneLifecycle && row.status === 'running') require(prefixes[row.phase] <= 11);
         row.assertions = integer(row.assertions);
         row.nativeAssertions = integer(row.nativeAssertions, 12);
         require(row.status === 'passed' ? row.nativeAssertions === 12 : row.nativeAssertions === 0);
@@ -533,6 +534,34 @@ export function inspectFullAppProtectedNativeEnvelope(raw, runID, runNonce) {
         row.protectedExchange = row.protectedExchange === null ? null : exchange(row.protectedExchange);
         row.pmResultCounters = counts(row.pmResultCounters, FULL_APP_PROTECTED_PM_RESULT_KEYS);
         return Object.freeze(row);
+    });
+}
+export function inspectFullAppProtectedNativeEnvelope(raw, runID, runNonce) {
+    return inspectProtectedEnvelope(raw, runID, runNonce, false);
+}
+/** Explicit scene lane: preterminal v4 fixture observations only. It never
+ * adopts the synthetic pagehide/final acceptance of the ordinary fixture. */
+export function inspectFullAppSceneProtectedEnvelope(raw, runID, runNonce) {
+    return inspectProtectedEnvelope(raw, runID, runNonce, true);
+}
+export function inspectFullAppSceneProtectedPrefix(raw, runID, runNonce) {
+    return guarded(() => {
+        const row = inspectFullAppSceneProtectedEnvelope(raw, runID, runNonce);
+        require(
+            row.status === 'running' &&
+                row.phase === 'native-proof-captured' &&
+                row.cases.length === 11 &&
+                row.assertions > 0 &&
+                row.nativeState.status === 'running' &&
+                row.protectedExchange !== null &&
+                row.nativeHttpFence !== null &&
+                row.windowEvidence !== null &&
+                row.domFacts !== null &&
+                row.messageFacts !== null &&
+                row.sdkCounts?.password === 1 &&
+                row.sdkCounts.unexpected === 0,
+        );
+        return row;
     });
 }
 export function inspectFullAppProtectedNativeReceipt(raw, runID, runNonce) {
