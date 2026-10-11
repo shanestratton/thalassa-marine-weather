@@ -1,0 +1,115 @@
+name: Thalassa build 127 unchanged focused wind proof
+
+# Validation only. The workflow definition and exact application commit are
+# separate identities. No Apple secret, source commit, deployment or upload.
+on:
+    push:
+        branches: ['codex/testflight-127-wind-proof-2026-10-12']
+        paths: ['.github/workflows/testflight-127-wind-proof.yml']
+
+permissions:
+    contents: read
+
+concurrency:
+    group: testflight-127-focused-wind-proof
+    cancel-in-progress: false
+
+env:
+    CANDIDATE_SHA: '01424742c81d66ef937b2852f5a394a448f41ec9'
+    CI: 'true'
+    HUSKY: '0'
+    NODE_OPTIONS: --max-old-space-size=4096
+    PUPPETEER_SKIP_DOWNLOAD: 'true'
+    VITE_APP_BUILD: '127'
+    VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+    VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+    VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+    VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+    VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+    VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+
+jobs:
+    focused-wind:
+        name: unchanged wind (${{ matrix.browser }})
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        strategy:
+            fail-fast: false
+            matrix:
+                browser: [chromium, webkit]
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: '01424742c81d66ef937b2852f5a394a448f41ec9'
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Assert exact application source, preserved b127 and four build numbers
+              id: source
+              run: |
+                  set -euo pipefail
+                  printf '%s' "$CANDIDATE_SHA" | grep -qE '^[0-9a-f]{40}$'
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  git merge-base --is-ancestor 6c60882fd39a87a6c00e1a327455903182293baa HEAD
+                  # Original 31f97f1 blobs, also unchanged in d3dc6638. This is a
+                  # rendering proof, not a rewritten screenshot-helper proof.
+                  test "$(git rev-parse HEAD:playwright.keyboard.config.ts)" = 4c06d1c48d42f7529904b27f50e2455305d23606
+                  test "$(git rev-parse HEAD:browser-tests/desk-wind-layout.spec.ts)" = 31975548f8e2b9185704d29df535dcba02954d83
+                  node --input-type=module <<'NODE'
+                  import { readFileSync } from 'node:fs';
+                  const numbers=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+                  if (numbers.length!==4 || numbers.some(match=>match[1]!=='127')) throw new Error('Exactly four committed build-127 configurations are required');
+                  if (JSON.parse(readFileSync('package.json','utf8')).version!=='1.2.0') throw new Error('Unexpected marketing version');
+                  const spec=readFileSync('browser-tests/desk-wind-layout.spec.ts','utf8');
+                  const target=spec.slice(spec.indexOf("test('Light: dark streaks"),spec.indexOf("test('where the models disagree"));
+                  if (!target.includes('test.setTimeout(150_000);')) throw new Error('The original focused test must retain its 150-second budget');
+                  NODE
+                  test "$(git hash-object playwright.keyboard.config.ts)" = "$(git rev-parse HEAD:playwright.keyboard.config.ts)"
+                  test "$(git hash-object browser-tests/desk-wind-layout.spec.ts)" = "$(git rev-parse HEAD:browser-tests/desk-wind-layout.spec.ts)"
+                  {
+                      echo "Application commit: $CANDIDATE_SHA; iOS 1.2.0 (127); original b127 is an ancestor."
+                      echo "Workflow definition: $GITHUB_SHA (not the application SHA)."
+                      sha256sum playwright.keyboard.config.ts browser-tests/desk-wind-layout.spec.ts
+                  } >> "$GITHUB_STEP_SUMMARY"
+            - run: npm ci
+            - name: Install the selected browser engine
+              run: npx playwright install --with-deps ${{ matrix.browser }}
+            - name: Three unchanged focused repetitions, no retries
+              id: proof
+              env:
+                  PLAYWRIGHT_JSON_OUTPUT_NAME: wind-focused-results.json
+              run: >-
+                  npx playwright test --config playwright.keyboard.config.ts
+                  browser-tests/desk-wind-layout.spec.ts --grep 'Light: dark streaks'
+                  --project=${{ matrix.browser }} --workers=1 --repeat-each=3 --retries=0
+                  --trace=on --reporter=line,json
+            - name: Prove the original test and configuration stayed byte-identical
+              if: always() && steps.source.outcome == 'success'
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  test "$(git hash-object playwright.keyboard.config.ts)" = "$(git rev-parse HEAD:playwright.keyboard.config.ts)"
+                  test "$(git hash-object browser-tests/desk-wind-layout.spec.ts)" = "$(git rev-parse HEAD:browser-tests/desk-wind-layout.spec.ts)"
+                  git diff --exit-code -- playwright.keyboard.config.ts browser-tests/desk-wind-layout.spec.ts
+            - name: Record the actual focused result
+              if: always() && steps.source.outcome == 'success'
+              env:
+                  PROOF_OUTCOME: ${{ steps.proof.outcome }}
+                  BROWSER: ${{ matrix.browser }}
+              run: |
+                  echo "$BROWSER focused repetitions: $PROOF_OUTCOME on $CANDIDATE_SHA. No retries, changed assertion, longer test timeout, signing or upload." >> "$GITHUB_STEP_SUMMARY"
+            - name: Preserve JSON, screenshots and traces even on failure
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: build127-unchanged-wind-${{ matrix.browser }}
+                  path: |
+                      wind-focused-results.json
+                      playwright-report/
+                      test-results/
+                  retention-days: 7
+                  if-no-files-found: warn
