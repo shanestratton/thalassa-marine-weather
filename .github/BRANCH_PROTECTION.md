@@ -1,37 +1,31 @@
-# Branch Protection — Recommended Settings
+# Branch protection and checks
 
-Configure these settings via **GitHub → Settings → Branches → Branch protection rules** for the repository's default branch.
+**This repository is private on GitHub Free (2026-10).** Branch protection rules and required status checks are not
+available there; GitHub Pro restores them. Nothing stops a push to `master` that fails CI. CI reports afterwards, so read
+it before building a release.
 
-## Required Settings
+## What runs
 
-| Setting                                   | Value      | Why                            |
-| ----------------------------------------- | ---------- | ------------------------------ |
-| **Require a pull request before merging** | ✅ Enabled | Prevents direct pushes to main |
-| **Required approvals**                    | 1          | Code review before merge       |
-| **Dismiss stale reviews**                 | ✅ Enabled | Re-review after new pushes     |
-| **Require status checks to pass**         | ✅ Enabled | CI must succeed before merge   |
+| Workflow                     | When                                                                                             | What                                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| **CI** (`check`)             | every push and pull request to `master`, except documentation-only                               | install and audit, release gates, lint, formatting, types, edge functions, production build and its checks, Lighthouse |
+| **Full checks**              | nightly when `master` changed (unit tests); Sunday night (everything); **Run workflow** any time | unit tests with coverage, two-browser E2E against the built app, daylight/keyboard/split-pane and Plan Your Day suites |
+| **Packages**                 | when `pi-cache/`, `workers/ais-ingest/` or `cloudflare-worker/` change; weekly                   | each package's own install, audit, build and tests                                                                     |
+| **Hosted Deploy Smoke Test** | after each Vercel deployment of `master`                                                         | the deployed site, its ocean-data feeds and a browser smoke test                                                       |
 
-## Required Status Checks
+## Habits that stand in for protection
 
-Add these checks as required:
+- **Before a TestFlight upload, run Full checks** on the branch you will build and wait for green.
+- Don't force-push `master`. A planned history rewrite is the exception; see `docs/GOING_PRIVATE.md` first.
 
-- `check` — Main CI job (lint, types, tests, build, E2E)
-- `Analyze JavaScript/TypeScript` — CodeQL security scan
-- `Lighthouse Audit` — Performance and accessibility checks
+## If you move to GitHub Pro
 
-## Additional Protections
+Protect `master`:
 
-| Setting                             | Value      | Why                                                |
-| ----------------------------------- | ---------- | -------------------------------------------------- |
-| **Do not allow force pushes**       | ✅ Enabled | Preserves git history                              |
-| **Do not allow deletions**          | ✅ Enabled | Prevents accidental branch deletion                |
-| **Require conversation resolution** | ✅ Enabled | All review comments must be resolved               |
-| **Require linear history**          | Optional   | Cleaner git log if your team prefers squash merges |
+- require the `check` status check;
+- block force pushes and deletion.
 
-## Deployment Protection (Vercel)
+A pull request plus an approval doesn't fit a single-owner repository.
 
-If using Vercel's GitHub integration:
-
-1. Go to **Vercel → Project → Settings → Git**
-2. Enable **"Require deployment to succeed"** for the Vercel project
-3. The `preview-smoke.yml` workflow runs Playwright against exact trusted default-branch Preview or Production deployment URLs automatically
+CodeQL was removed because code scanning on a private repository needs paid GitHub Code Security. Restore
+`.github/workflows/codeql.yml` from history if that changes.

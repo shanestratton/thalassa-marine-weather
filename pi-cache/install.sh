@@ -6,7 +6,13 @@
 # LAN/private routes require the explicit isolated-network flags documented
 # in pi-cache/README.md.
 #
-#   bash install.sh
+#   sudo bash install.sh            first install, or rebuild in place
+#   sudo bash install.sh --update   download the latest pi-cache, then rebuild
+#
+# The source repository is private (2026-10). Downloading uses a read-only
+# GitHub token, asked for once and kept root-only in /etc/thalassa/github-token.
+# First install from the owner's Mac:
+#   scp pi-cache/install.sh <user>@<pi>:/tmp/ && ssh -t <user>@<pi> sudo bash /tmp/install.sh
 #
 # The Thalassa app on your phone will do the rest.
 # ═══════════════════════════════════════════════════════════════
@@ -47,23 +53,73 @@ if [[ "$(uname)" != "Linux" ]]; then
 fi
 
 # ── Find install directory ──
+# In place only when this file sits in a pi-cache checkout (its package.json
+# names thalassa-pi-cache). Piped into bash, BASH_SOURCE is empty and the
+# current directory must never be mistaken for the install: any other case, or
+# --update, downloads into /opt/thalassa-pi-cache.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" 2>/dev/null || echo ".")" && pwd)"
-if [[ -f "$SCRIPT_DIR/package.json" ]]; then
-    # Running from a checked-out repo — use this directory as-is.
+UPDATE=0
+[[ "${1:-}" == "--update" ]] && UPDATE=1
+SCRIPT_DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
+if [[ "$UPDATE" == "0" && -n "$SCRIPT_DIR" ]] && grep -q '"name": "thalassa-pi-cache"' "$SCRIPT_DIR/package.json" 2>/dev/null; then
+    # Running from a checked-out pi-cache — use this directory as-is.
     INSTALL_DIR="$SCRIPT_DIR"
 else
-    INSTALL_DIR="/opt/thalassa-pi-cache"
+    INSTALL_DIR="${THALASSA_INSTALL_DIR:-/opt/thalassa-pi-cache}"
+    REPO_URL="${THALASSA_REPO_URL:-https://github.com/shanestratton/thalassa-marine-weather.git}"
+    TOKEN_FILE="${THALASSA_TOKEN_FILE:-/etc/thalassa/github-token}"
     IS_FRESH_INSTALL=0
     [[ ! -d "$INSTALL_DIR" ]] || [[ ! -f "$INSTALL_DIR/package.json" ]] && IS_FRESH_INSTALL=1
 
+    if [[ $EUID -ne 0 ]]; then
+        echo -e "${RED}  Run it with sudo: sudo bash install.sh${NC}"
+        exit 1
+    fi
     if ! command -v git &>/dev/null; then
         echo -e "${RED}  Need git: sudo apt install git${NC}"
         exit 1
     fi
 
-    # Always pull fresh source (fresh install OR update). .env and cache/
-    # live alongside the source and are preserved — we only replace code.
+    # A fine-grained GitHub token with read-only Contents access to
+    # thalassa-marine-weather. Root-only, so the cache service (which runs as
+    # the login user) can never read it. Never put it in a URL or on a command
+    # line: both are visible to every process on the Pi.
+    if [[ ! -s "$TOKEN_FILE" ]]; then
+        GITHUB_TOKEN=""
+        if [[ -r /dev/tty ]]; then
+            echo -e "  The Thalassa source is private. Paste your read-only GitHub token."
+            echo -e "  It is kept root-only in ${TOKEN_FILE}; nothing is shown as you paste."
+            IFS= read -rs GITHUB_TOKEN </dev/tty || true
+            echo ""
+        fi
+        if [[ -z "$GITHUB_TOKEN" ]]; then
+            echo -e "${RED}  No GitHub token: run this in a terminal on the Pi (sudo bash install.sh).${NC}"
+            exit 1
+        fi
+        install -d -m 700 -o root -g root "$(dirname "$TOKEN_FILE")"
+        (umask 077 && printf '%s' "$GITHUB_TOKEN" > "$TOKEN_FILE")
+        chown root:root "$TOKEN_FILE"
+        chmod 600 "$TOKEN_FILE"
+        unset GITHUB_TOKEN
+    fi
+
+    # The token travels in an environment-only git config header for the
+    # clone and its lazy blob fetches. printf is a shell builtin, so the token
+    # is never an argument of any process.
+    GIT_AUTH_HEADER="Authorization: Basic $(printf 'x-access-token:%s' "$(<"$TOKEN_FILE")" | base64 | tr -d '\n')"
+    git_with_token() (
+        export GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=1
+        export GIT_CONFIG_KEY_0='http.https://github.com/.extraheader'
+        export GIT_CONFIG_VALUE_0="$GIT_AUTH_HEADER"
+        git "$@"
+    )
+
+    # Always pull fresh source (fresh install OR update). .env, cache/ and
+    # identity/ live alongside the source and are preserved — we only replace code.
     if [[ "$IS_FRESH_INSTALL" == "1" ]]; then
         echo -e "  Downloading..."
     else
@@ -71,21 +127,28 @@ else
     fi
 
     mkdir -p "$INSTALL_DIR"
-    rm -rf /tmp/thalassa-clone
-    git clone --depth 1 --filter=blob:none --sparse \
-        https://github.com/shanestratton/thalassa-marine-weather.git /tmp/thalassa-clone 2>/dev/null
-    cd /tmp/thalassa-clone && git sparse-checkout set pi-cache 2>/dev/null
+    CLONE_DIR="$(mktemp -d)"
+    trap 'rm -rf "$CLONE_DIR"' EXIT
+    if ! git_with_token clone --quiet --depth 1 --filter=blob:none --sparse "$REPO_URL" "$CLONE_DIR/repo" ||
+        ! git_with_token -C "$CLONE_DIR/repo" sparse-checkout set pi-cache; then
+        echo -e "${RED}  Download failed.${NC} If GitHub refused the token (401, 403 or not found), it is"
+        echo -e "  wrong, expired or lacks read access to thalassa-marine-weather. Remove it with"
+        echo -e "  'sudo rm ${TOKEN_FILE}' and run this again to paste a new one."
+        exit 1
+    fi
+    unset GIT_AUTH_HEADER
 
     # Copy source over existing install. rsync preserves .env and cache/
     # because they don't exist in the source tree. Using --delete would be
     # dangerous — it would wipe .env and cache/ — so we just overlay.
     if command -v rsync &>/dev/null; then
         rsync -a --exclude='node_modules' --exclude='dist' \
-            /tmp/thalassa-clone/pi-cache/ "$INSTALL_DIR/"
+            "$CLONE_DIR/repo/pi-cache/" "$INSTALL_DIR/"
     else
-        cp -r /tmp/thalassa-clone/pi-cache/* "$INSTALL_DIR/"
+        cp -r "$CLONE_DIR/repo/pi-cache/." "$INSTALL_DIR/"
     fi
-    rm -rf /tmp/thalassa-clone
+    rm -rf "$CLONE_DIR"
+    trap - EXIT
 fi
 
 cd "$INSTALL_DIR"

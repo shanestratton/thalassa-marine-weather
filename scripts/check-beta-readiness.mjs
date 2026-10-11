@@ -283,11 +283,12 @@ function pngHeader(relative) {
 
 const pkg = JSON.parse(read('package.json') || '{}');
 const ciWorkflow = read('.github/workflows/ci.yml');
-const lighthouseWorkflow = read('.github/workflows/lighthouse.yml');
+const fullChecksWorkflow = read('.github/workflows/full-checks.yml');
+const packagesWorkflow = read('.github/workflows/packages.yml');
 const previewSmokeWorkflow = read('.github/workflows/preview-smoke.yml');
 const vercelPreviewTrust = read('utils/vercelPreviewTrust.ts');
 const primaryCiJob = workflowJobSource(ciWorkflow, 'check');
-const releaseWorkflowSources = `${ciWorkflow}\n${lighthouseWorkflow}\n${previewSmokeWorkflow}`;
+const releaseWorkflowSources = `${ciWorkflow}\n${fullChecksWorkflow}\n${previewSmokeWorkflow}`;
 const workflowEntries = regularFilesRecursively(absolute('.github/workflows'))
     .filter((relative) => /\.ya?ml$/i.test(relative))
     .map((relative) => [
@@ -308,13 +309,8 @@ const workflowUseRecords = workflowEntries.flatMap(([relative, source]) =>
 const reviewedWorkflowActionPins = new Map([
     ['actions/checkout', '3d3c42e5aac5ba805825da76410c181273ba90b1'],
     ['actions/setup-node', '820762786026740c76f36085b0efc47a31fe5020'],
-    ['actions/setup-python', '5fda3b95a4ea91299a34e894583c3862153e4b97'],
     ['actions/upload-artifact', '043fb46d1a93c77aae656e7c1c64a875d1fc6a0a'],
-    ['actions/download-artifact', '3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c'],
     ['denoland/setup-deno', '22d081ff2d3a40755e97629de92e3bcbfa7cf2ed'],
-    ['github/codeql-action/init', '5595ccaf912efad79be6eef63a5619ff05969be3'],
-    ['github/codeql-action/autobuild', '5595ccaf912efad79be6eef63a5619ff05969be3'],
-    ['github/codeql-action/analyze', '5595ccaf912efad79be6eef63a5619ff05969be3'],
 ]);
 const workflowRunnerRecords = workflowEntries.flatMap(([relative, source]) =>
     [...source.matchAll(/^\s*runs-on:\s*([^\s#]+)\s*$/gm)].map((match) => ({ relative, runner: match[1] })),
@@ -323,7 +319,7 @@ const workflowsKeepExpectedWritePermissions = workflowEntries.every(([relative, 
     const executableSource = source.replace(/^\s*#.*$/gm, '');
     const actual = [...executableSource.matchAll(/([A-Za-z0-9_-]+):\s*write\b/g)].map((match) => match[1]).sort();
     const filename = path.basename(relative);
-    const expected = filename === 'codeql.yml' ? ['security-events'] : [];
+    const expected = [];
     return JSON.stringify(actual) === JSON.stringify(expected);
 });
 const lighthouseRunner = read('scripts/run-lighthouse-audit.mjs');
@@ -481,9 +477,9 @@ check(
     pkg.engines?.node === '24.x' &&
         read('.nvmrc').trim() === '24' &&
         primaryCiJob.includes('node-version: 24') &&
-        lighthouseWorkflow.includes('node-version: 24') &&
+        fullChecksWorkflow.includes('node-version: 24') &&
         previewSmokeWorkflow.includes('node-version: 24') &&
-        !/node-version:\s*(?:20|22)\b/.test(`${primaryCiJob}\n${lighthouseWorkflow}\n${previewSmokeWorkflow}`),
+        !/node-version:\s*(?:20|22)\b/.test(`${primaryCiJob}\n${fullChecksWorkflow}\n${previewSmokeWorkflow}`),
 );
 check(
     'CI gives the complete beta verification job at least 45 minutes',
@@ -492,12 +488,15 @@ check(
 );
 check(
     'CI blocks high and critical dependency vulnerabilities',
-    ciWorkflow.includes('npm audit --audit-level=high') &&
-        !/npm audit --audit-level=high\s*\|\||High-severity vulnerabilities found/.test(ciWorkflow),
+    ciWorkflow.includes('run: node scripts/audit-gate.mjs') &&
+        packagesWorkflow.includes('npm audit --audit-level=high') &&
+        !/npm audit --audit-level=high\s*\|\||High-severity vulnerabilities found/.test(
+            `${ciWorkflow}\n${packagesWorkflow}`,
+        ),
 );
 check(
     'release workflows use strict lockfile installs without hidden peer overrides',
-    [ciWorkflow, lighthouseWorkflow, previewSmokeWorkflow].every((workflow) => workflow.includes('run: npm ci')) &&
+    [ciWorkflow, fullChecksWorkflow, previewSmokeWorkflow].every((workflow) => workflow.includes('run: npm ci')) &&
         ciWorkflow.includes('npm ls --all') &&
         legacyPeerOverrideFiles.length === 0,
     legacyPeerOverrideFiles.join(', '),
@@ -545,7 +544,7 @@ check(
 );
 check(
     'CI production builds require the complete public client configuration',
-    [ciWorkflow, lighthouseWorkflow].every(
+    [ciWorkflow, fullChecksWorkflow].every(
         (workflow) =>
             includesAll(workflow, [
                 'VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}',
@@ -1381,7 +1380,7 @@ check(
         Object.hasOwn(pkg.devDependencies ?? {}, 'puppeteer') &&
         !Object.hasOwn(pkg.devDependencies ?? {}, '@lhci/cli') &&
         !denoLock.includes('@lhci/cli') &&
-        [ciWorkflow, lighthouseWorkflow].every(
+        [ciWorkflow].every(
             (workflow) =>
                 workflow.includes('scripts/run-lighthouse-audit.mjs') &&
                 workflow.includes('scripts/assert-lighthouse-audited-app.mjs') &&
@@ -1404,12 +1403,12 @@ check(
             "'--strictPort'",
         ]) &&
         !lighthouseRunner.includes("spawn('npm'") &&
-        [ciWorkflow, lighthouseWorkflow].every(
+        [ciWorkflow].every(
             (workflow) =>
                 workflow.includes('id: lighthouse-audit') &&
                 workflow.includes("if: ${{ always() && steps.lighthouse-audit.outcome != 'skipped' }}"),
         ) &&
-        [ciWorkflow, lighthouseWorkflow].every(
+        [ciWorkflow].every(
             (workflow) =>
                 workflow.includes(
                     `actions/upload-artifact@${reviewedWorkflowActionPins.get('actions/upload-artifact')}`,
@@ -1422,7 +1421,7 @@ check(
 );
 check(
     'release workflows keep read-only repository permissions',
-    [ciWorkflow, lighthouseWorkflow, previewSmokeWorkflow].every(
+    [ciWorkflow, fullChecksWorkflow, packagesWorkflow, previewSmokeWorkflow].every(
         (workflow) => workflow.includes('contents: read') && !/[\w-]+:\s*write|write-all/.test(workflow),
     ),
 );
@@ -1478,6 +1477,7 @@ check(
         !playwrightConfig.includes("command: 'npm run dev'") &&
         previewSmokeWorkflow.includes("REQUIRE_HOSTED_PREVIEW: 'true'") &&
         !ciWorkflow.includes('--reporter=list') &&
+        !fullChecksWorkflow.includes('--reporter=list') &&
         !previewSmokeWorkflow.includes('--reporter=list'),
 );
 check(
@@ -2050,7 +2050,7 @@ check(
             "' true '",
             "'TRUE'",
         ]) &&
-        includesAll(ciWorkflow, ['ais-ingest:', 'working-directory: workers/ais-ingest', 'run: npm test']),
+        includesAll(packagesWorkflow, ['ais-ingest:', 'working-directory: workers/ais-ingest', 'run: npm test']),
 );
 
 const accountService = read('services/accountDeletion.ts');

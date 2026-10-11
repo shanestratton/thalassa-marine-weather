@@ -77,6 +77,9 @@ export interface ProvisionResult {
 
 // ── Constants ──────────────────────────────────────────────────
 
+// The installer lives in the private repository since 2026-10, so this anonymous
+// URL no longer resolves. The SSH path stays off (isAvailable) until the secure
+// replacement lands, and that replacement must bring the installer with it.
 const INSTALL_SCRIPT_URL =
     'https://raw.githubusercontent.com/shanestratton/thalassa-marine-weather/master/pi-cache/install.sh';
 
@@ -130,7 +133,8 @@ class PiProvisionServiceClass {
         // it depends on an absent SSH library and does not verify host keys.
         // Keep the workflow available to native development only until the
         // secure replacement has been integrated and device-tested.
-        return PI_INTEGRATION_ENABLED && Capacitor.isNativePlatform();
+        // The plugin check stops a dead "Install on Pi" button where the bridge is absent.
+        return PI_INTEGRATION_ENABLED && Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('SshClient');
     }
 
     /**

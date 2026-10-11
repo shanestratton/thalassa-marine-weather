@@ -2,8 +2,8 @@
 # ─────────────────────────────────────────────────────────────────────
 #  Thalassa — Upgrade Pi's OpenCPN to the version o-charts needs
 #
-#  Run on the Pi:
-#    curl -fsSL https://raw.githubusercontent.com/shanestratton/thalassa-marine-weather/master/pi-cache/upgrade-opencpn.sh | sudo bash
+#  Run on the Pi (install.sh copies it there with the rest of pi-cache/):
+#    sudo bash /opt/thalassa-pi-cache/upgrade-opencpn.sh
 #
 #  Why this exists
 #  ───────────────

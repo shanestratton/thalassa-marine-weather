@@ -117,13 +117,8 @@ describe('public-beta release gate contract', () => {
         const approvedPins = new Map([
             ['actions/checkout', '3d3c42e5aac5ba805825da76410c181273ba90b1'],
             ['actions/setup-node', '820762786026740c76f36085b0efc47a31fe5020'],
-            ['actions/setup-python', '5fda3b95a4ea91299a34e894583c3862153e4b97'],
             ['actions/upload-artifact', '043fb46d1a93c77aae656e7c1c64a875d1fc6a0a'],
-            ['actions/download-artifact', '3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c'],
             ['denoland/setup-deno', '22d081ff2d3a40755e97629de92e3bcbfa7cf2ed'],
-            ['github/codeql-action/init', '5595ccaf912efad79be6eef63a5619ff05969be3'],
-            ['github/codeql-action/autobuild', '5595ccaf912efad79be6eef63a5619ff05969be3'],
-            ['github/codeql-action/analyze', '5595ccaf912efad79be6eef63a5619ff05969be3'],
         ]);
         let usesCount = 0;
 
@@ -138,13 +133,10 @@ describe('public-beta release gate contract', () => {
             const writePermissions = [...source.replace(/^\s*#.*$/gm, '').matchAll(/([A-Za-z0-9_-]+):\s*write\b/g)]
                 .map((match) => match[1])
                 .sort();
-            const expectedWritePermissions =
-                name === 'codeql.yml'
-                    ? ['security-events']
-                    : /^(?:cmems-(?:currents|waves|sst|chl|seaice|mld)|mpa)-pipeline\.yml$/.test(name)
-                      ? ['contents']
-                      : [];
-            expect(writePermissions, `${name} must retain least-privilege writes`).toEqual(expectedWritePermissions);
+            // No workflow here writes: the publishers (contents: write) moved to the
+            // public data repository and CodeQL (security-events: write) cannot
+            // upload results on a private repository without paid Code Security.
+            expect(writePermissions, `${name} must retain least-privilege writes`).toEqual([]);
             for (const runner of source.matchAll(/^\s*runs-on:\s*([^\s#]+)\s*$/gm)) {
                 expect(runner[1], `${name} runner`).toBe('ubuntu-24.04');
             }
@@ -212,7 +204,8 @@ describe('public-beta release gate contract', () => {
     });
 
     it('deterministically installs and verifies every active nested production package', () => {
-        const workflow = read('.github/workflows/ci.yml');
+        // packages.yml since 2026-10: run when their own files change, and weekly.
+        const workflow = read('.github/workflows/packages.yml');
         const requiredJobs = [
             {
                 job: 'ais-ingest',
@@ -395,10 +388,12 @@ describe('public-beta release gate contract', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
         const runner = read('scripts/run-lighthouse-audit.mjs');
         const ci = read('.github/workflows/ci.yml');
-        const lighthouse = read('.github/workflows/lighthouse.yml');
         const preview = read('.github/workflows/preview-smoke.yml');
 
-        for (const workflow of [ci, lighthouse]) {
+        // Lighthouse runs in the quick CI on every push; the pull-request-only
+        // duplicate (lighthouse.yml) was removed in 2026-10.
+        expect(existsSync(join(root, '.github/workflows/lighthouse.yml'))).toBe(false);
+        for (const workflow of [ci]) {
             expect(workflow).toContain('VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}');
             expect(workflow).toContain('VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}');
             expect(workflow).toContain('VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}');
@@ -420,7 +415,6 @@ describe('public-beta release gate contract', () => {
         expect(runner).toContain('spawn(process.execPath, [viteCli');
         expect(runner).not.toContain("spawn('npm'");
         expect(runner).toContain("'--strictPort'");
-        expect(lighthouse).not.toContain('pull-requests: write');
         expect(preview).not.toContain('statuses: write');
         expect(gate).toContain('CI production builds require the complete public client configuration');
         expect(gate).toContain('release workflows keep read-only repository permissions');

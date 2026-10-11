@@ -2,11 +2,13 @@ version: 2
 
 updates:
     # npm dependencies
+    # Monthly since 2026-10: every update pull request runs the quick CI, and on
+    # a private repository those minutes are billed. Security updates are not
+    # affected by this schedule; Dependabot raises them as soon as they exist.
     - package-ecosystem: 'npm'
       directory: '/'
       schedule:
-          interval: 'weekly'
-          day: 'monday'
+          interval: 'monthly'
       # The repo's default (and only) branch — 'main' here silently killed
       # every npm update PR because the branch doesn't exist.
       target-branch: 'master'
@@ -43,8 +45,7 @@ updates:
     - package-ecosystem: 'github-actions'
       directory: '/'
       schedule:
-          interval: 'weekly'
-          day: 'monday'
+          interval: 'monthly'
       labels:
           - 'ci'
           - 'dependencies'
