@@ -53,7 +53,7 @@ jobs:
                     browser-tests/desk-wind-layout.spec.ts components/map/MapboxVelocityOverlay.tsx \
                     components/map/windRamp.ts components/map/CloseInWindLayer.ts \
                     tests/windRamp.test.ts tests/MapboxVelocityOverlayLifecycle.test.tsx \
-                    tests/helpers/colourScience.ts src/leaflet-velocity-ts.d.ts \
+                    tests/helpers/colourScience.ts \
                     .github/workflows/full-checks.yml .github/workflows/ios-testflight.yml
                   node --input-type=module <<'NODE'
                   import {readFileSync,writeFileSync} from 'node:fs';
