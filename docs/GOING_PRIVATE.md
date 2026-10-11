@@ -90,7 +90,7 @@ so every job takes roughly twice as long. After the free minutes, Linux costs ab
 | Hosted Deploy Smoke Test       | after each Vercel deployment of master                                                     | ~350                        |
 | LINZ notices                   | every 6 hours                                                                              | ~150–250                    |
 | **Total**                      |                                                                                            | **~4,100–4,200 ≈ US$12–15** |
-| iOS TestFlight (Mac, separate) | when you run it                                                                            | ~US$2–2.50 a build          |
+| iOS TestFlight (Mac, separate) | when you run it                                                                            | ~US$0.60–1 a build          |
 
 These are estimates scaled from the public repository's run times. Check **Settings → Billing** after the first week.
 The two biggest levers:
