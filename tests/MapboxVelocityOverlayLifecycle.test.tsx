@@ -1772,6 +1772,7 @@ describe('MapboxVelocityOverlay palette', () => {
         );
         await waitFor(() => expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 1));
         expect(optionsOf(before).colorScale).toEqual(WIND_PARTICLE_COLORS_LIGHT);
+        expect(optionsOf(before)).toMatchObject({ particlelineWidth: 2 });
         const div = () => mapbox.container.firstElementChild as HTMLElement;
         expect(div().style.filter).toContain('rgba(255, 255, 255');
 
@@ -1800,6 +1801,7 @@ describe('MapboxVelocityOverlay palette', () => {
         );
         await waitFor(() => expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 2));
         expect(optionsOf(before + 1).colorScale).toEqual(WIND_PARTICLE_COLORS);
+        expect(optionsOf(before + 1)).toMatchObject({ particlelineWidth: 1 });
         expect(div().style.filter).toContain('rgba(0, 0, 0');
         view.rerender(
             <MapboxVelocityOverlay
@@ -1833,6 +1835,7 @@ describe('MapboxVelocityOverlay palette', () => {
         );
         await waitFor(() => expect(mocks.leaflet.velocityLayer.mock.calls.length).toBe(before + 1));
         expect(optionsOf(before).colorScale).toEqual(WIND_PARTICLE_COLORS);
+        expect(optionsOf(before)).toMatchObject({ particlelineWidth: 1 });
         expect((mapbox.container.firstElementChild as HTMLElement).style.filter).toBe(
             'drop-shadow(0 0 0.75px rgba(0, 0, 0, 0.55))',
         );
