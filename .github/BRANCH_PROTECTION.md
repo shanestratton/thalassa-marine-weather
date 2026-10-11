@@ -15,7 +15,10 @@ it before building a release.
 
 ## Habits that stand in for protection
 
-- **Before a TestFlight upload, run Full checks** on the branch you will build and wait for green.
+- **Before a TestFlight upload**, the commit you build should have **CI** and **Full checks** both green on that exact
+  commit. Full checks alone skip lint, formatting, the bundle check and Lighthouse; CI alone skips the unit tests and
+  E2E. CI skips documentation-only commits and cancels superseded runs, so run it by hand (**Run workflow**) if the
+  commit has no CI result.
 - Don't force-push `master`. A planned history rewrite is the exception; see `docs/GOING_PRIVATE.md` first.
 
 ## If you move to GitHub Pro

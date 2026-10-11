@@ -542,6 +542,53 @@ check(
         pkg.scripts?.['ship:beta']?.includes('npm run check:bundle') &&
         pkg.scripts?.['ship:beta']?.includes('npm run lint:routes'),
 );
+const fullChecksPlanJob = workflowJobSource(fullChecksWorkflow, 'plan');
+const fullChecksUnitJob = workflowJobSource(fullChecksWorkflow, 'unit');
+const fullChecksE2eJob = workflowJobSource(fullChecksWorkflow, 'e2e');
+const fullChecksBrowserJob = workflowJobSource(fullChecksWorkflow, 'browser-regressions');
+// The 2026-10 split moved the slow suites off every push. Pin that they still
+// run somewhere, completely, so a later "save minutes" edit cannot quietly drop
+// the only E2E and layout coverage with everything else green.
+check(
+    'quick checks gate every push; the full suites stay scheduled, dispatchable and complete',
+    includesAll(ciWorkflow, ['\n    push:', '\n    pull_request:', '\n    workflow_dispatch:']) &&
+        !/^ {8}if:/m.test(primaryCiJob) &&
+        includesAll(primaryCiJob, [
+            'run: npm run build',
+            'tests/noProtectedChartData.test.ts',
+            'tests/retiredChartFixtures.ledger.test.ts',
+        ]) &&
+        (pkg.scripts?.build ?? '').includes('tsc && vite build') &&
+        includesAll(fullChecksWorkflow, [
+            "- cron: '23 16 * * 1-6'",
+            "- cron: '23 16 * * 0'",
+            '\n    workflow_dispatch:',
+        ]) &&
+        includesAll(fullChecksPlanJob, ['if [ "$EVENT" != workflow_dispatch ]; then', 'unit=true', 'browsers=true']) &&
+        fullChecksUnitJob.includes('npx vitest run --reporter=verbose --coverage') &&
+        includesInOrder(fullChecksE2eJob, [
+            'run: npm ci',
+            'run: npm run build',
+            'npx playwright install --with-deps chromium webkit',
+            'npx playwright test --project=chromium --project=mobile-safari',
+        ]) &&
+        includesAll(fullChecksBrowserJob, [
+            'shard: 1/3',
+            'shard: 2/3',
+            'shard: 3/3',
+            'suite: plan-your-day',
+            '--config playwright.keyboard.config.ts --shard=${{ matrix.shard }}',
+            '--config playwright.day-planner.config.ts',
+        ]) &&
+        [
+            [fullChecksUnitJob, 'unit'],
+            [fullChecksE2eJob, 'browsers'],
+            [fullChecksBrowserJob, 'browsers'],
+        ].every(
+            ([job, output]) =>
+                (job.match(/^ {8}if:.*$/gm) ?? []).join('\n') === `        if: needs.plan.outputs.${output} == 'true'`,
+        ),
+);
 check(
     'CI production builds require the complete public client configuration',
     [ciWorkflow, fullChecksWorkflow].every(

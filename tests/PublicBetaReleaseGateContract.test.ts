@@ -87,6 +87,9 @@ describe('public-beta release gate contract', () => {
         const timeoutMinutes = Number.parseInt(workflow.match(/^\s*timeout-minutes:\s*(\d+)\s*$/m)?.[1] ?? '', 10);
 
         expect(gate).toContain('ciTimeoutMinutes >= 45');
+        expect(gate).toContain(
+            'quick checks gate every push; the full suites stay scheduled, dispatchable and complete',
+        );
         expect(timeoutMinutes).toBeGreaterThanOrEqual(45);
     });
 

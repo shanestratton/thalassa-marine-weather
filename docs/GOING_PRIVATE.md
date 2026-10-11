@@ -57,7 +57,8 @@ anything looks wrong.
 5. **Make it private:** **Settings → General → Danger Zone → Change repository visibility → Make private.**
 6. **Afterwards:**
     - Run the step 2 layer and source checks again.
-    - Push something small and confirm Vercel still deploys.
+    - Push something small and confirm Vercel still deploys, and that its **Hosted Deploy Smoke Test** actually starts
+      and passes (it uses a GitHub environment, which Free private repositories handle differently).
     - Start one Claude session to confirm it can still open the repository.
     - Give each machine that pulls the code its token (next section). While the repository was public, `git pull` never
       asked for one, so this is the first time it can be tested.
@@ -146,4 +147,5 @@ GitHub Free private repositories also lose:
 
 - branch protection and required checks (`.github/BRANCH_PROTECTION.md`);
 - CodeQL code scanning;
-- GitHub's secret scanning and push protection. The repository's own client-secret scan in every build still runs.
+- GitHub's secret scanning and push protection. After the flip nothing scans commits for secrets: the repository's
+  client-secret scan only protects the built app it ships.

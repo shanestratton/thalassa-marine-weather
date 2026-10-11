@@ -135,6 +135,16 @@ jobs:
               working-directory: supabase/functions
               run: deno test */*_test.ts
 
+            # The full unit suite runs nightly (full-checks.yml). These few seconds
+            # of guards run on every push: the chart-licence guard (licensed chart
+            # data must never be committed, private repository or not) and the
+            # release contracts that pin this CI and the marine data path.
+            - name: Guard tests (chart licence and release contracts)
+              run: >-
+                  npx vitest run tests/noProtectedChartData.test.ts tests/retiredChartFixtures.ledger.test.ts
+                  tests/MarineReleaseSourceGates.test.ts tests/PublicBetaReleaseGateContract.test.ts
+                  tests/ReleaseAssetProxy.test.ts
+
             - name: Build
               # Keep CI on the same production path used for releases. This
               # includes the pre/post-build client-secret scans in package.json.

@@ -1,10 +1,11 @@
 name: Full checks
 
 # The slow suites, off the per-push path (ci.yml runs the quick checks):
-#   - every night: the unit tests with coverage, when master changed that day;
+#   - every night: the unit tests with coverage, unless this exact commit
+#     already passed them;
 #   - Sunday night: everything: the unit tests, the two-browser E2E against the
 #     built app, and the daylight/keyboard/split-pane and Plan Your Day
-#     regressions (skipped when nothing changed all week);
+#     regressions (each skipped if this exact commit already passed it);
 #   - Run workflow: everything, on the chosen branch. Do this before a
 #     TestFlight upload.
 # Times are UTC; 16:23 UTC is 02:23 in Brisbane the next morning.
@@ -25,33 +26,42 @@ jobs:
     plan:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
+        permissions:
+            contents: read
+            actions: read
         outputs:
             unit: ${{ steps.plan.outputs.unit }}
             browsers: ${{ steps.plan.outputs.browsers }}
         steps:
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  persist-credentials: false
-
+            # Decide by "has this exact commit already passed here", not by commit
+            # date: a commit can be pushed days after it was made. Any doubt (an
+            # API error, no earlier run) runs the tests.
             - name: Decide what to run
               id: plan
               env:
+                  GH_TOKEN: ${{ github.token }}
                   EVENT: ${{ github.event_name }}
                   SCHEDULE: ${{ github.event.schedule }}
               run: |
                   set -euo pipefail
-                  age_hours=$(( ( $(date +%s) - $(git log -1 --format=%ct) ) / 3600 ))
-                  unit=false
-                  browsers=false
-                  if [ "$EVENT" = workflow_dispatch ]; then
-                      unit=true
-                      browsers=true
-                  elif [ "$SCHEDULE" = '23 16 * * 0' ]; then
-                      if [ "$age_hours" -lt 170 ]; then unit=true; browsers=true; fi
-                  elif [ "$age_hours" -lt 26 ]; then
-                      unit=true
+                  passed() {
+                      local ids shas="" id
+                      ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/full-checks.yml/runs?branch=master&status=success&per_page=30" \
+                          --jq '.workflow_runs[].id') || return 1
+                      for id in $ids; do
+                          shas+=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs" \
+                              --jq ".jobs[] | select(.name == \"$1\" and .conclusion == \"success\") | .head_sha") || return 1
+                          shas+=$'\n'
+                      done
+                      grep -qxF "$GITHUB_SHA" <<<"$shas"
+                  }
+                  unit=true
+                  browsers=true
+                  if [ "$EVENT" != workflow_dispatch ]; then
+                      if passed unit; then unit=false; fi
+                      if [ "$SCHEDULE" != '23 16 * * 0' ] || passed e2e; then browsers=false; fi
                   fi
-                  echo "Last commit ${age_hours} h ago: unit tests $unit, browser suites $browsers" | tee -a "$GITHUB_STEP_SUMMARY"
+                  echo "Commit ${GITHUB_SHA:0:12}: unit tests $unit, browser suites $browsers" | tee -a "$GITHUB_STEP_SUMMARY"
                   echo "unit=$unit" >> "$GITHUB_OUTPUT"
                   echo "browsers=$browsers" >> "$GITHUB_OUTPUT"
 
