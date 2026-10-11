@@ -11,6 +11,26 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
+## Current upstream reconciliation for scene preparation
+
+Cleaned master advanced normally from `59c5f7eae` to
+`b8ef21d96a699a240b0378db7d7fcdc0e93810cd`, adding the radar rendering fix and
+GitHub-hosted TestFlight workflow. The isolated branch incorporates the six-path
+upstream delta without conflicts or rewriting published history; master and the
+primary checkout are unchanged. The four scene-preparation source hashes remain
+identical to local slice `6886a4cd90d8175476fb6bea0b46e86996a75b17`.
+
+The [focused reconciliation record](../experiments/scuttlebutt-e2ee/review/scene-upstream-reconciliation-2026-10-11.json)
+passed **53/53 cases** across workflow, release-contract, build-scope and protected
+chart-data suites, with 0/120,000 ms shared waiting. Its runner pins 13 explicit
+inputs, not a complete transitive source inventory. Receipt SHA-256 is
+`7e79c10cd04ef0e585f3453c0179b3aa24f8bae2ba0f6fd2818c1fd9d2abb315`.
+No TestFlight distribution, full App build or encryption execution accompanied
+this reconciliation. The changed canvas is an App dependency: the previous
+web/Window/full-App acceptance remains historical for its old combined graph.
+Refresh current web inputs before a new full-App lifecycle run; scene-only
+preparation checks cannot establish acceptance of the changed App.
+
 ## Passive scene observer preparation on 11 October
 
 The [scene observer preparation](../experiments/scuttlebutt-e2ee/review/scene-observer-preparation-2026-10-11.json)

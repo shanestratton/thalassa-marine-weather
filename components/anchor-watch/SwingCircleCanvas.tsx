@@ -500,6 +500,10 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({
                 ctx.fillText('⚓', ax, ay);
             }
 
+            // Leave no DPR transform for WebKit's compositing/snapshot path.
+            // Each draw sets it above; resetting now does not change drawn pixels.
+            ctx.resetTransform();
+
             // Continue animation loop
             rafId = requestAnimationFrame(draw);
         };

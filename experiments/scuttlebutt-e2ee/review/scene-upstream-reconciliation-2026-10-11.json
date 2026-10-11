@@ -1,0 +1,50 @@
+{
+    "schemaVersion": 1,
+    "kind": "scene-preparation-upstream-reconciliation",
+    "recordedDate": "2026-10-11",
+    "branch": "codex/scuttlebutt-e2ee-integration-clean-2026-10-11",
+    "localScenePreparationCommit": "6886a4cd90d8175476fb6bea0b46e86996a75b17",
+    "previousUpstream": "59c5f7eae52adde3cadc40d864ee979af15ab274",
+    "newUpstream": "b8ef21d96a699a240b0378db7d7fcdc0e93810cd",
+    "upstreamIsForwardExtensionOfCleanedHistory": true,
+    "conflicts": [],
+    "upstreamDelta": [
+        ".github/workflows/ios-testflight.yml",
+        "components/anchor-watch/SwingCircleCanvas.tsx",
+        "docs/IOS_TESTFLIGHT_CI.md",
+        "scripts/check-beta-readiness.mjs",
+        "tests/IosTestflightWorkflow.test.ts",
+        "tests/PublicBetaReleaseGateContract.test.ts"
+    ],
+    "scenePreparationSummarySha256": "e36a0bbf868c69ce1a4053906607fb4b066063a9913c0de3fcbfc1f1bb8425b9",
+    "sceneSourceInputCount": 4,
+    "sceneSourceHashesUnchanged": true,
+    "focusedChecks": {
+        "receiptPath": "/private/tmp/thalassa-scene-reconciliation.v6NV1T/checks-receipt.json",
+        "receiptSha256": "7e79c10cd04ef0e585f3453c0179b3aa24f8bae2ba0f6fd2818c1fd9d2abb315",
+        "suites": [
+            "tests/ProductionBuildScope.test.ts",
+            "tests/noProtectedChartData.test.ts",
+            "tests/IosTestflightWorkflow.test.ts",
+            "tests/PublicBetaReleaseGateContract.test.ts"
+        ],
+        "passedCases": 53,
+        "failedCases": 0,
+        "explicitRunnerInputHashCount": 13,
+        "completeTransitiveSourceInventoryClaimed": false,
+        "sharedWaitMs": 0,
+        "sharedWaitBudgetMs": 120000,
+        "scope": "Focused static/synthetic workflow, production build scope and protected-chart contracts; not CI deployment, TestFlight or encryption acceptance."
+    },
+    "acceptanceScope": {
+        "newScenePreparationStillUnwired": true,
+        "newFullAppWebOrWindowBuildExecuted": false,
+        "newNativeAppOrOsLifecycleExecuted": false,
+        "previousFullAppProofIsHistoricalForChangedCombinedAppGraph": true,
+        "nextFullAppDriverRequiresFreshCurrentWebInputs": true,
+        "humanDevicesOrProductionChanged": false,
+        "masterPushed": false,
+        "independentSecurityAssessment": false,
+        "mergeReady": false
+    }
+}

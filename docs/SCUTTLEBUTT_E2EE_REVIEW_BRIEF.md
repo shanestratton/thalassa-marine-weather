@@ -183,6 +183,14 @@ validation corrected Foundation normalization without broadening ownership or
 reuse. Scene wiring, actual OS transitions, native Documents-root execution and
 all physical/release gates remain open. Existing app/runtime sources are unchanged.
 
+The separate [upstream reconciliation](../experiments/scuttlebutt-e2ee/review/scene-upstream-reconciliation-2026-10-11.json)
+incorporates cleaned master `b8ef21d96`, including its canvas and TestFlight-workflow
+changes. The four observer preparation sources remain byte-identical, and 53
+focused workflow/build-scope/chart-data cases passed. No full-App build or new
+encryption execution ran: previous combined-App acceptance is historical for its
+earlier graph, and a later lifecycle run must refresh current web inputs. No
+master push, primary sync or distribution accompanied this isolated merge.
+
 The new ordinary text-only native port shares the existing Research Auth host,
 requires a complete confirmed native peer snapshot, and preserves original-owner
 publication checks. Its explicit screen performs one bounded scan on Refresh,
