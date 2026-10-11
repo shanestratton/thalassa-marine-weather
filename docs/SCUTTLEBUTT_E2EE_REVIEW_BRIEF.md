@@ -89,6 +89,23 @@ before native execution. Earlier startup acceptance remains historical, not
 current protected-exchange acceptance. Physical, lifecycle/prekey/recovery,
 production cutover, licence/provenance and independent-assessment gates remain open.
 
+The later [fresh cached-provider bootstrap](../experiments/scuttlebutt-e2ee/review/cached-provider-bootstrap-2026-10-11.json)
+now records current Swift compilation, 18 completed native simulator phases,
+112 coordinator assertions and a three-message native/local-SQL exchange with
+exact retries, tamper refusal and database reopen. The exact non-secret receipt
+is preserved with all 38 source hashes and explicit false provenance, live-Auth
+and physical-device flags. It establishes neither HTTPS transport nor release.
+Its transport is local file IPC and
+Auth is synthetic; the three known canaries were absent from decision rows,
+not necessarily every storage or memory surface. The separate 110 schema tests,
+strict types and named checks do not replace native execution or an audit.
+The original missing exchange receipt was not reconstructed, and no full-App
+gate was weakened. An explicit new prerequisite consumer and fresh completed
+HTTPS exchange are next; the eleven native-v4 paths remain unpublished. Failure
+diagnostics need an operation snapshot before cleanup overwrites the driver's
+last-operation fields. This known reporting limitation does not promote any
+remaining release gate.
+
 The new ordinary text-only native port shares the existing Research Auth host,
 requires a complete confirmed native peer snapshot, and preserves original-owner
 publication checks. Its explicit screen performs one bounded scan on Refresh,

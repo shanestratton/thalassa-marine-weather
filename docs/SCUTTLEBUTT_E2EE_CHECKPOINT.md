@@ -11,6 +11,79 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
+## Fresh cached provider execution on 11 October
+
+The [new bootstrap receipt](../experiments/scuttlebutt-e2ee/review/cached-provider-bootstrap-2026-10-11.json)
+records fresh Swift compilation and **18 completed native phases** in a newly
+owned iOS 27.0 simulator. The current 21 Swift inputs were compiled against the
+four hash-matching historical vodozemac artifacts. Native coordinator replay
+reported **112 assertions**; the separate native-to-local-SQL scenario exchanged
+three actual Olm messages, retained three decisions and eight requests, verified
+exact retries and signature-tamper refusal, then reopened the database. The
+provider/store/coordinator process restarts are real simulator operations; relay
+transport in this bootstrap uses local file IPC, not HTTPS. Auth responses are
+synthetic. The three known plaintext canaries were absent from decision rows;
+that is not a general storage, memory or logging privacy proof.
+
+The accepted receipt is preserved byte-identically, SHA-256
+`372a05bd5b04efcea1574fcd2471d450f42242dcfeed47dca4498460f6c110f3`.
+Its original location is
+`/private/tmp/thalassa-provider-bootstrap-usJKDP/provider-bootstrap-receipt.json`.
+Independent current measurements matched all 38 frozen source inputs, the four
+provider artifacts, signed executable and pinned PGlite archive. The fixed
+120-second System Settings control returned an exact positive PID before the
+unchanged 30-second Research launch bound. Cleanup uninstalled the owned app,
+closed its local relay and deleted its exact simulator; a subsequent inventory
+confirmed that simulator's ID and name absent. Shared-slot waiting was
+**0/120,000 ms** across this run. Human devices, hosted actors, primary targets,
+production and master were untouched.
+
+The [final local verification receipt](../experiments/scuttlebutt-e2ee/review/cached-provider-checks-2026-10-11.json)
+records **110/110 synthetic contract tests**, narrow strict types, new-file lint
+with zero warnings, syntax and formatting passing. These schema tests are
+separate from native execution, not 110 encryption tests. The bridge retained
+three pre-existing `console.log` warnings and zero lint errors; its only change
+returns fixed execution facts after the existing assertions and database reopen.
+The tests ran again after widening only the mutable synthetic artifact digest
+type; the two runs are not an aggregate 220-case acceptance claim. Final test
+source SHA-256 is
+`971082d557b912a75086d54b158fb9c4725302fc76234beee0b415b20a0edab8`.
+Final verification receipt SHA-256 is
+`961289726efca009cb3e8d1cc1aff04f4a8c3dfd9b51ca98550f21278e4522cd`.
+
+Two failed initializer preflights remain private at
+`/private/tmp/thalassa-provider-bootstrap-ryxeYp/attempt-receipt.json`
+(SHA-256 `f388c7aef0fa48e9d381f6596bd76bafc464f953fb9db2ff4b6204166d68f2e9`)
+and `/private/tmp/thalassa-provider-bootstrap-4KdYVq/attempt-receipt.json`
+(SHA-256 `216a2713ab9c1d16dd702c7699d27e5efe8b3b249bd4a6d4d976bb75d22cd7fc`).
+Both stopped before compilation, signing, installation or native phases. macOS
+adds a non-secret CoreFoundation text-encoding triplet even after `env -i`; the
+driver now accepts only that optional numeric triplet alongside its three fixed
+environment keys, not `NODE_OPTIONS`, loader or simulator-child overrides.
+The initial lint refusal and subsequent synthetic-test type error are preserved
+in `verification-receipt.json` and `verification-final-receipt.json` under
+`/private/tmp/thalassa-provider-inputs.8NgiKL`, with hashes
+`b93bdf3fda1d1b64bd13edf7e8bb78770ca6b060d38c8ee6b4c61a8adfe2c460`
+and `8c4e7605cbd9f3a308a40028a84b03daa03f26f3ecf8b2307640c90f67dbd252`.
+
+This is **fresh execution of cached provider binaries**, not a fresh Rust build
+or source-to-binary provenance. It neither recovers nor reconstructs the missing
+historical completed-exchange receipt. The existing completed-HTTPS-exchange
+gate remains unchanged. Next add explicit validation of this new prerequisite
+to a bounded, privacy-preserving current-runtime exchange runner and execute all
+of its real HTTPS/SQL phases in fresh owned inputs. Do not rename this receipt
+as an old run marker or bypass the downstream exchange gate. The bootstrap
+driver's failure reporting also needs to snapshot its operation/exit/timeout
+before cleanup can overwrite those diagnostics; this does not change the
+accepted run's completed-phase evidence.
+
+All eleven native-v4 fixture/harness WIP paths still match their previous hashes
+and remain unstaged and unpublished. Current protected full-App native build and
+exchange, current physical acceptance, lifecycle/prekey/retention/recovery,
+production cutover, dependency/licence/provenance and independent security
+assessment remain open. Experimental E2EE stays disabled in ordinary builds and
+live chat; master is not ready to merge on this evidence.
+
 ## Website build repair on 11 October
 
 Shane approved repair of the ordinary Vercel build after actual logs showed
@@ -3894,7 +3967,10 @@ attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: extend the bounded native-to-hosted acceptance above into the actual app,
+Next: complete the fresh local HTTPS exchange prerequisite using the explicitly
+validated cached-provider bootstrap above, then compile and execute the current
+full-App protected native fixture. Extend the bounded native-to-hosted acceptance
+above into the actual app,
 and connect native durable selection
 to main-app cold-start denial. Native controls alone do not close that boundary.
 Apply actual legacy-table

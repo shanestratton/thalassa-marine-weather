@@ -182,6 +182,18 @@ export async function createNativeRelayBridge({ archivePath, scratch }) {
                 console.log(
                     'PASS native ↔ PostgreSQL: 3 actual Olm messages, process restarts, exact retries, tamper refusal and database reopen',
                 );
+                // Execution facts only, returned after every assertion and the
+                // actual database reopen. Never a device/send permission.
+                return Object.freeze({
+                    messages: cycles,
+                    decisions: before,
+                    requests: 8,
+                    databaseReopens: 1,
+                    exactRetriesDeduplicated: true,
+                    tamperingRefused: true,
+                    plaintextCanariesAbsent: true,
+                    freshAuthChecked: true,
+                });
             }
         },
         async close() {

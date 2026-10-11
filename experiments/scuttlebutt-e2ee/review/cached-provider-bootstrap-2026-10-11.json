@@ -1,0 +1,321 @@
+{
+  "schemaVersion": 1,
+  "kind": "cached-provider-native-bootstrap",
+  "status": "passed",
+  "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+  "bundle": "app.thalassa.research.vodozemac.d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+  "cacheRoot": "/private/tmp/thalassa-provider-bootstrap-usJKDP/cache",
+  "providerPin": {
+    "version": "0.11.0",
+    "uniffiVersion": "0.29.4",
+    "protocol": "olm-v1",
+    "manifestSha256": "8cef57a4b945989302db94361bb03df46157e9c305862232dd9d59379ed610d9",
+    "lockfileSha256": "5788c45d3bd629c4640f88c5b533484c89d39029674a02bce0301597e6fe50f7"
+  },
+  "node": {
+    "version": "v24.21.0",
+    "execPath": "/opt/homebrew/Cellar/node@24/24.21.0_2/bin/node",
+    "sha256": "798d7f9c0d38051608d11ba87a12fbb01e92bfa457cd77ec612b5bad2a73a05e"
+  },
+  "sourceHashes": {
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacSealedStore.swift": "08a8c821035eca23e5730006c6c8989221eeb292e8637c14960d5444945e352f",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacSealedStoreProbe.swift": "0158c35fe06ecd0baa37323c4bf5b44795c8bff40cfa7605c52ae8a2c07313b5",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacDmFrame.swift": "f584998cd8e0cdc0ae6e22557b6d01e20a3081596f7198996a2a12c6699d7887",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacDmFrameProbe.swift": "379c7592f192e3452fbcf682ed4db19b9a529e9d193bb7bf536a49cdb3c9ce03",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacDmCoordinator.swift": "690d8ee170f9aed212317eb76d8d51cd930c3e18832012c11a7164062464b489",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacMessageOperations.swift": "bb6101fcc468ccee3c52c5d23c70e9ebf51785e9771610a9d7ba07c1caab56d9",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayTransport.swift": "32522d35d2b009a6ab4ffa63b1ee8a099f6cd8253efb46aa2f11eff7e13c02fe",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayPolicy.swift": "1ff34288ffe3f92733effd1540858e50048d313ee36248ab1f4c7abe4cd1db5e",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayResult.swift": "5603d96eee328194c8bd73990027cacc5f68d474a9b49ae0d90501d21e287e26",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacSupabaseAuth.swift": "103cfe325fcd57342e8c5b0fe9601acfa6441977f860a8d499af193f195adc10",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacAuthSession.swift": "1db48cad76d4d4b1bc6c958fab675a8b9cafcc8ea771a2d2aaccadf2ecb243fe",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacAuthProbe.swift": "e3b1d86811f2fdedaed397b3011acea4c14b824235c18c3fac46173a6678cbd7",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacAccountDirectory.swift": "8d229dd4e68b61e72c071440b2f70eb3a0c60cb25465e4e2daa30a4bbd49181b",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacSessionFacade.swift": "d53cbd065d4b3ba5cae11ded3284d5f3703fc8c9aa1522e7c0c2772d5dbc2dcc",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacAccountDirectoryProbe.swift": "f5eeae2803e56f4a51ff50c19dab2b4a7e566c5bfde31622763ad9c8636464cd",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayCodec.swift": "b1ff7f6df1988bcde00dbd21ba571f1060d683d60624778c9e55bf7b19f340ec",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayProbe.swift": "d80408faac937775ec93c4b7811da4ec09b015037d6c902503cbb32cd5a4db59",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacResearchCleanup.swift": "7746acb45fc789cb603d73a48d9e585c15c09953906d6cea3110f18fb3a9d176",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacDmCoordinatorProbe.swift": "aab199712b27347388b2db71616c002688642b5de16407962cbd1e642706dccf",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacDmRestartProbe.swift": "2bb2ac2c18c7089ddedf44b2d5cb049ecdab719b071d0bc6674e90b7bf678246",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacNativeProbe.swift": "fdde9a3986a8b389ebaed6240f051b1d955423caafabf8b8a39226740699e67b",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/cachedProviderBootstrap.mjs": "87de9f2f818e1741d826b2e81b1bbbf9623e8409263a8c7f99eab24e189f96f3",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/nativeProviderBootstrapContract.mjs": "17b547f7c423248255f727bb89edea605c294a93b323c3f7dccf8c229996e569",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/bridge-native/machOEntitlementEvidence.mjs": "5c84c1f38049420b0a3137d31834bffbe084b61e6d331105cc7cb0efc5df3040",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/vodozemac-native-pin.json": "3422addbe54f093263a5a361cd46754b640af79837796825af8f99e42377842c",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/vodozemac-pin.json": "fba58e10d8a4f77b54f0d71c7fd04f1e4a71c5616935ceeef2ba4f8c0ef0f3e6",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/vodozemac-native/Cargo.toml": "8cef57a4b945989302db94361bb03df46157e9c305862232dd9d59379ed610d9",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/vodozemac-native/Cargo.lock": "5788c45d3bd629c4640f88c5b533484c89d39029674a02bce0301597e6fe50f7",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/relay/nativeRelayBridge.mjs": "9e34d54c01d64ac365addba966e0e4bc91f2a64652614a790960a1d960518487",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/relay/gateway.ts": "3f7e546ad5a49a220b4af7a0dc56209c3460f31f290cc5f0e307c770a745a64a",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/relay/signedGateway.ts": "4f00091333257d90208db3757857ec4e3e6867f81fccd355f538e18beb1e29d6",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/relay/signedRequest.ts": "ff297d8502f53067821a93e8deeda07cd9ec22ca460ee1670c98535337140e84",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/relay/supabaseAuth.ts": "4d5e3378e8ad7b0c63b5565cc36a1cfb8338a27d3d353db32429c56523c17b1b",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/relay/deviceBundle.ts": "37f529632bbd364860a926ea8253517bd3a56bac37d21d3623b2013b4fedbd0f",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/relay/relay.sql": "15236d599574be3a087859b4ff60ba4acb2b0ed89559def4de6aa9cc5c933c01",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/relay/pglite-pin.json": "bc2cb4052bded220e41ecc9d12448df0b0ed9447664390e03d99bc759389c31c",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/services/chat/e2ee/directMessageEnvelope.ts": "0261897560058dd36830e0b5a1bfd7d40aeded64aa638ed2e8a2bc528a164fdf",
+    "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/services/chat/e2ee/encryptedDmDelivery.ts": "cc138ba7d91983057205ee68c523ff73e67aba4a24ee52eb0664dedfb85bbfe2"
+  },
+  "cacheArtifacts": [
+    {
+      "path": "/private/tmp/thalassa-provider-bootstrap-usJKDP/cache/target/aarch64-apple-ios-sim/debug/libthalassa_vodozemac_native.a",
+      "sha256": "ce81b9cf0723a108c42f8eb2bd03f001aa4800739000aac525dd7e03461d8c0f"
+    },
+    {
+      "path": "/private/tmp/thalassa-provider-bootstrap-usJKDP/cache/bindings/thalassa_vodozemac_native.swift",
+      "sha256": "f26c6256b43c383209f9d8da64afe2c87ea84cd647a312a9be322d4f403fa62e"
+    },
+    {
+      "path": "/private/tmp/thalassa-provider-bootstrap-usJKDP/cache/bindings/thalassa_vodozemac_nativeFFI.h",
+      "sha256": "e135cfea1701a0e760f6741edd7c848f8197907cdbf2683a2a923742be31fb11"
+    },
+    {
+      "path": "/private/tmp/thalassa-provider-bootstrap-usJKDP/cache/bindings/thalassa_vodozemac_nativeFFI.modulemap",
+      "sha256": "c7d5f877e8d06da086653661f8052ab5fec7d136061edcad1bfcd504ea295f41"
+    }
+  ],
+  "compiled": {
+    "platform": "iphonesimulator",
+    "target": "arm64-apple-ios17.0-simulator",
+    "executable": {
+      "path": "/private/tmp/thalassa-provider-bootstrap-usJKDP/cache/NativeResearch.app/NativeResearch",
+      "sha256": "16f3fe48dac0cc6bc41d5d21f99c805d7718a35f89d740d45394a72b6a5f42b7"
+    },
+    "unsignedBeforeSign": true,
+    "embeddedEntitlements": {
+      "xmlSha256": "ccc9e8176f24279bcc43c06eb8406d27642069209a7c5668cd73b8c84d3a902f",
+      "derSha256": "95465a16ee05a82b46acb3007b07d1734af84ae0e5342151e37450383926b6c4",
+      "measured": {
+        "__entitlements": "ccc9e8176f24279bcc43c06eb8406d27642069209a7c5668cd73b8c84d3a902f",
+        "__ents_der": "95465a16ee05a82b46acb3007b07d1734af84ae0e5342151e37450383926b6c4"
+      }
+    }
+  },
+  "signing": {
+    "performed": true,
+    "signedOnlyOwnedApp": true,
+    "hostCodesignEntitlementsSupplied": false
+  },
+  "runtime": {
+    "requestedRuntimeId": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+    "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+    "runtimeVersion": "27.0",
+    "runtimeBuild": "24A434",
+    "deviceTypeId": "com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation",
+    "observedAvailable": true
+  },
+  "ownedSimulator": {
+    "id": "CDF93C21-1AE9-440C-8289-536C80B4168C",
+    "name": "Thalassa cached provider bootstrap d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+    "createdNew": true,
+    "priorDevicesMutated": false
+  },
+  "controlLaunch": {
+    "bundle": "com.apple.Preferences",
+    "exitStatus": 0,
+    "timedOut": false,
+    "returnedPID": 44077,
+    "boundMs": 120000,
+    "systemAppMetadataChecked": true
+  },
+  "phases": [
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "prepare",
+      "pid": 44216,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "receive",
+      "pid": 44245,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "reply",
+      "pid": 44266,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "verify",
+      "pid": 44286,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "replay",
+      "pid": 44309,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "cleanup",
+      "pid": 44336,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "dm-prepare",
+      "pid": 44372,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "dm-receive",
+      "pid": 44395,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "dm-reply",
+      "pid": 44438,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "dm-verify",
+      "pid": 44515,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "dm-replay",
+      "pid": 44546,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "dm-cleanup",
+      "pid": 44572,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "relay-prepare",
+      "pid": 44612,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "relay-send",
+      "pid": 44637,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "relay-reply",
+      "pid": 44659,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "relay-verify",
+      "pid": 44684,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "relay-replay",
+      "pid": 44712,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    },
+    {
+      "runID": "d3ee813a-76ab-42b5-b0fd-f16c0b999afd",
+      "phase": "relay-cleanup",
+      "pid": 44735,
+      "status": "passed",
+      "stage": "complete",
+      "launchExitStatus": 0,
+      "launchTimedOut": false
+    }
+  ],
+  "coordinatorAssertions": 112,
+  "relay": {
+    "messages": 3,
+    "decisions": 3,
+    "requests": 8,
+    "databaseReopens": 1,
+    "exactRetriesDeduplicated": true,
+    "tamperingRefused": true,
+    "plaintextCanariesAbsent": true,
+    "freshAuthChecked": true
+  },
+  "relayArchive": {
+    "path": "/private/tmp/thalassa-provider-bootstrap-usJKDP/native-relay/pglite.tgz",
+    "sha256": "d71088d246d86e946c5d53b152a23c6b79ee65c8bc43dab69670af53b57c788d",
+    "version": "0.5.8",
+    "integrity": "sha512-n9tsbUOhwx2epK1V0ZG9Ar4SHWUju04dhmzZXiSBXwBoleOvIfals33NAaWgagQVAL4Rbvx/Ptsu3P+pA09f6Q=="
+  },
+  "cleanup": {
+    "appUninstalled": true,
+    "simulatorRemoved": true,
+    "relayClosed": true,
+    "sourcesStable": true,
+    "cacheStable": true,
+    "executableStable": true
+  },
+  "freshRustBuild": false,
+  "sourceBinaryProvenanceProved": false,
+  "independentlyReviewed": false,
+  "liveAuth": false,
+  "physicalDeviceExecution": false,
+  "productionTouched": false,
+  "humanDevicesChanged": false,
+  "hostedActorsChanged": false,
+  "primaryTargetsBuilt": false,
+  "sharedSlotWaitMs": 0
+}

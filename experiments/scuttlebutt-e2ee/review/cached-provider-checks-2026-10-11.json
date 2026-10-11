@@ -1,0 +1,48 @@
+{
+  "status": "passed",
+  "receipt": {
+    "path": "/private/tmp/thalassa-provider-bootstrap-usJKDP/provider-bootstrap-receipt.json",
+    "sha256": "372a05bd5b04efcea1574fcd2471d450f42242dcfeed47dca4498460f6c110f3"
+  },
+  "strictReceiptValid": true,
+  "measuredSources": 38,
+  "artifactAndExecutableHashesMatch": true,
+  "ownedSimulatorAbsent": true,
+  "nativeWipUnchanged": 11,
+  "retiredPathHistoryAbsent": 7,
+  "head": "cfaaea37d6343bcd5b6159c9d463e4b6eb6f352c",
+  "originMaster": "b4cb321167e27c4cf592786bd576abd841e57821",
+  "checks": {
+    "syntax-driver": {
+      "exitCode": 0,
+      "timedOut": false
+    },
+    "syntax-contract": {
+      "exitCode": 0,
+      "timedOut": false
+    },
+    "lint-owned": {
+      "exitCode": 0,
+      "timedOut": false
+    },
+    "lint-existing-bridge": {
+      "exitCode": 0,
+      "timedOut": false
+    },
+    "types": {
+      "exitCode": 0,
+      "timedOut": false
+    },
+    "format": {
+      "exitCode": 0,
+      "timedOut": false
+    },
+    "tests": {
+      "exitCode": 0,
+      "timedOut": false
+    }
+  },
+  "sharedSlotWaitMs": 0,
+  "repeatedNativeExecution": false,
+  "testSourceSha256": "971082d557b912a75086d54b158fb9c4725302fc76234beee0b415b20a0edab8"
+}

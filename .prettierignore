@@ -25,3 +25,9 @@ public/ocean-data/
 # readers parse them from raw text, so reformatting would stop them being the
 # responses the providers actually sent.
 tests/fixtures/buoys/
+
+# Exact non-secret native execution/check receipts, preserved byte-identically
+# to their original measured SHA-256. Their canonical writer uses 2-space JSON;
+# formatting would create different evidence bytes, not a new execution.
+experiments/scuttlebutt-e2ee/review/cached-provider-bootstrap-2026-10-11.json
+experiments/scuttlebutt-e2ee/review/cached-provider-checks-2026-10-11.json
