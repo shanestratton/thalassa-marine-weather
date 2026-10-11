@@ -1,0 +1,373 @@
+name: Thalassa build 127 wire-PNG diagnostic (NOT release proof)
+
+# DIAGNOSTIC ONLY. The workflow and application commit are distinct identities.
+# No Apple secret, source write, release, signing, deployment or Apple upload.
+# The CJS observer only delegates fast-png.decode and retains copied wire bytes
+# in RAM. Private PNG/metadata files are flushed only on ordinary process exit.
+# No added browser action, pause, query, timeout, retry or tracing instrumentation.
+# The complete spec is intentionally revised only for reviewed real Mapbox
+# idle/repaint readiness. Its original acceptance body and thresholds stay pinned.
+on:
+    push:
+        branches: ['codex/testflight-127-capture-diagnostic-2026-10-12']
+        paths: ['.github/workflows/testflight-127-capture-diagnostic.yml']
+
+permissions:
+    contents: read
+
+concurrency:
+    group: testflight-127-wind-capture-diagnostic
+    cancel-in-progress: false
+
+env:
+    CANDIDATE_SHA: 'ec0aaa363493496673f3cfdfe31e82d40813c663'
+    CI: 'true'
+    HUSKY: '0'
+    NODE_OPTIONS: --max-old-space-size=4096
+    PUPPETEER_SKIP_DOWNLOAD: 'true'
+    VITE_APP_BUILD: '127'
+    VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+    VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+    VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+    VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+    VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+    VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+
+jobs:
+    focused-wind:
+        name: diagnostic wire capture (${{ matrix.browser }})
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        strategy:
+            fail-fast: false
+            matrix:
+                browser: [chromium, webkit]
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 'ec0aaa363493496673f3cfdfe31e82d40813c663'
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Assert exact source, original acceptance and reviewed capture helper
+              id: source
+              run: |
+                  set -euo pipefail
+                  printf '%s' "$CANDIDATE_SHA" | grep -qE '^[0-9a-f]{40}$'
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  git merge-base --is-ancestor 6c60882fd39a87a6c00e1a327455903182293baa HEAD
+                  # The configuration stays original; the revised spec blob
+                  # contains only the reviewed capture-readiness integration.
+                  test "$(git rev-parse HEAD:playwright.keyboard.config.ts)" = 4c06d1c48d42f7529904b27f50e2455305d23606
+                  test "$(git rev-parse HEAD:browser-tests/desk-wind-layout.spec.ts)" = be5c5ab28d1a84eff4077f5e47186abcbddd39b6
+                  node --input-type=module <<'NODE'
+                  import { readFileSync } from 'node:fs';
+                  import { createHash } from 'node:crypto';
+                  const numbers=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+                  if (numbers.length!==4 || numbers.some(match=>match[1]!=='127')) throw new Error('Exactly four committed build-127 configurations are required');
+                  if (JSON.parse(readFileSync('package.json','utf8')).version!=='1.2.0') throw new Error('Unexpected marketing version');
+                  const spec=readFileSync('browser-tests/desk-wind-layout.spec.ts','utf8');
+                  const start=spec.indexOf("test('Light: dark streaks"), end=spec.indexOf("test('where the models disagree");
+                  if (start<0 || end<=start) throw new Error('Original acceptance body boundaries are missing');
+                  const target=spec.slice(start,end);
+                  if (createHash('sha256').update(target).digest('hex')!=='ecaf23c3e352d5d2654c6978d36d9ac1689ac6822b684dabe78f92a2b49821a0') throw new Error('The original wind acceptance body changed');
+                  if (!target.includes('test.setTimeout(150_000);')) throw new Error('The original focused test must retain its 150-second budget');
+                  const helper=readFileSync('browser-tests/helpers/chartCaptureReady.ts');
+                  if (createHash('sha256').update(helper).digest('hex')!=='02ffb464cd22d0d8eb3c67c08be3bd96f788328405cb0e6bec5f16a71a69b1e9') throw new Error('The reviewed Mapbox capture-readiness helper changed');
+                  NODE
+                  test "$(git hash-object playwright.keyboard.config.ts)" = "$(git rev-parse HEAD:playwright.keyboard.config.ts)"
+                  test "$(git hash-object browser-tests/desk-wind-layout.spec.ts)" = "$(git rev-parse HEAD:browser-tests/desk-wind-layout.spec.ts)"
+                  test "$(git hash-object browser-tests/helpers/chartCaptureReady.ts)" = "$(git rev-parse HEAD:browser-tests/helpers/chartCaptureReady.ts)"
+                  {
+                      echo "Application commit: $CANDIDATE_SHA; iOS 1.2.0 (127); original b127 is an ancestor."
+                      echo "Workflow definition: $GITHUB_SHA (not the application SHA)."
+                      echo "DIAGNOSTIC ONLY: observer output is not a release acceptance result."
+                      echo "Original acceptance body SHA-256: ecaf23c3e352d5d2654c6978d36d9ac1689ac6822b684dabe78f92a2b49821a0."
+                      sha256sum playwright.keyboard.config.ts browser-tests/desk-wind-layout.spec.ts browser-tests/helpers/chartCaptureReady.ts
+                  } >> "$GITHUB_STEP_SUMMARY"
+            - run: npm ci
+            - name: Prepare static decode-only observer outside the application source
+              id: observer
+              run: |
+                  node --input-type=module <<'NODE'
+                  import {lstatSync, realpathSync, mkdirSync, writeFileSync} from 'node:fs';
+                  import {join, resolve} from 'node:path';
+                  import {createHash} from 'node:crypto';
+                  const runner=process.env.RUNNER_TEMP;
+                  if (!runner || runner!==resolve(runner) || realpathSync(runner)!==runner) throw new Error('Unsafe runner temporary directory');
+                  const stat=lstatSync(runner);
+                  if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid!==process.getuid()) throw new Error('Runner temporary ownership refused');
+                  const captureRoot=join(runner,'wind-captures');
+                  mkdirSync(captureRoot,{mode:0o700});
+                  const source=String.raw`'use strict';
+                  
+                  // Diagnostic observer only: no browser methods, timing controls or file writes
+                  // between PNG measurements. The original decoder receives the exact arguments.
+                  const fs = require('node:fs');
+                  const path = require('node:path');
+                  const crypto = require('node:crypto');
+                  const Module = require('node:module');
+                  const MAX_CAPTURES = 64;
+                  const MAX_WIRE_BYTES = 16 * 1024 * 1024;
+                  const MAX_TOTAL_BYTES = 256 * 1024 * 1024;
+                  const pending = [];
+                  const failures = new Set();
+                  const patched = new WeakSet();
+                  let decodeCalls = 0;
+                  let retainedBytes = 0;
+                  
+                  function assertCaptureRoot() {
+                      const runner = process.env.RUNNER_TEMP;
+                      const chosen = process.env.WIND_CAPTURE_DIR;
+                      if (!runner || runner !== path.resolve(runner) || fs.realpathSync(runner) !== runner ||
+                          !chosen || chosen !== path.join(runner, 'wind-captures')) {
+                          throw new Error('Unsafe capture directory binding');
+                      }
+                      let cursor = chosen;
+                      for (;;) {
+                          const stat = fs.lstatSync(cursor);
+                          if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Capture ancestry is not plain directories');
+                          const parent = path.dirname(cursor);
+                          if (parent === cursor) break;
+                          cursor = parent;
+                      }
+                      const root = fs.lstatSync(chosen);
+                      if (root.uid !== process.getuid() || (root.mode & 0o777) !== 0o700) {
+                          throw new Error('Capture directory is not privately owned');
+                      }
+                      const preload = fs.lstatSync(__filename);
+                      if (!preload.isFile() || preload.isSymbolicLink() || preload.uid !== process.getuid() ||
+                          (preload.mode & 0o777) !== 0o600 ||
+                          __filename !== path.join(runner, 'wind-capture-preload.cjs')) {
+                          throw new Error('Capture preloader is not the private reviewed file');
+                      }
+                      return chosen;
+                  }
+                  const captureRoot = assertCaptureRoot();
+                  const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+                  function snapshotWire(input) {
+                      if (Buffer.isBuffer(input)) return Buffer.from(input);
+                      if (input instanceof ArrayBuffer) return Buffer.from(new Uint8Array(input));
+                      if (ArrayBuffer.isView(input)) return Buffer.from(new Uint8Array(input.buffer, input.byteOffset, input.byteLength));
+                      throw new Error('Unsupported wire buffer');
+                  }
+                  function numeric(value) {
+                      return Number.isSafeInteger(value) && value >= 0 ? value : null;
+                  }
+                  function pngHeader(wire) {
+                      const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+                      if (wire.length < 33 || !wire.subarray(0, 8).equals(signature) ||
+                          wire.subarray(12, 16).toString('ascii') !== 'IHDR') return null;
+                      return {width:wire.readUInt32BE(16), height:wire.readUInt32BE(20),
+                          bitDepth:wire[24], colourType:wire[25]};
+                  }
+                  const originalLoad = Module._load;
+                  Module._load = function (request, parent, isMain) {
+                      const exports = Reflect.apply(originalLoad, this, arguments);
+                      if (request !== 'fast-png' || !exports || typeof exports !== 'object' || patched.has(exports)) return exports;
+                      const descriptor = Object.getOwnPropertyDescriptor(exports, 'decode');
+                      if (!descriptor || typeof descriptor.value !== 'function' || !descriptor.configurable) {
+                          failures.add('DECODE_EXPORT_NOT_WRAPPABLE');
+                          return exports;
+                      }
+                      const originalDecode = descriptor.value;
+                      function observedDecode() {
+                          const ordinal = ++decodeCalls;
+                          let capture = null;
+                          try {
+                              const wire = snapshotWire(arguments[0]);
+                              if (wire.length > MAX_WIRE_BYTES || retainedBytes + wire.length > MAX_TOTAL_BYTES ||
+                                  pending.length >= MAX_CAPTURES) {
+                                  failures.add('CAPTURE_LIMIT_REFUSED');
+                              } else {
+                                  retainedBytes += wire.length;
+                                  capture = {wire, ordinal, capturedAt:new Date().toISOString(),
+                                      sha256AtDecode:sha256(wire), png:pngHeader(wire)};
+                              }
+                          } catch {
+                              failures.add('WIRE_COPY_REFUSED');
+                          }
+                          let decoded;
+                          try {
+                              decoded = Reflect.apply(originalDecode, this, arguments);
+                          } catch (error) {
+                              if (capture) {
+                                  capture.metadata = Object.freeze({ordinal, capturedAt:capture.capturedAt,
+                                      sha256AtDecode:capture.sha256AtDecode, wireBytes:capture.wire.length, png:capture.png,
+                                      decodeOutcome:'original-threw', width:null, height:null, channels:null, depth:null, dataLength:null});
+                                  pending.push(capture);
+                              }
+                              throw error;
+                          }
+                          if (capture) {
+                              try {
+                                  capture.metadata = Object.freeze({ordinal, capturedAt:capture.capturedAt,
+                                      sha256AtDecode:capture.sha256AtDecode, wireBytes:capture.wire.length, png:capture.png,
+                                      decodeOutcome:'returned', width:numeric(decoded.width), height:numeric(decoded.height),
+                                      channels:numeric(decoded.channels), depth:numeric(decoded.depth), dataLength:numeric(decoded.data?.length),
+                                      dataByteLength:numeric(decoded.data?.byteLength),
+                                      dataBytesPerElement:numeric(decoded.data?.BYTES_PER_ELEMENT)});
+                                  pending.push(capture);
+                              } catch {
+                                  failures.add('DECODE_METADATA_REFUSED');
+                              }
+                          }
+                          return decoded;
+                      }
+                      Object.defineProperty(exports, 'decode', {...descriptor, value:observedDecode});
+                      patched.add(exports);
+                      return exports;
+                  };
+                  
+                  process.once('exit', () => {
+                      if (pending.length === 0 && failures.size === 0) return;
+                      try {
+                          if (assertCaptureRoot() !== captureRoot) throw new Error('Capture root changed');
+                          const processDirectory = path.join(captureRoot, 'process-' + process.pid);
+                          fs.mkdirSync(processDirectory, {mode:0o700});
+                          const dir = fs.lstatSync(processDirectory);
+                          if (!dir.isDirectory() || dir.isSymbolicLink() || dir.uid !== process.getuid() ||
+                              (dir.mode & 0o777) !== 0o700) throw new Error('Private process capture directory refused');
+                          const records = [];
+                          for (const capture of pending) {
+                              const sha256AtExit = sha256(capture.wire);
+                              if (sha256AtExit !== capture.sha256AtDecode) throw new Error('Retained wire bytes changed');
+                              const file = 'capture-' + String(capture.ordinal).padStart(3, '0') + '.png';
+                              const destination = path.join(processDirectory, file);
+                              fs.writeFileSync(destination, capture.wire, {mode:0o600, flag:'wx'});
+                              const stat = fs.lstatSync(destination);
+                              if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== process.getuid() ||
+                                  (stat.mode & 0o777) !== 0o600) throw new Error('Private capture file refused');
+                              const writtenSha256 = sha256(fs.readFileSync(destination));
+                              if (writtenSha256 !== capture.sha256AtDecode) throw new Error('Written wire bytes changed');
+                              records.push({...capture.metadata, file, sha256AtExit, writtenSha256,
+                                  verifiedOriginalWireBytes:true});
+                          }
+                          const sourceCommit = /^[0-9a-f]{40}$/.test(process.env.CANDIDATE_SHA || '') ? process.env.CANDIDATE_SHA : null;
+                          const metadata = {version:1, diagnosticOnly:true, sourceCommit, pid:process.pid,
+                              decodeCalls, retainedWireBytes:retainedBytes, flushedAt:new Date().toISOString(),
+                              flushBoundary:'ordinary process exit only; no between-picture file writes',
+                              records, diagnosticFailures:[...failures]};
+                          fs.writeFileSync(path.join(processDirectory, 'metadata.json'), JSON.stringify(metadata, null, 2) + '\n',
+                              {mode:0o600, flag:'wx'});
+                          if (failures.size > 0) process.exitCode = process.exitCode || 1;
+                      } catch {
+                          process.exitCode = process.exitCode || 1;
+                          console.error('PNG diagnostic flush refused; captures may be incomplete. No release result is implied.');
+                      }
+                  });
+                  `;
+                  if (createHash('sha256').update(source).digest('hex')!=='0ca51365a3db5c9c305bbe761bcca897775212887b4de11e42134c64da364c61') throw new Error('Static observer source digest differs');
+                  writeFileSync(join(runner,'wind-capture-preload.cjs'),source,{mode:0o600,flag:'wx'});
+                  NODE
+            - name: Install the selected browser engine
+              run: npx playwright install --with-deps ${{ matrix.browser }}
+            - name: Diagnostic original acceptance with decode-only wire capture
+              id: proof
+              env:
+                  PLAYWRIGHT_JSON_OUTPUT_NAME: wind-focused-results.json
+                  WIND_CAPTURE_DIR: ${{ runner.temp }}/wind-captures
+                  NODE_OPTIONS: >-
+                      --max-old-space-size=4096 --require "${{ runner.temp }}/wind-capture-preload.cjs"
+              run: >-
+                  npx playwright test --config playwright.keyboard.config.ts
+                  browser-tests/desk-wind-layout.spec.ts --grep 'Light: dark streaks'
+                  --project=${{ matrix.browser }} --workers=1 --repeat-each=3 --retries=0
+                  --reporter=line,json
+            - name: Prove original acceptance, configuration and reviewed helper stayed pinned
+              if: always() && steps.source.outcome == 'success'
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  test "$(git hash-object playwright.keyboard.config.ts)" = "$(git rev-parse HEAD:playwright.keyboard.config.ts)"
+                  test "$(git hash-object browser-tests/desk-wind-layout.spec.ts)" = "$(git rev-parse HEAD:browser-tests/desk-wind-layout.spec.ts)"
+                  test "$(git hash-object browser-tests/helpers/chartCaptureReady.ts)" = "$(git rev-parse HEAD:browser-tests/helpers/chartCaptureReady.ts)"
+                  node --input-type=module <<'NODE'
+                  import { readFileSync } from 'node:fs';
+                  import { createHash } from 'node:crypto';
+                  const spec=readFileSync('browser-tests/desk-wind-layout.spec.ts','utf8');
+                  const start=spec.indexOf("test('Light: dark streaks"), end=spec.indexOf("test('where the models disagree");
+                  if (start<0 || end<=start) throw new Error('Original acceptance body boundaries are missing');
+                  if (createHash('sha256').update(spec.slice(start,end)).digest('hex')!=='ecaf23c3e352d5d2654c6978d36d9ac1689ac6822b684dabe78f92a2b49821a0') throw new Error('The original wind acceptance body changed during validation');
+                  if (createHash('sha256').update(readFileSync('browser-tests/helpers/chartCaptureReady.ts')).digest('hex')!=='02ffb464cd22d0d8eb3c67c08be3bd96f788328405cb0e6bec5f16a71a69b1e9') throw new Error('The reviewed Mapbox capture-readiness helper changed during validation');
+                  NODE
+                  git diff --exit-code -- playwright.keyboard.config.ts browser-tests/desk-wind-layout.spec.ts browser-tests/helpers/chartCaptureReady.ts
+            - name: Verify saved wire bytes and record diagnostic formats
+              if: always() && steps.observer.outcome == 'success'
+              run: |
+                  node --input-type=module <<'NODE'
+                  import {lstatSync, realpathSync, readdirSync, readFileSync, writeFileSync} from 'node:fs';
+                  import {join} from 'node:path';
+                  import {createHash} from 'node:crypto';
+                  const root=join(process.env.RUNNER_TEMP,'wind-captures');
+                  const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+                  function privateEntry(path, directory) {
+                      const stat=lstatSync(path);
+                      if (stat.isSymbolicLink() || (directory?!stat.isDirectory():!stat.isFile()) ||
+                          stat.uid!==process.getuid() || (stat.mode&0o777)!==(directory?0o700:0o600) ||
+                          realpathSync(path)!==path) throw new Error('Private diagnostic entry refused');
+                  }
+                  privateEntry(root,true);
+                  const shapes=new Map();
+                  const processes=[];
+                  for (const entry of readdirSync(root)) {
+                      if (!/^process-[0-9]+$/.test(entry)) throw new Error('Unexpected diagnostic directory entry');
+                      const directory=join(root,entry);privateEntry(directory,true);
+                      const metadataPath=join(directory,'metadata.json');privateEntry(metadataPath,false);
+                      const metadata=JSON.parse(readFileSync(metadataPath,'utf8'));
+                      if (metadata.version!==1 || metadata.diagnosticOnly!==true ||
+                          metadata.sourceCommit!==process.env.CANDIDATE_SHA ||
+                          entry!=='process-'+metadata.pid || !Array.isArray(metadata.records) ||
+                          !Array.isArray(metadata.diagnosticFailures) || metadata.diagnosticFailures.length) {
+                          throw new Error('Incomplete or mismatched decode diagnostic metadata');
+                      }
+                      const names=new Set(['metadata.json']);
+                      for (const record of metadata.records) {
+                          if (!/^capture-[0-9]{3}\.png$/.test(record.file) || names.has(record.file) ||
+                              record.verifiedOriginalWireBytes!==true) throw new Error('Capture identity refused');
+                          names.add(record.file);
+                          const path=join(directory,record.file);privateEntry(path,false);
+                          const bytes=readFileSync(path), digest=hash(bytes);
+                          if (digest!==record.sha256AtDecode || digest!==record.sha256AtExit ||
+                              digest!==record.writtenSha256 || bytes.length!==record.wireBytes) throw new Error('Captured original wire bytes differ');
+                          const shape={width:record.width,height:record.height,channels:record.channels,
+                              depth:record.depth,dataLength:record.dataLength,dataByteLength:record.dataByteLength,
+                              dataBytesPerElement:record.dataBytesPerElement,png:record.png};
+                          const key=JSON.stringify(shape), previous=shapes.get(key);
+                          shapes.set(key,{...shape,captures:(previous?.captures??0)+1});
+                      }
+                      if (readdirSync(directory).some(name=>!names.has(name))) throw new Error('Unexpected process capture file');
+                      processes.push({pid:metadata.pid,decodeCalls:metadata.decodeCalls,captures:metadata.records.length});
+                  }
+                  const captures=processes.reduce((count,p)=>count+p.captures,0);
+                  if (captures===0) throw new Error('No decode captures survived; the diagnostic hook or process-exit flush is unproven');
+                  const summary={observedAt:new Date().toISOString(),diagnosticOnly:true,
+                      sourceCommit:process.env.CANDIDATE_SHA,processes,captures,
+                      formats:[...shapes.values()],capturedWireSha256Verification:'All saved original PNG bytes match their at-decode hashes',
+                      limitations:'Capture observer changes diagnostic overhead; these results do not replace uninstrumented acceptance or ten-group release validation'};
+                  writeFileSync(join(root,'wire-capture-summary.json'),JSON.stringify(summary,null,2)+'\n',{mode:0o600,flag:'wx'});
+                  console.log(JSON.stringify(summary,null,2));
+                  NODE
+            - name: Record the actual diagnostic result
+              if: always() && steps.source.outcome == 'success'
+              env:
+                  PROOF_OUTCOME: ${{ steps.proof.outcome }}
+                  BROWSER: ${{ matrix.browser }}
+              run: |
+                  echo "$BROWSER wire-PNG DIAGNOSTIC repetitions: $PROOF_OUTCOME on $CANDIDATE_SHA. Decode-only RAM observer; no assertion or browser-operation changes, longer timeout, retries or forced tracing. NOT a release proof." >> "$GITHUB_STEP_SUMMARY"
+            - name: Preserve diagnostic JSON, private wire PNGs and failure screenshots
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: build127-wire-capture-diagnostic-${{ matrix.browser }}
+                  path: |
+                      wind-focused-results.json
+                      playwright-report/
+                      test-results/
+                      ${{ runner.temp }}/wind-captures/
+                  retention-days: 7
+                  if-no-files-found: warn
