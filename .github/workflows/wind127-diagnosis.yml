@@ -1,0 +1,98 @@
+name: Build 127 wind contrast diagnosis (no release)
+
+# Controlled experiment only. No Apple credentials, signing, source writes,
+# upload or deployment. The original regression and all thresholds stay intact.
+on:
+    push:
+        branches: ['codex/thalassa-127-release']
+        paths: ['.github/workflows/wind127-diagnosis.yml']
+permissions:
+    contents: read
+concurrency:
+    group: wind127-diagnosis
+    cancel-in-progress: false
+jobs:
+    compare:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        strategy:
+            fail-fast: false
+            matrix:
+                width: ['1.5', '2']
+                browser: [chromium, webkit]
+        env:
+            CI: 'true'
+            HUSKY: '0'
+            NODE_OPTIONS: --max-old-space-size=4096
+            PUPPETEER_SKIP_DOWNLOAD: 'true'
+            WIDTH: ${{ matrix.width }}
+            VITE_APP_BUILD: '127'
+            VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+            VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+            VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+            VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+            VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 31f97f1f369981be3917b2a8450006ba272b7650
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Save original source for diagnosis and apply one controlled Light-only change
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = 31f97f1f369981be3917b2a8450006ba272b7650
+                  mkdir -p "$RUNNER_TEMP/source"
+                  tar -czf "$RUNNER_TEMP/source/wind-source.tgz" \
+                    AGENTS.md package.json package-lock.json playwright.keyboard.config.ts \
+                    browser-tests/desk-wind-layout.spec.ts components/map/MapboxVelocityOverlay.tsx \
+                    components/map/windRamp.ts components/map/CloseInWindLayer.ts \
+                    tests/windRamp.test.ts tests/MapboxVelocityOverlayLifecycle.test.tsx \
+                    tests/helpers/colourScience.ts src/leaflet-velocity-ts.d.ts \
+                    .github/workflows/full-checks.yml .github/workflows/ios-testflight.yml
+                  node --input-type=module <<'NODE'
+                  import {readFileSync,writeFileSync} from 'node:fs';
+                  const path='components/map/MapboxVelocityOverlay.tsx';
+                  const text=readFileSync(path,'utf8');
+                  const from="const lineWidthFor = (palette: WindPalette) => (palette === 'light' ? 1.5 : PARTICLE_LINE_WIDTH);";
+                  if(text.split(from).length!==2 || !['1.5','2'].includes(process.env.WIDTH)) throw new Error('Unexpected original source or variant');
+                  writeFileSync(path,text.replace(from,from.replace('? 1.5 :',`? ${process.env.WIDTH} :`)));
+                  NODE
+                  git diff --stat
+                  git diff --exit-code -- browser-tests/desk-wind-layout.spec.ts
+            - run: npm ci
+            - name: Preserve the exact installed particle engine for inspection
+              run: tar -czf "$RUNNER_TEMP/source/particle-engine.tgz" node_modules/leaflet-velocity-ts
+            - name: Install browser
+              run: npx playwright install --with-deps ${{ matrix.browser }}
+            - name: Original failing test, three consecutive samples, no retries
+              id: original
+              continue-on-error: true
+              env:
+                  PLAYWRIGHT_JSON_OUTPUT_NAME: wind-results.json
+              run: >-
+                  npx playwright test --config playwright.keyboard.config.ts
+                  browser-tests/desk-wind-layout.spec.ts --grep 'Light: dark streaks'
+                  --project=${{ matrix.browser }} --workers=1 --repeat-each=3 --retries=0
+                  --reporter=line,json
+            - name: Record honest experimental result
+              env:
+                  OUTCOME: ${{ steps.original.outcome }}
+                  BROWSER: ${{ matrix.browser }}
+              run: |
+                  echo "DIAGNOSIS ONLY: Light stroke $WIDTH px, $BROWSER, unchanged original test: $OUTCOME. This is not a release validation or an upload." >> "$GITHUB_STEP_SUMMARY"
+            - name: Preserve measurements, screenshots and reviewed source only
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: wind127-${{ matrix.width }}-${{ matrix.browser }}
+                  path: |
+                      wind-results.json
+                      test-results/
+                      ${{ runner.temp }}/source/
+                  retention-days: 3
