@@ -173,6 +173,9 @@ export async function mountMpaLayer(
             data: verifiedData,
             // Pre-build feature index so click queries are fast.
             generateId: true,
+            // The CAPAD geometry is generalised to about 0.005°, so tiles past z12
+            // add no detail; capping them bounds geojson-vt's tile memory on phones.
+            maxzoom: 12,
             attribution: buildMpaAttribution(getVerifiedMpaDatasetStatus()?.sourceDate),
         });
         log.info('Added GeoJSON source');
@@ -184,6 +187,10 @@ export async function mountMpaLayer(
                 id: MPA_FILL_ID,
                 type: 'fill',
                 source: MPA_SOURCE_ID,
+                layout: {
+                    // Where reserves overlap, draw the stricter inferred class on top.
+                    'fill-sort-key': ['match', ['get', 'protection_class'], 'high', 2, 'conditional', 1, 0],
+                },
                 paint: {
                     // Match the neutral indicative protection class.
                     'fill-color': [

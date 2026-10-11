@@ -446,6 +446,35 @@ describe('MPA schema-v2 client trust boundary', () => {
         expect(getVerifiedMpaDatasetStatus()).toBeNull();
     });
 
+    it('keeps a verified overlay through a lost connection until its publication would be stale', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(NOW);
+        const bundle = await mpaNetworkBundle();
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValueOnce(jsonResponse(bundle.manifest))
+            .mockResolvedValueOnce(geoJsonResponse(bundle.asset))
+            .mockRejectedValueOnce(new TypeError('Load failed'))
+            .mockRejectedValueOnce(new Error('marine dataset fetch timed out'))
+            .mockRejectedValueOnce(new TypeError('Load failed'));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const verified = await fetchVerifiedMpaGeoJson();
+        expect(verified).not.toBeNull();
+        // At sea: no signal at the 30-minute refresh, then a timeout. The verified
+        // generation stays, and each refresh still tries the network.
+        vi.setSystemTime(NOW + MPA_CACHE_TTL_MS + 1_000);
+        await expect(fetchVerifiedMpaGeoJson()).resolves.toBe(verified);
+        vi.setSystemTime(NOW + 2 * (MPA_CACHE_TTL_MS + 1_000));
+        await expect(fetchVerifiedMpaGeoJson()).resolves.toBe(verified);
+        expect(getVerifiedMpaDatasetStatus()?.generation).toBe(bundle.manifest.generation);
+        expect(fetchMock).toHaveBeenCalledTimes(4);
+        // Fourteen days after publication it would be stale online too, so it goes.
+        vi.setSystemTime(Date.parse(bundle.manifest.published_at) + 14 * 24 * 60 * 60 * 1000 + 60_000);
+        await expect(fetchVerifiedMpaGeoJson()).resolves.toBeNull();
+        expect(getVerifiedMpaDatasetStatus()).toBeNull();
+    });
+
     it('accepts fresh health evidence for an unchanged immutable generation and updates cached publication status', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(NOW);

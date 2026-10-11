@@ -166,12 +166,9 @@ describe('web release verification', () => {
         const artifact = createPublicBetaFeatureArtifact(profile, presence);
 
         expect(validatePublicBetaFeatureManifest(artifact)).toEqual([]);
-        artifact.featureFlags.VITE_MPA_ENABLED = true;
+        artifact.featureFlags.VITE_MPA_ENABLED = false;
         expect(validatePublicBetaFeatureManifest(artifact)).toEqual(
-            expect.arrayContaining([
-                'VITE_MPA_ENABLED must equal false',
-                'feature manifest fingerprint does not match',
-            ]),
+            expect.arrayContaining(['VITE_MPA_ENABLED must equal true', 'feature manifest fingerprint does not match']),
         );
     });
 
@@ -204,10 +201,11 @@ describe('web release verification', () => {
             })),
         };
 
-        // Cut over 2026-08-07 once their manifest-v2 endpoints actually
-        // served. Waves/seaice/mld remain held (and are separately parked from
-        // the pickers); mpa's pipeline has not re-run since the publisher fix.
-        expect(ENABLED_HOSTED_MARINE_DATASETS).toEqual(['currents', 'sst', 'chl']);
+        // Currents, sst and chl cut over 2026-08-07 once their manifest-v2
+        // endpoints actually served; mpa on 2026-10-11, once the data repo
+        // published both slots. Waves/seaice/mld remain held (and are
+        // separately parked from the pickers).
+        expect(ENABLED_HOSTED_MARINE_DATASETS).toEqual(['currents', 'sst', 'chl', 'mpa']);
         expect(RETIRED_LEGACY_MARINE_PATHS).toHaveLength(62);
         for (const dataset of ['currents', 'waves', 'sst', 'chl', 'seaice', 'mld'] as const) {
             expect(RETIRED_LEGACY_MARINE_PATHS).toContain(`/api/${dataset}/manifest.json`);

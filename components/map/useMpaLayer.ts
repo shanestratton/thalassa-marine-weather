@@ -8,10 +8,10 @@
  *
  * The compact popup shows indicative CAPAD zone context only. It never
  * answers whether an activity is permitted; users must verify current
- * fishing and anchoring rules with the managing authority.
+ * entry, fishing and anchoring rules with the managing authority.
  *
- * Feature-flagged via VITE_MPA_ENABLED so beta accounts can opt in
- * before we hit the public release.
+ * Feature-flagged via VITE_MPA_ENABLED (on in the public-beta profile since
+ * 2026-10-11, when the CAPAD feed first published both v2 discovery slots).
  */
 
 import { useEffect, useRef } from 'react';
@@ -46,18 +46,40 @@ const PROTECTION_CLASS_LABEL: Record<string, { label: string; tone: string; hint
     high: {
         label: 'Inferred high-protection class',
         tone: '#f87171',
-        hint: 'This metadata classification does not establish a prohibition or permission. Verify current fishing and anchoring rules with the managing authority.',
+        hint: 'This metadata classification does not establish a prohibition or permission. Verify current entry, fishing and anchoring rules with the managing authority.',
     },
     conditional: {
         label: 'Inferred conditional-protection class',
         tone: '#fbbf24',
-        hint: 'Rules vary by zone and activity. Verify current fishing and anchoring rules with the managing authority.',
+        hint: 'Rules vary by zone and activity. Verify current entry, fishing and anchoring rules with the managing authority.',
     },
     multiple_use: {
         label: 'Inferred multiple-use class',
         tone: '#60a5fa',
-        hint: 'This class does not establish permission. Verify current fishing and anchoring rules with the managing authority.',
+        hint: 'This class does not establish permission. Verify current entry, fishing and anchoring rules with the managing authority.',
     },
+};
+
+/** Stricter inferred classes outrank weaker ones where CAPAD records overlap. */
+const PROTECTION_CLASS_RANK: Record<string, number> = { high: 2, conditional: 1, multiple_use: 0 };
+
+/**
+ * CAPAD authority codes as a skipper would look them up. Codes not listed here,
+ * or whose department names keep changing, show as the jurisdiction plus code.
+ */
+const MPA_AUTHORITY_NAMES: Record<string, string> = {
+    DCCEEW: 'Parks Australia (DCCEEW)',
+    GBRMPA: 'Great Barrier Reef Marine Park Authority (GBRMPA)',
+    NRE_TAS: 'Tasmanian Department of Natural Resources and Environment (NRE_TAS)',
+    NSW_DPIRD: 'NSW Department of Primary Industries and Regional Development (NSW_DPIRD)',
+    NT_PWCNT: 'Parks and Wildlife Commission of the Northern Territory (NT_PWCNT)',
+    PIRSA: 'Primary Industries and Regions SA (PIRSA)',
+    QLD_DAF: 'Queensland Government (QLD_DAF)',
+    QLD_DES: 'Queensland Government (QLD_DES)',
+    SA_DEW: 'SA Department for Environment and Water (SA_DEW)',
+    TSRA: 'Torres Strait Regional Authority (TSRA)',
+    VIC_DEECA: 'Victorian Department of Energy, Environment and Climate Action (VIC_DEECA)',
+    WA_DBCA: 'WA Department of Biodiversity, Conservation and Attractions (WA_DBCA)',
 };
 
 interface MpaProps {
@@ -72,7 +94,27 @@ interface MpaProps {
     classification_source?: string;
 }
 
-export function buildMpaPopupHtml(props: MpaProps, verifiedSourceDate?: string): string {
+/**
+ * Every distinct CAPAD record under one tap, reduced to the strictest inferred
+ * class. Mapbox returns whichever overlapping polygon it drew last, which can be
+ * a multiple-use reserve over a high-protection zone. Parts of one reserve that
+ * share name, type, IUCN category, authority and class count once.
+ */
+export function pickStrictestMpaRecord(records: readonly MpaProps[]): { props: MpaProps; overlapping: number } | null {
+    const distinct = new Map<string, MpaProps>();
+    for (const record of records) {
+        const key = [record.name, record.type, record.iucn, record.authority, record.protection_class].join('\u0000');
+        if (!distinct.has(key)) distinct.set(key, record);
+    }
+    const rank = (record: MpaProps) => PROTECTION_CLASS_RANK[record.protection_class ?? ''] ?? -1;
+    let strictest: MpaProps | undefined;
+    for (const record of distinct.values()) {
+        if (!strictest || rank(record) > rank(strictest)) strictest = record;
+    }
+    return strictest ? { props: strictest, overlapping: distinct.size - 1 } : null;
+}
+
+export function buildMpaPopupHtml(props: MpaProps, verifiedSourceDate?: string, overlapping = 0): string {
     const protectionClass = (props.protection_class ?? 'multiple_use') as keyof typeof PROTECTION_CLASS_LABEL;
     const meta = PROTECTION_CLASS_LABEL[protectionClass] ?? PROTECTION_CLASS_LABEL.multiple_use;
 
@@ -89,16 +131,12 @@ export function buildMpaPopupHtml(props: MpaProps, verifiedSourceDate?: string):
 
     const sub = subParts.join(' · ');
     const areaValue = Number(props.area_km2);
-    const areaDigits = areaValue >= 100 ? 0 : areaValue >= 1 ? 2 : areaValue >= 0.01 ? 3 : 6;
-    const area =
-        Number.isFinite(areaValue) && areaValue > 0
-            ? `${escape(
-                  areaValue.toLocaleString('en-AU', {
-                      maximumFractionDigits: areaDigits,
-                  }),
-              )} km²`
-            : '';
-    const auth = props.authority ? escape(props.authority) : '';
+    const area = Number.isFinite(areaValue) && areaValue > 0 ? escape(formatMpaArea(areaValue)) : '';
+    const auth = props.authority ? escape(MPA_AUTHORITY_NAMES[props.authority] ?? props.authority) : '';
+    const overlapCount = Number.isSafeInteger(overlapping) && overlapping > 0 ? overlapping : 0;
+    const overlapNote = overlapCount
+        ? `${overlapCount === 1 ? '1 other protected-area record overlaps' : `${overlapCount} other protected-area records overlap`} here; the strictest inferred class is shown.`
+        : '';
     const sourceDate = formatMpaSourceDate(verifiedSourceDate);
 
     return `
@@ -159,10 +197,11 @@ export function buildMpaPopupHtml(props: MpaProps, verifiedSourceDate?: string):
             <div style="font-size: 12px; color: var(--day-ui-text, #d1d5db); line-height: 1.4; margin-bottom: 6px;">
                 ${meta.hint}
             </div>
+            ${overlapNote ? `<div style="font-size: 12px; color: var(--day-ui-text, #d1d5db); line-height: 1.4; margin-bottom: 6px;">${overlapNote}</div>` : ''}
             ${
                 area || auth || sourceDate
                     ? `<div style="font-size: 11px; color: var(--day-ui-muted, #cbd5e1); padding-top: 6px; border-top: 1px solid #374151;">
-                ${area ? `<div>Area: ${area}</div>` : ''}
+                ${area ? `<div>Area of this mapped part: ${area}</div>` : ''}
                 ${auth ? `<div>Managed by: ${auth}</div>` : ''}
                 ${sourceDate ? `<div>Dataset snapshot: ${escape(sourceDate)}</div>` : ''}
             </div>`
@@ -173,6 +212,22 @@ export function buildMpaPopupHtml(props: MpaProps, verifiedSourceDate?: string):
             </div>
         </div>
     `;
+}
+
+/**
+ * One CAPAD polygon's area, readable at a glance: km² from one hectare
+ * (0.01 km²) up, whole square metres below it, and "< 1 m²" for the
+ * sub-square-metre slivers CAPAD carries, so a positive area never reads 0.
+ */
+export function formatMpaArea(areaKm2: number): string {
+    if (!Number.isFinite(areaKm2) || areaKm2 <= 0) return '';
+    if (areaKm2 >= 0.01) {
+        const digits = areaKm2 >= 100 ? 0 : areaKm2 >= 1 ? 2 : 3;
+        return `${areaKm2.toLocaleString('en-AU', { maximumFractionDigits: digits })} km²`;
+    }
+    const squareMetres = areaKm2 * 1_000_000;
+    if (squareMetres < 1) return '< 1 m²';
+    return `${squareMetres.toLocaleString('en-AU', { maximumFractionDigits: 0 })} m²`;
 }
 
 export function formatMpaSourceDate(value: string | undefined): string {
@@ -333,8 +388,10 @@ export function useMpaLayer(
             if (handlersRef.current.click) return;
             const onClick = (e: mapboxgl.MapMouseEvent) => {
                 const features = map.queryRenderedFeatures(e.point, { layers: [MPA_FILL_ID] });
-                if (!features.length) return;
-                const props = (features[0].properties ?? {}) as MpaProps;
+                const picked = pickStrictestMpaRecord(
+                    features.map((feature) => (feature.properties ?? {}) as MpaProps),
+                );
+                if (!picked) return;
                 popupRef.current?.remove();
                 const popup = new mapboxgl.Popup({
                     closeButton: false,
@@ -343,7 +400,9 @@ export function useMpaLayer(
                     offset: 8,
                 })
                     .setLngLat(e.lngLat)
-                    .setHTML(buildMpaPopupHtml(props, getVerifiedMpaDatasetStatus()?.sourceDate))
+                    .setHTML(
+                        buildMpaPopupHtml(picked.props, getVerifiedMpaDatasetStatus()?.sourceDate, picked.overlapping),
+                    )
                     .addTo(map);
                 popupRef.current = popup;
                 const closeBtn = popup.getElement()?.querySelector<HTMLButtonElement>('.mpa-popup-close');

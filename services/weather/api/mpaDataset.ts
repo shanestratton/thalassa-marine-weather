@@ -18,6 +18,7 @@ const log = createLogger('mpaDataset');
 export const MPA_ASSET_MAX_BYTES = 16 * 1024 * 1024;
 export const MPA_CACHE_TTL_MS = 30 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
+const MPA_MAX_PUBLISHED_AGE_MS = 14 * 24 * HOUR_MS;
 const GENERATION_RE = /^g-\d{8}T\d{6}Z-[0-9a-f]{12}$/;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const COMMIT_RE = /^[0-9a-f]{40}$/;
@@ -163,7 +164,7 @@ export function validateMpaManifest(value: unknown, nowMs = Date.now()): MpaMani
         generatedAt <= nowMs + 15 * 60 * 1000 && publishedAt <= nowMs + 15 * 60 * 1000,
         'MPA publication is in the future',
     );
-    requireTrust(nowMs - publishedAt <= 14 * 24 * HOUR_MS, 'MPA weekly publication is stale');
+    requireTrust(nowMs - publishedAt <= MPA_MAX_PUBLISHED_AGE_MS, 'MPA weekly publication is stale');
     requireTrust(value.cadence_hours === null, 'MPA cadence must be null');
 
     requireTrust(isRecord(value.dimensions), 'MPA dimensions must be an object');
@@ -365,6 +366,14 @@ export function getVerifiedMpaDatasetStatus(): { generation: string; sourceDate:
 
 export type BeforeMpaGenerationAsset = (nextGeneration: string) => void;
 
+/** The manifest request got no answer at all: no signal, or it timed out. */
+class MpaManifestUnreachableError extends Error {
+    constructor(cause: unknown) {
+        super('MPA manifest request got no answer', { cause });
+        this.name = 'MpaManifestUnreachableError';
+    }
+}
+
 export async function fetchVerifiedMpaGeoJson(
     signal?: AbortSignal,
     beforeGenerationAsset?: BeforeMpaGenerationAsset,
@@ -381,6 +390,19 @@ export async function fetchVerifiedMpaGeoJson(
     activeController = controller;
 
     const operation = doFetchVerifiedMpa(nowMs, epoch, controller.signal, beforeGenerationAsset).catch((error) => {
+        // At sea the signal comes and goes. A refresh whose manifest request
+        // never got an answer keeps the generation already verified, until it
+        // would be stale anyway; any answer that fails, and any other error,
+        // still clears it.
+        const kept = ownershipEpoch === epoch && !controller.signal.aborted ? cache : null;
+        if (
+            kept &&
+            error instanceof MpaManifestUnreachableError &&
+            nowMs - Date.parse(kept.publishedAt) <= MPA_MAX_PUBLISHED_AGE_MS
+        ) {
+            log.warn('MPA refresh could not reach the network; keeping the verified generation', error);
+            return kept.data;
+        }
         if (ownershipEpoch === epoch) cache = null;
         log.warn('MPA dataset rejected; clearing the overlay until a verified refresh succeeds', error);
         return null;
@@ -411,7 +433,10 @@ async function doFetchVerifiedMpa(
         MANIFEST_MAX_BYTES,
         'application/json',
         signal,
-    );
+    ).catch((error: unknown) => {
+        // HTTP errors, wrong types and oversize bodies are answers (trust errors).
+        throw signal.aborted || error instanceof MarineDataTrustError ? error : new MpaManifestUnreachableError(error);
+    });
     requireActiveOwnership(epoch, signal);
     const manifest = validateMpaManifest(decodeUtf8Json(manifestBytes), nowMs);
     const suffix = await publisherGenerationSuffix(manifest.data_start, 'mpa', [manifest.files[0].sha256]);
