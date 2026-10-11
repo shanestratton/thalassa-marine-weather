@@ -133,7 +133,6 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
         ? storedProvisionProgress.progress
         : null;
     const [provisionExpanded, setProvisionExpanded] = useState(false);
-    const [copiedCommand, setCopiedCommand] = useState(false);
 
     useLayoutEffect(() => {
         setStoredSshCredentials((current) =>
@@ -594,51 +593,15 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
                                             </div>
                                         )}
 
-                                        {/* ── Option 2: Manual command ── */}
-                                        <div className="space-y-1.5">
-                                            <p className="text-[10px] font-bold uppercase tracking-widest text-white/50">
-                                                {sshAvailable ? 'Or install manually' : 'Manual Install'}
-                                            </p>
-                                            <pre
-                                                className="text-[10px] text-amber-300/70 font-mono bg-black/40 rounded-lg p-2.5 overflow-x-auto select-all cursor-pointer active:bg-black/60 transition-colors"
-                                                onClick={(e) => {
-                                                    const cmd =
-                                                        'curl -fsSL https://raw.githubusercontent.com/shanestratton/thalassa-marine-weather/master/pi-cache/install.sh | sudo bash';
-                                                    if (navigator.clipboard) {
-                                                        // Confirm AFTER the write resolves — "Copied!" used to show
-                                                        // regardless, and a rejected write was an unhandled
-                                                        // rejection (audit 2026-09-02).
-                                                        void navigator.clipboard
-                                                            .writeText(cmd)
-                                                            .then(() => {
-                                                                triggerHaptic('light');
-                                                                setCopiedCommand(true);
-                                                                setTimeout(() => setCopiedCommand(false), 2000);
-                                                            })
-                                                            .catch(() => {
-                                                                const range = document.createRange();
-                                                                range.selectNodeContents(e.currentTarget);
-                                                                window.getSelection()?.removeAllRanges();
-                                                                window.getSelection()?.addRange(range);
-                                                            });
-                                                    } else {
-                                                        const range = document.createRange();
-                                                        range.selectNodeContents(e.currentTarget);
-                                                        window.getSelection()?.removeAllRanges();
-                                                        window.getSelection()?.addRange(range);
-                                                    }
-                                                }}
-                                            >
-                                                {`curl -fsSL https://raw.githubusercontent.com/shanestratton/thalassa-marine-weather/master/pi-cache/install.sh | sudo bash`}
-                                            </pre>
-                                            <p className="text-[10px] text-gray-500">
-                                                {copiedCommand ? (
-                                                    <span className="text-emerald-400 font-bold">Copied!</span>
-                                                ) : (
-                                                    'Tap to copy. Paste into a terminal on your Pi.'
-                                                )}
-                                            </p>
-                                        </div>
+                                        {/* ── Option 2: by invitation ── */}
+                                        {/* The installer lives in the private repository since 2026-10, so
+                                            there is no public command to copy. The owner's steps are in
+                                            pi-cache/README.md, "Install and update (owner only)". */}
+                                        <p className="text-[10px] text-gray-500">
+                                            {sshAvailable ? 'Otherwise, setting' : 'Setting'} up the weather cache on a
+                                            Pi is by invitation during the beta. If Thalassa invited you, follow the
+                                            setup guide you were sent.
+                                        </p>
                                     </div>
                                 )}
                             </div>

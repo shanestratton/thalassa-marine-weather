@@ -87,6 +87,9 @@ describe('public-beta release gate contract', () => {
         const timeoutMinutes = Number.parseInt(workflow.match(/^\s*timeout-minutes:\s*(\d+)\s*$/m)?.[1] ?? '', 10);
 
         expect(gate).toContain('ciTimeoutMinutes >= 45');
+        expect(gate).toContain(
+            'quick checks gate every push; the full suites stay scheduled, dispatchable and complete',
+        );
         expect(timeoutMinutes).toBeGreaterThanOrEqual(45);
     });
 
@@ -117,13 +120,8 @@ describe('public-beta release gate contract', () => {
         const approvedPins = new Map([
             ['actions/checkout', '3d3c42e5aac5ba805825da76410c181273ba90b1'],
             ['actions/setup-node', '820762786026740c76f36085b0efc47a31fe5020'],
-            ['actions/setup-python', '5fda3b95a4ea91299a34e894583c3862153e4b97'],
             ['actions/upload-artifact', '043fb46d1a93c77aae656e7c1c64a875d1fc6a0a'],
-            ['actions/download-artifact', '3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c'],
             ['denoland/setup-deno', '22d081ff2d3a40755e97629de92e3bcbfa7cf2ed'],
-            ['github/codeql-action/init', '5595ccaf912efad79be6eef63a5619ff05969be3'],
-            ['github/codeql-action/autobuild', '5595ccaf912efad79be6eef63a5619ff05969be3'],
-            ['github/codeql-action/analyze', '5595ccaf912efad79be6eef63a5619ff05969be3'],
         ]);
         let usesCount = 0;
 
@@ -138,13 +136,10 @@ describe('public-beta release gate contract', () => {
             const writePermissions = [...source.replace(/^\s*#.*$/gm, '').matchAll(/([A-Za-z0-9_-]+):\s*write\b/g)]
                 .map((match) => match[1])
                 .sort();
-            const expectedWritePermissions =
-                name === 'codeql.yml'
-                    ? ['security-events']
-                    : /^(?:cmems-(?:currents|waves|sst|chl|seaice|mld)|mpa)-pipeline\.yml$/.test(name)
-                      ? ['contents']
-                      : [];
-            expect(writePermissions, `${name} must retain least-privilege writes`).toEqual(expectedWritePermissions);
+            // No workflow here writes: the publishers (contents: write) moved to the
+            // public data repository and CodeQL (security-events: write) cannot
+            // upload results on a private repository without paid Code Security.
+            expect(writePermissions, `${name} must retain least-privilege writes`).toEqual([]);
             for (const runner of source.matchAll(/^\s*runs-on:\s*([^\s#]+)\s*$/gm)) {
                 expect(runner[1], `${name} runner`).toBe('ubuntu-24.04');
             }
@@ -197,10 +192,9 @@ describe('public-beta release gate contract', () => {
             ['mapbox', 'tilesets'].join('-'),
             ['thalassa', 'currents', 'h'].join('-'),
         ];
-        const retiredPublisherSurfaces = [
-            read('scripts/cmems-currents-pipeline/README.md'),
-            read('src/components/vite-env.d.ts'),
-        ];
+        // The currents publisher README moved to shanestratton/thalassa-ocean-data,
+        // which checks it for these markers itself (test_release_gate.py).
+        const retiredPublisherSurfaces = [read('src/components/vite-env.d.ts')];
 
         for (const source of retiredPublisherSurfaces) {
             for (const marker of obsoleteMarkers) expect(source).not.toContain(marker);
@@ -213,7 +207,8 @@ describe('public-beta release gate contract', () => {
     });
 
     it('deterministically installs and verifies every active nested production package', () => {
-        const workflow = read('.github/workflows/ci.yml');
+        // packages.yml since 2026-10: run when their own files change, and weekly.
+        const workflow = read('.github/workflows/packages.yml');
         const requiredJobs = [
             {
                 job: 'ais-ingest',
@@ -349,49 +344,15 @@ describe('public-beta release gate contract', () => {
         );
     });
 
-    it('makes marine producer, publisher, and proxy trust source release gates', () => {
+    it('keeps the proxy trust gates here and the publisher gates with the publishers', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
-        const publisherWorkflows = ['currents', 'waves', 'sst', 'chl', 'seaice', 'mld']
-            .map((dataset) => read(`.github/workflows/cmems-${dataset}-pipeline.yml`))
-            .concat(read('.github/workflows/mpa-pipeline.yml'));
-
-        for (const workflow of publisherWorkflows) {
-            const start = workflow.indexOf('- name: Run offline publisher');
-            const end = workflow.indexOf('\n            - name:', start + 1);
-            const offlineStep = workflow.slice(start, end);
-            expect(offlineStep).toContain("NO_PROXY: '127.0.0.1,localhost,::1'");
-            for (const variable of ['HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY']) {
-                expect(offlineStep).toContain(`${variable}: 'http://127.0.0.1:9'`);
-            }
-            expect(offlineStep).toContain('export no_proxy="$NO_PROXY"');
-            expect(offlineStep).toContain('export https_proxy="$HTTPS_PROXY"');
-            expect(offlineStep).toContain('export http_proxy="$HTTP_PROXY"');
-            expect(offlineStep).toContain('export all_proxy="$ALL_PROXY"');
-            expect(offlineStep).not.toMatch(/^\s+(?:no_proxy|https_proxy|http_proxy|all_proxy):/gm);
-            expect(workflow).not.toMatch(/^\s*no_proxy:\s*['"]?\*/gim);
-            expect(offlineStep).not.toMatch(/export\s+no_proxy=['"]?\*/i);
-            expect(offlineStep).not.toContain('${{ secrets.');
-        }
-
-        expect(gate).toContain(
-            'marine publishers use reviewed-master, run-stable sealed artifacts and an isolated dual-slot writer',
-        );
-        expect(gate).toContain("python-version: '3.11.15'");
-        expect(gate).toContain("!workflow.includes('3.11.11')");
-        expect(gate).toContain(
-            'marine producer contract validates source science and immutable weekly shards before dual-slot discovery publication',
-        );
-        // 60, was 56: the pin is a no-tests-deleted tripwire, and 2357d9c9
-        // (2026-08-26) deliberately ADDED four bounded-superset mask tests
-        // to test_cmems_science.py (before that, c6c4f438 added three
-        // publish-flow regressions). The count only ever moves up, and only
-        // with a commit that says why — same contract, new floor.
-        expect(gate).toContain('marinePublisherTestCount === 60');
+        // The publisher workflows, producers and their offline-fixture network fence
+        // moved to shanestratton/thalassa-ocean-data with the checks that read them
+        // (scripts/publisher-tests/test_release_gate.py, test count pinned at 66).
+        expect(gate).toContain('marine publishers live in the public data repository, not in this one');
+        expect(gate).toContain("releaseAssetProxy.includes('const OWNER_REPO = MARINE_RELEASE_REPOSITORY;')");
         expect(gate).toContain('12-hourly waves use one exact three-hour source-age margin without weakening currents');
-        expect(gate).toContain('offline marine publisher fixtures have a localhost-only dead-proxy network fence');
-        expect(gate).toContain('!/^\\s+(?:no_proxy|https_proxy|http_proxy|all_proxy):/gm.test(offlineStep)');
-        expect(gate).toContain('!/^\\s*no_proxy:\\s*[\'"]?\\*/gim.test(workflow)');
-        expect(gate).toContain('!/export\\s+no_proxy=[\'"]?\\*/i.test(offlineStep)');
+        expect(gate).not.toContain('marinePublisherTestCount');
         expect(gate).toContain(
             'marine release proxy streams verified weekly-shard assets and preserves dotted Vercel API routes',
         );
@@ -430,10 +391,12 @@ describe('public-beta release gate contract', () => {
         const gate = read('scripts/check-beta-readiness.mjs');
         const runner = read('scripts/run-lighthouse-audit.mjs');
         const ci = read('.github/workflows/ci.yml');
-        const lighthouse = read('.github/workflows/lighthouse.yml');
         const preview = read('.github/workflows/preview-smoke.yml');
 
-        for (const workflow of [ci, lighthouse]) {
+        // Lighthouse runs in the quick CI on every push; the pull-request-only
+        // duplicate (lighthouse.yml) was removed in 2026-10.
+        expect(existsSync(join(root, '.github/workflows/lighthouse.yml'))).toBe(false);
+        for (const workflow of [ci]) {
             expect(workflow).toContain('VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}');
             expect(workflow).toContain('VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}');
             expect(workflow).toContain('VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}');
@@ -455,7 +418,6 @@ describe('public-beta release gate contract', () => {
         expect(runner).toContain('spawn(process.execPath, [viteCli');
         expect(runner).not.toContain("spawn('npm'");
         expect(runner).toContain("'--strictPort'");
-        expect(lighthouse).not.toContain('pull-requests: write');
         expect(preview).not.toContain('statuses: write');
         expect(gate).toContain('CI production builds require the complete public client configuration');
         expect(gate).toContain('release workflows keep read-only repository permissions');

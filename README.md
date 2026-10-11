@@ -125,12 +125,18 @@ fingerprint. The artifact contains no credential values.
 
 The canonical public-beta profile selects four live-data overlays: CMEMS currents, sea-surface temperature,
 chlorophyll, and the Australian marine-protected-area overlay. Waves, sea ice, and mixed-layer depth remain explicitly
-parked and false in the release profile; their publisher and renderer plumbing stays in the repository for a later
-reviewed rollout. A true selection is not release evidence by itself. Each enabled overlay's immutable publisher
+parked and false in the release profile; their publishers and renderer plumbing stay in place for a later reviewed
+rollout. A true selection is not release evidence by itself. Each enabled overlay's immutable publisher
 manifest, bounded client decoder, freshness/integrity checks, attribution, and live hosted publication smoke must pass
 on the frozen candidate; any enabled overlay that misses that gate must be switched off before packaging.
 
-The checked-in marine publisher writes generation assets into ISO-week shards and updates only the inactive
+Since October 2026 the marine publishers run in the public data repository
+[`shanestratton/thalassa-ocean-data`](https://github.com/shanestratton/thalassa-ocean-data), so this repository can be
+private. The proxy and the hosted verifier read that repository's releases through one constant,
+`MARINE_RELEASE_REPOSITORY` in `services/weather/api/marineManifestContract.ts`. That change may only deploy once the
+data repository holds two valid discovery slots for every enabled dataset; `docs/GOING_PRIVATE.md` has the order.
+
+The marine publisher writes generation assets into ISO-week shards and updates only the inactive
 `manifest-v2-a.json` / `manifest-v2-b.json` discovery slot after source-science and bundle validation. The Edge proxy
 independently validates both slots, selects deterministically by source time, publication time, generation, and slot,
 and exposes the result only at `/api/{dataset}/manifest-v2.json`. The first successful publication seeds both slots;

@@ -160,7 +160,7 @@ describe('committed public-beta feature profile', () => {
         expect(verifier).toContain('publicBetaFeatureArtifactFailures');
         expect(pkg.scripts.build).toContain('vite build');
 
-        for (const workflowPath of ['.github/workflows/ci.yml', '.github/workflows/lighthouse.yml']) {
+        for (const workflowPath of ['.github/workflows/ci.yml', '.github/workflows/full-checks.yml']) {
             const workflow = read(workflowPath);
             expect(workflow).not.toContain('VITE_OWM_API_KEY');
             expect(workflow).not.toContain('OWM_API_KEY');

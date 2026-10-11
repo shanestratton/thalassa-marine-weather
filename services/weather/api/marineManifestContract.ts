@@ -8,6 +8,14 @@
 
 export type MarineDatasetKey = 'currents' | 'waves' | 'sst' | 'chl' | 'seaice' | 'mld' | 'mpa';
 
+/**
+ * The public repository whose GitHub Releases hold every marine manifest slot
+ * and immutable asset. The publishers run there (github.com/shanestratton/
+ * thalassa-ocean-data) so this app's own repository can be private. The release
+ * proxy and the hosted verifier both read it from here, so they cannot drift.
+ */
+export const MARINE_RELEASE_REPOSITORY = 'shanestratton/thalassa-ocean-data';
+
 type MarineDatasetContract = {
     id: string;
     releaseTag: string;

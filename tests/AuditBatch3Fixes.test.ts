@@ -51,8 +51,13 @@ describe('source-pinned fixes', () => {
     it('the task date field says what it is', () => {
         expect(read('components/vessel/maintenance/TaskFormModal.tsx')).toMatch(/label="First due"/);
     });
-    it('"Copied!" waits for the clipboard', () => {
-        expect(read('components/vessel/AvNavPage.tsx')).toMatch(/\.writeText\(cmd\)\s*\.then\(/);
+    it('"Copied!" can never claim a copy that did not happen', () => {
+        // Since 2026-10 the page has no install command to copy at all (the
+        // installer is in the private repository; Pi setup is by invitation), so
+        // the confirmation that once fired before the write resolved is gone too.
+        const src = read('components/vessel/AvNavPage.tsx');
+        expect(src).not.toContain('Copied!');
+        expect(src).not.toContain('clipboard.writeText');
     });
     it('the AIS registry lookup writes into the popup that owns the spinner', () => {
         const src = read('components/map/useAisStreamLayer.ts');

@@ -13,8 +13,11 @@ test-results/
 .env
 .env.*
 
-# Test and development-only material
+# Test and development-only material. e2e/ goes with tests/: its Playwright
+# fixtures import from tests/, so with tests/ gone tsc failed every deploy
+# with TS2307 on e2e/fixtures (2026-10-10). The app never imports e2e/.
 tests/
+e2e/
 **/*.test.ts
 **/*.test.tsx
 **/*.spec.ts

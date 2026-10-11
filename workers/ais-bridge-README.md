@@ -16,6 +16,10 @@ rewritten as `!AIVDM` for the AISHub forward.
 
 ## Deploy on the pi5
 
+The repository is private (2026-10): the clone needs a read-only GitHub token, and the pi5 should have its own (see
+`docs/GOING_PRIVATE.md`, "Pis and other machines that pull the code"). Git asks for it once: username
+`x-access-token`, password the token.
+
 ```bash
 git clone https://github.com/shanestratton/thalassa-marine-weather.git
 cd thalassa-marine-weather/workers/ais-ingest

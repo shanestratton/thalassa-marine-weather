@@ -27,6 +27,7 @@ import {
 } from './public-beta-feature-profile.mjs';
 import {
     MARINE_DATASET_CONTRACTS,
+    MARINE_RELEASE_REPOSITORY,
     marineAssetShardTag,
     validateMarineManifest,
 } from '../services/weather/api/marineManifestContract.ts';
@@ -40,7 +41,7 @@ const LOCAL_ORIGIN = `http://${LOCAL_HOST}:${LOCAL_PORT}`;
 const DEFAULT_RESPONSE_MAX_BYTES = 20 * 1024 * 1024;
 const MARINE_MANIFEST_MAX_BYTES = 256 * 1024;
 const MARINE_ASSET_MAX_BYTES = 16 * 1024 * 1024;
-const RELEASE_OWNER_REPO = 'shanestratton/thalassa-marine-weather';
+const RELEASE_OWNER_REPO = MARINE_RELEASE_REPOSITORY;
 const RELEASE_REDIRECT_LIMIT = 2;
 const TRUSTED_RELEASE_HOSTS = new Set(['github.com', 'release-assets.githubusercontent.com']);
 const HOSTED_ASSET_CONCURRENCY = 2;
