@@ -1,8 +1,9 @@
 /** Isolated native owner projection. A denial fact is never PM readiness.
  * No Auth SDK, bearer, enrollment, signed mutation, storage or legacy fallback.
  */
-export interface ResearchPrivateAdmissionBindings {
-    currentAccount(): Promise<unknown>;
+import { getResearchNativeLifecycleChannel, type ResearchNativeLifecycleBindings } from './nativeLifecycle';
+export interface ResearchPrivateAdmissionBindings extends ResearchNativeLifecycleBindings {
+    currentAccount(options?: { epoch: string }): Promise<unknown>;
     messagePrivateAdmission(options: { credentialBinding: string }): Promise<unknown>;
 }
 export interface ResearchPrivateAdmissionSource {
@@ -42,8 +43,23 @@ const closed = () => Object.freeze({ status: 'unavailable', reason: 'unavailable
 export function createResearchPrivateAdmissionSource(
     native: ResearchPrivateAdmissionBindings,
 ): ResearchPrivateAdmissionSource {
+    // Capture this composition once; a disposed source cannot adopt a later
+    // controller/channel on the same plugin after an asynchronous read.
+    const lifecycle = getResearchNativeLifecycleChannel(native);
+    const managed = lifecycle
+        ? lifecycle.managed
+        : typeof native.lifecycleState === 'function' || typeof native.acknowledgeClosedPresentation === 'function';
+    const creationEpoch = () => {
+        const descriptor = lifecycle?.getState();
+        return descriptor?.phase === 'active' && descriptor.verificationAvailable ? descriptor.epoch : undefined;
+    };
+    const eligible = (epoch: string | undefined) => !managed || (epoch !== undefined && creationEpoch() === epoch);
     let revision = 0,
         busy = false;
+    if (managed && lifecycle)
+        lifecycle.subscribe((descriptor) => {
+            if (descriptor?.phase !== 'active' || !descriptor.verificationAvailable) revision += 1;
+        });
     return Object.freeze({
         invalidate() {
             revision += 1;
@@ -52,17 +68,25 @@ export function createResearchPrivateAdmissionSource(
             // Bound in-flight native reads. A refused overlapping call cancels
             // publication of the previous read, but cannot free its reservation.
             const ticket = ++revision;
-            if (busy) return closed();
+            const epoch = creationEpoch();
+            const current = () => ticket === revision && eligible(epoch);
+            const readAccount = () =>
+                epoch === undefined ? native.currentAccount() : native.currentAccount({ epoch });
+            if (busy || !current()) return closed();
             busy = true;
             try {
-                const original = account(await native.currentAccount());
-                if (ticket !== revision || !original) return closed();
+                if (managed) {
+                    const descriptor = await lifecycle!.refresh();
+                    if (!current() || descriptor?.epoch !== epoch) return closed();
+                }
+                const original = account(await readAccount());
+                if (!current() || !original) return closed();
                 const value = fields(
                     await native.messagePrivateAdmission({ credentialBinding: original.credentialBinding }),
                     ['status', 'accountId', 'deviceId', 'credentialBinding', 'selection'],
                 );
                 if (
-                    ticket !== revision ||
+                    !current() ||
                     !value ||
                     value.status !== 'private_admission' ||
                     value.accountId !== original.accountId ||
@@ -74,8 +98,8 @@ export function createResearchPrivateAdmissionSource(
                 const selection = value.selection;
                 // Copy before the await; an adapter-owned mutable result cannot
                 // retag this original completion onto a newer credential epoch.
-                const current = account(await native.currentAccount());
-                if (ticket !== revision || !same(original, current)) return closed();
+                const latest = account(await readAccount());
+                if (!current() || !same(original, latest)) return closed();
                 return Object.freeze({ status: 'private_admission', ...original, selection });
             } catch {
                 return closed();

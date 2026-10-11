@@ -11,7 +11,72 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
-## Actual scene wiring and unsafe background observation on 12 October
+## Native owner preparation and current inbox refusal on 12 October
+
+The [native owner integration record](../experiments/scuttlebutt-e2ee/review/scene-owner-integration-failure-2026-10-12.json)
+implements one retained plugin/host, initially suspended eligibility, an original
+scene epoch around Auth dispatch/completion and synchronous first-inactive
+verify-fencing of the **already-open** host. Closure creates no host, logs out no
+account and resets no keys/history. Foreground remains covered until a fixed
+native WebKit query independently measures the actual closed DOM for the current
+epoch, document and navigation item. Client booleans are not proof. The observer
+remains passive; this is unchanged Olm, not a third or post-quantum ratchet.
+
+The JS channel has one physical listener across replacement compositions, at
+most two coalesced replay probes with closed exhaustion, and no retained event
+queue. Auth captures the epoch at request creation and replays it after the
+native fence and at actual SDK dispatch. Native closure cancels stale JS work
+without another fence or token acquisition. React acknowledges committed closed
+DOM, with at most two attempts per owner/epoch and real progress before retrying.
+Focused tests caught a real remaining epochless admission read: the admission
+source now captures the same channel/epoch, and runtime construction installs the
+Auth owner before its two consumers, still before SDK initialization.
+
+Executed evidence is separate: **36 Foundation synthetic assertions** compiled
+under Swift 6; **274/274** native contract/source/driver cases; **251/251** SDK,
+controller, port and committed-DOM cases in eight suites; and **3/3** framework
+waiting source checks. Named formatting/lint and narrow strict types passed.
+These are not native encryption, OS or physical acceptance tests. The initial
+272/274, 216/221 and 250/251 results remain failed, including the actual admission
+gap and obsolete source-test expectations. Internal agent review is not an audit.
+
+The fresh combined-App web build passed with **1,735** module inputs, one asset,
+six proof inputs, 296 outputs and three ES workers. Its receipt SHA-256 is
+`6aa53533766aeac2520f55e3d45c9ef5c021375751c7ff301be509d8a5dfd813`.
+The first native preflight refused because the former framework receipt was
+absent (ENOENT); it dispatched no native build. Frameworks were then compiled
+legitimately from 106 pinned cached source inputs, producing 19/22 unsigned file
+trees. No passed receipt was reconstructed and no shared dependencies were
+written. Framework waiting is now cumulatively bounded to 120,000 ms; its
+executed wait was zero, not an overshoot/failure-path test.
+
+The subsequent **26-source native app compiled and launched**, PID **5464**.
+Its integrated PM run failed at `native-final-validate`: the first native inbox
+operation returned unavailable, with zero successful inbox results. The failed
+report contains 117 UI assertions, no accepted exchange proof and no
+protected-ready or background/foreground stage. Its cause remains **unknown**;
+this is not the earlier launch timeout and is not proof of a cryptographic
+failure or of fixed background authority. Do not transfer old exchange counts.
+The failed parent receipt is
+`/private/tmp/thalassa-full-root-protected-idFKvv/run-receipt.json`, SHA-256
+`e60da926289d4af09658548b3cc61cbeda87241d5cc8dfbae1a1f413b0a95ae5`.
+Unsigned build receipt SHA-256:
+`bbe0b3e1f0a096148a3078f5b2462c100226eebbdedff45b0b57f24b85216407`.
+Driver/build inventories bind 21 driver inputs, 26 Swift inputs and 345/348
+unsigned/signed files. Exact owned simulator ID/name absence and unchanged run
+sources were confirmed; all shared waiting was **0/120,000 ms**.
+
+Next diagnose that inbox refusal with bounded, non-secret stage evidence, then
+execute a fresh protected exchange and actual lifecycle/navigation proof. Do not
+repeat unchanged launches, widen deadlines or weaken a permission/evidence gate
+to get a pass. Cold-process refusal and same-store recovery remain distinct, with
+the fresh-install guard unchanged. Current physical acceptance, full-adapter
+HTTPS/Auth, shipping lifecycle/recovery/retention, production cutover,
+licence/provenance and independent-review gates remain open. Nothing is ready
+for master or release. Production, primary targets, hosted services and human
+devices/accounts/keys are unchanged; raw resources/observer bytes stay private.
+
+## Previous unsafe background observation on 12 October
 
 The [current source-bound scene run](../experiments/scuttlebutt-e2ee/review/scene-wiring-background-failure-2026-10-12.json)
 compiled and launched the new **25-source** isolated native app, then observed an
@@ -66,8 +131,9 @@ replay. Keep foreground covered until same-generation actual closed-DOM
 acknowledgement, then allow explicit fresh verification only. Never create a host,
 sign out, quarantine/reset/enroll, restore an old lease or inject pagehide for a
 pass. Repeated retained Capacitor notifications can accumulate; do not use them
-as an unbounded queue. This fix is **not implemented**. Preserve this failed run
-before advancing it.
+as an unbounded queue. The owner preparation above implements that boundary,
+but its current integrated inbox refusal prevents OS acceptance. Preserve this
+earlier failed background sample as failed evidence.
 
 ## Previous upstream reconciliation for scene preparation
 

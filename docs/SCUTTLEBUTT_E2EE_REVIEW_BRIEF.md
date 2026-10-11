@@ -51,6 +51,28 @@ production or server changes accompanied the update.
 
 ## Current integration candidate
 
+The [current native owner preparation](../experiments/scuttlebutt-e2ee/review/scene-owner-integration-failure-2026-10-12.json)
+adds original scene epochs, synchronous existing-host closure, bounded
+nonretaining invalidation/replay and independent native closed-DOM acknowledgement
+before removing the cover. Auth/PM work remains closed while inactive; queued
+and late completions cannot adopt a later epoch. No logout, host creation or
+key/history reset is performed by closure. A test-discovered epochless admission
+read was corrected in the real runtime composition rather than permitted by the
+fixture. The unchanged Olm provider is not extended with another ratchet.
+
+Separate evidence passed 36 Foundation synthetic assertions, 274 contract/source
+cases, 251 controller/DOM cases and three framework wait source checks. A fresh
+web graph compiled with 1,735 inputs. After an absent old framework receipt
+refused preflight, new frameworks were legitimately compiled from 106 pinned
+cached sources without shared writes or fabricated evidence. The 26-source native
+app then compiled and launched, PID 5464, but the first native inbox scan returned
+unavailable. The failed report has 117 UI assertions, **no accepted exchange or
+actual background/foreground proof**. Its cause is unknown; older accepted
+exchange counts do not apply. Exact simulator removal and source stability were
+confirmed, with zero shared waiting. This is implemented preparation, not merge
+readiness, real-device acceptance or independent assessment. The next step is
+bounded diagnosis of the inbox refusal, then current protected/lifecycle proof.
+
 The [12 October current scene run](../experiments/scuttlebutt-e2ee/review/scene-wiring-background-failure-2026-10-12.json)
 has a fresh combined-App web build, 25-source unsigned native build and measured
 owned simulator launch. The actual main-App initiator exchange prefix passed
@@ -68,8 +90,9 @@ synchronous fencing of the already-open host, including delayed Auth completion
 and queued verification races. Foreground must stay covered until same-generation
 actual closed-UI acknowledgement; bounded native invalidation/read replay must
 not acquire SDK tokens, create hosts, logout or reset history. Observer remains
-passive. The fix is not implemented, and OS/physical/production/review gates remain
-open. This source-bound failure supersedes any suggestion of merge readiness.
+passive. The preparation above implements this boundary but has not established
+current OS acceptance; the earlier unsafe background sample remains failed.
+OS/physical/production/review gates remain open.
 
 On 9 October the owner renewed autonomous development through a justified
 conditional merge, and the existing four-hour heartbeat no longer expires on

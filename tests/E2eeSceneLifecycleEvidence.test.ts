@@ -79,7 +79,7 @@ function trace() {
         sequence: index + 1,
         event,
         activationState,
-        cover: cover(index >= 5 && index <= 7),
+        cover: cover(index >= 5 && index <= 8),
         authority:
             index < 4
                 ? coldAuthority()
@@ -87,9 +87,9 @@ function trace() {
                       observationStatus: 'observed',
                       facadeObserved: true,
                       originalSnapshotObserved: true,
-                      accountPresent: index < 6,
-                      originalSnapshotCurrent: index < 6,
-                      verifyFenceCompletions: index < 6 ? 1 : 2,
+                      accountPresent: index < 5,
+                      originalSnapshotCurrent: index < 5,
+                      verifyFenceCompletions: index < 5 ? 1 : 2,
                   },
     }));
     return {
@@ -323,8 +323,8 @@ function driverStage(stage = 'foreground-closed') {
     windowEvidence.privateSelection = 'native-unavailable';
     const nativeCounters: Record<string, number> = {
         ...report.nativeCounters,
-        fenceSession: report.nativeCounters.fenceSession + 1,
-        currentAccount: report.nativeCounters.currentAccount + 1,
+        lifecycleState: report.nativeCounters.lifecycleState + 1,
+        acknowledgeClosedPresentation: report.nativeCounters.acknowledgeClosedPresentation + 1,
     };
     const closure = {
         version: 1,
@@ -916,14 +916,14 @@ describe('future OS observation gate — populated only with synthetic test valu
         row.events[Number(index)].activationState = String(state);
         expect(() => requireResearchSceneProtectedRoundTrip(row, pin)).toThrow('evidence refused');
     });
-    it.each([4, 6, 7, 8, 9])('refuses missing original snapshot observation at stage %s', (index) => {
+    it.each([4, 5, 6, 7, 8, 9])('refuses missing original snapshot observation at stage %s', (index) => {
         const row = receipt();
         row.evidenceCategory = 'simulator-native-observations';
         row.events[index].authority.originalSnapshotObserved = false;
         row.events[index].authority.originalSnapshotCurrent = null;
         expect(() => requireResearchSceneProtectedRoundTrip(row, pin)).toThrow('evidence refused');
     });
-    it.each([6, 7, 8, 9])(
+    it.each([5, 6, 7, 8, 9])(
         'does not accept expiry-only account absence without completed verify fence at stage %s',
         (index) => {
             const row = receipt();
@@ -962,6 +962,19 @@ describe('future OS observation gate — populated only with synthetic test valu
         row.events[7].event = 'will-enter-foreground';
         row.events[9].authority.verifyFenceCompletions = 3;
         expect(() => requireResearchSceneProtectedRoundTrip(row, pin)).toThrow('evidence refused');
+    });
+    it('keeps foreground covered until the independently measured DOM acknowledgement', () => {
+        const row = receipt();
+        row.evidenceCategory = 'simulator-native-observations';
+        row.events[8].cover = cover(false);
+        expect(() => requireResearchSceneProtectedRoundTrip(row, pin)).toThrow('evidence refused');
+    });
+    it('refuses a duplicate JS fence even when its account absence would look safe', () => {
+        const candidate = driverStage();
+        candidate.closure.nativeCounters.fenceSession += 1;
+        expect(() => requireResearchSceneProtectedDriverStage(candidate.input, candidate.expected)).toThrow(
+            'evidence refused',
+        );
     });
     it.each(['cover', 'account', 'snapshot', 'fence-count'])(
         'preserves protected observation at will-enter-foreground: %s',
@@ -1096,7 +1109,7 @@ describe('explicit scene wiring — source regression evidence, not native execu
         expect(builder).toContain('receipt.sourceHashes[source] = hash(source)');
         expect(builder).toContain('assert(hash(path) === expected)');
     });
-    it('keeps the Ruby scene whitelist at exact 25 sources and the ordinary bound at 24', () => {
+    it('keeps the Ruby scene whitelist at exact 26 sources and the ordinary bound at 24', () => {
         const ruby = nativeSource('generate_project.rb'),
             builder = nativeSource('build.mjs');
         const scene =
@@ -1105,8 +1118,8 @@ describe('explicit scene wiring — source regression evidence, not native execu
                 .trim()
                 .split(/\s+/)
                 .sort() ?? [];
-        expect(scene).toHaveLength(25);
-        expect(new Set(scene).size).toBe(25);
+        expect(scene).toHaveLength(26);
+        expect(new Set(scene).size).toBe(26);
         expect(ruby).toContain(
             "manifest['sceneUiFixture'] ? sources.sort == scene_sources : sources.length.between?(3, 24)",
         );
@@ -1157,7 +1170,9 @@ describe('explicit scene wiring — source regression evidence, not native execu
         expect(returning).toBeGreaterThan(scene);
         expect(firstPagehide).toBeGreaterThan(returning);
         const sceneBody = script.slice(scene, returning);
-        expect(sceneBody).toContain('await wait(() => sceneProtectedReady && sceneForegroundObserved)');
+        expect(sceneBody).toContain(
+            'await wait(() => sceneProtectedReady && sceneForegroundObserved && scenePresentationClosed)',
+        );
         expect(sceneBody).toContain('await wait(() => sceneUiClosed)');
         expect(sceneBody).not.toContain('PageTransitionEvent');
         expect(sceneBody).not.toContain("post('passed'");

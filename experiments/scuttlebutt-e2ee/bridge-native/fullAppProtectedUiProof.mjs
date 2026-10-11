@@ -307,6 +307,7 @@ function sceneSourceBindings() {
         coordinator: 'bridge-native/ResearchFullAppSceneUiFixture.swift',
         application: 'bridge-native/ResearchApp.swift',
         plugin: 'bridge-native/ScuttlebuttResearchAuthPlugin.swift',
+        sceneAuthority: 'bridge-native/ResearchSceneAuthority.swift',
         protectedFixture: 'bridge-native/ResearchFullAppProtectedUiFixture.swift',
         protectedScript: 'full-app-pilot/nativeProtectedUiFixture.js',
     };
@@ -427,6 +428,7 @@ try {
         'bridge-native/machOEntitlementEvidence.mjs',
         'bridge-native/ResearchApp.swift',
         'bridge-native/ScuttlebuttResearchAuthPlugin.swift',
+        'bridge-native/ResearchSceneAuthority.swift',
         'bridge-native/ResearchAuthHost.swift',
         'bridge-native/ResearchLocalUiFixture.swift',
         'bridge-native/ResearchFullAppProtectedUiFixture.swift',

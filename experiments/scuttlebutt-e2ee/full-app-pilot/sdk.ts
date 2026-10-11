@@ -26,9 +26,23 @@ export function createFullAppRuntimeFactory(researchAuthFetch: typeof fetch) {
             countFullAppNativeCall();
             return researchNativePlugin.authenticate(options);
         },
-        currentAccount() {
+        currentAccount(options) {
             countFullAppNativeCall();
-            return researchNativePlugin.currentAccount();
+            return options === undefined
+                ? researchNativePlugin.currentAccount()
+                : researchNativePlugin.currentAccount(options);
+        },
+        lifecycleState() {
+            countFullAppNativeCall();
+            return researchNativePlugin.lifecycleState!();
+        },
+        acknowledgeClosedPresentation(options) {
+            countFullAppNativeCall();
+            return researchNativePlugin.acknowledgeClosedPresentation!(options);
+        },
+        addListener(event, listener) {
+            countFullAppNativeCall();
+            return researchNativePlugin.addListener!(event, listener);
         },
         messagePrivateAdmission(options) {
             countFullAppNativeCall();
@@ -66,6 +80,7 @@ export function createFullAppRuntimeFactory(researchAuthFetch: typeof fetch) {
     const native = Object.freeze(nativeBindings);
     const auth: ResearchAuthDependencies = {
         native,
+        nativeLifecycleRequired: true,
         supported: () =>
             Capacitor.isNativePlatform() &&
             Capacitor.getPlatform() === 'ios' &&

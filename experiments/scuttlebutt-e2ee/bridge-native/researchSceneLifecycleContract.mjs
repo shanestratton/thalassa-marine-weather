@@ -35,6 +35,7 @@ export const RESEARCH_SCENE_REQUIRED_SOURCE_BINDINGS = Object.freeze([
     'coordinator',
     'application',
     'plugin',
+    'sceneAuthority',
     'protectedFixture',
     'protectedScript',
 ]);
@@ -390,11 +391,11 @@ function inspectProtectedObservationStage(raw, expected, stage) {
             ['foreground-active', 'foreground-inactive'].includes(resign.activationState) &&
                 background.activationState === 'background',
         );
-        for (const event of [resign, background, ...(enteringForeground ? [enteringForeground] : [])])
+        for (const event of [resign, background, ...(enteringForeground ? [enteringForeground, foreground] : [])])
             require(covers.every((key) => event.cover[key] === true));
         if (enteringForeground)
             require(['background', 'foreground-inactive'].includes(enteringForeground.activationState));
-        const fencedEvents = [background, enteringForeground, foreground, closed].filter(
+        const fencedEvents = [resign, background, enteringForeground, foreground, closed].filter(
             (event) => event !== undefined,
         );
         for (const event of fencedEvents) {
@@ -412,7 +413,6 @@ function inspectProtectedObservationStage(raw, expected, stage) {
         require(
             foreground.activationState === 'foreground-active' &&
                 closed.activationState === 'foreground-active' &&
-                foreground.cover.present === false &&
                 closed.cover.present === false,
         );
         const counts = fencedEvents.map((event) => event.authority.verifyFenceCompletions);
@@ -571,8 +571,9 @@ function requireClosedUi(closure, baseline) {
     for (const key of FULL_APP_NATIVE_COUNTERS) {
         const before = baseline.nativeCounters[key],
             after = closure.nativeCounters[key];
-        if (key === 'fenceSession') require(after > before);
-        else if (key === 'currentAccount') require(after >= before);
+        // Closure is native-owner initiated, not a second JS fence. Successful
+        // native completions are measured by the immutable observer sequence.
+        if (['lifecycleState', 'acknowledgeClosedPresentation'].includes(key)) require(after >= before);
         else require(after === before);
     }
     for (const key of FULL_APP_PROTECTED_PM_RESULT_KEYS)

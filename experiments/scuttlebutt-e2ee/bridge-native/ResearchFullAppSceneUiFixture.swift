@@ -26,6 +26,7 @@ final class ResearchFullAppSceneUiFixture: NSObject, WKScriptMessageHandler {
     private var ready = false
     private var backgroundObserved = false
     private var foregroundObserved = false
+    private var presentationClosed = false
     private var closureReported = false
     private var failed = false
     private override init() { super.init() }
@@ -90,6 +91,19 @@ final class ResearchFullAppSceneUiFixture: NSObject, WKScriptMessageHandler {
         do { try shared.capture(.willTerminate) } catch { shared.failed = true }
     }
 
+    static func presentationClosed(scene: UIScene, delegate: ResearchSceneDelegate) {
+        guard shared.scene === scene, shared.delegate === delegate, !shared.failed,
+              shared.ready, shared.backgroundObserved, shared.foregroundObserved,
+              !shared.presentationClosed, scene.activationState == .foregroundActive,
+              let controller = delegate.window?.rootViewController as? ResearchBridgeViewController,
+              controller.sceneAuthorityDescriptor().phase == .active,
+              delegate.sceneLifecycleCoverFacts().present == false else { return }
+        // Readonly notification after the real owner independently measured DOM
+        // and released its presentation fence; no admission mutation here.
+        shared.presentationClosed = true
+        shared.step("foreground-presentation-closed")
+    }
+
     static func protectedReady() throws {
         guard shared.observer != nil, !shared.failed, !shared.ready,
               shared.scene != nil, shared.delegate != nil, shared.view != nil else { throw ResearchFullAppSceneUiError.unavailable }
@@ -121,13 +135,13 @@ final class ResearchFullAppSceneUiFixture: NSObject, WKScriptMessageHandler {
     }
 
     private func step(_ phase: String) {
-        guard ["protected-ready", "foreground-active-observed", "foreground-ui-closed"].contains(phase), let view else { return }
+        guard ["protected-ready", "foreground-active-observed", "foreground-presentation-closed", "foreground-ui-closed"].contains(phase), let view else { return }
         // Fixed diagnostics only: no permission/fence or synthetic OS event.
         view.evaluateJavaScript("window.dispatchEvent(new CustomEvent('research-full-app-scene-ui-step',{detail:{phase:'" + phase + "'}}));", completionHandler: nil)
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard !failed, ready, backgroundObserved, foregroundObserved, !closureReported,
+        guard !failed, ready, backgroundObserved, foregroundObserved, presentationClosed, !closureReported,
               let view, message.name == Self.handlerName, controller === view.configuration.userContentController,
               message.webView === view, message.frameInfo.isMainFrame,
               let url = message.frameInfo.request.url, url.scheme == "capacitor", url.host == "localhost",

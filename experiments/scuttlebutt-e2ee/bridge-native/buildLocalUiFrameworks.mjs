@@ -71,6 +71,8 @@ const receipt = {
     noNetworkOrPackageResolution: true,
     sharedDependenciesWritten: false,
     independentProvenanceAttested: false,
+    sharedSlotWaitMs: 0,
+    sharedSlotWaitBudgetMs: 120000,
 };
 const save = () => writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n', { mode: 0o600 });
 save();
@@ -103,8 +105,14 @@ try {
     receipt.projectPath = join(scratch, 'Frameworks.xcodeproj');
     receipt.projectSha256 = hash(join(receipt.projectPath, 'project.pbxproj'));
     process.title = 'thalassa local UI frameworks awaiting shared-Mac slot';
-    const deadline = Date.now() + 600000;
     for (;;) {
+        // This build shares the same bounded waiting budget as its caller.
+        // Exhaustion refuses dispatch even if the next poll would find a slot.
+        if (receipt.sharedSlotWaitMs >= receipt.sharedSlotWaitBudgetMs) {
+            receipt.status = 'queued-unrun';
+            save();
+            throw new Error('Shared build slot budget exhausted');
+        }
         const p = spawnSync('/usr/bin/pgrep', ['-fl', 'vite build|tsc|vitest'], { encoding: 'utf8', timeout: 10000 });
         assert(!p.error && [0, 1].includes(p.status));
         const others = p.stdout
@@ -112,13 +120,15 @@ try {
             .split('\n')
             .filter(
                 (s) =>
-                    s &&
+                    /^\d+\s/.test(s) &&
                     !s.startsWith(process.pid + ' ') &&
-                    !/^\d+\s+(?:\/\S*\/)?(?:sh|bash|zsh|fish|env|xargs)\s/.test(s),
+                    !/^\d+\s+(?:\/\S*\/)?(?:sh|bash|zsh|fish|env|pgrep|xargs)(?:\s|$)/.test(s),
             );
         if (!others.length) break;
-        assert(Date.now() < deadline, 'Shared build slot deadline');
-        await delay(5000);
+        const started = Date.now();
+        await delay(Math.min(5000, receipt.sharedSlotWaitBudgetMs - receipt.sharedSlotWaitMs));
+        receipt.sharedSlotWaitMs += Date.now() - started;
+        save();
     }
     process.title = 'vite build slot: owned simulator frameworks';
     receipt.status = 'building';
@@ -200,7 +210,7 @@ try {
     save();
     console.info('PASS owned source-complete unsigned simulator frameworks. No independent provenance attestation.');
 } catch {
-    receipt.status = 'failed';
+    if (receipt.status !== 'queued-unrun') receipt.status = 'failed';
     save();
     console.error('FAIL owned simulator frameworks; retained private receipt/compiler diagnostics.');
     process.exitCode = 1;

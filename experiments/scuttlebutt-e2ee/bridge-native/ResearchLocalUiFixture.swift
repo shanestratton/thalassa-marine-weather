@@ -13,8 +13,9 @@ final class ResearchLocalUiFixture: NSObject, WKScriptMessageHandler, @unchecked
     static let userID = "93000000-0000-4000-8000-000000000001"
     static let handlerName = "researchLocalUiFixture"
     private static let shared = ResearchLocalUiFixture()
+    private static let lifecycleAllowed: Set<String> = ["lifecycleState", "acknowledgeClosedPresentation"]
     private static let coldAllowed: Set<String> = ["configuration", "fenceSession", "authenticate",
-        "currentAccount", "messagePrivateAdmission"]
+        "currentAccount", "messagePrivateAdmission", "lifecycleState", "acknowledgeClosedPresentation"]
 #if E2EE_FULL_APP_UI_FIXTURE
     private static let allowed = coldAllowed
     private static let cases = ["native-http-refusals", "cold-root-closed", "sdk-native-auth-browse-only",
@@ -47,6 +48,7 @@ final class ResearchLocalUiFixture: NSObject, WKScriptMessageHandler, @unchecked
     private static let cases = ["cold-denied", "sign-in", "unknown-admission", "no-private-open", "password-cleared"]
 #endif
     private static let methods = ["configuration", "fenceSession", "authenticate", "currentAccount",
+        "lifecycleState", "acknowledgeClosedPresentation",
         "messageState", "messagePrivateAdmission", "messagePairingCard", "messageInspectPeerCard",
         "messageConfirmPeer", "messageRegisterDevice", "messageClaimPeer", "messageRefreshPolicy",
         "messageRequireProtected", "messageAccountMode", "messageThread", "messagePrepareText",
@@ -214,12 +216,12 @@ final class ResearchLocalUiFixture: NSObject, WKScriptMessageHandler, @unchecked
         if known { shared.increment(method) }
         else { shared.increment("unexpectedMethods") }
 #if E2EE_PROTECTED_UI_FIXTURE
-        guard !shared.finishing else { return false }
+        guard !shared.finishing || lifecycleAllowed.contains(method) else { return false }
 #endif
 #if E2EE_FULL_APP_UI_FIXTURE
         // Final reporting may race the existing controller's queued fence.
         // Let ONLY that already-owned path settle; create no fixture Auth call.
-        guard !shared.fullAppFinalizing || method == "fenceSession" else { return false }
+        guard !shared.fullAppFinalizing || method == "fenceSession" || lifecycleAllowed.contains(method) else { return false }
 #endif
         guard shared.runID != nil, !shared.completed, allowed.contains(method) else {
             if known && !allowed.contains(method) { shared.increment("unexpectedMethods") }
@@ -619,7 +621,7 @@ final class ResearchLocalUiFixture: NSObject, WKScriptMessageHandler, @unchecked
                     throw ResearchLocalUiFixtureError.unavailable
                 }
                 let counts = self.fullAppCopiedCounters()
-                guard Self.allowed.allSatisfy({ (counts[$0] ?? 0) > 0 }), counts["authenticate"] == 1,
+                guard Self.allowed.subtracting(Self.lifecycleAllowed).allSatisfy({ (counts[$0] ?? 0) > 0 }), counts["authenticate"] == 1,
                       Self.methods.filter({ !Self.allowed.contains($0) }).allSatisfy({ counts[$0] == 0 }),
                       counts["nativeAuthRequests"] == 2, counts["unexpectedNativeRequests"] == 0,
                       counts["relayRequests"] == 0, counts["unexpectedMethods"] == 0,
@@ -798,7 +800,7 @@ final class ResearchLocalUiFixture: NSObject, WKScriptMessageHandler, @unchecked
         do {
             guard let supplied, supplied.passed, supplied.sdkCounts["password"] == 1,
                   supplied.sdkCounts["unexpected"] == 0,
-                  Self.allowed.allSatisfy({ (counters[$0] ?? 0) > 0 }),
+                  Self.allowed.subtracting(Self.lifecycleAllowed).allSatisfy({ (counters[$0] ?? 0) > 0 }),
                   Self.methods.filter({ !Self.allowed.contains($0) }).allSatisfy({ counters[$0] == 0 }),
                   // Cold Directory bootstrap verifies before creating an owner,
                   // then AuthSession verifies that same bearer independently.

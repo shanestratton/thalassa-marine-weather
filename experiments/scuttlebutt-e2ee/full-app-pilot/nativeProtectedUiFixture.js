@@ -121,6 +121,7 @@
         capturedMessages = null;
     let sceneProtectedReady = false,
         sceneForegroundObserved = false,
+        scenePresentationClosed = false,
         sceneUiClosed = false;
     const refuse = () => {
         throw new Error('Full App native fixture refused');
@@ -592,6 +593,12 @@
                         !sceneForegroundObserved
                     )
                         sceneForegroundObserved = true;
+                    else if (
+                        detail.phase === 'foreground-presentation-closed' &&
+                        sceneForegroundObserved &&
+                        !scenePresentationClosed
+                    )
+                        scenePresentationClosed = true;
                     else if (detail.phase === 'foreground-ui-closed' && sceneForegroundObserved && !sceneUiClosed)
                         sceneUiClosed = true;
                     else controlFailed = true;
@@ -716,7 +723,19 @@
                     if (sceneLifecycleProof) {
                         // Pause at real native baseline. Only the owned OS driver
                         // changes foreground state; no pagehide/fence is injected.
-                        await wait(() => sceneProtectedReady && sceneForegroundObserved);
+                        // Entry already captured the run diagnostics. Remove only
+                        // those two owned query values before native DOM ACK; this
+                        // is same-document replacement, not a navigation or fence.
+                        const diagnosticUrl = new URL(location.href);
+                        require(
+                            diagnosticUrl.searchParams.size === 2 &&
+                                diagnosticUrl.searchParams.get('fullAppWindowProofRun') === runID &&
+                                diagnosticUrl.searchParams.get('fullAppWindowProofNonce') === nonce &&
+                                diagnosticUrl.hash === '',
+                        );
+                        diagnosticUrl.search = '';
+                        history.replaceState(null, '', diagnosticUrl.href);
+                        await wait(() => sceneProtectedReady && sceneForegroundObserved && scenePresentationClosed);
                         observed = await wait(
                             (value, facts) =>
                                 ['unavailable', 'signed_out'].includes(value?.auth.status) &&

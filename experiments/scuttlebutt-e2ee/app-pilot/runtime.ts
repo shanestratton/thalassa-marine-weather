@@ -19,10 +19,12 @@ export function createPrivateMessageResearchRuntime(options?: {
     native: ResearchPrivateAdmissionBindings & ResearchPrivateMessagePluginBindings;
 }) {
     const native = options?.native ?? researchNativePlugin;
+    // Install the one descriptor owner before both consumers capture its channel.
+    // This constructor creates no SDK, host or credential authority.
+    const auth = options ? new ResearchAuthController(options.auth) : new ResearchAuthController();
     const source = createResearchPrivateAdmissionSource(native);
     // Construct before SDK initialization; this always installs one-way denial.
     const admission = createNativePrivateMessageStartup({ native: source });
-    const auth = options ? new ResearchAuthController(options.auth) : new ResearchAuthController();
     const port = createResearchPrivateMessageNativePlugin(native);
     return Object.freeze({ auth, admission, source, port, runtime: createPrivateMessagePilotRuntime(port) });
 }

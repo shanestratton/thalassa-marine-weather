@@ -3,6 +3,15 @@ import UIKit
 import Capacitor
 
 final class ResearchBridgeViewController: CAPBridgeViewController {
+    // One stable plugin/host for the same owned window and every native callback.
+    private let authPlugin = ScuttlebuttResearchAuthPlugin()
+    @MainActor var onScenePresentationClosed: (() -> Void)? {
+        get { authPlugin.onScenePresentationClosed }
+        set { authPlugin.onScenePresentationClosed = newValue }
+    }
+    @MainActor func suspendSceneAuthority() { authPlugin.suspendSceneAuthority() }
+    @MainActor func sceneBecameActive() -> Bool { authPlugin.sceneBecameActive() }
+    func sceneAuthorityDescriptor() -> ResearchSceneAuthority.Descriptor { authPlugin.nativeSceneDescriptor() }
 #if E2EE_LOCAL_UI_FIXTURE
     private var localUiFixtureReady = false
 #endif
@@ -15,7 +24,7 @@ final class ResearchBridgeViewController: CAPBridgeViewController {
         }
         do {
             let httpFence = try ResearchFullAppProtectedHttpFence.install(on: bridge)
-            bridge.registerPluginInstance(ScuttlebuttResearchAuthPlugin())
+            bridge.registerPluginInstance(authPlugin)
 #if E2EE_FULL_APP_SCENE_UI_FIXTURE
             try ResearchFullAppSceneUiFixture.install(in: webView)
 #endif
@@ -33,13 +42,13 @@ final class ResearchBridgeViewController: CAPBridgeViewController {
             // Replace both cached native HTTP routes before the first document.
             // A failed fixture never falls through to the ordinary loader.
             let httpFence = try ResearchFullAppHttpFence.install(on: bridge)
-            bridge.registerPluginInstance(ScuttlebuttResearchAuthPlugin())
+            bridge.registerPluginInstance(authPlugin)
             try ResearchLocalUiFixture.install(in: webView, fullAppHttpFence: httpFence)
             localUiFixtureReady = true
             ResearchLocalUiFixture.notePhase("fixture-installed")
         } catch { ResearchLocalUiFixture.notePhase("fixture-install-failed") }
 #else
-        bridge?.registerPluginInstance(ScuttlebuttResearchAuthPlugin())
+        bridge?.registerPluginInstance(authPlugin)
 #if E2EE_LOCAL_UI_FIXTURE
         ResearchLocalUiFixture.notePhase("bridge-created")
         if let webView {
@@ -117,7 +126,15 @@ final class ResearchSceneDelegate: UIResponder, UIWindowSceneDelegate {
         ResearchLocalUiFixture.notePhase("scene-connected")
 #endif
         let window = UIWindow(windowScene: windowScene)
-        window.rootViewController = ResearchBridgeViewController()
+        let controller = ResearchBridgeViewController()
+        controller.onScenePresentationClosed = { [weak self, weak scene] in
+            guard let self else { return }
+            self.hidePrivacyCover()
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE
+            if let scene { ResearchFullAppSceneUiFixture.presentationClosed(scene: scene, delegate: self) }
+#endif
+        }
+        window.rootViewController = controller
         self.window = window
 #if E2EE_FULL_APP_SCENE_UI_FIXTURE
         do { try ResearchFullAppSceneUiFixture.attachScene(scene, delegate: self) }
@@ -130,6 +147,7 @@ final class ResearchSceneDelegate: UIResponder, UIWindowSceneDelegate {
     // visibility event before covering an inactive scene's sensitive content.
     func sceneWillResignActive(_ scene: UIScene) {
         showPrivacyCover()
+        (window?.rootViewController as? ResearchBridgeViewController)?.suspendSceneAuthority()
 #if E2EE_FULL_APP_SCENE_UI_FIXTURE
         ResearchFullAppSceneUiFixture.observe(.willResignActive, scene: scene, delegate: self)
 #endif
@@ -137,6 +155,7 @@ final class ResearchSceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneDidEnterBackground(_ scene: UIScene) {
         showPrivacyCover()
+        (window?.rootViewController as? ResearchBridgeViewController)?.suspendSceneAuthority()
 #if E2EE_FULL_APP_SCENE_UI_FIXTURE
         ResearchFullAppSceneUiFixture.observe(.didEnterBackground, scene: scene, delegate: self)
 #endif
@@ -164,7 +183,11 @@ final class ResearchSceneDelegate: UIResponder, UIWindowSceneDelegate {
 #endif
 
     func sceneDidBecomeActive(_ scene: UIScene) {
-        hidePrivacyCover()
+        // First startup may be eligible. A real inactive epoch remains covered
+        // until same-WK actual closed-DOM acknowledgement succeeds natively.
+        if (window?.rootViewController as? ResearchBridgeViewController)?.sceneBecameActive() == true {
+            hidePrivacyCover()
+        }
 #if E2EE_FULL_APP_SCENE_UI_FIXTURE
         ResearchFullAppSceneUiFixture.observe(.didBecomeActive, scene: scene, delegate: self)
 #endif

@@ -1,6 +1,12 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { createClient } from '@supabase/supabase-js';
 import type { ResearchPrivateMessagePluginBindings } from './privateMessagePort';
+import {
+    ResearchNativeLifecycleChannel,
+    type ResearchNativeLifecycleBindings,
+    type ResearchNativeLifecycleDescriptor,
+    type ResearchClosedPresentationFacts,
+} from './nativeLifecycle';
 
 // This research port authenticates an account only. It grants no permission to
 // send/read messages and must never be adapted into PM readiness by a Boolean.
@@ -27,11 +33,11 @@ export type NativeConfigurationResult =
       }
     | { status: 'unavailable' };
 
-export interface ResearchAuthNativePlugin {
+export interface ResearchAuthNativePlugin extends ResearchNativeLifecycleBindings {
     configuration(): Promise<NativeConfigurationResult>;
-    fenceSession(options: { mode: 'verify' | 'sign_out' }): Promise<NativeFenceResult>;
-    authenticate(options: { accessToken: string; authFence: string }): Promise<NativeAccountResult>;
-    currentAccount(): Promise<NativeAccountResult>;
+    fenceSession(options: { mode: 'verify' | 'sign_out'; epoch?: string }): Promise<NativeFenceResult>;
+    authenticate(options: { accessToken: string; authFence: string; epoch?: string }): Promise<NativeAccountResult>;
+    currentAccount(options?: { epoch: string }): Promise<NativeAccountResult>;
 }
 
 // A single Research native host may outlive a React window/composition. All
@@ -43,9 +49,14 @@ function queuedNativeFence(
     native: ResearchAuthNativePlugin,
     eligible: () => boolean,
     mode: 'verify' | 'sign_out',
+    epoch?: string,
 ): Promise<NativeFenceResult> {
     const previous = nativeFenceTails.get(native) ?? Promise.resolve();
-    const next = previous.then(() => (eligible() ? native.fenceSession({ mode }) : { status: 'unavailable' as const }));
+    const next = previous.then(() =>
+        eligible()
+            ? native.fenceSession(epoch === undefined ? { mode } : { mode, epoch })
+            : { status: 'unavailable' as const },
+    );
     nativeFenceTails.set(
         native,
         next.then(
@@ -89,6 +100,8 @@ export interface ResearchAuthDependencies {
     native: ResearchAuthNativePlugin;
     supported(): boolean;
     createSdk(configuration: ResearchSdkConfiguration, options: typeof MEMORY_AUTH_OPTIONS): ResearchAuthSdk;
+    /** Required on actual runtime/wrappers; old explicitly injected mocks may omit the API. */
+    nativeLifecycleRequired?: boolean;
 }
 export interface ResearchAuthState {
     readonly status: 'unsupported' | 'unavailable' | 'signed_out' | 'verifying' | 'authenticated';
@@ -108,6 +121,7 @@ export const researchNativePlugin = registerPlugin<
 
 const runtime: ResearchAuthDependencies = {
     native: researchNativePlugin,
+    nativeLifecycleRequired: true,
     supported: () =>
         Capacitor.isNativePlatform() &&
         Capacitor.getPlatform() === 'ios' &&
@@ -211,8 +225,81 @@ export class ResearchAuthController {
     private sdkDispatch: { revision: number; kind: 'acquire' | 'sign_out' } | null = null;
     private suspended = false;
     private suspension: Promise<void> = Promise.resolve();
+    private readonly lifecycle: ResearchNativeLifecycleChannel;
+    private nativeInactive = false;
+    private nativeCanceledUnverified = false;
+    private nativeHostObserved = false;
 
-    constructor(private readonly dependencies: ResearchAuthDependencies = runtime) {}
+    constructor(private readonly dependencies: ResearchAuthDependencies = runtime) {
+        this.lifecycle = new ResearchNativeLifecycleChannel(
+            dependencies.native,
+            dependencies.nativeLifecycleRequired,
+            () => this.invalidateNativeLifecycle(),
+        );
+        this.nativeInactive = this.lifecycle.managed;
+        this.lifecycle.subscribe((descriptor) => {
+            this.nativeInactive =
+                this.lifecycle.managed && !(descriptor?.phase === 'active' && descriptor.verificationAvailable);
+        });
+    }
+
+    private invalidateNativeLifecycle(): void {
+        if (this.disposed) return;
+        this.nativeInactive = true;
+        if (!this.owner && (this.nativeHostObserved || this.intent === 'signed_in'))
+            this.nativeCanceledUnverified = true;
+        this.revision += 1;
+        this.intent = 'signed_out';
+        try {
+            this.sdk?.stopAutoRefresh?.();
+        } catch {
+            /* Native denial remains current. */
+        }
+        // Preserve owner continuity, not its old lease or presentation. The
+        // native owner already fenced; this signal never queues another fence.
+        this.publish('unavailable');
+    }
+    isNativeLifecycleManaged(): boolean {
+        return this.lifecycle.managed;
+    }
+    getNativeLifecycleState(): ResearchNativeLifecycleDescriptor | null {
+        return this.lifecycle.getState();
+    }
+    subscribeNativeLifecycle(listener: (descriptor: ResearchNativeLifecycleDescriptor | null) => void): () => void {
+        return this.lifecycle.subscribe(listener);
+    }
+    async refreshNativeLifecycle(): Promise<ResearchNativeLifecycleDescriptor | null> {
+        if (!this.lifecycle.managed || this.disposed) return null;
+        if (!this.dependencies.supported()) {
+            if (this.state.status !== 'unsupported') {
+                this.revision += 1;
+                this.publish('unsupported');
+            }
+            return null;
+        }
+        return this.lifecycle.refresh();
+    }
+    async acknowledgeClosedPresentation(epoch: string, domFacts: ResearchClosedPresentationFacts): Promise<boolean> {
+        if (!this.lifecycle.managed || this.disposed) return false;
+        const ticket = this.revision;
+        const result = await this.lifecycle.acknowledge(epoch, domFacts);
+        return !this.disposed && ticket === this.revision && result?.epoch === epoch && result.phase === 'active';
+    }
+    private lifecycleEpoch(): string | undefined {
+        const descriptor = this.lifecycle.getState();
+        return descriptor?.phase === 'active' && descriptor.verificationAvailable ? descriptor.epoch : undefined;
+    }
+    private async replayLifecycle(ticket: number, epoch?: string): Promise<boolean> {
+        if (!this.lifecycle.managed) return this.current(ticket);
+        if (epoch === undefined) return false;
+        const descriptor = await this.refreshNativeLifecycle();
+        return (
+            this.current(ticket) &&
+            descriptor?.phase === 'active' &&
+            descriptor.verificationAvailable &&
+            descriptor.epoch === epoch
+        );
+    }
 
     getState(): ResearchAuthState {
         return this.state;
@@ -228,13 +315,13 @@ export class ResearchAuthController {
     }
 
     canSignIn(): boolean {
-        return this.initialized && !!this.sdk && !this.disposed;
+        return this.initialized && !!this.sdk && !this.disposed && !this.nativeInactive;
     }
 
     canSignOut(): boolean {
         // An inactive/incomplete cold selection cannot be adopted, but must
         // still permit the explicit native logout fence after configuration.
-        return !!this.configuration && !this.disposed;
+        return !!this.configuration && !this.disposed && !this.nativeInactive;
     }
 
     subscribe(listener: (state: ResearchAuthState) => void): () => void {
@@ -252,7 +339,28 @@ export class ResearchAuthController {
         const ticket = this.begin('verifying');
         try {
             if (!this.dependencies.supported()) {
-                if (this.current(ticket)) this.publish('unsupported');
+                if (!this.disposed) this.publish('unsupported');
+                return;
+            }
+            if (this.lifecycle.managed) {
+                // Initial native state may still be suspended while UIKit is
+                // attaching its first scene. Prepare public configuration/SDK
+                // only: no host, fence, bearer acquisition or restored account.
+                const descriptor = await this.refreshNativeLifecycle();
+                if (this.disposed) return;
+                if (descriptor === null) {
+                    this.publish('unavailable');
+                    return;
+                }
+                const configuration = await this.dependencies.native.configuration();
+                if (this.disposed) return;
+                if (!validConfiguration(configuration)) throw new Error('Unavailable');
+                this.configuration = Object.freeze({
+                    supabaseUrl: RESEARCH_SUPABASE_URL,
+                    publicApiKey: configuration.publicApiKey,
+                });
+                this.createSdk(this.configuration);
+                this.publish('signed_out'); // No account; native eligibility remains a separate closed fact.
                 return;
             }
             const configuration = await this.dependencies.native.configuration();
@@ -266,19 +374,31 @@ export class ResearchAuthController {
             // Cold launch has no bearer or displayed authority. Native verify
             // suspends credentials while retaining only a strictly reopened
             // selected owner; fresh same-account Auth is still mandatory.
-            const fenced = await queuedNativeFence(this.dependencies.native, () => this.current(ticket), 'verify');
+            const epoch = this.lifecycleEpoch();
+            const fenced = await queuedNativeFence(
+                this.dependencies.native,
+                () => this.current(ticket),
+                'verify',
+                epoch,
+            );
             if (!this.current(ticket)) return;
             if (!validFence(fenced)) throw new Error('Unavailable');
             this.createSdk(sdkConfiguration);
             this.publish('signed_out');
         } catch {
-            this.fail(ticket);
+            if (this.lifecycle.managed) {
+                if (!this.disposed) this.publish('unavailable');
+            } else this.fail(ticket);
         }
     }
 
     private createSdk(configuration: ResearchSdkConfiguration): void {
         const sdk = this.dependencies.createSdk(configuration, MEMORY_AUTH_OPTIONS);
         try {
+            if (this.lifecycle.managed) {
+                if (typeof sdk.stopAutoRefresh !== 'function') throw new Error('Unavailable');
+                sdk.stopAutoRefresh(); // Explicit active verification, never automatic foreground refresh.
+            }
             const subscription = sdk.onAuthStateChange((event, session) => this.authChanged(event, session)).data
                 .subscription;
             this.sdk = sdk;
@@ -292,30 +412,48 @@ export class ResearchAuthController {
 
     async signIn(email: string, password: string): Promise<void> {
         if (!this.initialized || !this.sdk || this.disposed) return;
+        const epoch = this.lifecycleEpoch();
+        if (this.lifecycle.managed && epoch === undefined) {
+            void this.refreshNativeLifecycle();
+            return;
+        }
         this.suspended = false;
         const ticket = this.begin('verifying');
+        if (this.lifecycle.managed && !(await this.replayLifecycle(ticket, epoch))) return;
         if (!this.current(ticket)) return;
+        this.nativeCanceledUnverified = false;
         this.intent = 'signed_in';
         if (!email.trim() || email.length > 320 || !password || password.length > 1024) {
             this.fail(ticket);
             return;
         }
-        await this.verify(ticket, () => this.sdk!.signInWithPassword({ email: email.trim(), password }), this.owner);
+        await this.verify(
+            ticket,
+            () => this.sdk!.signInWithPassword({ email: email.trim(), password }),
+            this.owner,
+            epoch,
+        );
     }
 
     async reverify(): Promise<void> {
         if (!this.initialized || !this.sdk || this.disposed) return;
+        const epoch = this.lifecycleEpoch();
+        if (this.lifecycle.managed && epoch === undefined) {
+            void this.refreshNativeLifecycle();
+            return;
+        }
         // A canceled first sign-in may have populated SDK memory, but never
         // established a verified owner. Require explicit credentials again.
-        if (this.suspended && !this.owner) {
+        if ((this.suspended || this.nativeCanceledUnverified) && !this.owner) {
             this.publish('unavailable');
             return;
         }
         this.suspended = false;
         const ticket = this.begin('verifying');
+        if (this.lifecycle.managed && !(await this.replayLifecycle(ticket, epoch))) return;
         if (!this.current(ticket)) return;
         this.intent = 'signed_in';
-        await this.verify(ticket, () => this.sdk!.getSession(), this.owner);
+        await this.verify(ticket, () => this.sdk!.getSession(), this.owner, epoch);
     }
 
     /**
@@ -335,11 +473,17 @@ export class ResearchAuthController {
             return null;
         }
         const expectedOwner = this.owner;
+        const epoch = this.lifecycleEpoch();
+        if (this.lifecycle.managed && epoch === undefined) {
+            void this.refreshNativeLifecycle();
+            return null;
+        }
         this.suspended = false;
         const ticket = this.begin('verifying');
+        if (this.lifecycle.managed && !(await this.replayLifecycle(ticket, epoch))) return null;
         if (!this.current(ticket)) return null;
         this.intent = 'signed_in';
-        await this.verify(ticket, () => this.sdk!.getSession(), expectedOwner);
+        await this.verify(ticket, () => this.sdk!.getSession(), expectedOwner, epoch);
         if (!this.current(ticket) || !this.dependencies.supported()) return null;
         const renewed = this.state.status === 'authenticated' ? this.state.account : null;
         if (!renewed || renewed.accountId !== expectedOwner.accountId || renewed.deviceId !== expectedOwner.deviceId) {
@@ -352,19 +496,28 @@ export class ResearchAuthController {
         ticket: number,
         acquire: () => Promise<SdkSessionResult>,
         expectedOwner: Pick<ResearchAccount, 'accountId' | 'deviceId'> | null,
+        epoch = this.lifecycleEpoch(),
     ): Promise<void> {
         if (!this.current(ticket)) return;
         try {
+            if (this.lifecycle.managed && !(await this.replayLifecycle(ticket, epoch))) return;
             await this.suspension;
             if (!this.current(ticket)) return;
-            const fenced = await queuedNativeFence(this.dependencies.native, () => this.current(ticket), 'verify');
+            const fenced = await queuedNativeFence(
+                this.dependencies.native,
+                () => this.current(ticket),
+                'verify',
+                epoch,
+            );
             if (!this.current(ticket)) return;
             if (!validFence(fenced)) throw new Error('Unavailable');
+            if (this.lifecycle.managed) this.nativeHostObserved = true;
+            if (this.lifecycle.managed && !(await this.replayLifecycle(ticket, epoch))) return;
             // Serial SDK work also checks the ticket at actual dispatch. A
             // queued token acquisition is forbidden after a newer sign-out.
             let result: SdkSessionResult;
             try {
-                result = await this.sdkCall(ticket, 'acquire', acquire);
+                result = await this.sdkCall(ticket, 'acquire', acquire, epoch);
             } catch (error) {
                 this.fail(ticket, invalidSdkCredentials(error) ? 'credentials_rejected' : 'verification_failed');
                 return;
@@ -384,6 +537,7 @@ export class ResearchAuthController {
             const account = await this.dependencies.native.authenticate({
                 accessToken: token,
                 authFence: fenced.authFence,
+                ...(epoch === undefined ? {} : { epoch }),
             });
             if (!this.current(ticket)) return;
             if (!validAccount(account)) throw new Error('Unavailable');
@@ -394,10 +548,14 @@ export class ResearchAuthController {
             ) {
                 throw new Error('Unavailable');
             }
-            const confirmed = await this.dependencies.native.currentAccount();
+            const confirmed =
+                epoch === undefined
+                    ? await this.dependencies.native.currentAccount()
+                    : await this.dependencies.native.currentAccount({ epoch });
             if (!this.current(ticket)) return;
             if (!validAccount(confirmed) || !sameAccount(account.account, confirmed.account))
                 throw new Error('Unavailable');
+            if (this.lifecycle.managed && !(await this.replayLifecycle(ticket, epoch))) return;
             this.owner = Object.freeze({
                 accountId: confirmed.account.accountId,
                 deviceId: confirmed.account.deviceId,
@@ -411,9 +569,42 @@ export class ResearchAuthController {
     /** Clear displayed authority before either native or SDK asynchronous work. */
     suspend(): void {
         if (this.disposed || !this.initialized) return;
+        const epoch = this.lifecycleEpoch();
         this.suspended = true;
         this.intent = 'signed_out';
         const ticket = this.begin('unavailable');
+        if (this.lifecycle.managed) {
+            // Visibility may precede the nonretained hint. Read native truth;
+            // native owns scene fencing and this path adds no second fence.
+            this.suspension = (async () => {
+                const descriptor = await this.refreshNativeLifecycle();
+                if (
+                    !this.nativeHostObserved ||
+                    epoch === undefined ||
+                    descriptor?.epoch !== epoch ||
+                    descriptor.phase !== 'active' ||
+                    this.disposed ||
+                    !this.suspended ||
+                    ticket !== this.revision
+                )
+                    return;
+                await queuedNativeFence(
+                    this.dependencies.native,
+                    () =>
+                        !this.disposed &&
+                        this.suspended &&
+                        !this.nativeInactive &&
+                        ticket === this.revision &&
+                        this.lifecycleEpoch() === epoch,
+                    'verify',
+                    epoch,
+                );
+            })().then(
+                () => {},
+                () => {},
+            );
+            return;
+        }
         // Cancel queued/held token work synchronously, preserving sealed owner
         // continuity. A stale suspension must never fence a newer verification.
         this.suspension = this.suspension.then(async () => {
@@ -433,15 +624,18 @@ export class ResearchAuthController {
     /** Explicit logout alone discards the selected native owner continuity. */
     async signOut(): Promise<void> {
         if (!this.canSignOut()) return;
+        const epoch = this.lifecycleEpoch();
         this.suspended = false;
         this.intent = 'signed_out';
-        this.owner = null;
         const ticket = this.begin('verifying');
+        if (this.lifecycle.managed && !(await this.replayLifecycle(ticket, epoch))) return;
+        this.owner = null;
         await this.close(ticket, true, 'sign_out');
     }
 
     private async close(ticket: number, clearSdk: boolean, mode: 'verify' | 'sign_out'): Promise<void> {
         if (!this.current(ticket)) return;
+        const epoch = this.lifecycleEpoch();
         await this.suspension;
         if (!this.current(ticket)) return;
         this.intent = 'signed_out';
@@ -450,7 +644,7 @@ export class ResearchAuthController {
         if (mode === 'sign_out') this.owner = null;
         let nativeClosed = false;
         try {
-            const fenced = await queuedNativeFence(this.dependencies.native, () => this.current(ticket), mode);
+            const fenced = await queuedNativeFence(this.dependencies.native, () => this.current(ticket), mode, epoch);
             if (!this.current(ticket)) return;
             nativeClosed = validFence(fenced);
         } catch {
@@ -493,9 +687,15 @@ export class ResearchAuthController {
         if (this.state.status !== 'authenticated' || !this.state.account || this.disposed) return;
         const ticket = this.revision;
         const expected = this.state.account;
+        const epoch = this.lifecycleEpoch();
         try {
-            const result = await this.dependencies.native.currentAccount();
+            if (this.lifecycle.managed && !(await this.replayLifecycle(ticket, epoch))) return;
+            const result =
+                epoch === undefined
+                    ? await this.dependencies.native.currentAccount()
+                    : await this.dependencies.native.currentAccount({ epoch });
             if (!this.current(ticket)) return;
+            if (this.lifecycle.managed && !(await this.replayLifecycle(ticket, epoch))) return;
             if (!validAccount(result) || !sameAccount(result.account, expected)) this.fail(ticket, 'verification_lost');
         } catch {
             this.fail(ticket, 'verification_lost');
@@ -503,11 +703,49 @@ export class ResearchAuthController {
     }
 
     private authChanged(event: string, _session: SdkSession | null): void {
-        if (this.disposed || this.suspended || !this.initialized || event === 'INITIAL_SESSION') return;
+        if (this.disposed || this.suspended || this.nativeInactive || !this.initialized || event === 'INITIAL_SESSION')
+            return;
         // Supabase calls listeners while holding its Auth lock. This callback
         // returns synchronously: no SDK method is awaited or called here.
         if (this.sdkDispatch) {
             if (event !== 'SIGNED_OUT' || this.sdkDispatch.kind === 'sign_out') return;
+        }
+        if (this.lifecycle.managed) {
+            // A late SDK event is not explicit user verification or native
+            // authority. Drop presentation/held work without a duplicate fence,
+            // token acquisition, logout or automatic account restoration.
+            const activeOwner = this.nativeHostObserved && this.intent === 'signed_in';
+            const epoch = this.lifecycleEpoch();
+            this.revision += 1;
+            const ticket = this.revision;
+            this.intent = 'signed_out';
+            this.publish('unavailable');
+            if (activeOwner && epoch !== undefined) {
+                this.suspension = this.suspension
+                    .then(async () => {
+                        const descriptor = await this.refreshNativeLifecycle();
+                        if (
+                            this.disposed ||
+                            ticket !== this.revision ||
+                            descriptor?.epoch !== epoch ||
+                            descriptor.phase !== 'active'
+                        )
+                            return;
+                        // Active credential loss also denies retained native work.
+                        // An already-closed background/ACK epoch skips this fallback.
+                        await queuedNativeFence(
+                            this.dependencies.native,
+                            () => this.current(ticket) && this.lifecycleEpoch() === epoch,
+                            'verify',
+                            epoch,
+                        );
+                    })
+                    .then(
+                        () => {},
+                        () => {},
+                    );
+            }
+            return;
         }
         if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN' || event === 'USER_UPDATED') {
             if (this.intent === 'signed_in') {
@@ -529,8 +767,15 @@ export class ResearchAuthController {
         });
     }
 
-    private sdkCall<T>(ticket: number, kind: 'acquire' | 'sign_out', operation: () => Promise<T>): Promise<T> {
+    private sdkCall<T>(
+        ticket: number,
+        kind: 'acquire' | 'sign_out',
+        operation: () => Promise<T>,
+        epoch = this.lifecycleEpoch(),
+    ): Promise<T> {
         const result = this.sdkTail.then(async () => {
+            if (!this.current(ticket)) throw new Error('Unavailable');
+            if (this.lifecycle.managed && !(await this.replayLifecycle(ticket, epoch))) throw new Error('Unavailable');
             if (!this.current(ticket)) throw new Error('Unavailable');
             this.sdkDispatch = { revision: ticket, kind };
             try {
@@ -544,7 +789,7 @@ export class ResearchAuthController {
     }
 
     private current(ticket: number): boolean {
-        return !this.disposed && !this.suspended && ticket === this.revision;
+        return !this.disposed && !this.suspended && !this.nativeInactive && ticket === this.revision;
     }
 
     private begin(status: ResearchAuthState['status']): number {
@@ -590,21 +835,24 @@ export class ResearchAuthController {
 
     dispose(): void {
         if (this.disposed) return;
+        const epoch = this.lifecycleEpoch();
         this.disposed = true;
         this.revision += 1;
         const terminal = this.revision;
         this.intent = 'signed_out';
         this.owner = null;
-        if (this.configuration) {
+        if (this.configuration && (!this.lifecycle.managed || (epoch !== undefined && this.nativeHostObserved))) {
             this.suspension = queuedNativeFence(
                 this.dependencies.native,
                 () => this.disposed && this.revision === terminal,
                 'verify',
+                epoch,
             ).then(
                 () => {},
                 () => {},
             );
         }
+        this.lifecycle.dispose();
         try {
             this.subscription?.unsubscribe();
         } catch {

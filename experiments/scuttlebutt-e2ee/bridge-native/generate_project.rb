@@ -25,7 +25,7 @@ begin
   project_path = File.join(root, 'ScuttlebuttResearchAuth.xcodeproj')
   raise 'Never overwrite an existing project' if File.exist?(project_path)
   sources = manifest.fetch('sources')
-  scene_sources = %w[ResearchApp.swift ScuttlebuttResearchAuthPlugin.swift ResearchAuthHost.swift
+  scene_sources = %w[ResearchApp.swift ScuttlebuttResearchAuthPlugin.swift ResearchAuthHost.swift ResearchSceneAuthority.swift
     ResearchMessagingAdapter.swift ResearchPrivateMessageAdapter.swift VodozemacSealedStore.swift
     VodozemacDmFrame.swift VodozemacDmCoordinator.swift VodozemacMessageOperations.swift
     VodozemacRelayCodec.swift VodozemacRelayTransport.swift VodozemacRelayResult.swift

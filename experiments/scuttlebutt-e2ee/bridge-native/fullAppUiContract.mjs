@@ -44,6 +44,8 @@ export const FULL_APP_NATIVE_METHODS = Object.freeze([
     'fenceSession',
     'authenticate',
     'currentAccount',
+    'lifecycleState',
+    'acknowledgeClosedPresentation',
     'messageState',
     'messagePrivateAdmission',
     'messagePairingCard',
@@ -371,8 +373,10 @@ export function inspectFullAppNativeReceipt(raw, runID, runNonce) {
         row.cases = fixedList(row.cases, FULL_APP_NATIVE_CASES);
         row.nativeCounters = counts(row.nativeCounters, FULL_APP_NATIVE_COUNTERS);
         const allowed = ['configuration', 'fenceSession', 'authenticate', 'currentAccount', 'messagePrivateAdmission'];
+        const lifecycle = ['lifecycleState', 'acknowledgeClosedPresentation'];
         for (const method of FULL_APP_NATIVE_METHODS)
-            require(allowed.includes(method) ? row.nativeCounters[method] > 0 : row.nativeCounters[method] === 0);
+            if (!lifecycle.includes(method))
+                require(allowed.includes(method) ? row.nativeCounters[method] > 0 : row.nativeCounters[method] === 0);
         require(
             row.nativeCounters.authenticate === 1 &&
                 row.nativeCounters.nativeAuthRequests === 2 &&

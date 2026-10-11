@@ -40,8 +40,12 @@ describe('research scene privacy cover — static source contract, not runtime p
             expect(body).not.toMatch(/\b(?:Task|DispatchQueue|async|await)\b/);
         }
         expect(method('sceneDidBecomeActive')).toContain('hidePrivacyCover()');
-        // Definition plus the active callback: no inactive/other caller removes it.
-        expect(scene().match(/\bhidePrivacyCover\s*\(/g)).toHaveLength(2);
+        // Definition, initial active eligibility and the real native ACK callback.
+        // Inactive callbacks never remove it; post-background active stays covered.
+        expect(scene().match(/\bhidePrivacyCover\s*\(/g)).toHaveLength(3);
+        expect(compact(method('sceneDidBecomeActive'))).toContain(
+            'if(window?.rootViewControlleras?ResearchBridgeViewController)?.sceneBecameActive()==true{hidePrivacyCover()}',
+        );
     });
     it('creates or raises an opaque full-window cover with fixed nonsensitive modal accessibility', () => {
         const body = method('showPrivacyCover');
@@ -98,8 +102,11 @@ describe('research scene privacy cover — static source contract, not runtime p
         const code = compact(connecting);
         expect(code).toContain('guardsession.role==.windowApplication');
         expect(code.indexOf('.windowApplication')).toBeLessThan(code.indexOf('UIWindow(windowScene:'));
-        expect(code).toContain('window.rootViewController=ResearchBridgeViewController()');
+        expect(code).toContain('letcontroller=ResearchBridgeViewController()');
+        expect(code).toContain('window.rootViewController=controller');
+        expect(code).toContain('controller.onScenePresentationClosed=');
         expect(source.match(/ResearchBridgeViewController\(\)/g)).toHaveLength(1);
-        expect(source.match(/registerPluginInstance\(ScuttlebuttResearchAuthPlugin\(\)\)/g)).toHaveLength(1);
+        expect(source.match(/private let authPlugin = ScuttlebuttResearchAuthPlugin\(\)/g)).toHaveLength(1);
+        expect(source).not.toContain('registerPluginInstance(ScuttlebuttResearchAuthPlugin())');
     });
 });

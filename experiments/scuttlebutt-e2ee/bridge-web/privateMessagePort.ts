@@ -15,11 +15,12 @@ import type {
     NativePrivateTextMessage,
 } from '../../../services/chat/e2ee/privateMessagePilot';
 import { isPrivateMessagePilotText } from '../../../services/chat/e2ee/privateMessageTextPolicy';
+import { getResearchNativeLifecycleChannel, type ResearchNativeLifecycleBindings } from './nativeLifecycle';
 
-export interface ResearchPrivateMessagePluginBindings {
-    currentAccount?(): Promise<unknown>;
-    fenceSession(options: { mode: 'verify' | 'sign_out' }): Promise<unknown>;
-    authenticate(options: { accessToken: string; authFence: string }): Promise<unknown>;
+export interface ResearchPrivateMessagePluginBindings extends ResearchNativeLifecycleBindings {
+    currentAccount?(options?: { epoch: string }): Promise<unknown>;
+    fenceSession(options: { mode: 'verify' | 'sign_out'; epoch?: string }): Promise<unknown>;
+    authenticate(options: { accessToken: string; authFence: string; epoch?: string }): Promise<unknown>;
     privateMessageIssue(options: { credentialBinding: string }): Promise<unknown>;
     privateMessageReadiness(options: { lifecycleVersion: string }): Promise<unknown>;
     privateMessagePermissions(options: { lifecycleVersion: string; peerAccountId: string }): Promise<unknown>;
@@ -250,9 +251,22 @@ function inbox(value: unknown, owner: string): NativePrivateMessageInboxEntry[] 
 export function createResearchPrivateMessageNativePlugin(
     native: ResearchPrivateMessagePluginBindings,
 ): ResearchPrivateMessageNativePlugin {
+    // Capture this composition's channel once. An old port must never adopt a
+    // replacement controller/channel from the shared proxy after an await.
+    const lifecycle = getResearchNativeLifecycleChannel(native);
+    const managed = lifecycle
+        ? lifecycle.managed
+        : typeof native.lifecycleState === 'function' || typeof native.acknowledgeClosedPresentation === 'function';
+    const creationEpoch = () => {
+        const descriptor = lifecycle?.getState();
+        return descriptor?.phase === 'active' && descriptor.verificationAvailable ? descriptor.epoch : undefined;
+    };
+    const currentEpoch = (epoch: string | undefined) => !managed || (epoch !== undefined && creationEpoch() === epoch);
     let revision = 0;
     let pendingFence: string | null = null;
+    let pendingEpoch: string | undefined;
     let selected: NativePrivateMessageAuthority | null = null;
+    let selectedEpoch: string | undefined;
     // Reservations survive reset until their native readiness work finishes.
     // Otherwise repeated logout/reopen could accumulate unlimited setup work.
     let pendingSubscriptions = 0;
@@ -274,13 +288,25 @@ export function createResearchPrivateMessageNativePlugin(
     const reset = () => {
         const ticket = ++revision;
         pendingFence = null;
+        pendingEpoch = undefined;
         selected = null;
+        selectedEpoch = undefined;
         subscriptions.clear();
         notify();
         return ticket;
     };
     const current = (ticket: number, expected: NativePrivateMessageAuthority) =>
-        ticket === revision && same(expected, selected);
+        ticket === revision && same(expected, selected) && currentEpoch(selectedEpoch);
+    if (managed && lifecycle)
+        lifecycle.subscribe((descriptor) => {
+            if (
+                descriptor?.phase !== 'active' ||
+                !descriptor.verificationAvailable ||
+                (selectedEpoch !== undefined && descriptor.epoch !== selectedEpoch) ||
+                (pendingEpoch !== undefined && descriptor.epoch !== pendingEpoch)
+            )
+                reset();
+        });
     async function check(expected: NativePrivateMessageAuthority, ticket: number) {
         if (!authority(expected) || !current(ticket, expected)) return false;
         const result = ready(await native.privateMessageReadiness({ lifecycleVersion: expected.lifecycleVersion }));
@@ -342,19 +368,27 @@ export function createResearchPrivateMessageNativePlugin(
             reset();
         },
         async connectCurrentAccount(expectedCredentialBinding?: string) {
+            const epoch = creationEpoch();
             const ticket = reset();
             if (
                 ticket !== revision ||
                 !native.currentAccount ||
-                (expectedCredentialBinding !== undefined && !id(expectedCredentialBinding))
+                (expectedCredentialBinding !== undefined && !id(expectedCredentialBinding)) ||
+                !currentEpoch(epoch)
             )
                 return closed();
             try {
+                if (managed) {
+                    const descriptor = await lifecycle!.refresh();
+                    if (ticket !== revision || descriptor?.epoch !== epoch || !currentEpoch(epoch)) return closed();
+                }
                 // This read is native-owned, not an SDK account label supplied
                 // by the view. Native issue still requires the full sealed pair.
-                const result = await native.currentAccount();
+                const result =
+                    epoch === undefined ? await native.currentAccount() : await native.currentAccount({ epoch });
                 if (
                     ticket !== revision ||
+                    !currentEpoch(epoch) ||
                     !object(result) ||
                     !exact(result, ['status', 'account']) ||
                     result.status !== 'authenticated' ||
@@ -378,6 +412,7 @@ export function createResearchPrivateMessageNativePlugin(
                 );
                 if (
                     ticket !== revision ||
+                    !currentEpoch(epoch) ||
                     !issued ||
                     issued.authority.accountId !== descriptor.accountId ||
                     issued.authority.deviceId !== descriptor.deviceId
@@ -386,7 +421,14 @@ export function createResearchPrivateMessageNativePlugin(
                 const verified = ready(
                     await native.privateMessageReadiness({ lifecycleVersion: issued.authority.lifecycleVersion }),
                 );
-                if (ticket !== revision || !verified || !same(issued.authority, verified.authority)) return closed();
+                if (
+                    ticket !== revision ||
+                    !currentEpoch(epoch) ||
+                    !verified ||
+                    !same(issued.authority, verified.authority)
+                )
+                    return closed();
+                selectedEpoch = epoch;
                 selected = { ...issued.authority };
                 notify();
                 return current(ticket, issued.authority) ? issued : closed();
@@ -395,15 +437,18 @@ export function createResearchPrivateMessageNativePlugin(
             }
         },
         async fenceSession(options) {
+            const epoch = creationEpoch();
             const mode = options.mode;
             const ticket = reset();
             // reset notifies consumers synchronously; a reentrant newer fence
             // must prevent this older request from reaching native at all.
-            if (ticket !== revision) return closed();
+            if (ticket !== revision || !currentEpoch(epoch)) return closed();
             try {
-                const result = await native.fenceSession({ mode });
+                if (managed && ((await lifecycle!.refresh())?.epoch !== epoch || !currentEpoch(epoch))) return closed();
+                const result = await native.fenceSession(epoch === undefined ? { mode } : { mode, epoch });
                 if (
                     ticket !== revision ||
+                    !currentEpoch(epoch) ||
                     !object(result) ||
                     !exact(result, ['status', 'authFence']) ||
                     result.status !== 'fenced' ||
@@ -411,6 +456,7 @@ export function createResearchPrivateMessageNativePlugin(
                 )
                     return closed();
                 pendingFence = mode === 'verify' ? result.authFence : null;
+                pendingEpoch = pendingFence ? epoch : undefined;
                 return { status: 'fenced', authFence: result.authFence };
             } catch {
                 return closed();
@@ -418,16 +464,20 @@ export function createResearchPrivateMessageNativePlugin(
         },
         async authenticate(options) {
             const ticket = revision;
+            const epoch = pendingEpoch;
             const { accessToken, authFence } = options;
-            if (!pendingFence || authFence !== pendingFence) return closed();
+            if (!pendingFence || authFence !== pendingFence || !currentEpoch(epoch)) return closed();
             pendingFence = null;
+            pendingEpoch = undefined;
             try {
                 const result = await native.authenticate({
                     accessToken,
                     authFence,
+                    ...(epoch === undefined ? {} : { epoch }),
                 });
                 if (
                     ticket !== revision ||
+                    !currentEpoch(epoch) ||
                     !object(result) ||
                     !exact(result, ['status', 'account']) ||
                     result.status !== 'authenticated' ||
@@ -449,6 +499,7 @@ export function createResearchPrivateMessageNativePlugin(
                 );
                 if (
                     ticket !== revision ||
+                    !currentEpoch(epoch) ||
                     !issued ||
                     issued.authority.accountId !== descriptor.accountId ||
                     issued.authority.deviceId !== descriptor.deviceId
@@ -457,7 +508,14 @@ export function createResearchPrivateMessageNativePlugin(
                 const verified = ready(
                     await native.privateMessageReadiness({ lifecycleVersion: issued.authority.lifecycleVersion }),
                 );
-                if (ticket !== revision || !verified || !same(issued.authority, verified.authority)) return closed();
+                if (
+                    ticket !== revision ||
+                    !currentEpoch(epoch) ||
+                    !verified ||
+                    !same(issued.authority, verified.authority)
+                )
+                    return closed();
+                selectedEpoch = epoch;
                 selected = { ...issued.authority };
                 notify();
                 return current(ticket, issued.authority) ? issued : closed();

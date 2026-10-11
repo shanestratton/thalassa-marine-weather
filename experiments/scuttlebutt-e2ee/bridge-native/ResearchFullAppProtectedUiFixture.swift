@@ -14,10 +14,12 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
     static let handlerName = "researchFullAppProtectedUiFixture"
     static let scenario = "full-app-native-protected-exchange"
     private static let shared = ResearchFullAppProtectedUiFixture()
-    private static let coldAllowed: Set<String> = ["configuration", "fenceSession", "authenticate", "currentAccount", "messagePrivateAdmission"]
+    private static let lifecycleAllowed: Set<String> = ["lifecycleState", "acknowledgeClosedPresentation"]
+    private static let coldAllowed: Set<String> = ["configuration", "fenceSession", "authenticate", "currentAccount", "messagePrivateAdmission", "lifecycleState", "acknowledgeClosedPresentation"]
+    private static let coldRequired = coldAllowed.subtracting(lifecycleAllowed)
     private static let privateAllowed: Set<String> = ["privateMessageIssue", "privateMessageReadiness", "privateMessagePermissions",
         "privateMessageInbox", "privateMessageThread", "privateMessageSendText", "privateMessageRetryPending"]
-    private static let methods = ["configuration", "fenceSession", "authenticate", "currentAccount", "messageState", "messagePrivateAdmission",
+    private static let methods = ["configuration", "fenceSession", "authenticate", "currentAccount", "lifecycleState", "acknowledgeClosedPresentation", "messageState", "messagePrivateAdmission",
         "messagePairingCard", "messageInspectPeerCard", "messageConfirmPeer", "messageRegisterDevice", "messageClaimPeer", "messageRefreshPolicy",
         "messageRequireProtected", "messageAccountMode", "messageThread", "messagePrepareText", "messageSendPending", "messageSyncInbox",
         "privateMessageIssue", "privateMessageReadiness", "privateMessagePermissions", "privateMessageInbox", "privateMessageThread",
@@ -152,8 +154,8 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
         if shared.counters[method] != nil { shared.counters[method] = min(10000, (shared.counters[method] ?? 0) + 1) }
         else { shared.counters["unexpectedMethods"] = min(10000, (shared.counters["unexpectedMethods"] ?? 0) + 1); return false }
         guard shared.runID != nil, !shared.completed else { return false }
-        if shared.finalizing { return method == "fenceSession" }
-        if shared.terminal { return ["configuration", "fenceSession", "currentAccount"].contains(method) }
+        if shared.finalizing { return method == "fenceSession" || lifecycleAllowed.contains(method) }
+        if shared.terminal { return ["configuration", "fenceSession", "currentAccount"].contains(method) || lifecycleAllowed.contains(method) }
         if coldAllowed.contains(method) { return true }
         guard privateAllowed.contains(method), shared.setupComplete, !shared.controlBusy,
               let original = shared.original, let facade = shared.facade,
@@ -529,11 +531,11 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
             do {
                 guard passing, self.fenced(), self.capturedProof != nil, self.setupComplete, self.replyComplete,
                       report.sdkCounts["password"] == 1, report.sdkCounts["unexpected"] == 0 else { throw ResearchFullAppProtectedUiError.unavailable }
-                let c = self.copiedCounters(), required = Self.coldAllowed.union(Self.privateAllowed.subtracting(["privateMessageRetryPending"]))
+                let c = self.copiedCounters(), required = Self.coldRequired.union(Self.privateAllowed.subtracting(["privateMessageRetryPending"]))
                 guard required.allSatisfy({ (c[$0] ?? 0) > 0 }), c["authenticate"] == 1, c["nativeAuthRequests"] == 2,
                       c["unexpectedNativeRequests"] == 0, c["relayRequests"] == 0, c["unexpectedMethods"] == 0,
                       c["fixtureSetupControls"] == 1, c["fixtureReplyControls"] == 1,
-                      Self.methods.filter({ !required.contains($0) && $0 != "privateMessageRetryPending" }).allSatisfy({ c[$0] == 0 }),
+                      Self.methods.filter({ !required.contains($0) && !Self.lifecycleAllowed.contains($0) && $0 != "privateMessageRetryPending" }).allSatisfy({ c[$0] == 0 }),
                       self.pmResults["privateMessageSendText:ok"] == 1, (self.pmResults["privateMessagePermissions:ok"] ?? 0) > 0,
                       (self.pmResults["privateMessageInbox:ok"] ?? 0) >= 3 else { throw ResearchFullAppProtectedUiError.unavailable }
                 _ = try self.httpEvidence(challenge: true); try self.common(report)

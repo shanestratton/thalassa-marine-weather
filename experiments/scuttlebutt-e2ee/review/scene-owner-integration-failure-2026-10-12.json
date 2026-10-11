@@ -1,0 +1,224 @@
+{
+    "schemaVersion": 1,
+    "kind": "native-scene-owner-preparation-with-failed-current-integrated-inbox",
+    "recordedDate": "2026-10-12",
+    "timezone": "Australia/Brisbane",
+    "sourceBase": "2ec809517b68298dedc2e268c62b256422d3c7f7",
+    "branch": "codex/scuttlebutt-e2ee-integration-clean-2026-10-11",
+    "status": "owner-implemented-native-compiled-integrated-inbox-refused-not-merge-ready",
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/app-pilot/PrivateMessageResearchApp.tsx": "fd5a4089b3abab1c947e347932f48136c0ec8483625f8d8efb12f013743929c6",
+        "experiments/scuttlebutt-e2ee/app-pilot/runtime.ts": "a25c73eb58255199103173059847a991d4128d5ae0dcae49fcf6150d662baca4",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchApp.swift": "e4f158994fbe1c4852dd34354a2d4621bb00a5f5a381cffaf42e1a1cbeacca1f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "bb5cba8b634f006f9ada39bb362e6e5083231a876545c92773ae1671a4e89e4e",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppSceneUiFixture.swift": "58b4599b184a4ea3948209e7a8dc592f4ae032285efe7b11df562815c1fae27d",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchLocalUiFixture.swift": "6e8c5bcc52ccbd4e8d5e8754955a111b594f05bff1f56a4101c1bda698aedbe6",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneAuthority.swift": "3e0d463ed8d598b5fcc6b57036317f4b4ed7b71da92c1df295306a55f32ba71f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneAuthoritySyntheticTests.swift": "6cc7104b2c7f095e90a552a067d368f5a268b3f07dda5f226213ba501b29d253",
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "ce73123bc4e94436ff118351191fe9ecf5a575238825984def466442b39029f3",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "7d3efdabcb797655b344e51375117d8a0b5700095d871c6034c2278880ead8ea",
+        "experiments/scuttlebutt-e2ee/bridge-native/buildLocalUiFrameworks.mjs": "0255b936281959d1c13df5e08b02d5a3a1b036fbe101eee2692caf05e022bac0",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs": "b6102fd232b677351b54bb10b37ca54df61b4b7f7a3f6bbe084f1d8687a90091",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppUiContract.mjs": "45686e1a466369bc41e36497f1e4858a7724bdb9fd34909508a7e3b90822b383",
+        "experiments/scuttlebutt-e2ee/bridge-native/generate_project.rb": "d54f64a5f1b20397c9b0f4778f670f31e21b14a5fb216e5da41a34b0d15dbe49",
+        "experiments/scuttlebutt-e2ee/bridge-native/researchSceneLifecycleContract.mjs": "8002624e1c946b0bcaafe2509ead14d38bef12af7b33c722dc696c92bec59d97",
+        "experiments/scuttlebutt-e2ee/bridge-web/auth.ts": "b9a75cd7db0fd456795e23f2a0b4c8448b5c1245ba24f62d7493c9aa2d509cfe",
+        "experiments/scuttlebutt-e2ee/bridge-web/nativeLifecycle.ts": "4f77922af10b4a82e31c1c26d6fc6f1c70cae62b4ad49cb894bbbd9219ce6c11",
+        "experiments/scuttlebutt-e2ee/bridge-web/privateAdmissionSource.ts": "25fc00449fffbdc9a6f3e45f78befa256361cf43d25c89e7ccd14d82fb27574b",
+        "experiments/scuttlebutt-e2ee/bridge-web/privateMessagePort.ts": "957e821feb1853c45c4e80ac773084aa4a5f27c2d55152de577a2dc8d08afcaf",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeProtectedUiFixture.js": "74666c2c609d96a0c63abd1aa98feb915efff1f348a37f2557de1487a59a3fca",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/sdk.ts": "7f6a0e30aa51ba7c0f6b520eacef77f0fafc48d72e1ff9cea90e1311a8cafc29",
+        "tests/E2eeFrameworkBuildWait.test.ts": "2d63f605c72275dd8f95d0e440cbb09267d87656f3575b8cbdff04289be8cf8e",
+        "tests/E2eeNativeLifecycleController.test.ts": "c7c06ec4dfec1bbb9f6568531f55efc56f20f21495b04cca53b757a6f05a490c",
+        "tests/E2eeResearchScenePrivacy.test.ts": "dfd74b6e3184d6bb469ece145f1b5f7a588b585ab070772b12ed09dc5fead14e",
+        "tests/E2eeSceneLifecycleEvidence.test.ts": "19cca92212344e3ada7b735611a93d358688cc6c8b52db315d90a34a15d22fe2",
+        "tests/PrivateMessageResearchLifecycle.test.tsx": "d513eb7b51dc9af51688ce2ba7cad2d9639185219c3755aec4f444b514df7f5b",
+        "tests/fixtures/researchNativeLifecycle.ts": "96fb138afe553569dd18a8eacbf65c273cf36e86f11e51203a0874bd02400083"
+    },
+    "syntheticEvidence": {
+        "foundation": {
+            "receipt": {
+                "path": "/private/tmp/thalassa-scene-owner-checks.8frua8/probe-receipt.json",
+                "sha256": "4182214030c7c3eb723773222305022afe496a14511f5139dd3fdda5f27cda76"
+            },
+            "assertions": 36,
+            "swiftVersion": 6,
+            "scope": "Foundation synthetic state/serialization only; not UIKit/Auth/CAS/app/encryption execution"
+        },
+        "nativeContracts": {
+            "receipt": {
+                "path": "/private/tmp/thalassa-scene-owner-contracts-current.ROQABt/checks-receipt.json",
+                "sha256": "0bb94a07e061b4141c553defddddbaf517c7db17740207893d24b3c891136b83"
+            },
+            "cases": 274,
+            "pinnedInputs": 18,
+            "syntaxRubyFormatLintNarrowStrictTypes": "passed",
+            "scope": "Synthetic/source/driver contracts, not native encryption execution"
+        },
+        "controllerDom": {
+            "receipt": {
+                "path": "/private/tmp/thalassa-scene-controller-final.x3lw28/checks-receipt.json",
+                "sha256": "e1f18262bf338d7bfb0f414698b52c46c2fce555c38d912d6279525398aeb256"
+            },
+            "cases": 251,
+            "suites": 8,
+            "pinnedInputs": 18,
+            "formatLintNarrowStrictControllerTypes": "passed",
+            "scope": "Synthetic SDK/native replies and committed DOM; not OS/crypto/physical acceptance"
+        },
+        "frameworkWaiting": {
+            "receipt": {
+                "path": "/private/tmp/thalassa-framework-guard-checks.j2A4pg/checks-receipt.json",
+                "sha256": "736f46db293c68d1d657547be390855bb75308d1b051acadd7c8b3d8d6fb87eb"
+            },
+            "cases": 3,
+            "pinnedInputs": 2,
+            "scope": "Static source controls only, not timing/overshoot execution"
+        }
+    },
+    "web": {
+        "receipt": {
+            "path": "/private/tmp/thalassa-scene-owner-current-web.EbM4wO/build-receipt.json",
+            "sha256": "6aa53533766aeac2520f55e3d45c9ef5c021375751c7ff301be509d8a5dfd813"
+        },
+        "coordinatorReceipt": {
+            "path": "/private/tmp/thalassa-scene-owner-current-web.EbM4wO/coordinator-receipt.json",
+            "sha256": "213ccec0ab1c65c42af6288b10c40851d67c7016a400eddedbe84ca76926695d"
+        },
+        "moduleInputs": 1735,
+        "explicitAssets": 1,
+        "proofInputs": 6,
+        "outputs": 296,
+        "esWorkers": 3,
+        "unsupportedWindowRepeated": false
+    },
+    "frameworks": {
+        "receipt": {
+            "path": "/private/tmp/thalassa-local-ui-frameworks-44i7uE/frameworks-receipt.json",
+            "sha256": "54ede12d286d6ba89660529a0c0d4403c4ee28f3391d1b7809781fafc564b667"
+        },
+        "freshCompiledCachedSourceCount": 106,
+        "unsignedFileCounts": {
+            "Capacitor": 19,
+            "Cordova": 22
+        },
+        "sharedWrites": false,
+        "independentProvenanceAttested": false
+    },
+    "nativeAttempt": {
+        "parent": {
+            "path": "/private/tmp/thalassa-full-root-protected-idFKvv/run-receipt.json",
+            "sha256": "e60da926289d4af09658548b3cc61cbeda87241d5cc8dfbae1a1f413b0a95ae5"
+        },
+        "unsignedBuild": {
+            "path": "/private/tmp/thalassa-messaging-build-PUGGQl/build-receipt.json",
+            "sha256": "bbe0b3e1f0a096148a3078f5b2462c100226eebbdedff45b0b57f24b85216407"
+        },
+        "nativeReport": {
+            "path": "/private/tmp/thalassa-full-root-protected-idFKvv/native-receipt.json",
+            "sha256": "f18835c973c4fac5f7d44a64f1d19f2642ae5065a820418df78ba985383d4ad4"
+        },
+        "observerDiagnostic": {
+            "path": "/private/tmp/thalassa-full-root-protected-idFKvv/failed-scene-observer.json",
+            "sha256": "aa8747f2ecf858435d8c3829ead31bb6df677ce4cd9fac681a47799e51e0e1ef",
+            "lastEvent": "did-become-active",
+            "independentlyMeasuredLaunchPIDAvailable": true,
+            "wholeRunAccepted": false
+        },
+        "status": "failed",
+        "failedOperation": "native-final-validate",
+        "launchPid": 5464,
+        "swiftInputs": 26,
+        "unsignedFiles": 345,
+        "signedFiles": 348,
+        "driverInputs": 21,
+        "uiAssertionsInFailedReport": 117,
+        "acceptedExchange": false,
+        "protectedReady": false,
+        "sceneStagesAccepted": 0,
+        "pmInboxResults": {
+            "ok": 0,
+            "unavailable": 1
+        },
+        "nativeState": {
+            "status": "unavailable"
+        },
+        "uiAuth": {
+            "status": "authenticated",
+            "userPresent": false,
+            "authChecked": true
+        },
+        "acceptedOrTerminalCryptoCountsTransferred": false,
+        "backgroundForegroundNotDispatched": true,
+        "cause": "Unknown; first current native inbox operation returned unavailable before an exchange proof",
+        "cleanup": {
+            "idAbsent": true,
+            "nameAbsent": true,
+            "sourcesUnchanged": true
+        },
+        "waitMs": 0
+    },
+    "retainedFailures": [
+        {
+            "receipt": {
+                "path": "/private/tmp/thalassa-scene-owner-checks.8frua8/checks-receipt.json",
+                "sha256": "6e4752fa43875b78bbf60e4bbd3e0d8009732533701291a00f9766f944db01bb"
+            },
+            "result": "272/274; corrected accidental historical cache-whitelist expansion and obsolete marker source assertion without weakening gates"
+        },
+        {
+            "receipt": {
+                "path": "/private/tmp/thalassa-scene-controller-checks.opI9Gi/checks-receipt.json",
+                "sha256": "1ea184b4fb79f1ebde309d393aea1c5ca19f82c58ac8cc70aaac09e58cd0ecdb"
+            },
+            "result": "216/221; three UI failures exposed epochless admission reads, two static privacy expectations were obsolete"
+        },
+        {
+            "receipt": {
+                "path": "/private/tmp/thalassa-scene-controller-current.ZPini3/checks-receipt.json",
+                "sha256": "dc0b997bca295a216b2567ee32db0451e618e5696701eec5bdd0b2205b30d8c6"
+            },
+            "result": "250/251; remaining obsolete Swift-spelling assertion corrected"
+        },
+        {
+            "receipt": {
+                "path": "/private/tmp/thalassa-full-root-protected-DeU2mW/run-receipt.json",
+                "sha256": "df80eeeb287097ca03c3e792218587fea2eed4b18cd36dfda4ad1bcf292e50fc"
+            },
+            "result": "Inputs refused before native dispatch; original framework receipt absent (ENOENT), then regenerated legitimately"
+        }
+    ],
+    "implementation": {
+        "sameNativePluginHost": true,
+        "initialNativeSuspended": true,
+        "firstInactiveSynchronousExistingHostVerify": true,
+        "retainedNotifications": false,
+        "boundedCurrentDescriptorReplay": true,
+        "originalEpochForAuthDispatchAndCompletion": true,
+        "foregroundActualClosedDomAcknowledgement": true,
+        "actualOwnedDocumentNavigationPin": true,
+        "observerPassive": true,
+        "sameStoreGuardUnchanged": true,
+        "unchangedVodozemacOlm": true,
+        "improvisedThirdRatchet": false
+    },
+    "remainingGates": [
+        "Diagnose current adapter inbox refusal with bounded non-secret stage evidence; do not repeat unchanged launches or weaken guards",
+        "Fresh current-source actual protected exchange then UIKit background/foreground/protected navigation",
+        "Current opposite role and actual full-adapter HTTPS/current Auth",
+        "Cold process/refusal and separately contracted same-store recovery",
+        "Physical acceptance and shipping device/prekey, retention/scalable-sync and recovery policy",
+        "Fail-closed legacy server/queue/push cutover and rollback",
+        "Reproducible provider provenance/licence obligations and independent security assessment"
+    ],
+    "sharedWaiting": {
+        "actualMs": 0,
+        "cumulativeBudgetMs": 120000
+    },
+    "productionTouched": false,
+    "primaryTargetsTouched": false,
+    "humanDevicesAccountsKeysChanged": false,
+    "hostedChanges": false,
+    "internalAgentReviewNotIndependentAssessment": true,
+    "rawNonceResourcesAndObserverBytesPrivate": true
+}

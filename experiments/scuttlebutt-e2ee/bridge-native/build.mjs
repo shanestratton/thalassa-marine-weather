@@ -550,6 +550,7 @@ try {
             'ResearchApp.swift',
             'ScuttlebuttResearchAuthPlugin.swift',
             'ResearchAuthHost.swift',
+            'ResearchSceneAuthority.swift',
             'ResearchMessagingAdapter.swift',
             'ResearchPrivateMessageAdapter.swift',
         ].map((name) => join(HERE, name)),
