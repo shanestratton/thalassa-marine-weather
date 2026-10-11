@@ -1,0 +1,121 @@
+name: Prepare measured build 127 wind fix (no Apple access)
+
+# Narrow authorized application fix, never a merge or release. The original
+# b127 and master are read-only here. Source update uses an exact parent and
+# non-force guard, after the real wind unit suites pass.
+on:
+    push:
+        branches: ['codex/thalassa-127-release']
+        paths: ['.github/workflows/commit-wind127-fix.yml']
+permissions:
+    contents: read
+jobs:
+    prepare:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        permissions:
+            contents: write
+        env:
+            CI: 'true'
+            HUSKY: '0'
+            PUPPETEER_SKIP_DOWNLOAD: 'true'
+            NODE_OPTIONS: --max-old-space-size=4096
+            VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 31f97f1f369981be3917b2a8450006ba272b7650
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - run: npm ci
+            - name: Apply only the measured stroke correction and three regression assertions
+              run: |
+                  node --input-type=module <<'NODE'
+                  import {readFileSync,writeFileSync} from 'node:fs';
+                  function replaceOne(text,from,to) {
+                      if(text.split(from).length!==2) throw new Error('Original source does not match the reviewed patch');
+                      return text.replace(from,to);
+                  }
+                  const renderer='components/map/MapboxVelocityOverlay.tsx';
+                  let text=readFileSync(renderer,'utf8');
+                  text=replaceOne(text,
+                    "const lineWidthFor = (palette: WindPalette) => (palette === 'light' ? 1.5 : PARTICLE_LINE_WIDTH);",
+                    "const lineWidthFor = (palette: WindPalette) => (palette === 'light' ? 2 : PARTICLE_LINE_WIDTH);");
+                  const start=text.indexOf(" * Dark ink on the desk's Light base (127-DESKMAP-b) draws a half pixel wider:");
+                  const end=text.indexOf(' */\nconst lineWidthFor',start);
+                  if(start<0 || end<start) throw new Error('Original stroke explanation changed');
+                  text=text.slice(0,start)+
+                    " * Dark ink on the desk's Light base needs a 2 CSS-pixel core. Both wind\n"+
+                    " * canvases use CSS-pixel backing stores; the former 1.5 px stroke blurred\n"+
+                    " * when upscaled on a 3x display. The unchanged browser regression measured\n"+
+                    " * 2.87:1 in the original and 4.34-4.49:1 in three 2 px samples (diagnosis\n"+
+                    " * 38170158017); its 3:1 contrast and red-warning assertions are unchanged.\n"+
+                    " * Only Light changes: Obs and dark bases keep Shane's chosen 1 px stroke,\n"+
+                    " * and every palette, band edge, particle count, speed and fade stays put.\n"+
+                    text.slice(end);
+                  writeFileSync(renderer,text);
+                  const spec='tests/MapboxVelocityOverlayLifecycle.test.tsx';
+                  text=readFileSync(spec,'utf8');
+                  for(const [needle,width] of [
+                    ['expect(optionsOf(before).colorScale).toEqual(WIND_PARTICLE_COLORS_LIGHT);',2],
+                    ['expect(optionsOf(before + 1).colorScale).toEqual(WIND_PARTICLE_COLORS);',1],
+                    ['expect(optionsOf(before).colorScale).toEqual(WIND_PARTICLE_COLORS);',1],
+                  ]) {
+                    const object=needle.includes('before + 1')?'optionsOf(before + 1)':'optionsOf(before)';
+                    text=replaceOne(text,needle,needle+`\n        expect(${object}).toMatchObject({ particlelineWidth: ${width} });`);
+                  }
+                  writeFileSync(spec,text);
+                  NODE
+                  npx prettier --write components/map/MapboxVelocityOverlay.tsx tests/MapboxVelocityOverlayLifecycle.test.tsx
+                  git diff --check
+                  git diff --exit-code -- browser-tests/desk-wind-layout.spec.ts
+                  git diff --stat
+            - name: All wind palette and overlay lifecycle unit regressions
+              run: npx vitest run tests/windRamp.test.ts tests/MapboxVelocityOverlayLifecycle.test.tsx
+            - name: Commit precisely these two files with unchanged-source guards
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  node --input-type=module <<'NODE'
+                  import {readFileSync,appendFileSync} from 'node:fs';
+                  import {execFileSync} from 'node:child_process';
+                  const repo='shanestratton/thalassa-marine-weather';
+                  const base='31f97f1f369981be3917b2a8450006ba272b7650';
+                  const branch='codex/testflight-127';
+                  const preserved={master:'b8ef21d96a699a240b0378db7d7fcdc0e93810cd',b127:'6c60882fd39a87a6c00e1a327455903182293baa'};
+                  const files=['components/map/MapboxVelocityOverlay.tsx','tests/MapboxVelocityOverlayLifecycle.test.tsx'];
+                  const changed=execFileSync('git',['diff','--name-only'],{encoding:'utf8'}).trim().split('\n').sort();
+                  if(JSON.stringify(changed)!==JSON.stringify([...files].sort())) throw new Error('Unexpected file changes');
+                  const token=process.env.GH_TOKEN;delete process.env.GH_TOKEN;
+                  async function api(path,method='GET',body) {
+                    const response=await fetch(`https://api.github.com/repos/${repo}/${path}`,{method,redirect:'error',signal:AbortSignal.timeout(30000),headers:{Authorization:`Bearer ${token}`,Accept:'application/vnd.github+json','Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+                    if(!response.ok) throw new Error(`GitHub ${method} ${path}: HTTP ${response.status}`);
+                    return response.json();
+                  }
+                  async function guard() {
+                    for(const [name,sha] of Object.entries({...preserved,[branch]:base}))
+                      if((await api(`git/ref/heads/${name}`)).object.sha!==sha) throw new Error(`Source branch ${name} moved; do not overwrite`);
+                  }
+                  await guard();
+                  const parent=await api(`git/commits/${base}`);
+                  const entries=[];
+                  for(const path of files) {
+                    const blob=await api('git/blobs','POST',{content:readFileSync(path,'utf8'),encoding:'utf-8'});
+                    entries.push({path,mode:'100644',type:'blob',sha:blob.sha});
+                  }
+                  const tree=await api('git/trees','POST',{base_tree:parent.tree.sha,tree:entries});
+                  const commit=await api('git/commits','POST',{parents:[base],tree:tree.sha,message:'fix: keep Light-chart wind cores legible after Retina upscaling\n\nUse a 2px Light-only stroke instead of 1.5px; all dark-base strokes, colours, wind thresholds, density and motion stay unchanged. Add width assertions to the existing palette lifecycle tests. Original browser contrast and warning-colour tests remain unchanged. Build 127 is not yet release-validated or uploaded.'});
+                  const comparison=await api(`compare/${base}...${commit.sha}`);
+                  if(comparison.files?.length!==2 || comparison.files.some(f=>!files.includes(f.filename) || f.changes>35)) throw new Error('Prepared diff is not narrow');
+                  await guard();
+                  await api(`git/refs/heads/${branch}`,'PATCH',{sha:commit.sha,force:false});
+                  if((await api(`git/ref/heads/${branch}`)).object.sha!==commit.sha) throw new Error('Source update not verified');
+                  const summary={branch,source:commit.sha,parent:base,build:'127',marketing:'1.2.0',changed:files,signing:'not attempted',upload:'not attempted'};
+                  console.log(JSON.stringify(summary,null,2));
+                  appendFileSync(process.env.GITHUB_STEP_SUMMARY,'# Narrow wind fix committed; no upload\n\n```json\n'+JSON.stringify(summary,null,2)+'\n```\n');
+                  NODE
