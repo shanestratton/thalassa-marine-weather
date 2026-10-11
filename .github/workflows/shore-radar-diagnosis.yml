@@ -1,8 +1,8 @@
 name: Shore radar CI diagnosis
 
 # Temporary, isolated experiment for PR #57's existing WebKit failure.
-# This branch does not change application code, read secrets, sign, or upload an app.
-# Diagnostic completion is NOT a passing release gate: inspect the sample results.
+# No application edits, Apple secrets, signing, or app upload.
+# Diagnostic completion is NOT a passing release gate: inspect sample results.
 on:
     push:
         branches: ['codex/thalassa-radar-ci-diagnosis']
@@ -11,10 +11,14 @@ on:
 permissions:
     contents: read
 
+concurrency:
+    group: shore-radar-ci-diagnosis
+    cancel-in-progress: true
+
 jobs:
     diagnose:
         runs-on: ubuntu-24.04
-        timeout-minutes: 15
+        timeout-minutes: 12
         env:
             CI: 'true'
             HUSKY: '0'
@@ -37,6 +41,7 @@ jobs:
             - run: npm ci
             - run: npx playwright install --with-deps chromium webkit
             - name: Compare unchanged rendering with isolated diagnostic variants
+              timeout-minutes: 5
               shell: bash
               run: |
                   node --input-type=commonjs <<'NODE'
@@ -46,29 +51,26 @@ jobs:
                   const { webkit, chromium, devices } = require('@playwright/test');
                   const out = process.env.RUNNER_TEMP + '/shore-radar-diagnosis';
                   fs.mkdirSync(out, { recursive: true });
-                  // Decode screenshot bytes in Node, independently of WebKit's canvas readback.
+                  // Independently decode the screenshot in Node, not WebKit's own readback.
                   function png(buffer) {
-                    if (!buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) throw Error('Not PNG');
-                    let width, height, bpp; const parts = [];
-                    for (let p = 8; p < buffer.length;) {
-                      const size = buffer.readUInt32BE(p), type = buffer.toString('ascii', p + 4, p + 8);
-                      const data = buffer.subarray(p + 8, p + 8 + size);
-                      if (type === 'IHDR') {
-                        width = data.readUInt32BE(0); height = data.readUInt32BE(4);
-                        if (data[8] !== 8 || ![2,6].includes(data[9]) || data[12] !== 0) throw Error('Unsupported PNG format');
-                        bpp = data[9] === 6 ? 4 : 3;
+                    if (!buffer.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) throw Error('Not PNG');
+                    let width,height,bpp; const parts=[];
+                    for(let p=8;p<buffer.length;) {
+                      const size=buffer.readUInt32BE(p),type=buffer.toString('ascii',p+4,p+8),data=buffer.subarray(p+8,p+8+size);
+                      if(type==='IHDR') {
+                        width=data.readUInt32BE(0);height=data.readUInt32BE(4);
+                        if(data[8]!==8||![2,6].includes(data[9])||data[12]!==0) throw Error('Unsupported PNG format');
+                        bpp=data[9]===6?4:3;
                       }
-                      if (type === 'IDAT') parts.push(data);
-                      p += size + 12;
-                      if (type === 'IEND') break;
+                      if(type==='IDAT') parts.push(data);
+                      p+=size+12;if(type==='IEND') break;
                     }
-                    const raw = zlib.inflateSync(Buffer.concat(parts)), stride = width * bpp;
-                    const pixels = Buffer.alloc(height * stride);
-                    if (raw.length !== height * (stride + 1)) throw Error('Unexpected PNG data length');
-                    const paeth = (a,b,c) => { const p=a+b-c,pa=Math.abs(p-a),pb=Math.abs(p-b),pc=Math.abs(p-c); return pa<=pb&&pa<=pc?a:pb<=pc?b:c; };
-                    for (let y=0,p=0; y<height; y++) {
-                      const filter=raw[p++]; if(filter>4) throw Error('Unknown PNG filter');
-                      for (let x=0; x<stride; x++) {
+                    const raw=zlib.inflateSync(Buffer.concat(parts)),stride=width*bpp,pixels=Buffer.alloc(height*stride);
+                    if(raw.length!==height*(stride+1)) throw Error('Unexpected PNG data length');
+                    const paeth=(a,b,c)=>{const p=a+b-c,pa=Math.abs(p-a),pb=Math.abs(p-b),pc=Math.abs(p-c);return pa<=pb&&pa<=pc?a:pb<=pc?b:c;};
+                    for(let y=0,p=0;y<height;y++) {
+                      const filter=raw[p++];if(filter>4) throw Error('Unknown PNG filter');
+                      for(let x=0;x<stride;x++) {
                         const i=y*stride+x,a=x>=bpp?pixels[i-bpp]:0,b=y?pixels[i-stride]:0,c=y&&x>=bpp?pixels[i-stride-bpp]:0;
                         const predict=filter===0?0:filter===1?a:filter===2?b:filter===3?Math.floor((a+b)/2):paeth(a,b,c);
                         pixels[i]=(raw[p++]+predict)&255;
@@ -76,13 +78,12 @@ jobs:
                     }
                     return {width,height,bpp,pixels};
                   }
-                  function inspect(buffer, box) {
-                    const image=png(buffer), sx=image.width/box.width,sy=image.height/box.height;
-                    const short=Math.min(box.width,box.height), roomy=short/2-short*.35>=40;
+                  function inspect(buffer,box) {
+                    const image=png(buffer),sx=image.width/box.width,sy=image.height/box.height;
+                    const short=Math.min(box.width,box.height),roomy=short/2-short*.35>=40;
                     const radius=roomy?short*.35:Math.max(0,Math.min(short*.35,short/2-26)),scale=radius/60;
                     function sample(x,y) {
-                      const reach=Math.max(2,Math.ceil(sx)),px=Math.round(x*sx),py=Math.round(y*sy);
-                      let bright=0,red=-255;
+                      const reach=Math.max(2,Math.ceil(sx)),px=Math.round(x*sx),py=Math.round(y*sy);let bright=0,red=-255;
                       for(let yy=py-reach;yy<=py+reach;yy++) for(let xx=px-reach;xx<=px+reach;xx++) {
                         if(xx<0||yy<0||xx>=image.width||yy>=image.height) continue;
                         const i=(yy*image.width+xx)*image.bpp,r=image.pixels[i],g=image.pixels[i+1],b=image.pixels[i+2];
@@ -93,19 +94,18 @@ jobs:
                     const at=b=>[box.width/2+Math.sin(b*Math.PI/180)*42*scale,box.height/2-Math.cos(b*Math.PI/180)*42*scale];
                     const bearings=[320,330,340,350,0,10,20,30,40];
                     const onTrail=bearings.map(b=>sample(...at(b)).bright),offTrail=bearings.map(b=>sample(...at(b+180)).bright);
-                    const north=sample(box.width/2,box.height/2-radius-(roomy?32:18)).red;
-                    const brighter=onTrail.filter((v,i)=>v>offTrail[i]+40).length;
+                    const north=sample(box.width/2,box.height/2-radius-(roomy?32:18)).red,brighter=onTrail.filter((v,i)=>v>offTrail[i]+40).length;
                     return {north,brighter,onTrail,offTrail,pass:north>60&&brighter>=6,pngWidth:image.width,pngHeight:image.height};
                   }
                   async function main() {
-                    const server=spawn('npm',['run','dev','--','--host','127.0.0.1','--port','4199','--strictPort'],{stdio:['ignore','pipe','pipe']});
+                    const server=spawn('npm',['run','dev','--','--host','127.0.0.1','--port','4199','--strictPort'],{detached:true,stdio:['ignore','pipe','pipe']});
                     const log=fs.createWriteStream(out+'/dev-server.log');server.stdout.pipe(log);server.stderr.pipe(log);
                     const results=[];let browser;
                     try {
                       let ready=false;
                       for(let i=0;i<120;i++) {
                         if(server.exitCode!==null) throw Error('Dev server exited');
-                        try { if((await fetch('http://127.0.0.1:4199/e2e/fixtures/shore-watch.html')).ok) {ready=true;break;} } catch {}
+                        try {if((await fetch('http://127.0.0.1:4199/e2e/fixtures/shore-watch.html',{signal:AbortSignal.timeout(1000)})).ok){ready=true;break;}}catch{}
                         await new Promise(r=>setTimeout(r,500));
                       }
                       if(!ready) throw Error('Dev server did not start');
@@ -116,8 +116,10 @@ jobs:
                         {engine:'webkit',mode:'baseline',dpr:1},
                         {engine:'chromium',mode:'baseline',dpr:3},
                       ]) {
-                        browser=await (variant.engine==='webkit'?webkit:chromium).launch(variant.engine==='chromium'?{args:['--use-angle=swiftshader']}:{});
-                        const context=await browser.newContext({...devices['iPhone 13'],defaultBrowserType:undefined,viewport:{width:390,height:844},deviceScaleFactor:variant.dpr});
+                        console.log('Starting variant',JSON.stringify(variant));
+                        browser=await(variant.engine==='webkit'?webkit:chromium).launch(variant.engine==='chromium'?{args:['--use-angle=swiftshader']}:{});
+                        const context=await browser.newContext({...devices['iPhone 13'],viewport:{width:390,height:844},deviceScaleFactor:variant.dpr});
+                        context.setDefaultTimeout(15000);
                         const page=await context.newPage();
                         await page.route('**/*',route=>{
                           const url=new URL(route.request().url());
@@ -128,19 +130,15 @@ jobs:
                           const original=HTMLCanvasElement.prototype.getContext,contexts=new Set();
                           HTMLCanvasElement.prototype.getContext=function(type,options){
                             const ctx=original.call(this,type,type==='2d'&&mode==='cpu-context'?{...options,willReadFrequently:true}:options);
-                            if(type==='2d'&&ctx) contexts.add(ctx);
-                            return ctx;
+                            if(type==='2d'&&ctx) contexts.add(ctx);return ctx;
                           };
                           if(mode==='reset-after-frame') {
                             const raf=window.requestAnimationFrame.bind(window);
-                            window.requestAnimationFrame=callback=>raf(time=>{
-                              try { callback(time); } finally { for(const ctx of contexts) if(ctx.canvas.isConnected) ctx.resetTransform(); }
-                            });
+                            window.requestAnimationFrame=callback=>raf(time=>{try{callback(time);}finally{for(const ctx of contexts)if(ctx.canvas.isConnected)ctx.resetTransform();}});
                           }
                         },variant.mode);
                         await page.goto('http://127.0.0.1:4199/e2e/fixtures/shore-watch.html?anti=1');
-                        const radar=page.getByRole('img',{name:/Shore Watch radar/});
-                        await radar.waitFor({state:'visible'});
+                        const radar=page.getByRole('img',{name:/Shore Watch radar/});await radar.waitFor({state:'visible'});
                         await page.evaluate(()=>document.fonts.ready);
                         await page.waitForFunction(()=>{
                           const c=document.querySelector('canvas[aria-label^="Shore Watch radar"]');if(!c)return false;
@@ -152,20 +150,20 @@ jobs:
                           const label=`${variant.engine}-${variant.mode}-${variant.dpr}x-${i}`;
                           const buffer=await radar.screenshot({path:out+'/'+label+'.png',animations:'disabled'});
                           const result={...variant,sample:i,...geometry,...inspect(buffer,geometry)};
-                          results.push(result);console.log(JSON.stringify(result));
+                          results.push(result);fs.writeFileSync(out+'/results.json',JSON.stringify(results,null,2));console.log(JSON.stringify(result));
                         }
                         await browser.close();browser=null;
                       }
                     } finally {
-                      if(browser) await browser.close();server.kill('SIGTERM');
-                      fs.writeFileSync(out+'/results.json',JSON.stringify(results,null,2));
-                      const groups=new Map();
-                      for(const r of results) {const key=`${r.engine} / ${r.mode} / ${r.dpr}x`;const g=groups.get(key)||{pass:0,total:0};g.total++;if(r.pass)g.pass++;groups.set(key,g);}
+                      if(browser) await browser.close();
+                      try {process.kill(-server.pid,'SIGTERM');}catch(error){if(error.code!=='ESRCH')throw error;}
+                      log.end();fs.writeFileSync(out+'/results.json',JSON.stringify(results,null,2));
+                      const groups=new Map();for(const r of results){const key=`${r.engine} / ${r.mode} / ${r.dpr}x`,g=groups.get(key)||{pass:0,total:0};g.total++;if(r.pass)g.pass++;groups.set(key,g);}
                       const summary=['# Radar diagnostic only','No app changes, Apple secrets, signing, or TestFlight upload. These experiments do not replace release gates.','','| Variant | Samples passing the original pixel checks |','|---|---|',...Array.from(groups,([k,v])=>`| ${k} | ${v.pass}/${v.total} |`)];
                       fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,summary.join('\n')+'\n');
                     }
                   }
-                  main().catch(error=>{console.error(error);process.exitCode=1;});
+                  main().then(()=>process.exit(0),error=>{console.error(error);process.exit(1);});
                   NODE
             - name: Preserve diagnostic images and measurements only
               if: always()
