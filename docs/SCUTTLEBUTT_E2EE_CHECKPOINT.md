@@ -17,8 +17,9 @@ During the HTTPS proof, cleaned master advanced normally from `b4cb3211` to
 `59c5f7eae52adde3cadc40d864ee979af15ab274`, bringing Claude's private-repository
 CI split and public marine-data repository changes. This is a forward extension
 of the same cleaned graph, not another licensed-chart history rewrite. The
-published continuation is being reconciled by merging that exact upstream into
-the isolated branch, preserving its published commits without force-push.
+published continuation incorporates that exact upstream through merge
+`90e34f34f`, preserving its published commits without force-push. The verified
+HTTPS slice is the preceding commit `3b5d71157`.
 Master and the primary checkout are not changed by this operation.
 
 The sole merge conflict is `.vercelignore`: retain upstream's explanatory
@@ -38,9 +39,10 @@ Only documentation and packaging of this exact receipt followed those checks;
 no new web, Window, native or full-suite acceptance is claimed.
 
 The eleven native WIP files were saved under the exact managed local stash
-`97de46d0006d08c950712a582e3eee7f2fef2b28` before reconciliation. Restore them
-byte-identically from that ref after the merge, verify their previous hash
-inventory and leave them unstaged. Never push this stash or any backup/all refs.
+`97de46d0006d08c950712a582e3eee7f2fef2b28` before reconciliation. They were restored
+after the merge and all eleven matched the previous hash inventory, remaining
+unstaged. The managed stash is retained only as a local backup; do not reapply it
+to the already restored files or push any stash, backup or all refs.
 The new HTTPS proof's 61 inputs do not overlap upstream's changed files; retain
 its original executed hashes rather than relabelling any broader App acceptance.
 Upstream did change App dependencies, so the earlier isolated web/Window result
