@@ -2,7 +2,8 @@ name: Thalassa build 127 wire-PNG diagnostic (NOT release proof)
 
 # DIAGNOSTIC ONLY. The workflow and application commit are distinct identities.
 # No Apple secret, source write, release, signing, deployment or Apple upload.
-# The CJS observer only delegates fast-png.decode and retains copied wire bytes
+# The eager canonical-cache observer only delegates fast-png.decode before ESM
+# named exports load, with no global loader mutation, and retains copied wire bytes
 # in RAM. Private PNG/metadata files are flushed only on ordinary process exit.
 # No added browser action, pause, query, timeout, retry or tracing instrumentation.
 # The complete spec is intentionally revised only for reviewed real Mapbox
@@ -110,13 +111,12 @@ jobs:
                   const fs = require('node:fs');
                   const path = require('node:path');
                   const crypto = require('node:crypto');
-                  const Module = require('node:module');
+                  const {createRequire} = require('node:module');
                   const MAX_CAPTURES = 64;
                   const MAX_WIRE_BYTES = 16 * 1024 * 1024;
                   const MAX_TOTAL_BYTES = 256 * 1024 * 1024;
                   const pending = [];
                   const failures = new Set();
-                  const patched = new WeakSet();
                   let decodeCalls = 0;
                   let retainedBytes = 0;
                   
@@ -165,14 +165,41 @@ jobs:
                       return {width:wire.readUInt32BE(16), height:wire.readUInt32BE(20),
                           bitDepth:wire[24], colourType:wire[25]};
                   }
-                  const originalLoad = Module._load;
-                  Module._load = function (request, parent, isMain) {
-                      const exports = Reflect.apply(originalLoad, this, arguments);
-                      if (request !== 'fast-png' || !exports || typeof exports !== 'object' || patched.has(exports)) return exports;
+                  function installObservedDecode() {
+                      const chosenRepository = process.env.WIND_CAPTURE_REPO_ROOT;
+                      if (!chosenRepository || chosenRepository !== path.resolve(chosenRepository) ||
+                          fs.realpathSync(chosenRepository) !== chosenRepository) throw new Error('Capture repository binding refused');
+                      const repository = fs.lstatSync(chosenRepository);
+                      if (!repository.isDirectory() || repository.isSymbolicLink() || repository.uid !== process.getuid()) {
+                          throw new Error('Capture repository ownership refused');
+                      }
+                      // A local contract may read an approved shared installation through its
+                      // owned node_modules link; only the canonical installed entry is loaded.
+                      const installedRoot = fs.realpathSync(path.join(chosenRepository, 'node_modules'));
+                      const installed = fs.lstatSync(installedRoot);
+                      if (!installed.isDirectory() || installed.isSymbolicLink() || installed.uid !== process.getuid()) {
+                          throw new Error('Installed dependency ownership refused');
+                      }
+                      const fromRepository = createRequire(path.join(chosenRepository, 'package.json'));
+                      const entry = fs.realpathSync(fromRepository.resolve('fast-png'));
+                      const manifestPath = fs.realpathSync(fromRepository.resolve('fast-png/package.json'));
+                      if (entry !== path.join(installedRoot, 'fast-png', 'lib', 'index.js') ||
+                          manifestPath !== path.join(installedRoot, 'fast-png', 'package.json')) throw new Error('Unexpected installed fast-png entry');
+                      const entryStat = fs.lstatSync(entry);
+                      if (!entryStat.isFile() || entryStat.isSymbolicLink() || entryStat.uid !== process.getuid()) {
+                          throw new Error('Installed decoder entry refused');
+                      }
+                      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+                      if (manifest.name !== 'fast-png' || manifest.version !== '6.4.0' || manifest.main !== './lib/index.js' ||
+                          sha256(fs.readFileSync(entry)) !== '864d80d585f4bc2eca7733c68f7735c7cb7f93ce04bddd317dcf37917fb303f3') {
+                          throw new Error('Installed decoder version or entry digest differs');
+                      }
+                      // Eagerly patch this one canonical CJS cache entry before any ESM namespace
+                      // snapshots its named exports. No global module-loader hook is installed.
+                      const exports = fromRepository(entry);
                       const descriptor = Object.getOwnPropertyDescriptor(exports, 'decode');
                       if (!descriptor || typeof descriptor.value !== 'function' || !descriptor.configurable) {
-                          failures.add('DECODE_EXPORT_NOT_WRAPPABLE');
-                          return exports;
+                          throw new Error('Pinned decoder export is not wrappable');
                       }
                       const originalDecode = descriptor.value;
                       function observedDecode() {
@@ -219,9 +246,11 @@ jobs:
                           return decoded;
                       }
                       Object.defineProperty(exports, 'decode', {...descriptor, value:observedDecode});
-                      patched.add(exports);
-                      return exports;
-                  };
+                      return {name:manifest.name, version:manifest.version,
+                          entrySha256:'864d80d585f4bc2eca7733c68f7735c7cb7f93ce04bddd317dcf37917fb303f3',
+                          interception:'eager exact canonical CJS cache decode export, before ESM namespaces'};
+                  }
+                  const observedPackage = installObservedDecode();
                   
                   process.once('exit', () => {
                       if (pending.length === 0 && failures.size === 0) return;
@@ -249,6 +278,7 @@ jobs:
                           }
                           const sourceCommit = /^[0-9a-f]{40}$/.test(process.env.CANDIDATE_SHA || '') ? process.env.CANDIDATE_SHA : null;
                           const metadata = {version:1, diagnosticOnly:true, sourceCommit, pid:process.pid,
+                              observedPackage,
                               decodeCalls, retainedWireBytes:retainedBytes, flushedAt:new Date().toISOString(),
                               flushBoundary:'ordinary process exit only; no between-picture file writes',
                               records, diagnosticFailures:[...failures]};
@@ -261,7 +291,7 @@ jobs:
                       }
                   });
                   `;
-                  if (createHash('sha256').update(source).digest('hex')!=='0ca51365a3db5c9c305bbe761bcca897775212887b4de11e42134c64da364c61') throw new Error('Static observer source digest differs');
+                  if (createHash('sha256').update(source).digest('hex')!=='ed8ae4db95d0fd1c4fc5367896920bc4827839a5c16c75d6c637d7cfc7559bac') throw new Error('Static observer source digest differs');
                   writeFileSync(join(runner,'wind-capture-preload.cjs'),source,{mode:0o600,flag:'wx'});
                   NODE
             - name: Install the selected browser engine
@@ -271,6 +301,7 @@ jobs:
               env:
                   PLAYWRIGHT_JSON_OUTPUT_NAME: wind-focused-results.json
                   WIND_CAPTURE_DIR: ${{ runner.temp }}/wind-captures
+                  WIND_CAPTURE_REPO_ROOT: ${{ github.workspace }}
                   NODE_OPTIONS: >-
                       --max-old-space-size=4096 --require "${{ runner.temp }}/wind-capture-preload.cjs"
               run: >-
