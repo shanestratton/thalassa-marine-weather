@@ -31,3 +31,6 @@ tests/fixtures/buoys/
 # formatting would create different evidence bytes, not a new execution.
 experiments/scuttlebutt-e2ee/review/cached-provider-bootstrap-2026-10-11.json
 experiments/scuttlebutt-e2ee/review/cached-provider-checks-2026-10-11.json
+experiments/scuttlebutt-e2ee/review/fresh-native-https-2026-10-11.json
+experiments/scuttlebutt-e2ee/review/fresh-native-https-checks-2026-10-11.json
+experiments/scuttlebutt-e2ee/review/fresh-native-https-local-verification-2026-10-11.json

@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "kind": "read-only-fresh-native-https-receipt-verification",
+  "status": "passed",
+  "receipt": {
+    "path": "/private/tmp/thalassa-fresh-native-https-7V5efT/exchange-run.json",
+    "sha256": "19e7c0b7208d890365c0bddaab4c9e309d5cd2d6be4bb0ec3502004d0ec56016"
+  },
+  "verifier": {
+    "path": "/private/tmp/thalassa-fresh-https-checks.dvMSGk/verify-exchange.mjs",
+    "sha256": "1dc3aee3bf93d2539ee2056bccde563a1a673db727840673db9520e63d4a0755"
+  },
+  "exactTopFields": 41,
+  "canonicalNonsecretBytes": true,
+  "currentSourceInputs": 61,
+  "copiedSwiftInputs": 34,
+  "cacheArtifacts": 4,
+  "allCurrentHashesMatch": true,
+  "embeddedEntitlementsMeasured": true,
+  "providerBootstrapSha256": "372a05bd5b04efcea1574fcd2471d450f42242dcfeed47dca4498460f6c110f3",
+  "completedPhases": 10,
+  "allRecordedPhasePIDControls": true,
+  "fixtureAssertions": {
+    "authFixtureAssertions": 266,
+    "accountDirectoryFixtureAssertions": 282,
+    "enrollmentIntentFixtureAssertions": 40,
+    "messageAuthorityFixtureAssertions": 65,
+    "pairingHistoryFixtureAssertions": 105,
+    "scopedRelayFixtureAssertions": 81,
+    "scopedEnrollmentFixtureAssertions": 188,
+    "readinessFixtureAssertions": 709,
+    "bridgeFixtureAssertions": 288,
+    "privateMessageFixtureAssertions": 363
+  },
+  "serverVerification": {
+    "devices": 2,
+    "decisions": 4,
+    "messages": 4,
+    "requests": 20,
+    "httpRequests": 23,
+    "authRequests": 23,
+    "rpcCalls": 44,
+    "tlsRefusals": 1,
+    "registrations": 2,
+    "dispatches": 21,
+    "lostResponses": 1,
+    "lostAccountModeResponses": 0,
+    "requireProtectedRequests": 0,
+    "accountModeRequests": 0,
+    "accountModeExactRetries": 0,
+    "wrongReceipts": 1,
+    "malformedLists": 1,
+    "poisonLists": 8,
+    "staleContextRequests": 0,
+    "databaseReopens": 2,
+    "unexpectedFailures": 0
+  },
+  "ownedSimulatorAbsent": true,
+  "cleanupRecordedComplete": true,
+  "readOnlySimulatorInventoryQueries": 1,
+  "sharedSlotWaitMs": 0,
+  "nativeOrHeavyRerunsByVerifier": 0,
+  "preTrustZeroCounters": "enforced-by-frozen-producer-not-reobserved",
+  "contentInspection": "four-known-canaries-in-SQL-snapshot-only",
+  "retainedVerifierFailures": [
+    {
+      "path": "/private/tmp/thalassa-fresh-https-checks.dvMSGk/verify-exchange-initial.mjs",
+      "sha256": "8435f7d985318cb42bd829013db2022fcf7ec310295c7a3cea13550e42cae353",
+      "exitStatus": 1,
+      "verificationStage": "bootstrap",
+      "cause": "expected-original-location-instead-of-exact-preserved-repository-copy"
+    },
+    {
+      "path": "/private/tmp/thalassa-fresh-https-checks.dvMSGk/verify-exchange-repository-path.mjs",
+      "sha256": "af95b49a3f6b61a02a15a48d33081e42f884a2055fa1d0e90712cfac54cb7d3d",
+      "exitStatus": 1,
+      "verificationStage": "bootstrap",
+      "cause": "two-field-reference-helper-rejected-prevalidated-four-field-archive"
+    },
+    {
+      "path": "/private/tmp/thalassa-fresh-https-checks.dvMSGk/verify-exchange-stage-diagnostic.mjs",
+      "sha256": "8c82fd852e8c371c20ce1c4fea7dc42977a3d9d3e66800afc71fa45fcf163527",
+      "exitStatus": 1,
+      "verificationStage": "bootstrap-artifacts",
+      "cause": "same-private-verifier-shape-mistake-located-with-fixed-stage-only"
+    }
+  ],
+  "producerAndFrozenSourcesChanged": false,
+  "safeToPreserveExactNonsecretReceipt": true,
+  "liveAuth": false,
+  "physicalDevices": false,
+  "freshRustBuild": false,
+  "sourceBinaryProvenance": false,
+  "fullAppExecution": false,
+  "independentSecurityAssessment": false,
+  "releaseReady": false
+}

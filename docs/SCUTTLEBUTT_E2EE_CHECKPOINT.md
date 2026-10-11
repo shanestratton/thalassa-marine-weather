@@ -11,6 +11,70 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
+## Fresh native HTTPS exchange on 11 October
+
+The [completed HTTPS receipt](../experiments/scuttlebutt-e2ee/review/fresh-native-https-2026-10-11.json)
+now records **all ten native exchange phases passing**, after a fresh 34-source
+Swift compilation in one newly owned iOS 27.0 simulator. A new explicit runner
+requires the separately executed cached-provider bootstrap below, validates its
+current 38 sources and actual artifacts, then copies the same four provider
+inputs into a fresh cache. It neither creates an old passed marker nor changes
+the existing full-App builder's completed-exchange gate.
+
+Ordinary URLSession trust first rejected the untrusted fixture certificate;
+the frozen producer checked zero HTTP, Auth, RPC, registration and dispatch
+counters before adding that one-day CA only to the newly owned simulator.
+The actual HTTPS/local-SQL exchange then produced **four accepted messages and
+four decisions**, with 20 retained requests, 23 HTTP/Auth requests and 44 RPC
+calls. It exercised one deliberately lost response after commitment, one wrong
+receipt, one malformed list, eight poison lists and **two database reopens**.
+Stale-context requests and unexpected host failures were zero. The four known
+plaintext canaries were absent from the inspected SQL snapshot; this is not a
+general memory, log or backup privacy claim.
+
+The ten recorded positive native fixture counts are preserved separately. In
+particular, the 363 private-message adapter assertions use synthetic URLProtocol
+Auth/relay responses. The four-message actual HTTPS scenario uses the direct
+research relay client; it is not an exchange through the full Thalassa UI or a
+live account sign-in. Hosted services and human devices were untouched.
+
+The accepted record is preserved byte-identically, SHA-256
+`19e7c0b7208d890365c0bddaab4c9e309d5cd2d6be4bb0ec3502004d0ec56016`,
+originally `/private/tmp/thalassa-fresh-native-https-7V5efT/exchange-run.json`.
+The signed executable hash is
+`3a4f35920622af88427ca175a01cffae58551a87819ac473d1ee113090560001`.
+A [separate local full-record verifier](../experiments/scuttlebutt-e2ee/review/fresh-native-https-local-verification-2026-10-11.json)
+checked all 41 top-level fields, canonical bytes, the 61 current source inputs,
+34 copied Swift files, provider/bootstrap/executable/archive hashes, measured
+Mach-O entitlements, ten phase/PID controls and cleanup. One subsequent read-only
+inventory confirmed the exact simulator ID and name absent. Its result hash is
+`1272b878d4c095802beb717b356617445cd772e3e404f04416ffa63904305407`;
+the private verifier at `/private/tmp/thalassa-fresh-https-checks.dvMSGk/verify-exchange.mjs`
+has hash `1dc3aee3bf93d2539ee2056bccde563a1a673db727840673db9520e63d4a0755`.
+That program cannot independently re-observe historical pre-trust zero counters;
+they are enforced by the frozen producer. Local/agent checking is not the
+independent security assessment.
+
+The [source checks](../experiments/scuttlebutt-e2ee/review/fresh-native-https-checks-2026-10-11.json)
+passed **126/126 pure contract tests**, narrow strict types, zero-warning named
+lint, syntax and formatting. Their receipt hash is
+`cc7581d98b25593139be406c57fce099b4c37d679e2b8815504950b60b6c5f01`.
+Shared waiting was **0/120,000 ms** across checks and runtime. Three private
+verifier-only refusals were retained: its initial bootstrap-location assumption
+and archive-reference helper mismatch were corrected without changing or rerunning
+the producer. There was no native execution failure or second simulator attempt.
+The new runner snapshots failing operation/exit/timeout before cleanup; the
+historical bootstrap driver's reporting limitation remains unchanged.
+
+Next compile and execute the current protected full-App native fixture using
+this legitimately regenerated completed-exchange prerequisite. The eleven WIP
+paths remain local, unpublished and hash-unchanged at this checkpoint; no
+protected full-App native build or exchange has run yet. Current physical
+acceptance, real OS lifecycle, shipping prekey/device/retention/recovery policies,
+production cutover, reproducible Rust provenance, dependency/licence obligations
+and independent security assessment still gate merge/release. Master, production
+and ordinary app builds remain unactivated for experimental E2EE.
+
 ## Fresh cached provider execution on 11 October
 
 The [new bootstrap receipt](../experiments/scuttlebutt-e2ee/review/cached-provider-bootstrap-2026-10-11.json)
@@ -3967,9 +4031,8 @@ attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: complete the fresh local HTTPS exchange prerequisite using the explicitly
-validated cached-provider bootstrap above, then compile and execute the current
-full-App protected native fixture. Extend the bounded native-to-hosted acceptance
+Next: compile and execute the current full-App protected native fixture using
+the completed fresh HTTPS prerequisite above. Extend the bounded native-to-hosted acceptance
 above into the actual app,
 and connect native durable selection
 to main-app cold-start denial. Native controls alone do not close that boundary.

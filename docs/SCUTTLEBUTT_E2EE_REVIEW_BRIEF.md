@@ -106,6 +106,23 @@ diagnostics need an operation snapshot before cleanup overwrites the driver's
 last-operation fields. This known reporting limitation does not promote any
 remaining release gate.
 
+The subsequent [fresh local HTTPS exchange](../experiments/scuttlebutt-e2ee/review/fresh-native-https-2026-10-11.json)
+completed all ten phases after a new 34-source native compilation, with four
+accepted messages/decisions, exact retries, loss-after-commit recovery, malformed
+and poison refusal and two SQL reopens. Ordinary TLS rejected the fixture CA
+before its installation only in the new disposable simulator. The 61 source
+inputs and artifact hashes remained stable; final cleanup and simulator absence
+passed a separate full-record local verifier. The 126 pure contract cases are
+separate evidence, not encryption tests or an independent audit.
+
+Auth remains synthetic; the actual HTTPS messages use the direct research
+client, while the private-message adapter phase uses URLProtocol fixtures.
+This legitimately regenerates the completed-exchange prerequisite without
+reconstructing the missing historical record or weakening the full-App gate.
+Current full-App protected native execution is next. The receipt retains false
+physical, live-Auth, Rust-provenance and independent-assessment flags. Human
+devices, hosted services, primary targets and production were untouched.
+
 The new ordinary text-only native port shares the existing Research Auth host,
 requires a complete confirmed native peer snapshot, and preserves original-owner
 publication checks. Its explicit screen performs one bounded scan on Refresh,
