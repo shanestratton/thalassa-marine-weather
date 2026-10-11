@@ -1,0 +1,103 @@
+name: Prepare Thalassa 127 candidate (no Apple access)
+
+# Shane explicitly requested TestFlight 127 on 2026-10-11. This helper changes
+# only the native build number on an isolated integration candidate. It does
+# not merge a PR, alter b127/master, sign, upload, or read Apple credentials.
+on:
+    push:
+        branches: ['codex/thalassa-127-release']
+        paths: ['.github/workflows/prepare-testflight-127.yml']
+
+permissions:
+    contents: read
+
+concurrency:
+    group: prepare-thalassa-127
+    cancel-in-progress: false
+
+jobs:
+    prepare:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  package-manager-cache: false
+            - name: Commit four version changes, with exact-source and non-force guards
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  node --input-type=module <<'NODE'
+                  import { appendFileSync } from 'node:fs';
+                  const repo = 'shanestratton/thalassa-marine-weather';
+                  const base = '382315adeb3897ee1775076607785c8f0a4f2bc0';
+                  const originalB127 = '6c60882fd39a87a6c00e1a327455903182293baa';
+                  const originalMaster = 'b8ef21d96a699a240b0378db7d7fcdc0e93810cd';
+                  const branch = 'codex/testflight-127';
+                  const path = 'ios/App/App.xcodeproj/project.pbxproj';
+                  const expectedBlob = '46b297b174bc1112fd918c3c286ebd549ab3033b';
+                  const token = process.env.GH_TOKEN;
+                  delete process.env.GH_TOKEN;
+                  if (!token) throw new Error('GitHub authentication is missing');
+                  async function api(endpoint, method = 'GET', body) {
+                      const response = await fetch(`https://api.github.com/repos/${repo}/${endpoint}`, {
+                          method, redirect: 'error', signal: AbortSignal.timeout(30000),
+                          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json',
+                              'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' },
+                          body: body === undefined ? undefined : JSON.stringify(body),
+                      });
+                      if (!response.ok) throw new Error(`GitHub ${method} ${endpoint} failed: HTTP ${response.status}`);
+                      return response.json();
+                  }
+                  async function main() {
+                      const source = await api(`git/commits/${base}`);
+                      const parents = source.parents.map(p => p.sha);
+                      if (parents.length !== 2 || !parents.includes(originalB127) || !parents.includes(originalMaster))
+                          throw new Error('The integration candidate has unexpected parents');
+                      const before = await api(`git/ref/heads/${branch}`);
+                      if (before.object.sha !== base) throw new Error('Candidate branch moved; inspect rather than overwrite');
+                      const originalRefs = await Promise.all(['b127', 'master'].map(b => api(`git/ref/heads/${b}`)));
+                      if (originalRefs[0].object.sha !== originalB127 || originalRefs[1].object.sha !== originalMaster)
+                          throw new Error('A source branch changed; refresh the release candidate first');
+                      const file = await api(`contents/${path}?ref=${base}`);
+                      if (file.sha !== expectedBlob || file.encoding !== 'base64') throw new Error('Unexpected native project file');
+                      const text = Buffer.from(file.content, 'base64').toString('utf8');
+                      const matches = [...text.matchAll(/CURRENT_PROJECT_VERSION = ([0-9]+);/g)];
+                      if (matches.length !== 4 || matches.some(m => m[1] !== '126')) throw new Error('Expected four build-126 configurations');
+                      const replacement = text.replaceAll('CURRENT_PROJECT_VERSION = 126;', 'CURRENT_PROJECT_VERSION = 127;');
+                      if (replacement.replaceAll('CURRENT_PROJECT_VERSION = 127;', 'CURRENT_PROJECT_VERSION = 126;') !== text)
+                          throw new Error('Build-number change is not reversible byte-for-byte');
+                      const blob = await api('git/blobs', 'POST', {content: replacement, encoding: 'utf-8'});
+                      const tree = await api('git/trees', 'POST', {base_tree: source.tree.sha,
+                          tree: [{path, mode: '100644', type: 'blob', sha: blob.sha}]});
+                      const commit = await api('git/commits', 'POST', {
+                          message: 'release: prepare Thalassa 1.2.0 build 127 from preserved b127 work and validated cloud setup\n\nOnly CURRENT_PROJECT_VERSION changes from 126 to 127 in four configurations. No upload or production merge. Full release checks and signed verification are required on this exact commit.',
+                          tree: tree.sha, parents: [base],
+                      });
+                      const check = await api(`compare/${base}...${commit.sha}`);
+                      if (check.files?.length !== 1 || check.files[0].filename !== path ||
+                          check.files[0].additions !== 4 || check.files[0].deletions !== 4)
+                          throw new Error('The prepared commit changes more than the four build numbers');
+                      if ((await api(`git/ref/heads/${branch}`)).object.sha !== base)
+                          throw new Error('Candidate branch changed during preparation; do not overwrite');
+                      await api(`git/refs/heads/${branch}`, 'PATCH', {sha: commit.sha, force: false});
+                      if ((await api(`git/ref/heads/${branch}`)).object.sha !== commit.sha)
+                          throw new Error('Candidate update could not be verified');
+                      const after = await Promise.all(['b127', 'master'].map(b => api(`git/ref/heads/${b}`)));
+                      if (after[0].object.sha !== originalB127 || after[1].object.sha !== originalMaster)
+                          throw new Error('A source branch changed; candidate needs review');
+                      const summary = {candidateBranch: branch, candidateCommit: commit.sha,
+                          candidateTree: tree.sha, build: '127', marketingVersion: '1.2.0',
+                          changes: 'Four CURRENT_PROJECT_VERSION assignments only',
+                          preservedB127: originalB127, preservedMaster: originalMaster,
+                          signing: 'Not attempted', upload: 'Not attempted'};
+                      console.log(JSON.stringify(summary, null, 2));
+                      appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+                          '# Build 127 candidate prepared — not signed or uploaded\n\n```json\n' + JSON.stringify(summary, null, 2) + '\n```\n');
+                  }
+                  main().catch(error => { console.error(error.message); process.exitCode = 1; });
+                  NODE
