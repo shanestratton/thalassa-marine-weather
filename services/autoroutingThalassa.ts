@@ -70,16 +70,34 @@ const PIN_GAP_REFUSE_M = 500;
 const NOTICE_LOOKUP_MS = 5_000;
 /** The ⚡ Auto route's cloud fill pad around the leg (useAutoRouteLeg). */
 const FILL_PAD_DEG = 0.03;
-/** Lets the status paint before the engine's synchronous A* holds the thread
- *  (20–47 s measured on iPhone; the passage planner yields the same). */
+/** Lets "Following deep water…" paint before the prep starts. The router
+ *  itself runs in the route worker since 127-ROUTE-W, so nothing should hold
+ *  the thread after it; where no worker can start, the A* holds it for a few
+ *  seconds (measured 1.7-1.9 s for a synthetic 20 NM route on a Mac; the old
+ *  "20–47 s on iPhone" dates from before the grid speed-ups), and the stage
+ *  words say so (ROUTE_STAGE_WORDS). */
 const PAINT_YIELD_MS = 80;
+/**
+ * What Auto's status says at each stage of the router (127-ROUTE-W; Shane,
+ * 2026-10-10: "yes for a short while it looked as though the app had
+ * frozen"). 'routing-main' is a phone where the route worker could not start:
+ * the router runs the old way, and the screen may pause.
+ */
+export const ROUTE_STAGE_WORDS: Readonly<Record<string, string>> = {
+    queued: 'Waiting for the route before this one…',
+    routing: 'Routing round the land…',
+    'routing-main': 'Routing round the land (the screen may pause)…',
+};
+/** Said while the satellite land check and the notices run, after the router. */
+const CHECKING_WORDS = 'Checking the route…';
 
 const AUTH_REQUIRED = 'Sign in to use Auto routing.';
 const NO_ROUTE = 'Thalassa could not route this passage. Nothing changed.';
 const WATCHDOG = 'Routing took longer than this phone allows (85 s). Try a shorter passage. Nothing changed.';
 // Licensed charts never come from the cloud since 126-20: a gap the cloud
 // can't fill is one only the boat's Pi can, and the shared shelf is NOAA only.
-const BUCKET_UNREACHABLE =
+/** Exported so Plan Your Day says it in global words with no Pi paired (127-PYD-2). */
+export const THALASSA_BUCKET_UNREACHABLE =
     "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: sync them aboard, then try again. Nothing changed.";
 const NOT_SIGNED_IN_FILL =
     "The missing charts wouldn't download. You're probably not signed in: sign in and try again. Nothing changed.";
@@ -115,6 +133,7 @@ const finiteWithin = (value: unknown, min: number, max: number): value is number
     typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
 const validPoint = (value: unknown): value is { lat: number; lon: number } =>
     record(value) && finiteWithin(value.lat, -90, 90) && finiteWithin(value.lon, -180, 180);
+const HOUR_MS = 3_600_000;
 
 /** Validate and detach the request before any asynchronous work. */
 function snapshotRequest(request: AutoroutingTrialRequest): {
@@ -123,6 +142,7 @@ function snapshotRequest(request: AutoroutingTrialRequest): {
     draftM: number;
     speedKts: number;
     vesselProfile?: AutoroutingVesselProfile;
+    departureMs?: number;
 } {
     if (
         !record(request) ||
@@ -144,12 +164,18 @@ function snapshotRequest(request: AutoroutingTrialRequest): {
         if (!vesselProfile || vesselProfile.draftStatus === 'missing')
             throw new Error('Check the stored vessel dimensions and draft in Vessel settings before calculating.');
     }
+    // A caller's leave (127-PYD-2): the hour just gone to 8 days out, as the forecasts reach.
+    const { departureMs } = request;
+    const now = Date.now();
+    if (departureMs !== undefined && !finiteWithin(departureMs, now - HOUR_MS, now + 192 * HOUR_MS))
+        throw new Error('Choose a departure within the next 8 days.');
     return {
         departure: { lat: request.departure.lat, lon: request.departure.lon },
         destination: { lat: request.destination.lat, lon: request.destination.lon },
         draftM: request.draftM,
         speedKts: request.speedKts,
         ...(vesselProfile ? { vesselProfile } : {}),
+        ...(departureMs !== undefined ? { departureMs } : {}),
     };
 }
 
@@ -282,7 +308,8 @@ export async function calculateThalassaProposal(
     // (owner decision 5). An estimated one is used as given and said so.
     const airDraftM =
         vesselProfile && vesselProfile.airDraft.status !== 'missing' ? vesselProfile.airDraft.valueM : null;
-    const departureMs = Date.now();
+    // The caller's leave (Plan Your Day's chosen one), else now (Auto).
+    const departureMs = input.departureMs ?? Date.now();
     const progress = (message: string) => {
         if (!signal?.aborted && isAuthIdentityScopeCurrent(scope)) onProgress?.(message);
     };
@@ -294,7 +321,16 @@ export async function calculateThalassaProposal(
         // here would abort good computes on the phone (the old trial's 45 s).
         let res: Awaited<ReturnType<typeof tryInshoreRoute>>;
         try {
-            res = await tryInshoreRoute(departure, destination, draftM, airDraftM, 'safest', { departureMs });
+            // The stop signal reaches the router (✕ ends a route in the
+            // worker at once), and each stage says what it is doing.
+            res = await tryInshoreRoute(departure, destination, draftM, airDraftM, 'safest', {
+                departureMs,
+                ...(signal ? { signal } : {}),
+                onStage: (stage) => {
+                    const words = ROUTE_STAGE_WORDS[stage];
+                    if (words) progress(words);
+                },
+            });
         } catch (error) {
             assertCurrent();
             log.warn(`engine threw: ${error instanceof Error ? error.message : String(error)}`);
@@ -326,7 +362,7 @@ export async function calculateThalassaProposal(
         }
         assertCurrent();
         log.warn(`cloud fill downloaded=${fill.downloaded} needed=${fill.needed} bucket=${fill.bucketAvailable}`);
-        if (!fill.bucketAvailable) throw new Error(BUCKET_UNREACHABLE);
+        if (!fill.bucketAvailable) throw new Error(THALASSA_BUCKET_UNREACHABLE);
         if (fill.downloaded === 0 && fill.needed > 0) throw new Error(NOT_SIGNED_IN_FILL);
         if (fill.downloaded > 0) res = await run();
     }
@@ -430,9 +466,11 @@ export async function calculateThalassaProposal(
     // water (2026-10-02, Coral Sea Marina → Daydream Island: its ~1.8 km
     // pixels read the marina and the deep water off a headland as land), and
     // the refusal says where, and whether the charts are missing there.
+    progress(CHECKING_WORDS);
     const { inshoreRouteCrossesLand } = await import('./routing/landBackstop');
     assertCurrent();
-    const backstop = await inshoreRouteCrossesLand(polyline, { chartWater: ok.chartWater });
+    // The verdicts the route job worked out at every sample (127-ROUTE-W).
+    const backstop = await inshoreRouteCrossesLand(polyline, { chartVerdicts: ok.chartVerdicts });
     assertCurrent();
     if (backstop.status === 'verified' && backstop.crossesLand) throw new Error(landBackstopRefusal(backstop));
     const backstopState: ThalassaRouteDisclosure['backstop'] =
@@ -533,6 +571,7 @@ export async function calculateThalassaProposal(
         createdAt: new Date().toISOString(),
         provider: 'Thalassa',
         ...(vesselProfile ? { vesselProfile } : {}),
+        ...(input.departureMs !== undefined ? { departureMs } : {}),
         engine,
     };
 }

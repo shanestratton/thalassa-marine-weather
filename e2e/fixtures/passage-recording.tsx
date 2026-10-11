@@ -4,11 +4,7 @@ import { PassageHudPane } from '../../components/passage/PassageHudPane';
 import { MapWeatherControls } from '../../components/map/MapWeatherControls';
 import { SatelliteIrCredit } from '../../components/map/SatelliteIrCredit';
 import { BlitzortungAttribution } from '../../components/map/BlitzortungAttribution';
-import {
-    CREDITS_STRIP_POSITION_CLASS,
-    creditsStripTop,
-    satelliteCreditOffsetPx,
-} from '../../components/map/creditsStrip';
+import { CREDITS_STRIP_POSITION_CLASS, creditsStripTop, creditStackPx } from '../../components/map/creditsStrip';
 import type { useWeatherLayers } from '../../components/map/useWeatherLayers';
 import {
     setPassageHudOpen,
@@ -142,9 +138,7 @@ function Fixture() {
                             playing: false,
                             following: false,
                         }}
-                        top={creditsStripTop(
-                            satelliteCreditOffsetPx({ rain: false, cmems: false, lightning: lightningCredit }),
-                        )}
+                        top={creditsStripTop(creditStackPx({ lightning: lightningCredit }))}
                         onTogglePlay={() => undefined}
                     />
                 </>

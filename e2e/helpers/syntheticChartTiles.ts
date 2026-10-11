@@ -18,6 +18,8 @@
  *
  * The coastlines are rough and fictional, placed at two public harbours: the
  * Solent (England) and the Whitsundays (Queensland, inside the GBR 30 m grid).
+ * Chesapeake Bay (USA) is open water here, with two buoys: the desk spec draws
+ * its own fictional chart there.
  * PNGs are encoded with node:zlib, MVTs with a few lines of protobuf.
  */
 import { deflateSync } from 'node:zlib';
@@ -89,6 +91,10 @@ const BUOYS: Array<[number, number, [number, number, number]]> = [
     [-1.395, 50.773, [250, 204, 21]],
     [148.84, -20.235, [34, 197, 94]],
     [148.9, -20.225, [239, 68, 68]],
+    // Chesapeake Bay (127-DESKMAP): one inside the desk spec's fictional
+    // NOAA-shaped cell, one east of it.
+    [-76.4, 38.975, [34, 197, 94]],
+    [-76.2, 38.975, [239, 68, 68]],
 ];
 
 const EXTENT = 4096;

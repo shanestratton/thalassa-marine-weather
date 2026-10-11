@@ -70,6 +70,7 @@ import {
     landBackstopTitle,
 } from '../../services/routing/landBackstopWords';
 import { CAUTION_WHY } from '../../services/engine/types';
+import { chartFitBearing } from './chartOrientation';
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
 
@@ -231,6 +232,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     // decision 8 — and a pin off the water). Its own line in PassageBanner:
     // no later notice replaces it (fix-up, 2026-09-30). Cleared with the route.
     const [routeCaveats, setRouteCaveats] = useState<string[]>([]);
+    // The charts those caveats were worked out on: a saved plan's chart notes
+    // stay off the disk over licensed charts only (services/chartFacts, 127-C-b).
+    const routeCellsRef = useRef<string[]>([]);
     // Which polar the shown ETA was sailed on (services/routingPolar label),
     // for PassageBanner's "Polar:" line. Null for a route no polar sailed
     // (inshore, short hops). Cleared with the route.
@@ -570,7 +574,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 const backstop = chartedLand
                     ? null
                     : await inshoreRouteCrossesLand(inshoreRes.polyline, {
-                          chartWater: inshoreRes.chartWater,
+                          chartVerdicts: inshoreRes.chartVerdicts,
                       });
                 if (gen !== computeGenRef.current) return; // user moved on, abort
                 if (!backstop) {
@@ -861,7 +865,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     // Fit bounds to the route extent.
                     const bounds = new mapboxgl.LngLatBounds();
                     for (const [lon, lat] of inshoreRes.polyline) bounds.extend([lon, lat]);
-                    map.fitBounds(bounds, { padding: 80, duration: 1000, retainPadding: false });
+                    map.fitBounds(bounds, {
+                        padding: 80,
+                        duration: 1000,
+                        retainPadding: false,
+                        bearing: chartFitBearing(map),
+                    });
 
                     // Surface a route-summary event so PassageBanner can show
                     // distance/cells used. Same shape as deep-water route, just
@@ -911,6 +920,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         ntmLockBanner,
                     };
                     dispatchPassageNotice(inshoreRouteNotice(noticeInput));
+                    routeCellsRef.current = inshoreRes.cellsUsed;
                     setRouteCaveats(inshoreRouteCaveats(noticeInput));
                     // [BAYLEG] render-truth (2026-06-23): fires ONLY when the inshore route survives
                     // the land backstop and is actually drawn — teal/tier-coloured, with the
@@ -1687,7 +1697,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         const bounds = new mapboxgl.LngLatBounds();
         bounds.extend([departure.lon, departure.lat]);
         bounds.extend([arrival.lon, arrival.lat]);
-        map.fitBounds(bounds, { padding: 80, duration: 1000, retainPadding: false });
+        map.fitBounds(bounds, { padding: 80, duration: 1000, retainPadding: false, bearing: chartFitBearing(map) });
 
         // Background: isochrone weather routing upgrade
         setTimeout(async () => {
@@ -3045,6 +3055,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         routeVerification,
         routeActionsAvailable,
         routeCaveats,
+        routeCellsRef,
         routingPolarLabel,
         settingPoint,
         setSettingPoint,

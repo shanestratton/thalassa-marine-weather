@@ -342,6 +342,7 @@ export default function OceanMap(props: OceanMapProps) {
             const m = map;
             mapRef.current = m;
             m.touchZoomRotate.disableRotation();
+            m.keyboard.disableRotation();
             m.addControl(new mapboxgl.AttributionControl({ compact: true }));
             m.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'bottom-right');
             stopTimeout = visibleTimeout(LOAD_TIMEOUT_MS, () => fail('timed out'));

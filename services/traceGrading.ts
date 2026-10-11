@@ -103,6 +103,9 @@ const cautionVerdict = (message: string): TraceLegVerdict => ({
     nudge: null,
     nudgeTo: null,
 });
+/** Nothing on this device could check the leg: still 'caution' everywhere,
+ *  drawn as a grey sketch (127-DESKMAP C3). */
+const sketchVerdict = (message: string): TraceLegVerdict => ({ ...cautionVerdict(message), unchecked: true });
 
 /**
  * Grade every pending leg and roll the outcome up into one status.
@@ -295,7 +298,7 @@ export async function gradeLegs(pending: ReadonlyArray<GradeLeg>, opts: GradeLeg
                     // hydrated) — volatile, so charts appearing later heal it.
                     failStatus = 'nochart';
                     for (const l of cluster)
-                        recordPiece(l.key, cautionVerdict('no ENC chart here — depth unchecked'), true);
+                        recordPiece(l.key, sketchVerdict('Not checked: no chart for here on this device'), true);
                     foldReadyLegs();
                     opts.onClusterDone?.();
                     continue;
@@ -305,7 +308,7 @@ export async function gradeLegs(pending: ReadonlyArray<GradeLeg>, opts: GradeLeg
                 log.warn(`tracer context build failed: ${err instanceof Error ? err.message : String(err)}`);
                 failStatus = 'nochart';
                 for (const l of cluster)
-                    recordPiece(l.key, cautionVerdict('chart load failed — depth unchecked, will retry'), true);
+                    recordPiece(l.key, sketchVerdict('Not checked: the chart didn’t load, trying again'), true);
                 foldReadyLegs();
                 opts.onClusterDone?.();
                 continue;

@@ -220,6 +220,14 @@ describe('createLogMap: compact credits, memory and gestures', () => {
             keyboard: false,
         });
         expect(free.touchZoomRotate!.disableRotation).toHaveBeenCalled();
+        // The keyboard's Shift+left/right turn is locked too (127-11a, Decision 4).
+        expect(free.keyboard!.disableRotation).toHaveBeenCalled();
+    });
+
+    it('the big track map takes the arrow keys but never their Shift+arrow turn (127-11a)', () => {
+        const track = newMap({ gestures: 'free', keyboard: true });
+        expect(track.options).toMatchObject({ keyboard: true });
+        expect(track.keyboard!.disableRotation).toHaveBeenCalled();
     });
 
     it('a free map can opt in to double-tap zoom and the keyboard (the big track map, 125-13b); a card never can', () => {

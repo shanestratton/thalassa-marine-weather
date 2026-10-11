@@ -367,11 +367,18 @@ export function useAppBootstrap() {
 
     // ── Licensed charts never go to the cloud (build 126, 126-20) ───
     // Retire the per-device chart Auto-publish flag at every launch. Nothing
-    // reads it while the personal shelf is switched off, and no later build
-    // may ever take an old "on" as a yes to upload charts.
+    // reads it (the personal shelf was deleted in 127), and no later build
+    // may ever take an old "on" as a yes to upload charts. The deleted shelf
+    // also left one manifest version per account that signed in here.
     useEffect(() => {
         try {
             localStorage.removeItem('thalassa_enc_auto_publish');
+            const personalKeys: string[] = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key?.startsWith('thalassa_enc_personal_manifest_version_')) personalKeys.push(key);
+            }
+            for (const key of personalKeys) localStorage.removeItem(key);
         } catch {
             /* no storage, no flag */
         }

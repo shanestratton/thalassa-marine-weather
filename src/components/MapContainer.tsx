@@ -13,8 +13,6 @@ import {
     type VoyageLogWaypoint,
 } from '../voyageLogApi';
 import { nightPolygon, bearingDeg, haversineNm } from '../geo';
-import { WindBarb, windBarbColor } from './WindBarb';
-import { fetchWindGrid, type WindSample } from '../windField';
 import { classifyNearbyVesselFreshness, formatPublicAge } from '../publicVoyageFreshness';
 import { shipTypeLabel, vesselColor } from '../aisShipType';
 import { publicVoyageWaypoints } from '../publicVoyageWaypoints';
@@ -27,11 +25,6 @@ import {
     waypointLabel,
     type LabelSide,
 } from './voyageStory';
-
-// Wind barbs are a skipper's tool, not a viewer's — the public page is for
-// following a boat, and the control was competing with the base-map switcher in
-// the same corner (Shane 2026-07-19).
-const PUBLIC_WIND_TOGGLE_VISIBLE = false;
 
 interface MapContainerProps {
     destination?: VoyageLogDestination | null;
@@ -325,11 +318,6 @@ function MapContainer({
         }
     };
     const [selectedVessel, setSelectedVessel] = useState<NearbyVessel | null>(null);
-    // Wind-barb overlay — off by default; fetched from Open-Meteo around the
-    // boat the first time it's switched on.
-    const [windOn, setWindOn] = useState(false);
-    const [windData, setWindData] = useState<WindSample[]>([]);
-    const [windLoading, setWindLoading] = useState(false);
 
     // Tick once a minute so the day/night terminator drifts in real time.
     const [now, setNow] = useState<Date>(() => new Date());
@@ -740,31 +728,6 @@ function MapContainer({
         : null;
     const popupVessel = selectedVesselDisplay?.vessel ?? null;
 
-    // Fetch the wind grid around the boat the first time the overlay is
-    // switched on (and when the boat's position moves materially). Client-side
-    // Open-Meteo — no server cost, no key. Rendered as barbs (below).
-    const windCenter = lastFix ?? (pinnedEntries[0] ? [pinnedEntries[0].longitude, pinnedEntries[0].latitude] : null);
-    const windCenterKey = windCenter ? `${windCenter[1].toFixed(1)},${windCenter[0].toFixed(1)}` : '';
-    useEffect(() => {
-        if (!windOn || !windCenter) return;
-        let cancelled = false;
-        setWindLoading(true);
-        fetchWindGrid(windCenter[1], windCenter[0])
-            .then((d) => {
-                if (!cancelled) setWindData(d);
-            })
-            .catch(() => {
-                /* offshore / API hiccup — leave the toggle on, retry on next center change */
-            })
-            .finally(() => {
-                if (!cancelled) setWindLoading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [windOn, windCenterKey]);
-
     if (!MAPBOX_TOKEN) {
         return (
             <div className="pv-map-empty flex h-full w-full items-center justify-center px-6 text-center">
@@ -947,24 +910,6 @@ function MapContainer({
                         />
                     </Source>
                 )}
-
-                {/* Wind barbs — Open-Meteo grid around the boat, toggleable.
-                    Standard meteorological barbs coloured by speed; the marker
-                    rotates by the wind-FROM bearing. */}
-                {windOn &&
-                    windData.map((w, i) => (
-                        <Marker
-                            key={`wind-${i}`}
-                            longitude={w.lon}
-                            latitude={w.lat}
-                            anchor="center"
-                            rotation={w.dirDeg}
-                        >
-                            <div className="pointer-events-none opacity-90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-                                <WindBarb speedKt={w.speedKt} color={windBarbColor(w.speedKt)} />
-                            </div>
-                        </Marker>
-                    ))}
 
                 {/* ...and the plan's origin gets the words, so the answer to
                     "where does this voyage start?" is on the line rather than
@@ -1411,27 +1356,6 @@ function MapContainer({
                     </button>
                 )}
             </div>
-
-            {/* Wind-barb toggle PARKED (Shane 2026-07-19: "can we remove the wind
-                button from the public page"). The barb layer and its Open-Meteo
-                fetch stay wired and cost nothing while windOn is false — flip this
-                to bring the control back. */}
-            {PUBLIC_WIND_TOGGLE_VISIBLE && (
-                <button
-                    onClick={() => setWindOn((v) => !v)}
-                    aria-label="Toggle wind barbs"
-                    className={`absolute top-14 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/15 backdrop-blur-md shadow-lg text-[11px] font-bold uppercase tracking-wider transition-colors ${
-                        windOn ? 'bg-sky-600 text-white' : 'bg-slate-900/80 text-slate-300 hover:bg-white/10'
-                    }`}
-                >
-                    {windLoading ? (
-                        <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                        <span aria-hidden>🌬️</span>
-                    )}
-                    Wind
-                </button>
-            )}
         </div>
     );
 }

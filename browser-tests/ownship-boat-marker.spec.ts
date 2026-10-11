@@ -265,6 +265,11 @@ test.describe('the little boat and its badge', () => {
         expect(m.glyphKind).toBe('neutral');
         // The hull is a long flat shape: level, it is far wider than tall.
         expect(m.sideHull!.width / m.sideHull!.height).toBeGreaterThan(3);
+        // Her words stay upright too (127-11a): a level badge beside her, as north up.
+        expect(m.text).toBe('Stopped');
+        expect(m.badge.width).toBeGreaterThan(m.badge.height * 2);
+        expect(m.badge.left - m.fix.x).toBeCloseTo(18, 0);
+        expect(Math.abs(m.badge.top + m.badge.height / 2 - m.fix.y)).toBeLessThan(1);
         await shot(page, 'after-stopped-bearing60-390');
     });
 });

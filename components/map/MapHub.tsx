@@ -17,12 +17,7 @@
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
-import {
-    CREDITS_SLOT_PX,
-    CREDITS_STRIP_POSITION_CLASS,
-    creditsStripTop,
-    satelliteCreditOffsetPx,
-} from './creditsStrip';
+import { CREDITS_SLOT_PX, CREDITS_STRIP_POSITION_CLASS, creditsStripTop, creditStackPx } from './creditsStrip';
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
 import { parseCoordinateString } from '../../utils/coordParse';
@@ -41,8 +36,13 @@ import { PassageBanner } from './PassageBanner';
 import { inshoreRouteCaveats, isFinalInshoreRefusal, nearShallowSummary } from './inshoreRouteNotice';
 import { CompassRoseOverlay } from './CompassRoseOverlay';
 import { ZoomLevelFab } from './ZoomLevelFab';
-import { MapBaseSelector, mapBaseVisibility, type MapBaseKind } from './MapBaseSelector';
-import { seaBaseLayers, setReliefPalette } from './reliefBase';
+import { Capacitor } from '@capacitor/core';
+import { DESK_MAP_BASE_OPTIONS, MapBaseSelector, mapBaseVisibility, type MapBaseKind } from './MapBaseSelector';
+import { RELIEF_TILE_BASE, seaBaseLayers, setReliefPalette } from './reliefBase';
+import { deskSlot0Line, useDeskMap } from './deskMap';
+import { DeskMapStrip } from './DeskMapStrip';
+import { deskWindToggle, useStillCentre, windCreditLine } from './deskWind';
+import { traceHintPaint } from './traceLegInk';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
 import {
@@ -133,6 +133,7 @@ import {
 import type { CmemsLayerLoadState } from './useCmemsGridRefresh';
 import { isMpaEnabled, useMpaLayer } from './useMpaLayer';
 import { useEncVectorLayer } from './useEncVectorLayer';
+import { setEncMapBase } from './encDepthStyleState';
 // Aliased: MapHub's own `setEncChartDetail` is the persisted-state setter.
 import {
     SATELLITE_KEY,
@@ -184,6 +185,7 @@ import {
     type TracerContext,
     type SavedTrace,
 } from '../../services/routeTracer';
+import { tideCurveBucket } from '../../services/TideHeightService';
 import {
     consumeTracerOpenRequest,
     consumeTracerAction,
@@ -329,6 +331,8 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 // ── Component ──────────────────────────────────────────────────
 /** Find-boat FAB zoom (Shane 2026-10-05: "change the zoom in the obs page to 14 when the punter clicks on the find boat fab"). */
 const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
+/** The desk's own layer while its Wind switch is on (127-DESKMAP-b). */
+const DESK_WIND_LAYERS = new Set<WeatherLayer>(['wind']);
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
@@ -732,6 +736,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [frameBusy, setFrameBusy] = useState(false);
     /** Route report (Phase 3): review → Fix/Acknowledge → sail. */
     const [showReport, setShowReport] = useState(false);
+    /** useTracerGrading's stub re-check (127-C-b), for Save, defined above the hook. */
+    const regradeStubLegsRef = useRef<() => void>(() => {});
     const [ackedLegs, setAckedLegs] = useState<Set<number>>(new Set());
     const [fixBusyLeg, setFixBusyLeg] = useState<number | null>(null);
     // PERSISTENT auto-route diagnostic — the flash vanishes in 1.8 s and I
@@ -1344,6 +1350,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (capturedCoords.length < 2) return;
         const release = getTraceReleaseGate();
         if (!release.allowed || !release.verification) {
+            regradeStubLegsRef.current();
             triggerHaptic('heavy');
             flashTraceFeedback(release.reason || 'Check the route again before saving');
             if (traceHealth(legVerdicts).danger > 0) setShowReport(true);
@@ -1671,6 +1678,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (capturedCoords.length < 2 || sailBusyRef.current) return;
         const release = getTraceReleaseGate();
         if (!release.allowed || !release.verification) {
+            regradeStubLegsRef.current();
             triggerHaptic('heavy');
             flashTraceFeedback(release.reason || 'Check the route again before sailing');
             if (traceHealth(legVerdicts).danger > 0) setShowReport(true);
@@ -1841,12 +1849,17 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, [capturedCoords, settings.vessel]);
 
     // Where the tide panel reads from. The shallowest charted point on the
-    // route is the one that decides whether you get across, so anchor there
-    // when the tracer found one; otherwise the destination, which is what a
-    // skipper checking "can I get in tonight" actually means.
+    // route is the one that decides whether you get across, so anchor near
+    // it when the tracer found one: at its 0.25° tide bucket's centre, so no
+    // charted position leaves the device (127-C-b). Otherwise the
+    // destination, which is what a skipper checking "can I get in tonight"
+    // actually means.
     const tideAnchor = useMemo(() => {
         const shallow = legVerdicts.find((v) => v?.needsTide && v.minAt)?.minAt;
-        if (shallow) return { lat: shallow.lat, lon: shallow.lon };
+        if (shallow) {
+            const [lat, lon] = tideCurveBucket(shallow.lat, shallow.lon).split(',').map(Number);
+            return { lat, lon };
+        }
         const last = capturedCoords[capturedCoords.length - 1];
         return last ? { lat: last.lat, lon: last.lon } : null;
     }, [legVerdicts, capturedCoords]);
@@ -2036,7 +2049,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Route Tracer validation ──
     // Context build + per-leg grading + sub-keel tide windows, all in
     // components/map/useTracerGrading.ts. Touches no map layer or marker.
-    useTracerGrading({
+    const { regradeStubLegs } = useTracerGrading({
         capturedCoords,
         coordCaptureMode,
         vessel: settings.vessel,
@@ -2055,6 +2068,12 @@ export const MapHub: React.FC<MapHubProps> = ({
         setSailArmed,
         setShareArmed,
     });
+    // Grade stubs (127-C-b) are checked again on her charts when she opens the
+    // Route report; her tap on a stub row and a refused Save do the same.
+    useEffect(() => {
+        regradeStubLegsRef.current = regradeStubLegs;
+        if (showReport) regradeStubLegs();
+    }, [showReport, regradeStubLegs]);
 
     const [isoProgress, setIsoProgress] = useState<{
         step: number;
@@ -2197,8 +2216,33 @@ export const MapHub: React.FC<MapHubProps> = ({
     // day and night alike, kept with the account (settings.obsChartBase). The
     // localStorage write below is only EncVectorLayer's synchronous mirror,
     // never the source of the selected background.
-    const saveMapBase = useCallback((obsChartBase: MapBaseKind) => updateSettings({ obsChartBase }), [updateSettings]);
+    // Light is the desk's alone and never an account Obs base (127-DESKMAP A2).
+    const saveMapBase = useCallback(
+        (obsChartBase: MapBaseKind) => obsChartBase !== 'light' && updateSettings({ obsChartBase }),
+        [updateSettings],
+    );
     const { mapBase, setMapBase, explicit: baseExplicit } = useMapBase(settings.obsChartBase, saveMapBase);
+    // THE DESK (127-DESKMAP A2; Shane 2026-10-10: "the underlying map is dark
+    // and very hard to see what is water and what isnt"). The web planner's
+    // tracer and Route Planner maps (full-screen, picker and inline) show this
+    // computer's own base, Light unless picked, never the account's Obs pick.
+    // A passage shown on the Obs chart, and every native surface, keep today's
+    // rule. Its menu and strip skip picker, embedded and pin maps.
+    const { deskBase, setDeskBase, deskSeamarks, toggleDeskSeamarks } = useDeskMap();
+    const deskPlanner = !Capacitor.isNativePlatform() && (cleanPlanningMap || coordCaptureMode);
+    const deskSurface = deskPlanner && !pickerMode && !embedded && !isPinView;
+    // WIND ON THE DESK (127-DESKMAP-b; Shane 2026-10-10: "can we include the
+    // wind layer on the desktop.?? as an option??"): a Wind row in the desk
+    // menu on a window 768 px wide or more, OFF at every mount and kept nowhere
+    // (Shane 2026-09-05: layers never outlive the app). It paints as the
+    // planner's own layer (useWeatherLayers' planLayers), so Obs's selection
+    // never shows through and is never written, and the camera never moves.
+    const [deskWindOn, setDeskWindOn] = useState(false);
+    const deskWindOffered = deskSurface && deviceMode === 'helm';
+    const deskWind = deskWindOffered && deskWindOn;
+    // Where the panel asks whether the models agree: the first pin, else the still centre.
+    const stillCentre = useStillCentre(mapRef, mapReady, deskWind && capturedCoords.length === 0);
+    const deskWindPoint = capturedCoords[0] ?? stillCentre;
     // Chart-declutter scrubber (Shane 2026-07-14): 0 = full chart, 6 =
     // near-bare. Session-only; encDetailScrubber owns which furniture
     // each step removes (safety layers are untouchable there).
@@ -2210,16 +2254,25 @@ export const MapHub: React.FC<MapHubProps> = ({
     // a pick wins everywhere, or it would be silently overridden the moment
     // the tracer opened. DERIVED, not a state-setting effect, so the base-apply
     // pass can never race it.
-    const shownBase = planningSurface && !baseExplicit ? 'hybrid' : mapBase;
+    const shownBase: MapBaseKind = deskPlanner ? deskBase : planningSurface && !baseExplicit ? 'hybrid' : mapBase;
     const baseVisibility = mapBaseVisibility(shownBase);
     const satelliteVisible = baseVisibility.satellite;
     const hybridVisible = baseVisibility.hybrid;
-    // EVERY base keeps the ENC imagery treatment, which is the load-bearing
-    // part: DEPARE drops to the translucent keel-clearance glaze (the "zoom 10
-    // whites", 2026-07-17) and the opaque land fills stand down. Without it the
-    // 0.95-opaque DEPARE ramp paints straight over the base, and the relief or
-    // imagery that was the reason for choosing it disappears.
-    const imageryOn: boolean = true;
+    // EVERY base but Light keeps the ENC imagery treatment, which is the
+    // load-bearing part: DEPARE drops to the translucent keel-clearance glaze
+    // (the "zoom 10 whites", 2026-07-17) and the opaque land fills stand down.
+    // Without it the 0.95-opaque DEPARE ramp paints straight over the base, and
+    // the relief or imagery that was the reason for choosing it disappears.
+    // Light is the one base built to sit under a paper chart (127-DESKMAP A3):
+    // over its pale sea the glaze's safe white is a ΔE 3-6 step from no-data
+    // water, so uncharted would nearly read as safe (hard rule 1). There the
+    // cells draw opaque S-52 bands, the safety contour, marks and soundings.
+    const imageryOn: boolean = shownBase !== 'light';
+    // ...and on the desk tracer that chart is the whole open chart: its land,
+    // coastline, contours and names as well as the plotting floors, so a NOAA
+    // cell reads as a paper chart (127-DESKMAP A3). The desk has no ENC row; the
+    // tracer mounts its cells either way. Everywhere else the switch decides.
+    const encMaster = encVisible || (deskPlanner && coordCaptureMode && !imageryOn);
     // Relief is damped under the drawn ENC glaze so two depth colour codes don't
     // fight (reliefBase setReliefPalette); a boolean, so loading cells don't
     // re-run the base pass.
@@ -2229,6 +2282,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (!map || !mapReady) return;
         // Mirror for EncVectorLayer's sync reads — written BEFORE apply()
         // so the visibility writers see the same truth this render does.
+        // Per map first: the kept-alive Obs map and a desk map on Light can be
+        // mounted together, and the one global key would hand the last
+        // writer's base to both (127-DESKMAP A3). The key stays the fallback.
+        setEncMapBase(map, imageryOn);
         try {
             // Hybrid counts as satellite for every ENC treatment consumer
             // (glaze opacity, hide-lists) — it IS imagery underneath.
@@ -2312,7 +2369,23 @@ export const MapHub: React.FC<MapHubProps> = ({
                 }
                 // Night dims the sea under the app's red scrim; drawn ENC damps
                 // the relief tint. Guarded: writes only when the palette changes.
-                if (setReliefPalette(map, nightMode ? 'night' : encDrawn ? 'enc' : 'day')) changed = true;
+                // Light is never damped to 'enc': its cells draw the chart over it.
+                if (
+                    setReliefPalette(
+                        map,
+                        nightMode ? 'night' : shownBase === 'light' ? 'light' : encDrawn ? 'enc' : 'day',
+                    )
+                )
+                    changed = true;
+                // The bearing hint and the proven-lane ghost read on the pale
+                // sea at hint weight: slate on Light, today's ink elsewhere,
+                // written only where the layer differs (127-DESKMAP A4).
+                for (const [id, prop, value] of traceHintPaint(shownBase === 'light' && !nightMode)) {
+                    if (map.getLayer(id) && map.getPaintProperty(id, prop) !== value) {
+                        map.setPaintProperty(id, prop, value);
+                        changed = true;
+                    }
+                }
 
                 // PLACE NAMES OVER THE IMAGERY (Shane 2026-07-22: "we just
                 // need more place names on the land, so we know where we
@@ -2486,7 +2559,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 const effectiveDeclutter = browseDetailLevel(coordCaptureMode, declutter);
                 if (
                     applyChartDetailLevel(map, effectiveDeclutter, {
-                        encMasterOff: !encVisible,
+                        encMasterOff: !encMaster,
                         imageryHidden: imageryOn ? IMAGERY_SCRUB_OWNED : undefined,
                     })
                 )
@@ -2502,7 +2575,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // forcing 'visible' here used to override a user's ENC-off/clean
             // chart state.
             try {
-                encApplyLayerVisibility(map, encVisible);
+                encApplyLayerVisibility(map, encMaster);
                 encApplyChartDetailLayers(map, encChartDetail);
             } catch {
                 /* ENC layers not mounted yet — the mount path applies both */
@@ -2540,6 +2613,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         declutter,
         mapReady,
         encVisible,
+        encMaster,
         encChartDetail,
         coordCaptureMode,
     ]);
@@ -3115,6 +3189,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart, surfaceEpoch);
     useObsCentreNoticeWatch(obsShowing);
     const ownBoatName = settings.vessel?.name?.trim() || null;
+    // Read only: the phone aboard writes it (127-C-c). True means this
+    // account's paired Pi holds licensed charts (127-DESKMAP C1).
+    const boatChartsLicensed = settings.boatCharts?.licensed === true;
     const crewingBoat = useCrewingBoat();
     const crewingOwnerId = crewingBoat?.ownerId ?? null;
     const crewingName = crewingBoat?.name ?? null;
@@ -3218,6 +3295,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         planningSurface,
         { hudEnabled: passageHudOnChart, squallVisible: browseSquallVisible },
         true, // Do not restore weather/MPA overlays into a fresh OBS.
+        deskWind ? DESK_WIND_LAYERS : undefined,
     );
     usePassageHudLayerActivation({
         available: passageHudOnChart,
@@ -3646,7 +3724,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // coordCaptureMode last: with the chart toggled off, the pipeline still
     // has to MOUNT while the tracer is up, or the plotting keel floor has no
     // layers to raise and the plot surface loses its depth read entirely.
-    useEncVectorLayer(mapRef, mapReady, encVisible, encChartDetail, encSafetyDepthM, encHazardDepthM, coordCaptureMode);
+    useEncVectorLayer(mapRef, mapReady, encMaster, encChartDetail, encSafetyDepthM, encHazardDepthM, coordCaptureMode);
     // Planning-only chart furniture: a few chart-backed direction-of-buoyage
     // arrows at numbered laterals. OBS stays uncluttered, and a picker must
     // remain a pure location-selection surface.
@@ -3668,7 +3746,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Tracer chart floors — the WYSIWYG mark re-assert and the plotting keel
     // floor, in components/map/mapHub/useTracerChartFloors.ts. Called here, below
     // useEncVectorLayer, because that is what mounts the layers they re-assert.
-    useTracerChartFloors(mapRef, mapReady, coordCaptureMode, encVisible, encChartDetail);
+    useTracerChartFloors(mapRef, mapReady, coordCaptureMode, encMaster, encChartDetail);
 
     // Seaway Graph debug overlay — compiles gates/edges from the installed
     // cells for the viewport whenever the toggle is on (Phase 10).
@@ -3680,7 +3758,18 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Hide OpenSeaMap raster overlays when another source draws navaids —
     // components/map/mapHub/useOpenSeaMapRasterHide.ts ──
-    useOpenSeaMapRasterHide(mapRef, mapReady, chartsActive, encActive, weather.activeLayers, browseSeamarkVisible);
+    // On the desk it is also the Seamarks switch's one owner (127-DESKMAP B1):
+    // OpenSeaMap steps aside wherever a cell that draws its own marks is on
+    // screen, and says so when its server stops answering.
+    const deskSeamarkView = useOpenSeaMapRasterHide(
+        mapRef,
+        mapReady,
+        chartsActive,
+        encActive,
+        weather.activeLayers,
+        browseSeamarkVisible,
+        { surface: deskSurface, on: deskSeamarks, chartMarks: encActive || coordCaptureMode, encCellCount },
+    );
 
     // ── Pin View (chat pin tap) — components/map/usePinViewMode.ts ──
     // Pin marker, weather-layer snapshot/restore, identity sync, and the
@@ -3718,6 +3807,16 @@ export const MapHub: React.FC<MapHubProps> = ({
         // under both. Testing for 'radar' alone let the two overlap.
         !!weather.unifiedFramesRef?.current?.[weather.rainFrameIndex];
     const showEmbeddedRainViewerAttribution = embedded && embeddedRain.embRainCount > 0 && embeddedRain.embRainIdx >= 0;
+    // The wind model's licence credit on Obs whenever the field draws
+    // (127-DESKMAP-b; the desk shows it in its strip): after the radar and
+    // Copernicus credits, lightning and the satellite cloud under it.
+    const obsWindCredit =
+        ownshipStartup &&
+        !mobActive &&
+        weather.windReady &&
+        (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity'));
+    // The streaks' palette: dark ink on the desk's Light by day, white everywhere else.
+    const windPalette = shownBase === 'light' && !nightMode ? 'light' : 'dark';
     const obsKeyProps: ObsLayerKeyProps = {
         enc: encVisible
             ? {
@@ -3750,7 +3849,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     const obsKeyCount = !planningSurface && !embedded && !pickerMode && !isPinView ? obsLayerKeyCount(obsKeyProps) : 0;
 
     return (
-        <div data-testid="map-hub" className={`isolate w-full h-full ${isHelmSplit ? 'flex' : 'relative'}`}>
+        <div
+            data-testid="map-hub"
+            // The tracer's compass rose holds a narrow window's top centre, so
+            // the desk menu and strip make room there (index.css, 127-DESKMAP).
+            className={`isolate w-full h-full ${isHelmSplit ? 'flex' : 'relative'}${deskSurface && coordCaptureMode && !hideTracer ? ' thalassa-desk-tracing' : ''}`}
+        >
             {/* Floating route-enhancement chip — visible while the */}
             {/* passage planner's bathymetric/weather/depth pipeline runs */}
             {/* in the background after the basic plan lands. */}
@@ -3827,6 +3931,48 @@ export const MapHub: React.FC<MapHubProps> = ({
                     encVisible={encVisible}
                     onToggleEnc={toggleEnc}
                 />
+                {/* The desk's own menu, the same pill (127-DESKMAP A2/B1):
+                    Light, Relief + Sat or Hybrid, then OpenSeaMap's seamarks
+                    on top. No ENC row: the tracer raises its own chart floors.
+                    Picks stay on this computer (deskMap.ts). */}
+                <MapBaseSelector
+                    visible={deskSurface}
+                    className="thalassa-desk-menu"
+                    value={deskBase}
+                    onChange={setDeskBase}
+                    options={DESK_MAP_BASE_OPTIONS}
+                    encRow={false}
+                    toggles={[
+                        {
+                            id: 'seamarks',
+                            label: 'Seamarks',
+                            detail: 'OpenSeaMap community data, not verified',
+                            on: deskSeamarks,
+                            onToggle: toggleDeskSeamarks,
+                        },
+                        ...(deskWindOffered
+                            ? [deskWindToggle(deskWindOn, weather.windModel, () => setDeskWindOn((on) => !on))]
+                            : []),
+                    ]}
+                    encCellCount={encCellCount}
+                    encVisible={encVisible}
+                    onToggleEnc={toggleEnc}
+                />
+                {deskSurface && (
+                    <DeskMapStrip
+                        slot0={deskSlot0Line({
+                            licensed: boatChartsLicensed,
+                            boatName: ownBoatName,
+                            chartInView: deskSeamarkView.chartInView,
+                        })}
+                        // Slot 1 stays while the switch is on, even where the
+                        // seamarks step aside for a chart: nothing in the strip
+                        // jumps as the view crosses a cell edge.
+                        seamarks={deskSeamarks ? (deskSeamarkView.down ? 'down' : 'shown') : null}
+                        wind={deskWind && weather.windReady ? windCreditLine(weather.windModel) : null}
+                        seabed={shownBase === 'light' && !!RELIEF_TILE_BASE && deskSeamarkView.low}
+                    />
+                )}
 
                 {/* ═══ VELOCITY WIND OVERLAY ═══ */}
                 {/* Hidden while plotting: wind particles animate straight over
@@ -3852,7 +3998,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                     plotting guard above: the overlay only, never the controls,
                     legend or scrubber (799dc4d0 was reverted for exactly
                     that). */}
-                {!isPinView && !embedded && !pickerMode && !planningSurface && (
+                {/* ...and on the desk planner its Wind switch is the planner's
+                    own choice (127-DESKMAP-b): the forecast field alone, never
+                    her instruments, in dark ink on Light by day. */}
+                {!isPinView && !embedded && !pickerMode && (!planningSurface || deskWind) && (
                     <MapboxVelocityOverlay
                         mapboxMap={mapRef.current}
                         visible={
@@ -3861,8 +4010,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                         windHour={weather.windHour}
                         windNowIdx={weather.windNowIdx}
                         windGrid={weather.windState.grid ?? undefined}
-                        boatInstruments={obsStart.kind === 'follow'}
-                        boatLookUp={obsShowing}
+                        boatInstruments={!planningSurface && obsStart.kind === 'follow'}
+                        boatLookUp={!planningSurface && obsShowing}
+                        palette={windPalette}
                     />
                 )}
 
@@ -4427,8 +4577,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             </div>
                                         )}
                                         {tracerStatus === 'nochart' && (
-                                            <div className="border-b border-white/10 px-3 py-1.5 text-sm font-bold text-amber-400">
-                                                No ENC charts here — legs can't be depth-checked.
+                                            // Grey like the sketch legs, never the needs-tide amber (127-DESKMAP C3).
+                                            <div className="border-b border-white/10 px-3 py-1.5 text-sm font-bold text-slate-300">
+                                                No chart for here on this device: these legs are a sketch, not checked.
                                             </div>
                                         )}
                                         {/* 'toolarge' now only fires for a single leg the auto-split
@@ -4589,6 +4740,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             departureLabel={departureLabel}
                                             mapRef={mapRef}
                                             pulseMarkHalo={pulseMarkHalo}
+                                            onRegradeStub={regradeStubLegs}
                                         />
                                         <div className="flex gap-1.5 border-t border-white/10 px-3 py-2">
                                             <button
@@ -4739,7 +4891,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             <div className="flex gap-1.5">
                                                 <button
                                                     onClick={saveCurrentTrace}
-                                                    disabled={capturedCoords.length < 2 || !traceReleaseGate.allowed}
+                                                    disabled={
+                                                        capturedCoords.length < 2 ||
+                                                        (!traceReleaseGate.allowed && !traceReleaseGate.recheck)
+                                                    }
                                                     title={
                                                         traceReleaseGate.allowed
                                                             ? 'Save this checked route'
@@ -5081,6 +5236,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onNightDimChange={setNightDim}
                     onToggleChartKey={() => setChartKeyOpen((open) => !open)}
                     onOpenEncLibrary={() => setPage('encLibrary')}
+                    boatChartsLicensed={boatChartsLicensed}
+                    boatName={ownBoatName}
                 />
                 <Suspense fallback={null}>
                     <ChartKeyPanel
@@ -5267,21 +5424,41 @@ export const MapHub: React.FC<MapHubProps> = ({
                         className={`${CREDITS_STRIP_POSITION_CLASS} z-510 max-w-[calc(100%-120px)] pointer-events-none`}
                         style={{
                             top: creditsStripTop(
-                                ((rainCreditShown ? 1 : 0) + (cmemsAttributionLayers.length > 0 ? 1 : 0)) *
-                                    CREDITS_SLOT_PX,
+                                creditStackPx({
+                                    rain: rainCreditShown,
+                                    cmems: cmemsAttributionLayers.length > 0,
+                                    wind: obsWindCredit,
+                                }),
                             ),
                         }}
                     >
                         <BlitzortungAttribution visible compact />
                     </div>
                 )}
+                {obsWindCredit && (
+                    <div
+                        data-testid="wind-credit"
+                        // Cut out of the layer menu's scrim, like every licence credit.
+                        // Its look is index.css .thalassa-wind-credit (the radar pill's).
+                        data-map-credit
+                        className={`thalassa-wind-credit ${CREDITS_STRIP_POSITION_CLASS}`}
+                        style={{
+                            top: creditsStripTop(
+                                creditStackPx({ rain: rainCreditShown, cmems: cmemsAttributionLayers.length > 0 }),
+                            ),
+                        }}
+                    >
+                        {windCreditLine(weather.windModel)}
+                    </div>
+                )}
                 {!pickerMode && !planningSurface && !embedded && !isPinView && satellite.status !== 'off' && (
                     <SatelliteIrCredit
                         state={satellite}
                         top={creditsStripTop(
-                            satelliteCreditOffsetPx({
+                            creditStackPx({
                                 rain: rainCreditShown,
                                 cmems: cmemsAttributionLayers.length > 0,
+                                wind: obsWindCredit,
                                 lightning: browseLightningVisible,
                             }),
                         )}
@@ -5676,6 +5853,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                             onControlsHiddenChange={setChartControlsHidden}
                             extraLegend={obsKeyCount > 0 ? <ObsLayerKey {...obsKeyProps} /> : undefined}
                             extraLegendCount={obsKeyCount}
+                            desk={
+                                deskWind
+                                    ? {
+                                          palette: windPalette,
+                                          point: deskWindPoint,
+                                          pinned: capturedCoords.length > 0,
+                                          startMs: departureMs,
+                                      }
+                                    : undefined
+                            }
                         />
                     </Suspense>
                 )}

@@ -11,7 +11,11 @@ import {
     isAuthIdentityScopeCurrent,
     subscribeAuthIdentityScope,
 } from '../../services/authIdentityScope';
-import type { AutoroutingTrialRoute, AutoroutingTrialStatus } from '../../services/autoroutingThalassa';
+import {
+    ROUTE_STAGE_WORDS,
+    type AutoroutingTrialRoute,
+    type AutoroutingTrialStatus,
+} from '../../services/autoroutingThalassa';
 import { useAutoroutingProvider } from './AutoroutingProviderContext';
 import {
     AUTOROUTING_TRIAL_MAX_DRAFT_M,
@@ -79,6 +83,15 @@ const point = ({ lat, lon }: PositionInput) =>
         : null;
 const inputClass = 'w-full min-w-0 rounded-lg border border-white/15 bg-slate-900 p-2 text-sm text-white';
 const buttonClass = 'min-h-11 rounded-xl border border-white/15 px-3 text-sm font-bold disabled:opacity-40';
+
+/** The router's own stages (127-ROUTE-W2): from the first, the status counts the seconds. */
+const ROUTER_WORDS = new Set([ROUTE_STAGE_WORDS.routing, ROUTE_STAGE_WORDS['routing-main']]);
+/** A Clear this soon after Stop became Clear (her Stop, or the route ending
+ * under her finger) is the press meant for Stop: her pins stay. */
+const CLEAR_AFTER_STOP_MS = 600;
+/** The phone's own steady clock: a wall-clock step (back online) never stops a
+ * Clear or jumps the seconds (review, 2026-10-11). */
+const steadyNow = () => performance.now();
 
 /** The route's own drawn pieces (owner decisions 9 and 10) are paintable only
  * for the router's unedited line with an intact disclosure. */
@@ -166,6 +179,15 @@ export function AutoroutingTrialWorkspace({
     const start = useMemo(() => point(departure), [departure]);
     const end = useMemo(() => point(destination), [destination]);
     const [progress, setProgress] = useState('');
+    // While it routes (127-ROUTE-W2; Shane, 2026-10-10: "yes for a short while
+    // it looked as though the app had frozen"): the seconds since the tap,
+    // shown once the router itself starts, and whether Stop ended the last one.
+    const [busySince, setBusySince] = useState(0);
+    const [now, setNow] = useState(0);
+    const [counting, setCounting] = useState(false);
+    const [stopped, setStopped] = useState(false);
+    // When the Stop button last became Clear, on the steady clock.
+    const becameClearAt = useRef(-Infinity);
     const endpointNames: Endpoint[] = ['departure', 'destination'];
     const endpointInput = (name: Endpoint) => (name === 'departure' ? departure : destination);
     const [target, setTarget] = useState<Endpoint>('departure');
@@ -288,12 +310,20 @@ export function AutoroutingTrialWorkspace({
         setSavedProposal(null);
         setError('');
         setProgress('');
+        setCounting(false);
+        setStopped(false);
         setInspectingWaypoint(false);
         setMovingWaypoint(false);
         setMoveCandidate(null);
         setMoveError('');
         moveBasisRef.current = null;
     }, []);
+    // The seconds tick while it routes (the status shows them from the router's start).
+    useEffect(() => {
+        if (!busy) return;
+        const timer = setInterval(() => setNow(steadyNow()), 1000);
+        return () => clearInterval(timer);
+    }, [busy]);
     // Even partially editing an endpoint invalidates any proposal and request.
     const updateEndpoint = (name: Endpoint, value: PositionInput) => {
         invalidate();
@@ -955,6 +985,10 @@ export function AutoroutingTrialWorkspace({
         const scope = getAuthIdentityScope();
         pending.current = controller;
         setBusy(true);
+        const tappedAt = steadyNow();
+        setBusySince(tappedAt);
+        setNow(tappedAt);
+        let proposed = false;
         try {
             const request = {
                 departure: start,
@@ -964,7 +998,10 @@ export function AutoroutingTrialWorkspace({
                 ...(vesselProfile ? { vesselProfile: structuredClone(vesselProfile) } : {}),
             };
             const onProgress = (message: string) => {
-                if (!controller.signal.aborted && isAuthIdentityScopeCurrent(scope)) setProgress(message);
+                if (!controller.signal.aborted && isAuthIdentityScopeCurrent(scope)) {
+                    setProgress(message);
+                    if (ROUTER_WORDS.has(message)) setCounting(true);
+                }
             };
             // Thalassa's router on this phone (2026-10-01). A refusal throws
             // the engine's own words, shown whole; it never draws a line.
@@ -973,6 +1010,7 @@ export function AutoroutingTrialWorkspace({
                 setSelectedWaypoint(0);
                 setEditingEndpoints(false);
                 setProposal(route);
+                proposed = true;
                 setPanelPage('review');
                 collapsePanel();
             }
@@ -985,6 +1023,9 @@ export function AutoroutingTrialWorkspace({
             if (pending.current === controller) {
                 pending.current = null;
                 setBusy(false);
+                // Ended on its own with no route shown (a refusal): Stop turns
+                // into Clear in place, perhaps under her finger.
+                if (!proposed) becameClearAt.current = steadyNow();
             }
         }
     };
@@ -1025,7 +1066,15 @@ export function AutoroutingTrialWorkspace({
             setBackstopRetrying((retrying) => (retrying === base ? null : retrying));
         }
     };
+    // Stop (127-ROUTE-W2): ends the route straight away, in the worker too,
+    // and keeps her pins. Nothing else changes.
+    const stop = () => {
+        invalidate();
+        becameClearAt.current = steadyNow();
+        setStopped(true);
+    };
     const clear = () => {
+        if (steadyNow() - becameClearAt.current < CLEAR_AFTER_STOP_MS) return;
         invalidate();
         setDeparture(emptyPosition());
         setDestination(emptyPosition());
@@ -1156,17 +1205,34 @@ export function AutoroutingTrialWorkspace({
                                     : 'Set up route'}
                             </span>
                             <span className="block">
-                                {busy
-                                    ? progress || 'Calculating…'
-                                    : proposal
-                                      ? review?.phase === 'complete'
-                                          ? 'Chart checks complete · review required'
-                                          : `Chart checks ${review?.phase ?? 'pending'}`
-                                      : missingPosition
-                                        ? `Set ${missingPosition}`
-                                        : !status?.ready && status
-                                          ? 'Install charts to calculate'
-                                          : 'Ready to calculate'}
+                                {busy ? (
+                                    counting ? (
+                                        <>
+                                            {progress.replace(/…$/, '')}
+                                            {/* The seconds since the tap: VoiceOver hears the words only. */}
+                                            <span aria-hidden="true">
+                                                {' '}
+                                                · {Math.max(0, Math.floor((now - busySince) / 1000))} s
+                                            </span>
+                                        </>
+                                    ) : (
+                                        progress || 'Calculating…'
+                                    )
+                                ) : proposal ? (
+                                    review?.phase === 'complete' ? (
+                                        'Chart checks complete · review required'
+                                    ) : (
+                                        `Chart checks ${review?.phase ?? 'pending'}`
+                                    )
+                                ) : stopped ? (
+                                    'Stopped. Nothing changed.'
+                                ) : missingPosition ? (
+                                    `Set ${missingPosition}`
+                                ) : !status?.ready && status ? (
+                                    'Install charts to calculate'
+                                ) : (
+                                    'Ready to calculate'
+                                )}
                             </span>
                             {dangerReported && (
                                 <span className="block font-bold">Danger reported · review required</span>
@@ -1235,8 +1301,8 @@ export function AutoroutingTrialWorkspace({
                                 >
                                     {busy ? 'Calculating…' : 'Calculate trial route'}
                                 </button>
-                                <button type="button" onClick={clear} className={buttonClass}>
-                                    Clear
+                                <button type="button" onClick={busy ? stop : clear} className={buttonClass}>
+                                    {busy ? 'Stop' : 'Clear'}
                                 </button>
                             </div>
                         ) : (
@@ -1431,6 +1497,11 @@ export function AutoroutingTrialWorkspace({
                         {busy && progress && (
                             <p role="status" className="text-micro text-teal-300">
                                 {progress}
+                            </p>
+                        )}
+                        {busy && progress === ROUTE_STAGE_WORDS.routing && (
+                            <p className="text-micro text-gray-400">
+                                The chart stays live while it works. Stop ends it.
                             </p>
                         )}
                         {proposal && (

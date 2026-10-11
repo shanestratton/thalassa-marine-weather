@@ -904,8 +904,8 @@ server.listen(PORT, BIND_HOST, () => {
        only way to have weather prefetch or automatic chart decryption was to
        also expose an unbounded outbound proxy (/api/misc/proxy,
        /api/passthrough), a config writer, a cache purge, remote access, and
-       arbitrary chart download/delete — on a machine holding the boat's charts,
-       its track history and its ChartWorld credentials.
+       arbitrary chart download/delete — on a machine holding the boat's charts
+       and its track history.
 
        That is a coupling, not a policy. Neither worker serves a request or
        reads one; they poll and they write to disk. Each already had its own
@@ -919,8 +919,8 @@ server.listen(PORT, BIND_HOST, () => {
 
     // Close the chart-distribution loop: watch the user's o-charts download dir
     // for new .oesu files and auto-decrypt them into pi-cache's chart store.
-    // Also starts the ChartWorld licence poller. The iOS app's auto-sync picks
-    // new cells up on next launch.
+    // The iOS app's auto-sync picks new cells up on next launch. (ChartWorld
+    // S-63 has no path here since 127: it opens in OpenCPN only.)
     if (process.env.ENC_WATCHER_ENABLED === 'true') {
         startEncWatcher();
     }

@@ -16,6 +16,7 @@ import {
     type CanalPair,
 } from '../services/canalDepartureGeometry';
 import { decodeWaterFromTile, tilesForBbox, MAPBOX_WATER_ZOOM } from '../services/mapboxWater';
+import { encodeWaterTile } from './helpers/handMvt';
 
 const ll = (x: number, y: number): CanalPair => [
     153 + x / (111320 * Math.cos((-27.2 * Math.PI) / 180)),
@@ -388,13 +389,18 @@ describe('strict canal departure geometry', () => {
         expect(() => canalDepartureBbox({ lat: 85, lon: 153 }, exit)).toThrow(/valid/);
         expect(() => canalDepartureBbox(start, p(2800, 2800))).toThrow(/too large/);
     });
-    it('routes the captured Newport canal bend without crossing the independent polygon boundary or pontoons', () => {
-        const buf = readFileSync(join(__dirname, 'fixtures/mapbox-water-16-60637-37918.mvt'));
-        const features = decodeWaterFromTile(buf, 16, 60637, 37918);
+    it('routes the Newport canal bend inside OSM water, through a hand-encoded tile, without crossing a pontoon', () => {
+        // The water used to be a real Mapbox tile, gone from the repo in 127
+        // (Mapbox's data). The same bend now runs on the OpenStreetMap water
+        // this overlay already holds (ODbL), encoded into the z16 tile that
+        // covers it so the decode stays in the path, the shape the live adapter
+        // hands the router.
         const overlay = JSON.parse(
             gunzipSync(readFileSync(join(__dirname, 'fixtures/newport-canal-osm.json.gz'))).toString(),
         );
-        // Two recorded canal-centre vertices within this ONE captured tile;
+        const polygons = (overlay.water.features as { geometry: Polygon }[]).map((f) => f.geometry.coordinates);
+        const features = decodeWaterFromTile(encodeWaterTile(polygons, 16, 60637, 37918), 16, 60637, 37918);
+        // Two recorded canal-centre vertices within this ONE tile;
         // the full Newport exit spans other tiles fetched by the live adapter.
         const a = { lon: 153.0922886, lat: -27.2102277 },
             b = { lon: 153.0927659, lat: -27.2069373 };

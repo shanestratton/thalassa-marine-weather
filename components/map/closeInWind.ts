@@ -81,8 +81,9 @@ export interface ViewportScale {
 
 /**
  * How many grid cells the viewport spans: sqrt(cells across x cells down),
- * from the Mercator scale at the centre. Obs is north-up and flat (rotation
- * and pitch are disabled in useMapInit), so the centre scale is the view's.
+ * from the Mercator scale at the centre. Obs is flat (pitch is locked in
+ * useMapInit), so the centre scale is the view's. It counts the view's area
+ * in cells, so a turned chart (127-11) gets the same answer at any bearing.
  * Null when the viewport has not been measured: never guess a mode.
  */
 export function viewportGridCells(view: ViewportScale, spacing: GridSpacing): number | null {

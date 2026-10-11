@@ -513,6 +513,7 @@ export async function convertAndVerifyOChartsSets(options: {
                     ...meta,
                     contentSha256: hash,
                     source: 'pi-decrypt',
+                    licence: 'protected',
                     sourceUrl: undefined,
                     packageId: options.archiveHash,
                 },

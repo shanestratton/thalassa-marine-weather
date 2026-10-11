@@ -14,15 +14,15 @@ built on the wx server and served from Cloudflare R2.
 
 ## Sources and credit
 
-| Pyramid          | Source                                                                                   | Zooms | Licence                                                                                                                          |
-| ---------------- | ---------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `relief-global`  | GEBCO 2026 Grid, 15″ ice-surface elevation                                               | z0–9  | Public domain. Commercial use is fine with credit, as long as no endorsement is implied and the data is not used for navigation. |
-| `relief-au`      | GA _Great Barrier Reef Bathymetry 2020 30 m_, grids A–D (eCat 115066), merged over GEBCO | z8–13 | CC BY 4.0, © Commonwealth of Australia (Geoscience Australia). Not for navigation.                                               |
-| both (land mask) | OpenStreetMap land polygons, split, EPSG:3857 (osmdata.openstreetmap.de)                 | —     | ODbL; the tiles are a Produced Work, so credit "© OpenStreetMap contributors".                                                   |
+| Pyramid          | Source                                                                                                                                                      | Zooms | Licence                                                                                                                          |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `relief-global`  | GEBCO 2026 Grid, 15″ ice-surface elevation                                                                                                                  | z0–9  | Public domain. Commercial use is fine with credit, as long as no endorsement is implied and the data is not used for navigation. |
+| `relief-au`      | GA _AusBathyTopo (Great Barrier Reef) 30m 2017 - A regional-scale depth model (20170025C)_, version 10 Nov 2020, grids A–D (eCat 115066), merged over GEBCO | z8–13 | CC BY 4.0, © Commonwealth of Australia (Geoscience Australia). Not for navigation.                                               |
+| both (land mask) | OpenStreetMap land polygons, split, EPSG:3857 (osmdata.openstreetmap.de)                                                                                    | —     | ODbL; the tiles are a Produced Work, so credit "© OpenStreetMap contributors".                                                   |
 
 Wherever the tiles are shown, show this credit (`RELIEF_ATTRIBUTION`):
 
-> Seafloor relief derived from GEBCO Compilation Group (2026) GEBCO 2026 Grid; GBR 30 m © Commonwealth of Australia (Geoscience Australia), CC BY 4.0; coastline © OpenStreetMap contributors. Not for navigation.
+> Seafloor relief derived from GEBCO Compilation Group (2026) GEBCO 2026 Grid; based on AusBathyTopo (Great Barrier Reef) 30m 2017 - A regional-scale depth model (20170025C), version 10 Nov 2020, by Geoscience Australia, © Commonwealth of Australia, CC BY 4.0 (subject to its section 5 disclaimer of warranties); coastline © OpenStreetMap contributors. Not for navigation.
 
 "Derived from" is CC BY 4.0's notice of modification (§3(a)(1)(B)): the
 tiles are exaggerated, smoothed, merged and land-masked. The coastline credit

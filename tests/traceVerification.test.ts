@@ -225,3 +225,65 @@ describe('traceFollowBlockReason — following an accepted route stays gentle', 
         expect(traceFollowBlockReason(old, points, followCtx)).toBeNull();
     });
 });
+
+/**
+ * Grade stubs (127-C-b): a leg over a licensed chart comes back from the bank
+ * as its grade only. A stub is display only: it can never mint a verification
+ * or an acknowledgement, so release waits while the leg is checked again on
+ * her charts. Fictional Nouméa lagoon route.
+ */
+describe('a grade stub never releases a route', () => {
+    const noumea: TracePoint[] = [
+        { lat: -22.276, lon: 166.437 },
+        { lat: -22.32, lon: 166.41 },
+        { lat: -22.35, lon: 166.39 },
+    ];
+    const stub = (grade: TraceLegVerdict['grade'], land = false): TraceLegVerdict => ({
+        grade,
+        issues: land ? [{ severity: 'danger', message: TRACE_LAND_CROSSING_MESSAGE }] : [],
+        minDepthM: null,
+        minAt: null,
+        needsTide: false,
+        nudge: null,
+        nudgeTo: null,
+        stub: true,
+    });
+
+    const RECHECK = 'Tap Save or open the Route report to check these legs on your charts again.';
+
+    it('refuses while any leg is a stub, even an all-clear route, and says which tap checks it', () => {
+        const gate = evaluateTraceRelease(noumea, 'ready', [stub('clear'), verdict('clear')], new Set(), context);
+        expect(gate.allowed).toBe(false);
+        expect(gate.verification).toBeNull();
+        // Nothing runs until she taps: the words point at her tap, not at a check in flight,
+        // and Save stays tappable for it (MapHub reads `recheck`).
+        expect(gate.reason).toBe(RECHECK);
+        expect(gate.recheck).toBe(true);
+    });
+
+    it('a stub needing tide never waits on a tide window it cannot have', () => {
+        const gate = evaluateTraceRelease(
+            noumea,
+            'ready',
+            [{ ...stub('caution'), needsTide: true }, verdict('clear')],
+            new Set(),
+            { ...context, tideWindowLabel: null },
+        );
+        expect(gate.reason).toBe(RECHECK);
+    });
+
+    it('a stub danger leg with the land words is never ackable', () => {
+        const gate = evaluateTraceRelease(
+            noumea,
+            'ready',
+            [stub('danger', true), stub('danger')],
+            new Set([0, 1]),
+            context,
+        );
+        expect(gate.allowed).toBe(false);
+        expect(gate.verification).toBeNull();
+        expect(gate.reason).toMatch(/crosses charted land/);
+        // A re-check cannot clear land: Save stays greyed.
+        expect(gate.recheck).toBeUndefined();
+    });
+});

@@ -1,4 +1,5 @@
 import type mapboxgl from 'mapbox-gl';
+import { chartFitBearing } from './chartOrientation';
 
 export type MapPoint = { lat: number; lon: number };
 
@@ -77,7 +78,13 @@ export function fitTraceBounds(map: mapboxgl.Map, points: readonly MapPoint[]): 
             [minLon, minLat],
             [maxLon, maxLat],
         ],
-        { padding: { ...TRACE_CARD_PADDING }, maxZoom: 15, duration: 900, retainPadding: false },
+        {
+            padding: { ...TRACE_CARD_PADDING },
+            maxZoom: 15,
+            duration: 900,
+            retainPadding: false,
+            bearing: chartFitBearing(map),
+        },
     );
 }
 

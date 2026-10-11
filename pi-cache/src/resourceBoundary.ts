@@ -47,10 +47,9 @@ export interface ArchivePolicy {
  * holds 5 020 entries against caps of 4 096 files and 4 608 entries. The
  * installer would have refused it AFTER the download finished.
  *
- * The raised numbers are CHARTWORLD_ARCHIVE_POLICY's, not invented ones. That
- * envelope is already in production for ChartWorld S-63 distributions, which
- * are the same class of payload — a large, commercially issued, encrypted
- * vector chart set — so this adopts a reviewed limit rather than minting one.
+ * The raised numbers were adopted from the reviewed envelope of the ChartWorld
+ * S-63 path (retired in 127), the same class of payload — a large,
+ * commercially issued, encrypted vector chart set — rather than minted here.
  *
  * What is NOT loosened, deliberately: maxEntryBytes stays at 256 MiB, because
  * an individual chart cell is kilobytes to a few megabytes and there is no
@@ -85,19 +84,6 @@ export const CHART_ARCHIVE_POLICY: Readonly<ArchivePolicy> = Object.freeze({
     minimumFreeBytes: 512 * MIB,
 });
 
-export const CHARTWORLD_ARCHIVE_POLICY: Readonly<ArchivePolicy> = Object.freeze({
-    maxArchiveBytes: 1 * GIB,
-    maxFiles: 8_192,
-    maxEntries: 9_216,
-    maxEntryBytes: 512 * MIB,
-    maxUncompressedBytes: 2 * GIB,
-    maxPathDepth: 8,
-    maxNameBytes: 512,
-    maxCentralDirectoryBytes: 64 * MIB,
-    maxCompressionRatio: 1_000,
-    minimumFreeBytes: 512 * MIB,
-});
-
 export interface DownloadPolicy {
     maxBytes: number;
     minimumFreeBytes: number;
@@ -111,8 +97,7 @@ export interface DownloadPolicy {
  * other bounds what the zip expands to — and on 2026-08-30 only the archive
  * half was raised for the o-charts Australian base set. The install then failed
  * before the zip was ever opened, with "Download exceeds the 314,572,800-byte
- * limit", which is this constant. Same 1 GiB as CHARTWORLD_DOWNLOAD_POLICY, for
- * the same reason its archive twin matches CHARTWORLD's.
+ * limit", which is this constant. 1 GiB, matching its archive twin.
  */
 export const ENC_DOWNLOAD_POLICY: Readonly<DownloadPolicy> = Object.freeze({
     maxBytes: 1 * GIB,
@@ -122,12 +107,6 @@ export const ENC_DOWNLOAD_POLICY: Readonly<DownloadPolicy> = Object.freeze({
 
 export const CHART_DOWNLOAD_POLICY: Readonly<DownloadPolicy> = Object.freeze({
     maxBytes: 2 * GIB,
-    minimumFreeBytes: 512 * MIB,
-    diskCheckIntervalBytes: 16 * MIB,
-});
-
-export const CHARTWORLD_DOWNLOAD_POLICY: Readonly<DownloadPolicy> = Object.freeze({
-    maxBytes: 1 * GIB,
     minimumFreeBytes: 512 * MIB,
     diskCheckIntervalBytes: 16 * MIB,
 });

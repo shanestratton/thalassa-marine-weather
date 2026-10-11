@@ -4,8 +4,10 @@
  * Currently houses just `thalassa_weather`, ported from the legacy
  * edge function (proxy-bosun-fallback) so the client-side orchestrator
  * (services/voice/orchestrator.ts) can dispatch it without a server
- * round-trip. Forecast data uses Thalassa's commercial Open-Meteo boundary;
- * only the keyless geocoder remains a fixed direct public lookup.
+ * round-trip. Place names, forecasts and the sea all go through Thalassa's
+ * commercial Open-Meteo boundary (proxy-openmeteo): no free Open-Meteo host is
+ * ever called from the phone or the browser, and the key stays on the server
+ * (127-H).
  *
  * web_search isn't here because Anthropic's `web_search_20250305` runs
  * server-side at Anthropic — we just register it in the tool list and
@@ -21,26 +23,30 @@ interface GeocodeResult {
     admin1?: string;
 }
 
+/**
+ * Through the proxy's fixed `geocode` operation, never a free host. Null means
+ * the lookup answered and found nothing usable; it throws when the lookup
+ * itself failed, including a proxy deployed before this operation existed (it
+ * answers 400), so the caller never calls a real place unknown.
+ */
 async function geocode(query: string): Promise<GeocodeResult | null> {
-    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-        query,
-    )}&count=1&language=en&format=json`;
-    try {
-        const r = await fetch(url);
-        if (!r.ok) return null;
-        const data = await r.json();
-        const hit = data.results?.[0];
-        if (!hit) return null;
-        return {
-            name: hit.name,
-            latitude: hit.latitude,
-            longitude: hit.longitude,
-            country: hit.country,
-            admin1: hit.admin1,
-        };
-    } catch {
-        return null;
-    }
+    // The proxy refuses longer names or control characters: don't ask.
+    if (query.length > 100 || /\p{Cc}/u.test(query)) return null;
+    const data = await fetchOpenMeteoProxy<{ results?: Partial<GeocodeResult>[] }>('geocode', {
+        name: query,
+        count: 1,
+        language: 'en',
+        format: 'json',
+    });
+    const hit = data.results?.[0];
+    if (!hit?.name || !Number.isFinite(hit.latitude) || !Number.isFinite(hit.longitude)) return null;
+    return {
+        name: hit.name,
+        latitude: hit.latitude as number,
+        longitude: hit.longitude as number,
+        country: hit.country ?? '',
+        admin1: hit.admin1,
+    };
 }
 
 async function fetchOpenMeteo(lat: number, lng: number): Promise<unknown> {
@@ -91,7 +97,15 @@ export async function runThalassaWeather(
         if (!location) {
             return { content: 'ERROR: must provide either lat/lng or location', isError: true };
         }
-        const geo = await geocode(location);
+        let geo: GeocodeResult | null;
+        try {
+            geo = await geocode(location);
+        } catch {
+            return {
+                content: `ERROR: place-name lookup unavailable right now, so "${location}" was not looked up; retry with lat/lng`,
+                isError: true,
+            };
+        }
         if (!geo) {
             return { content: `ERROR: could not geocode "${location}"`, isError: true };
         }

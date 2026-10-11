@@ -2,11 +2,14 @@ import { useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+    DESK_MAP_BASE_OPTIONS,
     MAP_BASE_OPTIONS,
     MapBaseSelector,
     mapBaseVisibility,
     type MapBaseKind,
 } from '../components/map/MapBaseSelector';
+import { useMapBase } from '../components/map/useMapBase';
+import { renderHook } from '@testing-library/react';
 
 const triggerHaptic = vi.hoisted(() => vi.fn());
 vi.mock('../utils/system', async (importOriginal) => ({
@@ -143,5 +146,126 @@ describe('MapBaseSelector', () => {
 
         expect(screen.queryByRole('menu', { name: 'Map base' })).not.toBeInTheDocument();
         expect(trigger).toHaveFocus();
+    });
+});
+
+/**
+ * The desk planner's menu (127-DESKMAP A2/B1): the same pill, its own bases
+ * (Light, Relief + Sat, Hybrid), no ENC row, then the Seamarks switch.
+ */
+function DeskHarness({ onSeamarks = vi.fn() }: { onSeamarks?: () => void }) {
+    const [base, setBase] = useState<MapBaseKind>('light');
+    const [seamarks, setSeamarks] = useState(true);
+    return (
+        <MapBaseSelector
+            visible
+            value={base}
+            onChange={setBase}
+            options={DESK_MAP_BASE_OPTIONS}
+            encRow={false}
+            toggles={[
+                {
+                    id: 'seamarks',
+                    label: 'Seamarks',
+                    detail: 'OpenSeaMap community data, not verified',
+                    on: seamarks,
+                    onToggle: () => {
+                        onSeamarks();
+                        setSeamarks((on) => !on);
+                    },
+                },
+            ]}
+            encCellCount={3}
+            encVisible={false}
+            onToggleEnc={vi.fn()}
+        />
+    );
+}
+
+describe('MapBaseSelector on the desk', () => {
+    it('lists Light, Relief + Sat and Hybrid, no ENC row, then Seamarks ON', () => {
+        render(<DeskHarness />);
+        fireEvent.click(screen.getByRole('button', { name: 'Map base: Light' }));
+        const menu = screen.getByRole('menu', { name: 'Map base' });
+        const items = Array.from(menu.querySelectorAll('[role^="menuitem"]'));
+        expect(items.map((item) => item.querySelector('.font-black')?.textContent)).toEqual([
+            'Light',
+            'Relief + Sat',
+            'Hybrid',
+            'Seamarks',
+        ]);
+        expect(DESK_MAP_BASE_OPTIONS.map((o) => o.id)).toEqual(['light', 'reliefSat', 'hybrid']);
+        expect(DESK_MAP_BASE_OPTIONS[0].description).toBe('Easiest to read · seabed is a guide, mean sea level');
+        expect(screen.queryByText('ENC charts')).not.toBeInTheDocument();
+        const seamarks = screen.getByRole('menuitemcheckbox', { name: /^Seamarks/ });
+        expect(seamarks).toHaveAttribute('aria-checked', 'true');
+        expect(seamarks).toHaveTextContent('OpenSeaMap community data, not verified');
+        expect(seamarks).toHaveTextContent('ON');
+    });
+
+    it('reaches every row with the arrow keys, the switch included', () => {
+        render(<DeskHarness />);
+        fireEvent.click(screen.getByRole('button', { name: 'Map base: Light' }));
+        const light = screen.getByRole('menuitemradio', { name: /^Light / });
+        expect(light).toHaveFocus();
+        const seen: string[] = [];
+        for (let i = 0; i < 4; i++) {
+            fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+            seen.push((document.activeElement as HTMLElement).querySelector('.font-black')?.textContent ?? '');
+        }
+        expect(seen).toEqual(['Relief + Sat', 'Hybrid', 'Seamarks', 'Light']);
+        fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' });
+        expect(document.activeElement).toBe(screen.getByRole('menuitemcheckbox', { name: /^Seamarks/ }));
+    });
+
+    it('a switch flips, closes the menu and hands focus back to the trigger, as the ENC row does', () => {
+        const onSeamarks = vi.fn();
+        render(<DeskHarness onSeamarks={onSeamarks} />);
+        const trigger = screen.getByRole('button', { name: 'Map base: Light' });
+        fireEvent.click(trigger);
+        fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /^Seamarks/ }));
+        expect(onSeamarks).toHaveBeenCalledOnce();
+        expect(triggerHaptic).toHaveBeenCalledWith('light');
+        expect(screen.queryByRole('menu', { name: 'Map base' })).not.toBeInTheDocument();
+        expect(trigger).toHaveFocus();
+        fireEvent.click(trigger);
+        const off = screen.getByRole('menuitemcheckbox', { name: /^Seamarks/ });
+        expect(off).toHaveAttribute('aria-checked', 'false');
+        expect(off).toHaveTextContent('OFF');
+    });
+
+    it('picks a base by its own row', () => {
+        render(<DeskHarness />);
+        fireEvent.click(screen.getByRole('button', { name: 'Map base: Light' }));
+        fireEvent.click(screen.getByRole('menuitemradio', { name: /^Hybrid / }));
+        expect(screen.getByRole('button', { name: 'Map base: Hybrid' })).toBeInTheDocument();
+    });
+});
+
+describe('the Obs picker is unchanged (127-DESKMAP)', () => {
+    it('four bases, the ENC row, no switches', () => {
+        render(<Harness />);
+        fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
+        const menu = screen.getByRole('menu', { name: 'Map base' });
+        expect(menu.querySelectorAll('[role="menuitemradio"]')).toHaveLength(4);
+        expect(menu.querySelectorAll('[role="menuitemcheckbox"]')).toHaveLength(1);
+        expect(MAP_BASE_OPTIONS.map((o) => o.id)).toEqual(['relief', 'reliefSat', 'ocean', 'hybrid']);
+        expect(MAP_BASE_OPTIONS.map((o) => o.id)).not.toContain('light');
+    });
+
+    it('does not accept a saved Light as the account’s Obs base', () => {
+        const { result } = renderHook(() => useMapBase('light'));
+        expect(result.current.mapBase).not.toBe('light');
+        expect(result.current.explicit).toBe(false);
+    });
+
+    it('lights the relief group for Light, never imagery', () => {
+        expect(mapBaseVisibility('light')).toEqual({
+            relief: true,
+            landImagery: false,
+            ocean: false,
+            satellite: false,
+            hybrid: false,
+        });
     });
 });

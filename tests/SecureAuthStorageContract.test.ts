@@ -44,6 +44,8 @@ describe('iOS secure auth-session storage contract', () => {
         expect(adapter).not.toContain('await Preferences.set({ key, value })');
         expect(secureStorage).toContain("'thalassa-auth-session-code-verifier'");
         expect(secureStorage).toContain("'thalassa-auth-session-user'");
-        expect(secureStorage).toContain('secureAuthStorageKeySet.has(key)');
+        // One guard, built from the list SecureStorageAllowlist.test.ts holds equal to the Swift side.
+        expect(secureStorage).toContain('const secureStorageKeySet = new Set(SECURE_STORAGE_KEYS)');
+        expect(secureStorage).toContain('if (!secureStorageKeySet.has(key))');
     });
 });

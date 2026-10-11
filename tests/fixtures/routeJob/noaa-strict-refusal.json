@@ -1,0 +1,9 @@
+{
+    "sha256": "06691d23a95cfd325ba40b69a7adf97aa49de68c599895ec39c33998aadcd60e",
+    "summary": {
+        "refusal": {
+            "code": "uncharted-corridor",
+            "error": "Route crosses 10.7 NM of uncharted water — no installed chart covers that stretch"
+        }
+    }
+}

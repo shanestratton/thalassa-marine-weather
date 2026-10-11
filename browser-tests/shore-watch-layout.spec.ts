@@ -197,10 +197,11 @@ for (const scenario of ['stale', 'alarm']) {
 }
 
 // Shane 2026-09-29: on this phone's own Pi watch, Weigh Anchor ends the
-// readings column, beside the header's Leave. The readings keep the region
-// (pinned under it, compact landscape had a 40 px sliver of readings), and the
-// button scrolls into reach whole, tappable and clear of the tab bar on the
-// smallest phone, in landscape and at large text.
+// readings column. The readings keep the region (pinned under it, compact
+// landscape had a 40 px sliver of readings), and the button scrolls into reach
+// whole, tappable and clear of the tab bar on the smallest phone, in landscape
+// and at large text. Shane 2026-10-10: no Leave in the header there (it looked
+// just like Weigh Anchor); Back stays, and leaves the Pi watching.
 for (const size of [
     { label: 'small phone', width: 320, height: 568, query: '?ownPi=true' },
     { label: 'short phone', width: 375, height: 667, query: '?ownPi=true' },
@@ -208,16 +209,21 @@ for (const size of [
     { label: 'large text', width: 390, height: 844, query: '?ownPi=true&largeText=true' },
 ]) {
     test(`Shore Watch Weigh Anchor stays reachable above navigation on a ${size.label}`, async ({ page }) => {
-        // The bar takes no room from the readings: same region, same start.
+        // The bar takes no room from the readings: the same start, and no less
+        // height (the header, without Leave, can only give room back).
         const readings = page.getByTestId('shore-readings-scroll');
         await openFixture(page, size.width, size.height, size.query.replace(/ownPi=true&?/, '').replace(/\?$/, ''));
         const without = await readings.evaluate((el) => ({ height: el.clientHeight, top: el.scrollTop }));
         await openFixture(page, size.width, size.height, size.query);
-        expect(await readings.evaluate((el) => ({ height: el.clientHeight, top: el.scrollTop }))).toEqual(without);
-        await expect(page.getByRole('button', { name: 'Leave Shore Watch' })).toBeInViewport();
+        const withBar = await readings.evaluate((el) => ({ height: el.clientHeight, top: el.scrollTop }));
+        expect(withBar.top).toBe(without.top);
+        expect(withBar.height).toBeGreaterThanOrEqual(without.height);
+        await expect(page.getByRole('button', { name: 'Leave Shore Watch' })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: 'Go back' })).toBeInViewport();
+        await expect(page.getByRole('heading', { name: 'Shore Watch' })).toBeInViewport();
         const weigh = page.getByRole('button', { name: '⏏ Weigh Anchor' });
-        await expect(weigh).toHaveAccessibleDescription('Stops the Pi’s watch. Leave keeps the Pi watching.');
-        const note = page.getByText('Stops the Pi’s watch. Leave keeps the Pi watching.');
+        await expect(weigh).toHaveAccessibleDescription('Stops the Pi’s watch. Back keeps the Pi watching.');
+        const note = page.getByText('Stops the Pi’s watch. Back keeps the Pi watching.');
         await note.scrollIntoViewIfNeeded();
         await assertInsideReadings(weigh);
         await assertInsideReadings(note);
@@ -225,6 +231,28 @@ for (const size of [
         await assertNoHorizontalOverflow(page);
         await weigh.click();
         await expect(page.getByRole('alert')).toHaveText('Weigh anchor pressed');
+    });
+}
+
+// Crew following another skipper's boat keep Leave: Weigh Anchor is not
+// theirs, and Leave is how they stop following. It stays in the header row,
+// whole and tappable, beside the title on the smallest phone and at large text.
+for (const size of [
+    { label: 'small phone', width: 320, height: 568, query: '' },
+    { label: 'large text', width: 390, height: 844, query: '?largeText=true' },
+]) {
+    test(`Shore Watch keeps Leave for crew on a ${size.label}`, async ({ page }) => {
+        await openFixture(page, size.width, size.height, size.query);
+        await expect(page.getByRole('button', { name: '⏏ Weigh Anchor' })).toHaveCount(0);
+        const leave = page.getByRole('button', { name: 'Leave Shore Watch' });
+        await expect(leave).toBeInViewport({ ratio: 1 });
+        await expect(leave).toHaveText('Leave');
+        const box = (await leave.boundingBox())!;
+        expect(box.height).toBeGreaterThanOrEqual(44);
+        expect(box.x + box.width).toBeLessThanOrEqual(size.width);
+        const title = (await page.getByRole('heading', { name: 'Shore Watch' }).boundingBox())!;
+        expect(title.x + title.width, 'the title ends where Leave begins').toBeLessThanOrEqual(box.x + 1);
+        await assertNoHorizontalOverflow(page);
     });
 }
 

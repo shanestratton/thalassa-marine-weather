@@ -217,7 +217,9 @@ describe('lead-graph shadow wiring', { timeout: 120_000 }, () => {
     });
 
     it('the shadow block can neither return nor assign the route', () => {
-        const src = readFileSync('services/InshoreRouter.ts', 'utf8');
+        // Since 127-ROUTE-W the shadows run in the route job (off the main
+        // thread); the lead graph is peeked on the main thread before it.
+        const src = readFileSync('services/routing/routeJob.ts', 'utf8');
         expect(src).toContain('const LEAD_GRAPH_SHADOW_ENABLED = true;');
         const start = src.indexOf('// ── Lead-graph SHADOW (Phase 3, 2026-10-01)');
         const end = src.indexOf('// ── Seaway SHADOW (masterplan Phase 12)');
@@ -232,7 +234,15 @@ describe('lead-graph shadow wiring', { timeout: 120_000 }, () => {
         // Cache-only and synchronous (2026-10-01 review): no await, so a
         // finished route is never held for the watchdog to discard.
         expect(block.replace(/\/\/.*$/gm, '')).not.toMatch(/\bawait\b/);
-        expect(block).toContain('peekLeadGraphForView(');
-        expect(block).not.toMatch(/(?<!peek)leadGraphForView\(/);
+        expect(block).toContain('const leadGraph = grid ? job.leadGraph : null;');
+        expect(block).not.toMatch(/leadGraphForView\(/);
+        // …peeked, never compiled, where the job is built.
+        const router = readFileSync('services/InshoreRouter.ts', 'utf8');
+        const jobAt = router.indexOf('const job: RouteJob = {');
+        expect(jobAt).toBeGreaterThan(0);
+        const job = router.slice(jobAt, router.indexOf('stillWanted();', jobAt));
+        expect(job).toContain('leadGraph: peekLeadGraphForView(');
+        expect(job).not.toMatch(/(?<!peek)leadGraphForView\(/);
+        expect(job.replace(/\/\/.*$/gm, '')).not.toMatch(/\bawait\b/);
     });
 });

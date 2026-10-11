@@ -2,12 +2,52 @@
 import { parseBoundedInteger } from '../_shared/http-security.ts';
 
 /**
- * proxy-openmeteo's request vocabulary: two fixed operations and a small,
+ * proxy-openmeteo's request vocabulary: three fixed operations and a small,
  * explicit list of names per block. Split from index.ts so the allowlist can
  * be tested without starting a server (validation_test.ts).
  */
-export type Operation = 'forecast' | 'marine';
+export const OPERATIONS = ['forecast', 'marine', 'geocode'] as const;
+export type Operation = (typeof OPERATIONS)[number];
 export type QueryRecord = Record<string, string>;
+
+/** Server-owned upstreams: Open-Meteo's commercial customer endpoints only. */
+export const UPSTREAMS: Readonly<Record<Operation, string>> = {
+    forecast: 'https://customer-api.open-meteo.com/v1/forecast',
+    marine: 'https://customer-marine-api.open-meteo.com/v1/marine',
+    // 127-H: Calypso's place names (GeoNames, CC BY 4.0), on the same key and
+    // quota lane as the forecast, instead of the free geocoder.
+    geocode: 'https://customer-geocoding-api.open-meteo.com/v1/search',
+};
+
+export function isOperation(value: unknown): value is Operation {
+    return typeof value === 'string' && (OPERATIONS as readonly string[]).includes(value);
+}
+
+/** The geocoder takes these four names and nothing else: no coordinates. */
+const GEOCODE_PARAMETERS = new Set(['name', 'count', 'language', 'format']);
+
+function validateGeocode(params: Record<string, unknown>): QueryRecord | null {
+    if (Object.keys(params).some((name) => !GEOCODE_PARAMETERS.has(name))) return null;
+    const name = params.name;
+    if (typeof name !== 'string' || !name.trim() || name.length > 100 || /[\u0000-\u001f\u007f]/.test(name)) {
+        return null;
+    }
+    const output: QueryRecord = { name };
+    if (params.count !== undefined) {
+        const count = parseBoundedInteger(params.count, 1, 10);
+        if (count === null) return null;
+        output.count = String(count);
+    }
+    if (params.language !== undefined) {
+        if (typeof params.language !== 'string' || !/^[a-z]{2}$/.test(params.language)) return null;
+        output.language = params.language;
+    }
+    if (params.format !== undefined) {
+        if (params.format !== 'json') return null;
+        output.format = 'json';
+    }
+    return output;
+}
 
 const COMMON_PARAMETERS = new Set([
     'latitude',
@@ -234,6 +274,7 @@ function validateTimezone(value: unknown): string | null {
 }
 
 export function validateRequest(operation: Operation, params: Record<string, unknown>): QueryRecord | null {
+    if (operation === 'geocode') return validateGeocode(params);
     if (Object.keys(params).length < 3 || Object.keys(params).length > 18) return null;
     if (Object.keys(params).some((name) => !COMMON_PARAMETERS.has(name))) return null;
 

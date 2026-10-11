@@ -11,6 +11,7 @@ import {
     readResponseArrayBufferLimited,
     readResponseTextLimited,
 } from '../_shared/http-security.ts';
+import { createOpenMeteoClient } from './openMeteo.ts';
 
 /**
  * proxy-bosun-fallback — cloud Haiku 4.5 + tools for Thalassa's voice console.
@@ -20,7 +21,8 @@ import {
  *   STT runs server-side via ElevenLabs Scribe; transcript feeds Haiku 4.5
  *   in a tool-use loop with two tools:
  *     - web_search           Anthropic's native web search (live BoM, news, etc.)
- *     - thalassa_weather     Marine forecast via Open-Meteo (free, no key)
+ *     - thalassa_weather     Marine forecast via Open-Meteo's commercial
+ *                            customer endpoints (127-H; never the free hosts)
  *
  *   Final answer goes through ElevenLabs TTS (same HAL voice as Bosun) and
  *   returns {transcript, answer_text, audio_b64, source: "cloud", timings_ms}.
@@ -32,6 +34,9 @@ import {
  *   ANTHROPIC_API_KEY      Anthropic API key (Haiku 4.5 access)
  *   ELEVENLABS_API_KEY     ElevenLabs API key
  *   ELEVENLABS_VOICE_ID    Voice ID (defaults to HAL clone if unset)
+ *   OPEN_METEO_API_KEY     Open-Meteo commercial key (geocoding, forecast,
+ *                          marine). Unset: thalassa_weather returns its error
+ *                          strings; it never falls back to the free hosts.
  */
 
 const CORS: Record<string, string> = {
@@ -333,77 +338,19 @@ async function callHaikuWithTools(
 }
 
 // ── Thalassa weather tool implementation ───────────────────────────────
-
-interface GeocodeResult {
-    name: string;
-    latitude: number;
-    longitude: number;
-    country: string;
-    admin1?: string;
-}
-
-async function geocode(query: string): Promise<GeocodeResult | null> {
-    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${
-        encodeURIComponent(
-            query,
-        )
-    }&count=1&language=en&format=json`;
-    try {
-        const r = await fetchWithTimeout(url, {}, 10_000);
-        if (!r.ok) return null;
-        const responseText = await readResponseTextLimited(r, 1_000_000);
-        if (responseText === null) return null;
-        const data = JSON.parse(responseText);
-        const hit = data.results?.[0];
-        if (!hit) return null;
-        return {
-            name: hit.name,
-            latitude: hit.latitude,
-            longitude: hit.longitude,
-            country: hit.country,
-            admin1: hit.admin1,
-        };
-    } catch {
-        return null;
-    }
-}
-
-async function fetchOpenMeteo(lat: number, lng: number): Promise<unknown> {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
-        `&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code,precipitation,pressure_msl` +
-        `&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation_probability,weather_code` +
-        `&daily=temperature_2m_max,temperature_2m_min,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,precipitation_sum` +
-        `&forecast_days=2&timezone=auto&wind_speed_unit=kn`;
-    const r = await fetchWithTimeout(url, {}, 12_000);
-    if (!r.ok) throw new Error(`Open-Meteo HTTP ${r.status}`);
-    const responseText = await readResponseTextLimited(r, 2_000_000);
-    if (responseText === null) throw new Error('Open-Meteo response exceeded the safety limit');
-    return JSON.parse(responseText);
-}
-
-async function fetchOpenMeteoMarine(lat: number, lng: number): Promise<unknown | null> {
-    const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}` +
-        `&current=wave_height,wave_direction,wave_period,wind_wave_height,wind_wave_direction,swell_wave_height,swell_wave_direction,swell_wave_period` +
-        `&daily=wave_height_max,wind_wave_height_max,swell_wave_height_max&forecast_days=2&timezone=auto`;
-    try {
-        const r = await fetchWithTimeout(url, {}, 12_000);
-        if (!r.ok) return null;
-        const responseText = await readResponseTextLimited(r, 2_000_000);
-        return responseText === null ? null : JSON.parse(responseText);
-    } catch {
-        return null;
-    }
-}
+// Open-Meteo's commercial customer endpoints, key from the function's secrets
+// (127-H): see openMeteo.ts for why no URL is ever logged or thrown.
 
 async function runThalassaWeather(args: Record<string, unknown>): Promise<string> {
     let lat = typeof args.lat === 'number' ? args.lat : NaN;
     let lng = typeof args.lng === 'number' ? args.lng : NaN;
     let displayName = '';
+    const openMeteo = createOpenMeteoClient(Deno.env.get('OPEN_METEO_API_KEY'));
 
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
         const location = typeof args.location === 'string' ? args.location.trim() : '';
         if (!location) return 'ERROR: must provide either lat/lng or location';
-        const geo = await geocode(location);
+        const geo = location.length <= 100 ? await openMeteo.geocode(location) : null;
         if (!geo) return `ERROR: could not geocode "${location}"`;
         lat = geo.latitude;
         lng = geo.longitude;
@@ -416,7 +363,7 @@ async function runThalassaWeather(args: Record<string, unknown>): Promise<string
     }
 
     try {
-        const [weather, marine] = await Promise.all([fetchOpenMeteo(lat, lng), fetchOpenMeteoMarine(lat, lng)]);
+        const [weather, marine] = await Promise.all([openMeteo.forecast(lat, lng), openMeteo.marine(lat, lng)]);
         return JSON.stringify({
             location: { name: displayName, lat, lng },
             atmospheric: weather,

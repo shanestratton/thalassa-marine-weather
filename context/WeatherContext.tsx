@@ -35,6 +35,7 @@ import {
 } from '../services/weather/cache';
 
 import { createLogger } from '../utils/createLogger';
+import { chartFreeVoyagePlan } from '../services/chartFacts';
 import {
     decideFollowAction,
     haversineNM,
@@ -251,6 +252,8 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     const [versionChecked, setVersionChecked] = useState(false);
     const [weatherData, _setWeatherData] = useState<MarineWeatherReport | null>(initialWeather);
     const [voyagePlan, setVoyagePlan] = useState<VoyagePlan | null>(null);
+    /** A plan saved or cleared this session: the boot load never writes over it. */
+    const voyageTouchedRef = useRef(false);
     const [historyCache, setHistoryCache] = useState<Record<string, MarineWeatherReport>>({});
 
     // ── Where the weather is for: boat → her held last fix → phone ──
@@ -594,14 +597,29 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
         const loadVoyage = async () => {
             let cached = (await loadLargeData(cacheKeys.voyage)) as VoyagePlan | null;
             if (cancelled || !isCurrentScope()) return;
+            let adopt = false;
             if (!cached && identityScope.userId === null) {
                 // Unscoped legacy voyage data has no authenticated owner.
                 // Only the public anonymous namespace may adopt it.
                 cached = (await loadLargeData(VOYAGE_CACHE_KEY)) as VoyagePlan | null;
                 if (cancelled || !isCurrentScope()) return;
-                if (cached) await saveLargeDataImmediate(cacheKeys.voyage, cached);
+                adopt = !!cached;
             }
-            if (!cancelled && isCurrentScope() && cached) setVoyagePlan(cached);
+            if (!cached) return;
+            // A plan stored with chart facts from licensed charts is written
+            // back without them, once (127-C-b).
+            const kept = chartFreeVoyagePlan(cached);
+            try {
+                if (voyageTouchedRef.current) {
+                    /* her plan this session is already on the disk */
+                } else if (adopt || kept !== cached) await saveLargeDataImmediate(cacheKeys.voyage, kept);
+                if (adopt && kept !== cached) await saveLargeDataImmediate(VOYAGE_CACHE_KEY, kept);
+            } catch (e) {
+                // A failed write never hides the plan: it is re-saved next launch.
+                log.warn('voyage plan re-save failed:', e);
+            }
+            // A plan saved this session (kept whole in memory) wins over the stored copy.
+            if (!cancelled && isCurrentScope()) setVoyagePlan((current) => current ?? kept);
         };
         void loadVoyage();
         return () => {
@@ -612,14 +630,18 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     const handleSaveVoyagePlan = useCallback(
         (plan: VoyagePlan) => {
             if (!isCurrentScope()) return;
+            // The full plan for this session; the disk keeps no chart facts
+            // from licensed charts (127-C-b).
+            voyageTouchedRef.current = true;
             setVoyagePlan(plan);
-            void saveLargeDataImmediate(cacheKeys.voyage, plan);
+            void saveLargeDataImmediate(cacheKeys.voyage, chartFreeVoyagePlan(plan));
         },
         [cacheKeys.voyage, isCurrentScope],
     );
 
     const clearVoyagePlan = useCallback(() => {
         if (!isCurrentScope()) return;
+        voyageTouchedRef.current = true;
         setVoyagePlan(null);
         void deleteLargeData(cacheKeys.voyage);
     }, [cacheKeys.voyage, isCurrentScope]);

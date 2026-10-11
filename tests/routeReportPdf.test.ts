@@ -3,9 +3,11 @@
  * comes out a valid, multi-page PDF for a long route. Can't eyeball layout in
  * CI, so this at least proves the generator + pagination don't blow up.
  */
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { generateRouteReportPdf, getRouteReportFileName } from '../services/RouteReportPdfService';
 import type { TraceLegVerdict } from '../services/routeTracer';
+import { clearAllCellMetadata, putCell } from '../services/enc/EncCellMetadata';
+import type { EncCell } from '../services/enc/types';
 
 const leg = (
     grade: 'clear' | 'caution' | 'danger',
@@ -74,5 +76,88 @@ describe('RouteReportPdfService', () => {
         expect(getRouteReportFileName('Bribie - Newport')).toBe('Route_Bribie_-_Newport.pdf');
         expect(getRouteReportFileName('')).toBe('Route_Route.pdf');
         expect(getRouteReportFileName('Lady Musgrave → Newport')).toBe('Route_Lady_Musgrave___Newport.pdf');
+    });
+});
+
+/**
+ * A Route report PDF is a file she shares (127-C-b, C10 store 6). Over
+ * licensed charts it prints each leg's grade, "needs tide" and the times, not
+ * charted depths, mark names or reasons, and says so in the footer; NOAA legs
+ * are printed exactly as before. Fictional cells: OC-99-ZZTEST off Nouméa
+ * (protected), US5XX01M in the Chesapeake (open).
+ */
+describe('RouteReportPdfService — licensed chart figures stay aboard', () => {
+    const cell = (id: string, sourceHO: string, bbox: EncCell['bbox']): EncCell => ({
+        id,
+        sourceHO,
+        edition: 1,
+        issued: '2026-08-01',
+        importedAt: '2026-09-01T00:00:00.000Z',
+        bbox,
+        geojsonPath: `enc/${id}.json`,
+        hazardCount: 1,
+        usage: 'navigation',
+    });
+    beforeEach(() => {
+        localStorage.clear();
+        clearAllCellMetadata();
+        putCell(cell('OC-99-ZZTEST', 'FR', [166.3, -22.4, 166.5, -22.2]));
+        putCell(cell('US5XX01M', 'US', [-76.5, 38.9, -76.3, 39.1]));
+    });
+    const legs = (): TraceLegVerdict[] => [
+        {
+            grade: 'caution',
+            issues: [{ severity: 'caution', message: 'thin water - 1.37 m charted at Passe Fictive' }],
+            minDepthM: 1.37,
+            minAt: null,
+            needsTide: true,
+            nudge: null,
+            nudgeTo: null,
+        },
+        leg('clear', null, 4.71),
+    ];
+    const readBlob = (blob: Blob) =>
+        new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = () => reject(reader.error);
+            reader.readAsText(blob);
+        });
+    const pdfText = async (pins: Array<{ lat: number; lon: number }>): Promise<string> =>
+        readBlob(
+            generateRouteReportPdf({
+                routeName: 'Lagoon run',
+                pins,
+                verdicts: legs(),
+                tideLabels: { 0: 'needs +0.43 m - no tide window in 24 h', 1: 'clears 09:10-13:30 today' },
+                departureLabel: null,
+                nowMs: 1_700_000_000_000,
+            }),
+        );
+
+    it('prints grades, needs-tide and times over licensed charts, and the footer', async () => {
+        const text = await pdfText([
+            { lat: -22.27, lon: 166.41 },
+            { lat: -22.31, lon: 166.43 },
+            { lat: -22.33, lon: 166.45 },
+        ]);
+        // Figures as printed (a PDF's own operators are full of numbers).
+        for (const figure of ['1.37 m', '1.4 m', '4.7 m', '0.43 m', 'm least', 'thin water', 'Passe Fictive'])
+            expect(text, figure).not.toContain(figure);
+        expect(text).toContain('needs tide');
+        expect(text).toContain('09:10-13:30');
+        expect(text).toContain('licensed chart figures aren');
+    });
+
+    it('prints NOAA legs exactly as before', async () => {
+        const text = await pdfText([
+            { lat: 38.95, lon: -76.45 },
+            { lat: 38.97, lon: -76.42 },
+            { lat: 38.99, lon: -76.4 },
+        ]);
+        expect(text).toContain('thin water - 1.37 m charted at Passe Fictive');
+        expect(text).toContain('clear - 4.7 m least');
+        expect(text).toContain('needs +0.43 m');
+        expect(text).not.toContain('licensed chart figures aren');
     });
 });

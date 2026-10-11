@@ -18,6 +18,9 @@ export interface AutoroutingTrialRequest {
     speedKts: number;
     /** Omitted only by legacy callers; missing values never become zero dimensions. */
     vesselProfile?: AutoroutingVesselProfile;
+    /** When she leaves (Plan Your Day's chosen leave, 127-PYD-2): within the
+     *  next 8 days. Omitted (Auto), the route is for now. */
+    departureMs?: number;
 }
 
 /** Computed on the phone (2026-10-01): a signed-in identity and installed
@@ -93,6 +96,8 @@ export interface AutoroutingTrialRoute {
     provider: 'Thalassa';
     /** Exact accepted Thalassa snapshot, not a certification of measurements. */
     vesselProfile?: AutoroutingVesselProfile;
+    /** The leave it was routed for, when the caller gave one (127-PYD-2). Memory only. */
+    departureMs?: number;
     /** The router's disclosure for this exact line. Dropped by a local edit:
      * an edited line was not routed by Thalassa. Memory only. */
     engine?: ThalassaRouteDisclosure;

@@ -709,7 +709,15 @@ export interface EncCell {
      * reusing it would make each personal cell delete itself on the next
      * curated sync. Two publishers, two markers. */
     personalManifestVersion?: number;
+    /** The chart's licence class (127-C-b). Absent on records written before
+     *  the field: services/enc/chartLicence classifies those on read. Never
+     *  part of a chart's identity (encCellContentIdentity). */
+    licence?: ChartLicence;
 }
+
+/** 'open' is public-domain data (NOAA in 127); 'protected' is every licensed
+ *  or unknown chart, whose numbers and positions stay in memory (127-C-b). */
+export type ChartLicence = 'protected' | 'open';
 
 // ── Query result ───────────────────────────────────────────────────
 

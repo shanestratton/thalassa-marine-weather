@@ -21,6 +21,7 @@ import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
 import { getPassageLookAhead } from '../../stores/passageHudStore';
+import { chartFitBearing } from './chartOrientation';
 
 export type RouteTrackVariant = 'route' | 'track';
 
@@ -195,7 +196,13 @@ export function useRouteTrackLayer({ mapRef, mapReady, variant, selected }: Args
                                 [w, s],
                                 [e, n],
                             ],
-                            { padding: 60, duration: 1200, maxZoom: 11, retainPadding: false },
+                            {
+                                padding: 60,
+                                duration: 1200,
+                                maxZoom: 11,
+                                retainPadding: false,
+                                bearing: chartFitBearing(map),
+                            },
                         );
                     }
                     fittedRef.current = { map, variant, id: item.id };

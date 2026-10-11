@@ -8,6 +8,7 @@ import type { UserSettings } from '../../types/settings';
 import { parseCoordinateString } from '../../utils/coordParse';
 import { extractCoords, extractDisplayName, hydrateSavedLocations } from '../../utils/savedLocations';
 import type { LatLon } from '../../services/dayPlanner/places';
+import { DeviceIcon, SailBoatIcon } from '../Icons';
 import { TodayModal } from './TodayModal';
 
 /** Where Plan Your Day plans from. */
@@ -172,7 +173,7 @@ export function TodayPlacePicker({
                             boat && onStart({ kind: 'boat', lat: boat.latitude, lon: boat.longitude, fix: boat })
                         }
                     >
-                        <span aria-hidden="true">⛵</span> {boatLine}
+                        <SailBoatIcon className="today-ico" /> {boatLine}
                     </button>
                     {boatNote && (
                         <p id="today-boat-note" className="today-option-note">
@@ -187,7 +188,7 @@ export function TodayPlacePicker({
                         disabled={busy !== null}
                         onClick={() => void phone()}
                     >
-                        <span aria-hidden="true">📱</span> {busy === 'phone' ? 'Finding this phone…' : 'This phone'}
+                        <DeviceIcon className="today-ico" /> {busy === 'phone' ? 'Finding this phone…' : 'This phone'}
                     </button>
                 </li>
                 {saved.map((place) => (

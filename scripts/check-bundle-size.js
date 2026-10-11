@@ -74,7 +74,13 @@ const BUDGETS = {
     // headroom), below the ~300 KB an accidental dependency adds, so the tripwire trips again.
     // Builds 126-128 plan ~140 KB of features: move the line for them deliberately, with the
     // reason, never to make a build pass.
-    javascript: 10.13 * MIB,
+    // 10.17, was 10.13 (2026-10-10, build 127; Shane approved one move for 127, never above
+    // 10.17 MiB: "oh yes"). 127 is the desk-map, Plan Your Day v3 and charts-stay-on-the-boat
+    // build: after 127-01, PYD-1, DESKMAP and C-b the measured payload left 78 B under the
+    // 10.13 line, with the routing worker, orientation and the wind layer still to land.
+    // +41,943 B (10,664,017 B). At 127 assembly this is tightened to the measured total plus
+    // the usual headroom, and it does not move again for 127.
+    javascript: 10.17 * MIB,
     mainRaw: 800 * KIB,
     mainGzip: 250 * KIB,
 };

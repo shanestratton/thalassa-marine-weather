@@ -189,7 +189,8 @@ describe('the passage planner refuses charted land, as Auto does', () => {
         mocks.tryInshore.mockResolvedValue(route({ hardLand: { totalM: 40, awayM: 0 } }));
         const { result } = await plan();
         expect(mocks.crossesLand).toHaveBeenCalledOnce();
-        expect(mocks.crossesLand.mock.calls[0][1]).toHaveProperty('chartWater');
+        // The route job's chart verdicts (127-ROUTE-W), not a probe function.
+        expect(mocks.crossesLand.mock.calls[0][1]).toHaveProperty('chartVerdicts');
         expect(warnings().some((n) => /rejected/.test(n.title))).toBe(false);
         expect(result.current.routeAnalysis?.totalDistance).toBe(5.4);
     });

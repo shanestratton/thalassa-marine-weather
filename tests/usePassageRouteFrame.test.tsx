@@ -389,3 +389,137 @@ describe('the overview waits for the HUD to ask (build 124: the HUD has no switc
         hud.__resetPassageHudForTests();
     });
 });
+
+/**
+ * A turned chart and the passage overview (127-11a, audit A8). Mapbox's
+ * fitBounds turns the chart to bearing 0 unless told otherwise, and the
+ * overview re-fits on each settle that leaves the route out of view: with
+ * `bearing: 0` a Track-up chart would be snapped north by every fit and
+ * turned back by its mode, for ever. Every fit keeps the mode's bearing now
+ * (chartFitBearing). The mode's controller is 127-11b; here a stand-in turns
+ * the chart back to its target 100 ms after any settle that is off it.
+ */
+describe('passage route overview on a turned chart', () => {
+    const TARGET = 47;
+    /** A fictional north-south passage up a Norwegian-like coast, tall and narrow: turned, it leaves the frame. */
+    const COAST = [
+        { lat: 66.0, lon: 13.0 },
+        { lat: 68.2, lon: 13.6 },
+        { lat: 70.4, lon: 14.1 },
+    ];
+    function turnedChart(target: number | null = TARGET) {
+        const handlers = new Map<string, Set<Handler>>();
+        const root = document.createElement('main');
+        const container = document.createElement('div');
+        root.append(container);
+        document.body.append(root);
+        const width = 430;
+        const height = 900;
+        container.getBoundingClientRect = () => ({
+            width,
+            height,
+            x: 0,
+            y: 0,
+            top: 0,
+            left: 0,
+            right: width,
+            bottom: height,
+            toJSON: () => ({}),
+        });
+        // A flat chart: x east, y south, scaled by k and turned by -bearing about `at` on screen.
+        const cam = { lon: 151.5, lat: -23.5, k: 50, bearing: 0, at: { x: width / 2, y: height / 2 } };
+        const turn = (dx: number, dy: number, deg: number) => {
+            const a = (-deg * Math.PI) / 180;
+            return { x: dx * Math.cos(a) - dy * Math.sin(a), y: dx * Math.sin(a) + dy * Math.cos(a) };
+        };
+        let moves = 0;
+        const emit = (event: string, data = {}) => handlers.get(event)?.forEach((handler) => handler(data));
+        const raw = {
+            getContainer: () => container,
+            getCenter: () => ({ lng: cam.lon, lat: cam.lat }),
+            getZoom: () => 8,
+            getBearing: () => cam.bearing,
+            getPitch: () => 0,
+            project: ([lon, lat]: [number, number]) => {
+                const d = turn((lon - cam.lon) * cam.k, -(lat - cam.lat) * cam.k, cam.bearing);
+                return { x: cam.at.x + d.x, y: cam.at.y + d.y };
+            },
+            fitBounds: vi.fn(
+                (
+                    [[west, south], [east, north]]: number[][],
+                    options: {
+                        padding: { top: number; right: number; bottom: number; left: number };
+                        bearing?: number;
+                    },
+                ) => {
+                    moves += 1;
+                    const p = options.padding;
+                    cam.bearing = options.bearing ?? 0;
+                    cam.lon = (west + east) / 2;
+                    cam.lat = (south + north) / 2;
+                    const corners = [
+                        [west, south],
+                        [east, south],
+                        [east, north],
+                        [west, north],
+                    ].map(([lon, lat]) => turn(lon - cam.lon, -(lat - cam.lat), cam.bearing));
+                    const ex = Math.max(...corners.map((c) => Math.abs(c.x))) * 2;
+                    const ey = Math.max(...corners.map((c) => Math.abs(c.y))) * 2;
+                    cam.k = Math.min((width - p.left - p.right) / ex, (height - p.top - p.bottom) / ey);
+                    cam.at = {
+                        x: p.left + (width - p.left - p.right) / 2,
+                        y: p.top + (height - p.top - p.bottom) / 2,
+                    };
+                    emit('movestart');
+                    emit('moveend');
+                },
+            ),
+            on: (event: string, handler: Handler) => {
+                if (!handlers.has(event)) handlers.set(event, new Set());
+                handlers.get(event)!.add(handler);
+            },
+            off: (event: string, handler: Handler) => handlers.get(event)?.delete(handler),
+        };
+        // The mode's stand-in: back to its bearing 100 ms after a settle that is off it.
+        raw.on('moveend', () => {
+            if (target === null || Math.abs(cam.bearing - target) < 0.5) return;
+            setTimeout(() => {
+                moves += 1;
+                cam.bearing = target;
+                emit('movestart', { thalassaOrientation: true });
+                emit('rotate', { thalassaOrientation: true });
+                emit('moveend', { thalassaOrientation: true });
+            }, 100);
+        });
+        return { raw, ref: { current: raw as unknown as mapboxgl.Map }, moves: () => moves };
+    }
+
+    afterEach(async () => {
+        const { setChartOrientation } = await import('../components/map/chartOrientation');
+        setChartOrientation({ turning: false, target: null });
+    });
+
+    it('Track up at 47°: every fit keeps 47°, and 30 s of steady inputs is at most 2 camera moves', async () => {
+        const { setChartOrientation } = await import('../components/map/chartOrientation');
+        setChartOrientation({ turning: true, target: TARGET });
+        const c = turnedChart();
+        renderHook(() => usePassageRouteFrame({ mapRef: c.ref, mapReady: true, enabled: true, route: COAST }));
+        flush();
+        for (let t = 0; t < 30_000; t += 500) {
+            act(() => {
+                vi.advanceTimersByTime(500);
+            });
+        }
+        expect(c.raw.fitBounds).toHaveBeenCalled();
+        // No ping-pong between the fit and the mode.
+        expect(c.moves()).toBeLessThanOrEqual(2);
+        for (const [, options] of c.raw.fitBounds.mock.calls) expect(options).toMatchObject({ bearing: TARGET });
+    });
+
+    it('north up: the fit says bearing 0, as it always has', () => {
+        const c = turnedChart(null);
+        renderHook(() => usePassageRouteFrame({ mapRef: c.ref, mapReady: true, enabled: true, route: COAST }));
+        flush();
+        expect(c.raw.fitBounds.mock.calls[0][1]).toMatchObject({ bearing: 0 });
+    });
+});

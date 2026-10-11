@@ -80,6 +80,9 @@ export class FakeMapboxMap {
     container: HTMLElement;
     canvasContainer: HTMLElement;
     touchZoomRotate?: { disableRotation: ReturnType<typeof vi.fn> };
+    /** Mapbox's keyboard handler: Shift+left/right turns the map unless its rotation is disabled. */
+    keyboard?: { disableRotation: ReturnType<typeof vi.fn> };
+    bearing = 0;
     /**
      * What queryRenderedFeatures answers: the features a test says are drawn
      * under the point, each with its layer id (filtered by options.layers).
@@ -102,7 +105,10 @@ export class FakeMapboxMap {
         this.container.appendChild(this.canvasContainer);
         if (FakeMapboxMap.failWebGL) throw new Error('Failed to initialize WebGL.');
         // Mapbox builds the gesture handlers only for an interactive map.
-        if (options.interactive !== false) this.touchZoomRotate = { disableRotation: vi.fn() };
+        if (options.interactive !== false) {
+            this.touchZoomRotate = { disableRotation: vi.fn() };
+            this.keyboard = { disableRotation: vi.fn() };
+        }
         FakeMapboxMap.instances.push(this);
     }
 
@@ -199,6 +205,10 @@ export class FakeMapboxMap {
 
     getContainer() {
         return this.container;
+    }
+
+    getBearing() {
+        return this.bearing;
     }
 
     getCanvasContainer() {

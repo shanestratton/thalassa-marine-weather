@@ -216,11 +216,11 @@ function makePausedSnapshot(): AnchorWatchSnapshot {
     };
 }
 
-async function renderShoreWatch(state: SyncState, data: PositionBroadcast) {
+async function renderShoreWatch(state: SyncState, data: PositionBroadcast, onBack = vi.fn()) {
     vi.mocked(AnchorWatchSyncService.restoreSession).mockResolvedValueOnce(true);
     vi.mocked(AnchorWatchSyncService.getState).mockReturnValue(state);
     vi.mocked(ShoreWatchAlarmService.getSnapshot).mockReturnValue(shoreAlarmSnapshot(data.isAlarm ? 'drag' : null));
-    const rendered = render(<AnchorWatchPage onBack={vi.fn()} />);
+    const rendered = render(<AnchorWatchPage onBack={onBack} />);
 
     await waitFor(() => {
         expect(AnchorWatchSyncService.onStateChange).toHaveBeenCalled();
@@ -234,8 +234,9 @@ async function renderShoreWatch(state: SyncState, data: PositionBroadcast) {
         stateListener(state);
         broadcastListener(data);
     });
-    // Shore Watch header action reads 'Leave' — its name now matches (label-in-name).
-    await screen.findByRole('button', { name: 'Leave Shore Watch' });
+    // The shore view itself, not its Leave button: this phone's own Pi watch
+    // has none (Shane 2026-10-10).
+    await screen.findByTestId('shore-watch-page');
     return { stateListener, unmount: rendered.unmount };
 }
 
@@ -1041,42 +1042,120 @@ describe('AnchorWatchPage', () => {
     // Shane 2026-09-29: after a hand-off the shore view's only button was
     // Leave, which left the Pi watching (the keeper renews it hourly), so it
     // could raise a drag alarm as the boat motored off. Weigh Anchor gives the
-    // watch back; Leave keeps its meaning.
-    it("offers Weigh Anchor beside Leave on this phone's own Pi watch, and it stops the Pi", async () => {
-        const keeping = vi
-            .spyOn(AnchorPiWatchKeeper, 'keepingSessionCode')
-            .mockReturnValue(CONNECTED_SHORE_STATE.sessionCode);
-        const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(undefined);
-        try {
-            await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData());
-            expect(screen.getByRole('button', { name: 'Leave Shore Watch' })).toBeInTheDocument();
-            const weigh = screen.getByRole('button', { name: '⏏ Weigh Anchor' });
-            expect(weigh).toHaveAccessibleDescription('Stops the Pi’s watch. Leave keeps the Pi watching.');
-            fireEvent.click(weigh);
-            await waitFor(() => expect(AnchorWatchSyncService.leaveSession).toHaveBeenCalled());
-            expect(end).toHaveBeenCalledOnce();
-            expect(end.mock.invocationCallOrder[0]).toBeLessThan(
-                vi.mocked(AnchorWatchSyncService.leaveSession).mock.invocationCallOrder.at(-1)!,
-            );
-        } finally {
-            keeping.mockRestore();
-            end.mockRestore();
+    // watch back. Shane 2026-10-10: on his own boat Leave then looked just
+    // like Weigh Anchor (both land on setup), so it is gone there; Back still
+    // leaves the Pi watching. Crew following another boat keep Leave.
+    describe('ending Shore Watch: Weigh Anchor on the own boat, Leave for crew', () => {
+        /** The same broadcast, the boat lying at a fictional anchorage abroad. */
+        function at(latitude: number, longitude: number): PositionBroadcast {
+            const data = makeShoreData();
+            return {
+                ...data,
+                vessel: { ...data.vessel, latitude, longitude },
+                anchor: { ...data.anchor, latitude: latitude - 0.0001, longitude },
+            };
         }
-    });
+        const OFF_HORTA = at(38.53, -28.62);
+        const OFF_BOCAS = at(9.34, -82.24);
 
-    it('keeps Leave alone, and leaves the Pi watching, for a session this phone did not hand to its Pi', async () => {
-        const keeping = vi.spyOn(AnchorPiWatchKeeper, 'keepingSessionCode').mockReturnValue('SOMEONEELSE1');
-        const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(undefined);
-        try {
-            await renderShoreWatch(CONNECTED_SHORE_STATE, makeShoreData());
-            expect(screen.queryByRole('button', { name: '⏏ Weigh Anchor' })).toBeNull();
-            fireEvent.click(screen.getByRole('button', { name: 'Leave Shore Watch' }));
-            await waitFor(() => expect(AnchorWatchSyncService.leaveSession).toHaveBeenCalled());
-            expect(end).not.toHaveBeenCalled();
-        } finally {
-            keeping.mockRestore();
-            end.mockRestore();
-        }
+        it("has no Leave on this phone's own Pi watch: Weigh Anchor ends it, Back leaves the Pi watching", async () => {
+            const keeping = vi
+                .spyOn(AnchorPiWatchKeeper, 'keepingSessionCode')
+                .mockReturnValue(CONNECTED_SHORE_STATE.sessionCode);
+            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(undefined);
+            const onBack = vi.fn();
+            try {
+                await renderShoreWatch(CONNECTED_SHORE_STATE, OFF_HORTA, onBack);
+                expect(screen.getByText('Holding')).toBeInTheDocument();
+                expect(screen.queryByRole('button', { name: 'Leave Shore Watch' })).toBeNull();
+                expect(screen.queryByRole('button', { name: /^Leave/ })).toBeNull();
+                const weigh = screen.getByRole('button', { name: '⏏ Weigh Anchor' });
+                expect(weigh).toHaveAccessibleDescription('Stops the Pi’s watch. Back keeps the Pi watching.');
+                // Back goes back and nothing more: the session and the Pi's watch carry on.
+                fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+                expect(onBack).toHaveBeenCalledOnce();
+                expect(AnchorWatchSyncService.leaveSession).not.toHaveBeenCalled();
+                expect(end).not.toHaveBeenCalled();
+            } finally {
+                keeping.mockRestore();
+                end.mockRestore();
+            }
+        });
+
+        it("Weigh Anchor on this phone's own Pi watch stops the Pi, then leaves the session", async () => {
+            const keeping = vi
+                .spyOn(AnchorPiWatchKeeper, 'keepingSessionCode')
+                .mockReturnValue(CONNECTED_SHORE_STATE.sessionCode);
+            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(undefined);
+            try {
+                await renderShoreWatch(CONNECTED_SHORE_STATE, OFF_HORTA);
+                fireEvent.click(screen.getByRole('button', { name: '⏏ Weigh Anchor' }));
+                await waitFor(() => expect(AnchorWatchSyncService.leaveSession).toHaveBeenCalled());
+                expect(end).toHaveBeenCalledOnce();
+                expect(end.mock.invocationCallOrder[0]).toBeLessThan(
+                    vi.mocked(AnchorWatchSyncService.leaveSession).mock.invocationCallOrder.at(-1)!,
+                );
+            } finally {
+                keeping.mockRestore();
+                end.mockRestore();
+            }
+        });
+
+        it('shows no Leave while Weigh Anchor waits on a Pi that does not answer, and crew have it again after', async () => {
+            // end() forgets the session at once, then waits on the Pi: up to
+            // 30 s when it is out of reach. The own boat must not look like
+            // crew (and get Leave back) meanwhile.
+            let keptCode: string | null = CONNECTED_SHORE_STATE.sessionCode;
+            const keeping = vi.spyOn(AnchorPiWatchKeeper, 'keepingSessionCode').mockImplementation(() => keptCode);
+            let piAnswers: () => void = () => {};
+            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockImplementation(() => {
+                keptCode = null;
+                return new Promise<void>((resolve) => {
+                    piAnswers = resolve;
+                });
+            });
+            try {
+                const { stateListener } = await renderShoreWatch(CONNECTED_SHORE_STATE, OFF_HORTA);
+                fireEvent.click(screen.getByRole('button', { name: '⏏ Weigh Anchor' }));
+                expect(end).toHaveBeenCalledOnce();
+                // The shore view draws again (a report, the 1 s tick) while the Pi is silent.
+                act(() => stateListener({ ...CONNECTED_SHORE_STATE, lastPeerUpdate: Date.now() }));
+                expect(screen.getByTestId('shore-watch-page')).toBeInTheDocument();
+                expect(screen.queryByRole('button', { name: 'Leave Shore Watch' })).toBeNull();
+                expect(AnchorWatchSyncService.leaveSession).not.toHaveBeenCalled();
+
+                // The Pi answers: the session is left and the page is on setup, as before.
+                await act(async () => piAnswers());
+                await waitFor(() => expect(AnchorWatchSyncService.leaveSession).toHaveBeenCalledOnce());
+                await waitFor(() => expect(screen.queryByTestId('shore-watch-page')).toBeNull());
+
+                // Later the same phone follows another boat: Leave is theirs again.
+                act(() => stateListener({ ...CONNECTED_SHORE_STATE, sessionCode: 'OTHERBOAT234' }));
+                expect(await screen.findByRole('button', { name: 'Leave Shore Watch' })).toBeInTheDocument();
+                expect(screen.queryByRole('button', { name: '⏏ Weigh Anchor' })).toBeNull();
+                expect(end).toHaveBeenCalledOnce();
+            } finally {
+                keeping.mockRestore();
+                end.mockRestore();
+            }
+        });
+
+        it('keeps Leave for crew following another boat, and it leaves the session with the Pi still watching', async () => {
+            const keeping = vi.spyOn(AnchorPiWatchKeeper, 'keepingSessionCode').mockReturnValue('SOMEONEELSE1');
+            const end = vi.spyOn(AnchorPiWatchKeeper, 'end').mockResolvedValue(undefined);
+            try {
+                await renderShoreWatch(CONNECTED_SHORE_STATE, OFF_BOCAS);
+                expect(screen.queryByRole('button', { name: '⏏ Weigh Anchor' })).toBeNull();
+                const leave = screen.getByRole('button', { name: 'Leave Shore Watch' });
+                expect(leave).toHaveTextContent('Leave');
+                fireEvent.click(leave);
+                await waitFor(() => expect(AnchorWatchSyncService.leaveSession).toHaveBeenCalledOnce());
+                expect(end).not.toHaveBeenCalled();
+            } finally {
+                keeping.mockRestore();
+                end.mockRestore();
+            }
+        });
     });
 
     it('does not call an outside-radius fix Holding while the watchkeeper confirms the alarm', async () => {

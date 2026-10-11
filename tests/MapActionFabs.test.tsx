@@ -165,6 +165,22 @@ describe('MapActionFabs locate feedback', () => {
         release();
     });
 
+    // 127-11a, audit A9: any non-gesture movestart was taken as Locate's own
+    // flight, so a Track-up turn while it waited announced a centring that
+    // never happened. An orientation turn carries thalassaOrientation.
+    it('a chart turning to its orientation mode meanwhile is not the answer', () => {
+        vi.useFakeTimers();
+        const { map, release } = renderBesideMap();
+        fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
+        act(() => map.emit('movestart', { thalassaOrientation: true }));
+        expect(screen.getByRole('status')).toHaveTextContent('Finding your position…');
+        expect(screen.getByText('Finding position…')).toBeInTheDocument();
+        // Locate's own flight still answers.
+        act(() => map.emit('movestart', {}));
+        expect(screen.getByRole('status')).toHaveTextContent('Chart centred on your position.');
+        release();
+    });
+
     it('says so when no fix arrives, and ignores the skipper panning meanwhile', () => {
         vi.useFakeTimers();
         const { map, release } = renderBesideMap();

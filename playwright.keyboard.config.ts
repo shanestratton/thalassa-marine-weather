@@ -136,6 +136,25 @@ export default defineConfig({
         // A phone without Thalassa held to a box tag (126-11b): public/box.html fits 320 × 568
         // and 430 × 932, light and dark, and loads nothing but itself.
         'box-fallback-page.spec.ts',
+        // The desk chart (127-DESKMAP): Light base, Relief seabed and OpenSeaMap seamarks drawn
+        // offline (e2e/fixtures/desk-map.tsx), a fictional NOAA-shaped chart in chart mode, and
+        // the real web planner's menu and strip at 1440 to 320 px in wide fonts.
+        'desk-map-light.spec.ts',
+        // Charts stay on the boat (127-C-b): the tracer's stub rows, the departure planner's
+        // "tide gates need your boat's charts" and a saved plan's number-free notes fit 320 to the
+        // iPad split, landscape and large text, in the system face and wide fonts
+        // (e2e/fixtures/chart-words.tsx); NOAA keeps its figures.
+        'chart-words-layout.spec.ts',
+        // Wind on the desk (127-DESKMAP-b): the menu's Wind row, the panel bottom right clear of
+        // the planner's controls, dark streaks on Light, the model credit, the models' agreement,
+        // and the wind credit on the phone's Obs, offline with a stubbed proxy-openmeteo.
+        'desk-wind-layout.spec.ts',
+        // The chart can turn (127-11a): the wind field, her marker and a distress
+        // beacon stay true at a fixed bearing (e2e/fixtures/chart-orientation.tsx).
+        'chart-orientation.spec.ts',
+        // Routing off the main thread (127-ROUTE-W2): while Auto routes the archipelago's 20 NM
+        // leg in the worker, no pause over 150 ms; Stop; and the no-Worker freeze, seen.
+        'route-worker.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

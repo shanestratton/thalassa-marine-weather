@@ -46,6 +46,8 @@ export interface TraceReleaseGate {
     allowed: boolean;
     reason: string;
     verification: TraceVerification | null;
+    /** Refused only for grade stubs (127-C-b): Save stays tappable and checks them again. */
+    recheck?: true;
 }
 
 /** Prefix used in voyages.notes. Keep it one line so ordinary notes can
@@ -182,6 +184,41 @@ export function evaluateTraceRelease(
     if (verdicts.length !== points.length - 1 || verdicts.some((verdict) => verdict === null)) {
         return { allowed: false, reason: 'Wait for every leg check to finish.', verification: null };
     }
+    // Land is the one danger no acknowledgment can accept (Shane 2026-08-10:
+    // accepted issues are good to go — "just not ones that cross land"). A
+    // hazard or berth crossing is a judgement call the skipper may own;
+    // charted land is not a risk, it is a wall. Refusing — before the ack
+    // machinery — means a land-crossing route can never be saved, so it can
+    // never surface as a followable choice anywhere downstream.
+    const landLegs = verdicts
+        .map((verdict, index) =>
+            verdict?.issues.some(
+                (issue) => issue.severity === 'danger' && issue.message === TRACE_LAND_CROSSING_MESSAGE,
+            )
+                ? index
+                : -1,
+        )
+        .filter((index) => index >= 0);
+    const landRefusal = (): TraceReleaseGate => ({
+        allowed: false,
+        reason: `Leg${landLegs.length === 1 ? '' : 's'} ${landLegs.map((index) => index + 1).join(', ')} cross${
+            landLegs.length === 1 ? 'es' : ''
+        } charted land. Move the waypoints — land legs cannot be acknowledged.`,
+        verification: null,
+    });
+    // A grade stub (127-C-b) is display only: it never mints a verification or
+    // an acknowledgement. Her tap on Save, Sail, the Route report or the leg
+    // checks it again.
+    if (verdicts.some((verdict) => verdict!.stub)) {
+        return landLegs.length > 0
+            ? landRefusal()
+            : {
+                  allowed: false,
+                  reason: 'Tap Save or open the Route report to check these legs on your charts again.',
+                  verification: null,
+                  recheck: true,
+              };
+    }
 
     const legGrades = verdicts.map((verdict) => verdict!.grade);
     const needsTide = verdicts.some((verdict) => verdict?.needsTide);
@@ -205,30 +242,7 @@ export function evaluateTraceRelease(
     ) {
         return { allowed: false, reason: 'Vessel or chart-check context is incomplete.', verification: null };
     }
-    // Land is the one danger no acknowledgment can accept (Shane 2026-08-10:
-    // accepted issues are good to go — "just not ones that cross land"). A
-    // hazard or berth crossing is a judgement call the skipper may own;
-    // charted land is not a risk, it is a wall. Refusing here — before the
-    // ack machinery — means a land-crossing route can never be saved, so it
-    // can never surface as a followable choice anywhere downstream.
-    const landLegs = verdicts
-        .map((verdict, index) =>
-            verdict?.issues.some(
-                (issue) => issue.severity === 'danger' && issue.message === TRACE_LAND_CROSSING_MESSAGE,
-            )
-                ? index
-                : -1,
-        )
-        .filter((index) => index >= 0);
-    if (landLegs.length > 0) {
-        return {
-            allowed: false,
-            reason: `Leg${landLegs.length === 1 ? '' : 's'} ${landLegs.map((index) => index + 1).join(', ')} cross${
-                landLegs.length === 1 ? 'es' : ''
-            } charted land. Move the waypoints — land legs cannot be acknowledged.`,
-            verification: null,
-        };
-    }
+    if (landLegs.length > 0) return landRefusal();
 
     const dangerLegs = legGrades.map((grade, index) => (grade === 'danger' ? index : -1)).filter((index) => index >= 0);
     const unacknowledged = dangerLegs.filter((index) => !acknowledgedLegs.has(index));

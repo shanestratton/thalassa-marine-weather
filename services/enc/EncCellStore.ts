@@ -496,6 +496,8 @@ export async function hasCellGeoJSON(cellId: string): Promise<boolean> {
  *      public-domain NOAA cells only since 126-20: licensed charts never
  *      come from the cloud, so a licensed cell missing here stays missing
  *      until the Pi has it.
+ * Two rungs and no third: the personal cloud shelf that once followed them
+ * was deleted in 127.
  * `remoteFallback=false` marks the post-download retry so a bad blob can't
  * loop the ladder forever.
  */
@@ -520,13 +522,6 @@ export async function loadCellGeoJSON(cellId: string, remoteFallback = true): Pr
         // any request).
         const { downloadCloudCell } = await import('./cloudCellSync');
         if (await downloadCloudCell(cellId)) return loadCellGeoJSON(cellId, false);
-        // Rung 3: the skipper's OWN published cells. CLOSED since 126-20
-        // (personalCellSync PERSONAL_CHART_CLOUD_ENABLED): it answers false
-        // without a request, and build 127 removes the rung with the module.
-        // It served a browser off the boat from the owner's cloud folder,
-        // which o-charts' licence terms do not allow.
-        const { downloadPersonalCell } = await import('./personalCellSync');
-        if (await downloadPersonalCell(cellId)) return loadCellGeoJSON(cellId, false);
     }
     return null;
 }

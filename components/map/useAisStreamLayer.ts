@@ -15,6 +15,7 @@ import { AisStreamService } from '../../services/AisStreamService';
 import { AisStore } from '../../services/AisStore';
 import { supabase } from '../../services/supabase';
 import { onLocalAisChange } from './useAisLayer';
+import { AIS_SART_LAYER } from './aisDistressSymbol';
 import { LocationStore } from '../../stores/LocationStore';
 import { NmeaStore } from '../../services/NmeaStore';
 import { computeCpa } from '../../utils/cpaCalculation';
@@ -1563,14 +1564,17 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             map.getCanvas().style.cursor = '';
         };
 
-        map.on('click', 'ais-targets-circle', handleClick);
-        map.on('mouseenter', 'ais-targets-circle', handleMouseEnter);
-        map.on('mouseleave', 'ais-targets-circle', handleMouseLeave);
+        // A distress beacon draws on its own upright layer (127-11a): one
+        // listener over both, so a beacon over a boat is still one tap.
+        const tapLayers = ['ais-targets-circle', AIS_SART_LAYER];
+        map.on('click', tapLayers, handleClick);
+        map.on('mouseenter', tapLayers, handleMouseEnter);
+        map.on('mouseleave', tapLayers, handleMouseLeave);
 
         return () => {
-            map.off('click', 'ais-targets-circle', handleClick);
-            map.off('mouseenter', 'ais-targets-circle', handleMouseEnter);
-            map.off('mouseleave', 'ais-targets-circle', handleMouseLeave);
+            map.off('click', tapLayers, handleClick);
+            map.off('mouseenter', tapLayers, handleMouseEnter);
+            map.off('mouseleave', tapLayers, handleMouseLeave);
             if (popupRef.current) {
                 popupRef.current.remove();
                 popupRef.current = null;

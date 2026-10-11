@@ -238,6 +238,15 @@ export interface UserSettings {
      */
     obsEncOnOpen?: boolean;
     /**
+     * Whether this account's paired Pi holds licensed (protected) charts
+     * (127-DESKMAP C1). One boolean: no count, no ids, no positions. Written by
+     * the phone aboard when it registers the Pi's chart index (127-C-c) and
+     * cleared to null when the pairing is forgotten; it rides user_settings
+     * like any other field. The desk and web Obs only READ it: true shows
+     * "Licensed charts stay on <boat>", anything else the open-chart words.
+     */
+    boatCharts?: { licensed: boolean } | null;
+    /**
      * Settings → Preferences → Collision alarm (build 125, 125-01): the CPA /
      * TCPA pair the collision alarm and the chart's CPA chip use, offshore and
      * inshore (inshore applies under 3 kn of our own speed). Unset or

@@ -11,6 +11,7 @@ import { WindStore } from '../../stores/WindStore';
 import { LocationStore } from '../../stores/LocationStore';
 import type { LocationState } from '../../stores/LocationStore';
 import { isHttpUrlOnDomain, parseExternalHttpUrl } from '../../utils/safeUrl';
+import { OPENSEAMAP_ATTRIBUTION } from './seamarkCredit';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -75,8 +76,7 @@ const OFFLINE_STYLE: StyleSpecification = {
             tiles: ['https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'],
             tileSize: 256,
             maxzoom: 18,
-            attribution:
-                '&copy; <a href="https://www.openseamap.org" rel="noopener noreferrer" referrerpolicy="no-referrer">OpenSeaMap</a>',
+            attribution: OPENSEAMAP_ATTRIBUTION,
         },
     },
     layers: [

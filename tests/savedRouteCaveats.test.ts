@@ -20,7 +20,9 @@ const caveats = [
 
 describe('a saved route keeps its caveats', () => {
     it('the logbook notes carry one line per caveat, after the summary, and read back exactly', () => {
-        const notes = `__route_geometry__::[[153,-27],[153.1,-27.1]]\nPlanned: A → B${routeCaveatNotes({ __inshoreRouting: { caveats: [...caveats, 3, '  '] } })}`;
+        // Worked out on an open (NOAA) chart: its notes are written as they are
+        // (over licensed charts they are made number-free; tests/VoyagePlanChartFacts).
+        const notes = `__route_geometry__::[[153,-27],[153.1,-27.1]]\nPlanned: A → B${routeCaveatNotes({ __inshoreRouting: { cellsUsed: ['US5XX01M'], caveats: [...caveats, 3, '  '] } })}`;
         expect(notes.split('\n').filter((l) => l.startsWith(ROUTE_CAVEAT_LINE_PREFIX))).toHaveLength(2);
         expect(recoverRouteCaveats(notes)).toEqual(caveats);
         // The geometry line is untouched: still the first line.

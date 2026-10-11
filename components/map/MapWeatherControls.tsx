@@ -31,6 +31,8 @@ import {
 } from '../../services/weather/pressureProvenance';
 import { lazyRetry } from '../../utils/lazyRetry';
 import { useFollowedBoatKey } from './useFollowedBoatKey';
+import { WIND_PARTICLE_GRADIENT_LIGHT, type WindPalette } from './windRamp';
+import { DeskWindAgreement, useWindStartHandOff } from './DeskWindLine';
 
 type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
 
@@ -60,6 +62,18 @@ interface MapWeatherControlsProps {
     /** Already-active non-weather chart layers; this surface does not own their lifecycle. */
     extraLegend?: React.ReactNode;
     extraLegendCount?: number;
+    /**
+     * The desk planner's wind (127-DESKMAP-b): the panel at the bottom right,
+     * clear of the tracer; the legend in the base's streak palette; the models'
+     * agreement at `point` (the trace's first pin, `pinned`, else the still
+     * map centre); and the scrubber opened at the trace's start.
+     */
+    desk?: {
+        palette: WindPalette;
+        point: { lat: number; lon: number } | null;
+        pinned?: boolean;
+        startMs: number | null;
+    };
 }
 
 /**
@@ -77,6 +91,7 @@ export function MapWeatherControls({
     onControlsHiddenChange,
     extraLegend,
     extraLegendCount,
+    desk,
 }: MapWeatherControlsProps): React.ReactElement | null {
     // Above the early return: a hook is called on every render or on none.
     const passageLookAheadOn = usePassageLookAheadOn();
@@ -91,6 +106,8 @@ export function MapWeatherControls({
     // "Her wind vs the models" is offered only while Current Location follows a boat.
     const followedBoatKey = useFollowedBoatKey();
     const [checkOpen, setCheckOpen] = useState(false);
+    // The desk's start hand-off.
+    const startHandOff = useWindStartHandOff(weather, desk?.startMs);
 
     // Identify active weather layers (only scrubber-capable types).
     const weatherKeys: HelixLayer[] = [
@@ -183,9 +200,9 @@ export function MapWeatherControls({
             : 'Valid time unavailable';
     const windReference = Date.parse(weather.windState?.grid?.refTime ?? '');
     const windOffset = windForecastHourAtFrame(weather.windForecastHours ?? [], weather.windHour);
-    const windValidTime = validTime(
-        Number.isFinite(windReference) && windOffset != null ? windReference + windOffset * 3_600_000 : null,
-    );
+    const windValidMs =
+        Number.isFinite(windReference) && windOffset != null ? windReference + windOffset * 3_600_000 : null;
+    const windValidTime = validTime(windValidMs);
     const pressureFetched =
         weather.pressureFetchedAtMs != null && Number.isFinite(weather.pressureFetchedAtMs)
             ? ` · Fetched ${new Date(weather.pressureFetchedAtMs).toISOString().slice(5, 16).replace('T', ' ')} UTC`
@@ -374,9 +391,20 @@ export function MapWeatherControls({
                         frameLabel = 'Unavailable';
                         sublabel = 'Wind data';
                     }
+                    if (startHandOff.label && Math.abs(weather.windHour - startHandOff.frame!) < 0.05)
+                        frameLabel = startHandOff.label;
+                    else if (startHandOff.past && roundedIndex === windNowIndex)
+                        sublabel = `Your start is past this forecast · ${sublabel}`;
                     isPlaying = weather.windPlaying;
-                    onScrub = weather.setWindHour;
-                    onPlayToggle = () => weather.setWindPlaying(!weather.windPlaying);
+                    // A hand on the timeline overrules the desk's start hand-off.
+                    onScrub = (frame: number) => {
+                        startHandOff.overrule();
+                        weather.setWindHour(frame);
+                    };
+                    onPlayToggle = () => {
+                        startHandOff.overrule();
+                        weather.setWindPlaying(!weather.windPlaying);
+                    };
                     onScrubStart = () => weather.setWindPlaying(false);
                     sublabel += ` · ${windValidTime}`;
                     // Close-in: what the streaks are showing, where. The boat's
@@ -649,7 +677,7 @@ export function MapWeatherControls({
                     // Since the panel took every chart layer (not only weather)
                     // it is the default surface, and at bottom 80px it lay on
                     // the Mapbox wordmark, the ⓘ, Locate and the zoom rail.
-                    className={`${embedded ? '' : 'thalassa-chart-controls-panel '}absolute z-500 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/90 text-white shadow-lg backdrop-blur-xl`}
+                    className={`${embedded ? '' : 'thalassa-chart-controls-panel '}${desk ? 'thalassa-chart-controls-panel--desk ' : ''}absolute z-500 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/90 text-white shadow-lg backdrop-blur-xl`}
                     style={
                         embedded
                             ? {
@@ -702,9 +730,12 @@ export function MapWeatherControls({
                                 inline
                             />
                         )}
+                        {showTimeline && activeLayer === 'wind' && desk && (
+                            <DeskWindAgreement point={desk.point} pinned={desk.pinned} validMs={windValidMs} />
+                        )}
                         {content}
                         {/* After the timeline, so it stays above the fold at 320x568. */}
-                        {showTimeline && activeLayer === 'wind' && !embedded && followedBoatKey !== null && (
+                        {showTimeline && activeLayer === 'wind' && !embedded && !desk && followedBoatKey !== null && (
                             <button
                                 type="button"
                                 data-model-check-row
@@ -740,6 +771,7 @@ export function MapWeatherControls({
                             pressureOverlay={weather.activeLayers.size > 1}
                             extraLegend={extraLegend}
                             extraLegendCount={extraLegendCount}
+                            windGradient={desk?.palette === 'light' ? WIND_PARTICLE_GRADIENT_LIGHT : undefined}
                         />
                     </div>
                 </section>
@@ -831,7 +863,7 @@ export function MapWeatherControls({
                     // credits row beside the wordmark. 12px text (the app's
                     // floor) on py-1 keeps two lines inside the 48px the CSS
                     // allows under the opened Mapbox credits.
-                    className={`${embedded ? 'max-w-[calc(100%-88px)] ' : 'thalassa-chart-controls-pill '}absolute z-510 flex min-h-[44px] items-center gap-2 rounded-2xl border bg-slate-950/90 px-3 py-1 text-left text-[12px] text-slate-200 shadow-lg backdrop-blur-md active:scale-[0.98] ${compactSummary.tone === 'warning' ? 'border-amber-400/50' : 'border-sky-400/30'}`}
+                    className={`${embedded ? 'max-w-[calc(100%-88px)] ' : 'thalassa-chart-controls-pill '}${desk ? 'thalassa-chart-controls-pill--desk ' : ''}absolute z-510 flex min-h-[44px] items-center gap-2 rounded-2xl border bg-slate-950/90 px-3 py-1 text-left text-[12px] text-slate-200 shadow-lg backdrop-blur-md active:scale-[0.98] ${compactSummary.tone === 'warning' ? 'border-amber-400/50' : 'border-sky-400/30'}`}
                     style={embedded ? { left: 'max(12px, env(safe-area-inset-left))', bottom: 12 } : undefined}
                     aria-label={hasExtraLegend ? 'Show layer controls' : 'Show weather controls'}
                     aria-describedby={summaryId}

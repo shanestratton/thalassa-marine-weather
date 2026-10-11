@@ -25,12 +25,22 @@ import { crumb } from '../../utils/flightRecorder';
 import { installPaneAwareAttribution } from './paneAwareAttribution';
 import { installScaleBarLabel } from './scaleBarLabel';
 import { registerChartMap } from './chartMapRegistry';
-import { addReliefBase, HIDDEN_BASE_GEOMETRY, LAND_STRUCTURE } from './reliefBase';
+import { isOrientationEvent } from './chartOrientation';
+import {
+    addReliefBase,
+    BASE_LABEL,
+    BASE_LAND_FILL,
+    BASE_WATER_FILL,
+    HIDDEN_BASE_GEOMETRY,
+    LAND_STRUCTURE,
+} from './reliefBase';
 import { deferEncPrewarm } from './encPrewarmLifecycle';
 import { obsFollowStartFix } from './obsCentre';
 import { OBS_PLACE_ZOOM, OBS_VESSEL_ZOOM, type ObsStartTarget } from './useObsStartupCamera';
 import { inshoreRouteLineLayers, surveyDashLayers, unverifiedRouteDashLayers } from './inshoreRouteState';
-import { AIS_TARGET_ICON_IMAGE, AIS_TARGET_ICON_SIZE, registerAisDistressSymbol } from './aisDistressSymbol';
+import { OPENSEAMAP_ATTRIBUTION } from './seamarkCredit';
+import { TRACE_CASING } from './traceLegInk';
+import { AIS_SART_LAYER, AIS_TARGET_ICON_LAYERS, registerAisDistressSymbol } from './aisDistressSymbol';
 
 /** Map instances created THIS PROCESS — the flight trail's #N. */
 let mapInstanceSeq = 0;
@@ -63,6 +73,99 @@ export function setOpenSeaMapRasterVisibility(
             }
         } catch {
             /* layer not yet available — harmless */
+        }
+    }
+}
+
+/**
+ * The load pass: recolour dark-v11 for the app's vector bases and hide what
+ * only ever showed through imagery. Exported so a browser fixture builds its
+ * map through this same pass (browser-tests/desk-map-light.spec.ts); the
+ * regexes are reliefBase's, so setReliefPalette repaints exactly these layers.
+ */
+export function recolourBaseStyle(map: mapboxgl.Map, minimalLabels: boolean): void {
+    const style = map.getStyle();
+    if (style?.layers) {
+        for (const layer of style.layers) {
+            // minimalLabels: hide country/state/continent labels but KEEP city names
+            // Works with both Mapbox (country-label) and OpenMapTiles (Country labels) conventions
+            if (
+                minimalLabels &&
+                layer.type === 'symbol' &&
+                layer.id.match(/country.?label|state.?label|continent.?label|Country|State|Continent/i)
+            ) {
+                map.setLayoutProperty(layer.id, 'visibility', 'none');
+            }
+            if (layer.type === 'symbol' && layer.id.match(/road|motorway|highway|shield|trunk/i)) {
+                map.setLayoutProperty(layer.id, 'visibility', 'none');
+            }
+            // PLAIN LAND under the vector bases (2026-10-04). Roads, tunnels,
+            // buildings and aeroways only ever showed through gaps in the
+            // imagery; Relief and Ocean have no imagery to cover them, so
+            // land is one plain colour as approved. Piers, breakwaters,
+            // groynes and bridges STAY (review 2026-10-05): with ENC off
+            // they are a marina's only geometry and a channel's air-draft
+            // hazard. Painted the land slate, they read as structure over
+            // water and vanish into plain land (reliefBase LAND_STRUCTURE).
+            if (layer.type !== 'symbol' && HIDDEN_BASE_GEOMETRY.test(layer.id)) {
+                map.setLayoutProperty(layer.id, 'visibility', 'none');
+            }
+            if ((layer.type === 'line' || layer.type === 'fill') && LAND_STRUCTURE.test(layer.id)) {
+                map.setPaintProperty(layer.id, `${layer.type}-color`, '#333b45');
+            }
+            // Hide lat/lon graticule and admin boundary lines to keep weather imagery unobstructed
+            if (
+                layer.type === 'line' &&
+                layer.id.match(/admin|boundary|border|graticule|grid|latitude|longitude|meridian/i)
+            ) {
+                map.setLayoutProperty(layer.id, 'visibility', 'none');
+            }
+            // Boost place labels so they're readable under wind particles.
+            // The regexes here are reliefBase's, shared with setReliefPalette,
+            // so Light repaints exactly what this pass paints (127-DESKMAP).
+            if (layer.type === 'symbol' && BASE_LABEL.test(layer.id)) {
+                try {
+                    map.setPaintProperty(layer.id, 'text-color', '#ffffff');
+                    map.setPaintProperty(layer.id, 'text-halo-color', 'rgba(0, 0, 0, 0.9)');
+                    map.setPaintProperty(layer.id, 'text-halo-width', 2);
+                } catch {
+                    // Some OpenMapTiles-schema layers may not support text paint properties
+                }
+            }
+
+            // WATER vs LAND contrast on the dark base (Shane 2026-07-17:
+            // "the map is too dark to read — at least have the water and
+            // land in opposing colours"). dark-v11 paints both a near-
+            // identical charcoal, so the coastline vanishes on the clean
+            // dark chart. Repaint water a marine blue and land / the base
+            // background a lighter slate so the two read at a glance.
+            // Harmless under satellite (imagery covers the base) and
+            // under ENC (depth bands paint over water where charted).
+            if (layer.type === 'background') {
+                try {
+                    map.setPaintProperty(layer.id, 'background-color', '#333b45');
+                } catch {
+                    /* style may lock the background */
+                }
+            }
+            if (layer.type === 'fill' && BASE_WATER_FILL.test(layer.id)) {
+                try {
+                    // Lightened twice now (Shane 2026-07-17: "make the
+                    // water lighter, it is still very dark blue") —
+                    // #0d2c49 → #1f5a85, a readable mid marine blue that
+                    // sits clearly apart from the #333b45 land slate.
+                    map.setPaintProperty(layer.id, 'fill-color', '#1f5a85');
+                } catch {
+                    /* some fills lock their colour */
+                }
+            }
+            if (layer.type === 'fill' && BASE_LAND_FILL.test(layer.id)) {
+                try {
+                    map.setPaintProperty(layer.id, 'fill-color', '#333b45');
+                } catch {
+                    /* some fills lock their colour */
+                }
+            }
         }
     }
 }
@@ -575,6 +678,10 @@ export function useMapInit(opts: UseMapInitOptions) {
         // rotate the map by twisting two fingers. Belt-and-braces lock
         // to north-up. See the rationale on the constructor options.
         map.touchZoomRotate.disableRotation();
+        // And the keyboard's: Shift+left/right turned the chart 15° a press
+        // on the desk, with nothing on screen to turn it back (127-11a). Only
+        // the orientation modes turn the chart now.
+        map.keyboard?.disableRotation();
 
         // Store Aus+NZ zoom on map instance so other hooks can read it
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -590,13 +697,12 @@ export function useMapInit(opts: UseMapInitOptions) {
             const ch = containerRef.current.clientHeight;
             const z = map.getZoom();
 
-            const leftPx = map.project([AUS_NZ_WEST, (AUS_NZ_NORTH + AUS_NZ_SOUTH) / 2]).x;
-            const rightPx = map.project([AUS_NZ_EAST, (AUS_NZ_NORTH + AUS_NZ_SOUTH) / 2]).x;
-            const topPx = map.project([(AUS_NZ_WEST + AUS_NZ_EAST) / 2, AUS_NZ_NORTH]).y;
-            const bottomPx = map.project([(AUS_NZ_WEST + AUS_NZ_EAST) / 2, AUS_NZ_SOUTH]).y;
-
-            const spanW = Math.abs(rightPx - leftPx);
-            const spanH = Math.abs(bottomPx - topPx);
+            // The box's spans in mercator, not project(): screen axes turn
+            // with a turned chart, the box does not (127-11a, A13).
+            const worldPx = 512 * Math.pow(2, z);
+            const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) / (2 * Math.PI);
+            const spanW = ((AUS_NZ_EAST - AUS_NZ_WEST) / 360) * worldPx;
+            const spanH = Math.abs(mercY(AUS_NZ_NORTH) - mercY(AUS_NZ_SOUTH)) * worldPx;
 
             const zoomForWidth = z + Math.log2(cw / spanW);
             const zoomForHeight = z + Math.log2(ch / spanH);
@@ -626,98 +732,7 @@ export function useMapInit(opts: UseMapInitOptions) {
         }
 
         map.on('load', () => {
-            const style = map.getStyle();
-            if (style?.layers) {
-                for (const layer of style.layers) {
-                    // minimalLabels: hide country/state/continent labels but KEEP city names
-                    // Works with both Mapbox (country-label) and OpenMapTiles (Country labels) conventions
-                    if (
-                        minimalLabels &&
-                        layer.type === 'symbol' &&
-                        layer.id.match(/country.?label|state.?label|continent.?label|Country|State|Continent/i)
-                    ) {
-                        map.setLayoutProperty(layer.id, 'visibility', 'none');
-                    }
-                    if (layer.type === 'symbol' && layer.id.match(/road|motorway|highway|shield|trunk/i)) {
-                        map.setLayoutProperty(layer.id, 'visibility', 'none');
-                    }
-                    // PLAIN LAND under the vector bases (2026-10-04). Roads, tunnels,
-                    // buildings and aeroways only ever showed through gaps in the
-                    // imagery; Relief and Ocean have no imagery to cover them, so
-                    // land is one plain colour as approved. Piers, breakwaters,
-                    // groynes and bridges STAY (review 2026-10-05): with ENC off
-                    // they are a marina's only geometry and a channel's air-draft
-                    // hazard. Painted the land slate, they read as structure over
-                    // water and vanish into plain land (reliefBase LAND_STRUCTURE).
-                    if (layer.type !== 'symbol' && HIDDEN_BASE_GEOMETRY.test(layer.id)) {
-                        map.setLayoutProperty(layer.id, 'visibility', 'none');
-                    }
-                    if ((layer.type === 'line' || layer.type === 'fill') && LAND_STRUCTURE.test(layer.id)) {
-                        map.setPaintProperty(layer.id, `${layer.type}-color`, '#333b45');
-                    }
-                    // Hide lat/lon graticule and admin boundary lines to keep weather imagery unobstructed
-                    if (
-                        layer.type === 'line' &&
-                        layer.id.match(/admin|boundary|border|graticule|grid|latitude|longitude|meridian/i)
-                    ) {
-                        map.setLayoutProperty(layer.id, 'visibility', 'none');
-                    }
-                    // Boost place labels so they're readable under wind particles
-                    if (
-                        layer.type === 'symbol' &&
-                        layer.id.match(
-                            /country.?label|state.?label|continent.?label|place.?label|settlement|water.?point|City|Town|Village|Place|label/i,
-                        )
-                    ) {
-                        try {
-                            map.setPaintProperty(layer.id, 'text-color', '#ffffff');
-                            map.setPaintProperty(layer.id, 'text-halo-color', 'rgba(0, 0, 0, 0.9)');
-                            map.setPaintProperty(layer.id, 'text-halo-width', 2);
-                        } catch {
-                            // Some OpenMapTiles-schema layers may not support text paint properties
-                        }
-                    }
-
-                    // WATER vs LAND contrast on the dark base (Shane 2026-07-17:
-                    // "the map is too dark to read — at least have the water and
-                    // land in opposing colours"). dark-v11 paints both a near-
-                    // identical charcoal, so the coastline vanishes on the clean
-                    // dark chart. Repaint water a marine blue and land / the base
-                    // background a lighter slate so the two read at a glance.
-                    // Harmless under satellite (imagery covers the base) and
-                    // under ENC (depth bands paint over water where charted).
-                    if (layer.type === 'background') {
-                        try {
-                            map.setPaintProperty(layer.id, 'background-color', '#333b45');
-                        } catch {
-                            /* style may lock the background */
-                        }
-                    }
-                    if (layer.type === 'fill' && /water|ocean|sea(?!rch)|bathymetr/i.test(layer.id)) {
-                        try {
-                            // Lightened twice now (Shane 2026-07-17: "make the
-                            // water lighter, it is still very dark blue") —
-                            // #0d2c49 → #1f5a85, a readable mid marine blue that
-                            // sits clearly apart from the #333b45 land slate.
-                            map.setPaintProperty(layer.id, 'fill-color', '#1f5a85');
-                        } catch {
-                            /* some fills lock their colour */
-                        }
-                    }
-                    if (
-                        layer.type === 'fill' &&
-                        /(^|[-_])land($|[-_])|landcover|landuse|national.?park|wood|forest|grass|sand|glacier/i.test(
-                            layer.id,
-                        )
-                    ) {
-                        try {
-                            map.setPaintProperty(layer.id, 'fill-color', '#333b45');
-                        } catch {
-                            /* some fills lock their colour */
-                        }
-                    }
-                }
-            }
+            recolourBaseStyle(map, minimalLabels);
 
             // ── Satellite base (Shane 2026-07-03: "satellite overlay instead
             // of the ENC overlay when running a route") ──
@@ -845,8 +860,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                     tiles: ['https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'],
                     tileSize: 256,
                     maxzoom: 18,
-                    attribution:
-                        'Map data: &copy; <a href="https://www.openseamap.org" target="_blank" rel="noopener noreferrer">OpenSeaMap contributors</a>',
+                    attribution: OPENSEAMAP_ATTRIBUTION, // OpenSeaMap: CC BY-SA 2.0 tiles, ODbL data (127-DESKMAP B3)
                 });
                 map.addLayer(
                     {
@@ -970,6 +984,19 @@ export function useMapInit(opts: UseMapInitOptions) {
             });
 
             // ── Confidence Braid: Multi-Model Route Comparison ──
+            // The route line's dark edge under each model line, so it reads on
+            // Light's pale sea as well as the dark bases (127-DESKMAP A4). Web
+            // only: the phone's Obs and planner are unchanged in 127.
+            const cased = !Capacitor.isNativePlatform();
+            const braidCasing = (model: string) =>
+                cased &&
+                map.addLayer({
+                    id: `confidence-${model}-casing`,
+                    type: 'line',
+                    source: `confidence-route-${model}`,
+                    layout: { 'line-join': 'round', 'line-cap': 'round' },
+                    paint: { 'line-color': TRACE_CASING, 'line-width': 4, 'line-opacity': 0.8 },
+                });
             // GFS route (cyan) — visible only when models diverge
             map.addSource('confidence-route-gfs', {
                 type: 'geojson',
@@ -982,6 +1009,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: { 'line-color': '#22d3ee', 'line-width': 8, 'line-blur': 6, 'line-opacity': 0.5 },
             });
+            braidCasing('gfs');
             map.addLayer({
                 id: 'confidence-gfs-core',
                 type: 'line',
@@ -1002,6 +1030,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: { 'line-color': '#e879f9', 'line-width': 8, 'line-blur': 6, 'line-opacity': 0.5 },
             });
+            braidCasing('ecmwf');
             map.addLayer({
                 id: 'confidence-ecmwf-core',
                 type: 'line',
@@ -1015,6 +1044,16 @@ export function useMapInit(opts: UseMapInitOptions) {
             // the bright red and white dashes on a dark edge just above
             // (2026-10-03; they were this layer's amber dash, which read as a
             // lead).
+            // Its dashes ride the route line's dark edge on the web (127-DESKMAP A4).
+            if (cased)
+                map.addLayer({
+                    id: 'route-harbour-casing',
+                    type: 'line',
+                    source: 'route-line',
+                    filter: ['all', ['==', ['get', 'dashed'], true], ['!=', ['get', 'safety'], 'unverified']],
+                    layout: { 'line-join': 'round', 'line-cap': 'round' },
+                    paint: { 'line-color': TRACE_CASING, 'line-width': 5, 'line-opacity': 0.8 },
+                });
             map.addLayer({
                 id: 'route-harbour-dash',
                 type: 'line',
@@ -1265,56 +1304,9 @@ export function useMapInit(opts: UseMapInitOptions) {
                 },
             });
 
-            // Boat icon — rotated by heading, colour-coded by status
-            map.addLayer({
-                id: 'ais-targets-circle',
-                type: 'symbol',
-                source: 'ais-targets',
-                layout: {
-                    // Motion picks the shape: underway-with-orientation is the
-                    // rotated boat, everything else the dot, and a distress
-                    // beacon is always the circle-and-cross (see
-                    // targetPresentation in useAisStreamLayer — precomputed,
-                    // the established pattern for this source).
-                    'icon-image': AIS_TARGET_ICON_IMAGE as unknown as mapboxgl.Expression,
-                    'icon-size': AIS_TARGET_ICON_SIZE as unknown as mapboxgl.Expression,
-                    // Precomputed orientation (heading-first, COG only when
-                    // moving); dots ignore rotation by shape.
-                    'icon-rotate': ['coalesce', ['get', 'orientation'], 0],
-                    'icon-rotation-alignment': 'map',
-                    'icon-allow-overlap': true,
-                    'icon-pitch-alignment': 'map',
-                },
-                paint: {
-                    // Type colour with safety override (NUC/restricted keep
-                    // their status colour); statusColor is the fallback for
-                    // any feature that predates the presentation pass.
-                    'icon-color': ['coalesce', ['get', 'typeColor'], ['get', 'statusColor']],
-                    // Ghost ship effect: fade vessels by age (staleMinutes)
-                    // 0-30 min: fully opaque, 30-120 min: fading, 120+: ghostly.
-                    // A distress beacon never fades: its label says its age.
-                    'icon-opacity': [
-                        'case',
-                        ['==', ['get', 'iconKind'], 'sart'],
-                        1,
-                        [
-                            'interpolate',
-                            ['linear'],
-                            ['coalesce', ['get', 'staleMinutes'], 0],
-                            0,
-                            1, // Fresh: fully visible
-                            30,
-                            0.8, // 30 min: slightly faded
-                            60,
-                            0.5, // 1 hour: half opacity
-                            120,
-                            0.25, // 2 hours: ghostly
-                            720,
-                            0.15, // 12 hours: very ghostly
-                        ],
-                    ],
-                },
-            });
+            // Boat icons, rotated by heading and colour-coded by status, and a
+            // distress beacon's upright ⊗ on its own layer above them (127-11a).
+            for (const layer of AIS_TARGET_ICON_LAYERS) map.addLayer(layer as unknown as mapboxgl.AnyLayer);
 
             // Remove the separate heading arrow — boat icon already shows direction
             // (keeping 'ais-targets-heading' layer ID for visibility toggle compatibility)
@@ -1439,7 +1431,8 @@ export function useMapInit(opts: UseMapInitOptions) {
         map.on('mousemove', (e) => movePress(e.point));
         map.on('mouseup', cancelPress);
         map.on('zoomstart', cancelPress);
-        map.on('rotatestart', cancelPress);
+        // An orientation turn is not the skipper's gesture (127-11a).
+        map.on('rotatestart', (e) => isOrientationEvent(e) || cancelPress());
         map.on('pitchstart', cancelPress);
 
         // ── Single-tap inspect handler ──
@@ -1465,7 +1458,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             // Coordinate capture needs taps to land even with a route shown.
             if (!coordCaptureRef.current && (opts.settingPoint || opts.showPassage)) return;
             // Don't fire weather popup if user tapped an AIS vessel
-            const aisLayers = existingMapLayerIds(map, ['ais-targets-circle']);
+            const aisLayers = existingMapLayerIds(map, ['ais-targets-circle', AIS_SART_LAYER]);
             const aisHits = aisLayers.length > 0 ? map.queryRenderedFeatures(e.point, { layers: aisLayers }) : [];
             if (aisHits.length > 0) return;
             onMapTapRef.current?.(e.lngLat.lat, e.lngLat.lng);

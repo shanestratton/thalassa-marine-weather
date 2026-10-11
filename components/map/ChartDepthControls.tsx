@@ -1,4 +1,6 @@
 import { useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { boatChartsLine } from '../../services/enc/boatChartsWords';
 import type { TideOffsetRead } from '../../services/TideOffsetService';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
@@ -30,6 +32,10 @@ export interface ChartDepthControlsProps {
     onToggleChartKey: () => void;
     /** Opens the Pi-independent ENC Library when this viewport has no coverage. */
     onOpenEncLibrary: () => void;
+    /** settings.boatCharts.licensed: this account's paired Pi holds licensed charts. Web words only. */
+    boatChartsLicensed?: boolean;
+    /** The skipper's own boat, for the web words of a licensed account. */
+    boatName?: string | null;
 }
 
 /**
@@ -55,6 +61,8 @@ export function ChartDepthControls({
     onNightDimChange,
     onToggleChartKey,
     onOpenEncLibrary,
+    boatChartsLicensed = false,
+    boatName = null,
 }: ChartDepthControlsProps) {
     const showCoverageNotice =
         encNoCoverage && encReferenceCellCount === 0 && encHydration.remaining === 0 && encVisible && surfaceVisible;
@@ -224,9 +232,14 @@ export function ChartDepthControls({
                     aria-live="polite"
                 >
                     <span className="leading-snug">
-                        {encCellCount === 0
-                            ? 'No verified ENC charts installed. Library imports are reference-only.'
-                            : `You have ${encCellCount} ENC chart${encCellCount === 1 ? '' : 's'}, none covering here.`}
+                        {/* A browser only ever holds the open charts (127-DESKMAP C2): it
+                            says so, and names the boat only for an account whose
+                            Pi holds licensed charts. */}
+                        {encCellCount > 0
+                            ? `You have ${encCellCount} ENC chart${encCellCount === 1 ? '' : 's'}, none covering here.`
+                            : Capacitor.isNativePlatform()
+                              ? 'No verified ENC charts installed. Library imports are reference-only.'
+                              : boatChartsLine(boatChartsLicensed ? 'web' : 'web-open', boatName, 'notice')}
                     </span>
                     {/* The Library button is offered ONLY when there are no
                             charts at all.
