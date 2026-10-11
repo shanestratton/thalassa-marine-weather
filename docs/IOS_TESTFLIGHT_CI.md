@@ -109,12 +109,13 @@ Summary's **Commit** line says exactly what was built.
 
 ## Cost
 
-A build takes roughly 25–40 minutes.
+A signed build should take roughly 10–15 minutes. The first run, on this workflow's own pull request (unsigned: web
+build, CocoaPods and compile), took 7 minutes (run 38096159502).
 
 - **Public repo:** free.
 - **Private repo, GitHub Free:** 2,000 included Actions minutes a month, and a Mac minute uses about ten of
-  them, so one build eats 250–400. Normal CI uses most of the 2,000, so expect to pay for Mac builds: at
-  GitHub's Mac rate (about US$0.062 a minute) that is **about US$2–2.50 a build**. Set a spending budget in
+  them, so one build eats 100–150. Normal CI uses most of the 2,000, so expect to pay for Mac builds: at
+  GitHub's Mac rate (about US$0.062 a minute) that is **about US$0.60–1 a build**. Set a spending budget in
   **Settings → Billing** so a runaway job cannot surprise you.
 
 ## If a run fails
