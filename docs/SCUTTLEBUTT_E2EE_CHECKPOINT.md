@@ -11,7 +11,62 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
-## Latest driver controls and failed fresh launch on 11 October
+## Passive scene observer preparation on 11 October
+
+The [scene observer preparation](../experiments/scuttlebutt-e2ee/review/scene-observer-preparation-2026-10-11.json)
+adds a separate **unwired** simulator-only observer and strict contracts. It
+records the actual host PID and internally generated process epoch, at most 64
+ordered snapshots, privacy-cover facts and nullable authority facts. It performs
+no Auth, fencing, pairing or message operation. Unknown facts stay null and direct
+calls stay synthetic. Its private output uses only a new exclusive per-run/process
+directory with private modes and no symlink ancestors, not account-store reuse.
+
+Current pure contracts passed **66/66 synthetic cases**, syntax, formatting,
+named zero-warning lint and narrow strict types. Agent review caught a missing
+will-enter-foreground check after the initial 60-case run; the corrected gate also
+requires its cover, stale original authority and completed-fence count to remain
+consistent. Lease-expiry-only account absence cannot pass: the gate needs a current
+original snapshot before background, immediate staleness and successful native
+verify-completion growth, not attempted calls. Matching observations still require
+source-bound actual driver and protected-UI closure evidence; they grant no
+messaging permission. The original 60-case receipt remains historical.
+
+Swift 6 compilation under the explicit TEST flag and **30 host-Mac direct-call
+assertions** passed, as did ordinary-disabled typecheck. Its private serialized
+receipt matched the JS schema but was refused by the OS gate. The explicit iOS 27
+simulator branch also typechecked as a single file; no app was built or launched.
+The first Mac execution failed before output creation. A bounded diagnostic found
+Foundation path normalization differed despite a valid owned root; exact Darwin
+realpath/lstat validation corrected it without relaxing ownership, modes,
+exclusive creation or symlink checks. The failed receipt remains failed. Current
+JS inputs were unchanged during this Swift-only repair, so their successful checks
+were verified by hash rather than repeated.
+
+The corrected native checks receipt is
+`/private/tmp/thalassa-scene-native-verified.S2Pryf/native-checks-receipt.json`,
+SHA-256 `1c9de80909f93d9524ffc634babe43e8cc8f45d378ada4ea2c5a1bab5ddfd652`;
+the single-file simulator typecheck receipt is in the same directory as
+`sdk-typecheck-receipt.json`, SHA-256
+`f6551c708ccf8c92dcfb3585ab7389f804dad1ff76243b47ac40ba4c0647d750`.
+The combined first runner receipt is
+`/private/tmp/thalassa-scene-observer-final.jOsZor/checks-receipt.json`, SHA-256
+`f0997973d66d89f305fac8bec446d16b124c83d085a87afb1a8830a5ca7cfca7`:
+its 66-case JS stage passed before Mac execution failed. Do not relabel its overall
+failed status. Raw nonce/output remains private. Shared waiting was **0/120,000 ms**.
+Existing Research runtime/builders, primary targets, human devices/accounts/keys,
+hosted services and production are unchanged.
+
+Next wire a separate strict resource/scenario and genuine scene callbacks, count
+successful verify completions, observe original native authority and actual
+protected navigation, then execute a fresh owned source-bound launch. Validate
+the separate simulator Documents-root binding, only typechecked here. Keep the
+fresh-install refusal: new-process cold refusal is not same-store recovery.
+Do not repeat the previous unchanged launch or widen its deadline. Actual OS
+callbacks, opposite-role exchange, live full-App HTTPS/Auth, current physical
+acceptance and independent review remain open. **This is technical preparation,
+not OS acceptance or merge readiness.**
+
+## Previous driver controls and failed fresh launch on 11 October
 
 The [driver-control evidence](../experiments/scuttlebutt-e2ee/review/full-app-driver-controls-2026-10-11.json)
 fixes the failed-child waiting caveat below: the parent now saves the exact
@@ -61,7 +116,8 @@ do not inject pagehide or permission changes merely to pass. Same-process
 background/foreground and fresh-process cold refusal need distinct receipts.
 The current fixture intentionally rejects existing stores on relaunch; keep that
 guard until any narrow run-bound restart protocol has its own reviewed contract.
-The observer/scenario is **not implemented or executed** in this slice. Safe
+At that slice the observer/scenario was **not implemented or executed**; the
+later preparation above adds the unwired observer only. Safe
 unblocked work continues; this is not merge or release readiness.
 
 ## Previous accepted full-App protected simulator run on 11 October

@@ -30,6 +30,15 @@ the preceding scoped acceptance. Actual OS transitions require a separate native
 callback/process observer; synthetic pagehide, a launch request or recreated
 enrollment cannot stand in for lifecycle or same-store recovery evidence.
 
+The [passive scene observer](../experiments/scuttlebutt-e2ee/review/scene-observer-preparation-2026-10-11.json)
+is now compiled and directly tested but remains unwired. Its 66 synthetic schema
+cases, 30 Mac direct-call assertions and single-file simulator typecheck supply
+no OS or physical case. Future execution must correlate genuine callbacks,
+native PID/epoch and a pre-background current original snapshot with successful
+verify-completion growth, immediate staleness and protected navigation closure.
+Account absence after lease expiry is insufficient. Keep new-process cold refusal
+separate from same-store recovery and do not reset human Research installs.
+
 The [8 October protected UI fixture](../experiments/scuttlebutt-e2ee/review/protected-window-2026-10-08.json)
 passes an actual responder-role UI round trip in one new simulator with real
 native encryption/decryption and local Auth/relay responses. Sender/recipient

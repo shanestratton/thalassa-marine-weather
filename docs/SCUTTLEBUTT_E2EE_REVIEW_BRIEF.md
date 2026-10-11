@@ -169,6 +169,20 @@ runtime sources. Actual OS lifecycle and opposite-role acceptance remain unrun;
 the separate observer/scenario is not implemented. Production and human devices
 remain untouched. Independent review and all merge/release gates remain open.
 
+The later [passive scene observer preparation](../experiments/scuttlebutt-e2ee/review/scene-observer-preparation-2026-10-11.json)
+adds four new unwired source/test files only. Its 66 pure contract cases and 30
+Mac Swift direct-call assertions are separate evidence, not OS or encryption
+acceptance. Swift 6 TEST compilation and a single-file iOS simulator-branch
+typecheck passed. The observer has no Auth/fencing operation and unknown facts
+stay null. The gate refuses lease-expiry-only absence and requires successful
+verify-completion growth with immediate background staleness of the original
+snapshot and continuity through foreground return; actual driver/UI evidence is
+still required. Agent review corrected a missing intermediate transition check.
+The first Mac output-path refusal remains recorded; exact POSIX canonical/symlink
+validation corrected Foundation normalization without broadening ownership or
+reuse. Scene wiring, actual OS transitions, native Documents-root execution and
+all physical/release gates remain open. Existing app/runtime sources are unchanged.
+
 The new ordinary text-only native port shares the existing Research Auth host,
 requires a complete confirmed native peer snapshot, and preserves original-owner
 publication checks. Its explicit screen performs one bounded scan on Refresh,
