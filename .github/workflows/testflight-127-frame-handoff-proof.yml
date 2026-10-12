@@ -9,7 +9,7 @@ name: Thalassa build 127 strict batched wind pixel acceptance
 on:
     push:
         branches: ['codex/testflight-127-frame-handoff-proof-2026-10-12']
-        paths: ['.github/workflows/testflight-127-wind-batched-proof.yml']
+        paths: ['.github/workflows/testflight-127-frame-handoff-proof.yml']
 
 permissions:
     contents: read
