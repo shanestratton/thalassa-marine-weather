@@ -1,6 +1,6 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 12 October 2026, Australia/Brisbane. Active branch:
+Updated: 13 October 2026, Australia/Brisbane. Active branch:
 `codex/scuttlebutt-e2ee-integration-clean-2026-10-11`, starting at
 `9e24986f1b1646a7112ab0433811cdf265fdab40` on cleaned master
 `b4cb321167e27c4cf592786bd576abd841e57821`.
@@ -10,6 +10,39 @@ historical evidence, not current ancestry or acceptance of the rebased sources.
 Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
+
+## Bounded first-inbox triage on 13 October
+
+The [source-bound triage](../experiments/scuttlebutt-e2ee/review/inbox-refusal-source-triage-2026-10-13.json)
+recovered the byte-identical **failed** native receipt, not a recreated pass.
+Selected integer counters show one inbox attempt, one unavailable result and no
+permissions/thread/send/retry attempt. With the unchanged source, that result
+narrows the failure to the async Task after initial fixture/options/scene/adapter
+admission: original-ticket preflight, adapter execution or final publication.
+The exact failing stage and cause remain unknown. No native run or test was
+repeated, and no guard, lease or timeout was changed.
+
+The native adapter's single-action latch makes overlapping PM operations a real
+general sequencing concern, but **permissions overlap is not this recorded
+first-inbox path**. The fresh UI waits for its inbox row before opening a thread,
+and the original counters contain no competing action. Later Back/retry/readiness
+paths can overlap; any scheduling repair must preserve creation authority and
+physical occupancy across closure, with bounded stale-work refusal.
+
+Next add fixed, non-secret first-inbox stage markers at the plugin Task boundary,
+then execute genuinely fresh evidence. Changing the inner
+`ResearchPrivateMessageAdapter.swift` also changes a source in the 61-source
+HTTPS prerequisite, so it requires legitimate prerequisite regeneration. Do not
+silently widen that inventory or reconstruct missing execution receipts.
+
+After fetching, normal upstream master is now
+`5366f67842a50c6842d948869bafaeb91bf2260f`, a descendant of the previously
+incorporated `b8ef21d96`. It is **not yet an ancestor of this isolated checkout**.
+All seven retired fixtures were checked absent in both trees and histories.
+Upstream reconciliation is queued; no branch push was attempted. Earlier full-App
+acceptance remains historical for the changed upstream graph. Runtime/61-source
+inputs, production, primary targets and human devices/accounts/keys were not
+modified by this read-only triage. This is preparation, not merge readiness.
 
 ## Native owner preparation and current inbox refusal on 12 October
 

@@ -1,0 +1,105 @@
+{
+    "schemaVersion": 1,
+    "kind": "source-bound-inbox-refusal-triage-not-native-execution",
+    "recordedDate": "2026-10-13",
+    "timezone": "Australia/Brisbane",
+    "source": "f61f44a402e9aec08c9f7e42ed9064248f3e9fbc",
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "ce73123bc4e94436ff118351191fe9ecf5a575238825984def466442b39029f3",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "bb5cba8b634f006f9ada39bb362e6e5083231a876545c92773ae1671a4e89e4e",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneAuthority.swift": "3e0d463ed8d598b5fcc6b57036317f4b4ed7b71da92c1df295306a55f32ba71f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchPrivateMessageAdapter.swift": "ec0597684d323ed061e40cf81d3f8238adb78afdd100ef663133be0753d88c36",
+        "experiments/scuttlebutt-e2ee/bridge-web/privateMessagePort.ts": "957e821feb1853c45c4e80ac773084aa4a5f27c2d55152de577a2dc8d08afcaf",
+        "components/chat/PrivateMessagePilotPage.tsx": "b88fbc8e38a244528c637d86294465797be4e14c87eeef5b6e792815f0f4a78b",
+        "hooks/chat/usePrivateMessagePilotDMs.ts": "4843d9515340a6a184e110359547e7583671048c3e85054dbf15917765b15261",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeProtectedUiFixture.js": "74666c2c609d96a0c63abd1aa98feb915efff1f348a37f2557de1487a59a3fca",
+        "experiments/scuttlebutt-e2ee/relay/freshNativeHttpsContract.mjs": "d4448d6e3e34ff34c3b8c006b3048528ab727dc30f90e35bd7300997d569fc9f"
+    },
+    "status": "post-admission-region-narrowed-cause-still-unknown",
+    "historicalReceipt": {
+        "path": "/private/tmp/thalassa-full-root-protected-idFKvv/native-receipt.json",
+        "sha256": "f18835c973c4fac5f7d44a64f1d19f2642ae5065a820418df78ba985383d4ad4",
+        "byteIdenticalVerified": true,
+        "newExecution": false,
+        "selectedFieldsOnly": true
+    },
+    "historicalCounters": {
+        "privateMessageInbox": 1,
+        "privateMessagePermissions": 0,
+        "privateMessageThread": 0,
+        "privateMessageSendText": 0,
+        "privateMessageRetryPending": 0,
+        "privateMessageIssue": 1,
+        "privateMessageReadiness": 7,
+        "inboxOk": 0,
+        "inboxUnavailable": 1
+    },
+    "findings": [
+        {
+            "classification": "source-and-original-receipt-supported",
+            "finding": "Inbox unavailable is recorded in the async Task catch after initial exact-options, fixture allow, scene begin and adapter construction. Inbox successful publication emits status ok; initial refusal does not increment PM result counters. Narrow to original-ticket preflight, adapter operation, original-ticket publication check or publication itself.",
+            "locations": [
+                "bridge-native/ScuttlebuttResearchAuthPlugin.swift:428",
+                "bridge-native/ResearchPrivateMessageAdapter.swift:99",
+                "bridge-native/ResearchPrivateMessageAdapter.swift:264"
+            ]
+        },
+        {
+            "classification": "hypothesis-ruled-out-for-this-recorded-path",
+            "finding": "Permissions/inbox/send/retry share native activeAction, but the historical run attempted only one inbox and none of the other three actions. Fresh UI waits for an inbox row before opening its first thread. Do not present overlapping permissions as this run's cause."
+        },
+        {
+            "classification": "separate-unexecuted-source-race",
+            "finding": "Back while thread permissions await, permission retry and selected-partner readiness refresh can overlap other native actions. Port has no common FIFO. This is not proof of the first-inbox fault; any later scheduling change must capture creation revision/authority/epoch before queuing, bound capacity, settle stale queued work closed, and retain physical occupancy until native completion.",
+            "locations": [
+                "bridge-web/privateMessagePort.ts:315",
+                "components/chat/PrivateMessagePilotPage.tsx:177",
+                "hooks/chat/usePrivateMessagePilotDMs.ts:366",
+                "hooks/chat/usePrivateMessagePilotDMs.ts:595"
+            ]
+        },
+        {
+            "classification": "still-unproved",
+            "finding": "Original scene-epoch staleness, original native lease expiry, owner-policy refresh/relay refusal, scan/projection and final original-snapshot publication remain unresolved. No deadline or lease was changed."
+        }
+    ],
+    "nextDiagnostic": {
+        "firstBoundary": "Simulator-only first-inbox Task stage markers: task-original-ticket, adapter-operation, publication-original-ticket, result-publication. Freeze at terminal result; fixed enum/counts only. Public unavailable reply and all gates remain unchanged.",
+        "privacy": "No epochs, IDs, credentials, errors, contents, envelopes, paths or raw resources in diagnostic payload.",
+        "prerequisiteBoundary": "ResearchPrivateMessageAdapter.swift is in FRESH_NATIVE_HTTPS_SWIFT_SOURCES; modifying it requires legitimate regeneration of the 61-source provider/HTTPS prerequisite chain. Plugin-only initial stage markers avoid changing that adapter, but their own build/fixture contracts still need execution.",
+        "unrun": [
+            "diagnostic implementation",
+            "diagnostic contracts",
+            "fresh web/native build",
+            "fresh inbox exchange",
+            "real OS lifecycle"
+        ]
+    },
+    "upstream": {
+        "observedAt": "2026-10-12T20:59:59.913Z",
+        "head": "f61f44a402e9aec08c9f7e42ed9064248f3e9fbc",
+        "originMaster": "5366f67842a50c6842d948869bafaeb91bf2260f",
+        "originClean": "f61f44a402e9aec08c9f7e42ed9064248f3e9fbc",
+        "originMasterIsAncestor": false,
+        "originCleanIsAncestor": true,
+        "oldCleanMasterIsAncestorOfCurrentMaster": true,
+        "retiredSevenAbsent": true,
+        "reconciliation": "Current master is a normal descendant of b8 but not an ancestor of this checkout; reconciliation is queued. No branch push was attempted. Earlier combined-App evidence remains historical for changed upstream inputs."
+    },
+    "validation": {
+        "sourceHashInventory": true,
+        "historicalCounterExtraction": true,
+        "firstInventoryAttempt": "Refused before extraction due to a wrong hook path; corrected to hooks/chat/usePrivateMessagePilotDMs.ts.",
+        "heavyBuilds": 0,
+        "nativeLaunches": 0,
+        "testsExecuted": 0,
+        "sharedWaitMs": 0,
+        "cumulativeWaitBudgetMs": 120000
+    },
+    "productionTouched": false,
+    "primaryTargetsTouched": false,
+    "humanDevicesAccountsKeysChanged": false,
+    "hostedChanges": false,
+    "securityAudit": false,
+    "mergeOrReleaseReady": false
+}
