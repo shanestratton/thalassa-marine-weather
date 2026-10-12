@@ -348,6 +348,7 @@ function mockCapture(
         offError?: Error;
         offRepaintError?: Error;
         restoreError?: Error;
+        disposeError?: Error;
         viewport?: { width: number; height: number } | null;
     } = {},
 ) {
@@ -376,6 +377,7 @@ function mockCapture(
         }),
         dispose: vi.fn(async () => {
             order.push('dispose');
+            if (options.disposeError) throw options.disposeError;
         }),
     };
     let screenshotCount = 0;
@@ -484,6 +486,63 @@ describe('capture orchestration — mock page/DOM callbacks, not native browser 
         expect(mocked.held.dispose).toHaveBeenCalledOnce();
         expect(mocked.methods.screenshot).toHaveBeenCalledOnce();
         expect(mocked.map.triggerRepaint).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(['OFF screenshot', 'OFF repaint'] as const)(
+        'preserves original %s failure followed by both cleanup errors',
+        async (stage) => {
+            overlay();
+            const primary = new Error(`Synthetic ${stage} failure`);
+            const restoration = new Error('Synthetic restoration after page close');
+            const disposal = new Error('Synthetic disposal failure');
+            const mocked = mockCapture(png(frame()), png(frame()), {
+                ...(stage === 'OFF screenshot' ? { offError: primary } : { offRepaintError: primary }),
+                restoreError: restoration,
+                disposeError: disposal,
+            });
+            const outcome = await captureWindPair(mocked.page).then(
+                () => {
+                    throw new Error('A failed capture must never return a pixel pair');
+                },
+                (error: unknown) => error,
+            );
+            expect(outcome).toBeInstanceOf(AggregateError);
+            const errors = (outcome as AggregateError).errors;
+            expect(errors).toHaveLength(3);
+            expect(errors[0]).toBe(primary);
+            expect((outcome as AggregateError).cause).toBe(primary);
+            expect(errors[1]).toBe(restoration);
+            expect(errors[2]).toBe(disposal);
+            expect(mocked.held.evaluate).toHaveBeenCalledOnce();
+            expect(mocked.held.dispose).toHaveBeenCalledOnce();
+            expect(mocked.order.slice(-2)).toEqual(['restore', 'dispose']);
+            expect(mocked.methods.screenshot).toHaveBeenCalledTimes(stage === 'OFF screenshot' ? 2 : 1);
+        },
+    );
+
+    it('fails a successful capture on a disposal-only error without hiding that error', async () => {
+        const element = overlay('visible', 'important');
+        const before = element.style.cssText;
+        const failure = new Error('Synthetic disposal-only failure');
+        const mocked = mockCapture(png(frame()), png(frame()), { disposeError: failure });
+        await expect(captureWindPair(mocked.page)).rejects.toBe(failure);
+        expect(element.style.cssText).toBe(before);
+        expect(mocked.held.evaluate).toHaveBeenCalledOnce();
+        expect(mocked.held.dispose).toHaveBeenCalledOnce();
+        expect(mocked.methods.screenshot).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([undefined, 0] as const)('does not swallow a falsy OFF failure (%s)', async (primary) => {
+        const element = overlay('collapse', 'important');
+        const before = element.style.cssText;
+        const wire = png(frame());
+        const mocked = mockCapture(wire, wire);
+        mocked.methods.screenshot.mockResolvedValueOnce(wire).mockRejectedValueOnce(primary);
+        await expect(captureWindPair(mocked.page)).rejects.toBe(primary);
+        expect(element.style.cssText).toBe(before);
+        expect(mocked.held.evaluate).toHaveBeenCalledOnce();
+        expect(mocked.held.dispose).toHaveBeenCalledOnce();
+        expect(mocked.methods.screenshot).toHaveBeenCalledTimes(2);
     });
 
     it('refuses a missing real viewport before any capture or idle request', async () => {

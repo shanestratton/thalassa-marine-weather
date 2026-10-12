@@ -157,10 +157,13 @@ export async function captureWindPair(page: Page) {
         records.forEach(({ el }) => el.style.setProperty('visibility', 'hidden', 'important'));
         return records;
     });
-    let wireOff: Buffer;
+    let wireOff: Buffer | undefined;
+    const failures: unknown[] = [];
     try {
         await waitForChartCaptureReady(page);
         wireOff = await page.screenshot({ animations: 'allow', fullPage: false });
+    } catch (error) {
+        failures.push(error);
     } finally {
         try {
             await held.evaluate((records) =>
@@ -168,9 +171,23 @@ export async function captureWindPair(page: Page) {
                     el.style.setProperty('visibility', visibility, priority),
                 ),
             );
+        } catch (error) {
+            failures.push(error);
         } finally {
-            await held.dispose();
+            try {
+                await held.dispose();
+            } catch (error) {
+                failures.push(error);
+            }
         }
+    }
+    // A timed-out page can also reject cleanup. Keep the original capture
+    // failure rather than replacing it with a closed-page restoration error.
+    // Cleanup still always runs, and any cleanup failure still fails the test.
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) {
+        // Playwright's error JSON retains `cause`, but not AggregateError.errors.
+        throw new AggregateError(failures, 'Wind capture and cleanup failed', { cause: failures[0] });
     }
     return {
         pair: createPixelPair(decodeScreenshot(wireOn), decodeScreenshot(wireOff!), viewport),
