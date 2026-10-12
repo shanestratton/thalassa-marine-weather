@@ -12,31 +12,7 @@
  * read only when it paints (as distress-beacon-layout.spec.ts does).
  */
 import { expect, test, type Page } from '@playwright/test';
-
-async function open(page: Page, query: Record<string, string>) {
-    await page.setViewportSize({ width: 390, height: 844 });
-    const errors: string[] = [];
-    page.on('pageerror', (error) => errors.push(error.message));
-    await page.route('**/*', (route) => {
-        const url = new URL(route.request().url());
-        const local = url.protocol === 'blob:' || ['127.0.0.1', 'localhost'].includes(url.hostname);
-        return local ? route.continue() : route.abort();
-    });
-    await page.goto(`/e2e/fixtures/chart-orientation.html?${new URLSearchParams(query)}`);
-    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
-    return errors;
-}
-
-type Pt = { x: number; y: number };
-interface WindRead {
-    probes: Array<{ mapbox: Pt; css: Pt }>;
-    div: { inset: string; width: string; height: string; transform: string };
-    view: { width: number; height: number };
-}
-const windProbes = (page: Page) =>
-    page.evaluate(() =>
-        (window as unknown as { __orient: { windProbes: () => Promise<WindRead> } }).__orient.windProbes(),
-    );
+import { openOrientation as open, windProbes, type Pt } from './helpers/chartOrientationPage';
 
 test.describe('the wind field turns with the chart', () => {
     for (const bearing of [0, 37, 90, 200]) {
@@ -77,10 +53,9 @@ test.describe('the wind field turns with the chart', () => {
         }
     });
 
-    for (const [w, h] of [
-        [390, 844],
-        [820, 1180],
-    ] as const) {
+    // 820 x 1180 has a file and a browser of its own (chart-orientation-sideways.spec.ts):
+    // in CI's software GL the next test in its browser could not get a context in 30 s.
+    for (const [w, h] of [[390, 844]] as const) {
         test(`turned to 37° at ${w} x ${h}, then the device turned on its side: still within 2 px`, async ({
             page,
         }) => {

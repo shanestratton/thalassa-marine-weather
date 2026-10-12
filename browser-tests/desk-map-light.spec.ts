@@ -49,6 +49,9 @@ declare global {
             jumpTo(o: { center: [number, number]; zoom: number }): void;
             once(t: string, f: () => void): void;
             getLayoutProperty(id: string, prop: string): unknown;
+            getLayer(id: string): unknown;
+            /** mapbox-gl's own flag, set on 'load': read only to say why a layer is missing. */
+            _loaded?: boolean;
         };
     }
 }
@@ -485,6 +488,14 @@ const plannerJump = (page: Page, lon: number, lat: number, zoom: number) =>
             }),
         [lon, lat, zoom] as const,
     );
+/** The seamark raster's visibility, or why there is none yet (it is added on Mapbox's 'load'). */
+const seamarkRaster = (page: Page) =>
+    page.evaluate(() => {
+        const map = window.__thalassaMap!;
+        return map.getLayer('openseamap-permanent')
+            ? String(map.getLayoutProperty('openseamap-permanent', 'visibility'))
+            : `no layer (map loaded: ${map._loaded === true})`;
+    });
 /**
  * The first chart merge in a fresh dev server can pull a dependency Vite has
  * not pre-bundled yet (delaunator, for derived contours), and Vite then reloads
@@ -537,10 +548,13 @@ test.describe('the real web planner', () => {
             if (narrow) {
                 await expect(slot0).toBeHidden();
                 await expect(page.getByTestId('desk-strip-seabed')).toBeHidden();
-                const rasterOn = await page.evaluate(
-                    () => window.__thalassaMap!.getLayoutProperty('openseamap-permanent', 'visibility') === 'visible',
-                );
-                expect(rasterOn, 'the Solent at z12 draws the buoys').toBe(true);
+                // The raster is added on Mapbox's 'load' (useMapInit), which waits for
+                // every tile of the jump, and turns visible two React commits later
+                // (useOpenSeaMapRasterHide): wait for it, and say what was seen.
+                // Not map 'idle': the animated layers can keep it from firing.
+                await expect
+                    .poll(() => seamarkRaster(page), { message: 'the Solent at z12 draws the buoys', timeout: 30_000 })
+                    .toBe('visible');
                 await expect(slot1).toBeVisible();
                 // innerText: what is drawn, without the name a narrow window hides.
                 await expect(slot1).toHaveText(/^Seamarks: community data, not verified/, { useInnerText: true });

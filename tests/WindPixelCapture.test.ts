@@ -339,6 +339,72 @@ describe('unchanged wind pixel measurement', () => {
     });
 });
 
+// Relief + Sat (A4, 2026-10-12): "white streaks on the dark base" is a claim
+// about the sea. An explicit mask, from the fixture's own isLand, keeps land
+// out of the sample; the oracle itself (delta over 60, strongest twentieth,
+// their weakest) is untouched, and no mask means exactly the old measurement.
+describe('wind pixel measurement over the sea alone', () => {
+    // 4 x 1 CSS px at 2x: CSS columns 0-1 are land, a dark rim on pale fields
+    // (21:1, the strongest change here); columns 2-3 are deep sea under a
+    // white streak core.
+    const shore = () => {
+        const on = blank(8, 2, 3);
+        const off = blank(8, 2, 3);
+        for (let y = 0; y < 2; y++) {
+            for (let x = 0; x < 8; x++) {
+                const i = (y * 8 + x) * 3;
+                if (x < 4) {
+                    off.data.set([255, 255, 255], i);
+                    on.data.set([0, 0, 0], i);
+                } else {
+                    off.data.set([16, 55, 94], i);
+                    on.data.set([255, 255, 255], i);
+                }
+            }
+        }
+        return { on, off, pair: createPixelPair(on, off, { width: 4, height: 1 }) };
+    };
+
+    it('leaves masked land out before the change filter and the strongest twentieth', () => {
+        const { pair } = shore();
+        const sea = measurePixelPair(pair, (x) => x >= 2);
+        expect(sea.all).toHaveLength(8);
+        expect(sea.all.every(({ ink, ground }) => ink === '#ffffff' && ground === '#10375e')).toBe(true);
+        expect(sea.cores).toHaveLength(1);
+        expect(sea.edge).toBe(contrast('#ffffff', '#10375e'));
+    });
+
+    it('without a mask it is exactly the old measurement, land and all', () => {
+        const { on, off, pair } = shore();
+        const everything = measurePixelPair(pair);
+        expect(everything).toEqual(originalMeasurement(on, off));
+        expect(everything.all).toHaveLength(16);
+        expect(everything.cores[0]).toMatchObject({ ink: '#000000', ground: '#ffffff' });
+    });
+
+    it('asks the mask once per CSS pixel of the measured pair, and applies it at the pair’s DPR', () => {
+        const { pair } = shore();
+        const asked: Array<[number, number]> = [];
+        const kept = measurePixelPair(pair, (x, y) => {
+            asked.push([x, y]);
+            return x === 1;
+        });
+        expect(asked).toEqual([
+            [0, 0],
+            [1, 0],
+            [2, 0],
+            [3, 0],
+        ]);
+        // CSS column 1 is device columns 2 and 3, both rows.
+        expect(kept.all).toHaveLength(4);
+        expect(kept.all.every(({ ink }) => ink === '#000000')).toBe(true);
+    });
+
+    it('refuses a mask that is not a function', () => {
+        expect(() => measurePixelPair(shore().pair, 'sea' as never)).toThrow(/mask/);
+    });
+});
+
 type HeldRecord = { el: HTMLElement; visibility: string; priority: string };
 
 function mockCapture(
@@ -430,9 +496,10 @@ describe('capture orchestration — mock page/DOM callbacks, not native browser 
         expect(captured.pair.on.data).toEqual(on.data);
         expect(captured.pair.off.data).toEqual(off.data);
         expect(captured.wireOn).toBe(wireOn);
+        // timeout: 0, a capture's own: never a caller's 15 s actionTimeout (CI's software GL took 17-43 s).
         expect(mocked.methods.screenshot.mock.calls).toEqual([
-            [{ animations: 'allow', fullPage: false }],
-            [{ animations: 'allow', fullPage: false }],
+            [{ animations: 'allow', fullPage: false, timeout: 0 }],
+            [{ animations: 'allow', fullPage: false, timeout: 0 }],
         ]);
         expect(mocked.map.once.mock.calls.map(([event]) => event)).toEqual(['idle', 'idle']);
         expect(mocked.map.triggerRepaint).toHaveBeenCalledTimes(2);

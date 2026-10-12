@@ -148,10 +148,15 @@ export default defineConfig({
         // Wind on the desk (127-DESKMAP-b): the menu's Wind row, the panel bottom right clear of
         // the planner's controls, dark streaks on Light, the model credit, the models' agreement,
         // and the wind credit on the phone's Obs, offline with a stubbed proxy-openmeteo.
+        // Its two streak-pixel tests are tagged @pixel and run in a step of their own, one
+        // worker, after the shards (which pass --grep-invert @pixel):
+        //   npx playwright test --config playwright.keyboard.config.ts --grep @pixel --workers=1 --retries=1
         'desk-wind-layout.spec.ts',
         // The chart can turn (127-11a): the wind field, her marker and a distress
-        // beacon stay true at a fixed bearing (e2e/fixtures/chart-orientation.tsx).
+        // beacon stay true at a fixed bearing (e2e/fixtures/chart-orientation.tsx);
+        // its 820 x 1180 turn-on-its-side case in a browser of its own.
         'chart-orientation.spec.ts',
+        'chart-orientation-sideways.spec.ts',
         // Routing off the main thread (127-ROUTE-W2): while Auto routes the archipelago's 20 NM
         // leg in the worker, no pause over 150 ms; Stop; and the no-Worker freeze, seen.
         'route-worker.spec.ts',
@@ -182,6 +187,9 @@ export default defineConfig({
         url: 'http://127.0.0.1:4199/e2e/fixtures/keyboard.html',
         reuseExistingServer: false,
         timeout: 60_000,
+        // Vite's own lines in the log, so a dev-server reload under a test shows
+        // ("optimized dependencies changed. reloading", the retry comment above).
+        stdout: 'pipe',
         // The sign-in sheet's worst case is all three providers (sign-in-layout:
         // a browser shows email, Apple and Google, the same three buttons as a
         // phone). Only SignInScreen and googleSignIn read these, and no other

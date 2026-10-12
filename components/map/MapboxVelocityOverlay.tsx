@@ -136,16 +136,16 @@ interface MapboxVelocityOverlayProps {
  */
 const PARTICLE_LINE_WIDTH = 1;
 /**
- * Dark ink on the desk's Light base needs a 3 CSS-pixel core. Both wind
- * canvases use CSS-pixel backing stores; the former 1.5 px stroke blurred
- * when upscaled on a 3x display. The unchanged browser regression measured
- * 2.87:1 at 1.5 px (38170158017), then still dipped to 2.93:1 at 2 px
- * (38178163630). Leave a full-pixel core after antialiasing on either edge;
- * the 3:1 contrast and red-warning assertions remain unchanged.
- * Only Light changes: Obs and dark bases keep Shane's chosen 1 px stroke,
- * and every palette, band edge, particle count, speed and fade stays put.
+ * Dark ink on the desk's Light base (127-DESKMAP-b) draws a half pixel wider:
+ * leaflet-velocity's canvas is not scaled for the screen, so on a Retina or
+ * 3x display a 1 px streak is upscaled to a blur whose core only reached 2.8:1
+ * on Light's sea (browser-tests/desk-wind-layout.spec.ts). White streaks on the
+ * dark bases keep Shane's chosen 1.
+ * 2 and 3 px (2026-10-11) only answered an iPhone's DPR 3 on CI's software GL,
+ * not a desk: back to 1.5 until Shane has seen a thicker stroke over the land
+ * names (the dial above).
  */
-const lineWidthFor = (palette: WindPalette) => (palette === 'light' ? 3 : PARTICLE_LINE_WIDTH);
+const lineWidthFor = (palette: WindPalette) => (palette === 'light' ? 1.5 : PARTICLE_LINE_WIDTH);
 
 /**
  * How much of each trail survives a frame. leaflet-velocity's `opacity` is

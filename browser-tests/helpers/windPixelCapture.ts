@@ -94,18 +94,37 @@ export function cropPixelPair(pair: Readonly<PixelPair>, clip: Clip): Readonly<P
     return createPixelPair(crop(checked.on), crop(checked.off), { width, height });
 }
 
-/** The original RGB-delta and strongest-twentieth oracle, unchanged. */
-export function measurePixelPair(pair: Readonly<PixelPair>) {
+/**
+ * The original RGB-delta and strongest-twentieth oracle, unchanged. `include`,
+ * when given, is an explicit sample mask in the measured pair's CSS pixels
+ * (asked once each, applied at its DPR): a pixel it refuses is never measured,
+ * so land can be kept out of a claim about the sea. No mask, every pixel.
+ */
+export function measurePixelPair(pair: Readonly<PixelPair>, include?: (x: number, y: number) => boolean) {
     const checked = createPixelPair(pair.on, pair.off, pair.viewport);
     if (pair.scale !== checked.scale) throw new Error('Pair DPR was changed');
-    const { on, off } = checked;
+    const { on, off, scale, viewport } = checked;
     if (on.width * on.height > MAX_CROP_PIXELS) {
         throw new Error('Measure an explicitly bounded crop, not the full viewport');
+    }
+    if (include !== undefined && typeof include !== 'function') throw new Error('A sample mask must be a function');
+    let kept: Uint8Array | null = null;
+    if (include) {
+        kept = new Uint8Array(viewport.width * viewport.height);
+        for (let y = 0; y < viewport.height; y++) {
+            for (let x = 0; x < viewport.width; x++) kept[y * viewport.width + x] = include(x, y) ? 1 : 0;
+        }
     }
     const out: Array<{ ink: string; ground: string; change: number; contrast: number }> = [];
     const hex = (d: Uint8Array | Uint8ClampedArray, i: number) =>
         `#${[d[i], d[i + 1], d[i + 2]].map((c) => Number(c).toString(16).padStart(2, '0')).join('')}`;
     for (let i = 0; i < on.data.length; i += on.channels) {
+        if (kept) {
+            const p = i / on.channels;
+            const x = Math.floor((p % on.width) / scale);
+            const y = Math.floor(Math.floor(p / on.width) / scale);
+            if (!kept[y * viewport.width + x]) continue;
+        }
         const change =
             Math.abs(on.data[i] - off.data[i]) +
             Math.abs(on.data[i + 1] - off.data[i + 1]) +
@@ -141,12 +160,17 @@ function decodeScreenshot(wire: Buffer): PixelFrame {
  * and wind keeps animating. Both Light bands now share this same frame pair.
  * These observations do not establish a compositor cause: fresh focused and
  * whole-release runs must validate this capture path independently.
+ *
+ * Each capture has no timeout of its own (timeout: 0): it is bounded by the
+ * test's budget, never by a caller's actionTimeout, which Playwright also
+ * applies to an un-timed screenshot. CI's software GL took 17-43 s for one
+ * (run 38190842354), well past a 15 s cap meant for clicks.
  */
 export async function captureWindPair(page: Page) {
     const viewport = page.viewportSize();
     if (!viewport) throw new Error('A real prescribed viewport is required');
     await waitForChartCaptureReady(page);
-    const wireOn = await page.screenshot({ animations: 'allow', fullPage: false });
+    const wireOn = await page.screenshot({ animations: 'allow', fullPage: false, timeout: 0 });
     const held = await page.evaluateHandle(() => {
         const records = [...document.querySelectorAll<HTMLElement>('.leaflet-container')].map((el) => ({
             el,
@@ -161,7 +185,7 @@ export async function captureWindPair(page: Page) {
     const failures: unknown[] = [];
     try {
         await waitForChartCaptureReady(page);
-        wireOff = await page.screenshot({ animations: 'allow', fullPage: false });
+        wireOff = await page.screenshot({ animations: 'allow', fullPage: false, timeout: 0 });
     } catch (error) {
         failures.push(error);
     } finally {

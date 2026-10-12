@@ -19,7 +19,8 @@
  * The coastlines are rough and fictional, placed at two public harbours: the
  * Solent (England) and the Whitsundays (Queensland, inside the GBR 30 m grid).
  * Chesapeake Bay (USA) is open water here, with two buoys: the desk spec draws
- * its own fictional chart there.
+ * its own fictional chart there. West of Lisbon the made-up seabed falls off a
+ * shelf into one deep (depthAt), the one genuinely dark sea Relief draws here.
  * PNGs are encoded with node:zlib, MVTs with a few lines of protobuf.
  */
 import { deflateSync } from 'node:zlib';
@@ -135,14 +136,31 @@ function coastKm(lon: number, lat: number): number {
 }
 
 /**
+ * One made-up deep, west of Lisbon (desk-wind-layout's Relief + Sat streaks,
+ * 2026-10-12): from 9.6° W the seabed falls off the shelf to 2,000 m by
+ * 10.2° W, as the real one falls off Portugal, between 36.5° and 41° N.
+ * Relief draws it near-black navy (its ramp passes #0a2746 at 2,000 m), the
+ * "dark base" a white streak is claimed against; every shelf sea here is
+ * mid-blue. Off Lisbon itself (9.14° W) and every place another spec reads
+ * keep the shelf (tests/SyntheticChartTiles.test.ts).
+ */
+const DEEP = { east: -9.6, west: -14, south: 36.5, north: 41, slope: 0.6, metres: 2_000 };
+function deepAt(lon: number, lat: number): number {
+    if (lon > DEEP.east || lon < DEEP.west || lat < DEEP.south || lat > DEEP.north) return 0;
+    const t = Math.min(1, (DEEP.east - lon) / DEEP.slope);
+    return DEEP.metres * t * t * (3 - 2 * t);
+}
+
+/**
  * A made-up seafloor: shoaling to the coast, a gentle swell of banks, and no
  * deeper than about 22 m, so every relief colour it draws stays clear of the
- * plain water fill's (reliefBase's ramp passes #1f5a85 near 50 m).
+ * plain water fill's (reliefBase's ramp passes #1f5a85 near 50 m); except the
+ * deep above, where no spec reads the fill.
  */
 export function depthAt(lon: number, lat: number): number {
     const km = coastKm(lon, lat);
     const shelf = 1.2 + 18 * (1 - Math.exp(-km / 2.5));
-    return Math.max(0.6, shelf * (1 + 0.18 * Math.sin(lon * 160) * Math.cos(lat * 140)));
+    return Math.max(0.6, shelf * (1 + 0.18 * Math.sin(lon * 160) * Math.cos(lat * 140)), deepAt(lon, lat));
 }
 
 /** reliefBase.depthIndex: 0 = land, 1..254 log-scaled water. */
