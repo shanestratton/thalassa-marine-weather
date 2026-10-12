@@ -23,13 +23,11 @@
  */
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { decode } from 'fast-png';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { compositeTile, fixtureStyle, imageryTile, reliefTile, seamarkTile } from '../e2e/helpers/syntheticChartTiles';
 import { ONBOARDED_STORAGE } from '../e2e/helpers/storageState';
 import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
-import { contrast } from '../tests/helpers/colourScience';
-import { waitForChartCaptureReady } from './helpers/chartCaptureReady';
+import { captureWindPair, cropPixelPair, measurePixelPair, saveCapturedPair } from './helpers/windPixelCapture';
 
 const SHOTS = process.env.DESK_WIND_SHOTS_DIR?.trim() || '';
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
@@ -258,44 +256,6 @@ async function shot(page: Page, info: TestInfo, name: string) {
     if (SHOTS) await page.screenshot({ path: join(SHOTS, file), animations: 'disabled' });
 }
 
-/**
- * The streaks as drawn: one screenshot with the field, one without it, over the
- * same still chart. Pixels the field changed, with the chart pixel under each.
- */
-async function streakPixels(page: Page, clip: Box) {
-    const grab = async () => {
-        await waitForChartCaptureReady(page);
-        const png = decode(await page.screenshot({ clip, animations: 'allow' }));
-        return { data: png.data, channels: png.channels, width: png.width };
-    };
-    const on = await grab();
-    await page.evaluate(() =>
-        document.querySelectorAll<HTMLElement>('.leaflet-container').forEach((el) => (el.style.visibility = 'hidden')),
-    );
-    const off = await grab();
-    await page.evaluate(() =>
-        document.querySelectorAll<HTMLElement>('.leaflet-container').forEach((el) => (el.style.visibility = '')),
-    );
-    const out: Array<{ ink: string; ground: string; change: number; contrast: number }> = [];
-    const hex = (d: Uint8Array | Uint16Array | Uint8ClampedArray, i: number) =>
-        `#${[d[i], d[i + 1], d[i + 2]].map((c) => Number(c).toString(16).padStart(2, '0')).join('')}`;
-    for (let i = 0; i < on.data.length; i += on.channels) {
-        const change =
-            Math.abs(on.data[i] - off.data[i]) +
-            Math.abs(on.data[i + 1] - off.data[i + 1]) +
-            Math.abs(on.data[i + 2] - off.data[i + 2]);
-        if (change > 60) {
-            const ink = hex(on.data, i);
-            const ground = hex(off.data, i);
-            out.push({ ink, ground, change, contrast: contrast(ink, ground) });
-        }
-    }
-    // A 1 px streak is antialiased across two pixel rows, so most of its pixels
-    // are part-covered. Its CORES, the most contrasting twentieth, are the ink
-    // as drawn: those are what must reach 3:1.
-    const cores = [...out].sort((a, b) => b.contrast - a.contrast).slice(0, Math.max(1, Math.floor(out.length / 20)));
-    return { all: out, cores, edge: cores[cores.length - 1]?.contrast ?? 0 };
-}
 const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 
 const SOLENT = { lon: -1.4, lat: 50.76 };
@@ -450,8 +410,10 @@ test.describe('wind on the desk planner', () => {
         const north = { x, y: Math.round(size.height * 0.25), width, height: Math.round(size.height * 0.13) };
         const south = { x, y: Math.round(size.height * 0.62), width, height: Math.round(size.height * 0.13) };
 
-        const calm = await streakPixels(page, south);
-        const reef = await streakPixels(page, north);
+        const lightPair = await captureWindPair(page);
+        saveCapturedPair(lightPair, info, 'desk-wind-light-streaks', SHOTS);
+        const calm = measurePixelPair(cropPixelPair(lightPair.pair, south));
+        const reef = measurePixelPair(cropPixelPair(lightPair.pair, north));
         info.annotations.push({
             type: 'streak contrast (cores, the most contrasting 5%: their weakest)',
             description: `12 kt ${calm.edge.toFixed(2)}:1 over ${calm.all.length} px; 26 kt ${reef.edge.toFixed(2)}:1 over ${reef.all.length} px`,
@@ -470,19 +432,19 @@ test.describe('wind on the desk planner', () => {
             return b >= r && Math.max(r, g, b) < 140;
         });
         expect(slate.length / calm.cores.length, 'the 12 kt streaks are slate ink, not white').toBeGreaterThan(0.8);
-        await shot(page, info, 'desk-wind-light-streaks');
 
         // Relief + Sat: white below 20 kt, brighter than the dark sea under it.
         await page.getByRole('button', { name: 'Map base: Light' }).click();
         await page.getByRole('menuitemradio', { name: /^Relief \+ Sat/ }).click();
         await page.waitForTimeout(2_500);
-        const white = await streakPixels(page, south);
+        const darkPair = await captureWindPair(page);
+        saveCapturedPair(darkPair, info, 'desk-wind-relief-sat-streaks', SHOTS);
+        const white = measurePixelPair(cropPixelPair(darkPair.pair, south));
         expect(white.all.length).toBeGreaterThan(300);
         const lighter = white.cores.filter(
             (p) => rgb(p.ink).reduce((a, c) => a + c, 0) > rgb(p.ground).reduce((a, c) => a + c, 0),
         );
         expect(lighter.length / white.cores.length, 'white streaks on the dark base').toBeGreaterThan(0.8);
-        await shot(page, info, 'desk-wind-relief-sat-streaks');
         await context.close();
     });
 

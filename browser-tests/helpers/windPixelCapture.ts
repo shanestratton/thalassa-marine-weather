@@ -1,0 +1,205 @@
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { decode } from 'fast-png';
+import type { Page, TestInfo } from '@playwright/test';
+import { contrast } from '../../tests/helpers/colourScience';
+import { waitForChartCaptureReady } from './chartCaptureReady';
+
+const MAX_FRAME_PIXELS = 30_000_000;
+const MAX_CROP_PIXELS = 2_000_000;
+
+type PixelFrame = {
+    width: number;
+    height: number;
+    channels: 3 | 4;
+    depth: 8;
+    data: Uint8Array | Uint8ClampedArray;
+};
+type Size = { width: number; height: number };
+type Clip = Size & { x: number; y: number };
+type PixelPair = {
+    on: PixelFrame;
+    off: PixelFrame;
+    viewport: Readonly<Size>;
+    scale: number;
+};
+
+function integer(value: number, label: string, allowZero = false): number {
+    if (!Number.isSafeInteger(value) || value < (allowZero ? 0 : 1)) {
+        throw new Error(`${label} must be a bounded integer`);
+    }
+    return value;
+}
+
+function validateFrame(value: unknown): PixelFrame {
+    if (!value || typeof value !== 'object') throw new Error('A decoded frame is required');
+    const frame = value as PixelFrame;
+    const pixels = integer(frame.width, 'width') * integer(frame.height, 'height');
+    if (!Number.isSafeInteger(pixels) || pixels > MAX_FRAME_PIXELS) {
+        throw new Error('Decoded source exceeds the 30M pixel bound');
+    }
+    if (frame.depth !== 8 || (frame.channels !== 3 && frame.channels !== 4)) {
+        throw new Error('Only original 8-bit RGB/RGBA frames are supported');
+    }
+    if (!(frame.data instanceof Uint8Array) && !(frame.data instanceof Uint8ClampedArray)) {
+        throw new Error('Original byte data is required');
+    }
+    if (frame.data.length !== pixels * frame.channels || frame.data.byteLength !== pixels * frame.channels) {
+        throw new Error('Decoded dimensions, channels and byte data do not agree');
+    }
+    return frame;
+}
+
+export function createPixelPair(onValue: unknown, offValue: unknown, viewport: Size): Readonly<PixelPair> {
+    const on = validateFrame(onValue);
+    const off = validateFrame(offValue);
+    for (const key of ['width', 'height', 'channels', 'depth'] as const) {
+        if (on[key] !== off[key]) throw new Error('On/off frame shapes differ');
+    }
+    const width = integer(viewport.width, 'viewport width');
+    const height = integer(viewport.height, 'viewport height');
+    const scale = on.width / width;
+    if (!Number.isSafeInteger(scale) || scale < 1 || on.height / height !== scale) {
+        throw new Error('Actual integer DPR must match both viewport axes');
+    }
+    return Object.freeze({ on, off, viewport: Object.freeze({ width, height }), scale });
+}
+
+/** Copy exact original bytes, never scale, interpolate, composite or exclude pixels. */
+export function cropPixelPair(pair: Readonly<PixelPair>, clip: Clip): Readonly<PixelPair> {
+    const checked = createPixelPair(pair.on, pair.off, pair.viewport);
+    if (pair.scale !== checked.scale) throw new Error('Pair DPR was changed');
+    const x = integer(clip.x, 'clip x', true);
+    const y = integer(clip.y, 'clip y', true);
+    const width = integer(clip.width, 'clip width');
+    const height = integer(clip.height, 'clip height');
+    if (x + width > checked.viewport.width || y + height > checked.viewport.height) {
+        throw new Error('Clip lies outside the original viewport');
+    }
+    const sx = x * checked.scale;
+    const sy = y * checked.scale;
+    const sw = width * checked.scale;
+    const sh = height * checked.scale;
+    if (![sx, sy, sw, sh].every(Number.isSafeInteger) || sw * sh > MAX_CROP_PIXELS) {
+        throw new Error('Measure an explicitly bounded crop, not the full viewport');
+    }
+    const crop = (frame: PixelFrame): PixelFrame => {
+        const data = new Uint8Array(sw * sh * frame.channels);
+        for (let row = 0; row < sh; row++) {
+            const start = ((sy + row) * frame.width + sx) * frame.channels;
+            data.set(frame.data.subarray(start, start + sw * frame.channels), row * sw * frame.channels);
+        }
+        return { width: sw, height: sh, channels: frame.channels, depth: 8, data };
+    };
+    return createPixelPair(crop(checked.on), crop(checked.off), { width, height });
+}
+
+/** The original RGB-delta and strongest-twentieth oracle, unchanged. */
+export function measurePixelPair(pair: Readonly<PixelPair>) {
+    const checked = createPixelPair(pair.on, pair.off, pair.viewport);
+    if (pair.scale !== checked.scale) throw new Error('Pair DPR was changed');
+    const { on, off } = checked;
+    if (on.width * on.height > MAX_CROP_PIXELS) {
+        throw new Error('Measure an explicitly bounded crop, not the full viewport');
+    }
+    const out: Array<{ ink: string; ground: string; change: number; contrast: number }> = [];
+    const hex = (d: Uint8Array | Uint8ClampedArray, i: number) =>
+        `#${[d[i], d[i + 1], d[i + 2]].map((c) => Number(c).toString(16).padStart(2, '0')).join('')}`;
+    for (let i = 0; i < on.data.length; i += on.channels) {
+        const change =
+            Math.abs(on.data[i] - off.data[i]) +
+            Math.abs(on.data[i + 1] - off.data[i + 1]) +
+            Math.abs(on.data[i + 2] - off.data[i + 2]);
+        if (change > 60) {
+            const ink = hex(on.data, i);
+            const ground = hex(off.data, i);
+            out.push({ ink, ground, change, contrast: contrast(ink, ground) });
+        }
+    }
+    const cores = [...out].sort((a, b) => b.contrast - a.contrast).slice(0, Math.max(1, Math.floor(out.length / 20)));
+    return { all: out, cores, edge: cores[cores.length - 1]?.contrast ?? 0 };
+}
+
+function decodeScreenshot(wire: Buffer): PixelFrame {
+    if (
+        wire.length < 33 ||
+        !wire.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
+        wire.subarray(12, 16).toString('ascii') !== 'IHDR'
+    ) {
+        throw new Error('An original PNG screenshot is required');
+    }
+    const pixels = integer(wire.readUInt32BE(16), 'PNG width') * integer(wire.readUInt32BE(20), 'PNG height');
+    if (pixels > MAX_FRAME_PIXELS || wire[24] !== 8) throw new Error('Screenshot dimensions/depth exceed the bound');
+    return validateFrame(decode(wire));
+}
+
+/**
+ * Capture real full-viewport ON/OFF frames once per base, then measure the
+ * original CSS clips in their native pixels. Clipped GPU captures showed flat
+ * land while full frames showed imagery; repeated GPU captures also consumed
+ * Chromium's entire unchanged 150s budget. No basemap is substituted or frozen,
+ * and wind keeps animating. Both Light bands now share this same frame pair.
+ * These observations do not establish a compositor cause: fresh focused and
+ * whole-release runs must validate this capture path independently.
+ */
+export async function captureWindPair(page: Page) {
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error('A real prescribed viewport is required');
+    await waitForChartCaptureReady(page);
+    const wireOn = await page.screenshot({ animations: 'allow', fullPage: false });
+    const held = await page.evaluateHandle(() => {
+        const records = [...document.querySelectorAll<HTMLElement>('.leaflet-container')].map((el) => ({
+            el,
+            visibility: el.style.visibility,
+            priority: el.style.getPropertyPriority('visibility'),
+        }));
+        if (!records.length) throw new Error('A real wind overlay is required');
+        records.forEach(({ el }) => el.style.setProperty('visibility', 'hidden', 'important'));
+        return records;
+    });
+    let wireOff: Buffer;
+    try {
+        await waitForChartCaptureReady(page);
+        wireOff = await page.screenshot({ animations: 'allow', fullPage: false });
+    } finally {
+        try {
+            await held.evaluate((records) =>
+                records.forEach(({ el, visibility, priority }) =>
+                    el.style.setProperty('visibility', visibility, priority),
+                ),
+            );
+        } finally {
+            await held.dispose();
+        }
+    }
+    return {
+        pair: createPixelPair(decodeScreenshot(wireOn), decodeScreenshot(wireOff!), viewport),
+        wireOn,
+        wireOff: wireOff!,
+    };
+}
+
+/** Save the actual measured ON frame, without another GPU capture. */
+export function saveCapturedOn(
+    capture: Awaited<ReturnType<typeof captureWindPair>>,
+    info: TestInfo,
+    name: string,
+    extraDirectory = '',
+): void {
+    const file = `${name}-${info.project.name}.png`;
+    writeFileSync(info.outputPath(file), capture.wireOn, { flag: 'wx', mode: 0o600 });
+    if (extraDirectory) writeFileSync(join(extraDirectory, file), capture.wireOn, { mode: 0o600 });
+}
+
+/** Preserve both measured frames before assertions, including failed colour checks. */
+export function saveCapturedPair(
+    capture: Awaited<ReturnType<typeof captureWindPair>>,
+    info: TestInfo,
+    name: string,
+    extraDirectory = '',
+): void {
+    saveCapturedOn(capture, info, name, extraDirectory);
+    const file = `${name}-without-wind-${info.project.name}.png`;
+    writeFileSync(info.outputPath(file), capture.wireOff, { flag: 'wx', mode: 0o600 });
+    if (extraDirectory) writeFileSync(join(extraDirectory, file), capture.wireOff, { mode: 0o600 });
+}
