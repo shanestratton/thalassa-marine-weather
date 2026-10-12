@@ -1,0 +1,306 @@
+name: Thalassa build 127 strict batched wind pixel acceptance
+
+# PREPARED ONLY until root substitutes the reviewed application commit.
+# Workflow/application identities are distinct. Test-only sampling repair:
+# four native full-viewport captures, exact byte crops at original CSS clips.
+# The capture body is REVISED, not original-body byte-identical. Eight original
+# expect statements AND complete colour-predicate/assertion blocks remain exact.
+# No Apple secrets, production deployment, signing/upload or rendering mutation.
+on:
+    push:
+        branches: ['codex/testflight-127-wind-batched-proof-2026-10-12']
+        paths: ['.github/workflows/testflight-127-wind-batched-proof.yml']
+
+permissions:
+    contents: read
+
+concurrency:
+    group: testflight-127-focused-batched-wind-proof
+    cancel-in-progress: false
+
+env:
+    CANDIDATE_SHA: 'c03838b4a214445c02909f44ebb8fdce3d8d344c'
+    CI: 'true'
+    HUSKY: '0'
+    NODE_OPTIONS: --max-old-space-size=4096
+    PUPPETEER_SKIP_DOWNLOAD: 'true'
+    VITE_APP_BUILD: '127'
+    VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+    VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+    VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+    VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+    VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+    VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+
+
+jobs:
+    focused-wind:
+        name: strict revised-capture acceptance (${{ matrix.browser }})
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        strategy:
+            fail-fast: false
+            matrix:
+                browser: [chromium, webkit]
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 'c03838b4a214445c02909f44ebb8fdce3d8d344c'
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Pin revised capture body, unchanged original assertions and original profile
+              id: source
+              env:
+                  VERIFY_PHASE: before
+                  BROWSER: ${{ matrix.browser }}
+              run: |
+                  node --input-type=module <<'NODE'
+                  // Source verification only. No browser instrumentation or loader injection.
+                  import {readFileSync,writeFileSync,readdirSync,lstatSync} from 'node:fs';
+                  import {join,relative} from 'node:path';
+                  import {createHash} from 'node:crypto';
+                  import {execFileSync} from 'node:child_process';
+                  const expected={
+                    "browser-tests/desk-wind-layout.spec.ts": "9044a4f32c3b8f9534ce6f0cf3633570c6efb80da8c0ffad1021533d02f14d05",
+                    "browser-tests/helpers/windPixelCapture.ts": "8140826dc2f54aa50610b50a52898e2c2e61fa98d0145dd1eb448cf5a1befe77",
+                    "browser-tests/helpers/chartCaptureReady.ts": "02ffb464cd22d0d8eb3c67c08be3bd96f788328405cb0e6bec5f16a71a69b1e9",
+                    "tests/WindPixelCapture.test.ts": "9a543d46a08ffa64637424db65b8148cd05b81f486732b53c20fb0ae523c9f99",
+                    "tests/helpers/colourScience.ts": "3e137524d0bdc83026c1e6215ff1e6ff2661a63ddf1961546ede00b7ea918de1",
+                    "playwright.keyboard.config.ts": "3213abfde7ee7461d475c7b630a3c485551bb5ed2c402018fb7fd5d9132f218a",
+                    "components/map/MapboxVelocityOverlay.tsx": "bd2765c24dd9c1f95952c002ca90b2554d1bd28a7278527472ac24e5deeae79e",
+                    "components/map/windRamp.ts": "22770f25d075fde7d7c9fae92fab4e62117428349723bf5379174716bb1e34ed",
+                    "components/map/MapHub.tsx": "4cb24cdf1fc8d50e984048bdd5bb10048e00a366f0813c0c7d609710774d384a",
+                    "components/map/reliefBase.ts": "9ce10e0afdbec2bc4dcfa597f879cf184ad78691e0339c4dabe7bed54b0ceb45",
+                    "components/map/useMapInit.ts": "4124705ad87fb5d72d4fa0a842fc3622cb39dedfa2fd1f47ad140a7b25e8f302",
+                    "components/map/useWeatherLayers.ts": "d0dc8cf1f950bf4dbf992fe77f527c8e0764663fe3fc346dfc361f164afa1cad",
+                    "components/map/CloseInWindLayer.ts": "a9cf00c32e477b32f1d891c4f603aa35dc0311e59dc25827acd09e7a0e665b4c",
+                    "e2e/helpers/syntheticChartTiles.ts": "72d467f3722cfeb93aac4eef37cadafd1bed7b9160f5617a4c5bd8f73433f393",
+                    "package-lock.json": "7161c835db167d3ced265e6ab8624577b4d99454be9b1326a887b5549bd1e12f"
+                  };
+                  const candidate=process.env.CANDIDATE_SHA,browser=process.env.BROWSER,phase=process.env.VERIFY_PHASE;
+                  if(!/^[0-9a-f]{40}$/.test(candidate??'')||!['chromium','webkit'].includes(browser)||!['before','after'].includes(phase)) throw Error('Fixed source/phase binding refused');
+                  const git=(args)=>execFileSync('git',args,{encoding:'utf8',maxBuffer:2097152}).trim();
+                  if(git(['rev-parse','HEAD'])!==candidate) throw Error('Application commit mismatch');
+                  execFileSync('git',['merge-base','--is-ancestor','ec0aaa363493496673f3cfdfe31e82d40813c663','HEAD']);
+                  execFileSync('git',['merge-base','--is-ancestor','6c60882fd39a87a6c00e1a327455903182293baa','HEAD']);
+                  if(git(['rev-parse','HEAD:playwright.keyboard.config.ts'])!=='4c06d1c48d42f7529904b27f50e2455305d23606') throw Error('Original profile/configuration changed');
+                  const sha=(value)=>createHash('sha256').update(value).digest('hex');
+                  const sourceInputs=Object.entries(expected).map(([path,sha256])=>{
+                   const stat=lstatSync(path);
+                   if(!stat.isFile()||stat.isSymbolicLink()||sha(readFileSync(path))!==sha256) throw Error('Named source hash mismatch');
+                   return {path,sha256};
+                  });
+                  execFileSync('git',['diff','--quiet','--',...Object.keys(expected)]);
+                  const numbers=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+                  if(numbers.length!==4||numbers.some(row=>row[1]!=='127')||JSON.parse(readFileSync('package.json','utf8')).version!=='1.2.0') throw Error('Committed release version mismatch');
+                  const spec=readFileSync('browser-tests/desk-wind-layout.spec.ts','utf8');
+                  const focused=(source)=>{
+                   const start=source.indexOf("test('Light: dark streaks"),end=source.indexOf("test('where the models disagree");
+                   if(start<0||end<=start) throw Error('Focused body bounds missing');
+                   return source.slice(start,end);
+                  };
+                  const body=focused(spec);
+                  if(sha(body)!=='02ea90e032399488cfdb2319a70c0b3542f164b292bc780e2c2e13b1c637db0a'||!body.includes('test.setTimeout(150_000);')) throw Error('Reviewed revised capture body/deadline mismatch');
+                  const expectLines=body.split('\n').filter(line=>line.trim().startsWith('expect(')).map(line=>line.trim()).join('\n');
+                  if(expectLines.split('\n').length!==8||sha(expectLines)!=='08acc20715782872b65c5d729afaaa41faeafb452c2f9385f694b5030c0a6b08') throw Error('Original eight pixel acceptance statements changed');
+                  const old=execFileSync('git',['show','ec0aaa363493496673f3cfdfe31e82d40813c663:browser-tests/desk-wind-layout.spec.ts'],{encoding:'utf8',maxBuffer:2097152});
+                  const block=(source,startLiteral,endLiteral)=>{
+                   const start=source.indexOf(startLiteral),end=source.indexOf(endLiteral,start);
+                   if(start<0||end<start) throw Error('Pixel assertion block bounds missing');
+                   return source.slice(start,end+endLiteral.length);
+                  };
+                  const boundaries=[
+                   ['expect(calm.all.length',"expect(slate.length / calm.cores.length, 'the 12 kt streaks are slate ink, not white').toBeGreaterThan(0.8);"],
+                   ['expect(white.all.length)',"expect(lighter.length / white.cores.length, 'white streaks on the dark base').toBeGreaterThan(0.8);"],
+                  ];
+                  const blocks=boundaries.map(([start,end])=>block(body,start,end));
+                  for(let i=0;i<boundaries.length;i++) if(blocks[i]!==block(focused(old),...boundaries[i])) throw Error('Complete original predicate/assertion block changed');
+                  const output={version:1,phase,browser,candidate,workflowCommit:process.env.GITHUB_SHA,sourceInputs,
+                   bodyLabel:'reviewed revised full-viewport capture body; NOT original-body byte identical',
+                   revisedBodySha256:sha(body),unchangedExpectLinesSha256:sha(expectLines),originalExpectLineCount:8,
+                   fullAssertionBlocksByteIdenticalToEc:true,fullAssertionBlockComparison:'direct exact text, including red/slate/lighter predicates, against clean committed ec',
+                   fullAssertionBlockSha256:blocks.map(value=>sha(value)),originalDeadlineMs:150000,repetitionsRequested:3,retries:0,
+                   originalConfigurationBlob:'4c06d1c48d42f7529904b27f50e2455305d23606',nodeVersion:process.version,
+                   forcedTracing:false,injection:false,bitmapOrColourNormalization:false,appRuntimeNamedPinsMatchEc:true};
+                  if(phase==='after') {
+                   let stats=null;
+                   try {const report=JSON.parse(readFileSync('wind-focused-results.json','utf8'));stats={expected:report.stats.expected,unexpected:report.stats.unexpected,flaky:report.stats.flaky,skipped:report.stats.skipped};} catch { /* unavailable, never fabricate a pass */ }
+                   const files=[];
+                   function visit(directory) {
+                    let entries;
+                    try {entries=readdirSync(directory,{withFileTypes:true});} catch(error) {if(error.code==='ENOENT')return;throw error;}
+                    for(const entry of entries) {
+                     const path=join(directory,entry.name);
+                     if(entry.isSymbolicLink()) throw Error('Output symlink refused');
+                     if(entry.isDirectory()) visit(path);
+                     else if(entry.isFile()&&/^desk-wind-(?:light|relief-sat)-streaks(?:-without-wind)?-(?:chromium|webkit)\.png$/.test(entry.name)) {
+                      if(!entry.name.endsWith('-'+browser+'.png')) throw Error('Pair browser binding refused');
+                      const stat=lstatSync(path);
+                      if(stat.size<33||stat.size>134217728) throw Error('Pair wire size refused');
+                      const bytes=readFileSync(path);
+                      if(bytes.subarray(0,8).toString('hex')!=='89504e470d0a1a0a'||bytes.subarray(12,16).toString('ascii')!=='IHDR') throw Error('Pair PNG header refused');
+                      files.push({path:relative('.',path),sha256:sha(bytes),bytes:bytes.length,width:bytes.readUInt32BE(16),height:bytes.readUInt32BE(20),depth:bytes[24],colourType:bytes[25]});
+                     }
+                     if(files.length>12) throw Error('Unexpected extra measured pair files');
+                    }
+                   }
+                   visit('test-results');
+                   output.proofOutcome=process.env.PROOF_OUTCOME;
+                   output.observedResults=stats;
+                   output.measuredPairFiles=files.sort((a,b)=>a.path.localeCompare(b.path));
+                   output.expectedCompletePairFiles=12;
+                   output.positiveOutputRetention='original configuration leaves Playwright preserveOutput at its installed always default; no execution flag changed';
+                   output.positivePairRetentionComplete=!!stats&&stats.expected===3&&stats.unexpected===0&&stats.flaky===0&&stats.skipped===0&&files.length===12;
+                  }
+                  writeFileSync('wind-source-hashes-'+phase+'.json',JSON.stringify(output,null,2)+'\n',{flag:'wx',mode:0o600});
+                  if(phase==='after'&&process.env.PROOF_OUTCOME==='success'&&!output.positivePairRetentionComplete) throw Error('Successful run must retain all three positive measured pairs per base');
+                  console.log(JSON.stringify({phase,browser,sourcePins:sourceInputs.length,revisedBodyVerified:true,eightOriginalExpectsVerified:true,completeOriginalBlocksVerified:true,
+                   measuredPairFiles:output.measuredPairFiles?.length??null,proofOutcome:output.proofOutcome??null}));
+                  NODE
+            - run: npm ci
+            - name: Install the selected original browser engine
+              run: npx playwright install --with-deps ${{ matrix.browser }}
+            - name: Three strict repetitions on revised sampling, zero retries or forced tracing
+              id: proof
+              env:
+                  PLAYWRIGHT_JSON_OUTPUT_NAME: wind-focused-results.json
+              run: >-
+                  npx playwright test --config playwright.keyboard.config.ts
+                  browser-tests/desk-wind-layout.spec.ts --grep 'Light: dark streaks'
+                  --project=${{ matrix.browser }} --workers=1 --repeat-each=3 --retries=0
+                  --reporter=line,json
+            - name: Verify unchanged source and retain actual positive and failed pair hashes
+              if: always() && steps.source.outcome == 'success'
+              env:
+                  VERIFY_PHASE: after
+                  BROWSER: ${{ matrix.browser }}
+                  PROOF_OUTCOME: ${{ steps.proof.outcome }}
+              run: |
+                  node --input-type=module <<'NODE'
+                  // Source verification only. No browser instrumentation or loader injection.
+                  import {readFileSync,writeFileSync,readdirSync,lstatSync} from 'node:fs';
+                  import {join,relative} from 'node:path';
+                  import {createHash} from 'node:crypto';
+                  import {execFileSync} from 'node:child_process';
+                  const expected={
+                    "browser-tests/desk-wind-layout.spec.ts": "9044a4f32c3b8f9534ce6f0cf3633570c6efb80da8c0ffad1021533d02f14d05",
+                    "browser-tests/helpers/windPixelCapture.ts": "8140826dc2f54aa50610b50a52898e2c2e61fa98d0145dd1eb448cf5a1befe77",
+                    "browser-tests/helpers/chartCaptureReady.ts": "02ffb464cd22d0d8eb3c67c08be3bd96f788328405cb0e6bec5f16a71a69b1e9",
+                    "tests/WindPixelCapture.test.ts": "9a543d46a08ffa64637424db65b8148cd05b81f486732b53c20fb0ae523c9f99",
+                    "tests/helpers/colourScience.ts": "3e137524d0bdc83026c1e6215ff1e6ff2661a63ddf1961546ede00b7ea918de1",
+                    "playwright.keyboard.config.ts": "3213abfde7ee7461d475c7b630a3c485551bb5ed2c402018fb7fd5d9132f218a",
+                    "components/map/MapboxVelocityOverlay.tsx": "bd2765c24dd9c1f95952c002ca90b2554d1bd28a7278527472ac24e5deeae79e",
+                    "components/map/windRamp.ts": "22770f25d075fde7d7c9fae92fab4e62117428349723bf5379174716bb1e34ed",
+                    "components/map/MapHub.tsx": "4cb24cdf1fc8d50e984048bdd5bb10048e00a366f0813c0c7d609710774d384a",
+                    "components/map/reliefBase.ts": "9ce10e0afdbec2bc4dcfa597f879cf184ad78691e0339c4dabe7bed54b0ceb45",
+                    "components/map/useMapInit.ts": "4124705ad87fb5d72d4fa0a842fc3622cb39dedfa2fd1f47ad140a7b25e8f302",
+                    "components/map/useWeatherLayers.ts": "d0dc8cf1f950bf4dbf992fe77f527c8e0764663fe3fc346dfc361f164afa1cad",
+                    "components/map/CloseInWindLayer.ts": "a9cf00c32e477b32f1d891c4f603aa35dc0311e59dc25827acd09e7a0e665b4c",
+                    "e2e/helpers/syntheticChartTiles.ts": "72d467f3722cfeb93aac4eef37cadafd1bed7b9160f5617a4c5bd8f73433f393",
+                    "package-lock.json": "7161c835db167d3ced265e6ab8624577b4d99454be9b1326a887b5549bd1e12f"
+                  };
+                  const candidate=process.env.CANDIDATE_SHA,browser=process.env.BROWSER,phase=process.env.VERIFY_PHASE;
+                  if(!/^[0-9a-f]{40}$/.test(candidate??'')||!['chromium','webkit'].includes(browser)||!['before','after'].includes(phase)) throw Error('Fixed source/phase binding refused');
+                  const git=(args)=>execFileSync('git',args,{encoding:'utf8',maxBuffer:2097152}).trim();
+                  if(git(['rev-parse','HEAD'])!==candidate) throw Error('Application commit mismatch');
+                  execFileSync('git',['merge-base','--is-ancestor','ec0aaa363493496673f3cfdfe31e82d40813c663','HEAD']);
+                  execFileSync('git',['merge-base','--is-ancestor','6c60882fd39a87a6c00e1a327455903182293baa','HEAD']);
+                  if(git(['rev-parse','HEAD:playwright.keyboard.config.ts'])!=='4c06d1c48d42f7529904b27f50e2455305d23606') throw Error('Original profile/configuration changed');
+                  const sha=(value)=>createHash('sha256').update(value).digest('hex');
+                  const sourceInputs=Object.entries(expected).map(([path,sha256])=>{
+                   const stat=lstatSync(path);
+                   if(!stat.isFile()||stat.isSymbolicLink()||sha(readFileSync(path))!==sha256) throw Error('Named source hash mismatch');
+                   return {path,sha256};
+                  });
+                  execFileSync('git',['diff','--quiet','--',...Object.keys(expected)]);
+                  const numbers=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+                  if(numbers.length!==4||numbers.some(row=>row[1]!=='127')||JSON.parse(readFileSync('package.json','utf8')).version!=='1.2.0') throw Error('Committed release version mismatch');
+                  const spec=readFileSync('browser-tests/desk-wind-layout.spec.ts','utf8');
+                  const focused=(source)=>{
+                   const start=source.indexOf("test('Light: dark streaks"),end=source.indexOf("test('where the models disagree");
+                   if(start<0||end<=start) throw Error('Focused body bounds missing');
+                   return source.slice(start,end);
+                  };
+                  const body=focused(spec);
+                  if(sha(body)!=='02ea90e032399488cfdb2319a70c0b3542f164b292bc780e2c2e13b1c637db0a'||!body.includes('test.setTimeout(150_000);')) throw Error('Reviewed revised capture body/deadline mismatch');
+                  const expectLines=body.split('\n').filter(line=>line.trim().startsWith('expect(')).map(line=>line.trim()).join('\n');
+                  if(expectLines.split('\n').length!==8||sha(expectLines)!=='08acc20715782872b65c5d729afaaa41faeafb452c2f9385f694b5030c0a6b08') throw Error('Original eight pixel acceptance statements changed');
+                  const old=execFileSync('git',['show','ec0aaa363493496673f3cfdfe31e82d40813c663:browser-tests/desk-wind-layout.spec.ts'],{encoding:'utf8',maxBuffer:2097152});
+                  const block=(source,startLiteral,endLiteral)=>{
+                   const start=source.indexOf(startLiteral),end=source.indexOf(endLiteral,start);
+                   if(start<0||end<start) throw Error('Pixel assertion block bounds missing');
+                   return source.slice(start,end+endLiteral.length);
+                  };
+                  const boundaries=[
+                   ['expect(calm.all.length',"expect(slate.length / calm.cores.length, 'the 12 kt streaks are slate ink, not white').toBeGreaterThan(0.8);"],
+                   ['expect(white.all.length)',"expect(lighter.length / white.cores.length, 'white streaks on the dark base').toBeGreaterThan(0.8);"],
+                  ];
+                  const blocks=boundaries.map(([start,end])=>block(body,start,end));
+                  for(let i=0;i<boundaries.length;i++) if(blocks[i]!==block(focused(old),...boundaries[i])) throw Error('Complete original predicate/assertion block changed');
+                  const output={version:1,phase,browser,candidate,workflowCommit:process.env.GITHUB_SHA,sourceInputs,
+                   bodyLabel:'reviewed revised full-viewport capture body; NOT original-body byte identical',
+                   revisedBodySha256:sha(body),unchangedExpectLinesSha256:sha(expectLines),originalExpectLineCount:8,
+                   fullAssertionBlocksByteIdenticalToEc:true,fullAssertionBlockComparison:'direct exact text, including red/slate/lighter predicates, against clean committed ec',
+                   fullAssertionBlockSha256:blocks.map(value=>sha(value)),originalDeadlineMs:150000,repetitionsRequested:3,retries:0,
+                   originalConfigurationBlob:'4c06d1c48d42f7529904b27f50e2455305d23606',nodeVersion:process.version,
+                   forcedTracing:false,injection:false,bitmapOrColourNormalization:false,appRuntimeNamedPinsMatchEc:true};
+                  if(phase==='after') {
+                   let stats=null;
+                   try {const report=JSON.parse(readFileSync('wind-focused-results.json','utf8'));stats={expected:report.stats.expected,unexpected:report.stats.unexpected,flaky:report.stats.flaky,skipped:report.stats.skipped};} catch { /* unavailable, never fabricate a pass */ }
+                   const files=[];
+                   function visit(directory) {
+                    let entries;
+                    try {entries=readdirSync(directory,{withFileTypes:true});} catch(error) {if(error.code==='ENOENT')return;throw error;}
+                    for(const entry of entries) {
+                     const path=join(directory,entry.name);
+                     if(entry.isSymbolicLink()) throw Error('Output symlink refused');
+                     if(entry.isDirectory()) visit(path);
+                     else if(entry.isFile()&&/^desk-wind-(?:light|relief-sat)-streaks(?:-without-wind)?-(?:chromium|webkit)\.png$/.test(entry.name)) {
+                      if(!entry.name.endsWith('-'+browser+'.png')) throw Error('Pair browser binding refused');
+                      const stat=lstatSync(path);
+                      if(stat.size<33||stat.size>134217728) throw Error('Pair wire size refused');
+                      const bytes=readFileSync(path);
+                      if(bytes.subarray(0,8).toString('hex')!=='89504e470d0a1a0a'||bytes.subarray(12,16).toString('ascii')!=='IHDR') throw Error('Pair PNG header refused');
+                      files.push({path:relative('.',path),sha256:sha(bytes),bytes:bytes.length,width:bytes.readUInt32BE(16),height:bytes.readUInt32BE(20),depth:bytes[24],colourType:bytes[25]});
+                     }
+                     if(files.length>12) throw Error('Unexpected extra measured pair files');
+                    }
+                   }
+                   visit('test-results');
+                   output.proofOutcome=process.env.PROOF_OUTCOME;
+                   output.observedResults=stats;
+                   output.measuredPairFiles=files.sort((a,b)=>a.path.localeCompare(b.path));
+                   output.expectedCompletePairFiles=12;
+                   output.positiveOutputRetention='original configuration leaves Playwright preserveOutput at its installed always default; no execution flag changed';
+                   output.positivePairRetentionComplete=!!stats&&stats.expected===3&&stats.unexpected===0&&stats.flaky===0&&stats.skipped===0&&files.length===12;
+                  }
+                  writeFileSync('wind-source-hashes-'+phase+'.json',JSON.stringify(output,null,2)+'\n',{flag:'wx',mode:0o600});
+                  if(phase==='after'&&process.env.PROOF_OUTCOME==='success'&&!output.positivePairRetentionComplete) throw Error('Successful run must retain all three positive measured pairs per base');
+                  console.log(JSON.stringify({phase,browser,sourcePins:sourceInputs.length,revisedBodyVerified:true,eightOriginalExpectsVerified:true,completeOriginalBlocksVerified:true,
+                   measuredPairFiles:output.measuredPairFiles?.length??null,proofOutcome:output.proofOutcome??null}));
+                  NODE
+            - name: Record actual focused result and honest body scope
+              if: always() && steps.source.outcome == 'success'
+              env:
+                  PROOF_OUTCOME: ${{ steps.proof.outcome }}
+                  BROWSER: ${{ matrix.browser }}
+              run: |
+                  echo "$BROWSER strict REVISED-CAPTURE repetitions: $PROOF_OUTCOME on $CANDIDATE_SHA. Eight original expect lines/full colour assertion blocks and 150s budget/profile unchanged; 3 repetitions/0 retries/no forced tracing or injection. Actual ON/OFF pair PNGs retained on success and failure. Focused proof only, not whole release or compositor-cause proof." >> "$GITHUB_STEP_SUMMARY"
+            - name: Preserve JSON, source hash receipts and actual measured pair PNGs on success too
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: build127-strict-batched-wind-${{ matrix.browser }}
+                  path: |
+                      wind-focused-results.json
+                      wind-source-hashes-before.json
+                      wind-source-hashes-after.json
+                      test-results/**/desk-wind-light-streaks-*.png
+                      test-results/**/desk-wind-relief-sat-streaks-*.png
+                  retention-days: 7
+                  if-no-files-found: warn
