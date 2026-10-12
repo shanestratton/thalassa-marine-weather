@@ -4,12 +4,12 @@ import { describe, expect, it } from 'vitest';
 
 // The vessel_vault bucket gets the cap every other user bucket has (126-B3a,
 // binder audit DOC-2): 25 MiB and the Documents form's own file types. Written
-// with 126, NOT pushed: the push waits until 126 is on Shane's phone and iPad,
-// so the drain has already kept any over-cap inline file on the phone.
-const FILE = '20261010160000_vessel_vault_limits.sql';
-// Held out of supabase/migrations so the 126 release push cannot apply it.
-const directory = join(process.cwd(), 'supabase/held-migrations');
-const releaseDirectory = join(process.cwd(), 'supabase/migrations');
+// with 126 and held until 126 was on Shane's phone and iPad (so the drain had
+// already kept any over-cap inline file on the phone); released into
+// supabase/migrations on his yes, 2026-10-13.
+const FILE = '20261013091000_vessel_vault_limits.sql';
+const directory = join(process.cwd(), 'supabase/migrations');
+const heldDirectory = join(process.cwd(), 'supabase/held-migrations');
 const migration = readFileSync(join(directory, FILE), 'utf8');
 const sql = migration
     .split('\n')
@@ -27,16 +27,22 @@ const MIME_TYPES = [
 ];
 
 describe('vessel_vault limits migration', () => {
-    it('sorts after every migration 126 was built on, and no other shares its stamp', () => {
+    it('sorts after every migration applied live before it, and no other shares its stamp', () => {
         const files = readdirSync(directory).filter((name) => name.endsWith('.sql'));
-        expect(FILE > '20261010150000_recipes_is_custom_repair.sql').toBe(true);
-        expect(files.filter((name) => name.startsWith('20261010160000_'))).toEqual([FILE]);
+        // 20261010155000 was the newest applied migration when it was released.
+        expect(FILE > '20261010155000_anon_privileges_lockdown.sql').toBe(true);
+        expect(files.filter((name) => name.startsWith('20261013091000_'))).toEqual([FILE]);
+        expect(files.filter((name) => name.includes('vessel_vault_limits'))).toEqual([FILE]);
     });
 
-    it('is held out of supabase/migrations, so the 126 release push cannot apply it', () => {
-        const release = readdirSync(releaseDirectory);
-        expect(release.filter((name) => name.includes('vessel_vault_limits'))).toEqual([]);
-        expect(release.filter((name) => name.startsWith('20261010160000_'))).toEqual([]);
+    it('is no longer held: the held copy is gone, so it cannot be released twice', () => {
+        let held: string[] = [];
+        try {
+            held = readdirSync(heldDirectory);
+        } catch {
+            held = [];
+        }
+        expect(held.filter((name) => name.includes('vessel_vault_limits'))).toEqual([]);
     });
 
     it('is one UPDATE of the vessel_vault bucket: 25 MiB and exactly the seven types the form takes', () => {
@@ -63,12 +69,13 @@ describe('vessel_vault limits migration', () => {
         expect(sql).not.toMatch(/\bALTER\b|\bCREATE\b/i);
     });
 
-    it('says in its header that it is not pushed until Shane says yes', () => {
+    it("says in its header it was released on Shane's yes, and why it waited", () => {
         const header = migration
             .split('\n')
             .filter((line) => line.trim().startsWith('--'))
             .join('\n');
-        expect(header).toMatch(/Not pushed/);
+        expect(header).toMatch(/RELEASED 2026-10-13 on Shane's yes/);
+        expect(header).toMatch(/126 and 127 are now on his phone and iPad/);
         expect(header).toMatch(/26214400|25 MiB/);
         expect(header).toMatch(/equipment/i);
     });
