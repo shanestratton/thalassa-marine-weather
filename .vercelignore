@@ -18,6 +18,13 @@ test-results/
 # with TS2307 on e2e/fixtures (2026-10-10). The app never imports e2e/.
 tests/
 e2e/
+# browser-tests/ goes with them for the same reason: its Playwright helpers
+# import from tests/ (browser-tests/helpers/windPixelCapture.ts reads
+# tests/helpers/colourScience), so with tests/ gone tsc failed the build 127
+# deploy with TS2307 (2026-10-13). The app never imports browser-tests/.
+# tests/VercelUploadImports.test.ts fails if an uploaded file imports one of
+# these folders again.
+browser-tests/
 **/*.test.ts
 **/*.test.tsx
 **/*.spec.ts
