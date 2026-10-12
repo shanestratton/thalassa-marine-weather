@@ -1,0 +1,70 @@
+name: Thalassa 127 desk soak (validation only)
+
+# Validation ONLY: no keys, signing, upload or writes. Runs the desk wind/map,
+# chart-orientation and anchor-antenna specs five times each on hosted Linux
+# before a full release validation is spent.
+on:
+    push:
+        branches: ['claude/testflight-127-soak-2026-10-12']
+        paths: ['.github/workflows/soak-127.yml']
+
+permissions:
+    contents: read
+
+env:
+    CANDIDATE_SHA: '5366f67842a50c6842d948869bafaeb91bf2260f'
+    CI: 'true'
+    HUSKY: '0'
+    NODE_OPTIONS: --max-old-space-size=4096
+    PUPPETEER_SKIP_DOWNLOAD: 'true'
+    VITE_APP_BUILD: '127'
+    VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+    VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+    VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+    VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+    VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+    VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+
+jobs:
+    soak:
+        name: soak (${{ matrix.part }})
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 120
+        strategy:
+            fail-fast: false
+            matrix:
+                part: [races, pixel]
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: '5366f67842a50c6842d948869bafaeb91bf2260f'
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+            - run: npm ci
+            - run: npx playwright install --with-deps chromium webkit
+            - name: Desk, orientation and antenna specs x5, two workers, no retries
+              if: matrix.part == 'races'
+              run: >-
+                  npx playwright test --config playwright.keyboard.config.ts
+                  browser-tests/desk-wind-layout.spec.ts browser-tests/desk-map-light.spec.ts
+                  browser-tests/chart-orientation.spec.ts browser-tests/anchor-antenna-layout.spec.ts
+                  --grep-invert @pixel --project=chromium --project=webkit --repeat-each=5 --retries=0 --workers=2
+            - name: Wind pixel checks x5, one worker, no retries
+              if: matrix.part == 'pixel'
+              run: >-
+                  npx playwright test --config playwright.keyboard.config.ts --grep @pixel
+                  --project=chromium --project=webkit --repeat-each=5 --retries=0 --workers=1
+            - name: Preserve failure evidence
+              if: failure()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: soak127-${{ matrix.part }}
+                  path: |
+                      playwright-report/
+                      test-results/
+                  retention-days: 7
