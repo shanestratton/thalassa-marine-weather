@@ -69,7 +69,7 @@ import {
     S57_CELL_NAME_PATTERN,
 } from './types';
 import type { ChartLicence, EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
-import { chartLicenceOf } from './chartLicence';
+import { chartLicenceOf, isProtectedChart } from './chartLicence';
 import { crumb } from '../../utils/flightRecorder';
 import { awaitHeapHeadroom, heapTag } from '../../utils/heapGauge';
 import { createSerialQueue } from '../../utils/serialQueue';
@@ -659,11 +659,24 @@ async function importCellSerialized(
         );
     }
 
+    // A held record's 'protected' (the Pi said so) survives a re-import that
+    // carries no stamp, such as a route-time pull. Decided before the bytes
+    // go anywhere: a licensed cell's go to memory only (127-C-c).
+    const licence = chartLicenceOf({
+        id: canonicalId,
+        sourceHO: normalizedBlob.sourceHO,
+        licence: options.licence ?? installedDisplayCell?.licence,
+    });
     // sizeBytes rides back from the save — it used to be re-measured
     // with a SECOND full JSON.stringify of the multi-MB blob right
     // after the save's own (2026-07-12 audit: ~2× CPU + a transient
     // twin allocation per imported cell, on the UI thread).
-    const { path, sizeBytes } = await cellStore.saveCellGeoJSON(canonicalId, normalizedBlob, options.assertAuthority);
+    const { path, sizeBytes } = await cellStore.saveCellGeoJSON(
+        canonicalId,
+        normalizedBlob,
+        options.assertAuthority,
+        licence,
+    );
     try {
         options.assertAuthority?.();
     } catch (error) {
@@ -716,8 +729,20 @@ async function importCellSerialized(
         installedDisplayCell.sizeBytes === sizeBytes
             ? installedDisplayCell
             : null;
-    const contentSha256 = options.contentSha256 ?? unchangedRevision?.contentSha256;
-    const piSizeBytes = options.piSizeBytes ?? unchangedRevision?.piSizeBytes;
+    // A licensed cell's identity is the Pi's revision (127-C-c decision 7): a
+    // route-time pull of the revision the Pi's index registered keeps its sha
+    // (the pull checked the bytes against it) and the Pi's size, so registering
+    // then importing leaves the chart library's fingerprint as it was.
+    const registeredRevision =
+        licence === 'protected' &&
+        options.keepPiRevisionWhenUnchanged &&
+        installedDisplayCell?.piSizeBytes !== undefined &&
+        installedDisplayCell.edition === normalizedBlob.edition &&
+        installedDisplayCell.updateNumber === normalizedBlob.updateNumber
+            ? installedDisplayCell
+            : unchangedRevision;
+    const contentSha256 = options.contentSha256 ?? registeredRevision?.contentSha256;
+    const piSizeBytes = options.piSizeBytes ?? registeredRevision?.piSizeBytes;
     const cell: EncCell = {
         id: canonicalId,
         sourceHO: normalizedBlob.sourceHO,
@@ -732,14 +757,8 @@ async function importCellSerialized(
         hazardCount,
         usage: requestedUsage,
         catzocRange,
-        sizeBytes,
-        // A held record's 'protected' (the Pi said so) survives a re-import
-        // that carries no stamp, such as a route-time pull.
-        licence: chartLicenceOf({
-            id: canonicalId,
-            sourceHO: normalizedBlob.sourceHO,
-            licence: options.licence ?? installedDisplayCell?.licence,
-        }),
+        sizeBytes: licence === 'protected' && piSizeBytes !== undefined ? piSizeBytes : sizeBytes,
+        licence,
         ...(piSizeBytes !== undefined ? { piSizeBytes } : {}),
         ...(Number.isInteger(options.cloudManifestVersion)
             ? { cloudManifestVersion: options.cloudManifestVersion }
@@ -1906,11 +1925,14 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
     let flushedCount = 0;
     const supersededIds: string[] = [];
     try {
-        // The curated shelf only. Since 126-20 it answers NOAA cells only
-        // (it refuses others before any request), and the personal shelf that
-        // followed it here was deleted in 127, so a licensed cell is never
-        // fetched from the cloud by this walk.
-        const { downloadCloudCell } = await import('./cloudCellSync');
+        // Two rungs, by licence (127-C-c decision 8a). A licensed cell is held
+        // in memory only, so after any relaunch it refills from the boat's Pi;
+        // it never comes from the cloud (the curated shelf answers NOAA cells
+        // only since 126-20). An open cell comes from the cloud as before.
+        const [{ downloadCloudCell }, { downloadPiCell }] = await Promise.all([
+            import('./cloudCellSync'),
+            import('./piCellSync'),
+        ]);
         // PARALLEL, pool of 3 (z10-boot audit #5): one-at-a-time downloads
         // made the cold walk O(N) on the slowest cell — one stalled socket
         // (30 s deadline) head-of-line blocked the entire coast. Three slots
@@ -1919,8 +1941,9 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
         // notify max-wait upstream paints in waves as cells land.
         let done = 0;
         const runOne = async (id: string): Promise<void> => {
-            const manifestVersionAtStart = cellMeta.getRegisteredCell(id)?.cloudManifestVersion;
-            const ok = await downloadCloudCell(id);
+            const registered = cellMeta.getRegisteredCell(id);
+            const manifestVersionAtStart = registered?.cloudManifestVersion;
+            const ok = await (isProtectedChart(registered ?? { id }) ? downloadPiCell(id) : downloadCloudCell(id));
             if (ok) {
                 hydrationCooldownUntil.delete(id);
                 // Success is provisional until the next merge actually READS
@@ -1986,6 +2009,9 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
         }
     }
 }
+
+/** Test seam for the walk's rungs (tests/EncHydrationPiRung.test.ts). */
+export { hydrateMissingCells as __hydrateMissingCellsForTest };
 
 // ── Reactivity passthrough ────────────────────────────────────────
 

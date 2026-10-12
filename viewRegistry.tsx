@@ -266,10 +266,6 @@ const AvNavPage = lazyRetry(
     () => import('./components/vessel/AvNavPage').then((m) => ({ default: m.AvNavPage })),
     'AvNavPage',
 );
-const EncLibraryPage = lazyRetry(
-    () => import('./components/vessel/EncLibraryPage').then((m) => ({ default: m.EncLibraryPage })),
-    'EncLibraryPage',
-);
 // NoticesPage retired with its route (binder review 2026-09-02):
 // notices live on the OBS chart layer (useNoticeLayer) — perishable,
 // spatial data has no standalone drawer. components/vessel/NoticesPage.tsx
@@ -522,18 +518,11 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         group: 'vessel',
         getProps: (ctx) => ({
             onBack: () => ctx.setPage('vessel'),
-            onOpenEncLibrary: () => ctx.setPage('encLibrary'),
         }),
     },
-    encLibrary: {
-        component: EncLibraryPage,
-        boundaryName: 'EncLibrary',
-        group: 'vessel',
-        getProps: (ctx) => ({
-            onBack: () => ctx.setPage('vessel'),
-            onOpenMap: () => ctx.setPage('map'),
-        }),
-    },
+    // The ENC Library (unsigned reference packs from a file or link) is retired
+    // in 127 (127-C-c, Shane's Q1 "yes"): it could not prove where a pack came
+    // from, and open NOAA charts arrive by themselves.
     'gpx-import': {
         component: GpxImportPage,
         boundaryName: 'GpxImport',

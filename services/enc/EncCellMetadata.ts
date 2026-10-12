@@ -1,11 +1,12 @@
 /**
- * ENC Cell Metadata — persistence for the small "I have this cell"
- * records.
+ * ENC Cell Metadata — the small "I have this cell" records.
  *
- * One record per imported cell. Records are tiny (~500 bytes each)
- * and rarely change after import, so localStorage is appropriate;
- * we'll migrate to IndexedDB only if a fleet user ever has 5k+
- * cells.
+ * One record per imported cell. Open (NOAA) records are tiny (~500 bytes
+ * each) and persist in localStorage. Licensed (protected) records — id,
+ * extent, edition: the boat's chart catalogue — live in a session overlay
+ * and are never written anywhere (127-C-c decision 6): after a relaunch away
+ * from the Pi the registry holds no licensed cell, and every consumer takes
+ * its honest "no chart here" path until the Pi's index registers them again.
  *
  * Cell metadata = the index *of* cells. The actual hazard polygons
  * live in Capacitor Filesystem as GeoJSON blobs, accessed by
@@ -23,6 +24,8 @@ import { createLogger } from '../../utils/createLogger';
 import type { EncCell } from './types';
 import { canonicalEncCellId, ENC_CELL_ID_PATTERN, ENC_METADATA_PREFIX, encCellStorageIdentity } from './types';
 import { encCellContentIdentity } from './cellContentIdentity';
+import { BOAT_CELLS_ON_PHONE } from './boatCellVault';
+import { isOpenChartCell } from './chartLicence';
 
 const log = createLogger('EncCellMetadata');
 
@@ -39,7 +42,42 @@ function recordKey(cellId: string): string {
     return `${ENC_METADATA_PREFIX}:${cellId}`;
 }
 
+/** Licensed records, this session only, by storage identity (decision 6). */
+const boatRecords = new Map<string, EncCell>();
+let boatLoaded = false;
+/** What may persist: an open chart, never an unsigned reference pack (decision 12). */
+const persists = (cell: EncCell): boolean => cell.usage !== 'reference' && isOpenChartCell(cell);
+
+/**
+ * The registry half of the launch sweep (127-C-c decision 5a, and the 126-20
+ * launch purge): every stored record that is not an open chart goes —
+ * o-charts, S-63, unknown ids, pending cloud registrations, personal-shelf
+ * cells, unsigned reference packs. Idempotent; later launches walk only the
+ * open records. EncCellStore.storeReady() does the files.
+ */
+let swept = false;
+function sweepStoredRegistry(): void {
+    swept = true;
+    try {
+        const raw = localStorage.getItem(INDEX_KEY);
+        const ids: unknown = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(ids)) {
+            const keep = ids.filter((id): id is string => {
+                const cell = typeof id === 'string' ? readCell(id) : null;
+                if (cell && persists(cell)) return true;
+                if (typeof id === 'string') localStorage.removeItem(recordKey(id));
+                return false;
+            });
+            if (keep.length !== ids.length) writeIndex(keep);
+        }
+        localStorage.removeItem('thalassa_enc_auto_publish');
+    } catch (err) {
+        log.warn('registry sweep failed; it runs again next launch', err);
+    }
+}
+
 function readIndex(): string[] {
+    if (!swept) sweepStoredRegistry();
     try {
         const raw = localStorage.getItem(INDEX_KEY);
         if (!raw) return [];
@@ -181,15 +219,19 @@ let registeredListCache: { version: number; cells: EncCell[] } | null = null;
  * to the lower authority instead of guessing which bytes occupy that file. */
 function readIdentityGroups(): Map<string, EncCell[]> {
     const groups = new Map<string, EncCell[]>();
+    const add = (identity: string, cell: EncCell): void => {
+        const group = groups.get(identity);
+        if (group) group.push(cell);
+        else groups.set(identity, [cell]);
+    };
     for (const id of readIndex()) {
         const identity = encCellStorageIdentity(id);
         if (QUARANTINED_CELLS.has(identity)) continue;
         const cell = readCell(id);
-        if (!cell) continue;
-        const group = groups.get(identity);
-        if (group) group.push(cell);
-        else groups.set(identity, [cell]);
+        // A stored licensed record is never read, whoever wrote it: fail closed.
+        if (cell && persists(cell)) add(identity, cell);
     }
+    for (const [identity, cell] of boatRecords) add(identity, cell);
     return groups;
 }
 
@@ -319,9 +361,16 @@ export function putCell(cell: EncCell, options: { allowAuthorityUpgrade?: boolea
     const canonicalId = canonicalEncCellId(cell.id);
     if (!ENC_CELL_ID_PATTERN.test(canonicalId)) throw new Error(`Invalid ENC cell ID: ${cell.id}`);
     const identity = encCellStorageIdentity(canonicalId);
+    const inMemory = !persists({ ...cell, id: canonicalId });
+    if (inMemory && !BOAT_CELLS_ON_PHONE) throw new Error('Licensed charts stay on the boat’s Pi in this build.');
     const ids = readIndex();
-    const aliases = ids.filter((id) => encCellStorageIdentity(id) === identity);
-    const existingGroup = aliases.map(readCell).filter((stored): stored is EncCell => stored !== null);
+    const aliases = inMemory ? [] : ids.filter((id) => encCellStorageIdentity(id) === identity);
+    const held = boatRecords.get(identity);
+    const existingGroup = inMemory
+        ? held
+            ? [held]
+            : []
+        : aliases.map(readCell).filter((stored): stored is EncCell => stored !== null);
     const existingLowerAuthority = existingGroup.find(
         (stored) => stored.usage === 'demo' || stored.usage === 'reference' || stored.usage === 'pending',
     );
@@ -338,6 +387,19 @@ export function putCell(cell: EncCell, options: { allowAuthorityUpgrade?: boolea
             : requestedUsage;
     const classified: EncCell = { ...cell, id: canonicalId, usage };
     const serialized = JSON.stringify(classified);
+    if (inMemory) {
+        // The kill #41 rule holds in memory too: identical in, nothing out.
+        if (held && JSON.stringify(held) === serialized) return;
+        boatRecords.set(identity, classified);
+        // A record of this identity an older build stored goes with it.
+        for (const alias of ids.filter((id) => encCellStorageIdentity(id) === identity))
+            localStorage.removeItem(recordKey(alias));
+        if (ids.some((id) => encCellStorageIdentity(id) === identity))
+            writeIndex(ids.filter((id) => encCellStorageIdentity(id) !== identity));
+        notify();
+        return;
+    }
+    boatRecords.delete(identity);
 
     // TRUE upsert (kill #41, 2026-08-12): a byte-identical re-record must
     // not write or notify. The sync passes (the Pi and the cloud) re-assert
@@ -379,9 +441,27 @@ export function removeCell(id: string): void {
     for (const alias of ids) {
         if (encCellStorageIdentity(alias) === identity) localStorage.removeItem(recordKey(alias));
     }
+    boatRecords.delete(identity);
     writeIndex(ids.filter((alias) => encCellStorageIdentity(alias) !== identity));
     notify();
 }
+
+/** Forget every licensed record (unpair, sign-out). One notify. */
+export function clearBoatRecords(): void {
+    boatLoaded = false;
+    if (boatRecords.size === 0) return;
+    boatRecords.clear();
+    notify();
+}
+
+/** True once the Pi's whole index has registered this session (decision 7). */
+export const boatRegistryLoaded = (): boolean => boatLoaded;
+export function markBoatRegistryLoaded(): void {
+    boatLoaded = true;
+}
+
+/** The licensed records held this session (registration diffs against them). */
+export const listBoatRecords = (): EncCell[] => [...boatRecords.values()];
 
 /**
  * Find every imported cell whose bbox intersects the given bbox.
@@ -416,6 +496,8 @@ export function clearAllCellMetadata(): void {
     const ids = readIndex();
     for (const id of ids) localStorage.removeItem(recordKey(id));
     localStorage.removeItem(INDEX_KEY);
+    boatRecords.clear();
+    boatLoaded = false;
     notify();
     log.info('cleared all ENC cell metadata');
 }

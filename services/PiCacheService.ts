@@ -522,6 +522,20 @@ class PiCacheServiceImpl {
         return `https://${host}:${this.config.port}`;
     }
 
+    /**
+     * The boat-LAN base URL while the Pi is answering on it right now; null
+     * over remote access, unreachable or disabled. Transport, not place: which
+     * path a request takes, for data that must never cross remote access
+     * (licensed charts, 127-C-c). Where the phone IS is services/boatLink's.
+     * Read it at the moment of the request: the health check can turn the
+     * live base to the tailnet between two reads.
+     */
+    lanBaseUrlNow(): string | null {
+        if (!this.isAvailable() || this.viaRemoteAccess || !this.config.host) return null;
+        const lan = `https://${this.config.host}:${this.config.port}`;
+        return lan === this.baseUrl ? lan : null;
+    }
+
     /** Is the Pi Cache enabled AND reachable right now? */
     isAvailable(): boolean {
         return PI_INTEGRATION_ENABLED && this.config.enabled && this.status.reachable;

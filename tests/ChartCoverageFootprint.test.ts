@@ -5,16 +5,12 @@ const css = readFileSync('index.css', 'utf8');
 const controls = readFileSync('components/map/ChartDepthControls.tsx', 'utf8');
 
 describe('coverage notice keeps its complete content inside compact map layouts', () => {
-    it('lets the Library label wrap instead of forcing the warning into a narrow text column', () => {
-        const button = css.match(/\.thalassa-enc-coverage-notice > button\s*\{([^}]+)\}/)?.[1];
-        expect(button).toBeDefined();
-        expect(button).toContain('inline-size: min-content');
-        expect(button).toContain('white-space: normal');
-        // Layout may wrap the label, but may not shorten the warning or lose
-        // the action's existing accessible name and minimum finger target.
-        expect(controls).toContain('No verified ENC charts installed. Library imports are reference-only.');
-        expect(controls).toContain('aria-label="Open on-device ENC Library"');
-        expect(controls).toMatch(/className="min-h-\[44px\][^\n]+\n\s+aria-label="Open on-device ENC Library"/);
+    it('keeps the warning whole: one sentence from the helper, and no Library button (127-C-c)', () => {
+        // The ENC Library is retired (Shane's Q1 "yes"), so the notice is its
+        // sentence alone: where her licensed charts are, or the open-chart words.
+        expect(controls).not.toContain('aria-label="Open on-device ENC Library"');
+        expect(controls).not.toContain('Library imports are reference-only');
+        expect(controls).toContain('boatChartsLine(');
     });
 
     it('gives narrow-portrait warning text its full row above the action', () => {

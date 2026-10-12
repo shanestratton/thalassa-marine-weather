@@ -21,6 +21,11 @@ const m = vi.hoisted(() => ({
     packs: vi.fn(async () => [] as unknown[]),
     notices: vi.fn(async () => [] as unknown[]),
     trialOn: true,
+    // The boat's Pi (127-C-c): not paired unless a test says otherwise.
+    ensureBoatCells: vi.fn(async () => ({ state: 'none', pulled: 0, ms: 0, missing: 0 }) as Record<string, unknown>),
+    boatState: 'none' as string,
+    boatWhy: null as string | null,
+    order: [] as string[],
 }));
 
 vi.mock('../services/InshoreRouter', () => ({
@@ -33,6 +38,12 @@ vi.mock('../services/routing/landBackstop', async (original) => ({
     inshoreRouteCrossesLand: m.crossesLand,
 }));
 vi.mock('../services/enc/cloudCellSync', () => ({ downloadCloudCellsForBBox: m.fill }));
+vi.mock('../services/enc/piCellSync', () => ({
+    ensureBoatCells: m.ensureBoatCells,
+    boatRegistryState: () => m.boatState,
+    boatRegistryWhy: () => m.boatWhy,
+    boatName: () => "L'Étoile du Pacifique",
+}));
 vi.mock('../services/enc/EncCellMetadata', async (original) => ({
     ...(await original<Record<string, unknown>>()),
     listCells: m.listCells,
@@ -131,6 +142,10 @@ beforeEach(() => {
     m.invoke.mockReset();
     m.packs.mockReset().mockResolvedValue([]);
     m.notices.mockReset().mockResolvedValue([]);
+    m.ensureBoatCells.mockReset().mockResolvedValue({ state: 'none', pulled: 0, ms: 0, missing: 0 });
+    m.boatState = 'none';
+    m.boatWhy = null;
+    m.order = [];
 });
 afterEach(() => setAuthIdentityScope(null));
 
@@ -348,7 +363,7 @@ describe('calculateThalassaProposal', () => {
         // the cloud cannot fill points there, not at sign-in or the connection.
         m.fill.mockReset().mockResolvedValue({ downloaded: 0, needed: 2, bucketAvailable: false });
         await expect(calculateThalassaProposal(request())).rejects.toThrow(
-            "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: sync them aboard, then try again. Nothing changed.",
+            "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: open them on the boat's Wi-Fi, then try again. Nothing changed.",
         );
         // The shared shelf holds public NOAA charts only: no "licensed" bucket.
         m.fill.mockReset().mockResolvedValue({ downloaded: 0, needed: 2, bucketAvailable: true });
@@ -792,6 +807,81 @@ describe('the offline water pack', () => {
         m.tryInshoreRoute.mockResolvedValue(engineResult({ waterPack: { source: 'online', missing: [] } }));
         const after = await calculateThalassaProposal(request());
         expect(after.warnings).toEqual(before.warnings);
+    });
+});
+
+describe("the boat's licensed charts open from the Pi before the gates (127-C-c decision 8)", () => {
+    const COORD = /-?\d{1,3}\.\d{2,}/;
+    const NAME = "L'Étoile du Pacifique";
+
+    it('paired with nothing registered yet reads ready; away it says where the charts are', () => {
+        m.listCells.mockReturnValue([]);
+        m.boatState = 'pending';
+        expect(getThalassaAutorouteStatus()).toEqual({ enabled: true, ready: true });
+        m.boatState = 'away';
+        m.boatWhy = 'away';
+        expect(getThalassaAutorouteStatus()).toEqual({
+            enabled: true,
+            ready: false,
+            message: `${NAME}'s charts open on the boat's Wi-Fi. Manual is ready.`,
+        });
+    });
+
+    it('registers and pulls the endpoint cells before the endpoint gate, then routes', async () => {
+        let registered = false;
+        m.ensureBoatCells.mockImplementation(async () => {
+            m.order.push('ensure');
+            registered = true;
+            return { state: 'loaded', pulled: 6, ms: 1234, missing: 0 };
+        });
+        m.hasEncCoverageForRoute.mockImplementation((() => {
+            m.order.push('gate');
+            return registered;
+        }) as never);
+        m.tryInshoreRoute.mockResolvedValue(engineResult());
+        const route = await calculateThalassaProposal(request());
+        expect(m.order[0]).toBe('ensure');
+        expect(m.order).toContain('gate');
+        const [bbox, opts] = m.ensureBoatCells.mock.calls[0] as unknown as [number[], { maxCells: number }];
+        expect(bbox[0]).toBeCloseTo(161.0 - 0.03, 9);
+        expect(bbox[1]).toBeCloseTo(-31.05 - 0.03, 9);
+        expect(opts).toEqual({ maxCells: 24 });
+        expect(route.chartsMs).toBe(1234);
+        expect(route.coordinates).toEqual(polyline);
+    });
+
+    it('opens more of her charts in the coverage-gap fill before asking the cloud', async () => {
+        m.ensureBoatCells
+            .mockResolvedValueOnce({ state: 'loaded', pulled: 2, ms: 400, missing: 3 })
+            .mockResolvedValueOnce({ state: 'loaded', pulled: 3, ms: 500, missing: 0 });
+        m.tryInshoreRoute
+            .mockResolvedValueOnce({ error: 'Trusted inshore ENC coverage is incomplete', code: 'coverage-gap' })
+            .mockResolvedValueOnce(engineResult());
+        const route = await calculateThalassaProposal(request());
+        expect(m.ensureBoatCells).toHaveBeenCalledTimes(2);
+        expect(m.fill).not.toHaveBeenCalled();
+        expect(route.chartsMs).toBe(900);
+    });
+
+    it.each([
+        ['away', `${NAME}'s licensed charts open on the boat's Wi-Fi.`],
+        ['tailnet', `Licensed charts open only on ${NAME}'s own Wi-Fi, not over remote access.`],
+        ['off', `Licensed charts stay on ${NAME}'s Pi in this build.`],
+    ])('an uncovered end with the Pi %s says where her charts are, and names no position', async (why, words) => {
+        m.ensureBoatCells.mockResolvedValue({
+            state: why === 'off' ? 'none' : 'away',
+            why,
+            pulled: 0,
+            ms: 3000,
+            missing: 0,
+        });
+        m.hasEncCoverageForRoute.mockReturnValue(false);
+        const err = await calculateThalassaProposal(request()).catch((e: Error) => e);
+        expect(err).toBeInstanceOf(Error);
+        expect((err as Error).message).toContain('No installed chart covers the departure or the destination.');
+        expect((err as Error).message).toContain(words);
+        expect((err as Error).message).not.toMatch(COORD);
+        expect(m.tryInshoreRoute).not.toHaveBeenCalled();
     });
 });
 

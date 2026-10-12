@@ -14,11 +14,12 @@
  *   capped at 40 and filterable for a while; this one rendered every cell.
  *
  * The other half of his question was "in reality they are going to be on the
- * pi - is that correct??" — and it is NOT. EncCellStore writes one GeoJSON
- * per cell to Directory.Data/enc-cells on the DEVICE. The Pi has GDAL and the
- * phone does not, so it converts on import and can hold spares; it is a
- * translator, not the place the charts live. That is why his setup works with
- * the Pi ashore on the bench and the gateway on the yacht.
+ * pi - is that correct??" Until 127 it was not: EncCellStore wrote every cell
+ * to the phone. From 127 it is, for licensed charts (o-charts, 2026-10-10:
+ * "Storing unencrypted data on any medium … is strictly prohibited"): they
+ * stay on the boat's Pi and open in this phone's memory on the boat's Wi-Fi.
+ * Open NOAA charts are still kept on the phone. The card says exactly that,
+ * and the store does exactly that (127-C-c).
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -35,12 +36,9 @@ describe('the ENC section as a heading card', () => {
     it('still surfaces what there is to do, while collapsed', () => {
         // Removing the auto-expand must not hide the Sync prompt — the
         // summary line carries it instead of the list.
-        expect(src).toContain("${cells.length} chart${cells.length === 1 ? '' : 's'} on this phone");
-        expect(src).toContain("(piHasMoreThanLocal ? ` · ${missingOnDevice.length} more on the Pi` : '')");
-    });
-
-    it('says the charts are on the phone, not on the Pi', () => {
-        expect(src).toContain('on this phone');
+        expect(src).toContain("`${openCells.length} chart${openCells.length === 1 ? '' : 's'} on this phone`");
+        expect(src).toContain('piHasMoreThanLocal && `${missingOnDevice.length} more on the Pi`');
+        expect(src).toContain('boatChartsAboardLine(protectedCells.length, chartsBoat)');
     });
 
     it('caps the imported list and offers the rest on request', () => {
@@ -61,19 +59,24 @@ describe('the ENC section as a heading card', () => {
 });
 
 describe('what the card claims about the Pi', () => {
-    it('tells the skipper their charts survive the Pi being off', () => {
-        // His Pi is on the bench at home and the gateway is on the yacht. A
-        // skipper in that position should not have to wonder whether their
-        // charts went with it.
-        expect(src).toContain('keep working with the Pi switched off');
-        expect(src).toContain('only used to convert a cell when you import one');
+    it('says licensed charts stay on the Pi and open in memory; open charts are kept on the phone', () => {
+        expect(src).toContain('{BOAT_CHARTS_FOOT}');
+        expect(src).not.toContain('keep working with the Pi switched off');
+        expect(src).not.toContain('stored on this phone');
     });
 
-    it('and that claim is true — the cells are written to the device', () => {
-        // Not a wording test: if this ever moves to the Pi, the sentence
-        // above becomes a lie and this fails with it.
-        expect(store).toContain('Directory.Data');
-        expect(store).toContain('enc-cells');
-        expect(store).toContain("import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';");
+    it('and that claim is true: protected bytes go to the vault, open ones to Library/Application Support', () => {
+        // Not a wording test: if a licensed cell is ever written to disk again,
+        // the sentence above becomes a lie and this fails with it.
+        const save = store.slice(store.indexOf('export async function saveCellGeoJSON'));
+        expect(save.slice(0, save.indexOf('\n}\n'))).toContain('vault.put(');
+        expect(store).toContain("'Application Support/enc-open'");
+        expect(store).toContain('Directory.Library');
+        expect(store).toContain('licensed cells never touch the disk');
+    });
+
+    it('licensed rows say "aboard" and offer no Remove', () => {
+        expect(src).toContain('isProtectedChart(cell)');
+        expect(src).toContain('aboard');
     });
 });

@@ -13,14 +13,16 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { putCell, getVersion, getCell, clearAllCellMetadata } from '../services/enc/EncCellMetadata';
 import type { EncCell } from '../services/enc/types';
 
+// An open (NOAA-shaped) record: the localStorage path. A licensed record's
+// in-memory overlay keeps the same rule (tests/EncBoatRegistryOverlay.test.ts).
 const cell = (over: Partial<EncCell> = {}): EncCell => ({
-    id: 'AU5MB01P',
-    sourceHO: 'AHO',
+    id: 'US5MB01P',
+    sourceHO: 'US',
     edition: 3,
     issued: '2026-01-15',
     importedAt: '2026-08-01T00:00:00.000Z',
     bbox: [153.0, -27.5, 153.5, -27.0],
-    geojsonPath: 'enc/AU5MB01P.json',
+    geojsonPath: 'enc/US5MB01P.json',
     hazardCount: 12,
     usage: 'navigation',
     ...over,
@@ -39,7 +41,7 @@ describe('putCell true-upsert (kill #41)', () => {
         putCell(cell());
         putCell(cell());
         expect(getVersion()).toBe(versionAfterFirst);
-        expect(getCell('AU5MB01P')?.edition).toBe(3);
+        expect(getCell('US5MB01P')?.edition).toBe(3);
     });
 
     it('a REAL change still writes and bumps the version', () => {
@@ -47,17 +49,17 @@ describe('putCell true-upsert (kill #41)', () => {
         const versionAfterFirst = getVersion();
         putCell(cell({ edition: 4, sizeBytes: 999 } as Partial<EncCell>));
         expect(getVersion()).toBeGreaterThan(versionAfterFirst);
-        expect(getCell('AU5MB01P')?.edition).toBe(4);
+        expect(getCell('US5MB01P')?.edition).toBe(4);
     });
 
     it('an alias cleanup is a real change even with identical record bytes', () => {
         // Two ids sharing one storage identity (case difference) — the
         // canonical write must still collapse the alias and notify.
         putCell(cell());
-        localStorage.setItem('thalassa.enc.cell:au5mb01p', JSON.stringify(cell({ id: 'au5mb01p' })));
+        localStorage.setItem('thalassa.enc.cell:us5mb01p', JSON.stringify(cell({ id: 'us5mb01p' })));
         const raw = localStorage.getItem('thalassa.enc.cell.index');
         const ids = raw ? (JSON.parse(raw) as string[]) : [];
-        localStorage.setItem('thalassa.enc.cell.index', JSON.stringify([...ids, 'au5mb01p']));
+        localStorage.setItem('thalassa.enc.cell.index', JSON.stringify([...ids, 'us5mb01p']));
         const versionBefore = getVersion();
         putCell(cell());
         expect(getVersion()).toBeGreaterThan(versionBefore);

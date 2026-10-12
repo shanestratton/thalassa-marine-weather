@@ -103,8 +103,8 @@ export function MapBaseSelector({
     const noCharts = encCellCount === 0;
     /* With nothing installed and the layer off, 'OFF' was a state for charts
        that don't exist, with no hint that the tap leads to getting some: it
-       turns the layer on, and its no-charts notice carries the ENC Library
-       button (UX scorecard run 10). Once on, the row says so as before. */
+       turns the layer on, and its no-charts notice says where charts come
+       from (UX scorecard run 10; 127-C-c). Once on, the row says so as before. */
     const offerAdd = noCharts && !encVisible;
     const encDetail = noCharts
         ? 'None installed yet'

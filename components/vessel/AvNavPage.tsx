@@ -38,8 +38,6 @@ const SUPABASE_KEY =
 
 interface AvNavPageProps {
     onBack: () => void;
-    /** Production-safe escape to local, Pi-independent ENC management. */
-    onOpenEncLibrary?: () => void;
 }
 
 const subscribeIdentity = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
@@ -691,7 +689,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = (props) => {
                 breadcrumbs={['Vessel', 'Boat Network']}
             />
             <div className="flex-1 overflow-y-auto">
-                <PiPublicBetaUnavailable onOpenEncLibrary={props.onOpenEncLibrary} />
+                <PiPublicBetaUnavailable />
             </div>
         </div>
     );

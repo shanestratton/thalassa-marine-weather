@@ -1,42 +1,34 @@
 /**
- * Pi-independent ENC pack import for the public beta.
+ * The strong shape gate for Thalassa's converted chart wire shape
+ * (`EncConversionResult` or `{ cells: EncConversionResult[] }`), run on every
+ * cell the boat's Pi or the NOAA shelf hands this phone before any of it is
+ * held (the Pi sync, the on-demand Pi pull and the NOAA shelf).
  *
- * The browser/native app cannot decode raw S-57 or encrypted S-63 safely:
- * that requires GDAL or the chart vendor's licensed decryption runtime. This
- * module therefore accepts only Thalassa's already-converted JSON wire shape
- * (`EncConversionResult` or `{ cells: EncConversionResult[] }`). The bytes are
- * fetched/read and persisted on this device; they are never uploaded by this
- * path.
+ * This module also used to import unsigned "reference" packs from a file or a
+ * link (the ENC Library). That half is retired in 127 (127-C-c, Shane's Q1
+ * "yes"): a pack's provenance could not be proven, so under the licence rule
+ * every one was protected, and open NOAA charts arrive by themselves.
  */
 
-import { createLogger } from '../../utils/createLogger';
-import * as EncHazardService from './EncHazardService';
-import { parseJsonOffThread } from './EncCellStore';
 import { ENC_NO_DEPTH_AREAS_CODE } from './piSyncPlan';
 import {
     CAUTION_AREA_CLASSES,
     canonicalEncCellId,
     ENC_CELL_ID_PATTERN,
     S57_CELL_NAME_PATTERN,
-    encCellStorageIdentity,
     S57_CLEARANCE_STRUCTURE_CLASSES,
     S57_POINT_MARK_CLASSES,
     S57_STRUCTURE_CLASSES,
-    type EncCell,
     type EncConversionBatch,
     type EncConversionResult,
 } from './types';
 
-const log = createLogger('LocalEncPackImport');
-
-/** Bound a single import so a bad URL/file cannot exhaust a mobile WebView. */
-export const LOCAL_ENC_PACK_MAX_BYTES = 16 * 1024 * 1024;
+/** Bound one batch so a bad payload cannot exhaust a mobile WebView. */
 export const LOCAL_ENC_PACK_MAX_CELLS = 50;
 const LOCAL_ENC_PACK_MAX_FEATURES = 250_000;
 const LOCAL_ENC_PACK_MAX_POSITIONS = 750_000;
 const LOCAL_ENC_PACK_MAX_GEOMETRY_DEPTH = 32;
 const LOCAL_ENC_PACK_MAX_SKIPPED = 1_000;
-const URL_TIMEOUT_MS = 45_000;
 
 /**
  * How far chart geometry may legitimately overhang its declared bbox.
@@ -58,9 +50,6 @@ const URL_TIMEOUT_MS = 45_000;
  * direction that would overstate coverage — is unaffected either way.
  */
 const BBOX_EDGE_TOLERANCE_DEG = 0.001;
-
-const DIRECT_PACK_SUFFIX = /\.(?:thalassaenc|json|geojson)$/i;
-const RAW_OR_ENCRYPTED_CHART_SUFFIX = /\.(?:00\d|zip|es57|oesenc|oesu|s63)$/i;
 
 const BASE_LAYER_NAMES = [
     'DEPARE',
@@ -89,21 +78,6 @@ export const LOCAL_ENC_PACK_LAYER_NAMES = new Set<string>([
     ...CAUTION_AREA_CLASSES,
 ]);
 
-export type LocalEncPackPhase = 'reading' | 'validating' | 'storing' | 'done';
-
-export interface LocalEncPackProgress {
-    phase: LocalEncPackPhase;
-    progress: number;
-    step: string;
-    cellCount?: number;
-    cellsDone?: number;
-}
-
-export interface LocalEncPackImportResult {
-    cells: EncCell[];
-    skipped: Array<{ filename: string; error: string }>;
-}
-
 type JsonRecord = Record<string, unknown>;
 
 interface GeometryBounds {
@@ -122,21 +96,6 @@ interface ValidationBudget {
 
 function isRecord(value: unknown): value is JsonRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function byteLength(text: string): number {
-    if (typeof Blob !== 'undefined') return new Blob([text]).size;
-    return new TextEncoder().encode(text).byteLength;
-}
-
-function ensureSize(size: number): void {
-    if (!Number.isFinite(size) || size < 0) throw new Error('The ENC pack size could not be verified.');
-    if (size > LOCAL_ENC_PACK_MAX_BYTES) {
-        throw new Error(
-            `ENC pack is ${(size / 1_048_576).toFixed(1)} MB; the on-device import limit is ` +
-                `${LOCAL_ENC_PACK_MAX_BYTES / 1_048_576} MB. Split the pack into smaller files.`,
-        );
-    }
 }
 
 function finiteNumber(value: unknown, label: string): number {
@@ -427,219 +386,4 @@ export function validateLocalEncPack(value: unknown): EncConversionBatch {
         return { filename: item.filename.slice(0, 200), error: item.error.slice(0, 500) };
     });
     return { cells, skipped };
-}
-
-export function isSupportedLocalEncPackFilename(filename: string): boolean {
-    return DIRECT_PACK_SUFFIX.test(filename.trim());
-}
-
-function unsupportedFilenameMessage(filename: string): string {
-    if (RAW_OR_ENCRYPTED_CHART_SUFFIX.test(filename.trim())) {
-        return (
-            `${filename} is a raw or encrypted chart file. Public-beta devices cannot decode S-57 .000/ZIP, ` +
-            'S-63 .es57, or o-charts files. Import an already-converted .thalassaenc/.json pack instead; ' +
-            'keep the original chart and its licence in your approved chart system.'
-        );
-    }
-    return `${filename} is not a Thalassa ENC pack. Choose a .thalassaenc, .json or .geojson file.`;
-}
-
-/** File picker for converted, Pi-independent packs only. */
-export function pickLocalEncPackFile(): Promise<File | null> {
-    return new Promise((resolve) => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.thalassaenc,.json,.geojson,application/json,application/geo+json';
-        input.style.display = 'none';
-        document.body.appendChild(input);
-        const finish = (file: File | null): void => {
-            input.remove();
-            resolve(file);
-        };
-        input.addEventListener('change', () => finish(input.files?.[0] ?? null), { once: true });
-        input.addEventListener('cancel', () => finish(null), { once: true });
-        input.click();
-    });
-}
-
-function emitProgress(
-    callback: ((progress: LocalEncPackProgress) => void) | undefined,
-    progress: LocalEncPackProgress,
-): void {
-    try {
-        callback?.(progress);
-    } catch (error) {
-        log.warn('progress callback threw', error);
-    }
-}
-
-async function importParsedPack(
-    parsed: unknown,
-    onProgress?: (progress: LocalEncPackProgress) => void,
-): Promise<LocalEncPackImportResult> {
-    emitProgress(onProgress, { phase: 'validating', progress: 0.25, step: 'Validating chart metadata and geometry' });
-    const pack = validateLocalEncPack(parsed);
-
-    // Prevent an accidental chart rollback before mutating any cell. A same-
-    // edition re-import is allowed because extraction/render fixes can change
-    // bytes without changing the hydrographic office's edition number.
-    const installed = new Map(
-        EncHazardService.getDisplayCoverage().map((cell) => [encCellStorageIdentity(cell.id), cell]),
-    );
-    for (const candidate of pack.cells) {
-        const current = installed.get(encCellStorageIdentity(candidate.cellId));
-        if (current && current.usage !== 'reference') {
-            throw new Error(
-                `${candidate.cellId} is already installed as trusted navigation coverage. ` +
-                    'An unsigned reference pack cannot replace it; the trusted chart was kept.',
-            );
-        }
-        if (current && current.edition > candidate.edition) {
-            throw new Error(
-                `${candidate.cellId} edition ${candidate.edition} is older than installed edition ${current.edition}; ` +
-                    'the newer chart was kept.',
-            );
-        }
-    }
-
-    const imported: EncCell[] = [];
-    for (let index = 0; index < pack.cells.length; index += 1) {
-        const candidate = pack.cells[index];
-        emitProgress(onProgress, {
-            phase: 'storing',
-            progress: 0.3 + (index / pack.cells.length) * 0.65,
-            step: `Saving ${candidate.cellId} on this device`,
-            cellCount: pack.cells.length,
-            cellsDone: index,
-        });
-        // Unsigned file/URL packs are reference overlays only. Their metadata
-        // is self-asserted, so they must never become hazard/routing/Cast-Off
-        // authority without a future trusted signature/publisher path.
-        imported.push(await EncHazardService.importCell(candidate, { usage: 'reference' }));
-    }
-    emitProgress(onProgress, {
-        phase: 'done',
-        progress: 1,
-        step: `${imported.length} reference ENC cell${imported.length === 1 ? '' : 's'} ready on this device`,
-        cellCount: imported.length,
-        cellsDone: imported.length,
-    });
-    return { cells: imported, skipped: pack.skipped ?? [] };
-}
-
-export async function importLocalEncPackText(
-    text: string,
-    onProgress?: (progress: LocalEncPackProgress) => void,
-): Promise<LocalEncPackImportResult> {
-    ensureSize(byteLength(text));
-    let parsed: unknown;
-    try {
-        parsed = await parseJsonOffThread(text);
-    } catch {
-        throw new Error('The selected file is not valid JSON; nothing was imported.');
-    }
-    return importParsedPack(parsed, onProgress);
-}
-
-export async function importLocalEncPackFile(
-    file: File,
-    onProgress?: (progress: LocalEncPackProgress) => void,
-): Promise<LocalEncPackImportResult> {
-    if (!isSupportedLocalEncPackFilename(file.name)) throw new Error(unsupportedFilenameMessage(file.name));
-    ensureSize(file.size);
-    emitProgress(onProgress, { phase: 'reading', progress: 0.05, step: `Reading ${file.name} on this device` });
-    const text =
-        typeof file.text === 'function'
-            ? await file.text()
-            : await new Promise<string>((resolve, reject) => {
-                  const reader = new FileReader();
-                  reader.onerror = () => reject(reader.error ?? new Error(`Could not read ${file.name}.`));
-                  reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
-                  reader.readAsText(file);
-              });
-    return importLocalEncPackText(text, onProgress);
-}
-
-/** HTTPS-only: unlike the held Pi flow, this never enables cleartext LAN I/O. */
-export function validateLocalEncPackUrl(rawUrl: string): URL {
-    let url: URL;
-    try {
-        url = new URL(rawUrl.trim());
-    } catch {
-        throw new Error('Enter a valid direct HTTPS URL.');
-    }
-    if (url.protocol !== 'https:') throw new Error('ENC pack URLs must use HTTPS.');
-    if (url.username || url.password) throw new Error('ENC pack URLs must not contain embedded credentials.');
-    return url;
-}
-
-async function responseTextWithinLimit(response: Response): Promise<string> {
-    const declaredLength = Number(response.headers.get('content-length'));
-    if (Number.isFinite(declaredLength) && declaredLength > 0) ensureSize(declaredLength);
-    if (!response.body?.getReader) {
-        const blob = await response.blob();
-        ensureSize(blob.size);
-        return blob.text();
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    const pieces: string[] = [];
-    let received = 0;
-    try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            received += value.byteLength;
-            ensureSize(received);
-            pieces.push(decoder.decode(value, { stream: true }));
-        }
-        pieces.push(decoder.decode());
-        return pieces.join('');
-    } catch (error) {
-        void reader.cancel().catch(() => undefined);
-        throw error;
-    }
-}
-
-export async function importLocalEncPackUrl(
-    rawUrl: string,
-    onProgress?: (progress: LocalEncPackProgress) => void,
-): Promise<LocalEncPackImportResult> {
-    const url = validateLocalEncPackUrl(rawUrl);
-    emitProgress(onProgress, {
-        phase: 'reading',
-        progress: 0.05,
-        step: 'Downloading ENC pack directly to this device',
-    });
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), URL_TIMEOUT_MS);
-    try {
-        const response = await fetch(url, {
-            method: 'GET',
-            // Fail closed: following even an HTTPS URL through an HTTP hop
-            // would contact cleartext before a final-URL check could notice.
-            redirect: 'error',
-            credentials: 'omit',
-            cache: 'no-store',
-            headers: { Accept: 'application/json, application/geo+json' },
-            signal: controller.signal,
-        });
-        if (!response.ok) throw new Error(`ENC pack download failed (HTTP ${response.status}).`);
-        // Defence in depth for unusual fetch implementations.
-        validateLocalEncPackUrl(response.url || url.href);
-        return await importLocalEncPackText(await responseTextWithinLimit(response), onProgress);
-    } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
-            throw new Error('ENC pack download timed out. Check the connection and try again.');
-        }
-        if (error instanceof TypeError) {
-            throw new Error(
-                'ENC pack download failed. Use a direct HTTPS pack URL with cross-origin downloads enabled; redirects are not accepted.',
-            );
-        }
-        throw error;
-    } finally {
-        clearTimeout(timeout);
-    }
 }
