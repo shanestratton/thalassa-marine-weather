@@ -1,0 +1,351 @@
+# DIAGNOSTIC ONLY: unchanged ca51 App/profile/assertions and 150-second budget.
+# One repetition with passive Node transport observation. Never release acceptance.
+name: Thalassa 127 passive Chromium screenshot stage diagnostic
+
+# Exact reviewed application commit, including explicit test PNG dependency.
+# Workflow/application identities are distinct. Test-only sampling repair:
+# four native full-viewport captures, exact byte crops at original CSS clips.
+# The capture body is REVISED, not original-body byte-identical. Eight original
+# expect statements AND complete colour-predicate/assertion blocks remain exact.
+# No Apple secrets, production deployment, signing/upload or rendering mutation.
+on:
+    push:
+        branches: ['codex/testflight-127-screenshot-stages-2026-10-12']
+        paths: ['.github/workflows/testflight-127-screenshot-stages.yml']
+
+permissions:
+    contents: read
+
+concurrency:
+    group: testflight-127-passive-screenshot-stage-diagnostic
+    cancel-in-progress: false
+
+env:
+    CANDIDATE_SHA: 'ca51d0c190e280699b62e619bd3c4f9f934ebfae'
+    CI: 'true'
+    HUSKY: '0'
+    NODE_OPTIONS: --max-old-space-size=4096
+    PUPPETEER_SKIP_DOWNLOAD: 'true'
+    VITE_APP_BUILD: '127'
+    VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+    VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+    VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+    VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+    VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+    VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+
+
+jobs:
+    focused-wind:
+        name: passive screenshot-stage diagnostic (${{ matrix.browser }})
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        strategy:
+            fail-fast: false
+            matrix:
+                browser: [chromium]
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 'ca51d0c190e280699b62e619bd3c4f9f934ebfae'
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Pin revised capture body, unchanged original assertions and original profile
+              id: source
+              env:
+                  VERIFY_PHASE: before
+                  BROWSER: ${{ matrix.browser }}
+              run: |
+                  node --input-type=module <<'NODE'
+                  // Source verification only; a separate step adds the reviewed Node transport observer.
+                  import {readFileSync,writeFileSync,readdirSync,lstatSync} from 'node:fs';
+                  import {join,relative} from 'node:path';
+                  import {createHash} from 'node:crypto';
+                  import {execFileSync} from 'node:child_process';
+                  const expected={
+                    "browser-tests/desk-wind-layout.spec.ts": "9044a4f32c3b8f9534ce6f0cf3633570c6efb80da8c0ffad1021533d02f14d05",
+                    "browser-tests/helpers/windPixelCapture.ts": "8140826dc2f54aa50610b50a52898e2c2e61fa98d0145dd1eb448cf5a1befe77",
+                    "browser-tests/helpers/chartCaptureReady.ts": "02ffb464cd22d0d8eb3c67c08be3bd96f788328405cb0e6bec5f16a71a69b1e9",
+                    "tests/WindPixelCapture.test.ts": "9a543d46a08ffa64637424db65b8148cd05b81f486732b53c20fb0ae523c9f99",
+                    "tests/helpers/colourScience.ts": "3e137524d0bdc83026c1e6215ff1e6ff2661a63ddf1961546ede00b7ea918de1",
+                    "playwright.keyboard.config.ts": "3213abfde7ee7461d475c7b630a3c485551bb5ed2c402018fb7fd5d9132f218a",
+                    "components/map/MapboxVelocityOverlay.tsx": "bd2765c24dd9c1f95952c002ca90b2554d1bd28a7278527472ac24e5deeae79e",
+                    "components/map/windRamp.ts": "22770f25d075fde7d7c9fae92fab4e62117428349723bf5379174716bb1e34ed",
+                    "components/map/MapHub.tsx": "4cb24cdf1fc8d50e984048bdd5bb10048e00a366f0813c0c7d609710774d384a",
+                    "components/map/reliefBase.ts": "9ce10e0afdbec2bc4dcfa597f879cf184ad78691e0339c4dabe7bed54b0ceb45",
+                    "components/map/useMapInit.ts": "4124705ad87fb5d72d4fa0a842fc3622cb39dedfa2fd1f47ad140a7b25e8f302",
+                    "components/map/useWeatherLayers.ts": "d0dc8cf1f950bf4dbf992fe77f527c8e0764663fe3fc346dfc361f164afa1cad",
+                    "components/map/CloseInWindLayer.ts": "a9cf00c32e477b32f1d891c4f603aa35dc0311e59dc25827acd09e7a0e665b4c",
+                    "e2e/helpers/syntheticChartTiles.ts": "72d467f3722cfeb93aac4eef37cadafd1bed7b9160f5617a4c5bd8f73433f393",
+                    "package.json": "7208d013d9d7039361db7cb16bbd35f71a8c1e7d6ba52198911ded7fe8048813",
+                    "package-lock.json": "643b1e8beeaee4a5d47d57f7216df62c387630faaabdbcbc1168ab00240e03c1"
+                  };
+                  const candidate=process.env.CANDIDATE_SHA,browser=process.env.BROWSER,phase=process.env.VERIFY_PHASE;
+                  if(!/^[0-9a-f]{40}$/.test(candidate??'')||!['chromium','webkit'].includes(browser)||!['before','after'].includes(phase)) throw Error('Fixed source/phase binding refused');
+                  const git=(args)=>execFileSync('git',args,{encoding:'utf8',maxBuffer:2097152}).trim();
+                  if(git(['rev-parse','HEAD'])!==candidate) throw Error('Application commit mismatch');
+                  execFileSync('git',['merge-base','--is-ancestor','ec0aaa363493496673f3cfdfe31e82d40813c663','HEAD']);
+                  execFileSync('git',['merge-base','--is-ancestor','6c60882fd39a87a6c00e1a327455903182293baa','HEAD']);
+                  if(git(['rev-parse','HEAD:playwright.keyboard.config.ts'])!=='4c06d1c48d42f7529904b27f50e2455305d23606') throw Error('Original profile/configuration changed');
+                  const sha=(value)=>createHash('sha256').update(value).digest('hex');
+                  const sourceInputs=Object.entries(expected).map(([path,sha256])=>{
+                   const stat=lstatSync(path);
+                   if(!stat.isFile()||stat.isSymbolicLink()||sha(readFileSync(path))!==sha256) throw Error('Named source hash mismatch');
+                   return {path,sha256};
+                  });
+                  execFileSync('git',['diff','--quiet','--',...Object.keys(expected)]);
+                  const numbers=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+                  if(numbers.length!==4||numbers.some(row=>row[1]!=='127')||JSON.parse(readFileSync('package.json','utf8')).version!=='1.2.0') throw Error('Committed release version mismatch');
+                  const spec=readFileSync('browser-tests/desk-wind-layout.spec.ts','utf8');
+                  const focused=(source)=>{
+                   const start=source.indexOf("test('Light: dark streaks"),end=source.indexOf("test('where the models disagree");
+                   if(start<0||end<=start) throw Error('Focused body bounds missing');
+                   return source.slice(start,end);
+                  };
+                  const body=focused(spec);
+                  if(sha(body)!=='02ea90e032399488cfdb2319a70c0b3542f164b292bc780e2c2e13b1c637db0a'||!body.includes('test.setTimeout(150_000);')) throw Error('Reviewed revised capture body/deadline mismatch');
+                  const expectLines=body.split('\n').filter(line=>line.trim().startsWith('expect(')).map(line=>line.trim()).join('\n');
+                  if(expectLines.split('\n').length!==8||sha(expectLines)!=='08acc20715782872b65c5d729afaaa41faeafb452c2f9385f694b5030c0a6b08') throw Error('Original eight pixel acceptance statements changed');
+                  const old=execFileSync('git',['show','ec0aaa363493496673f3cfdfe31e82d40813c663:browser-tests/desk-wind-layout.spec.ts'],{encoding:'utf8',maxBuffer:2097152});
+                  const block=(source,startLiteral,endLiteral)=>{
+                   const start=source.indexOf(startLiteral),end=source.indexOf(endLiteral,start);
+                   if(start<0||end<start) throw Error('Pixel assertion block bounds missing');
+                   return source.slice(start,end+endLiteral.length);
+                  };
+                  const boundaries=[
+                   ['expect(calm.all.length',"expect(slate.length / calm.cores.length, 'the 12 kt streaks are slate ink, not white').toBeGreaterThan(0.8);"],
+                   ['expect(white.all.length)',"expect(lighter.length / white.cores.length, 'white streaks on the dark base').toBeGreaterThan(0.8);"],
+                  ];
+                  const blocks=boundaries.map(([start,end])=>block(body,start,end));
+                  for(let i=0;i<boundaries.length;i++) if(blocks[i]!==block(focused(old),...boundaries[i])) throw Error('Complete original predicate/assertion block changed');
+                  const output={version:1,phase,browser,candidate,workflowCommit:process.env.GITHUB_SHA,sourceInputs,
+                   bodyLabel:'reviewed revised full-viewport capture body; NOT original-body byte identical',
+                   revisedBodySha256:sha(body),unchangedExpectLinesSha256:sha(expectLines),originalExpectLineCount:8,
+                   fullAssertionBlocksByteIdenticalToEc:true,fullAssertionBlockComparison:'direct exact text, including red/slate/lighter predicates, against clean committed ec',
+                   fullAssertionBlockSha256:blocks.map(value=>sha(value)),originalDeadlineMs:150000,repetitionsRequested:1,retries:0,diagnosticStageObservation:true,
+                   originalConfigurationBlob:'4c06d1c48d42f7529904b27f50e2455305d23606',nodeVersion:process.version,
+                   forcedTracing:false,injection:true,injectionScope:'passive Node transport observer, not browser/render mutation',bitmapOrColourNormalization:false,appRuntimeNamedPinsMatchEc:true};
+                  if(phase==='after') {
+                   let stats=null;
+                   try {const report=JSON.parse(readFileSync('wind-focused-results.json','utf8'));stats={expected:report.stats.expected,unexpected:report.stats.unexpected,flaky:report.stats.flaky,skipped:report.stats.skipped};} catch { /* unavailable, never fabricate a pass */ }
+                   const files=[];
+                   function visit(directory) {
+                    let entries;
+                    try {entries=readdirSync(directory,{withFileTypes:true});} catch(error) {if(error.code==='ENOENT')return;throw error;}
+                    for(const entry of entries) {
+                     const path=join(directory,entry.name);
+                     if(entry.isSymbolicLink()) throw Error('Output symlink refused');
+                     if(entry.isDirectory()) visit(path);
+                     else if(entry.isFile()&&/^desk-wind-(?:light|relief-sat)-streaks(?:-without-wind)?-(?:chromium|webkit)\.png$/.test(entry.name)) {
+                      if(!entry.name.endsWith('-'+browser+'.png')) throw Error('Pair browser binding refused');
+                      const stat=lstatSync(path);
+                      if(stat.size<33||stat.size>134217728) throw Error('Pair wire size refused');
+                      const bytes=readFileSync(path);
+                      if(bytes.subarray(0,8).toString('hex')!=='89504e470d0a1a0a'||bytes.subarray(12,16).toString('ascii')!=='IHDR') throw Error('Pair PNG header refused');
+                      files.push({path:relative('.',path),sha256:sha(bytes),bytes:bytes.length,width:bytes.readUInt32BE(16),height:bytes.readUInt32BE(20),depth:bytes[24],colourType:bytes[25]});
+                     }
+                     if(files.length>4) throw Error('Unexpected extra measured pair files');
+                    }
+                   }
+                   visit('test-results');
+                   output.proofOutcome=process.env.PROOF_OUTCOME;
+                   output.observedResults=stats;
+                   output.measuredPairFiles=files.sort((a,b)=>a.path.localeCompare(b.path));
+                   output.expectedCompletePairFiles=4;
+                   output.positiveOutputRetention='original Playwright preserveOutput default always; screenshot flags unchanged, diagnostic Node preload added';
+                   output.positivePairRetentionComplete=!!stats&&stats.expected===1&&stats.unexpected===0&&stats.flaky===0&&stats.skipped===0&&files.length===4;
+                  }
+                  writeFileSync('wind-source-hashes-'+phase+'.json',JSON.stringify(output,null,2)+'\n',{flag:'wx',mode:0o600});
+                  if(phase==='after'&&process.env.PROOF_OUTCOME==='success'&&!output.positivePairRetentionComplete) throw Error('Successful run must retain one positive measured pair per base');
+                  console.log(JSON.stringify({phase,browser,sourcePins:sourceInputs.length,revisedBodyVerified:true,eightOriginalExpectsVerified:true,completeOriginalBlocksVerified:true,
+                   measuredPairFiles:output.measuredPairFiles?.length??null,proofOutcome:output.proofOutcome??null}));
+                  NODE
+            - run: npm ci
+            - name: Install the selected original browser engine
+              run: npx playwright install --with-deps ${{ matrix.browser }}
+            - name: Prepare reviewed private passive transport observer
+              run: |
+                  node --input-type=module <<'NODE'
+                  import {writeFileSync,mkdirSync,realpathSync} from 'node:fs';
+                  import {join} from 'node:path';
+                  import {createHash} from 'node:crypto';
+                  const bytes=Buffer.from('J3VzZSBzdHJpY3QnOwoKY29uc3QgZnMgPSByZXF1aXJlKCdub2RlOmZzJyk7CmNvbnN0IHBhdGggPSByZXF1aXJlKCdub2RlOnBhdGgnKTsKY29uc3QgY3J5cHRvID0gcmVxdWlyZSgnbm9kZTpjcnlwdG8nKTsKCmNvbnN0IFNPVVJDRV9DT01NSVQgPSAnY2E1MWQwYzE5MGUyODA2OTliNjJlNjE5YmQzYzRmOWY5MzRlYmZhZSc7CmNvbnN0IE1BWF9SRUNPUkRTID0gMzI7CmNvbnN0IE1BWF9DT1VOVCA9IDFfMDAwXzAwMDsKY29uc3QgTUFYX0VMQVBTRURfTVMgPSA4Nl80MDBfMDAwOwpjb25zdCBNRVRIT0RTID0gT2JqZWN0LmZyZWV6ZShbJ1BhZ2UuZ2V0TGF5b3V0TWV0cmljcycsICdQYWdlLmNhcHR1cmVTY3JlZW5zaG90J10pOwpjb25zdCBPVVRDT01FUyA9IE9iamVjdC5mcmVlemUoWydmdWxmaWxsZWQnLCAncmVqZWN0ZWQnLCAndGhyZXcnLCAndW5vYnNlcnZlZC1yZXR1cm4nXSk7CmNvbnN0IE1PRFVMRV9TSEEyNTYgPSAnMGQ0MWEwNThhZDFmNWM4OTczMjlhOWM4MjFjNTJiOTUyZTBlNzA5YWIzOGMzZTZlMzU1MjI0YjE2NzkyMmYxMyc7CmNvbnN0IExPQURFUl9QSU5TID0gT2JqZWN0LmZyZWV6ZSh7CiAgICAnbGliL2NvbW1vbi9wcm9jZXNzLmpzJzogJzY4M2YyZTY3NmFlMWNmYzJkMjVhMjk5MDQ5MmNmNTM1YmEzMmM0MDg3ZDZmNjdkYjE3NDM2NDM4YTc5NzllYzknLAogICAgJ2xpYi9ydW5uZXIvcHJvY2Vzc0hvc3QuanMnOiAnNTBjN2M2ODJmY2M3ZTU2OWQwMWZjM2M4YmIyY2E1NWQ4Y2RiYmU0MTMzYmU4ZDMwMmUyMTE3OTMxZDdjMjMzYScsCiAgICAnbGliL3J1bm5lci93b3JrZXJIb3N0LmpzJzogJ2UxMTU4MGM2Nzk3ZWM4ZDlmNGNmY2MxYmZjNTcyODZjOTE2ZjZiNDc2MWQzZjIwY2UwNjI0YzI2M2VjNzgyYzUnLAp9KTsKY29uc3QgcHJvbWlzZVRoZW4gPSBQcm9taXNlLnByb3RvdHlwZS50aGVuOwpjb25zdCBhcHBseSA9IFJlZmxlY3QuYXBwbHk7CmNvbnN0IHNoYTI1NiA9IGZpbGUgPT4gY3J5cHRvLmNyZWF0ZUhhc2goJ3NoYTI1NicpLnVwZGF0ZShmcy5yZWFkRmlsZVN5bmMoZmlsZSkpLmRpZ2VzdCgnaGV4Jyk7CgovKiogUHVyZSBzeW50aGV0aWMgc2VhbXMgYmVsb3cgZG8gbm90IHRoZW1zZWx2ZXMgZXN0YWJsaXNoIGJyb3dzZXIgZXhlY3V0aW9uLiAqLwpmdW5jdGlvbiBjcmVhdGVTdGFnZVJlY29yZGVyKGNsb2NrID0gcHJvY2Vzcy5ocnRpbWUuYmlnaW50KSB7CiAgICBjb25zdCBvcmlnaW4gPSBjbG9jaygpOwogICAgY29uc3QgcmVjb3JkcyA9IFtdOwogICAgbGV0IGNhcGFjaXR5UmVhY2hlZCA9IGZhbHNlOwogICAgbGV0IGNvdW50ZXJCb3VuZFJlYWNoZWQgPSBmYWxzZTsKICAgIGxldCB0aW1pbmdVbmF2YWlsYWJsZSA9IGZhbHNlOwogICAgY29uc3QgY291bnRzID0gT2JqZWN0LmZyb21FbnRyaWVzKE1FVEhPRFMubWFwKG1ldGhvZCA9PiBbbWV0aG9kLCB7CiAgICAgICAgc3RhcnRlZDogMCwgcmVjb3JkZWQ6IDAsIG9taXR0ZWQ6IDAsIGZ1bGZpbGxlZDogMCwgcmVqZWN0ZWQ6IDAsIHRocmV3OiAwLCB1bm9ic2VydmVkUmV0dXJuOiAwLAogICAgfV0pKTsKICAgIGNvbnN0IGluY3JlbWVudCA9IChjb3VudCwga2V5KSA9PiB7CiAgICAgICAgaWYgKGNvdW50W2tleV0gPCBNQVhfQ09VTlQpIGNvdW50W2tleV0rKzsKICAgICAgICBlbHNlIGNvdW50ZXJCb3VuZFJlYWNoZWQgPSB0cnVlOwogICAgfTsKICAgIGZ1bmN0aW9uIG1pbGxpc2Vjb25kcygpIHsKICAgICAgICB0cnkgewogICAgICAgICAgICBjb25zdCBkZWx0YSA9IGNsb2NrKCkgLSBvcmlnaW47CiAgICAgICAgICAgIGlmICh0eXBlb2YgZGVsdGEgIT09ICdiaWdpbnQnIHx8IGRlbHRhIDwgMG4gfHwgZGVsdGEgPiBCaWdJbnQoTUFYX0VMQVBTRURfTVMpICogMV8wMDBfMDAwbikgewogICAgICAgICAgICAgICAgdGltaW5nVW5hdmFpbGFibGUgPSB0cnVlOwogICAgICAgICAgICAgICAgcmV0dXJuIG51bGw7CiAgICAgICAgICAgIH0KICAgICAgICAgICAgcmV0dXJuIE51bWJlcihkZWx0YSAvIDFfMDAwbikgLyAxXzAwMDsKICAgICAgICB9IGNhdGNoIHsKICAgICAgICAgICAgdGltaW5nVW5hdmFpbGFibGUgPSB0cnVlOwogICAgICAgICAgICByZXR1cm4gbnVsbDsKICAgICAgICB9CiAgICB9CiAgICBmdW5jdGlvbiBiZWdpbihtZXRob2QpIHsKICAgICAgICBpZiAoIU1FVEhPRFMuaW5jbHVkZXMobWV0aG9kKSkgcmV0dXJuIG51bGw7CiAgICAgICAgY29uc3QgY291bnQgPSBjb3VudHNbbWV0aG9kXTsKICAgICAgICBpbmNyZW1lbnQoY291bnQsICdzdGFydGVkJyk7CiAgICAgICAgaWYgKHJlY29yZHMubGVuZ3RoID09PSBNQVhfUkVDT1JEUykgewogICAgICAgICAgICBjYXBhY2l0eVJlYWNoZWQgPSB0cnVlOwogICAgICAgICAgICBpbmNyZW1lbnQoY291bnQsICdvbWl0dGVkJyk7CiAgICAgICAgICAgIHJldHVybiBudWxsOwogICAgICAgIH0KICAgICAgICBjb25zdCBpbmRleCA9IHJlY29yZHMubGVuZ3RoOwogICAgICAgIHJlY29yZHMucHVzaCh7aW5kZXgsIG1ldGhvZCwgc3RhcnRlZE1zOiBtaWxsaXNlY29uZHMoKSwgZW5kZWRNczogbnVsbCwgZHVyYXRpb25NczogbnVsbCwgb3V0Y29tZTogJ3BlbmRpbmcnfSk7CiAgICAgICAgaW5jcmVtZW50KGNvdW50LCAncmVjb3JkZWQnKTsKICAgICAgICByZXR1cm4gaW5kZXg7CiAgICB9CiAgICBmdW5jdGlvbiBmaW5pc2goaW5kZXgsIG91dGNvbWUpIHsKICAgICAgICBpZiAoIU51bWJlci5pc0ludGVnZXIoaW5kZXgpIHx8IGluZGV4IDwgMCB8fCBpbmRleCA+PSByZWNvcmRzLmxlbmd0aCB8fCAhT1VUQ09NRVMuaW5jbHVkZXMob3V0Y29tZSkpIHJldHVybjsKICAgICAgICBjb25zdCByZWNvcmQgPSByZWNvcmRzW2luZGV4XTsKICAgICAgICBpZiAocmVjb3JkLm91dGNvbWUgIT09ICdwZW5kaW5nJykgcmV0dXJuOwogICAgICAgIGNvbnN0IGVuZCA9IG1pbGxpc2Vjb25kcygpOwogICAgICAgIHJlY29yZC5lbmRlZE1zID0gZW5kOwogICAgICAgIGlmIChlbmQgIT09IG51bGwgJiYgcmVjb3JkLnN0YXJ0ZWRNcyAhPT0gbnVsbCAmJiBlbmQgPj0gcmVjb3JkLnN0YXJ0ZWRNcykgewogICAgICAgICAgICByZWNvcmQuZHVyYXRpb25NcyA9IE1hdGgucm91bmQoKGVuZCAtIHJlY29yZC5zdGFydGVkTXMpICogMV8wMDApIC8gMV8wMDA7CiAgICAgICAgfSBlbHNlIHsKICAgICAgICAgICAgdGltaW5nVW5hdmFpbGFibGUgPSB0cnVlOwogICAgICAgIH0KICAgICAgICByZWNvcmQub3V0Y29tZSA9IG91dGNvbWU7CiAgICAgICAgaW5jcmVtZW50KGNvdW50c1tyZWNvcmQubWV0aG9kXSwgb3V0Y29tZSA9PT0gJ3Vub2JzZXJ2ZWQtcmV0dXJuJyA/ICd1bm9ic2VydmVkUmV0dXJuJyA6IG91dGNvbWUpOwogICAgfQogICAgZnVuY3Rpb24gc25hcHNob3QoKSB7CiAgICAgICAgcmV0dXJuIE9iamVjdC5mcmVlemUoewogICAgICAgICAgICBtYXhpbXVtUmVjb3JkczogTUFYX1JFQ09SRFMsCiAgICAgICAgICAgIG1heGltdW1Db3VudDogTUFYX0NPVU5ULAogICAgICAgICAgICB0aW1pbmc6IE9iamVjdC5mcmVlemUoe3VuaXQ6ICdtaWxsaXNlY29uZHMnLCBvcmlnaW46ICdwcm9jZXNzLW1vbm90b25pYy1yZWxhdGl2ZScsIHVuYXZhaWxhYmxlOiB0aW1pbmdVbmF2YWlsYWJsZX0pLAogICAgICAgICAgICBjYXBhY2l0eVJlYWNoZWQsCiAgICAgICAgICAgIGNvdW50ZXJCb3VuZFJlYWNoZWQsCiAgICAgICAgICAgIGNvbXBsZXRpb25Db3VudHNDb3ZlclJlY29yZGVkQ29tbWFuZHNPbmx5OiB0cnVlLAogICAgICAgICAgICBjb3VudHM6IE9iamVjdC5mcmVlemUoT2JqZWN0LmZyb21FbnRyaWVzKE1FVEhPRFMubWFwKG1ldGhvZCA9PiBbbWV0aG9kLCBPYmplY3QuZnJlZXplKHsuLi5jb3VudHNbbWV0aG9kXX0pXSkpKSwKICAgICAgICAgICAgcmVjb3JkczogT2JqZWN0LmZyZWV6ZShyZWNvcmRzLm1hcChyZWNvcmQgPT4gT2JqZWN0LmZyZWV6ZSh7Li4ucmVjb3JkfSkpKSwKICAgICAgICB9KTsKICAgIH0KICAgIHJldHVybiBPYmplY3QuZnJlZXplKHtiZWdpbiwgZmluaXNoLCBzbmFwc2hvdH0pOwp9CgovKiogRm9yd2FyZCB1bmNoYW5nZWQgcmVjZWl2ZXIvYXJndW1lbnRzIGFuZCByZXR1cm4gdGhlIHZlcnkgc2FtZSByZXN1bHQuICovCmZ1bmN0aW9uIHdyYXBTZW5kKG9yaWdpbmFsLCByZWNvcmRlcikgewogICAgZnVuY3Rpb24gc2VuZCguLi5hcmdzKSB7CiAgICAgICAgY29uc3QgbWV0aG9kID0gYXJnc1swXTsKICAgICAgICBpZiAoIU1FVEhPRFMuaW5jbHVkZXMobWV0aG9kKSkgcmV0dXJuIGFwcGx5KG9yaWdpbmFsLCB0aGlzLCBhcmdzKTsKICAgICAgICBsZXQgaW5kZXggPSBudWxsOwogICAgICAgIHRyeSB7IGluZGV4ID0gcmVjb3JkZXIuYmVnaW4obWV0aG9kKTsgfSBjYXRjaCB7IC8qIERpYWdub3N0aWNzIGNhbm5vdCByZXBsYWNlIGEgQ0RQIGNhbGwuICovIH0KICAgICAgICBsZXQgcmVzdWx0OwogICAgICAgIHRyeSB7CiAgICAgICAgICAgIHJlc3VsdCA9IGFwcGx5KG9yaWdpbmFsLCB0aGlzLCBhcmdzKTsKICAgICAgICB9IGNhdGNoIChlcnJvcikgewogICAgICAgICAgICB0cnkgeyBpZiAoaW5kZXggIT09IG51bGwpIHJlY29yZGVyLmZpbmlzaChpbmRleCwgJ3RocmV3Jyk7IH0gY2F0Y2ggeyAvKiBQcmVzZXJ2ZSBvcmlnaW5hbCBlcnJvci4gKi8gfQogICAgICAgICAgICB0aHJvdyBlcnJvcjsKICAgICAgICB9CiAgICAgICAgaWYgKGluZGV4ICE9PSBudWxsKSB7CiAgICAgICAgICAgIGNvbnN0IGNvbXBsZXRlID0gb3V0Y29tZSA9PiB7CiAgICAgICAgICAgICAgICB0cnkgeyByZWNvcmRlci5maW5pc2goaW5kZXgsIG91dGNvbWUpOyB9IGNhdGNoIHsgLyogTmV2ZXIgcHJvcGFnYXRlIG9ic2VydmVyIGVycm9ycy4gKi8gfQogICAgICAgICAgICB9OwogICAgICAgICAgICB0cnkgewogICAgICAgICAgICAgICAgLy8gVXNlIHRoZSBpbnRyaW5zaWMsIG5vdCBhbnkgY2FsbGVyLXN1cHBsaWVkIHRoZW4gZ2V0dGVyLgogICAgICAgICAgICAgICAgLy8gUmVhY3Rpb24gaGFuZGxlcnMgYWRkIGEgZGlhZ25vc3RpYyBtaWNyb3Rhc2sgYW5kIG1hcmsgdGhlCiAgICAgICAgICAgICAgICAvLyBvcmlnaW5hbCByZWplY3Rpb24gaGFuZGxlZDsgY2FsbGVycyByZXRhaW4gaWRlbnRpY2FsIFByb21pc2UKICAgICAgICAgICAgICAgIC8vIGlkZW50aXR5L3ZhbHVlL2Vycm9yLiBUaGlzIGlzIG5vdCB6ZXJvLWltcGFjdCBpbnN0cnVtZW50YXRpb24uCiAgICAgICAgICAgICAgICBhcHBseShwcm9taXNlVGhlbiwgcmVzdWx0LCBbKCkgPT4gY29tcGxldGUoJ2Z1bGZpbGxlZCcpLCAoKSA9PiBjb21wbGV0ZSgncmVqZWN0ZWQnKV0pOwogICAgICAgICAgICB9IGNhdGNoIHsKICAgICAgICAgICAgICAgIGNvbXBsZXRlKCd1bm9ic2VydmVkLXJldHVybicpOwogICAgICAgICAgICB9CiAgICAgICAgfQogICAgICAgIHJldHVybiByZXN1bHQ7CiAgICB9CiAgICBPYmplY3QuZGVmaW5lUHJvcGVydHkoc2VuZCwgJ2xlbmd0aCcsIHt2YWx1ZTogb3JpZ2luYWwubGVuZ3RofSk7CiAgICByZXR1cm4gc2VuZDsKfQoKZnVuY3Rpb24gY2Fub25pY2FsUmVndWxhcihmaWxlKSB7CiAgICBpZiAodHlwZW9mIGZpbGUgIT09ICdzdHJpbmcnIHx8IGZpbGUubGVuZ3RoID4gNF8wOTYgfHwgZmlsZS5pbmNsdWRlcygnXDAnKSB8fCAhcGF0aC5pc0Fic29sdXRlKGZpbGUpIHx8CiAgICAgICAgcGF0aC5ub3JtYWxpemUoZmlsZSkgIT09IGZpbGUgfHwgZnMucmVhbHBhdGhTeW5jKGZpbGUpICE9PSBmaWxlKSB0aHJvdyBuZXcgRXJyb3IoJ09ic2VydmVyIHNvdXJjZSBwYXRoIHJlZnVzZWQnKTsKICAgIGNvbnN0IHN0YXQgPSBmcy5sc3RhdFN5bmMoZmlsZSk7CiAgICBpZiAoIXN0YXQuaXNGaWxlKCkgfHwgc3RhdC5pc1N5bWJvbGljTGluaygpKSB0aHJvdyBuZXcgRXJyb3IoJ09ic2VydmVyIHNvdXJjZSBpcyBub3QgYSBjYW5vbmljYWwgcmVndWxhciBmaWxlJyk7CiAgICByZXR1cm4gc3RhdDsKfQoKZnVuY3Rpb24gb3duZWREaXJlY3RvcnkoZGlyZWN0b3J5KSB7CiAgICBpZiAodHlwZW9mIGRpcmVjdG9yeSAhPT0gJ3N0cmluZycgfHwgZGlyZWN0b3J5Lmxlbmd0aCA+IDRfMDk2IHx8IGRpcmVjdG9yeS5pbmNsdWRlcygnXDAnKSB8fAogICAgICAgICFwYXRoLmlzQWJzb2x1dGUoZGlyZWN0b3J5KSB8fCBwYXRoLm5vcm1hbGl6ZShkaXJlY3RvcnkpICE9PSBkaXJlY3RvcnkgfHwgZnMucmVhbHBhdGhTeW5jKGRpcmVjdG9yeSkgIT09IGRpcmVjdG9yeSkKICAgICAgICB0aHJvdyBuZXcgRXJyb3IoJ09ic2VydmVyIG91dHB1dCBkaXJlY3RvcnkgcmVmdXNlZCcpOwogICAgY29uc3Qgc3RhdCA9IGZzLmxzdGF0U3luYyhkaXJlY3RvcnkpOwogICAgY29uc3QgdWlkID0gcHJvY2Vzcy5nZXR1aWQ/LigpOwogICAgaWYgKHVpZCA9PT0gdW5kZWZpbmVkIHx8ICFzdGF0LmlzRGlyZWN0b3J5KCkgfHwgc3RhdC5pc1N5bWJvbGljTGluaygpIHx8IHN0YXQudWlkICE9PSB1aWQgfHwgKHN0YXQubW9kZSAmIDBvNzc3KSAhPT0gMG83MDApCiAgICAgICAgdGhyb3cgbmV3IEVycm9yKCdPYnNlcnZlciBvdXRwdXQgbXVzdCBiZSBhbiBvd25lZCBwcml2YXRlIGRpcmVjdG9yeScpOwogICAgcmV0dXJuIHN0YXQ7Cn0KCmZ1bmN0aW9uIGFjdGl2YXRlQ29uZmlndXJlZE9ic2VydmVyKCkgewogICAgY29uc3QgbW9kdWxlRmlsZSA9IHByb2Nlc3MuZW52LlRIQUxBU1NBX1NDUkVFTlNIT1RfU1RBR0VfTU9EVUxFOwogICAgY29uc3Qgb3V0cHV0RGlyZWN0b3J5ID0gcHJvY2Vzcy5lbnYuVEhBTEFTU0FfU0NSRUVOU0hPVF9TVEFHRV9PVVRQVVQ7CiAgICBjb25zdCBvYnNlcnZlclBpbiA9IHByb2Nlc3MuZW52LlRIQUxBU1NBX1NDUkVFTlNIT1RfU1RBR0VfT0JTRVJWRVJfU0hBOwogICAgaWYgKG1vZHVsZUZpbGUgPT09IHVuZGVmaW5lZCAmJiBvdXRwdXREaXJlY3RvcnkgPT09IHVuZGVmaW5lZCAmJiBvYnNlcnZlclBpbiA9PT0gdW5kZWZpbmVkKSByZXR1cm47CiAgICBpZiAoIS9eW2EtZjAtOV17NjR9JC8udGVzdChvYnNlcnZlclBpbiA/PyAnJykpIHRocm93IG5ldyBFcnJvcignT2JzZXJ2ZXIgc2VsZiBwaW4gcmVmdXNlZCcpOwogICAgY2Fub25pY2FsUmVndWxhcihfX2ZpbGVuYW1lKTsKICAgIGlmIChzaGEyNTYoX19maWxlbmFtZSkgIT09IG9ic2VydmVyUGluKSB0aHJvdyBuZXcgRXJyb3IoJ09ic2VydmVyIHNlbGYgcGluIG1pc21hdGNoJyk7CiAgICBjYW5vbmljYWxSZWd1bGFyKG1vZHVsZUZpbGUpOwogICAgaWYgKCFtb2R1bGVGaWxlLmVuZHNXaXRoKCcvbm9kZV9tb2R1bGVzL3BsYXl3cmlnaHQtY29yZS9saWIvc2VydmVyL2Nocm9taXVtL2NyQ29ubmVjdGlvbi5qcycpIHx8IHNoYTI1Nihtb2R1bGVGaWxlKSAhPT0gTU9EVUxFX1NIQTI1NikKICAgICAgICB0aHJvdyBuZXcgRXJyb3IoJ1Bpbm5lZCBDaHJvbWl1bSBjb25uZWN0aW9uIG1vZHVsZSByZWZ1c2VkJyk7CiAgICBjb25zdCBvdXRwdXRTdGF0ID0gb3duZWREaXJlY3Rvcnkob3V0cHV0RGlyZWN0b3J5KTsKICAgIGNvbnN0IGNvcmVSb290ID0gcGF0aC5yZXNvbHZlKHBhdGguZGlybmFtZShtb2R1bGVGaWxlKSwgJy4uLy4uLy4uJyk7CiAgICBjb25zdCBsb2FkZXJSb3dzID0gT2JqZWN0LmVudHJpZXMoTE9BREVSX1BJTlMpLm1hcCgoW3JlbGF0aXZlLCBleHBlY3RlZF0pID0+IHsKICAgICAgICBjb25zdCBmaWxlID0gcGF0aC5yZXNvbHZlKGNvcmVSb290LCAnLi4vcGxheXdyaWdodCcsIHJlbGF0aXZlKTsKICAgICAgICBjYW5vbmljYWxSZWd1bGFyKGZpbGUpOwogICAgICAgIGlmIChzaGEyNTYoZmlsZSkgIT09IGV4cGVjdGVkKSB0aHJvdyBuZXcgRXJyb3IoJ1Bpbm5lZCBQbGF5d3JpZ2h0IHdvcmtlciBsb2FkZXIgcmVmdXNlZCcpOwogICAgICAgIHJldHVybiBPYmplY3QuZnJlZXplKHtwYXRoOiBmaWxlLCBzaGEyNTY6IGV4cGVjdGVkfSk7CiAgICB9KTsKICAgIGNvbnN0IHByZXZpb3VzbHlMb2FkZWQgPSBPYmplY3QuaGFzT3duKHJlcXVpcmUuY2FjaGUsIG1vZHVsZUZpbGUpOwogICAgY29uc3Qge0NSU2Vzc2lvbn0gPSByZXF1aXJlKG1vZHVsZUZpbGUpOwogICAgY29uc3QgZGVzY3JpcHRvciA9IENSU2Vzc2lvbiAmJiBPYmplY3QuZ2V0T3duUHJvcGVydHlEZXNjcmlwdG9yKENSU2Vzc2lvbi5wcm90b3R5cGUsICdzZW5kJyk7CiAgICBpZiAoIWRlc2NyaXB0b3IgfHwgdHlwZW9mIGRlc2NyaXB0b3IudmFsdWUgIT09ICdmdW5jdGlvbicgfHwgIWRlc2NyaXB0b3Iud3JpdGFibGUgfHwKICAgICAgICBkZXNjcmlwdG9yLnZhbHVlLmNvbnN0cnVjdG9yLm5hbWUgIT09ICdBc3luY0Z1bmN0aW9uJykgdGhyb3cgbmV3IEVycm9yKCdQaW5uZWQgQ1JTZXNzaW9uIGFzeW5jIHNlbmQgc2VhbSByZWZ1c2VkJyk7CiAgICBjb25zdCByZWNvcmRlciA9IGNyZWF0ZVN0YWdlUmVjb3JkZXIoKTsKICAgIE9iamVjdC5kZWZpbmVQcm9wZXJ0eShDUlNlc3Npb24ucHJvdG90eXBlLCAnc2VuZCcsIHsuLi5kZXNjcmlwdG9yLCB2YWx1ZTogd3JhcFNlbmQoZGVzY3JpcHRvci52YWx1ZSwgcmVjb3JkZXIpfSk7CiAgICBjb25zdCB3b3JrZXJFbnRyeSA9IGxvYWRlclJvd3MuZmluZChyb3cgPT4gcm93LnBhdGguZW5kc1dpdGgoJy9saWIvY29tbW9uL3Byb2Nlc3MuanMnKSkucGF0aDsKICAgIGNvbnN0IGVudHJ5S2luZCA9IHByb2Nlc3MuYXJndlsxXSAmJiBwYXRoLnJlc29sdmUocHJvY2Vzcy5hcmd2WzFdKSA9PT0gd29ya2VyRW50cnkgPyAncGxheXdyaWdodC13b3JrZXItcHJvY2VzcycgOiAnb3RoZXItbm9kZS1wcm9jZXNzJzsKICAgIGNvbnN0IG91dHB1dEZpbGUgPSBwYXRoLmpvaW4ob3V0cHV0RGlyZWN0b3J5LCBgY2hyb21pdW0tc2NyZWVuc2hvdC1zdGFnZXMtJHtwcm9jZXNzLnBpZH0uanNvbmApOwogICAgcHJvY2Vzcy5vbmNlKCdleGl0JywgY29kZSA9PiB7CiAgICAgICAgLy8gTm8gcGVyLWNvbW1hbmQvZnJhbWUgbG9nZ2luZzsgb3JkaW5hcnkgTm9kZSBleGl0IG9ubHkuIEEga2lsbGVkCiAgICAgICAgLy8gcHJvY2VzcyBjYW4gbGVhdmUgbm8gcmVjZWlwdCwgd2hpY2ggaXMgbm90IGV2aWRlbmNlIG9mIG5vIGNhbGxzLgogICAgICAgIHRyeSB7CiAgICAgICAgICAgIGNvbnN0IGN1cnJlbnQgPSBvd25lZERpcmVjdG9yeShvdXRwdXREaXJlY3RvcnkpOwogICAgICAgICAgICBpZiAoY3VycmVudC5kZXYgIT09IG91dHB1dFN0YXQuZGV2IHx8IGN1cnJlbnQuaW5vICE9PSBvdXRwdXRTdGF0LmlubykgcmV0dXJuOwogICAgICAgICAgICBjb25zdCBzdGFibGUgPSBzaGEyNTYoX19maWxlbmFtZSkgPT09IG9ic2VydmVyUGluICYmIHNoYTI1Nihtb2R1bGVGaWxlKSA9PT0gTU9EVUxFX1NIQTI1NiAmJgogICAgICAgICAgICAgICAgbG9hZGVyUm93cy5ldmVyeShyb3cgPT4gc2hhMjU2KHJvdy5wYXRoKSA9PT0gcm93LnNoYTI1Nik7CiAgICAgICAgICAgIGNvbnN0IHJlY2VpcHQgPSB7CiAgICAgICAgICAgICAgICBzY2hlbWFWZXJzaW9uOiAxLAogICAgICAgICAgICAgICAga2luZDogJ3Bhc3NpdmUtY2hyb21pdW0tc2NyZWVuc2hvdC1zdGFnZS1vYnNlcnZhdGlvbnMnLAogICAgICAgICAgICAgICAgc291cmNlQ29tbWl0OiBTT1VSQ0VfQ09NTUlULAogICAgICAgICAgICAgICAgZGlhZ25vc3RpY09ubHk6IHRydWUsCiAgICAgICAgICAgICAgICBwcm9jZXNzOiB7cGlkOiBwcm9jZXNzLnBpZCwgcGFyZW50UGlkOiBwcm9jZXNzLnBwaWQsIGVudHJ5S2luZCwgb3JkaW5hcnlFeGl0Q29kZTogTnVtYmVyLmlzSW50ZWdlcihjb2RlKSAmJiBjb2RlID49IDAgJiYgY29kZSA8PSAyNTUgPyBjb2RlIDogbnVsbH0sCiAgICAgICAgICAgICAgICBvYnNlcnZlcjoge3BhdGg6IF9fZmlsZW5hbWUsIHNoYTI1Njogb2JzZXJ2ZXJQaW59LAogICAgICAgICAgICAgICAgY2hyb21pdW1Nb2R1bGU6IHtwYXRoOiBtb2R1bGVGaWxlLCBzaGEyNTY6IE1PRFVMRV9TSEEyNTYsIHByZXZpb3VzbHlMb2FkZWR9LAogICAgICAgICAgICAgICAgbG9hZGVyU291cmNlczogbG9hZGVyUm93cywKICAgICAgICAgICAgICAgIHNvdXJjZUhhc2hlc1N0YWJsZUF0RXhpdDogc3RhYmxlLAogICAgICAgICAgICAgICAgbm9kZVZlcnNpb246IC9edlxkK1wuXGQrXC5cZCskLy50ZXN0KHByb2Nlc3MudmVyc2lvbikgPyBwcm9jZXNzLnZlcnNpb24gOiAndW5rbm93bicsCiAgICAgICAgICAgICAgICBhcmd1bWVudHNSZXN1bHRzQW5kRXJyb3JzUmVjb3JkZWQ6IGZhbHNlLAogICAgICAgICAgICAgICAgYnJvd3Nlck9yUmVuZGVyQ29tbWFuZHNBZGRlZDogZmFsc2UsCiAgICAgICAgICAgICAgICAuLi5yZWNvcmRlci5zbmFwc2hvdCgpLAogICAgICAgICAgICB9OwogICAgICAgICAgICBjb25zdCBmZCA9IGZzLm9wZW5TeW5jKG91dHB1dEZpbGUsIGZzLmNvbnN0YW50cy5PX1dST05MWSB8IGZzLmNvbnN0YW50cy5PX0NSRUFUIHwgZnMuY29uc3RhbnRzLk9fRVhDTCB8IGZzLmNvbnN0YW50cy5PX05PRk9MTE9XLCAwbzYwMCk7CiAgICAgICAgICAgIHRyeSB7IGZzLndyaXRlRmlsZVN5bmMoZmQsIGAke0pTT04uc3RyaW5naWZ5KHJlY2VpcHQpfVxuYCk7IH0KICAgICAgICAgICAgZmluYWxseSB7IGZzLmNsb3NlU3luYyhmZCk7IH0KICAgICAgICB9IGNhdGNoIHsgLyogRGlhZ25vc3RpYyBmYWlsdXJlIG11c3Qgbm90IGNoYW5nZSB0aGUgdGVzdCdzIGV4aXQgY29kZSBvciBleHBvc2UgZGF0YS4gKi8gfQogICAgfSk7Cn0KCm1vZHVsZS5leHBvcnRzID0gT2JqZWN0LmZyZWV6ZSh7U09VUkNFX0NPTU1JVCwgTUFYX1JFQ09SRFMsIE1FVEhPRFMsIE1PRFVMRV9TSEEyNTYsIExPQURFUl9QSU5TLCBjcmVhdGVTdGFnZVJlY29yZGVyLCB3cmFwU2VuZH0pOwphY3RpdmF0ZUNvbmZpZ3VyZWRPYnNlcnZlcigpOwo=','base64');
+                  if(createHash('sha256').update(bytes).digest('hex')!=='d679e82f70d114dfafffc7ec2e9a00c0f1d86d616d2756886b35175bd5686c59') throw Error('Reviewed observer hash differs');
+                  mkdirSync(join(process.env.RUNNER_TEMP,'wind-cdp-stages'),{mode:0o700});
+                  writeFileSync(join(process.env.RUNNER_TEMP,'screenshot-stage-observer.cjs'),bytes,{mode:0o600,flag:'wx'});
+                  for(const [name,path] of [
+                    ['THALASSA_SCREENSHOT_STAGE_MODULE',join(process.cwd(),'node_modules/playwright-core/lib/server/chromium/crConnection.js')],
+                    ['THALASSA_SCREENSHOT_STAGE_OUTPUT',join(process.env.RUNNER_TEMP,'wind-cdp-stages')],
+                  ]) writeFileSync(process.env.GITHUB_ENV,name+'='+realpathSync(path)+'\n',{flag:'a'});
+                  writeFileSync(process.env.GITHUB_ENV,'THALASSA_SCREENSHOT_STAGE_OBSERVER_SHA=d679e82f70d114dfafffc7ec2e9a00c0f1d86d616d2756886b35175bd5686c59\n',{flag:'a'});
+                  NODE
+            - name: One original-budget diagnostic repetition with passive CDP timing
+              id: proof
+              env:
+                  PLAYWRIGHT_JSON_OUTPUT_NAME: wind-focused-results.json
+                  NODE_OPTIONS: --max-old-space-size=4096 --require=${{ runner.temp }}/screenshot-stage-observer.cjs
+              run: >-
+                  npx playwright test --config playwright.keyboard.config.ts
+                  browser-tests/desk-wind-layout.spec.ts --grep 'Light: dark streaks'
+                  --project=${{ matrix.browser }} --workers=1 --repeat-each=1 --retries=0
+                  --reporter=line,json
+            - name: Verify unchanged source and retain actual positive and failed pair hashes
+              if: always() && steps.source.outcome == 'success'
+              env:
+                  VERIFY_PHASE: after
+                  BROWSER: ${{ matrix.browser }}
+                  PROOF_OUTCOME: ${{ steps.proof.outcome }}
+              run: |
+                  node --input-type=module <<'NODE'
+                  // Source verification only; a separate step adds the reviewed Node transport observer.
+                  import {readFileSync,writeFileSync,readdirSync,lstatSync} from 'node:fs';
+                  import {join,relative} from 'node:path';
+                  import {createHash} from 'node:crypto';
+                  import {execFileSync} from 'node:child_process';
+                  const expected={
+                    "browser-tests/desk-wind-layout.spec.ts": "9044a4f32c3b8f9534ce6f0cf3633570c6efb80da8c0ffad1021533d02f14d05",
+                    "browser-tests/helpers/windPixelCapture.ts": "8140826dc2f54aa50610b50a52898e2c2e61fa98d0145dd1eb448cf5a1befe77",
+                    "browser-tests/helpers/chartCaptureReady.ts": "02ffb464cd22d0d8eb3c67c08be3bd96f788328405cb0e6bec5f16a71a69b1e9",
+                    "tests/WindPixelCapture.test.ts": "9a543d46a08ffa64637424db65b8148cd05b81f486732b53c20fb0ae523c9f99",
+                    "tests/helpers/colourScience.ts": "3e137524d0bdc83026c1e6215ff1e6ff2661a63ddf1961546ede00b7ea918de1",
+                    "playwright.keyboard.config.ts": "3213abfde7ee7461d475c7b630a3c485551bb5ed2c402018fb7fd5d9132f218a",
+                    "components/map/MapboxVelocityOverlay.tsx": "bd2765c24dd9c1f95952c002ca90b2554d1bd28a7278527472ac24e5deeae79e",
+                    "components/map/windRamp.ts": "22770f25d075fde7d7c9fae92fab4e62117428349723bf5379174716bb1e34ed",
+                    "components/map/MapHub.tsx": "4cb24cdf1fc8d50e984048bdd5bb10048e00a366f0813c0c7d609710774d384a",
+                    "components/map/reliefBase.ts": "9ce10e0afdbec2bc4dcfa597f879cf184ad78691e0339c4dabe7bed54b0ceb45",
+                    "components/map/useMapInit.ts": "4124705ad87fb5d72d4fa0a842fc3622cb39dedfa2fd1f47ad140a7b25e8f302",
+                    "components/map/useWeatherLayers.ts": "d0dc8cf1f950bf4dbf992fe77f527c8e0764663fe3fc346dfc361f164afa1cad",
+                    "components/map/CloseInWindLayer.ts": "a9cf00c32e477b32f1d891c4f603aa35dc0311e59dc25827acd09e7a0e665b4c",
+                    "e2e/helpers/syntheticChartTiles.ts": "72d467f3722cfeb93aac4eef37cadafd1bed7b9160f5617a4c5bd8f73433f393",
+                    "package.json": "7208d013d9d7039361db7cb16bbd35f71a8c1e7d6ba52198911ded7fe8048813",
+                    "package-lock.json": "643b1e8beeaee4a5d47d57f7216df62c387630faaabdbcbc1168ab00240e03c1"
+                  };
+                  const candidate=process.env.CANDIDATE_SHA,browser=process.env.BROWSER,phase=process.env.VERIFY_PHASE;
+                  if(!/^[0-9a-f]{40}$/.test(candidate??'')||!['chromium','webkit'].includes(browser)||!['before','after'].includes(phase)) throw Error('Fixed source/phase binding refused');
+                  const git=(args)=>execFileSync('git',args,{encoding:'utf8',maxBuffer:2097152}).trim();
+                  if(git(['rev-parse','HEAD'])!==candidate) throw Error('Application commit mismatch');
+                  execFileSync('git',['merge-base','--is-ancestor','ec0aaa363493496673f3cfdfe31e82d40813c663','HEAD']);
+                  execFileSync('git',['merge-base','--is-ancestor','6c60882fd39a87a6c00e1a327455903182293baa','HEAD']);
+                  if(git(['rev-parse','HEAD:playwright.keyboard.config.ts'])!=='4c06d1c48d42f7529904b27f50e2455305d23606') throw Error('Original profile/configuration changed');
+                  const sha=(value)=>createHash('sha256').update(value).digest('hex');
+                  const sourceInputs=Object.entries(expected).map(([path,sha256])=>{
+                   const stat=lstatSync(path);
+                   if(!stat.isFile()||stat.isSymbolicLink()||sha(readFileSync(path))!==sha256) throw Error('Named source hash mismatch');
+                   return {path,sha256};
+                  });
+                  execFileSync('git',['diff','--quiet','--',...Object.keys(expected)]);
+                  const numbers=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+                  if(numbers.length!==4||numbers.some(row=>row[1]!=='127')||JSON.parse(readFileSync('package.json','utf8')).version!=='1.2.0') throw Error('Committed release version mismatch');
+                  const spec=readFileSync('browser-tests/desk-wind-layout.spec.ts','utf8');
+                  const focused=(source)=>{
+                   const start=source.indexOf("test('Light: dark streaks"),end=source.indexOf("test('where the models disagree");
+                   if(start<0||end<=start) throw Error('Focused body bounds missing');
+                   return source.slice(start,end);
+                  };
+                  const body=focused(spec);
+                  if(sha(body)!=='02ea90e032399488cfdb2319a70c0b3542f164b292bc780e2c2e13b1c637db0a'||!body.includes('test.setTimeout(150_000);')) throw Error('Reviewed revised capture body/deadline mismatch');
+                  const expectLines=body.split('\n').filter(line=>line.trim().startsWith('expect(')).map(line=>line.trim()).join('\n');
+                  if(expectLines.split('\n').length!==8||sha(expectLines)!=='08acc20715782872b65c5d729afaaa41faeafb452c2f9385f694b5030c0a6b08') throw Error('Original eight pixel acceptance statements changed');
+                  const old=execFileSync('git',['show','ec0aaa363493496673f3cfdfe31e82d40813c663:browser-tests/desk-wind-layout.spec.ts'],{encoding:'utf8',maxBuffer:2097152});
+                  const block=(source,startLiteral,endLiteral)=>{
+                   const start=source.indexOf(startLiteral),end=source.indexOf(endLiteral,start);
+                   if(start<0||end<start) throw Error('Pixel assertion block bounds missing');
+                   return source.slice(start,end+endLiteral.length);
+                  };
+                  const boundaries=[
+                   ['expect(calm.all.length',"expect(slate.length / calm.cores.length, 'the 12 kt streaks are slate ink, not white').toBeGreaterThan(0.8);"],
+                   ['expect(white.all.length)',"expect(lighter.length / white.cores.length, 'white streaks on the dark base').toBeGreaterThan(0.8);"],
+                  ];
+                  const blocks=boundaries.map(([start,end])=>block(body,start,end));
+                  for(let i=0;i<boundaries.length;i++) if(blocks[i]!==block(focused(old),...boundaries[i])) throw Error('Complete original predicate/assertion block changed');
+                  const output={version:1,phase,browser,candidate,workflowCommit:process.env.GITHUB_SHA,sourceInputs,
+                   bodyLabel:'reviewed revised full-viewport capture body; NOT original-body byte identical',
+                   revisedBodySha256:sha(body),unchangedExpectLinesSha256:sha(expectLines),originalExpectLineCount:8,
+                   fullAssertionBlocksByteIdenticalToEc:true,fullAssertionBlockComparison:'direct exact text, including red/slate/lighter predicates, against clean committed ec',
+                   fullAssertionBlockSha256:blocks.map(value=>sha(value)),originalDeadlineMs:150000,repetitionsRequested:1,retries:0,diagnosticStageObservation:true,
+                   originalConfigurationBlob:'4c06d1c48d42f7529904b27f50e2455305d23606',nodeVersion:process.version,
+                   forcedTracing:false,injection:true,injectionScope:'passive Node transport observer, not browser/render mutation',bitmapOrColourNormalization:false,appRuntimeNamedPinsMatchEc:true};
+                  if(phase==='after') {
+                   let stats=null;
+                   try {const report=JSON.parse(readFileSync('wind-focused-results.json','utf8'));stats={expected:report.stats.expected,unexpected:report.stats.unexpected,flaky:report.stats.flaky,skipped:report.stats.skipped};} catch { /* unavailable, never fabricate a pass */ }
+                   const files=[];
+                   function visit(directory) {
+                    let entries;
+                    try {entries=readdirSync(directory,{withFileTypes:true});} catch(error) {if(error.code==='ENOENT')return;throw error;}
+                    for(const entry of entries) {
+                     const path=join(directory,entry.name);
+                     if(entry.isSymbolicLink()) throw Error('Output symlink refused');
+                     if(entry.isDirectory()) visit(path);
+                     else if(entry.isFile()&&/^desk-wind-(?:light|relief-sat)-streaks(?:-without-wind)?-(?:chromium|webkit)\.png$/.test(entry.name)) {
+                      if(!entry.name.endsWith('-'+browser+'.png')) throw Error('Pair browser binding refused');
+                      const stat=lstatSync(path);
+                      if(stat.size<33||stat.size>134217728) throw Error('Pair wire size refused');
+                      const bytes=readFileSync(path);
+                      if(bytes.subarray(0,8).toString('hex')!=='89504e470d0a1a0a'||bytes.subarray(12,16).toString('ascii')!=='IHDR') throw Error('Pair PNG header refused');
+                      files.push({path:relative('.',path),sha256:sha(bytes),bytes:bytes.length,width:bytes.readUInt32BE(16),height:bytes.readUInt32BE(20),depth:bytes[24],colourType:bytes[25]});
+                     }
+                     if(files.length>4) throw Error('Unexpected extra measured pair files');
+                    }
+                   }
+                   visit('test-results');
+                   output.proofOutcome=process.env.PROOF_OUTCOME;
+                   output.observedResults=stats;
+                   output.measuredPairFiles=files.sort((a,b)=>a.path.localeCompare(b.path));
+                   output.expectedCompletePairFiles=4;
+                   output.positiveOutputRetention='original Playwright preserveOutput default always; screenshot flags unchanged, diagnostic Node preload added';
+                   output.positivePairRetentionComplete=!!stats&&stats.expected===1&&stats.unexpected===0&&stats.flaky===0&&stats.skipped===0&&files.length===4;
+                  }
+                  writeFileSync('wind-source-hashes-'+phase+'.json',JSON.stringify(output,null,2)+'\n',{flag:'wx',mode:0o600});
+                  if(phase==='after'&&process.env.PROOF_OUTCOME==='success'&&!output.positivePairRetentionComplete) throw Error('Successful run must retain one positive measured pair per base');
+                  console.log(JSON.stringify({phase,browser,sourcePins:sourceInputs.length,revisedBodyVerified:true,eightOriginalExpectsVerified:true,completeOriginalBlocksVerified:true,
+                   measuredPairFiles:output.measuredPairFiles?.length??null,proofOutcome:output.proofOutcome??null}));
+                  NODE
+            - name: Record actual focused result and honest body scope
+              if: always() && steps.source.outcome == 'success'
+              env:
+                  PROOF_OUTCOME: ${{ steps.proof.outcome }}
+                  BROWSER: ${{ matrix.browser }}
+              run: |
+                  echo "$BROWSER DIAGNOSTIC revised-capture repetition: $PROOF_OUTCOME on $CANDIDATE_SHA. Eight original expect lines/full colour assertion blocks and 150s budget/profile unchanged; 1 diagnostic repetition/0 retries/no forced tracing; passive Node CDP timing observer added, not release acceptance. Actual ON/OFF pair PNGs retained on success and failure. Diagnostic observation only, not whole release or compositor-cause proof." >> "$GITHUB_STEP_SUMMARY"
+            - name: Preserve genuine transport stages and diagnostic limitations
+              if: always()
+              run: |
+                  node --input-type=module <<'NODE'
+                  import {readdirSync,readFileSync,lstatSync,copyFileSync} from 'node:fs';
+                  import {join} from 'node:path';
+                  import {createHash} from 'node:crypto';
+                  const directory=join(process.env.RUNNER_TEMP,'wind-cdp-stages');
+                  let actual=0;
+                  for(const name of readdirSync(directory)){
+                    if(!/^chromium-screenshot-stages-\d+\.json$/.test(name)) throw Error('Unexpected stage filename');
+                    const path=join(directory,name),stat=lstatSync(path);
+                    if(!stat.isFile()||stat.isSymbolicLink()||stat.size>131072||(stat.mode&0o777)!==0o600) throw Error('Private bounded stage output refused');
+                    const bytes=readFileSync(path),r=JSON.parse(bytes);
+                    if(r.sourceCommit!==process.env.CANDIDATE_SHA||r.observer.sha256!=='d679e82f70d114dfafffc7ec2e9a00c0f1d86d616d2756886b35175bd5686c59'||r.chromiumModule.sha256!=='0d41a058ad1f5c897329a9c821c52b952e0e709ab38c3e6e355224b167922f13'||!r.sourceHashesStableAtExit||!r.diagnosticOnly||r.argumentsResultsAndErrorsRecorded||r.browserOrRenderCommandsAdded||!Array.isArray(r.records)||r.records.length>32) throw Error('Stage source/scope binding differs');
+                    if(r.records.some(row=>!['Page.getLayoutMetrics','Page.captureScreenshot'].includes(row.method))) throw Error('Unknown recorded command');
+                    actual+=r.records.filter(row=>row.method==='Page.captureScreenshot').length;
+                    copyFileSync(path,name,1);
+                    console.log(JSON.stringify({file:name,sha256:createHash('sha256').update(bytes).digest('hex'),entryKind:r.process.entryKind,records:r.records,diagnosticOnly:true}));
+                  }
+                  if(actual===0) throw Error('No actual screenshot transport call observed; never reconstruct missing evidence');
+                  console.log('Passive observer adds Promise settlement reactions; diagnostic timing is perturbed, not release acceptance. Killed processes may leave no ordinary-exit receipt.');
+                  NODE
+            - name: Preserve JSON, source hash receipts and actual measured pair PNGs on success too
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: build127-passive-screenshot-stage-${{ matrix.browser }}
+                  path: |
+                      chromium-screenshot-stages-*.json
+                      wind-focused-results.json
+                      wind-source-hashes-before.json
+                      wind-source-hashes-after.json
+                      test-results/**/desk-wind-light-streaks-*.png
+                      test-results/**/desk-wind-relief-sat-streaks-*.png
+                  retention-days: 7
+                  if-no-files-found: warn
