@@ -17,6 +17,7 @@
  * Always the 'safest' profile (Shane 2026-07-02, as the passage planner): the
  * tide changes whether and when, never which way.
  */
+import { Capacitor } from '@capacitor/core';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
 import { AUTO_ROUTE_TRIAL_OFF, isAutorouteTrialOn } from './autorouteTrialSwitch';
 import { listCells } from './enc/EncCellMetadata';
@@ -136,9 +137,22 @@ export function getThalassaAutorouteStatus(): AutoroutingTrialStatus {
         ready: false,
         message: why
             ? `${boatChartsLine(why, boatName(), 'strip')} Manual is ready.`
-            : 'Install charts for your area to use Auto. Manual is ready.',
+            : Capacitor.isNativePlatform()
+              ? AUTO_NEEDS_CHARTS
+              : AUTO_NEEDS_BOAT_CHARTS_DESK,
     };
 }
+
+/** No chart on this phone: charts come from the boat's Pi, or open NOAA charts by area. */
+export const AUTO_NEEDS_CHARTS = 'Install charts for your area to use Auto. Manual is ready.';
+/**
+ * No chart on the desk (2026-10-13). Licensed charts never leave the boat
+ * (o-charts, 2026-10-10), so a computer can't install them: route on the
+ * phone aboard and Save, and the saved route syncs here (savedRoutesSync).
+ * Open NOAA charts still make Auto ready on the desk in US waters.
+ */
+export const AUTO_NEEDS_BOAT_CHARTS_DESK =
+    "Auto routes on your boat's charts, aboard. Route it on your phone and Save: it shows here. Manual is ready.";
 
 const record = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === 'object' && !Array.isArray(value);

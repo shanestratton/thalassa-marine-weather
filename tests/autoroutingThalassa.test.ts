@@ -64,7 +64,9 @@ vi.mock('../stores/settingsStore', () => ({
     useSettingsStore: { getState: () => ({ settings: { autorouteTrialEnabled: m.trialOn } }) },
 }));
 
+import { Capacitor } from '@capacitor/core';
 import {
+    AUTO_NEEDS_BOAT_CHARTS_DESK,
     calculateThalassaProposal,
     getThalassaAutorouteStatus,
     THALASSA_PLANNED_ONLY_WARNING,
@@ -147,7 +149,10 @@ beforeEach(() => {
     m.boatWhy = null;
     m.order = [];
 });
-afterEach(() => setAuthIdentityScope(null));
+afterEach(() => {
+    setAuthIdentityScope(null);
+    vi.mocked(Capacitor.isNativePlatform).mockRestore?.();
+});
 
 describe('Auto status, computed on the phone', () => {
     it('is enabled for a signed-in identity and ready with an installed navigation chart — no network call', () => {
@@ -157,6 +162,7 @@ describe('Auto status, computed on the phone', () => {
 
     it('says to install charts when none are installed, and is disabled signed out', () => {
         m.listCells.mockReturnValue([]);
+        vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
         expect(getThalassaAutorouteStatus()).toEqual({
             enabled: true,
             ready: false,
@@ -164,6 +170,24 @@ describe('Auto status, computed on the phone', () => {
         });
         setAuthIdentityScope(null);
         expect(getThalassaAutorouteStatus().enabled).toBe(false);
+    });
+
+    // The desk can't install licensed charts (they stay on the boat), so it
+    // never says "install charts": it says where Auto works and how the route
+    // gets here (2026-10-13, Shane: "it is not working for the autorouting.
+    // just the manual routing??").
+    it('on the desk with no chart, says Auto works aboard and a route saved on the phone shows here', () => {
+        m.listCells.mockReturnValue([]);
+        vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(false);
+        expect(getThalassaAutorouteStatus()).toEqual({
+            enabled: true,
+            ready: false,
+            message: AUTO_NEEDS_BOAT_CHARTS_DESK,
+        });
+        expect(AUTO_NEEDS_BOAT_CHARTS_DESK).not.toMatch(/install/i);
+        expect(AUTO_NEEDS_BOAT_CHARTS_DESK).toMatch(/Manual is ready\.$/);
+        m.listCells.mockReturnValue([{ id: 'US5GA22M' }]);
+        expect(getThalassaAutorouteStatus()).toEqual({ enabled: true, ready: true });
     });
 
     // Opt-in (2026-10-01): Pro is every account while the public beta is on,
