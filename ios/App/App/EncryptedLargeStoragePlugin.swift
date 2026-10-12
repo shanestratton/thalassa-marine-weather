@@ -2,6 +2,7 @@ import Capacitor
 import CryptoKit
 import Foundation
 import Security
+import WebKit
 
 /**
  * Encrypted, bounded storage for Thalassa's reviewed large-cache families.
@@ -19,7 +20,9 @@ public final class EncryptedLargeStoragePlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "get", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "set", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "remove", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "remove", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "prepareChartStore", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "purgeWebDiskCache", returnType: CAPPluginReturnPromise)
     ]
 
     private let exactKeys: Set<String> = [
@@ -129,6 +132,59 @@ public final class EncryptedLargeStoragePlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve()
         } catch {
             call.reject("Could not clear encrypted large storage")
+        }
+    }
+
+    // MARK: - Chart store (127-C-c)
+
+    /// The open (NOAA) chart folder: Library/Application Support/enc-open,
+    /// first-unlock protection, excluded from iCloud and Finder backup.
+    /// Licensed cells never touch the disk (they are held in WebView memory
+    /// only), so nothing protected is ever written here. Runs on this plugin's
+    /// own queue (the shared bridge queue rule) and resolves the folder's path
+    /// relative to Library, which is what @capacitor/filesystem addresses.
+    @objc func prepareChartStore(_ call: CAPPluginCall) {
+        workQueue.async { [weak self] in self?.prepareChartStoreOnQueue(call) }
+    }
+
+    private func prepareChartStoreOnQueue(_ call: CAPPluginCall) {
+        do {
+            let support = try FileManager.default.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            let folder = support.appendingPathComponent("enc-open", isDirectory: true)
+            try FileManager.default.createDirectory(
+                at: folder,
+                withIntermediateDirectories: true,
+                attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+            )
+            try FileManager.default.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: folder.path
+            )
+            try excludeFromBackup(folder)
+            call.resolve(["path": "Application Support/enc-open"])
+        } catch {
+            call.reject("Could not prepare the chart store")
+        }
+    }
+
+    /// Chart pictures older builds may have left in WebKit's HTTP cache
+    /// (127-C-b decision 11), purged once. The disk and memory caches only:
+    /// never local storage, IndexedDB, cookies or the Fetch Cache, which is
+    /// Mapbox's own Cache API store of Mapbox tiles. WebKit's data store is
+    /// main-thread API.
+    @objc func purgeWebDiskCache(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            WKWebsiteDataStore.default().removeData(
+                ofTypes: [WKWebsiteDataTypeDiskCache, WKWebsiteDataTypeMemoryCache],
+                modifiedSince: .distantPast
+            ) {
+                call.resolve()
+            }
         }
     }
 

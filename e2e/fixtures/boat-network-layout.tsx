@@ -184,6 +184,62 @@ async function installKestrelPi(state: string): Promise<void> {
 
 if (charts) await installKestrelPi(charts);
 
+/**
+ * ?enc=ashore | aboard (127-C-c): the real Charts card (EncCellManager) for a
+ * boat with a long fictional name, L'Étoile du Pacifique, in place of the
+ * stand-in block. Aboard: 1,031 fictional licensed records (OC-99-ZZ…) in the
+ * in-memory registry, as the Pi's index registers them. Ashore: paired, with
+ * her licensed charts not here. &fonts=wide and &largeText as the other specs.
+ */
+const enc = params.get('enc');
+// Loaded only for these states, so the Kestrel states keep today's module graph.
+const EncCellManager = enc ? (await import('../../components/vessel/EncCellManager')).EncCellManager : null;
+if (params.get('fonts') === 'wide') {
+    const wide = document.createElement('style');
+    wide.textContent = ":root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; }";
+    document.head.append(wide);
+}
+if (params.has('largeText')) document.documentElement.style.fontSize = '24px';
+if (enc && !charts) {
+    localStorage.setItem(
+        'thalassa_pi_pairing_v1',
+        JSON.stringify({
+            deviceId: 'etoile-pi-fixture',
+            boatName: "L'Étoile du Pacifique",
+            publicKeySpki: 'fixture-spki',
+            fingerprint: 'ET:OI:LE:00:00:00:00:01',
+            host: '192.168.4.30',
+            pairedAt: '2026-10-10T09:00:00.000Z',
+        }),
+    );
+    const sync = await import('../../services/enc/piCellSync');
+    if (enc === 'aboard') {
+        const meta = await import('../../services/enc/EncCellMetadata');
+        meta.suspendNotifications();
+        for (let i = 0; i < 1031; i++) {
+            const lon = -149.6 + (i % 40) * 0.02;
+            const lat = -17.6 + Math.floor(i / 40) * 0.02;
+            meta.putCell({
+                id: `OC-99-ZZ${String(i).padStart(4, '0')}`,
+                sourceHO: 'ZZ',
+                edition: 1,
+                issued: '2026-09-01',
+                importedAt: '2026-10-01T00:00:00.000Z',
+                bbox: [lon, lat, lon + 0.02, lat + 0.02],
+                geojsonPath: 'vault',
+                hazardCount: 3,
+                usage: 'navigation',
+                sizeBytes: 50_000,
+                piSizeBytes: 50_000,
+                licence: 'protected',
+            });
+        }
+        meta.markBoatRegistryLoaded();
+        meta.resumeNotifications();
+        sync.noteBoatRegistered(true);
+    } else sync.noteBoatAway('away');
+}
+
 // Fresh browser contexts provide empty local storage. Keep the real settings
 // subscription and Pi panel, but every settings save stays in this fixture.
 // No app bootstrap, account, discovery, or physical boat is configured.
@@ -219,10 +275,16 @@ function Fixture() {
                         <p className="mt-1 text-xs text-slate-300">Pi, instruments &amp; weather cache</p>
                     </div>
                     <BoatHardwareIntegrations />
-                    <div className="rounded-2xl border border-white/6 bg-white/3 p-4">
-                        <p className="text-sm font-bold">Charts on this phone</p>
-                        <p className="mt-1 text-xs text-slate-300">No charts on this phone yet.</p>
-                    </div>
+                    {EncCellManager ? (
+                        <div data-testid="enc-card">
+                            <EncCellManager />
+                        </div>
+                    ) : (
+                        <div className="rounded-2xl border border-white/6 bg-white/3 p-4">
+                            <p className="text-sm font-bold">Charts on this phone</p>
+                            <p className="mt-1 text-xs text-slate-300">No charts on this phone yet.</p>
+                        </div>
+                    )}
                 </div>
             </section>
         </main>

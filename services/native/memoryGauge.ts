@@ -56,6 +56,8 @@ function armWarningListener(): void {
         // grids there now, so the main thread's cache above is empty).
         void import('../routing/routeWorkerHost').then(({ trimRouteWorkers }) => trimRouteWorkers()).catch(() => {});
         void import('../enc/encIndexCache').then(({ clearIndexCache }) => clearIndexCache()).catch(() => {});
+        // Parsed cells go; the licensed-cell vault keeps half (127-C-c decision 2).
+        void import('../enc/EncCellStore').then(({ shedCellMemory }) => shedCellMemory()).catch(() => {});
     }).catch(() => {
         // Plugin absent (old native build) — the gauge stays silent and the
         // brake keeps its historical no-op behaviour rather than guessing.

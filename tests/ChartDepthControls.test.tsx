@@ -45,7 +45,6 @@ function props(overrides: Partial<ChartDepthControlsProps> = {}): ChartDepthCont
         nightDim: false,
         onNightDimChange: vi.fn(),
         onToggleChartKey: vi.fn(),
-        onOpenEncLibrary: vi.fn(),
         ...overrides,
     };
 }
@@ -119,13 +118,20 @@ describe('ChartDepthControls', () => {
         expect(screen.queryByRole('button', { name: 'Open on-device ENC Library' })).not.toBeInTheDocument();
     });
 
-    it('makes an empty ENC inventory explicit and offers the working on-device importer', () => {
-        const input = props({ encCellCount: 0, encNoCoverage: true });
+    // 127-C-c: the ENC Library is retired (Shane, Q1 "yes"), and licensed
+    // charts open from the boat's Pi in memory only, so the notice says where.
+    it('an empty inventory on the phone says where her licensed charts are, and offers no Library', () => {
+        const input = props({
+            encCellCount: 0,
+            encNoCoverage: true,
+            boatChartsState: 'away',
+            boatName: "L'Étoile du Pacifique",
+        });
         render(<ChartDepthControls {...input} />);
 
-        expect(
-            screen.getByText('No verified ENC charts installed. Library imports are reference-only.'),
-        ).toBeInTheDocument();
+        expect(screen.getByRole('status', { name: 'ENC coverage' })).toHaveTextContent(
+            "L'Étoile du Pacifique's licensed charts open on the boat's Wi-Fi. Open charts only here.",
+        );
         expect(screen.getByRole('status', { name: 'ENC coverage' })).toHaveClass(
             'thalassa-enc-coverage-notice',
             'thalassa-enc-coverage-notice--with-tide',
@@ -133,9 +139,33 @@ describe('ChartDepthControls', () => {
         const tideBadge = screen.getByRole('button', { name: /Live tide depth is on/ });
         expect(tideBadge).toHaveClass('thalassa-enc-tide-badge');
         expect(tideBadge).not.toHaveClass('-translate-x-1/2');
-        expect(screen.getByRole('button', { name: 'Open on-device ENC Library' })).toHaveClass('min-h-[44px]');
-        fireEvent.click(screen.getByRole('button', { name: 'Open on-device ENC Library' }));
-        expect(input.onOpenEncLibrary).toHaveBeenCalledOnce();
+        expect(screen.queryByRole('button', { name: /ENC Library/ })).not.toBeInTheDocument();
+        expect(screen.queryByText(/Library imports/)).not.toBeInTheDocument();
+    });
+
+    it.each([
+        ['tailnet', "Licensed charts open only on Nordlys av Tromsø's own Wi-Fi, not over remote access."],
+        ['opening', "Opening Nordlys av Tromsø's charts from the Pi…"],
+        ['off', "Licensed charts stay on Nordlys av Tromsø's Pi in this build."],
+    ] as const)('the %s notice reads the helper', (state, words) => {
+        render(
+            <ChartDepthControls
+                {...props({
+                    encCellCount: 0,
+                    encNoCoverage: true,
+                    boatChartsState: state,
+                    boatName: 'Nordlys av Tromsø',
+                })}
+            />,
+        );
+        expect(screen.getByRole('status', { name: 'ENC coverage' })).toHaveTextContent(words);
+    });
+
+    it('a phone with no Pi and no charts gets the open-chart words, no boat and no licence', () => {
+        render(<ChartDepthControls {...props({ encCellCount: 0, encNoCoverage: true, boatName: 'Serene Summer' })} />);
+        const notice = screen.getByRole('status', { name: 'ENC coverage' });
+        expect(notice).toHaveTextContent('No chart for this area. Open charts (NOAA) show here in US waters.');
+        expect(notice).not.toHaveTextContent(/licensed|Serene Summer/i);
     });
 
     it('reserves the full tide panel only while its slider is present', () => {
@@ -176,8 +206,8 @@ describe('ChartDepthControls', () => {
 
         expect(screen.getByRole('status')).toHaveTextContent(/cannot establish chart coverage/i);
         expect(screen.getByRole('status')).toHaveTextContent(/route checks ignore it/i);
-        fireEvent.click(screen.getByRole('button', { name: 'Manage unverified reference ENCs' }));
-        expect(input.onOpenEncLibrary).toHaveBeenCalledOnce();
+        // The Library that managed them is retired (127-C-c Q1).
+        expect(screen.queryByRole('button', { name: 'Manage unverified reference ENCs' })).not.toBeInTheDocument();
     });
 
     it('keeps only the chart key available on a clean planning surface', () => {

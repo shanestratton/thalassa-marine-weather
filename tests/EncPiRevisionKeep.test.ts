@@ -92,18 +92,39 @@ describe('a route-time Pi pull keeps the held chart’s Pi identity', () => {
         expect(mocks.storedCell?.piSizeBytes).toBe(1_085_565);
     });
 
-    it('different bytes, a new update or a new edition are a new revision: nothing is carried over', async () => {
-        for (const [blob, size] of [
-            [conversion(), 1_084_000],
-            [conversion(3, 2), 1_084_874],
-            [conversion(4, 0), 1_084_874],
-        ] as const) {
+    it('a new update or a new edition is a new revision: nothing is carried over', async () => {
+        for (const blob of [conversion(3, 2), conversion(4, 0)]) {
             mocks.storedCell = held(1_084_874);
-            mocks.saveCellGeoJSON.mockResolvedValue({ path: 'enc/OC-99-SYNPI1.json', sizeBytes: size });
+            mocks.saveCellGeoJSON.mockResolvedValue({ path: 'vault', sizeBytes: 1_084_874 });
             const cell = await importCell(blob, { keepPiRevisionWhenUnchanged: true });
             expect(cell.contentSha256).toBeUndefined();
             expect(cell.piSizeBytes).toBeUndefined();
         }
+    });
+
+    it('an open (NOAA) cell with different bytes is a new revision: nothing is carried over', async () => {
+        mocks.storedCell = { ...held(1_084_874), id: 'US5ZZ01M', sourceHO: 'US' };
+        mocks.saveCellGeoJSON.mockResolvedValue({ path: 'enc-cells/US5ZZ01M.geojson', sizeBytes: 1_084_000 });
+        const cell = await importCell(
+            { ...conversion(), cellId: 'US5ZZ01M', sourceHO: 'US' },
+            { keepPiRevisionWhenUnchanged: true },
+        );
+        expect(cell.contentSha256).toBeUndefined();
+        expect(cell.piSizeBytes).toBeUndefined();
+        expect(cell.sizeBytes).toBe(1_084_000);
+    });
+
+    // 127-C-c decision 7: a licensed cell's identity is the Pi's revision.
+    // Its bytes are held in memory and checked against the registered sha by
+    // the pull itself, so the phone's own byte count is never its identity:
+    // registering then importing leaves the chart library's fingerprint as it was.
+    it('a licensed cell keeps the registered sha and the Pi size as its size, whatever the phone measured', async () => {
+        mocks.storedCell = { ...held(1_085_565), licence: 'protected' };
+        mocks.saveCellGeoJSON.mockResolvedValue({ path: 'vault', sizeBytes: 1_084_000 });
+        const cell = await importCell(conversion(), { keepPiRevisionWhenUnchanged: true });
+        expect(cell.contentSha256).toBe(SHA);
+        expect(cell.piSizeBytes).toBe(1_085_565);
+        expect(cell.sizeBytes).toBe(1_085_565);
     });
 
     it('without the option (every other import) nothing is carried over, as before', async () => {
@@ -128,6 +149,8 @@ describe('a route-time Pi pull keeps the held chart’s Pi identity', () => {
 
     it('the route-time pull asks for it', () => {
         const src = readFileSync('services/enc/piCellSync.ts', 'utf8');
-        expect(src).toContain('importCell(validated[0], { keepPiRevisionWhenUnchanged: true })');
+        expect(src).toContain('keepPiRevisionWhenUnchanged: true');
+        // …and checks the bytes against the registered revision (127-C-c).
+        expect(src).toContain('expectedSha256: held?.contentSha256');
     });
 });

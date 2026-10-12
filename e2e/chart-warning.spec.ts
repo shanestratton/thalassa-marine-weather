@@ -549,11 +549,7 @@ for (const size of cases) {
             body: JSON.stringify(
                 await page.evaluate(() =>
                     Object.fromEntries(
-                        [
-                            '[aria-label="ENC coverage"]',
-                            '[aria-label="ENC coverage"] > span',
-                            '[aria-label="Open on-device ENC Library"]',
-                        ].map((selector) => {
+                        ['[aria-label="ENC coverage"]', '[aria-label="ENC coverage"] > span'].map((selector) => {
                             const element = document.querySelector(selector);
                             if (!element) return [selector, null];
                             const style = getComputedStyle(element);
@@ -573,10 +569,9 @@ for (const size of cases) {
             ),
         });
 
-        const library = page.getByRole('button', { name: 'Open on-device ENC Library', exact: true });
-        // Existing text/CTA identify the production warning too, so the old
-        // compiled app fails on its collision rather than a newly added role.
-        const warning = library.locator('..');
+        // The notice is its sentence alone since the ENC Library retired
+        // (127-C-c, Shane's Q1 "yes"): no button to anchor on.
+        const warning = page.getByRole('status', { name: 'ENC coverage', exact: true });
         const nav = page.getByRole('navigation', { name: 'Main', exact: true });
         // Folded away, the landscape tab bar is just its bottom-left toggle
         // (its own <nav>, still named 'Main').
@@ -713,7 +708,7 @@ for (const size of cases) {
                 const tideScrubber = page.getByRole('slider', { name: 'Scrub the tide through the next 24 hours' });
                 if (size.tide === 'available') {
                     // The labels/padding share the higher-z panel with the
-                    // slider: its full box, not just the input, can block Library.
+                    // slider: its full box, not just the input, can cover the notice.
                     const tidePanel = tideScrubber.locator('..');
                     const tidePanelBox = await visibleBox(tidePanel, page);
                     expectSeparate(warningBox, tidePanelBox, 'Full tide scrubber panel');
@@ -726,7 +721,7 @@ for (const size of cases) {
                 }
             }
             for (const control of [locate, zoomIn, zoomOut, mob, layers, attribution]) await expectHitTarget(control);
-            await expectFullHitTarget(library, 'ENC Library button');
+            await expect(warning).toContainText(EMPTY_ENC_NOTICE);
             await expectFullHitTarget(logo, 'Mapbox logo');
             await expectFullHitTarget(layerKey, 'Layer key pill');
             if (size.anchorages) await expectFullHitTarget(anchorageChip, 'Anchorage chip');
@@ -736,8 +731,7 @@ for (const size of cases) {
             }
             // Mapbox's scale is not interactive. Geometry guards it without
             // incorrectly requiring it to intercept pointer events.
-            await expect(library).toBeEnabled();
-            await library.click({ trial: true });
+            await expect(warning.getByRole('button')).toHaveCount(0);
             await expect(warning).toHaveAttribute('role', 'status');
             await expect(warning).toHaveAttribute('aria-label', 'ENC coverage');
             await testInfo.attach(`enc-warning-layout-${stage}`, {
@@ -874,7 +868,7 @@ for (const size of cases) {
         await hideLayerPanel.click();
         await expect(layerPanel).toHaveCount(0);
         await expectFullHitTarget(layerKey, 'Layer key pill after the panel closes');
-        await expectFullHitTarget(library, 'ENC Library button after the panel closes');
+        await expect(warning).toContainText(EMPTY_ENC_NOTICE);
 
         if (size.anchorages) {
             // The chip's sheet is modal: its backdrop, not a Mapbox credit,
@@ -901,9 +895,8 @@ for (const size of cases) {
             }
         }
 
-        await library.click();
-        await expect(page.getByRole('heading', { name: 'ENC Library', exact: true })).toBeVisible();
-        await expect(page.getByText('No reference ENC cells are installed', { exact: true })).toBeVisible();
+        await expect(warning).toContainText(EMPTY_ENC_NOTICE);
+        await expect(page.getByRole('heading', { name: 'ENC Library', exact: true })).toHaveCount(0);
         await testInfo.attach('glyph-fixture-diagnostics', {
             contentType: 'application/json',
             body: JSON.stringify(glyphDiagnostics),

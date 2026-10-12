@@ -1,13 +1,21 @@
 /**
- * ENC Cell Store — Capacitor Filesystem persistence for the
- * GeoJSON blobs produced by the Pi-side S-57 → GeoJSON converter.
+ * ENC Cell Store — where the GeoJSON blobs produced by the Pi-side
+ * S-57 → GeoJSON converter are held. Two stores, by licence (127-C-c):
  *
- * One file per cell at `Directory.Data/enc-cells/<cellId>.geojson`.
+ *  - Licensed (protected) cells live in memory only, in boatCellVault:
+ *    licensed cells never touch the disk. o-charts (Roberto, 2026-10-10):
+ *    "Storing unencrypted data on any medium, and especially in the cloud, is
+ *    strictly prohibited by the terms of the licenses signed with the chart
+ *    providers." The boat's Pi refills them (piCellSync).
+ *  - Open (NOAA) cells keep a file each: on iOS at
+ *    `Directory.Library/Application Support/enc-open/<cellId>.geojson`,
+ *    excluded from backup (prepareChartStore); on the web at
+ *    `Directory.Data/enc-cells` (IndexedDB). On iOS Directory.Data is the
+ *    Documents folder older builds used; storeReady() moves the open cells out
+ *    and deletes everything else there, once per launch until it is gone.
+ *
  * Files run ~0.5 MB median, ~7.6 MB largest across the measured AU corpus
- * (2026-07-16; a busy harbour cell is the top end), so we deliberately
- * keep them on the filesystem rather than in
- * IndexedDB or localStorage (both of which have origin-quota
- * limits we'd hit on a power-user fleet).
+ * (2026-07-16; a busy harbour cell is the top end).
  *
  * The blob shape is the union of layer FeatureCollections returned
  * by the Pi conversion endpoint. The EncHazardService is
@@ -20,10 +28,15 @@
  *  - clearAllGeoJSON()             → delete the entire directory
  */
 
+import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
 import { createLogger } from '../../utils/createLogger';
-import type { EncConversionResult } from './types';
+import { prepareChartStore, purgeWebDiskCache } from '../nativeStorage';
+import * as vault from './boatCellVault';
+import { chartLicenceOf, isOpenChartCell } from './chartLicence';
+import { listRegisteredCells, putCell } from './EncCellMetadata';
+import type { ChartLicence, EncConversionResult } from './types';
 import {
     canonicalEncCellId,
     ENC_CELL_BLOB_MAX_BYTES,
@@ -37,7 +50,12 @@ const log = createLogger('EncCellStore');
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-const DIRECTORY = Directory.Data;
+/** The open (NOAA) store on iOS; Directory.Data there is Documents, the old store. */
+const OPEN_DIR_NATIVE = 'Application Support/enc-open';
+const native = (): boolean => Capacitor.isNativePlatform();
+const openDir = (): string => (native() ? OPEN_DIR_NATIVE : ENC_GEOJSON_DIR);
+const openDirectory = (): Directory => (native() ? Directory.Library : Directory.Data);
+const isOpenId = (cellId: string): boolean => isOpenChartCell({ id: cellId });
 
 function relPath(cellId: string): string {
     // Metadata, cache keys and filenames MUST share the same case-insensitive
@@ -46,7 +64,100 @@ function relPath(cellId: string): string {
     // one physical file while the JS cache treated them as different cells.
     const canonical = canonicalEncCellId(cellId);
     if (!ENC_CELL_ID_PATTERN.test(canonical)) throw new Error(`Invalid ENC cell ID: ${cellId}`);
-    return `${ENC_GEOJSON_DIR}/${encCellStorageIdentity(canonical)}.geojson`;
+    return `${openDir()}/${encCellStorageIdentity(canonical)}.geojson`;
+}
+
+// ── The launch sweep (127-C-c decision 5) ──────────────────────────
+// One per launch, idempotent, no "done" flag: a run cut short by a kill
+// finishes on the next. It replaces the 127 upgrade purge and the deferred
+// 126-20 launch purge. Every store call awaits it first.
+let ready: Promise<void> | null = null;
+const WEBKIT_PURGED_KEY = 'thalassa_webkit_cache_purged_v1';
+
+export function storeReady(): Promise<void> {
+    return (ready ??= sweepOldStore().catch((err) => log.warn('enc store sweep failed', err)));
+}
+
+async function sweepOldStore(): Promise<void> {
+    const ios = native();
+    if (ios) await prepareChartStore().catch((err) => log.warn('prepareChartStore failed', err));
+    await sweepDocuments(ios);
+    if (!ios) return;
+    // Chart pictures older builds may have left in WebKit's HTTP cache (127-C-b
+    // decision 11). The flag is set only after the call resolves.
+    try {
+        if (localStorage.getItem(WEBKIT_PURGED_KEY) === '1') return;
+        await purgeWebDiskCache();
+        localStorage.setItem(WEBKIT_PURGED_KEY, '1');
+    } catch (err) {
+        log.warn('purgeWebDiskCache failed; retried next launch', err);
+    }
+}
+
+async function sweepDocuments(ios: boolean): Promise<void> {
+    const old = { path: ENC_GEOJSON_DIR, directory: Directory.Data };
+    try {
+        await Filesystem.stat(old);
+    } catch {
+        return;
+    }
+    // The registry has already dropped every record that is not open (its own
+    // sweep, on first access). An unsigned reference pack is not provably open.
+    const open = new Map(
+        listRegisteredCells()
+            .filter((cell) => cell.usage !== 'reference' && isOpenChartCell(cell))
+            .map((cell) => [encCellStorageIdentity(cell.id), cell]),
+    );
+    const names = (await Filesystem.readdir(old)).files.map((file) => (typeof file === 'string' ? file : file.name));
+    if (!ios) {
+        // The web's open store IS this folder: delete the rest, file by file.
+        let removed = 0;
+        for (const name of names) {
+            if (open.has(encCellStorageIdentity(name.replace(/\.geojson$/i, '')))) continue;
+            await Filesystem.deleteFile({ path: `${ENC_GEOJSON_DIR}/${name}`, directory: Directory.Data }).catch(
+                () => undefined,
+            );
+            removed += 1;
+        }
+        log.warn(`enc store: removed ${removed} licensed, kept ${names.length - removed} open`);
+        return;
+    }
+    // Build 102's "move" deleted the only copy because both folders were one
+    // place (LocalDatabase.ts): delete nothing unless the platform says they differ.
+    const [from, to] = await Promise.all([
+        Filesystem.getUri(old),
+        Filesystem.getUri({ path: OPEN_DIR_NATIVE, directory: Directory.Library }),
+    ]);
+    if (!from.uri || from.uri === to.uri) {
+        log.warn('enc store: old and new chart folders are one place; nothing moved or deleted');
+        return;
+    }
+    let moved = 0;
+    for (const [identity, cell] of open) {
+        const file = `${identity}.geojson`;
+        try {
+            await Filesystem.rename({
+                from: `${ENC_GEOJSON_DIR}/${file}`,
+                directory: Directory.Data,
+                to: `${OPEN_DIR_NATIVE}/${file}`,
+                toDirectory: Directory.Library,
+            });
+            moved += 1;
+        } catch {
+            // Already moved by a run that was cut short? Otherwise it re-hydrates.
+            const there = await Filesystem.stat({
+                path: `${OPEN_DIR_NATIVE}/${file}`,
+                directory: Directory.Library,
+            }).then(
+                () => true,
+                () => false,
+            );
+            if (!there) putCell({ ...cell, usage: 'pending' });
+        }
+    }
+    // Every licensed file and every orphan, in one native call.
+    await Filesystem.rmdir({ ...old, recursive: true });
+    log.warn(`enc store: removed ${names.length - moved} licensed, moved ${moved} open`);
 }
 
 function normalizeBlobForCell(cellId: string, value: unknown): EncConversionResult | null {
@@ -103,13 +214,13 @@ function ensureDir(): Promise<void> {
     if (!dirEnsured) {
         dirEnsured = (async () => {
             try {
-                await Filesystem.stat({ path: ENC_GEOJSON_DIR, directory: DIRECTORY });
+                await Filesystem.stat({ path: openDir(), directory: openDirectory() });
                 return;
             } catch {
                 /* missing — create below */
             }
             try {
-                await Filesystem.mkdir({ path: ENC_GEOJSON_DIR, directory: DIRECTORY, recursive: true });
+                await Filesystem.mkdir({ path: openDir(), directory: openDirectory(), recursive: true });
             } catch (err) {
                 // Lost a create race — swallow; anything else is real.
                 const msg = err instanceof Error ? err.message : String(err);
@@ -236,6 +347,19 @@ export function blobCacheStats(): { entries: number; textMB: number } {
     return { entries: blobCache.size, textMB: Math.round((blobCacheBytes / 1048576) * 10) / 10 };
 }
 
+/** Unpair or sign-out (127-C-c decision 9): forget every licensed cell held in memory. */
+export function clearProtectedBlobs(): void {
+    for (const key of [...blobCache.keys()]) if (!isOpenId(key)) dropBlob(key);
+    vault.clear();
+}
+
+/** An iOS memory warning: the parse cache goes, the vault keeps half. */
+export function shedCellMemory(): void {
+    blobCache.clear();
+    blobCacheBytes = 0;
+    vault.trim(0.5);
+}
+
 /** Eviction decision for the blob LRU — pure so the caps interplay is
  *  unit-tested. Evict the oldest while over EITHER cap, but never below the
  *  min-keep floor (so a working set of a few cells can't thrash itself out
@@ -295,13 +419,12 @@ export async function saveCellGeoJSON(
     cellId: string,
     blob: EncConversionResult,
     assertAuthority?: () => void,
+    licence?: ChartLicence,
 ): Promise<{ path: string; sizeBytes: number }> {
     const normalizedBlob = normalizeBlobForCell(cellId, blob);
     if (!normalizedBlob) {
         throw new Error(`ENC blob identity does not match requested cell ${cellId}`);
     }
-    await ensureDir();
-    const path = relPath(cellId);
     const data = JSON.stringify(normalizedBlob);
     const sizeBytes = utf8ByteLength(data, ENC_CELL_BLOB_MAX_BYTES);
     if (sizeBytes > ENC_CELL_BLOB_MAX_BYTES) {
@@ -311,17 +434,27 @@ export async function saveCellGeoJSON(
         );
     }
     assertAuthority?.();
-    await Filesystem.writeFile({
-        path,
-        data,
-        directory: DIRECTORY,
-        encoding: Encoding.UTF8,
-    });
+    // The string built above goes to the vault as it is: no second stringify.
+    let path = 'vault';
+    if (chartLicenceOf({ id: cellId, sourceHO: normalizedBlob.sourceHO, licence }) === 'protected')
+        vault.put(cellId, data);
+    else path = await writeOpenCellText(cellId, data);
     // We hold the fresh parsed blob right here — cache it instead of
     // forcing the next merge to re-read + re-parse what we just wrote.
     cacheBlob(cellId, normalizedBlob, sizeBytes);
     log.info(`saved cell ${cellId} → ${path} (${(sizeBytes / 1024).toFixed(1)} KB)`);
     return { path, sizeBytes };
+}
+
+/** The one disk write for chart cells, open (NOAA) cells only: a licensed cell reaching it throws. */
+export async function writeOpenCellText(cellId: string, data: string): Promise<string> {
+    if (!isOpenId(cellId))
+        throw new Error(`${cellId} is a licensed chart: held in memory only, never written to disk.`);
+    await storeReady();
+    await ensureDir();
+    const path = relPath(cellId);
+    await Filesystem.writeFile({ path, data, directory: openDirectory(), encoding: Encoding.UTF8 });
+    return path;
 }
 
 /** Raw read for the merge's read-ahead pipeline (z10-boot audit #11): the
@@ -339,10 +472,15 @@ export async function readCellRaw(
 > {
     const cached = touchBlob(cellId);
     if (cached) return { kind: 'cached', blob: cached };
+    const held = await vault.getText(cellId);
+    if (held !== null) return { kind: 'text', text: held };
+    // A licensed cell not in memory is missing: the Pi rung refills it.
+    if (!isOpenId(cellId)) return { kind: 'missing', notFound: true };
     try {
+        await storeReady();
         const result = await Filesystem.readFile({
             path: relPath(cellId),
-            directory: DIRECTORY,
+            directory: openDirectory(),
             encoding: Encoding.UTF8,
         });
         const text = typeof result.data === 'string' ? result.data : await result.data.text();
@@ -478,9 +616,11 @@ export function parseAndCacheCellText(cellId: string, text: string): EncConversi
  * that are already local.
  */
 export async function hasCellGeoJSON(cellId: string): Promise<boolean> {
-    if (touchBlob(cellId)) return true;
+    if (touchBlob(cellId) || vault.has(cellId)) return true;
+    if (!isOpenId(cellId)) return false;
     try {
-        await Filesystem.stat({ path: relPath(cellId), directory: DIRECTORY });
+        await storeReady();
+        await Filesystem.stat({ path: relPath(cellId), directory: openDirectory() });
         return true;
     } catch {
         return false;
@@ -532,10 +672,13 @@ export async function loadCellGeoJSON(cellId: string, remoteFallback = true): Pr
  */
 export async function deleteCellGeoJSON(cellId: string): Promise<void> {
     dropBlob(cellId);
+    vault.drop(cellId);
+    if (!isOpenId(cellId)) return;
     try {
+        await storeReady();
         await Filesystem.deleteFile({
             path: relPath(cellId),
-            directory: DIRECTORY,
+            directory: openDirectory(),
         });
         log.info(`deleted cell ${cellId}`);
     } catch (err) {
@@ -552,11 +695,13 @@ export async function deleteCellGeoJSON(cellId: string): Promise<void> {
 export async function clearAllGeoJSON(): Promise<void> {
     blobCache.clear();
     blobCacheBytes = 0;
+    vault.clear();
     dirEnsured = null; // rmdir below deletes the dir — next save must recreate it
     try {
+        await storeReady();
         await Filesystem.rmdir({
-            path: ENC_GEOJSON_DIR,
-            directory: DIRECTORY,
+            path: openDir(),
+            directory: openDirectory(),
             recursive: true,
         });
         log.info('cleared all ENC GeoJSON blobs');

@@ -1,5 +1,4 @@
 import React from 'react';
-import { Button } from './Button';
 import { NeedsIPhoneAppNotice } from './UnavailableNotice';
 
 /**
@@ -20,20 +19,12 @@ import { NeedsIPhoneAppNotice } from './UnavailableNotice';
  * (sky, phone glyph), not an amber padlock: nothing is wrong, it is simply
  * the wrong device (UX scorecard run 7).
  */
-export const PiPublicBetaUnavailable: React.FC<{ onOpenEncLibrary?: () => void }> = ({ onOpenEncLibrary }) => (
+export const PiPublicBetaUnavailable: React.FC = () => (
     // The one step the skipper can take leads the body; the why follows it.
-    // 'What still works here' sits directly over the chart library button, so
-    // the button reads as that, not as the pairing step (UX scorecard run 8).
+    // The chart library button that sat here went with the ENC Library (127-C-c).
     <NeedsIPhoneAppNotice
         title="Boat network needs the Thalassa iPhone app"
         note="Weather, charts and the diary still work here."
-        actions={
-            onOpenEncLibrary && (
-                <Button variant="secondary" onClick={onOpenEncLibrary} className="text-white">
-                    Open chart library
-                </Button>
-            )
-        }
     >
         {/* The last words are held together with non-breaking spaces so 'Pi.'
             never sits alone on the last line (UX scorecard run 10, avnav-orphan). */}

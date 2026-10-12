@@ -199,7 +199,7 @@ export function useAutoRouteLeg(deps: AutoRouteLegDeps): () => void {
                                 );
                                 if (!fill.bucketAvailable) {
                                     setAutoRouteDiag(
-                                        "⚡ This leg needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: sync them aboard, then try again.",
+                                        "⚡ This leg needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: open them on the boat's Wi-Fi, then try again.",
                                     );
                                     return;
                                 }
