@@ -266,6 +266,7 @@ function createVelocityLayer(
 
 type MutableVelocityLayer = L.Layer & {
     __palette?: WindPalette;
+    _canvasLayer?: { getCanvas: () => HTMLCanvasElement | null };
     _windy?: { setData: (data: VelocityGribRecord[]) => void; velocityScale?: number; particleMultiplier?: number };
     setData?: (data: VelocityGribRecord[]) => void;
 };
@@ -346,6 +347,12 @@ function removeVelocityLayer(map: L.Map, layer: L.Layer | null): void {
     if (layer && map.hasLayer(layer)) map.removeLayer(layer);
 }
 
+/** Same halo literal; only its filter isolation root changes in this diagnostic. */
+function applyVelocityCanvasHalo(layer: L.Layer, palette: WindPalette): void {
+    const canvas = (layer as MutableVelocityLayer)._canvasLayer?.getCanvas();
+    if (canvas) canvas.style.filter = haloFor(palette);
+}
+
 function applyVelocityData(
     map: L.Map,
     layer: L.Layer | null,
@@ -357,6 +364,7 @@ function applyVelocityData(
     if (!layer) {
         const created = createVelocityLayer(data, velocityScale, particleMultiplier, palette);
         created.addTo(map);
+        applyVelocityCanvasHalo(created, palette);
         return created;
     }
 
@@ -376,6 +384,7 @@ function applyVelocityData(
     removeVelocityLayer(map, layer);
     const replacement = createVelocityLayer(data, velocityScale, particleMultiplier, palette);
     replacement.addTo(map);
+    applyVelocityCanvasHalo(replacement, palette);
     return replacement;
 }
 
@@ -1003,7 +1012,6 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             );
             if (overlayRef.current) {
                 overlayRef.current.style.opacity = closeInWantedRef.current ? '0' : '1';
-                overlayRef.current.style.filter = haloFor(palette);
             }
             syncRef.current?.();
         } catch (err) {
@@ -1069,7 +1077,8 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
 
             // Create overlay div on top of Mapbox
             const div = document.createElement('div');
-            div.style.cssText = `position:absolute;inset:0;z-index:400;pointer-events:none;opacity:0;transition:opacity 0.4s ease;filter:${haloFor(paletteRef.current)};`;
+            div.style.cssText =
+                'position:absolute;inset:0;z-index:400;pointer-events:none;opacity:0;transition:opacity 0.4s ease;';
             container.appendChild(div);
             overlayRef.current = div;
 
