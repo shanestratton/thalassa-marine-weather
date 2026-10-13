@@ -62,6 +62,7 @@ import {
 } from '../components/map/obsCentre';
 import { obsStartTarget, useObsStartupCamera } from '../components/map/useObsStartupCamera';
 import { NO_CAMERA_PADDING, clearCameraPadding } from '../components/map/cameraPadding';
+import { setChartOrientation } from '../components/map/chartOrientation';
 import type mapboxgl from 'mapbox-gl';
 import { WEATHER_FOLLOW_TARGET_EVENT, __resetWeatherPositionForTests } from '../services/weatherPosition';
 
@@ -322,6 +323,26 @@ describe('Obs never flies under a padding another surface left (build 124)', () 
         expect(clearCameraPadding({ flyTo } as unknown as mapboxgl.Map)).toBe(false);
         obsFlyTo({ flyTo } as unknown as mapboxgl.Map, { lat: -36.84, lon: 174.76 }, 14);
         expect(flyTo).toHaveBeenCalledExactlyOnceWith({ center: [174.76, -36.84], zoom: 14, duration: 1200 });
+    });
+
+    it('in a turning mode (127-11b), Locate puts her in the lower third; North up, the centre as before', () => {
+        // A phone off a made-up Brittany headland, a 390 x 844 chart.
+        const flyTo = vi.fn();
+        const map = { flyTo, getContainer: () => ({ clientHeight: 844 }) } as unknown as mapboxgl.Map;
+        setChartOrientation({ turning: true, target: 47 });
+        try {
+            obsFlyTo(map, { lat: 48.38, lon: -4.62 }, 14);
+        } finally {
+            setChartOrientation({ turning: false, target: null });
+        }
+        expect(flyTo).toHaveBeenCalledExactlyOnceWith({
+            center: [-4.62, 48.38],
+            zoom: 14,
+            duration: 1200,
+            offset: [0, 844 / 6],
+        });
+        obsFlyTo(map, { lat: 48.38, lon: -4.62 }, 14);
+        expect(flyTo).toHaveBeenLastCalledWith({ center: [-4.62, 48.38], zoom: 14, duration: 1200 });
     });
 
     it('a map that went away meanwhile does not throw', () => {

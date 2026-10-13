@@ -151,6 +151,7 @@ import {
     type ObsBoatNames,
 } from '../components/map/obsCentre';
 import { useVesselTracker } from '../components/map/useVesselTracker';
+import { ownshipMotion } from '../components/map/ownshipMotion';
 import { phoneDotWanted, useLocationDot } from '../components/map/useLocationDot';
 import { setBoatWindReadout, type BoatWindReadout } from '../components/map/boatWindReadout';
 import {
@@ -391,6 +392,11 @@ describe('box = the boat: the marker is HER, where the camera centres, never the
         expect(el.getAttribute('aria-label')).toBe(
             'Kittiwake, 6.2 knots; course over ground 135° true; bow heading unavailable',
         );
+        // What the chart's orientation reads (127-11b): her lane, her fix and
+        // her row's own instruments, by the cloud lane's gate.
+        expect(ownshipMotion()).toMatchObject({ lane: 'cloud', lat: BOAT.lat, lon: BOAT.lon, maxAgeMs: 60_000 });
+        expect(ownshipMotion()!.instruments.cog?.value).toBe(135);
+        expect(ownshipMotion()!.instruments.sog?.value).toBe(6.2);
     });
 
     it('a true heading from her row turns the bow even at rest', async () => {
@@ -534,6 +540,9 @@ describe('box = the boat: the marker is HER, where the camera centres, never the
         expect(vesselMarker()?.lngLat).toEqual([BOAT.lon, BOAT.lat]);
         expect(vesselMarker()?.element.dataset.lane).toBe('bus');
         expect(badge()).toBe('6.2 kts');
+        // The chart's orientation reads her bus's instruments by the bus's gate (127-11b).
+        expect(ownshipMotion()).toMatchObject({ lane: 'bus', lat: BOAT.lat, lon: BOAT.lon, maxAgeMs: 13_000 });
+        expect(ownshipMotion()!.instruments.cog?.value).toBe(80);
     });
 
     it("aboard on her bus with no fresh SOG: 'SOG —', never an invented 'Stopped'", async () => {
@@ -1055,6 +1064,12 @@ describe('a phone-only punter: unchanged', () => {
         expect(marker?.element.dataset.source).toBe('phone');
         expect(badge()).toBe('Stopped');
         expect(marker?.element.getAttribute('aria-label')).toBe('Own ship, stopped; heading unavailable');
+        // The phone's own fix for the chart's orientation (127-11b): its GPS
+        // course and speed, never a vessel's compass; gone with the marker.
+        expect(ownshipMotion()).toMatchObject({ lane: 'phone', lat: HOME.lat, lon: HOME.lon, maxAgeMs: 30_000 });
+        expect(ownshipMotion()!.instruments).toEqual({});
+        view.unmount();
+        expect(ownshipMotion()).toBeNull();
     });
 });
 

@@ -598,7 +598,7 @@ test.describe('the real web planner', () => {
                 mine.push(['slot 0', strip[0]], ['slot 1', strip[1]]);
             }
             const others = {
-                rose: page.getByRole('img', { name: /^Compass rose/ }),
+                rose: page.getByRole('button', { name: /^Compass rose/ }),
                 tracer: page.locator('.map-tracer-panel'),
                 zoom: page.getByRole('button', { name: /^Zoom / }),
                 mic: page.getByTitle('Talk to Calypso'),

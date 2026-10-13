@@ -9,6 +9,7 @@ import type mapboxgl from 'mapbox-gl';
 import { triggerHaptic } from '../../utils/system';
 import { chartMapBeside, onChartMapsChanged } from './chartMapRegistry';
 import { isOrientationEvent } from './chartOrientation';
+import { ChartOrientationArrow } from './ChartOrientationControl';
 import { PHONE_GLYPH_PATHS } from './phoneMarker';
 
 // PARKED (Shane 2026-07-17: "remove that bottom right fab, and replace it
@@ -72,6 +73,8 @@ interface MapActionFabsProps {
     target?: 'phone' | 'boat' | 'place';
     /** The chosen place's name, for 'place'. */
     placeName?: string;
+    /** Obs is on screen: the north arrow's orientation modes run (127-11b). */
+    orientActive?: boolean;
 }
 
 /** Camera events carry originalEvent only when a person moved the map. */
@@ -92,6 +95,7 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({
     recenterDisabled,
     target,
     placeName,
+    orientActive = false,
 }) => {
     const rootRef = useRef<HTMLDivElement>(null);
     const [locate, setLocate] = useState<LocateState>('idle');
@@ -392,49 +396,58 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({
                 middle-left rail, where the
                 chart's Back chevron sat until Release 118 and which the ENC
                 notice still reserves — beside the Locate row it ran into the
-                notice, and above it into the scale and credits. */}
-            <div
-                role="group"
-                aria-label="Map zoom"
-                className="thalassa-map-zoom absolute right-[max(16px,env(safe-area-inset-right))] bottom-[calc(242px+env(safe-area-inset-bottom))] z-500 flex flex-col overflow-hidden rounded-2xl border border-white/8 bg-slate-900/90 shadow-2xl backdrop-blur-xl [@media(orientation:landscape)_and_(max-height:600px)]:right-auto [@media(orientation:landscape)_and_(max-height:600px)]:bottom-auto [@media(orientation:landscape)_and_(max-height:600px)]:left-[max(16px,env(safe-area-inset-left))] [@media(orientation:landscape)_and_(max-height:600px)]:top-1/2 [@media(orientation:landscape)_and_(max-height:600px)]:-translate-y-1/2"
-            >
-                <button
-                    type="button"
-                    aria-label="Zoom in"
-                    disabled={zoomLimits.atMax}
-                    onClick={(event) => zoom('in', event)}
-                    className="flex h-[max(44px,3rem)] w-[max(44px,3rem)] items-center justify-center text-white transition-colors hover:bg-slate-800/90 active:bg-slate-800/90 disabled:opacity-40"
+                notice, and above it into the scale and credits.
+                The chart's north arrow (127-11b) rides with the pair, placed
+                beside it without moving it (index.css .thalassa-orient-arrow):
+                above "+" on a chart 740 px tall or more, left of "-" on a
+                shorter one, and right of "+" on the middle-left rail. */}
+            <div className="thalassa-map-zoom absolute right-[max(16px,env(safe-area-inset-right))] bottom-[calc(242px+env(safe-area-inset-bottom))] z-500 [@media(orientation:landscape)_and_(max-height:600px)]:right-auto [@media(orientation:landscape)_and_(max-height:600px)]:bottom-auto [@media(orientation:landscape)_and_(max-height:600px)]:left-[max(16px,env(safe-area-inset-left))] [@media(orientation:landscape)_and_(max-height:600px)]:top-1/2 [@media(orientation:landscape)_and_(max-height:600px)]:-translate-y-1/2">
+                <div className="thalassa-orient-arrow">
+                    <ChartOrientationArrow active={orientActive} />
+                </div>
+                <div
+                    role="group"
+                    aria-label="Map zoom"
+                    className="flex flex-col overflow-hidden rounded-2xl border border-white/8 bg-slate-900/90 shadow-2xl backdrop-blur-xl"
                 >
-                    <svg
-                        className="h-5 w-5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        aria-hidden="true"
+                    <button
+                        type="button"
+                        aria-label="Zoom in"
+                        disabled={zoomLimits.atMax}
+                        onClick={(event) => zoom('in', event)}
+                        className="flex h-[max(44px,3rem)] w-[max(44px,3rem)] items-center justify-center text-white transition-colors hover:bg-slate-800/90 active:bg-slate-800/90 disabled:opacity-40"
                     >
-                        <path strokeLinecap="round" d="M12 5v14M5 12h14" />
-                    </svg>
-                </button>
-                <span aria-hidden="true" className="mx-2 h-px bg-white/10" />
-                <button
-                    type="button"
-                    aria-label="Zoom out"
-                    disabled={zoomLimits.atMin}
-                    onClick={(event) => zoom('out', event)}
-                    className="flex h-[max(44px,3rem)] w-[max(44px,3rem)] items-center justify-center text-white transition-colors hover:bg-slate-800/90 active:bg-slate-800/90 disabled:opacity-40"
-                >
-                    <svg
-                        className="h-5 w-5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                        aria-hidden="true"
+                        <svg
+                            className="h-5 w-5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            aria-hidden="true"
+                        >
+                            <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+                        </svg>
+                    </button>
+                    <span aria-hidden="true" className="mx-2 h-px bg-white/10" />
+                    <button
+                        type="button"
+                        aria-label="Zoom out"
+                        disabled={zoomLimits.atMin}
+                        onClick={(event) => zoom('out', event)}
+                        className="flex h-[max(44px,3rem)] w-[max(44px,3rem)] items-center justify-center text-white transition-colors hover:bg-slate-800/90 active:bg-slate-800/90 disabled:opacity-40"
                     >
-                        <path strokeLinecap="round" d="M5 12h14" />
-                    </svg>
-                </button>
+                        <svg
+                            className="h-5 w-5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            aria-hidden="true"
+                        >
+                            <path strokeLinecap="round" d="M5 12h14" />
+                        </svg>
+                    </button>
+                </div>
             </div>
         </>
     );

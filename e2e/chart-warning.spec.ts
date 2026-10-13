@@ -434,6 +434,10 @@ const cases: {
     // A tablet prints Mapbox's full credit strip, always shown, running left
     // under the layer controls' corner: they must stand above its row.
     { width: 834, height: 1194, mode: 'dark', anchorages: true },
+    // Desk windows 601-739 px tall, where the north arrow sits left of the
+    // zoom pair (127-11b): a laptop browser, and a 1080p laptop at 125%.
+    { width: 1366, height: 657, mode: 'dark' },
+    { width: 1536, height: 730, mode: 'dark' },
     // Obs opens on the location box at z10 (build 121), where the Anchorages
     // credit wraps the opened card to two lines; the furniture must hold at
     // other zooms (a shorter or longer scale bar, more or fewer credits) and
@@ -590,6 +594,8 @@ for (const size of cases) {
         const creditsToggle = attribution.getByRole('button', { name: 'Toggle attribution', exact: true });
         const scale = page.locator('.thalassa-chart-map .mapboxgl-ctrl-scale');
         const logo = page.locator('.thalassa-chart-map .mapboxgl-ctrl-logo');
+        // The chart's north arrow (127-11b) rides with the zoom pair.
+        const orient = page.getByRole('button', { name: /^Chart orientation:/ });
         const compactCredits = async () => /\bmapboxgl-compact\b/.test((await attribution.getAttribute('class')) ?? '');
         async function expectControlsClear(stage: string) {
             await testInfo.attach(`enc-controls-geometry-${stage}`, {
@@ -643,6 +649,7 @@ for (const size of cases) {
                 ['Locate', locate],
                 ['Zoom in', zoomIn],
                 ['Zoom out', zoomOut],
+                ['Chart orientation', orient],
                 ['MOB', mob],
                 ['Layers', layers],
                 ['Mapbox attribution', attribution],
@@ -679,6 +686,15 @@ for (const size of cases) {
                 expect(boxes['Anchorage chip'].width).toBeGreaterThanOrEqual(44);
                 expect(boxes['Anchorage chip'].height).toBeGreaterThanOrEqual(44);
             }
+            // The north arrow (127-11b): clear of every chart control, the
+            // credits, the layer pill and the chip, and 44 px at least.
+            for (const label of [...neighbours, 'Layer key pill', ...(size.anchorages ? ['Anchorage chip'] : [])])
+                expectApart(boxes['Chart orientation'], boxes[label], `Chart orientation overlaps ${label}`);
+            expect(boxes['Chart orientation'].width).toBeGreaterThanOrEqual(44);
+            expect(boxes['Chart orientation'].height).toBeGreaterThanOrEqual(44);
+            // Measured first (127-11b): the zoom pair never lies under the layer helm.
+            for (const label of ['Zoom in', 'Zoom out'])
+                expectApart(boxes[label], boxes['Layers'], `${label} overlaps the layer helm`);
             // Mapbox's full strip (a roomy map) is always shown and runs left as
             // far as its text: the chart's own controls stand above its row.
             if (!(await compactCredits())) {
@@ -720,7 +736,8 @@ for (const size of cases) {
                     await expect(tideScrubber).toHaveCount(0);
                 }
             }
-            for (const control of [locate, zoomIn, zoomOut, mob, layers, attribution]) await expectHitTarget(control);
+            for (const control of [locate, zoomIn, zoomOut, orient, mob, layers, attribution])
+                await expectHitTarget(control);
             await expect(warning).toContainText(EMPTY_ENC_NOTICE);
             await expectFullHitTarget(logo, 'Mapbox logo');
             await expectFullHitTarget(layerKey, 'Layer key pill');
@@ -1012,5 +1029,212 @@ for (const size of [
         await expectFullHitTarget(toggle, 'Mapbox attribution toggle');
         await expectFullHitTarget(attribution, 'Opened Mapbox credits');
         await expectFullHitTarget(logo, 'Mapbox logo');
+    });
+}
+
+// ── Chart orientation (127-11b) ─────────────────────────────────────────
+// Shane 2026-10-10: "oh, um add in the course up and north up etc. that is
+// cool to see as well" and "the desktop experience needs to be 2nd to none".
+// The chooser is a centred card in the overlay modal band, clear of the tab
+// bar, scrolling inside only if it must; its rows are big targets.
+const WIDE_FONT = ':root { --font-sans: Verdana, sans-serif; }';
+const orientKey = 'thalassa_chart_orientation_obs_v1';
+
+for (const size of [
+    { width: 320, height: 568 },
+    { width: 375, height: 667 },
+    { width: 390, height: 844 },
+    { width: 568, height: 320 },
+    { width: 1024, height: 520, split: true },
+    { width: 1440, height: 900 },
+    { width: 320, height: 568, wideFont: true },
+    { width: 390, height: 844, wideFont: true },
+    { width: 1024, height: 520, split: true, wideFont: true },
+    { width: 1440, height: 900, wideFont: true },
+]) {
+    test(`the chart orientation card fits at ${size.width}x${size.height}${size.split ? ' split' : ''}${size.wideFont ? ' wide fallback font' : ''}`, async ({
+        page,
+        baseURL,
+    }, testInfo) => {
+        test.setTimeout(90_000);
+        await page.setViewportSize({ width: size.width, height: size.height });
+        if (size.split) await page.addInitScript(() => localStorage.setItem('thalassa_split_view', '1'));
+        await openEmptyChart(page, baseURL!, testInfo);
+        if (size.wideFont) {
+            await page.addStyleTag({ content: WIDE_FONT });
+            await page.evaluate(() => document.fonts.ready);
+        }
+        const arrow = page.getByRole('button', { name: /^Chart orientation:/ });
+        await expect(arrow).toHaveAccessibleName('Chart orientation: North up. Tap to choose');
+        await expectFullHitTarget(arrow, 'the north arrow');
+        await arrow.click();
+        const card = page.getByRole('dialog', { name: 'Chart orientation', exact: true });
+        const panel = card.locator('[data-modal-sheet]');
+        const backdrop = await visibleBox(card, page);
+        const box = await visibleBox(panel, page);
+        // Centred in its overlay (the pane's, in a split).
+        expect(Math.abs(box.x + box.width / 2 - (backdrop.x + backdrop.width / 2)), 'centred across').toBeLessThan(2);
+        expect(Math.abs(box.y + box.height / 2 - (backdrop.y + backdrop.height / 2)), 'centred down').toBeLessThan(2);
+        // Clear of the tab bar when it runs along the bottom.
+        const nav = page.getByRole('navigation', { name: 'Main', exact: true });
+        if (await nav.isVisible()) {
+            const navBox = (await nav.boundingBox())!;
+            if (navBox.y > size.height / 2)
+                expect(box.y + box.height, 'the card ends above the tab bar').toBeLessThanOrEqual(navBox.y);
+        }
+        const rows = card.getByRole('radio');
+        await expect(rows).toHaveCount(4);
+        for (const row of await rows.all()) {
+            await row.scrollIntoViewIfNeeded();
+            const rowBox = await visibleBox(row, page);
+            expect(rowBox.height, 'each row is a big target').toBeGreaterThanOrEqual(44);
+        }
+        if (!size.wideFont && size.width >= 375 && size.height >= 667)
+            expect(
+                await panel.evaluate((el) => el.scrollHeight <= el.clientHeight + 1),
+                'no inner scroll at 375x667 and up',
+            ).toBe(true);
+        await testInfo.attach('chart-orientation-card', { body: await page.screenshot(), contentType: 'image/png' });
+        // A pick it cannot honour yet: North up, an amber dot and the reason, kept on this device.
+        await rows.nth(2).click();
+        await expect(card).toHaveCount(0);
+        await expect(arrow).toHaveAccessibleName(
+            'Chart orientation: Track up, holding North up: Waits until she is making 1.5 kn. Tap to choose',
+        );
+        expect(await page.evaluate((key) => localStorage.getItem(key), orientKey)).toBe('track');
+        // Escape closes the card.
+        await arrow.click();
+        await expect(card).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(card).toHaveCount(0);
+    });
+}
+
+// A desk window under 740 px tall: the arrow is left of the zoom pair, far
+// from the centred coverage card, so the card keeps its 390 px and its
+// centre (127-11b review: the short-chart rule once made it a bar the
+// whole width of the chart).
+for (const size of [
+    { width: 1366, height: 657 },
+    { width: 1536, height: 730 },
+]) {
+    test(`the ENC coverage card stays a centred 390 px card at ${size.width}x${size.height}`, async ({
+        page,
+        baseURL,
+    }, testInfo) => {
+        test.setTimeout(90_000);
+        await page.setViewportSize(size);
+        await openEmptyChart(page, baseURL!, testInfo);
+        const card = await visibleBox(page.getByRole('status', { name: 'ENC coverage', exact: true }), page);
+        const chart = (await page.locator('.thalassa-chart-map').boundingBox())!;
+        const geometry = JSON.stringify({ card, chart });
+        expect(card.width, geometry).toBeGreaterThan(389);
+        expect(card.width, geometry).toBeLessThan(391);
+        expect(Math.abs(card.x + card.width / 2 - (chart.x + chart.width / 2)), geometry).toBeLessThan(2);
+        expectApart(
+            card,
+            await visibleBox(page.getByRole('button', { name: /^Chart orientation:/ }), page),
+            'the card overlaps the north arrow',
+        );
+    });
+}
+
+// Notch phones "as drawn": Playwright's safe areas are 0, so the usable
+// screen of an SE, a 390 and a 430 notch phone stands in for them.
+for (const size of [
+    { width: 320, height: 548 },
+    { width: 390, height: 763 },
+    { width: 430, height: 839 },
+]) {
+    test(`the north arrow is clear of the status row and the rail at ${size.width}x${size.height}`, async ({
+        page,
+        baseURL,
+    }, testInfo) => {
+        test.setTimeout(90_000);
+        await page.setViewportSize(size);
+        await openEmptyChart(page, baseURL!, testInfo);
+        const arrow = await visibleBox(page.getByRole('button', { name: /^Chart orientation:/ }), page);
+        const furniture: Array<[string, Locator]> = [
+            ['zoom readout', page.getByRole('img', { name: /^Zoom \d+\.\d$/ })],
+            ['map base', page.getByRole('button', { name: /^Map base:/ })],
+            ['MOB', page.getByRole('button', { name: 'MOB, open Man Overboard emergency', exact: true })],
+            ['Layers', page.getByRole('button', { name: 'Open layer menu', exact: true })],
+            ['Locate', page.getByRole('button', { name: 'Locate me', exact: true })],
+            ['Zoom in', page.getByRole('button', { name: 'Zoom in', exact: true })],
+            ['Zoom out', page.getByRole('button', { name: 'Zoom out', exact: true })],
+            ['ENC coverage', page.getByRole('status', { name: 'ENC coverage', exact: true })],
+        ];
+        for (const [label, locator] of furniture)
+            expectApart(arrow, await visibleBox(locator, page), `the north arrow overlaps ${label}`);
+        await testInfo.attach('chart-orientation-notch', { body: await page.screenshot(), contentType: 'image/png' });
+    });
+}
+
+// The planner (the tracer): the compass rose is the control there, a button
+// in its locked box, with North up and Course up on this leg.
+for (const size of [
+    { width: 1440, height: 900 },
+    { width: 1024, height: 768 },
+    { width: 390, height: 844 },
+]) {
+    test(`the planner's compass rose chooses the orientation at ${size.width}x${size.height}`, async ({
+        page,
+        baseURL,
+    }, testInfo) => {
+        test.setTimeout(120_000);
+        await page.setViewportSize(size);
+        await openEmptyChart(page, baseURL!, testInfo);
+        const nav = page.getByRole('navigation', { name: 'Main', exact: true });
+        await nav.getByRole('button', { name: 'Plan', exact: true }).click();
+        const startPlotting = page.getByRole('button', { name: 'Start plotting', exact: true });
+        await expect(startPlotting).toBeVisible({ timeout: 25_000 });
+        await startPlotting.scrollIntoViewIfNeeded();
+        await startPlotting.click();
+        await page
+            .getByRole('dialog', { name: 'Choose routing mode', exact: true })
+            .getByRole('button', { name: 'Manual routing', exact: true })
+            .click();
+        const rose = page.getByRole('button', { name: /^Compass rose/ });
+        await expect(rose).toHaveAccessibleName('Compass rose: North up. Tap to choose the chart orientation');
+        // Its locked box: centred on the plotting card's axis, 116 px square.
+        const box = await visibleBox(rose, page);
+        expect(box.x).toBeCloseTo(98, 0);
+        expect(box.width).toBeCloseTo(116, 0);
+        await expectFullHitTarget(rose, 'the compass rose');
+        // Two pins (a long press each, as a skipper drops them): a leg to the
+        // north-east, on the chart's right where no card lies over it (on a
+        // phone the tracer card covers the middle).
+        const chart = (await page.getByTestId('map-hub').boundingBox())!;
+        const x = chart.x + chart.width - 70;
+        const y = chart.y + chart.height * 0.7;
+        for (const [px, py] of [
+            [x, y],
+            [x + 45, y - 55],
+        ]) {
+            await page.mouse.move(px, py);
+            await page.mouse.down();
+            await page.waitForTimeout(800);
+            await page.mouse.up();
+            await page.waitForTimeout(300);
+        }
+        await rose.click();
+        const card = page.getByRole('dialog', { name: 'Chart orientation', exact: true });
+        await expect(card.getByRole('radio')).toHaveText([/^North up/, /^Course up on this leg/]);
+        await card.getByRole('radio', { name: /^Course up on this leg/ }).click();
+        await expect(card).toHaveCount(0);
+        // Turned so the leg runs up the screen (about 045° on a mercator chart
+        // here): the rose counter-turns with the chart, so its card says so.
+        await expect
+            .poll(() =>
+                rose
+                    .locator('svg')
+                    .evaluate((svg) =>
+                        Number(/rotate\((-?[\d.]+)deg\)/.exec((svg as SVGElement).style.transform)?.[1]),
+                    ),
+            )
+            .toBeLessThan(-30);
+        expect(await page.evaluate(() => localStorage.getItem('thalassa_chart_orientation_plan_v1'))).toBe('course');
+        await expect(rose).toHaveAccessibleName(/^Compass rose: Course up on this leg, 0\d\d degrees\./);
+        await testInfo.attach('chart-orientation-planner', { body: await page.screenshot(), contentType: 'image/png' });
     });
 }

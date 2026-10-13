@@ -11,7 +11,7 @@ import {
     validFramePoint,
     type FramePoint,
 } from './passageRouteFrame';
-import { chartFitBearing } from './chartOrientation';
+import { chartFitBearing, holdChartFrame } from './chartOrientation';
 
 const PHONE_MAX_AGE_MS = 10 * 60_000;
 
@@ -219,6 +219,11 @@ export function usePassageRouteFrame({ mapRef, mapReady, enabled, route, routeKe
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapRef, mapReady, enabled, routeKey, route.length >= 2]);
 
+    // While the overview holds the camera, the turning modes never move it to
+    // keep her on screen (127-11b): the overview frames her already, and its
+    // refit and that move would take the camera in turn every 20 s.
+    const framing = enabled && mapReady && overviewLocked && route.length >= 2;
+    useEffect(() => (framing ? holdChartFrame() : undefined), [framing]);
     useEffect(() => update.current?.(), [route]);
     useEffect(() => update.current?.(true), [layoutKey]);
     return { overviewLocked, resumeOverview, pauseOverview };

@@ -523,3 +523,129 @@ describe('passage route overview on a turned chart', () => {
         expect(c.raw.fitBounds.mock.calls[0][1]).toMatchObject({ bearing: 0 });
     });
 });
+
+/**
+ * The overview and keeping her on screen (127-11b) never take the camera in
+ * turn. Following a route in a turning mode with the overview asked for, the
+ * overview frames her at one end of the route, outside the middle 60% of the
+ * view. Keeping her on screen would ease her to the lower third, the far end
+ * would leave the frame, and the overview would refit at that moveend: a
+ * slide and a snap back every 20 s for the whole passage.
+ */
+describe('the whole-route overview and keeping her on screen, together', () => {
+    /** A fictional 12 NM northbound leg in a bay like the Chesapeake's; she is at its start. */
+    const LEG = [
+        { lat: 38.6, lon: -76.4 },
+        { lat: 38.8, lon: -76.38 },
+    ];
+    function chartWithCamera() {
+        const handlers = new Map<string, Set<Handler>>();
+        const root = document.createElement('main');
+        const container = document.createElement('div');
+        root.append(container);
+        document.body.append(root);
+        const width = 390;
+        const height = 844;
+        Object.defineProperty(container, 'clientWidth', { value: width });
+        Object.defineProperty(container, 'clientHeight', { value: height });
+        container.getBoundingClientRect = () => ({
+            width,
+            height,
+            x: 0,
+            y: 0,
+            top: 0,
+            left: 0,
+            right: width,
+            bottom: height,
+            toJSON: () => ({}),
+        });
+        const cam = { lon: -76.39, lat: 38.7, k: 2000, at: { x: width / 2, y: height / 2 } };
+        const emit = (event: string, data = {}) => handlers.get(event)?.forEach((handler) => handler(data));
+        const moved = (data = {}) => {
+            emit('movestart', data);
+            emit('moveend', data);
+        };
+        const raw = {
+            getContainer: () => container,
+            getCenter: () => ({ lng: cam.lon, lat: cam.lat }),
+            getZoom: () => 12,
+            getBearing: () => 0,
+            getPitch: () => 0,
+            isMoving: () => false,
+            loaded: () => true,
+            project: ([lon, lat]: [number, number]) => ({
+                x: cam.at.x + (lon - cam.lon) * cam.k,
+                y: cam.at.y - (lat - cam.lat) * cam.k,
+            }),
+            fitBounds: vi.fn(
+                (
+                    [[west, south], [east, north]]: number[][],
+                    { padding: p }: { padding: { top: number; right: number; bottom: number; left: number } },
+                ) => {
+                    cam.lon = (west + east) / 2;
+                    cam.lat = (south + north) / 2;
+                    cam.k = Math.min(
+                        (width - p.left - p.right) / Math.max(east - west, 1e-6),
+                        (height - p.top - p.bottom) / Math.max(north - south, 1e-6),
+                    );
+                    cam.at = { x: p.left + (width - p.left - p.right) / 2, y: p.top + (height - p.top - p.bottom) / 2 };
+                    moved();
+                },
+            ),
+            /** Keeping her on screen: her at the centre, offset down the screen. */
+            easeTo: vi.fn((options: { center?: [number, number]; offset?: [number, number] }, data = {}) => {
+                if (options.center) {
+                    [cam.lon, cam.lat] = options.center;
+                    cam.at = { x: width / 2 + (options.offset?.[0] ?? 0), y: height / 2 + (options.offset?.[1] ?? 0) };
+                }
+                moved(data);
+            }),
+            jumpTo: vi.fn(),
+            on: (event: string, handler: Handler) => {
+                if (!handlers.has(event)) handlers.set(event, new Set());
+                handlers.get(event)!.add(handler);
+            },
+            off: (event: string, handler: Handler) => handlers.get(event)?.delete(handler),
+        };
+        return { raw, ref: { current: raw as unknown as mapboxgl.Map } };
+    }
+
+    it('Heading up under way with the overview locked: no move to keep her on screen, and no refit loop', async () => {
+        const { orientChart, orientationKey } = await import('../components/map/chartOrientation');
+        const { publishOwnshipMotion } = await import('../components/map/ownshipMotion');
+        const c = chartWithCamera();
+        const her = LEG[0];
+        feeds.own = { ...her, source: 'nmea' };
+        renderHook(() => usePassageRouteFrame({ mapRef: c.ref, mapReady: true, enabled: true, route: LEG }));
+        flush();
+        expect(c.raw.fitBounds).toHaveBeenCalledOnce();
+        localStorage.setItem(orientationKey('obs'), 'heading');
+        const controller = orientChart(c.ref.current, 'obs', () => ({}));
+        try {
+            const metric = (value: number) => ({ value, lastUpdated: Date.now(), freshness: 'live' });
+            for (let t = 0; t < 70_000; t += 5_000) {
+                act(() => {
+                    vi.advanceTimersByTime(5_000);
+                    publishOwnshipMotion({
+                        lane: 'bus',
+                        lat: her.lat,
+                        lon: her.lon,
+                        at: Date.now(),
+                        heading: null,
+                        speed: null,
+                        instruments: { headingTrue: metric(0), cog: metric(0), sog: metric(6) },
+                        maxAgeMs: 13_000,
+                    } as never);
+                });
+            }
+            const recentres = c.raw.easeTo.mock.calls.filter(([options]) => options.center !== undefined);
+            expect(recentres).toEqual([]);
+            // One fit when the overview took the chart; the camera then stays put.
+            expect(c.raw.fitBounds).toHaveBeenCalledOnce();
+        } finally {
+            controller.stop();
+            publishOwnshipMotion(null);
+            localStorage.clear();
+        }
+    });
+});

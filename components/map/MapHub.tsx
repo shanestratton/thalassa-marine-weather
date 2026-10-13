@@ -4261,7 +4261,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                     "we don't need to hide the compass" — the header toggle is
                     gone). */}
                 {!embedded && !isPinView && !pickerMode && !hideTracer && coordCaptureMode && (
-                    <CompassRoseOverlay mapRef={mapRef} mapReady={mapReady} />
+                    <CompassRoseOverlay
+                        mapRef={mapRef}
+                        mapReady={mapReady}
+                        pins={capturedCoords}
+                        selected={selectedPin}
+                    />
                 )}
 
                 {/* ═══ DETAIL SCRUBBER ═══
@@ -5853,6 +5858,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         recenterDisabled={!weatherCoords}
                         target={locateNext.kind}
                         placeName={locateNext.kind === 'place' ? locateNext.name : undefined}
+                        orientActive={obsShowing}
                     />
                 )}
 
