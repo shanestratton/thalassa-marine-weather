@@ -133,14 +133,16 @@ describe('OBS base wiring', () => {
         expect(hub).toMatch(/nightMode\s*=\s*false/);
     });
 
-    // Native (the phone) keeps exactly today's rule: the planning surface on
-    // Hybrid unless the skipper picked a base. The web desk planner (127-DESKMAP
-    // A2) shows this computer's own pick instead, so a saved Obs pick on any
-    // device no longer turns the desk dark.
-    it('keeps the planning surface on Hybrid unless the skipper picked a base', () => {
+    // The planner maps show the planner's own pick (127-DESKMAP A2 on the web;
+    // the phone too since 128-LIGHT, Shane 2026-10-13: "yes to all of your
+    // questions for 128"), so a saved Obs pick never turns them dark. A
+    // computed passage on the Obs chart keeps today's rule: Hybrid unless the
+    // skipper picked a base.
+    it('keeps a passage on the Obs chart on Hybrid unless the skipper picked a base; the planner maps show their own', () => {
         expect(hub).toMatch(
-            /const shownBase(?::\s*MapBaseKind)?\s*=\s*deskPlanner \? deskBase : planningSurface && !baseExplicit \? 'hybrid' : mapBase/,
+            /const shownBase(?::\s*MapBaseKind)?\s*=\s*plannerMap \? deskBase : planningSurface && !baseExplicit \? 'hybrid' : mapBase/,
         );
+        expect(hub).toMatch(/const plannerMap = cleanPlanningMap \|\| coordCaptureMode;/);
         expect(hub).toMatch(/mapBaseVisibility\(shownBase\)/);
     });
 
@@ -179,24 +181,32 @@ describe('OBS base wiring', () => {
     });
 
     it('is the desk planner only on the web, on the tracer and Route Planner maps', () => {
-        expect(hub).toMatch(
-            /const deskPlanner\s*=\s*!Capacitor\.isNativePlatform\(\) && \(cleanPlanningMap \|\| coordCaptureMode\);/,
-        );
+        expect(hub).toMatch(/const plannerMap = cleanPlanningMap \|\| coordCaptureMode;/);
+        expect(hub).toMatch(/const deskPlanner\s*=\s*!Capacitor\.isNativePlatform\(\) && plannerMap;/);
         // The desk's base is this computer's pick, never the account's Obs base.
         expect(hub).toMatch(/const \{ deskBase, setDeskBase, deskSeamarks, toggleDeskSeamarks \} = useDeskMap\(\);/);
         expect(source('components/map/deskMap.ts')).not.toMatch(/updateSettings|obsChartBase/);
     });
 
-    it('offers the desk menu on web desk surfaces only: never picker, embedded or pin view', () => {
+    // The planner's menu on every planner surface, the desk's and (128-LIGHT)
+    // the phone's; never picker, embedded or pin view. The desk's switches
+    // (Seamarks, Wind) and its strip stay the desk's.
+    it('offers the planner menu on planner surfaces only, its switches on the desk alone', () => {
         const selectors = [...hub.matchAll(/<MapBaseSelector\b[\s\S]*?\/>/g)].map(([call]) => call);
         expect(selectors).toHaveLength(2);
-        const desk = selectors[1];
-        expect(desk).toContain('visible={deskSurface}');
-        expect(desk).toContain('value={deskBase}');
-        expect(desk).toContain('onChange={setDeskBase}');
-        expect(desk).toContain('options={DESK_MAP_BASE_OPTIONS}');
-        expect(desk).toContain('encRow={false}');
-        expect(hub).toMatch(/const deskSurface\s*=\s*deskPlanner && !pickerMode && !embedded && !isPinView;/);
+        const planner = selectors[1];
+        expect(planner).toContain('visible={plannerSurface}');
+        expect(planner).toContain('value={deskBase}');
+        expect(planner).toContain('onChange={setDeskBase}');
+        expect(planner).toContain('options={DESK_MAP_BASE_OPTIONS}');
+        expect(planner).toContain('encRow={false}');
+        expect(planner).toMatch(/toggles=\{\s*deskSurface\s*\?/);
+        expect(planner).toMatch(/:\s*\[\]\s*\}/);
+        expect(hub).toMatch(/const plannerSurface = plannerMap && !pickerMode && !embedded && !isPinView;/);
+        expect(hub).toMatch(/const deskSurface\s*=\s*deskPlanner && plannerSurface;/);
+        expect(hub).toMatch(/\{deskSurface && \(\s*<DeskMapStrip/);
+        // The narrow-window placement (index.css .thalassa-desk-tracing) on both.
+        expect(hub).toMatch(/plannerSurface && coordCaptureMode && !hideTracer \? ' thalassa-desk-tracing'/);
     });
 });
 

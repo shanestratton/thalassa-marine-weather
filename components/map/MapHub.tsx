@@ -42,7 +42,7 @@ import { RELIEF_TILE_BASE, seaBaseLayers, setReliefPalette } from './reliefBase'
 import { deskSlot0Line, useDeskMap } from './deskMap';
 import { DeskMapStrip } from './DeskMapStrip';
 import { deskWindToggle, useStillCentre, windCreditLine } from './deskWind';
-import { traceHintPaint } from './traceLegInk';
+import { LINE_EDGE_LAYERS, lineEdges, traceHintPaint } from './traceLegInk';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
 import {
@@ -2246,11 +2246,18 @@ export const MapHub: React.FC<MapHubProps> = ({
     // and very hard to see what is water and what isnt"). The web planner's
     // tracer and Route Planner maps (full-screen, picker and inline) show this
     // computer's own base, Light unless picked, never the account's Obs pick.
-    // A passage shown on the Obs chart, and every native surface, keep today's
-    // rule. Its menu and strip skip picker, embedded and pin maps.
+    // A passage shown on the Obs chart keeps today's rule. Its menu and strip
+    // skip picker, embedded and pin maps.
+    // ...AND THE PHONE (128-LIGHT; Shane 2026-10-13: "yes to all of your
+    // questions for 128", on "The phone planner on the Light chart too?"): its
+    // planner maps open on Light too, this phone's own pick, with the same
+    // menu of bases (Relief + Sat and Hybrid a tap away) and none of the desk's
+    // switches or strip. Obs keeps the account's base.
     const { deskBase, setDeskBase, deskSeamarks, toggleDeskSeamarks } = useDeskMap();
-    const deskPlanner = !Capacitor.isNativePlatform() && (cleanPlanningMap || coordCaptureMode);
-    const deskSurface = deskPlanner && !pickerMode && !embedded && !isPinView;
+    const plannerMap = cleanPlanningMap || coordCaptureMode;
+    const deskPlanner = !Capacitor.isNativePlatform() && plannerMap;
+    const plannerSurface = plannerMap && !pickerMode && !embedded && !isPinView;
+    const deskSurface = deskPlanner && plannerSurface;
     // WIND ON THE DESK (127-DESKMAP-b; Shane 2026-10-10: "can we include the
     // wind layer on the desktop.?? as an option??"): a Wind row in the desk
     // menu on a window 768 px wide or more, OFF at every mount and kept nowhere
@@ -2269,12 +2276,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [declutter, setDeclutter] = useState(0);
     // PER-SURFACE base (Shane 2026-07-17: "changing the layer on the chart page
     // also changed the planning page"). The browsing chart and the plotting
-    // surface are the SAME map. Plotting keeps Hybrid, the layer Shane asked
-    // for there (2026-07-15), until the skipper has picked a base in the menu;
-    // a pick wins everywhere, or it would be silently overridden the moment
-    // the tracer opened. DERIVED, not a state-setting effect, so the base-apply
+    // surface are the SAME map. The planner maps show the planner's own pick
+    // (Light unless picked, above); a computed passage on the Obs chart keeps
+    // Hybrid, the layer Shane asked for on 2026-07-15, until the skipper has
+    // picked a base. DERIVED, not a state-setting effect, so the base-apply
     // pass can never race it.
-    const shownBase: MapBaseKind = deskPlanner ? deskBase : planningSurface && !baseExplicit ? 'hybrid' : mapBase;
+    const shownBase: MapBaseKind = plannerMap ? deskBase : planningSurface && !baseExplicit ? 'hybrid' : mapBase;
     const baseVisibility = mapBaseVisibility(shownBase);
     const satelliteVisible = baseVisibility.satellite;
     const hybridVisible = baseVisibility.hybrid;
@@ -2405,6 +2412,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                         map.setPaintProperty(id, prop, value);
                         changed = true;
                     }
+                }
+                // The lines' dark edges: on every base on the web; on the phone
+                // only on Light, its other bases keeping 127's lines (128-LIGHT).
+                const edges = lineEdges(Capacitor.isNativePlatform(), shownBase === 'light');
+                for (const id of LINE_EDGE_LAYERS) if (setVis(id, edges.visibility)) changed = true;
+                if (
+                    map.getLayer('trace-line-casing') &&
+                    JSON.stringify(map.getFilter('trace-line-casing') ?? null) !== JSON.stringify(edges.traceFilter)
+                ) {
+                    map.setFilter('trace-line-casing', edges.traceFilter);
+                    changed = true;
                 }
 
                 // PLACE NAMES OVER THE IMAGERY (Shane 2026-07-22: "we just
@@ -3840,6 +3858,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity'));
     // The streaks' palette: dark ink on the desk's Light by day, white everywhere else.
     const windPalette = shownBase === 'light' && !nightMode ? 'light' : 'dark';
+    // The desk menu's Wind row (127-DESKMAP-b); the phone's planner menu has the bases alone.
+    const deskWindRow = deskWindOffered
+        ? [deskWindToggle(deskWindOn, weather.windModel, () => setDeskWindOn((on) => !on))]
+        : [];
     const obsKeyProps: ObsLayerKeyProps = {
         enc: encVisible
             ? {
@@ -3876,7 +3898,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             data-testid="map-hub"
             // The tracer's compass rose holds a narrow window's top centre, so
             // the desk menu and strip make room there (index.css, 127-DESKMAP).
-            className={`isolate w-full h-full ${isHelmSplit ? 'flex' : 'relative'}${deskSurface && coordCaptureMode && !hideTracer ? ' thalassa-desk-tracing' : ''}`}
+            className={`isolate w-full h-full ${isHelmSplit ? 'flex' : 'relative'}${plannerSurface && coordCaptureMode && !hideTracer ? ' thalassa-desk-tracing' : ''}`}
         >
             {/* Floating route-enhancement chip — visible while the */}
             {/* passage planner's bathymetric/weather/depth pipeline runs */}
@@ -3954,29 +3976,32 @@ export const MapHub: React.FC<MapHubProps> = ({
                     encVisible={encVisible}
                     onToggleEnc={toggleEnc}
                 />
-                {/* The desk's own menu, the same pill (127-DESKMAP A2/B1):
-                    Light, Relief + Sat or Hybrid, then OpenSeaMap's seamarks
-                    on top. No ENC row: the tracer raises its own chart floors.
-                    Picks stay on this computer (deskMap.ts). */}
+                {/* The planner's own menu, the same pill (127-DESKMAP A2/B1):
+                    Light, Relief + Sat or Hybrid, then on the desk OpenSeaMap's
+                    seamarks on top; the phone's has the bases alone (128-LIGHT).
+                    No ENC row: the tracer raises its own chart floors. Picks
+                    stay on this computer or phone (deskMap.ts). */}
                 <MapBaseSelector
-                    visible={deskSurface}
+                    visible={plannerSurface}
                     className="thalassa-desk-menu"
                     value={deskBase}
                     onChange={setDeskBase}
                     options={DESK_MAP_BASE_OPTIONS}
                     encRow={false}
-                    toggles={[
-                        {
-                            id: 'seamarks',
-                            label: 'Seamarks',
-                            detail: 'OpenSeaMap community data, not verified',
-                            on: deskSeamarks,
-                            onToggle: toggleDeskSeamarks,
-                        },
-                        ...(deskWindOffered
-                            ? [deskWindToggle(deskWindOn, weather.windModel, () => setDeskWindOn((on) => !on))]
-                            : []),
-                    ]}
+                    toggles={
+                        deskSurface
+                            ? [
+                                  {
+                                      id: 'seamarks',
+                                      label: 'Seamarks',
+                                      detail: 'OpenSeaMap community data, not verified',
+                                      on: deskSeamarks,
+                                      onToggle: toggleDeskSeamarks,
+                                  },
+                                  ...deskWindRow,
+                              ]
+                            : []
+                    }
                     encCellCount={encCellCount}
                     encVisible={encVisible}
                     onToggleEnc={toggleEnc}
