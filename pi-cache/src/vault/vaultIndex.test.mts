@@ -319,7 +319,10 @@ test('decoder down: each retry resumes the pass without re-hashing the sets, and
     assert.equal(vault.status().state, 'decoder-down');
     assert.equal(d.hashes(), 3, 'hashed once, by the first pass: the four retries resumed its plan');
     const gaps = d.tries.slice(1, 5).map((at, i) => at - d.tries[i]);
-    assert.ok(gaps[3] >= 2.5 * gaps[0], `the retry backs off (gaps ${gaps.join(', ')} ms)`);
+    // 20, 40, 80, then 160 (the cap): a timer never fires early, however loaded the machine.
+    [20, 40, 80, 160].forEach((at, i) =>
+        assert.ok(gaps[i] >= at - 5, `the retry backs off (gaps ${gaps.join(', ')} ms)`),
+    );
     down = false;
     await vault.whenReady();
     assert.equal(vault.index().length, 3);
@@ -360,5 +363,6 @@ test('the decoder answers a phone again: the waiting pass runs at once, not afte
     // A phone opens a chart near the boat: the decoder is back.
     assert.ok((await vault.cell('OC-99-ZZ0002')).bytes.length > 0);
     await until(() => vault.index().some((c) => c.cellId === 'OC-99-ZZ0009'), 2_000);
+    await vault.whenIdle();
     assert.equal(vault.status().state, 'ready');
 });
