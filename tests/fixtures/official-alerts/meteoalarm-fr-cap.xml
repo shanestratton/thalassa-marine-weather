@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>2.49.0.0.250.0.FR.ZZ0001</identifier>
+  <sender>vigilance@meteo.fr</sender>
+  <sent>2026-10-13T14:00:00+00:00</sent>
+  <status>Actual</status>
+  <msgType>Alert</msgType>
+  <scope>Public</scope>
+  <info>
+    <language>fr-FR</language>
+    <category>Met</category>
+    <event>Vigilance orange vent violent</event>
+    <responseType>Monitor</responseType>
+    <urgency>Expected</urgency>
+    <severity>Moderate</severity>
+    <certainty>Likely</certainty>
+    <effective>2026-10-13T14:00:00+00:00</effective>
+    <onset>2026-10-14T06:00:00+00:00</onset>
+    <expires>2026-10-14T22:00:00+00:00</expires>
+    <senderName>Météo-France</senderName>
+    <headline>Vigilance orange vent violent (texte d’essai)</headline>
+    <description>Mistral fort : rafales de 100 à 110 km/h sur le littoral. Texte inventé pour les tests.</description>
+    <instruction>Limitez vos déplacements. Ne prenez pas la mer.</instruction>
+    <web>https://vigilance.meteofrance.fr</web>
+    <parameter>
+      <valueName>awareness_type</valueName>
+      <value>1; Wind</value>
+    </parameter>
+    <parameter>
+      <valueName>awareness_level</valueName>
+      <value>3; orange; Severe</value>
+    </parameter>
+    <area>
+      <areaDesc>Bouches-du-Zzrhône</areaDesc>
+      <geocode>
+        <valueName>EMMA_ID</valueName>
+        <value>FR913</value>
+      </geocode>
+    </area>
+  </info>
+  <info>
+    <language>en-GB</language>
+    <category>Met</category>
+    <event>Orange wind warning</event>
+    <responseType>Monitor</responseType>
+    <urgency>Expected</urgency>
+    <severity>Moderate</severity>
+    <certainty>Likely</certainty>
+    <effective>2026-10-13T14:00:00+00:00</effective>
+    <onset>2026-10-14T06:00:00+00:00</onset>
+    <expires>2026-10-14T22:00:00+00:00</expires>
+    <senderName>Météo-France</senderName>
+    <headline>Orange warning for severe wind (test text)</headline>
+    <description>Strong mistral, gusts 100 to 110 km/h on the coast. Invented test text.</description>
+    <web>https://vigilance.meteofrance.fr</web>
+    <parameter>
+      <valueName>awareness_type</valueName>
+      <value>1; Wind</value>
+    </parameter>
+    <parameter>
+      <valueName>awareness_level</valueName>
+      <value>3; orange; Severe</value>
+    </parameter>
+    <area>
+      <areaDesc>Bouches-du-Zzrhône</areaDesc>
+      <geocode>
+        <valueName>EMMA_ID</valueName>
+        <value>FR913</value>
+      </geocode>
+    </area>
+  </info>
+</alert>

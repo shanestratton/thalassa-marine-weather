@@ -21,6 +21,7 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
         for (const name of [
             'check-weather-alerts',
             'cyclone-watch',
+            'ingest-official-alerts',
             'moderate-chat-message',
             'scrape-vessel-metadata',
             'sweep-stale-vessels',

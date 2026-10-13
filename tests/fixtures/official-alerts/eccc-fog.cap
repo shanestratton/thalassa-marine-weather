@@ -1,0 +1,91 @@
+<?xml version='1.0' encoding='UTF-8' standalone='no'?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+    <identifier>urn:oid:2.49.0.1.124.0000000103.2026</identifier>
+    <sender>cap-pac@canada.ca</sender>
+    <sent>2026-10-13T18:26:00-00:00</sent>
+    <status>Actual</status>
+    <msgType>Alert</msgType>
+    <source>Env. Can. - Fixture</source>
+    <scope>Public</scope>
+    <code>profile:CAP-CP:0.4</code>
+    <info>
+        <language>fr-CA</language>
+        <category>Met</category>
+        <event>brouillard</event>
+        <responseType>Monitor</responseType>
+        <urgency>Future</urgency>
+        <severity>Moderate</severity>
+        <certainty>Likely</certainty>
+        <audience>grand public</audience>
+        <eventCode>
+            <valueName>profile:CAP-CP:Event:0.4</valueName>
+            <value>wind</value>
+        </eventCode>
+        <effective>2026-10-13T18:26:00-00:00</effective>
+        <onset>2026-10-13T18:00:00-00:00</onset>
+        <expires>2026-10-14T10:00:00-00:00</expires>
+        <senderName>Environnement Canada</senderName>
+        <headline>avis - brouillard - en vigueur (texte d’essai)</headline>
+        <description>
+ Brouillard dense sur le secteur fictif. Texte inventé. 
+</description>
+        <instruction/>
+        <web>https://meteo.gc.ca/</web>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Location_Status</valueName>
+            <value>active</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Name</valueName>
+            <value>avis de brouillard</value>
+        </parameter>
+        <area>
+            <areaDesc>secteur fictif du fleuve</areaDesc>
+            <polygon>45.40,-73.80 45.40,-73.40 45.70,-73.40 45.70,-73.80 45.40,-73.80</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+                <value>099990</value>
+            </geocode>
+        </area>
+    </info>
+    <info>
+        <language>en-CA</language>
+        <category>Met</category>
+        <event>fog</event>
+        <responseType>Monitor</responseType>
+        <urgency>Future</urgency>
+        <severity>Moderate</severity>
+        <certainty>Likely</certainty>
+        <audience>general public</audience>
+        <eventCode>
+            <valueName>profile:CAP-CP:Event:0.4</valueName>
+            <value>wind</value>
+        </eventCode>
+        <effective>2026-10-13T18:26:00-00:00</effective>
+        <onset>2026-10-13T18:00:00-00:00</onset>
+        <expires>2026-10-14T10:00:00-00:00</expires>
+        <senderName>Environment Canada</senderName>
+        <headline>advisory - fog - in effect (test text)</headline>
+        <description>
+ Dense fog over the fictional sector. Invented text. 
+</description>
+        <instruction/>
+        <web>https://weather.gc.ca/</web>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Location_Status</valueName>
+            <value>active</value>
+        </parameter>
+        <parameter>
+            <valueName>layer:EC-MSC-SMC:1.0:Alert_Name</valueName>
+            <value>fog advisory</value>
+        </parameter>
+        <area>
+            <areaDesc>fictional river sector</areaDesc>
+            <polygon>45.40,-73.80 45.40,-73.40 45.70,-73.40 45.70,-73.80 45.40,-73.80</polygon>
+            <geocode>
+                <valueName>layer:EC-MSC-SMC:1.0:CLC</valueName>
+                <value>099990</value>
+            </geocode>
+        </area>
+    </info>
+</alert>

@@ -193,6 +193,90 @@
         "tests/fixtures/trim-hevc.mov": {
             "licence": "synthetic",
             "source": "ffmpeg testsrc2 picture and a 440 Hz sine, 130 s, HEVC (scripts/make-trim-fixtures.sh)."
+        },
+        "tests/fixtures/official-alerts/eccc-alert.cap": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 alert in the layout of an ECCC MSC Datamart CAP-CP file (fr-CA and en-CA info blocks, Alert_Location_Status, a polygon and a CLC geocode), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/eccc-day-listing.txt": {
+            "licence": "synthetic",
+            "source": "Fictional Apache directory listing in the layout of an MSC Datamart day directory of CAP alerts (one office), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/eccc-fog.cap": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 alert in the layout of an ECCC CAP-CP file (a fog advisory, fr-CA and en-CA), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/eccc-hour-17-listing.txt": {
+            "licence": "synthetic",
+            "source": "Fictional Apache directory listing in the layout of an MSC Datamart hour directory of CAP files, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/eccc-hour-18-listing.txt": {
+            "licence": "synthetic",
+            "source": "Fictional Apache directory listing in the layout of an MSC Datamart hour directory of CAP files, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/eccc-office-listing.txt": {
+            "licence": "synthetic",
+            "source": "Fictional Apache directory listing in the layout of an MSC Datamart office directory (hour subdirectories), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/eccc-update-ended.cap": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 Update in the layout of an ECCC CAP-CP file that ends the fixture alert (Alert_Location_Status ended, references), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/jma-extra.atom.xml": {
+            "licence": "synthetic",
+            "source": "Fictional Atom feed in the layout of the JMA PULL high-frequency feed extra.xml (VPWW53, VPWW54 and VPFJ50 entries for two offices), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/jma-other.atom.xml": {
+            "licence": "synthetic",
+            "source": "Fictional Atom feed in the layout of the JMA PULL feed other.xml (VPCU51 and VPCU50 entries), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/jma-vpcu51-010000.xml": {
+            "licence": "synthetic",
+            "source": "Fictional JMA disaster prevention XML report in the layout of 地方海上警報（Ｈ２８） (VPCU51): kinds, sea-area codes, sentences and ValidDateTime; the sea areas and codes are invented, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/jma-vpww54-130000.xml": {
+            "licence": "synthetic",
+            "source": "Fictional JMA disaster prevention XML report in the layout of 気象警報・注意報（Ｈ２７） (VPWW54): municipality items with kinds and statuses (発表, 継続, 解除, 発表警報・注意報はなし); the municipalities and codes are invented, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/malformed-cap.xml": {
+            "licence": "synthetic",
+            "source": "A deliberately broken CAP 1.2 document (an element left open) for the parser's malformed-feed test, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-de-cap-2.xml": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 Update in the layout of a MeteoAlarm CAP document (de-DE, a storm surge, references), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-de-cap.xml": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 document in the layout of a MeteoAlarm CAP for Germany (de-DE and en-GB info blocks, awareness parameters, EMMA_ID geocode), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-de.atom.xml": {
+            "licence": "synthetic",
+            "source": "Fictional Atom feed in the layout of the MeteoAlarm legacy Atom feed for Germany (cap: elements inline, one entry per area, a Test entry), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-fr-cap.xml": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 document in the layout of a MeteoAlarm CAP for France (fr-FR and en-GB), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-fr.atom.xml": {
+            "licence": "synthetic",
+            "source": "Fictional Atom feed in the layout of the MeteoAlarm legacy Atom feed for France, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-gr-cap.xml": {
+            "licence": "synthetic",
+            "source": "Fictional CAP 1.2 document in the layout of a MeteoAlarm CAP for Greece (en-GB and el-GR info blocks, Greek text written for the test), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/meteoalarm-gr.atom.xml": {
+            "licence": "synthetic",
+            "source": "Fictional Atom feed in the layout of the MeteoAlarm legacy Atom feed for Greece, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/nws-active.json": {
+            "licence": "synthetic",
+            "source": "Fictional GeoJSON in the layout of api.weather.gov/alerts/active (zone-based and polygon alerts, a Spanish es-US alert, an Update across 180 degrees, a Cancel, and an alert whose CAP expiry has passed while NWS still lists it until its end), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/nws-zone-anz531.json": {
+            "licence": "synthetic",
+            "source": "Fictional GeoJSON Feature in the layout of an api.weather.gov zone (a simple box, not the real zone outline), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
         }
     }
 }

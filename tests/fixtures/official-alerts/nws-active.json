@@ -1,0 +1,315 @@
+{
+    "@context": [
+        "https://geojson.org/geojson-ld/geojson-context.jsonld",
+        {
+            "@version": "1.1"
+        }
+    ],
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.zz0001.001.1",
+            "type": "Feature",
+            "geometry": null,
+            "properties": {
+                "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.zz0001.001.1",
+                "@type": "wx:Alert",
+                "id": "urn:oid:2.49.0.1.840.0.zz0001.001.1",
+                "status": "Actual",
+                "scope": "Public",
+                "code": "IPAWSv1.0",
+                "category": "Met",
+                "sender": "w-nws.webmaster@noaa.gov",
+                "areaDesc": "Chesapeake Bay from Pooles Island to Sandy Point MD; Chesapeake Bay from Sandy Point to North Beach MD",
+                "geocode": {
+                    "SAME": ["073531", "073532"],
+                    "UGC": ["ANZ531", "ANZ532"]
+                },
+                "affectedZones": [
+                    "https://api.weather.gov/zones/forecast/ANZ531",
+                    "https://api.weather.gov/zones/forecast/ANZ532"
+                ],
+                "references": [],
+                "sent": "2026-10-13T14:32:00-04:00",
+                "effective": "2026-10-13T14:32:00-04:00",
+                "onset": "2026-10-13T18:00:00-04:00",
+                "expires": "2026-10-14T06:00:00-04:00",
+                "ends": "2026-10-14T18:00:00-04:00",
+                "messageType": "Alert",
+                "severity": "Minor",
+                "certainty": "Likely",
+                "urgency": "Expected",
+                "event": "Small Craft Advisory",
+                "senderName": "NWS Zzbaytown MD",
+                "headline": "Small Craft Advisory issued October 13 at 2:32PM EDT until October 14 at 6:00PM EDT by NWS Zzbaytown MD",
+                "description": "* WHAT...South winds 15 to 20 kt with gusts up to 25 kt.\n\n* WHERE...Fictional waters of the upper bay used only for tests.",
+                "instruction": "Inexperienced mariners, especially those operating smaller\nvessels, should avoid navigating in hazardous conditions.",
+                "response": "Avoid",
+                "parameters": {
+                    "AWIPSidentifier": ["MWWZZZ"],
+                    "NWSheadline": ["SMALL CRAFT ADVISORY IN EFFECT"]
+                },
+                "language": "en-US",
+                "web": "http://www.weather.gov",
+                "eventCode": {
+                    "SAME": ["NWS"],
+                    "NationalWeatherService": ["SCY"]
+                }
+            }
+        },
+        {
+            "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.zz0002.001.1",
+            "type": "Feature",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [-76.5, 38.3],
+                        [-76.2, 38.3],
+                        [-76.2, 38.6],
+                        [-76.5, 38.6],
+                        [-76.5, 38.3]
+                    ]
+                ]
+            },
+            "properties": {
+                "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.zz0002.001.1",
+                "@type": "wx:Alert",
+                "id": "urn:oid:2.49.0.1.840.0.zz0002.001.1",
+                "status": "Actual",
+                "scope": "Public",
+                "code": "IPAWSv1.0",
+                "category": "Met",
+                "sender": "w-nws.webmaster@noaa.gov",
+                "areaDesc": "Chesapeake Bay from Drum Point MD to Smith Point VA",
+                "geocode": {
+                    "SAME": ["073534"],
+                    "UGC": ["ANZ534"]
+                },
+                "affectedZones": ["https://api.weather.gov/zones/forecast/ANZ534"],
+                "references": [],
+                "sent": "2026-10-13T15:05:00-04:00",
+                "effective": "2026-10-13T15:05:00-04:00",
+                "onset": "2026-10-13T15:05:00-04:00",
+                "expires": "2026-10-13T16:00:00-04:00",
+                "ends": null,
+                "messageType": "Alert",
+                "severity": "Moderate",
+                "certainty": "Observed",
+                "urgency": "Immediate",
+                "event": "Special Marine Warning",
+                "senderName": "NWS Zzbaytown MD",
+                "headline": "Special Marine Warning issued October 13 at 3:05PM EDT until October 13 at 4:00PM EDT by NWS Zzbaytown MD",
+                "description": "A strong thunderstorm was located over fictional waters, moving east at 20 knots.",
+                "instruction": "Boaters should seek safe harbor immediately.",
+                "response": "Shelter",
+                "parameters": {
+                    "maxWindGust": ["40 knots"]
+                },
+                "language": "en-US",
+                "web": "http://www.weather.gov",
+                "eventCode": {
+                    "SAME": ["SMW"],
+                    "NationalWeatherService": ["SMW"]
+                }
+            }
+        },
+        {
+            "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.zz0003.001.1",
+            "type": "Feature",
+            "geometry": null,
+            "properties": {
+                "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.zz0003.001.1",
+                "@type": "wx:Alert",
+                "id": "urn:oid:2.49.0.1.840.0.zz0003.001.1",
+                "status": "Actual",
+                "scope": "Public",
+                "code": "IPAWSv1.0",
+                "category": "Met",
+                "sender": "w-nws.webmaster@noaa.gov",
+                "areaDesc": "Aguas costeras del norte de Puerto Rico (ficticias)",
+                "geocode": {
+                    "SAME": ["075710"],
+                    "UGC": ["AMZ710"]
+                },
+                "affectedZones": ["https://api.weather.gov/zones/forecast/AMZ710"],
+                "references": [],
+                "sent": "2026-10-13T14:00:00-04:00",
+                "effective": "2026-10-13T14:00:00-04:00",
+                "onset": "2026-10-13T20:00:00-04:00",
+                "expires": "2026-10-14T08:00:00-04:00",
+                "ends": "2026-10-15T08:00:00-04:00",
+                "messageType": "Alert",
+                "severity": "Minor",
+                "certainty": "Likely",
+                "urgency": "Expected",
+                "event": "Advertencia para Embarcaciones Pequeñas",
+                "senderName": "SNM Zzsanjuán PR",
+                "headline": "Advertencia para embarcaciones pequeñas emitida el 13 de octubre",
+                "description": "* QUÉ...Mares de 6 a 8 pies (texto de prueba).",
+                "instruction": null,
+                "response": "Avoid",
+                "parameters": {},
+                "language": "es-US",
+                "web": "http://www.weather.gov",
+                "eventCode": {
+                    "SAME": ["NWS"]
+                }
+            }
+        },
+        {
+            "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.zz0004.001.2",
+            "type": "Feature",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [179.5, 51.0],
+                        [-179.5, 51.0],
+                        [-179.5, 52.0],
+                        [179.5, 52.0],
+                        [179.5, 51.0]
+                    ]
+                ]
+            },
+            "properties": {
+                "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.zz0004.001.2",
+                "@type": "wx:Alert",
+                "id": "urn:oid:2.49.0.1.840.0.zz0004.001.2",
+                "status": "Actual",
+                "scope": "Public",
+                "code": "IPAWSv1.0",
+                "category": "Met",
+                "sender": "w-nws.webmaster@noaa.gov",
+                "areaDesc": "Fictional Bering Sea waters either side of 180",
+                "geocode": {
+                    "SAME": [],
+                    "UGC": ["PKZ999"]
+                },
+                "affectedZones": [],
+                "references": [
+                    {
+                        "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.zz0004.001.1",
+                        "identifier": "urn:oid:2.49.0.1.840.0.zz0004.001.1",
+                        "sender": "w-nws.webmaster@noaa.gov",
+                        "sent": "2026-10-12T22:00:00-08:00"
+                    }
+                ],
+                "sent": "2026-10-13T10:00:00-08:00",
+                "effective": "2026-10-13T10:00:00-08:00",
+                "onset": "2026-10-13T12:00:00-08:00",
+                "expires": "2026-10-14T10:00:00-08:00",
+                "ends": null,
+                "messageType": "Update",
+                "severity": "Severe",
+                "certainty": "Likely",
+                "urgency": "Expected",
+                "event": "Gale Warning",
+                "senderName": "NWS Zzanchorage AK",
+                "headline": "Gale Warning issued October 13 by NWS Zzanchorage AK",
+                "description": "West winds 40 kt (test text).",
+                "instruction": null,
+                "response": "Prepare",
+                "parameters": {},
+                "language": "en-US",
+                "web": "http://www.weather.gov",
+                "eventCode": {
+                    "SAME": ["NWS"]
+                }
+            }
+        },
+        {
+            "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.zz0005.001.2",
+            "type": "Feature",
+            "geometry": null,
+            "properties": {
+                "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.zz0005.001.2",
+                "@type": "wx:Alert",
+                "id": "urn:oid:2.49.0.1.840.0.zz0005.001.2",
+                "status": "Actual",
+                "scope": "Public",
+                "code": "IPAWSv1.0",
+                "category": "Met",
+                "sender": "w-nws.webmaster@noaa.gov",
+                "areaDesc": "Fictional cancelled area",
+                "geocode": {
+                    "UGC": ["ANZ540"]
+                },
+                "affectedZones": ["https://api.weather.gov/zones/forecast/ANZ540"],
+                "references": [
+                    {
+                        "@id": "x",
+                        "identifier": "urn:oid:2.49.0.1.840.0.zz0005.001.1",
+                        "sender": "w-nws.webmaster@noaa.gov",
+                        "sent": "2026-10-13T09:00:00-04:00"
+                    }
+                ],
+                "sent": "2026-10-13T13:00:00-04:00",
+                "effective": "2026-10-13T13:00:00-04:00",
+                "onset": null,
+                "expires": "2026-10-13T14:00:00-04:00",
+                "ends": null,
+                "messageType": "Cancel",
+                "severity": "Minor",
+                "certainty": "Observed",
+                "urgency": "Past",
+                "event": "Small Craft Advisory",
+                "senderName": "NWS Zzbaytown MD",
+                "headline": "The Small Craft Advisory has been cancelled.",
+                "description": "The advisory is cancelled (test text).",
+                "instruction": null,
+                "response": "AllClear",
+                "parameters": {},
+                "language": "en-US",
+                "web": "http://www.weather.gov",
+                "eventCode": {
+                    "SAME": ["NWS"]
+                }
+            }
+        },
+        {
+            "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.zz0006.001.1",
+            "type": "Feature",
+            "geometry": null,
+            "properties": {
+                "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.zz0006.001.1",
+                "@type": "wx:Alert",
+                "id": "urn:oid:2.49.0.1.840.0.zz0006.001.1",
+                "status": "Actual",
+                "scope": "Public",
+                "code": "IPAWSv1.0",
+                "category": "Met",
+                "sender": "w-nws.webmaster@noaa.gov",
+                "areaDesc": "Fictional Arctic offshore waters",
+                "geocode": {
+                    "UGC": ["PKZ500"]
+                },
+                "affectedZones": ["https://api.weather.gov/zones/forecast/PKZ500"],
+                "references": [],
+                "sent": "2026-10-12T03:30:00-08:00",
+                "effective": "2026-10-12T03:30:00-08:00",
+                "onset": "2026-10-12T04:00:00-08:00",
+                "expires": "2026-10-12T04:00:00-08:00",
+                "ends": "2026-10-18T17:00:00-08:00",
+                "messageType": "Alert",
+                "severity": "Moderate",
+                "certainty": "Likely",
+                "urgency": "Expected",
+                "event": "Heavy Freezing Spray Warning",
+                "senderName": "NWS Zzfairbanks AK",
+                "headline": "Heavy Freezing Spray Warning issued October 12 by NWS Zzfairbanks AK",
+                "description": "Heavy freezing spray in fictional waters (test text). The message's expiry has passed; the hazard ends October 18.",
+                "instruction": null,
+                "response": "Prepare",
+                "parameters": {},
+                "language": "en-US",
+                "web": "http://www.weather.gov",
+                "eventCode": {
+                    "SAME": ["NWS"]
+                }
+            }
+        }
+    ],
+    "title": "Current watches, warnings, and advisories (fictional fixture)",
+    "updated": "2026-10-13T19:10:00+00:00"
+}

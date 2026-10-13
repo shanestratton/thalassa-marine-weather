@@ -254,6 +254,12 @@ verify_jwt = false
 # any work; no user JWT exists.
 verify_jwt = false
 
+[functions.ingest-official-alerts]
+# Cron entry point (129-05, official warnings from the issuers' CAP feeds).
+# pg_cron/pg_net POSTs every 5 minutes with the service key, and the function
+# requires an exact service-role POST before any work; no user JWT exists.
+verify_jwt = false
+
 [functions.deepgram-ws-proxy]
 # Browser WebSocket upgrade: no Authorization header is possible. The function
 # consumes a 60-second one-use ticket minted by deepgram-token (which IS
