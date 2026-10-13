@@ -16,6 +16,7 @@ import {
     type StopLegs,
 } from '../../services/dayPlanner/today';
 import type { RouteWindModels, TodayBase } from '../../services/dayPlanner/todayLoader';
+import type { TideCurve } from '../../services/TideHeightService';
 import { TodayModal } from './TodayModal';
 
 /** The short names the card's credit line uses; the full licence credit is in Sources. */
@@ -78,6 +79,7 @@ export function TodaySources({
     legs,
     wind,
     warnings,
+    routeTides = [],
     onClose,
 }: {
     base: TodayBase;
@@ -86,6 +88,8 @@ export function TodaySources({
     legs: ReadonlyMap<string, StopLegs>;
     wind: RouteWindModels;
     warnings: OfficialWarningsSource;
+    /** The tide curves a routed stop's leave window read (127-PYD-11), in this sheet's memory. */
+    routeTides?: readonly (TideCurve | null)[];
     onClose: () => void;
 }) {
     const [changing, setChanging] = useState(false);
@@ -105,6 +109,8 @@ export function TodaySources({
     const credit = forecastDataCredit(unique([...answeredProviders(base), ...routeProviders]));
     const candidates = base.places?.candidates ?? [];
     const notices = view ? [view.notices.top, ...view.notices.rest].filter((n) => n !== null) : [];
+    const leaveTide = routeTides.filter((c) => !!c);
+    const leaveStations = unique(leaveTide.map((c) => c!.stationName ?? ''));
 
     return (
         <TodayModal title="Sources and limits" onClose={onClose} className="today-list-card">
@@ -162,6 +168,12 @@ export function TodaySources({
                         ? `Tides: WorldTides, ${base.tideStation ?? 'nearest station'}, metres above LAT, approx. ±0.3 m`
                         : 'Tides: no prediction here'}
                 </li>
+                {leaveTide.length > 0 && (
+                    <li>
+                        Leave windows: WorldTides{leaveStations.length ? `, ${leaveStations.join(', ')}` : ''}, metres
+                        above LAT; check the official tide table
+                    </li>
+                )}
                 <li>Places: © OpenStreetMap contributors (ODbL)</li>
                 {base.placesStatus === 'partial' && (
                     <li>Part of the area&rsquo;s places didn&rsquo;t load: the list may be short.</li>

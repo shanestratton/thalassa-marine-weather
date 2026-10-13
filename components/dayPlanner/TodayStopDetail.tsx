@@ -1,4 +1,4 @@
-import React, { useEffect, useReducer, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import type { PassageSpeedModel } from '../../services/passagePlan';
 import type { LatLon } from '../../services/dayPlanner/places';
 import {
@@ -50,7 +50,13 @@ export interface StopRouteView {
     /** Routed: Auto's chart over Plan Your Day, at this leave (127-PYD-3). */
     onShow: (departureMs: number | null) => void;
     onAction: (action: StopRouteAction) => void;
+    /** Routed (127-PYD-11): the leave window's words for the leave she chose, or still checking the tide. */
+    leave?: LeaveSay | 'checking' | null;
 }
+
+/** The leave window's row (`more`: its closing sentences), and footnote, for the leave she chose (pure: a chip
+ *  tap fetches nothing). */
+export type LeaveSay = (chosenMs: number | null) => { text: string; more: string | null; footnote: string | null };
 
 /**
  * Plan Your Day, screen 2 (build 124): one stop, and how each time on screen
@@ -148,6 +154,9 @@ export function TodayStopDetail({
     const busy = state?.kind === 'queued' || state?.kind === 'routing';
     // No route: the estimate stays, in the route row (one row fewer, so a long refusal fits).
     const estimate = state?.kind === 'no-route' ? distanceLine(candidate.distance) : null;
+    // Routed, the leave window says when the tide allows the way out, so the marina line goes (127-PYD-11).
+    const leave = routed ? route?.leave : null;
+    const marina = leavingMarina && !leave;
     // Its own seconds while it routes, counted from the tap (Auto's provider sends words, not seconds).
     const [, tick] = useReducer((n: number) => n + 1, 0);
     useEffect(() => {
@@ -174,7 +183,7 @@ export function TodayStopDetail({
               speed,
               polarIsOwn,
               polar,
-              leavingMarina,
+              leavingMarina: marina,
               landing: loadLanding ? (landing ?? undefined) : undefined,
               why: row.why,
               place: row.place,
@@ -197,7 +206,7 @@ export function TodayStopDetail({
                   ...parksNotes(candidate),
                   // Routed, the route row is the distance row.
                   ...(routed ? [] : [distanceLine(candidate.distance)]),
-                  ...(leavingMarina ? [LEAVING_MARINA] : []),
+                  ...(marina ? [LEAVING_MARINA] : []),
               ],
               footnote: 'No times without a forecast. Depth and tide over the route are not checked. Not a clearance.',
               chips: [] as { ms: number; label: string; best: boolean }[],
@@ -212,6 +221,27 @@ export function TodayStopDetail({
     const notes = new Set(parksNotes(candidate));
     const level = gap ? 'over' : ((plan?.weatherLoaded ? chosen?.level : row.level) ?? 'unknown');
     const departure = plan?.weatherLoaded ? (chosen?.departureMs ?? null) : null;
+    const said = leave && leave !== 'checking' ? leave(departure) : null;
+    // The plan's fold 2 (127-PYD-11): where the leave row's closing sentences alone stand between the page and one
+    // screen (a reviewed day trip at 375 × 667), they fold under its first, a tap away. Measured unfolded first, and
+    // again whenever its words, the page's rows or the screen change; left open where folding would not make it fit.
+    const leaveLi = useRef<HTMLLIElement>(null);
+    const [resizes, resized] = useReducer((n: number) => n + 1, 0);
+    useEffect(() => {
+        // globalThis: `window` here is her day's.
+        globalThis.addEventListener('resize', resized);
+        return () => globalThis.removeEventListener('resize', resized);
+    }, []);
+    const foldKey = said?.more ? `${resizes}|${said.text}|${detail.rows.join('|')}|${detail.chips.length}` : null;
+    const [fold, setFold] = useState<{ key: string; on: boolean } | null>(null);
+    useLayoutEffect(() => {
+        const body = leaveLi.current?.closest('.today-body');
+        if (!foldKey || !body) return;
+        const over = body.scrollHeight - body.clientHeight > 1;
+        if (fold?.key !== foldKey) setFold({ key: foldKey, on: over });
+        else if (fold.on && over) setFold({ key: foldKey, on: false });
+    }, [foldKey, fold]);
+    const folded = !!foldKey && fold?.key === foldKey && fold.on;
     // Blocked (other than a draft to confirm), she can still plot by hand: the row says what routing needs.
     const toRoute = !!route && (busy || (!state && (!route.blocked || route.blocked.action === 'confirm-draft')));
     const items = detail.rows
@@ -237,7 +267,7 @@ export function TodayStopDetail({
         const time = route.owner && state && 'wallMs' in state ? routeTimingLine(state) : null;
         // Where the distance row is (or was): before the marina line, else last.
         items.splice(
-            leavingMarina ? items.length - 1 : items.length,
+            marina ? items.length - 1 : items.length,
             0,
             <li key="route" data-route={state?.kind ?? (blocked ? 'blocked' : 'ready')}>
                 {blocked?.action ? (
@@ -258,6 +288,13 @@ export function TodayStopDetail({
                         {/* VoiceOver hears the stage, never the ticking seconds. */}
                         <span aria-live="polite">{busy ? words.replace(/…$/, '') : words}</span>
                         {busy && <span aria-hidden="true">{secs > 0 ? ` · ${secs} s` : '…'}</span>}
+                        {/* With the leave row under it, his timing joins the route row: the page still fits (127-PYD-11). */}
+                        {time && leave && (
+                            <>
+                                {' · '}
+                                <span className="today-route-time">{time}</span>
+                            </>
+                        )}
                         {estimate && (
                             <>
                                 <br />
@@ -274,7 +311,21 @@ export function TodayStopDetail({
                     </>
                 )}
             </li>,
-            ...(time && routed
+            // Under the route row: when to leave to carry the tide over its shallow bits.
+            ...(leave
+                ? [
+                      <li key="leave" ref={leaveLi} data-leave={said ? '' : 'checking'}>
+                          {folded ? (
+                              <details className="today-leave-more">
+                                  <summary>{said!.text.slice(0, -said!.more!.length - 1)}</summary> {said!.more}
+                              </details>
+                          ) : (
+                              (said?.text ?? 'Checking the tide on the way…')
+                          )}
+                      </li>,
+                  ]
+                : []),
+            ...(time && routed && !leave
                 ? [
                       <li key="time" className="today-route-time">
                           {time}
@@ -347,7 +398,10 @@ export function TodayStopDetail({
                     ))}
                 </div>
             )}
-            <p className="today-footnote">{detail.footnote}</p>
+            <p className="today-footnote">
+                {detail.footnote}
+                {said?.footnote ? ` ${said.footnote}` : ''}
+            </p>
         </TodayModal>
     );
 }

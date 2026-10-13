@@ -48,7 +48,8 @@ const OTHER: Size[] = [
     { name: 'large text 390x844', width: 390, height: 844, query: '&largeText' },
 ];
 const TIMING = 'Routed in 6.4 s · router 4.1 s';
-const ROUTED = /^Routed on your charts · 16\.5 NM each way · 0\.3 NM shallow$/;
+// With the leave row under it (127-PYD-11), his timing joins the route row: the page still fits.
+const ROUTED = /^Routed on your charts · 16\.5 NM each way · 0\.3 NM shallow · Routed in 6\.4 s · router 4\.1 s$/;
 
 async function open(page: Page, size: { width: number; height: number }, query: string) {
     const errors: string[] = [];
@@ -408,3 +409,181 @@ for (const [who, query, why] of [
         expect(sent[0].frame!.to.name).toMatch(/\S/);
         expect(errors).toEqual([]);
     });
+
+// ── 127-PYD-11: the leave window, one row under the route row ──
+
+const LEAVE_ROW = '.today-detail li[data-leave]';
+const RED = 'Red on the route that no tide clears: see it on the chart.';
+const CREDIT = 'Tide from WorldTides (Fixture Gauge); check the official tide table.';
+/** Her day trip in routed-tide: the window, there and back, approx, and the pin that dries. */
+const DAY_TRIP = new RegExp(
+    `^Leave \\d\\d:\\d\\d(?:–\\d\\d:\\d\\d)?(?: or \\d\\d:\\d\\d(?:–\\d\\d:\\d\\d)?)? \\(tide approx\\) to carry the tide over the shallow bit \\d+\\.\\d NM out, there and back; your (\\d\\d:\\d\\d) (works|is too early for it|is too late for it)\\. ${RED.replace(/\./g, '\\.')}$`,
+);
+/** Overnight, the longest row: two openings, approx, the red sentence and the morning's tide. */
+const LONGEST = new RegExp(
+    `^Leave \\d\\d:\\d\\d(–\\d\\d:\\d\\d)? or \\d\\d:\\d\\d(–\\d\\d:\\d\\d)? \\(tide approx\\) to carry the tide over the shallow bit \\d+\\.\\d NM out; your (\\d\\d:\\d\\d) (works|is too early for it|is too late for it)\\. ${RED.replace(/\./g, '\\.')} Home tomorrow: check its tide in the morning\\.$`,
+);
+const ROUTED_DRIES =
+    /^Routed on your charts · 16\.5 NM each way · 0\.3 NM shallow · the pin dries · Routed in 6\.4 s · router 4\.1 s$/;
+
+/** Routes the open stop in a tide mode and waits for its leave row's words. */
+async function routeForLeave(page: Page, words: RegExp) {
+    const detail = await routeIt(page);
+    await expect(detail.locator('li[data-route]')).toHaveText(ROUTED_DRIES, { timeout: 10_000 });
+    await expect(page.locator(LEAVE_ROW)).toHaveText(words, { timeout: 10_000 });
+    return detail;
+}
+
+/** Overnight on screen 1, so her morning has leave chips to choose from (and the longest row). */
+async function stayOvernight(page: Page) {
+    await page
+        .getByRole('dialog', { name: 'Plan Your Day', exact: true })
+        .getByRole('combobox', { name: 'Stay' })
+        .selectOption('overnight');
+}
+
+for (const size of [AS_DRAWN.se2, AS_DRAWN.mid, AS_DRAWN.shane])
+    test(`the leave row with the route row and its timing fits without a scroll at ${size.name}`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=routed-tide&owner=1${size.query}`);
+        await openStop(page);
+        const detail = await routeForLeave(page, DAY_TRIP);
+        // Under the route row; the marina line gone (the route says when the tide allows the way out).
+        expect(
+            await page.evaluate(
+                (sel) => document.querySelector('.today-detail li[data-route]')?.nextElementSibling?.matches(sel),
+                LEAVE_ROW,
+            ),
+        ).toBe(true);
+        await expect(detail.getByText(/^Leaving a marina/)).toHaveCount(0);
+        await expect(detail.getByText(TIMING, { exact: true })).toBeVisible();
+        await expect(detail.locator('.today-footnote')).toContainText(CREDIT);
+        await expect(page.locator(LEAVE_ROW)).toBeInViewport({ ratio: 1 });
+        expect(await layoutIssues(page, false)).toEqual([]);
+        // Where the closing sentence alone stood in the way it folds under the first, a tap away; never with room.
+        const row = page.locator(LEAVE_ROW);
+        const folded = await row.locator('details').count();
+        if (size !== AS_DRAWN.se2) expect(folded).toBe(0);
+        if (folded) {
+            expect(await row.innerText()).not.toContain('Red on the route');
+            await row.locator('summary').click();
+            await expect(row.locator('details')).toHaveAttribute('open', '');
+        }
+        expect(await row.innerText()).toContain(RED);
+        expect(errors).toEqual([]);
+    });
+
+for (const size of [AS_DRAWN.se2, AS_DRAWN.mid])
+    test(`overnight, the longest leave row (two openings, approx, red) fits without a scroll at ${size.name}`, async ({
+        page,
+    }) => {
+        const errors = await open(page, size, `&mode=routed-tide&owner=1${size.query}`);
+        await stayOvernight(page);
+        const detail = await openStop(page);
+        await routeForLeave(page, LONGEST);
+        // A chip re-says only its last clause, at once.
+        const before = (await page.locator(LEAVE_ROW).textContent())!;
+        const chip = detail.getByRole('group', { name: 'Leave at' }).locator('button[aria-pressed="false"]').first();
+        const label = (await chip.textContent())!.slice(0, 5);
+        await chip.click();
+        await expect(page.locator(LEAVE_ROW)).toContainText(`; your ${label} `);
+        const after = (await page.locator(LEAVE_ROW).textContent())!;
+        expect(after.split('; your ')[0]).toBe(before.split('; your ')[0]);
+        expect(await layoutIssues(page, false)).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+
+// Review 2026-10-13: the fold was decided only when the words changed, so a page opened with room and then given
+// less (turned to portrait, a smaller split) kept scrolling. It is measured again whenever the screen changes.
+test('the screen growing shorter folds the closing sentences when that makes it fit, and opens them with room again', async ({
+    page,
+}) => {
+    const size = AS_DRAWN.mid;
+    const errors = await open(page, size, `&mode=routed-tide&owner=1${size.query}`);
+    await stayOvernight(page);
+    await openStop(page);
+    await routeForLeave(page, LONGEST);
+    const row = page.locator(LEAVE_ROW);
+    await expect(row.locator('details')).toHaveCount(0);
+    const settle = () =>
+        page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    // Less room, 4 px at a time, with no tap: the first height the closing sentences no longer fit, they fold.
+    let height = size.height;
+    while (!(await row.locator('details').count()) && height > 450) {
+        height -= 4;
+        await page.setViewportSize({ width: size.width, height });
+        await settle();
+    }
+    await expect(row.locator('details')).toHaveCount(1);
+    expect(height).toBeLessThan(size.height);
+    expect(await row.innerText()).not.toContain('Red on the route');
+    await expect(row).toHaveText(LONGEST);
+    expect(await layoutIssues(page, false)).toEqual([]);
+    // Room again: whole.
+    await page.setViewportSize({ width: size.width, height: size.height });
+    await expect(row.locator('details')).toHaveCount(0);
+    expect(await row.innerText()).toContain(RED);
+    expect(errors).toEqual([]);
+});
+
+test('at 320 x 568 as drawn the routed stop may scroll inside its card, the route and leave rows whole once in view', async ({
+    page,
+}) => {
+    const errors = await open(page, AS_DRAWN.se, `&mode=routed-tide&owner=1${AS_DRAWN.se.query}`);
+    await openStop(page);
+    await routeForLeave(page, DAY_TRIP);
+    expect(await layoutIssues(page, true)).toEqual([]);
+    for (const sel of ['.today-detail li[data-route]', LEAVE_ROW]) {
+        await page.locator(sel).scrollIntoViewIfNeeded();
+        await expect(page.locator(sel)).toBeInViewport({ ratio: 1 });
+    }
+    expect(errors).toEqual([]);
+});
+
+for (const size of OTHER)
+    test(`the leave row clips nothing at ${size.name}`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=routed-tide&owner=1${size.query}`);
+        await stayOvernight(page);
+        await openStop(page);
+        await routeForLeave(page, LONGEST);
+        await page.locator(LEAVE_ROW).scrollIntoViewIfNeeded();
+        await expect(page.locator(LEAVE_ROW)).toBeInViewport({ ratio: 1 });
+        expect(await layoutIssues(page, true)).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+
+test('no tide: "Tide not known" with what it needs, and no time in the row', async ({ page }) => {
+    const errors = await open(page, AS_DRAWN.se2, `&mode=routed-notide&owner=1${AS_DRAWN.se2.query}`);
+    const detail = await openStop(page);
+    await routeForLeave(
+        page,
+        new RegExp(
+            `^Tide not known for the shallow bit \\d+\\.\\d NM out \\(it needs 1\\.0 m of tide\\): check the tide table before you go\\. ${RED.replace(/\./g, '\\.')}$`,
+        ),
+    );
+    expect(await page.locator(LEAVE_ROW).textContent()).not.toMatch(/\d\d:\d\d/);
+    await expect(detail.locator('.today-footnote')).not.toContainText('WorldTides');
+    expect(await layoutIssues(page, false)).toEqual([]);
+    expect(errors).toEqual([]);
+});
+
+test("Nouméa: the leave window's times are on the place's clock, not the phone's (London here)", async ({ page }) => {
+    const errors = await open(page, AS_DRAWN.mid, `&mode=routed-tide&owner=1&place=noumea${AS_DRAWN.mid.query}`);
+    const detail = await openStop(page);
+    await routeForLeave(page, DAY_TRIP);
+    // Her chosen leave in the row is the stop page's own "Leave HH:MM →", which is on Nouméa's clock.
+    const leaveAt = (await detail.getByText(/^Leave \d\d:\d\d → there /).textContent())!.slice(6, 11);
+    const said = (await page.locator(LEAVE_ROW).textContent())!.match(DAY_TRIP)!;
+    expect(said[1]).toBe(leaveAt);
+    // Nouméa's morning (UTC+11), never London's evening before.
+    const from = (await page.locator(LEAVE_ROW).textContent())!.slice(6, 11);
+    expect(from >= '05:00' && from <= '20:00').toBe(true);
+    expect(errors).toEqual([]);
+});
+
+test('a tester sees no leave row: nothing is asked of the tide', async ({ page }) => {
+    const errors = await open(page, AS_DRAWN.mid, `&mode=routed-tide${AS_DRAWN.mid.query}`);
+    const detail = await openStop(page);
+    await expect(detail.locator('li[data-leave]')).toHaveCount(0);
+    expect(await page.locator('body').textContent()).not.toMatch(/carry the tide|Tide not known/);
+    expect(errors).toEqual([]);
+});

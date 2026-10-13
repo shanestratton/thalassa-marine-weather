@@ -251,5 +251,7 @@ export function fakeTodayDeps(
         loadRouteForecast: async (coords, model) => routeForecast(model, coords, kts, from, now),
         loadRouteSea: async (coords) => routeSea(coords, 0.5, from),
         loadTideCurve: async () => null,
+        // No tide along a routed line unless a test or fixture brings one (127-PYD-11).
+        loadRouteTideCurve: async () => null,
     };
 }
