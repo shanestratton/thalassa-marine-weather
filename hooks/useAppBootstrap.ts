@@ -424,7 +424,7 @@ export function useAppBootstrap() {
         let cancelled = false;
         void (async () => {
             try {
-                const [{ armSessionWatch }, { readLastView }, census] = await Promise.all([
+                const [{ armSessionWatch }, { readLastView, sessionCrumbConsumed }, census] = await Promise.all([
                     import('../services/webContentKill'),
                     import('../stores/uiStore'),
                     import('../services/memoryCensus'),
@@ -435,6 +435,8 @@ export function useAppBootstrap() {
                 census.startCensus();
                 const crumb = readLastView();
                 const died = armSessionWatch(crumb?.view ?? null);
+                // Read: the tablet start's page may take the crumb now.
+                sessionCrumbConsumed();
                 if (cancelled || !died) return;
 
                 console.warn(

@@ -53,6 +53,8 @@ import { Button } from './components/ui/Button';
 import { GLASS_TOP_CARD_GAP_PX, getGlassTopLayout } from './components/dashboard/glassLayout';
 import { FEATURE_VISIBILITY } from './utils/featureVisibility';
 import { useViewportHeight } from './hooks/useViewportHeight';
+import { opensWithGlassBesideChart } from './utils/glassBesideChartStart';
+import { showBootView } from './stores/uiStore';
 import { useCrewingBoat } from './hooks/useCrewingBoat';
 import { getWeatherFollowTarget } from './services/weatherPosition';
 import { weatherLocationTitle } from './utils/weatherLocationTitle';
@@ -384,6 +386,25 @@ const App: React.FC = () => {
             window.visualViewport?.removeEventListener('scroll', measure);
         };
     }, [splitChartActive]);
+
+    // Tablets and wide windows start with The Glass beside Obs (Shane
+    // 2026-10-13: "from the moment they start the app, if it is in the correct
+    // size and if it is in landscape"), unless Preferences switches it off.
+    // Asked ONCE, when settings are in, and only from the cold Glass start (a
+    // deep link keeps its page). Pinned for this run only: the hold's saved
+    // choice above is left alone, and rotating or resizing afterwards keeps
+    // the split's own rules. Before paint, so The Glass never flashes alone.
+    // Obs opens as a boot step, not a navigation: the crumb keeps the last
+    // session's page until the session watch has read it.
+    const splitStartCheckedRef = useRef(false);
+    useLayoutEffect(() => {
+        if (splitStartCheckedRef.current || settingsLoading) return;
+        splitStartCheckedRef.current = true;
+        if (currentView !== 'dashboard') return;
+        if (!opensWithGlassBesideChart(settings.glassBesideChartAtStart, settings.screenOrientation)) return;
+        setSplitViewEnabled(true);
+        showBootView('map');
+    }, [settingsLoading, currentView, settings.glassBesideChartAtStart, settings.screenOrientation]);
 
     const toggleSplitView = useCallback(() => {
         if (!wideEnoughForSplit) return;

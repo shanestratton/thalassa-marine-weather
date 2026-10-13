@@ -35,13 +35,14 @@
  * had and this one did not.
  */
 import { createLogger } from '../utils/createLogger';
+import { ABNORMAL_EXITS_KEY, SESSION_OPEN_KEY, buildFingerprint } from '../utils/sessionFlag';
 
 const log = createLogger('webContentKill');
 
 /** Raised while the app is in the foreground; cleared on an orderly exit. */
-const OPEN_KEY = 'thalassa.sessionOpen';
+const OPEN_KEY = SESSION_OPEN_KEY;
 /** The running tally of sessions that ended without one. */
-const EXITS_KEY = 'thalassa.abnormalExits';
+const EXITS_KEY = ABNORMAL_EXITS_KEY;
 
 export interface AbnormalExit {
     /** How many foreground deaths this install has had. */
@@ -132,31 +133,7 @@ export function markOrderlyExit(): void {
     }
 }
 
-/**
- * A fingerprint of the running build, from the hashed bundle filename.
- *
- * Vite emits /assets/index-<hash>.js and the hash changes on every build, so
- * this identifies the install without a build-time constant or an async
- * Capacitor call on the boot path.
- *
- * Needed because an Xcode "Run" TERMINATES the previous app in the foreground.
- * Shane installed builds all day on 2026-08-09 and every one of them looked
- * exactly like a crash to this module — same missing cleanup, same raised flag.
- * A death across a build change is a reinstall, not a fault.
- */
-function buildFingerprint(): string | null {
-    try {
-        const scripts = document.getElementsByTagName('script');
-        for (const script of Array.from(scripts)) {
-            const src = script.getAttribute('src') || '';
-            const match = src.match(/\/assets\/[^/]*-([A-Za-z0-9_-]{6,})\.js/);
-            if (match) return match[1];
-        }
-    } catch {
-        /* fall through */
-    }
-    return null;
-}
+// buildFingerprint: utils/sessionFlag.ts, shared with the tablet start.
 
 /** Raise the flag. Called at boot and whenever the app returns to the front. */
 export function markSessionOpen(view: string | null, now = Date.now()): void {

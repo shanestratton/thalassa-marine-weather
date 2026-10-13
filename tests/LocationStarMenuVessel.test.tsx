@@ -275,19 +275,19 @@ describe('★ menu — the place on screen is matched by position', () => {
         expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     });
 
-    it('stays open for the remove confirm, and captions its home and remove icons', () => {
+    it('captions its home icon, and keeps delete behind a swipe (build 128: no Remove button)', () => {
         h.settings.savedLocations = ['Mackay'];
         h.settings.savedLocationCoords = { Mackay: { lat: -21.1, lon: 149.2 } };
         render(<LocationStarMenu />);
         openMenu();
         // 'Set home', not a bare 'Home' that read as the place's status (UX scorecard run 8).
         const home = screen.getByRole('menuitem', { name: 'Set home port to Mackay' });
-        const remove = screen.getByRole('menuitem', { name: 'Remove Mackay' });
         expect(home).toHaveTextContent('Set home');
-        expect(remove).toHaveTextContent('Remove');
-        fireEvent.click(remove);
-        fireEvent.scroll(window);
-        expect(screen.getByRole('menu')).toBeInTheDocument();
+        // Shane 2026-10-13: a swipe delete, like the rest of the app
+        // (tests/LocationStarMenuSwipeDelete.test.tsx). Its Delete stays out
+        // of the menu until the row is swiped.
+        expect(screen.queryByRole('menuitem', { name: 'Remove Mackay' })).toBeNull();
+        expect(screen.queryByRole('menuitem', { name: 'Delete Mackay' })).toBeNull();
     });
 
     it('dims the page behind the flyout, and a tap on the dim closes it', () => {
