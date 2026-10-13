@@ -19,14 +19,19 @@
  * outside (a source flap, official then the GFS fallback, is not a new
  * advisory). A storm whose data was said to be lost, back in the feed, is
  * pushed again: that message replaced the warning on the lock screen.
- * Quiet hours: a notice raised 22:00-07:00 boat time (the nautical zone of the
- * boat's position, round(lon / 15)) waits for 07:00; urgent goes at once.
+ * Quiet hours: a notice raised 22:00-07:00 boat time waits for 07:00; urgent
+ * goes at once. Boat time is the IANA zone of the boat's position (129-09b:
+ * tz-lookup in cyclone-watch, on the server; no new data leaves the phone),
+ * which at sea is the nautical Etc/GMT zone; with no lookup, the nautical zone
+ * of the position, round(lon / 15).
  * Track: the official one where Thalassa has it (NHC, CPHC), else JTWC's
- * advisory, else the GFS model's, and the push says which, first where the
- * track is not the official warning.
+ * advisory, else the GFS model's, else the centre's position alone (from the
+ * storm list), and the push says which, first where the track is not the
+ * official warning. All of it from the warning centres' own feed (feed.ts).
  * Weak: below gale force now and to +72 h by the centre's own intensity
  * (never GFS's, which under-reads) is not pushed, and is still seen: a storm
- * that weakens in the feed is not "lost".
+ * that weakens in the feed is not "lost". A position alone has no forecast,
+ * so nothing says it stays weak: it is always measured.
  * Boats (resolveBoat): the Pi's fix, or a fix the phone already sends, while
  * under 72 h old; else the home port, read as the app reads it; else the
  * place the weather is set to; else the older fix.
@@ -45,7 +50,8 @@ import {
     trackIssuerLabel,
     utcLabel,
 } from './centres.ts';
-import type { EsriForecastStorm } from './esri.ts';
+import { type AdeckTrack, cycleIso } from './adeck.ts';
+import type { CycloneFeed, FeedStorm } from './feed.ts';
 
 export interface LatLon {
     lat: number;
@@ -179,6 +185,8 @@ export interface WatchStorm {
     track: TimedPoint[];
     /** Strongest wind now or forecast to +72 h; null when the source gives none. */
     maxWindKts: number | null;
+    /** The centre's position alone, from the storm list: no track reached Thalassa. */
+    positionOnly?: boolean;
 }
 
 export interface Assessment {
@@ -237,12 +245,51 @@ export interface WatchState {
     centre?: CycloneCentreId;
 }
 
-export function boatLocalHour(nowMs: number, lon: number): number {
-    return new Date(nowMs + Math.round(lon / 15) * 3_600_000).getUTCHours();
+const hourFormats = new Map<string, Intl.DateTimeFormat | null>();
+/** An hour formatter for an IANA zone, or null for a name Intl does not know. */
+function zoneHours(zone: string): Intl.DateTimeFormat | null {
+    if (!hourFormats.has(zone)) {
+        try {
+            hourFormats.set(
+                zone,
+                new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: 'numeric', hourCycle: 'h23' }),
+            );
+        } catch {
+            hourFormats.set(zone, null);
+        }
+    }
+    return hourFormats.get(zone) ?? null;
 }
 
-export function isQuietHour(nowMs: number, lon: number): boolean {
-    const h = boatLocalHour(nowMs, lon);
+/**
+ * The clock a boat keeps: the IANA zone of its position from `zoneAt`
+ * (tz-lookup on the server: "Australia/Sydney", or "Etc/GMT+8" mid-ocean), or
+ * its longitude for the nautical zone when there is no lookup or it fails.
+ */
+export function boatZone(at: LatLon, zoneAt?: (lat: number, lon: number) => string): string | number {
+    if (zoneAt) {
+        try {
+            const zone = zoneAt(at.lat, at.lon);
+            if (typeof zone === 'string' && zoneHours(zone)) return zone;
+        } catch {
+            // the nautical zone
+        }
+    }
+    return at.lon;
+}
+
+/** The hour at the boat: by its IANA zone (daylight saving and all), or the nautical zone of a longitude. */
+export function boatLocalHour(nowMs: number, where: number | string): number {
+    if (typeof where === 'string') {
+        const hour = zoneHours(where)?.formatToParts(new Date(nowMs)).find((p) => p.type === 'hour')?.value;
+        const h = Number(hour);
+        return Number.isInteger(h) && h >= 0 && h < 24 ? h : new Date(nowMs).getUTCHours();
+    }
+    return new Date(nowMs + Math.round(where / 15) * 3_600_000).getUTCHours();
+}
+
+export function isQuietHour(nowMs: number, where: number | string): boolean {
+    const h = boatLocalHour(nowMs, where);
     return h >= 22 || h < 7;
 }
 
@@ -259,7 +306,8 @@ export function step(
     a: Assessment,
     advisory: string,
     nowMs: number,
-    lon: number,
+    /** The boat's clock: its IANA zone, or a longitude for the nautical zone (boatZone). */
+    where: number | string,
 ): { state: WatchState; push: Level } {
     const s: WatchState = prev
         ? { ...prev, far: [...prev.far], out: [...prev.out], lostToldAt: null }
@@ -295,7 +343,7 @@ export function step(
     }
     s.seenAt = nowMs;
     let push: Level = 0;
-    if (a.level > s.sent && (a.level === 2 || !isQuietHour(nowMs, lon))) {
+    if (a.level > s.sent && (a.level === 2 || !isQuietHour(nowMs, where))) {
         push = a.level;
         s.sent = a.level;
         s.sentAt = nowMs;
@@ -412,6 +460,10 @@ const FROM: Record<BoatBasis, string> = {
 function trackWords(storm: WatchStorm): { lead: string | null; tail: string } {
     const centre = cycloneCentre(storm.current.lat, storm.current.lon);
     const official = `Official warnings: ${centre.short}.`;
+    if (storm.positionOnly) {
+        const who = storm.issuer === 'JTWC' ? 'JTWC (US military)' : storm.issuer;
+        return { lead: `Position only, from ${who}; no forecast track reached Thalassa.`, tail: official };
+    }
     if (storm.issuer === 'GFS') {
         return { lead: 'GFS model track only; no official track reached Thalassa.', tail: official };
     }
@@ -421,7 +473,9 @@ function trackWords(storm: WatchStorm): { lead: string | null; tail: string } {
 }
 
 function advisoryWords(storm: WatchStorm, nowMs: number): string {
-    return `${nowMs - storm.issuedMs > 12 * 3_600_000 ? 'Last advisory' : 'Advisory'} ${utcLabel(storm.issuedMs)}.`;
+    const old = nowMs - storm.issuedMs > 12 * 3_600_000;
+    const what = storm.positionOnly ? (old ? 'Last position' : 'Position') : old ? 'Last advisory' : 'Advisory';
+    return `${what} ${utcLabel(storm.issuedMs)}.`;
 }
 
 export function pushMessage(level: 1 | 2, storm: WatchStorm, a: Assessment, boat: Boat, nowMs: number): CyclonePush {
@@ -460,36 +514,44 @@ export function unavailableLine(sinceMs: number): string {
     return `Cyclone data unavailable since ${utcLabel(sinceMs)}`;
 }
 
-function lostMessage(userId: string, key: string, st: WatchState, feedDown: boolean): CyclonePush {
+function lostMessage(userId: string, key: string, st: WatchState, feedDown: boolean, partial: boolean): CyclonePush {
     const name = st.name ?? key;
     const centre = CYCLONE_CENTRES[st.centre ?? 'wmo'] ?? CYCLONE_CENTRES.wmo;
+    const why = feedDown
+        ? 'The cyclone feed is not answering'
+        : partial
+        ? 'Part of the cyclone feed is not answering'
+        : `${name} is no longer in the cyclone feed`;
     return {
         userId,
         type: 'cyclone_notice',
         title: `Cyclone data unavailable: ${name}`.slice(0, 120),
-        body: `${unavailableLine(st.seenAt)}. ${
-            feedDown ? 'The cyclone feed is not answering' : `${name} is no longer in the cyclone feed`
-        }, so Thalassa cannot say where it is now. Check the official warnings: ${centre.short}.`.slice(0, 500),
+        body: `${
+            unavailableLine(st.seenAt)
+        }. ${why}, so Thalassa cannot say where it is now. Check the official warnings: ${centre.short}.`
+            .slice(0, 500),
         data: { storm_key: key, storm_name: name, level: 'notice', issuer: 'GFS' },
     };
 }
 
-/** The Esri feed's storms as the watcher measures them: tau 0 is the current centre. */
-export function watchStormsFromEsri(storms: EsriForecastStorm[]): WatchStorm[] {
+/** The feed's storms with their issuer's track, as the watcher measures them: tau 0 is the advisory's centre. */
+export function watchStormsFromFeed(storms: FeedStorm[]): WatchStorm[] {
     const out: WatchStorm[] = [];
     for (const s of storms) {
-        const track = s.points
+        const track = (s.forecast?.points ?? [])
             .map((p) => ({ lat: p.lat, lon: p.lon, t: Date.parse(p.time), w: p.windKts }))
-            .filter((p) => Number.isFinite(p.t));
-        if (track.length === 0) continue;
+            .filter((p) => Number.isFinite(p.t))
+            .sort((a, b) => a.t - b.t);
+        if (!s.forecast || track.length === 0) continue;
         const t0 = track[0].t;
         const winds = track.filter((p) => p.t <= t0 + TRACK_WINDOW_MS && p.w !== null).map((p) => p.w as number);
+        const issued = Date.parse(s.forecast.issued ?? '');
         out.push({
             key: s.key,
             name: s.name,
-            issuer: s.issuer,
-            advisory: s.advisory,
-            issuedMs: s.issued ? Date.parse(s.issued) : t0,
+            issuer: s.forecast.by,
+            advisory: s.forecast.advisory,
+            issuedMs: Number.isFinite(issued) ? issued : t0,
             current: { lat: track[0].lat, lon: track[0].lon },
             track: track.map(({ lat, lon, t }) => ({ lat, lon, t })),
             maxWindKts: winds.length ? Math.max(...winds) : null,
@@ -499,24 +561,103 @@ export function watchStormsFromEsri(storms: EsriForecastStorm[]): WatchStorm[] {
 }
 
 /**
+ * The feed's storms with no track that reached Thalassa: the centre's position
+ * alone, said to be one. No forecast came, so no maximum wind to +72 h is
+ * claimed (a depression forecast to deepen is not "too weak"): null, always
+ * measured, as a GFS-only storm is.
+ */
+export function positionOnlyStorms(storms: FeedStorm[]): WatchStorm[] {
+    const out: WatchStorm[] = [];
+    for (const s of storms) {
+        const t = Date.parse(s.current.time);
+        if (s.forecast || !Number.isFinite(t)) continue;
+        const current = { lat: s.current.lat, lon: s.current.lon };
+        out.push({
+            key: s.key,
+            name: s.name,
+            issuer: s.positionBy,
+            advisory: s.current.time,
+            issuedMs: t,
+            current,
+            track: [{ ...current, t }],
+            maxWindKts: null,
+            positionOnly: true,
+        });
+    }
+    return out;
+}
+
+const H = 3_600_000;
+
+/**
+ * The GFS tracker's storms that no centre's track covers (not invests): the
+ * model's track, labelled as such, named from the storm list where it has one.
+ */
+export function gfsOnlyStorms(tracks: AdeckTrack[], known: WatchStorm[], names?: Map<string, string>): WatchStorm[] {
+    const out: WatchStorm[] = [];
+    for (const t of tracks) {
+        const iso = cycleIso(t.cycle);
+        if ((t.tech !== 'AVNO' && t.tech !== 'GFSO') || !iso || Number(t.storm.slice(2)) >= 90) continue;
+        if (t.points[0]?.tau !== 0) continue;
+        const t0 = Date.parse(iso);
+        const current = { lat: t.points[0].lat, lon: t.points[0].lon };
+        if (known.some((k) => k.key === t.storm || gcDistanceNm(k.current, current) < 300)) continue;
+        if (out.some((k) => k.key === t.storm)) continue;
+        const winds = t.points.filter((p) => p.tau * H <= TRACK_WINDOW_MS && p.vmax !== null).map((p) => p.vmax!);
+        out.push({
+            key: t.storm,
+            name: names?.get(t.storm) ?? `Tropical cyclone ${t.storm}`,
+            issuer: 'GFS',
+            advisory: t.cycle,
+            issuedMs: t0,
+            current,
+            track: t.points.map((p) => ({ lat: p.lat, lon: p.lon, t: t0 + p.tau * H })),
+            maxWindKts: winds.length ? Math.max(...winds) : null,
+        });
+    }
+    return out;
+}
+
+/** The advisory id collapse compares: the issuer, and its advisory; a bare position is its own source. */
+const advisoryId = (s: WatchStorm) => `${s.issuer}${s.positionOnly ? '/position' : ''}|${s.advisory}`;
+
+/**
  * Below gale force now and for the next 72 h, by the warning centre's own
  * intensity: not pushed. GFS's maximum wind often reads a real tropical storm
- * below 34 kt, so a GFS-only storm is always measured.
+ * below 34 kt, so a GFS-only storm is always measured, and so is a position
+ * alone, which has no forecast to judge the next 72 h by.
  */
-const tooWeak = (s: WatchStorm) => s.issuer !== 'GFS' && s.maxWindKts !== null && s.maxWindKts < 34;
+const tooWeak = (s: WatchStorm) => s.issuer !== 'GFS' && !s.positionOnly && s.maxWindKts !== null && s.maxWindKts < 34;
+
+/**
+ * Part of the feed did not come, so a storm missing from it may only be
+ * unread: no feed at all, a storm list down, NOAA's or JTWC's tracks down, or
+ * a JTWC warning that no list places. The lost message then says "Part of the
+ * cyclone feed is not answering", never "no longer in the cyclone feed".
+ */
+export function feedPartial(feed: CycloneFeed | null): boolean {
+    if (!feed) return true;
+    const { nhc, jtwc, vitals, noaa, jtwcTracks } = feed.sources;
+    return [nhc, jtwc, vitals, noaa, jtwcTracks].includes('unavailable') || (feed.unplaced?.length ?? 0) > 0;
+}
 
 /**
  * One run: every boat against every storm. `storms` is null when no source
- * answered; then nothing is assessed and nothing is cleared. States are keyed
- * `${userId}|${stormKey}`.
+ * answered; then nothing is assessed and nothing is cleared. `partial` says a
+ * storm list did not answer, so a storm missing from the rest is not said to
+ * have left the feed. `zoneAt` (tz-lookup) gives each boat its own clock.
+ * States are keyed `${userId}|${stormKey}`.
  */
 export function runWatch(input: {
     storms: WatchStorm[] | null;
     boats: Boat[];
     states: Map<string, WatchState>;
     nowMs: number;
+    partial?: boolean;
+    zoneAt?: (lat: number, lon: number) => string;
 }): { pushes: CyclonePush[]; states: Map<string, WatchState>; unavailable: boolean } {
     const { boats, nowMs } = input;
+    const clock = new Map(boats.map((b) => [b.userId, boatZone(b.position, input.zoneAt)]));
     const states = new Map(input.states);
     const pushes: CyclonePush[] = [];
     const storms = input.storms ?? [];
@@ -537,13 +678,12 @@ export function runWatch(input: {
             seen.add(id);
             const a = assess(boat.position, storm, nowMs);
             if (!prev && a.level === 0) continue;
-            const r = step(prev, a, `${storm.issuer}|${storm.advisory}`, nowMs, boat.position.lon);
+            const r = step(prev, a, advisoryId(storm), nowMs, clock.get(boat.userId) ?? boat.position.lon);
             const centre = cycloneCentre(storm.current.lat, storm.current.lon).id;
             states.set(id, { ...r.state, name: storm.name, centre });
             if (r.push) pushes.push(pushMessage(r.push as 1 | 2, storm, a, boat, nowMs));
         }
     }
-    const lon = new Map(boats.map((b) => [b.userId, b.position.lon]));
     for (const [id, st] of states) {
         if (seen.has(id)) continue;
         if (nowMs - st.seenAt > FORGET_AFTER_MS) {
@@ -551,13 +691,13 @@ export function runWatch(input: {
             continue;
         }
         const [userId, key] = id.split('|');
-        const boatLon = lon.get(userId);
+        const where = clock.get(userId);
         // Said once, and only for a storm last seen near the boat (not 100 NM
         // past the notice radius) after a push: a dropped storm is never erased
         // in silence, and a passed one is not news.
-        if (st.sent === 0 || st.far[0] !== null || st.lostToldAt || boatLon === undefined) continue;
-        if (nowMs - st.seenAt < LOST_AFTER_MS || (st.sent === 1 && isQuietHour(nowMs, boatLon))) continue;
-        pushes.push(lostMessage(userId, key, st, input.storms === null));
+        if (st.sent === 0 || st.far[0] !== null || st.lostToldAt || where === undefined) continue;
+        if (nowMs - st.seenAt < LOST_AFTER_MS || (st.sent === 1 && isQuietHour(nowMs, where))) continue;
+        pushes.push(lostMessage(userId, key, st, input.storms === null, !!input.partial));
         states.set(id, { ...st, lostToldAt: nowMs });
     }
     return { pushes, states, unavailable: input.storms === null };

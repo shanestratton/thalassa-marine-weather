@@ -4,31 +4,65 @@
  * distances in NM, right across the antimeridian (Fiji, Tonga, Samoa,
  * Kiribati) and at high latitudes. One push per storm per level, re-armed
  * only by 12 h more than 100 NM outside or a new advisory crossing back in.
- * Notices wait out 22:00-07:00 boat time; urgent goes at once. The payload
- * never carries a coordinate, and a dead feed is never an all-clear.
+ * Notices wait out 22:00-07:00 boat time, on the boat's own clock (129-09b:
+ * the IANA zone of its position, tz-lookup, worked out on the server); urgent
+ * goes at once. The payload never carries a coordinate, and a dead feed is
+ * never an all-clear. The storms come from the warning centres' own feed
+ * (_shared/cyclone/feed.ts): the official track, else JTWC's, else GFS's,
+ * else the centre's position alone, and the push says which.
  */
 import { readFileSync } from 'node:fs';
+import tzLookup from 'tz-lookup';
 import { describe, expect, it } from 'vitest';
 import {
     assess,
     boatLocalHour,
+    boatZone,
     closestApproach,
     gcBearingDeg,
     gcDistanceNm,
     gcInterpolate,
+    feedPartial,
+    gfsOnlyStorms,
     isQuietHour,
+    positionOnlyStorms,
     pushMessage,
     resolveBoat,
     runWatch,
     step,
     unavailableLine,
-    watchStormsFromEsri,
+    watchStormsFromFeed,
     type Boat,
     type WatchState,
     type WatchStorm,
 } from '../supabase/functions/_shared/cyclone/watch';
-import { parseEsriForecast } from '../supabase/functions/_shared/cyclone/esri';
+import {
+    buildCycloneFeed,
+    parseCurrentStorms,
+    parseJmv,
+    parseJtwcRss,
+    parseNoaaPoints,
+    parseTcvitals,
+} from '../supabase/functions/_shared/cyclone/feed';
+import type { FeedStorm } from '../supabase/functions/_shared/cyclone/feed';
+import { parseAdeck } from '../supabase/functions/_shared/cyclone/adeck';
 import { JTWC_NOT_OFFICIAL } from '../supabase/functions/_shared/cyclone/centres';
+
+const fixture = (name: string) => readFileSync(`tests/fixtures/cyclone/${name}`, 'utf8');
+/** The fixtures' feed: NHC's ZZELLA with NOAA's track, JTWC's ZZCORA and ZZDORA, and the vitals. */
+function fixtureFeed() {
+    const nhc = parseCurrentStorms(JSON.parse(fixture('nhc-current-storms.json')))!;
+    const ella = nhc.find((s) => s.key === 'EP41')!;
+    const noaa = new Map([['EP41', parseNoaaPoints(JSON.parse(fixture('noaa-ep3-forecast-points.json')), ella)]]);
+    const storms = ['sh3727', 'sh3827'].map((p) => parseJmv(fixture(`jtwc-${p}.tcw`), p)!);
+    return buildCycloneFeed({
+        nhc: nhc.filter((s) => s.key === 'EP41'),
+        noaa,
+        jtwc: { listed: parseJtwcRss(fixture('jtwc.rss')), storms, failed: [] },
+        vitals: parseTcvitals(fixture('tcvitals.txt')).filter((v) => v.key !== 'AL31'),
+        nowMs: Date.parse('2026-10-13T14:00:00Z'),
+    });
+}
 
 const H = 3_600_000;
 const R = 3440.065;
@@ -328,12 +362,19 @@ describe('runWatch', () => {
         { userId: 'coral', position: { lat: -27.4, lon: 153.2 }, basis: 'home' },
         { userId: 'mexico', position: { lat: 20.6, lon: -105.3 }, basis: 'old-fix' },
     ];
-    const esri = parseEsriForecast(JSON.parse(readFileSync('tests/fixtures/cyclone/esri-forecast.json', 'utf8')));
+    const feed = fixtureFeed();
     const now = Date.parse('2026-10-13T14:00:00Z');
 
-    it('pushes from the Esri feed to the boats near each storm, and records state without positions', () => {
-        const storms = watchStormsFromEsri(esri);
+    it('pushes from the warning centres’ feed to the boats near each storm, and records state without positions', () => {
+        const storms = watchStormsFromFeed(feed.storms);
         expect(storms.map((s) => `${s.key} ${s.issuer}`).sort()).toEqual(['EP41 NHC', 'SH37 JTWC', 'SH38 JTWC']);
+        // tau 0 of the issuer's own track is the advisory's centre, as before.
+        expect(storms.find((s) => s.key === 'SH37')).toMatchObject({
+            advisory: '7',
+            issuedMs: Date.parse('2026-10-13T09:00:00Z'),
+            current: { lat: -16.8, lon: 178.5 },
+            maxWindKts: 70,
+        });
         const out = runWatch({ storms, boats, states: new Map(), nowMs: now });
         const sent = out.pushes.map((p) => `${p.userId} ${p.data.storm_key} ${p.type}`).sort();
         expect(sent).toContain('fiji SH37 cyclone_urgent');
@@ -362,7 +403,7 @@ describe('runWatch', () => {
         const prior = new Map<string, WatchState>([
             ['fiji|SH37', { sent: 2, sentAt: now - 6 * H, far: [null, null], out: [null, null], seenAt: now - 2 * H }],
         ]);
-        const storms = watchStormsFromEsri(esri).filter((s) => s.key !== 'SH37');
+        const storms = watchStormsFromFeed(feed.storms).filter((s) => s.key !== 'SH37');
         const first = runWatch({ storms, boats, states: prior, nowMs: now });
         const lost = first.pushes.filter((p) => p.userId === 'fiji' && p.data.storm_key === 'SH37');
         expect(lost).toHaveLength(1);
@@ -531,5 +572,254 @@ describe('which position a boat is watched from', () => {
             const b: Boat = { userId: 'u', position: { lat: -18, lon: 178 }, basis };
             expect(pushMessage(1, s, assess(b.position, s, NOW), b, NOW).body).toContain(words);
         }
+    });
+});
+
+describe('quiet hours on the boat’s real local clock (129-09b)', () => {
+    const summer = Date.parse('2026-12-01T11:30:00Z');
+
+    it.each([
+        ['Sydney in daylight saving, UTC+11', -33.86, 151.21, 'Australia/Sydney', 22],
+        ['Brisbane, no daylight saving, UTC+10', -27.47, 153.03, 'Australia/Brisbane', 21],
+        ['Nouméa, UTC+11', -22.27, 166.45, 'Pacific/Noumea', 22],
+    ])('%s', (_name, lat, lon, zone, hour) => {
+        expect(boatZone({ lat, lon }, tzLookup)).toBe(zone);
+        expect(boatLocalHour(summer, boatZone({ lat, lon }, tzLookup))).toBe(hour);
+    });
+
+    it('mid-ocean the lookup gives the nautical Etc/GMT zone, which is right there', () => {
+        const zone = boatZone({ lat: -10, lon: -120 }, tzLookup);
+        expect(zone).toMatch(/^Etc\/GMT[+-]\d{1,2}$/);
+        expect(boatLocalHour(summer, zone)).toBe(boatLocalHour(summer, -120));
+        expect(boatLocalHour(summer, zone)).toBe(3);
+    });
+
+    it('a lookup that fails, or names no zone, falls back to the nautical zone', () => {
+        const at = { lat: -33.86, lon: 151.21 };
+        expect(
+            boatZone(at, () => {
+                throw new Error('no data');
+            }),
+        ).toBe(151.21);
+        expect(boatZone(at, () => 'Not/AZone')).toBe(151.21);
+        expect(boatZone(at)).toBe(151.21);
+        expect(boatLocalHour(summer, 'Not/AZone')).toBe(boatLocalHour(summer, 0));
+    });
+
+    const sydney: Boat[] = [{ userId: 'sydney', position: { lat: -33.86, lon: 151.21 }, basis: 'fix' }];
+    const near = (nm: number) =>
+        storm({ key: 'SH40', name: 'ZZERIN', current: { lat: -33.86 + nm / 60, lon: 151.21 }, maxWindKts: 60 });
+
+    it('a notice at 22:30 Sydney summer time waits, though the nautical clock says 21:30', () => {
+        const held = runWatch({
+            storms: [near(500)],
+            boats: sydney,
+            states: new Map(),
+            nowMs: summer,
+            zoneAt: tzLookup,
+        });
+        expect(held.pushes).toEqual([]);
+        // Without the lookup the hour is the nautical one, and the notice goes.
+        expect(runWatch({ storms: [near(500)], boats: sydney, states: new Map(), nowMs: summer }).pushes).toHaveLength(
+            1,
+        );
+        // 07:10 at the boat: sent.
+        const dawn = Date.parse('2026-12-01T20:10:00Z');
+        const sent = runWatch({
+            storms: [near(500)],
+            boats: sydney,
+            states: held.states,
+            nowMs: dawn,
+            zoneAt: tzLookup,
+        });
+        expect(sent.pushes.map((p) => p.type)).toEqual(['cyclone_notice']);
+    });
+
+    it('urgent goes at once on the real clock too', () => {
+        const out = runWatch({
+            storms: [near(200)],
+            boats: sydney,
+            states: new Map(),
+            nowMs: summer,
+            zoneAt: tzLookup,
+        });
+        expect(out.pushes.map((p) => p.type)).toEqual(['cyclone_urgent']);
+    });
+});
+
+describe('position only: a storm in the list with no track that reached Thalassa', () => {
+    const feed = fixtureFeed();
+    const now = Date.parse('2026-10-13T14:00:00Z');
+
+    it('is measured from the centre’s own position and says it has no track', () => {
+        const pos = positionOnlyStorms(feed.storms);
+        expect(pos.map((s) => `${s.key} ${s.issuer}`)).toEqual(['IO02 JTWC', 'WP33 JTWC']);
+        const wp = pos.find((s) => s.key === 'WP33')!;
+        // No forecast reached Thalassa, so nothing says it stays weak: no maximum wind is claimed.
+        expect(wp).toMatchObject({ positionOnly: true, name: 'TWENTY-TH', maxWindKts: null });
+        expect(wp.track).toHaveLength(1);
+        const boat: Boat = { userId: 'guam', position: { lat: 13.4, lon: 175.0 }, basis: 'fix' };
+        const msg = pushMessage(1, wp, assess(boat.position, wp, now), boat, now);
+        expect(msg.body.startsWith('Position only, from JTWC (US military); no forecast track reached Thalassa.')).toBe(
+            true,
+        );
+        expect(msg.body).toContain('Official warnings: RSMC Tokyo.');
+        expect(msg.body).toContain('Position 13 Oct 06:00 UTC.');
+        expect(msg.body).not.toContain('official forecast');
+        expect(JSON.stringify(msg)).not.toMatch(/15\.2|179\.5|13\.4|175\.0/);
+    });
+
+    it('flapping between JTWC’s track and the bare position is not a new advisory', () => {
+        const boats: Boat[] = [{ userId: 'fiji', position: { lat: -17.6, lon: 178.0 }, basis: 'fix' }];
+        const tracked = watchStormsFromFeed(feed.storms).find((s) => s.key === 'SH37')!;
+        // The vitals put it 330 NM off, outside the urgent radius; JTWC's warning 7 inside it.
+        const bare: WatchStorm = {
+            ...tracked,
+            positionOnly: true,
+            advisory: '2026-10-13T06:00:00.000Z',
+            current: { lat: -17.6 + 330 / 60, lon: 178.0 },
+            track: [],
+        };
+        const one = runWatch({ storms: [tracked], boats, states: new Map(), nowMs: now });
+        expect(one.pushes.map((p) => p.type)).toEqual(['cyclone_urgent']);
+        const two = runWatch({ storms: [bare], boats, states: one.states, nowMs: now + 0.5 * 3_600_000 });
+        expect(two.pushes).toEqual([]);
+        // Back to the same warning: not a new JTWC advisory crossing the line.
+        const three = runWatch({ storms: [tracked], boats, states: two.states, nowMs: now + 3_600_000 });
+        expect(three.pushes).toEqual([]);
+        // JTWC's own warning 8 outside, then its warning 9 back inside, does re-arm.
+        const outside = { ...tracked, advisory: '8', current: bare.current, track: [] };
+        const eight = runWatch({ storms: [outside], boats, states: three.states, nowMs: now + 2 * 3_600_000 });
+        const four = runWatch({
+            storms: [{ ...tracked, advisory: '9' }],
+            boats,
+            states: eight.states,
+            nowMs: now + 3 * 3_600_000,
+        });
+        expect(four.pushes.map((p) => p.type)).toEqual(['cyclone_urgent']);
+    });
+
+    it('a depression with no forecast is still measured and pushed: nothing says it stays weak', () => {
+        // JTWC's 05P, a 29 kt depression 40 NM off a boat at Port Vila, forecast to deepen; its
+        // .tcw failed and the GFS tracker lacks it, so the feed has its position from the vitals only.
+        const td: FeedStorm = {
+            key: 'SH05',
+            sid: 'sh052027',
+            name: 'FIVE',
+            basin: 'P',
+            nature: '',
+            current: {
+                lat: -17.74 + 40 / 60,
+                lon: 168.31,
+                time: '2026-10-13T12:00:00.000Z',
+                windKts: 29,
+                pressureMb: 1002,
+            },
+            positionBy: 'JTWC',
+            from: ['vitals'],
+            forecastUnavailable: true,
+        };
+        const [bare] = positionOnlyStorms([td]);
+        expect(bare.maxWindKts).toBeNull();
+        const boats: Boat[] = [{ userId: 'vila', position: { lat: -17.74, lon: 168.31 }, basis: 'fix' }];
+        const out = runWatch({ storms: [bare], boats, states: new Map(), nowMs: now, zoneAt: tzLookup });
+        expect(out.pushes.map((p) => `${p.userId} ${p.type}`)).toEqual(['vila cyclone_urgent']);
+        expect(out.pushes[0].body.startsWith('Position only, from JTWC (US military)')).toBe(true);
+        // Even one built with a wind the centre gave now: a position alone is never "too weak".
+        const stated = { ...bare, maxWindKts: 29 };
+        expect(runWatch({ storms: [stated], boats, states: new Map(), nowMs: now }).pushes).toHaveLength(1);
+    });
+
+    it('a storm whose list went partly down is "not answering", never "no longer in the feed"', () => {
+        const prior = new Map<string, WatchState>([
+            [
+                'fiji|SH37',
+                {
+                    sent: 2,
+                    sentAt: now - 6 * 3_600_000,
+                    far: [null, null],
+                    out: [null, null],
+                    seenAt: now - 2 * 3_600_000,
+                },
+            ],
+        ]);
+        const boats: Boat[] = [{ userId: 'fiji', position: { lat: -17.6, lon: 178.0 }, basis: 'fix' }];
+        const out = runWatch({ storms: [], boats, states: prior, nowMs: now, partial: true });
+        expect(out.pushes).toHaveLength(1);
+        expect(out.pushes[0].body).toContain('Part of the cyclone feed is not answering');
+        expect(out.pushes[0].body).not.toMatch(/no longer in the cyclone feed|clear|no cyclone/i);
+    });
+});
+
+describe('feedPartial: when part of the feed did not come', () => {
+    const base = fixtureFeed();
+    const now0 = Date.parse('2026-10-13T14:00:00Z');
+    it('a storm list, NOAA’s tracks, JTWC’s products, or a JTWC warning with no position, is partial', () => {
+        expect(feedPartial(null)).toBe(true);
+        expect(feedPartial({ ...base, sources: { ...base.sources, noaa: 'ok', jtwcTracks: 'ok' }, unplaced: [] })).toBe(
+            false,
+        );
+        for (const k of ['nhc', 'jtwc', 'vitals', 'noaa', 'jtwcTracks'] as const) {
+            expect(feedPartial({ ...base, sources: { ...base.sources, [k]: 'unavailable' } })).toBe(true);
+        }
+        expect(
+            feedPartial({
+                ...base,
+                sources: { ...base.sources, noaa: 'ok', jtwcTracks: 'ok' },
+                unplaced: [{ key: 'SH05', name: 'FIVE', warning: '1' }],
+            }),
+        ).toBe(true);
+    });
+
+    it('a pushed storm whose JTWC product failed, placed by no list, is "not answering", never "no longer in the feed"', () => {
+        const prior = new Map<string, WatchState>([
+            [
+                'fiji|SH37',
+                {
+                    sent: 2,
+                    sentAt: now0 - 6 * H,
+                    far: [null, null],
+                    out: [null, null],
+                    seenAt: now0 - 2 * H,
+                    name: 'ZZCORA',
+                    centre: 'nadi',
+                },
+            ],
+        ]);
+        const feed = buildCycloneFeed({
+            nhc: [],
+            noaa: new Map(),
+            jtwc: { listed: parseJtwcRss(fixture('jtwc.rss')), storms: [], failed: ['SH37', 'SH38'] },
+            vitals: [],
+            nowMs: now0,
+        });
+        const boats: Boat[] = [{ userId: 'fiji', position: { lat: -17.6, lon: 178.0 }, basis: 'fix' }];
+        const out = runWatch({
+            storms: positionOnlyStorms(feed.storms),
+            boats,
+            states: prior,
+            nowMs: now0,
+            partial: feedPartial(feed),
+        });
+        expect(out.pushes).toHaveLength(1);
+        expect(out.pushes[0].body).toContain('Part of the cyclone feed is not answering');
+        expect(out.pushes[0].body).not.toContain('no longer in the cyclone feed');
+    });
+});
+
+describe('gfsOnlyStorms: the GFS model’s track for a storm no centre’s track covers', () => {
+    const tracks = parseAdeck(fixture('adeck-wpac.dat'));
+
+    it('keeps named storms, never invests, and takes the name from the storm list', () => {
+        const out = gfsOnlyStorms(tracks, [], new Map([['WP33', 'TWENTY-TH']]));
+        expect(out.map((s) => `${s.key} ${s.issuer} ${s.name}`)).toEqual(['WP33 GFS TWENTY-TH']);
+        expect(out[0].advisory).toBe('2026101312');
+        expect(gfsOnlyStorms(tracks, [])[0].name).toBe('Tropical cyclone WP33');
+    });
+
+    it('a storm a centre already tracks, by key or within 300 NM, is not doubled', () => {
+        const wp = gfsOnlyStorms(tracks, [])[0];
+        expect(gfsOnlyStorms(tracks, [{ ...wp, key: 'WP33', issuer: 'JTWC' }])).toEqual([]);
+        expect(gfsOnlyStorms(tracks, [{ ...wp, key: 'XX01', issuer: 'JTWC' }])).toEqual([]);
     });
 });

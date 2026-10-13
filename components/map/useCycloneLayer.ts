@@ -1145,6 +1145,8 @@ type FeedStatus = {
     unavailableSince: number | null;
     forecastUnavailableSince: number | null;
     coneUnavailableSince: number | null;
+    /** Storm lists that did not answer, inside a feed that did (129-09b). */
+    sourcesUnavailable?: { source: string; since: number }[];
 };
 /** The service's feed status, once it has loaded: a failed forecast feed is said on the card. */
 let statusSource: (() => FeedStatus) | null = null;
@@ -1362,22 +1364,33 @@ function addProbabilitySleeve(map: mapboxgl.Map, cyclone: ActiveCyclone): void {
 }
 
 /**
- * "Cyclone data unavailable since …" while the storm list is down, and
- * "Forecast track (or cone) unavailable since …" while the issuers' forecast
- * is: never an empty chart, or a storm with no track, read as an all-clear.
+ * "Cyclone data unavailable since …" while the storm list is down; else
+ * "Partial cyclone data: … unavailable since …" while one of the storm lists
+ * (or a JTWC warning no list places) is, first, since whole basins may be
+ * missing, and under it "Forecast track (or cone) unavailable since …" while
+ * the issuers' forecast is: never an empty chart, or a storm with no track,
+ * read as an all-clear.
  */
 function showFeedStatus(map: mapboxgl.Map, status: FeedStatus | null): void {
     const container = map.getContainer();
     let el = container.querySelector<HTMLElement>('#cyclone-feed-status');
-    const line =
+    const lists = status?.sourcesUnavailable ?? [];
+    const lines =
         status?.unavailableSince != null
-            ? `Cyclone data unavailable since ${utc(status.unavailableSince)}`
-            : status?.forecastUnavailableSince != null
-              ? `Forecast track unavailable since ${utc(status.forecastUnavailableSince)}`
-              : status?.coneUnavailableSince != null
-                ? `Forecast cone unavailable since ${utc(status.coneUnavailableSince)}`
-                : null;
-    if (line === null) {
+            ? [`Cyclone data unavailable since ${utc(status.unavailableSince)}`]
+            : [
+                  lists.length > 0
+                      ? `Partial cyclone data: ${lists.map((l) => l.source).join(', ')} unavailable since ${utc(
+                            Math.min(...lists.map((l) => l.since)),
+                        )}`
+                      : null,
+                  status?.forecastUnavailableSince != null
+                      ? `Forecast track unavailable since ${utc(status.forecastUnavailableSince)}`
+                      : status?.coneUnavailableSince != null
+                        ? `Forecast cone unavailable since ${utc(status.coneUnavailableSince)}`
+                        : null,
+              ].filter((l): l is string => l !== null);
+    if (lines.length === 0) {
         el?.remove();
         return;
     }
@@ -1388,10 +1401,11 @@ function showFeedStatus(map: mapboxgl.Map, status: FeedStatus | null): void {
         el.style.cssText =
             'position:absolute;top:calc(env(safe-area-inset-top) + 72px);left:50%;transform:translateX(-50%);z-index:761;' +
             'background:rgba(120,53,15,.94);color:#fde68a;font:600 12px -apple-system,system-ui,sans-serif;' +
-            'padding:6px 12px;border-radius:999px;pointer-events:none;white-space:nowrap;';
+            'padding:6px 12px;border-radius:14px;pointer-events:none;white-space:pre-line;text-align:center;' +
+            'max-width:calc(100% - 32px);width:max-content;box-sizing:border-box;';
         container.appendChild(el);
     }
-    el.textContent = line;
+    el.textContent = lines.join('\n');
 }
 
 // ── Hook ──────────────────────────────────────────────────
@@ -2272,10 +2286,15 @@ function buildBadgeData(cyclone: ActiveCyclone, onClose?: () => void): StormBadg
               ? `Last advisory ${utc(issued)}`
               : null,
         centreLink: issuer?.official || !centre ? null : { name: centre.short, url: centre.url },
-        // The feed is Esri's Living Atlas item, whose terms ask for Esri's
-        // credit beside its data providers' (see _shared/cyclone/centres.ts).
+        // Direct from the centres (129-09b): NOAA's public domain, JTWC's a US military work; each credited.
         credits: [
-            by && (by === 'JTWC' ? 'Track: JTWC (US Navy) via Esri' : `Track and cone: ${by} via Esri`),
+            by &&
+                (by === 'JTWC'
+                    ? `Track${cyclone.cone ? ' and danger area' : ''}: JTWC (US Navy)`
+                    : `Track${cyclone.cone ? ' and cone' : ''}: ${by} (NOAA)`),
+            !by &&
+                cyclone.positionBy &&
+                `Position: ${cyclone.positionBy === 'JTWC' ? 'JTWC (US Navy)' : `${cyclone.positionBy} (NOAA)`}`,
             producers.length > 0 && `Models: ${producers.join(', ')}`,
             producers.includes('ECMWF') && 'Forecast data: ECMWF',
         ]

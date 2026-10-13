@@ -3,7 +3,9 @@
 --
 -- HELD. Written with 129, NOT pushed: supabase db push applies every pending
 -- file in supabase/migrations, and this one waits until Shane has deployed
--- send-push (the two cyclone types), fetch-gfs-tracker and cyclone-watch.
+-- send-push (the two cyclone types), cyclone-feed, fetch-gfs-tracker and
+-- cyclone-watch (129-09b: cyclone-watch reads the warning centres through the
+-- same shared feed as cyclone-feed; no Esri, no knackwx).
 -- Release it by moving it into supabase/migrations under a stamp newer than
 -- the newest applied migration and, in the same commit, rewriting
 -- tests/CycloneWatchMigration.test.ts to read the released file (the vessel
@@ -21,9 +23,9 @@
 --   only (RLS on, no policy, privileges revoked). The account-deletion write
 --   fence, as every user-keyed table has it, and ON DELETE CASCADE.
 -- * cyclone_watch_status: one row, written at the end of every run: when it
---   ran, since when the cyclone feed has been unavailable (null when it
---   answered), which sources answered, how many storms and pushes. Service
---   role only.
+--   ran, since when the storm lists have been unavailable (null when one
+--   answered), each source ('ok', 'none', or since when it has been
+--   unavailable), how many storms and pushes. Service role only.
 -- * cyclone_watch_status(): what the app reads to decide whether to show the
 --   switch: ran_at and unavailable_since, nothing else. Signed-in callers
 --   only; SECURITY DEFINER with a pinned search_path.

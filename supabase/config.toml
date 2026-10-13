@@ -241,6 +241,13 @@ verify_jwt = true
 # requires an exact service-role POST before any work; no user JWT exists.
 verify_jwt = false
 
+[functions.cyclone-feed]
+# The storm list and the warning centres' own tracks (129-09b: NOAA, JTWC,
+# NCEP; no Esri, no knackwx). CycloneTrackingService and the Pi call it with a
+# bare fetch(url) and the function enforces a per-client public quota. Public
+# cyclone positions, not sensitive.
+verify_jwt = false
+
 [functions.cyclone-watch]
 # Cron entry point (129-09, cyclones near the boat). pg_cron/pg_net POSTs with
 # the service key and the function requires an exact service-role POST before

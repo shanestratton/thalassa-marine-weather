@@ -23,7 +23,7 @@ import {
     supabaseHeaders,
     uncachedJsonFetch,
 } from '../proxy.js';
-import { TTL } from '../scheduler.js';
+import { CYCLONE_FEED_KEY, TTL } from '../scheduler.js';
 
 /** The kv rows earlier builds kept for reverse geocodes. */
 const GEOCODE_KEY_PREFIX = 'geocode:';
@@ -50,20 +50,19 @@ export function createMiscRoutes(
     // ── Tropical Cyclones ──
 
     /**
-     * GET /api/misc/cyclones
-     * Active tropical cyclones worldwide.
+     * GET /api/misc/cyclone-feed
+     * Active tropical cyclones worldwide, with the warning centres' own tracks:
+     * Thalassa's cyclone-feed edge function (129-09b, NOAA/JTWC/NCEP direct;
+     * no Esri, no knackwx), kept here for the boat.
      */
-    router.get('/cyclones', async (req: Request, res: Response) => {
+    router.get('/cyclone-feed', async (req: Request, res: Response) => {
         try {
-            const key = 'cyclones:active';
-            // KnackWx ATCF API — free, CORS-enabled, no key needed
-            const url = 'https://api.knackwx.com/atcf/v2';
-
             const result = await cachedJsonFetch(cache, {
-                cacheKey: key,
-                url,
-                ttlMs: TTL.CYCLONE,
-                source: 'knackwx-atcf',
+                cacheKey: CYCLONE_FEED_KEY,
+                url: supabaseEdgeUrl(config, 'cyclone-feed'),
+                ttlMs: TTL.CYCLONE_FEED,
+                source: 'thalassa-cyclone-feed',
+                headers: supabaseHeaders(config),
             });
 
             res.set('X-Cache', result.fromCache ? (result.stale ? 'STALE' : 'HIT') : 'MISS');

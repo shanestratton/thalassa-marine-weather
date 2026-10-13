@@ -2,17 +2,14 @@
  * The cyclone feeds' readers (129-09, _shared/cyclone/sources.ts), run on
  * stubbed responses: NHC's a-decks are gzipped and their newest cycles are at
  * the end, so they are streamed through, not truncated; and a feed that does
- * not answer is null (unavailable), never an empty list of storms.
+ * not answer is null (unavailable), never an empty list of storms. The
+ * warning centres' own feed (CurrentStorms.json, NOAA's MapServer, JTWC, the
+ * TC vitals) is tested in CycloneFeed.test.ts.
  */
 import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-    adeckLinesSince,
-    fetchEsriForecast,
-    fetchGfsAtcfunix,
-    fetchNhcAdecks,
-} from '../supabase/functions/_shared/cyclone/sources';
+import { adeckLinesSince, fetchGfsAtcfunix, fetchNhcAdecks } from '../supabase/functions/_shared/cyclone/sources';
 import { modelTracks, parseAdeck } from '../supabase/functions/_shared/cyclone/adeck';
 
 const atlantic = readFileSync('tests/fixtures/cyclone/adeck-atlantic.dat', 'utf8');
@@ -77,7 +74,10 @@ describe('the fetchers say unavailable rather than none', () => {
             }),
         );
         expect((await fetchGfsAtcfunix(NOW))?.cycle).toBe('2026101312');
-        expect(urls[0]).toContain('gfs.20261013/12/atmos/gfs.t12z.atcfunix.all');
+        // The tracker moved to ens_tracker/…/tctrack (the old atmos/ path answers 403, 2026-10-14).
+        expect(urls[0]).toBe(
+            'https://nomads.ncep.noaa.gov/pub/data/nccf/com/ens_tracker/prod/gfs.20261013/12/tctrack/avno.t12z.cyclone.trackatcfunix',
+        );
         vi.stubGlobal(
             'fetch',
             vi.fn(async () => new Response('', { status: 404 })),
@@ -85,24 +85,20 @@ describe('the fetchers say unavailable rather than none', () => {
         expect(await fetchGfsAtcfunix(NOW)).toBeNull();
     });
 
-    it('Esri: the feed parsed, and null when it does not answer or answers nonsense', async () => {
-        const body = readFileSync('tests/fixtures/cyclone/esri-forecast.json', 'utf8');
+    it('GFS: the old atmos/ path is still tried when the new one does not answer', async () => {
+        const urls: string[] = [];
         vi.stubGlobal(
             'fetch',
-            vi.fn(async () => new Response(body, { headers: { 'content-type': 'text/plain' } })),
-        );
-        expect((await fetchEsriForecast())?.map((s) => s.key).sort()).toEqual(['EP41', 'SH37', 'SH38']);
-        vi.stubGlobal(
-            'fetch',
-            vi.fn(async () => new Response('<!DOCTYPE html>')),
-        );
-        expect(await fetchEsriForecast()).toBeNull();
-        vi.stubGlobal(
-            'fetch',
-            vi.fn(async () => {
-                throw new Error('offline');
+            vi.fn(async (url: string) => {
+                urls.push(String(url));
+                return String(url).endsWith('gfs.t12z.atcfunix.all')
+                    ? new Response(atlantic)
+                    : new Response('Forbidden', { status: 403 });
             }),
         );
-        expect(await fetchEsriForecast()).toBeNull();
+        expect((await fetchGfsAtcfunix(NOW))?.cycle).toBe('2026101312');
+        expect(urls).toContain(
+            'https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/gfs.20261013/12/atmos/gfs.t12z.atcfunix.all',
+        );
     });
 });

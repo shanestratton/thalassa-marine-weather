@@ -75,9 +75,33 @@
             "licence": "synthetic",
             "source": "Fictional ATCF a-deck lines in the NHC/JTWC/NCEP column format, made by hand for 129-09; no real storm, the ZZ names are invented. West Pacific (WP33) over the antimeridian, a JTWC tech, and an invest."
         },
-        "tests/fixtures/cyclone/esri-forecast.json": {
+        "tests/fixtures/cyclone/jtwc-sh3727-doc.kml": {
             "licence": "synthetic",
-            "source": "Fictional GeoJSON in the field layout of the Esri Active Hurricanes forecast-position layer (NHC/JTWC points), made by hand for 129-09; no real storm, the ZZ names are invented."
+            "source": "Fictional KML in the layout of the doc.kml inside a JTWC warning KMZ (storm track, 34 knot Danger Swath polygon across the antimeridian, a best-track posit), made by hand for 129-09b; no real storm, the ZZ name is invented. Zipped in the test, after a stored image entry, as a KMZ."
+        },
+        "tests/fixtures/cyclone/jtwc-sh3727.tcw": {
+            "licence": "synthetic",
+            "source": "Fictional JTWC JMV 3.0 warning file (header, forecast taus, wind radii, REMARKS position, past posits) made by hand for 129-09b; no real storm, the ZZ name is invented. South Pacific (SH37) near Fiji over the antimeridian."
+        },
+        "tests/fixtures/cyclone/jtwc-sh3827.tcw": {
+            "licence": "synthetic",
+            "source": "Fictional JTWC JMV 3.0 warning file made by hand for 129-09b; no real storm, the ZZ name is invented. Coral Sea (SH38)."
+        },
+        "tests/fixtures/cyclone/jtwc.rss": {
+            "licence": "synthetic",
+            "source": "Fictional RSS in the layout of the JTWC tropical cyclone information feed (warning titles, numbers, issue times and product links) made by hand for 129-09b; no real storm, the ZZ names are invented."
+        },
+        "tests/fixtures/cyclone/nhc-current-storms.json": {
+            "licence": "synthetic",
+            "source": "Fictional JSON in the layout of NHC's CurrentStorms.json (ids, bins, intensity, positions, advisory numbers, product URLs from MIA and HFO) made by hand for 129-09b; no real storm, the ZZ and Ñandú names are invented."
+        },
+        "tests/fixtures/cyclone/noaa-ep3-forecast-points.json": {
+            "licence": "synthetic",
+            "source": "Fictional GeoJSON in the field layout of NOAA's NHC_tropical_weather MapServer 'Forecast Points' layer (lower-case fields, VALIDTIME, ADVDATE in the issuing office's zone) made by hand for 129-09b; no real storm, the ZZ name is invented."
+        },
+        "tests/fixtures/cyclone/tcvitals.txt": {
+            "licence": "synthetic",
+            "source": "Fictional fixed-width NCEP TC vitals lines (NHC and JTWC centres, every basin, a 9-character name overflow, an invest) generated for 129-09b; no real storm, the ZZ names are invented."
         },
         "tests/fixtures/gmgsi-tropical-histograms-2026-10-07.json": {
             "licence": "public-domain",

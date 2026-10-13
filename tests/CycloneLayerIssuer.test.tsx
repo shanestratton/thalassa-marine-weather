@@ -387,8 +387,9 @@ describe('each model is a thin labelled line', () => {
         const lineLayer = h.layers.get('cyclone-models-line') as unknown as { paint: Record<string, unknown> };
         expect(lineLayer.paint['line-width']).toBeLessThanOrEqual(1.5);
         await waitFor(() => expect(h.container.textContent).toContain('Forecast data: ECMWF'));
-        // The feed's access is Esri's, and Esri's terms ask for its credit beside the data providers'.
-        expect(h.container.textContent).toContain('Track and cone: NHC via Esri');
+        // Direct from NOAA (129-09b): public domain, and still credited.
+        expect(h.container.textContent).toContain('Track and cone: NHC (NOAA)');
+        expect(h.container.textContent).not.toMatch(/Esri/);
         hook.unmount();
         expect(h.sources.has('cyclone-models-src')).toBe(false);
     });
@@ -425,7 +426,8 @@ describe('the card names the issuer, the advisory time and the official centre',
         await waitFor(() => expect(h.container.querySelector('#cyclone-hud-badges')).not.toBeNull());
         const card = h.container.querySelector('#cyclone-hud-badges')!;
         expect(card.textContent).toContain('JTWC: US military advisory, not the official warning here');
-        expect(card.textContent).toContain('Track: JTWC (US Navy) via Esri');
+        expect(card.textContent).toContain('Track: JTWC (US Navy)');
+        expect(card.textContent).not.toMatch(/Esri/);
         const link = card.querySelector('a')!;
         expect(link.textContent).toContain('Bureau of Meteorology');
         expect(link.getAttribute('href')).toMatch(/^https:\/\/www\.bom\.gov\.au\//);
@@ -501,6 +503,100 @@ describe('a dead feed is never an all-clear', () => {
         const hook = renderHook(() => useCycloneLayer({ current: h.map as never }, true, true, -27, 153, closest));
         await waitFor(() => expect(closest).toHaveBeenCalledWith(null));
         expect(h.container.querySelector('#cyclone-feed-status')).toBeNull();
+        hook.unmount();
+    });
+
+    it('credits each centre as its own: CPHC’s cone, JTWC’s danger area, and a bare position’s source', async () => {
+        const cases: [ActiveCyclone, string][] = [
+            [
+                storm({
+                    sid: 'cp032026',
+                    name: 'ZZNOA',
+                    basin: 'C',
+                    currentPosition: {
+                        lat: 16.5,
+                        lon: -155,
+                        time: new Date().toISOString(),
+                        windKts: 70,
+                        pressureMb: 975,
+                    },
+                    forecastBy: { by: 'CPHC', advisory: '12', issued: new Date().toISOString() },
+                }),
+                'Track and cone: CPHC (NOAA)',
+            ],
+            [
+                coralSea({
+                    cone: {
+                        type: 'Polygon',
+                        coordinates: [
+                            [
+                                [153, -15],
+                                [151, -18],
+                                [152.5, -19.5],
+                                [153, -15],
+                            ],
+                        ],
+                    },
+                }),
+                'Track and danger area: JTWC (US Navy)',
+            ],
+            [coralSea({ forecastBy: undefined, forecastTrack: [], positionBy: 'JTWC' }), 'Position: JTWC (US Navy)'],
+        ];
+        for (const [s, credit] of cases) {
+            if (!s.forecastBy) delete (s as Partial<ActiveCyclone>).issuer;
+            mocks.fetch.mockResolvedValue([s]);
+            const h = makeMap();
+            const hook = renderHook(() =>
+                useCycloneLayer({ current: h.map as never }, true, true, -27, 153, vi.fn(), undefined, s),
+            );
+            await waitFor(() => expect(h.container.querySelector('#cyclone-hud-badges')).not.toBeNull());
+            expect(h.container.querySelector('#cyclone-hud-badges')!.textContent).toContain(credit);
+            hook.unmount();
+        }
+    });
+
+    it('a storm list that did not answer is said by name, with the others still drawn', async () => {
+        mocks.status.mockReset().mockReturnValue({
+            ...FEED_OK,
+            sourcesUnavailable: [
+                { source: 'JTWC', since: Date.parse('2026-10-14T03:10:00Z') },
+                { source: 'NCEP storm vitals', since: Date.parse('2026-10-14T04:00:00Z') },
+            ],
+        } as never);
+        mocks.fetch.mockResolvedValue([storm()]);
+        const h = makeMap();
+        const hook = renderHook(() => useCycloneLayer({ current: h.map as never }, true, true, 20, -105, vi.fn()));
+        await waitFor(() =>
+            expect(h.container.querySelector('#cyclone-feed-status')?.textContent).toBe(
+                'Partial cyclone data: JTWC, NCEP storm vitals unavailable since 14 Oct 03:10 UTC',
+            ),
+        );
+        hook.unmount();
+    });
+
+    it('a missing storm list is said first, and a failed cone under it, never hidden by it', async () => {
+        mocks.status.mockReset().mockReturnValue({
+            unavailableSince: null,
+            forecastUnavailableSince: null,
+            coneUnavailableSince: Date.parse('2026-10-14T04:00:00Z'),
+            sourcesUnavailable: [
+                { source: 'JTWC', since: Date.parse('2026-10-14T03:10:00Z') },
+                { source: 'NCEP storm vitals', since: Date.parse('2026-10-14T03:10:00Z') },
+            ],
+        } as never);
+        mocks.fetch.mockResolvedValue([storm()]);
+        const h = makeMap();
+        const hook = renderHook(() => useCycloneLayer({ current: h.map as never }, true, true, -17, 150, vi.fn()));
+        await waitFor(() =>
+            expect(h.container.querySelector('#cyclone-feed-status')?.textContent).toBe(
+                'Partial cyclone data: JTWC, NCEP storm vitals unavailable since 14 Oct 03:10 UTC\n' +
+                    'Forecast cone unavailable since 14 Oct 04:00 UTC',
+            ),
+        );
+        // Two lines that fit a phone: wrapped inside the chart, never cut off its edges.
+        const el = h.container.querySelector<HTMLElement>('#cyclone-feed-status')!;
+        expect(el.style.whiteSpace).toBe('pre-line');
+        expect(el.style.maxWidth).toBe('calc(100% - 32px)');
         hook.unmount();
     });
 });

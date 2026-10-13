@@ -4,7 +4,8 @@ declare const Deno: { serve: (handler: (req: Request) => Promise<Response> | Res
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { fetchWithTimeout, readResponseTextLimited } from '../_shared/http-security.ts';
 import { type AdeckTrack, type ModelTrack, modelTracks, parseAdeck } from '../_shared/cyclone/adeck.ts';
-import { fetchNhcAdecks } from '../_shared/cyclone/sources.ts';
+import { parseTcvitals as readVitals } from '../_shared/cyclone/feed.ts';
+import { ASK, fetchNhcAdecks, gfsTrackerUrls } from '../_shared/cyclone/sources.ts';
 
 /**
  * fetch-gfs-tracker — GFS ATCF Track File Proxy
@@ -14,8 +15,12 @@ import { fetchNhcAdecks } from '../_shared/cyclone/sources.ts';
  * the exact eye position for the current GRIB age.
  *
  * Source waterfall:
- *   1. gfs.tCCz.atcfunix.all — per-forecast-hour positions (ideal)
- *   2. tcvitals — T+0 analysis position only (fallback)
+ *   1. the GFS tracker file — per-forecast-hour positions (ideal): NCEP's
+ *      ens_tracker/prod/gfs.YYYYMMDD/CC/tctrack/avno.tCCz.cyclone.trackatcfunix
+ *      (129-09b: the old gfs.tCCz.atcfunix.all under atmos/ answers 403 now;
+ *      it is still tried second)
+ *   2. tcvitals — T+0 analysis position only (fallback), read by column
+ *      (_shared/cyclone/feed.ts: a long name runs into the date)
  *
  * Every model's track (129-09): `models` carries one labelled line per model
  * per storm, every a-deck tech it can credit, from the same atcfunix file
@@ -139,7 +144,10 @@ function parseAtcfunix(text: string, cycleHour: string): Record<string, StormRec
             if (recordHH !== cycleHH) continue;
         }
 
-        const stormId = cols[1].trim(); // "28P"
+        // "28P" in the old file; the ens_tracker file leads with the basin ("EP, 20"), keyed "EP20".
+        const stormId = /^[A-Z]{2}$/.test(cols[0]) && /^\d{1,2}$/.test(cols[1])
+            ? `${cols[0]}${cols[1].padStart(2, '0')}`
+            : cols[1].trim();
         const fhr = parseInt(cols[5], 10) || 0;
 
         // Parse lat: "214S" → -21.4
@@ -173,45 +181,30 @@ function parseAtcfunix(text: string, cycleHour: string): Record<string, StormRec
 
 // ── TCVitals Parser (fallback, T+0 only) ─────────────────────
 /**
- * Parse tcvitals. Real format:
- *   JTWC 28P TWENTY-EI 20260323 1800 214S 1635E 165 072 0990 ...
+ * TC vitals as storms keyed like the tracker file ("EP20"), each with its
+ * T+0 position: NCEP's fixed columns (_shared/cyclone/feed.ts parseTcvitals),
+ * never split on spaces, as "TWENTY-ON:20261013" ran a name into its date.
  */
 function parseTcvitals(text: string): Record<string, StormRecord> {
     const storms: Record<string, StormRecord> = {};
-
-    for (const rawLine of text.split('\n')) {
-        const line = rawLine.trim();
-        if (!line || line.length < 50) continue;
-
-        const parts = line.split(/\s+/);
-        if (parts.length < 10) continue;
-
-        const stormId = parts[1]; // "28P"
-        const name = parts[2]; // "TWENTY-EI"
-
-        const latStr = parts[5];
-        const latDir = latStr.slice(-1);
-        const latVal = parseInt(latStr.slice(0, -1), 10) / 10;
-        const lat = latDir === 'S' ? -latVal : latVal;
-
-        const lonStr = parts[6];
-        const lonDir = lonStr.slice(-1);
-        const lonVal = parseInt(lonStr.slice(0, -1), 10) / 10;
-        const lon = lonDir === 'W' ? -lonVal : lonVal;
-
-        const mslp = parseInt(parts[9], 10) || 0;
-        const vmax = parseInt(parts[8], 10) || 0;
-
-        storms[stormId] = {
-            name,
-            positions: [{ fhr: 0, lat, lon, vmax, mslp }],
+    for (const v of readVitals(text)) {
+        const raw = `${v.key.slice(2)}${v.basin}`;
+        const record = {
+            name: v.name,
+            positions: [
+                {
+                    fhr: 0,
+                    lat: v.current.lat,
+                    lon: v.current.lon,
+                    vmax: v.current.windKts ?? 0,
+                    mslp: v.current.pressureMb ?? 0,
+                },
+            ],
         };
-
-        console.info(
-            `[fetch-gfs-tracker] Parsed tcvitals: ${name} (${stormId}) at ${lat.toFixed(1)}, ${lon.toFixed(1)}`,
-        );
+        storms[v.key] = record;
+        // The old tracker file's key ("28P") for the names it is matched against.
+        storms[raw] = record;
     }
-
     return storms;
 }
 
@@ -252,35 +245,36 @@ Deno.serve(async (req: Request) => {
 
         console.info(`[fetch-gfs-tracker] GFS cycle: ${date}/${cycle}z (refTime: ${gfsRefTime})`);
 
-        // ── Source 1: ATCF Unix file (per-forecast-hour positions) ──
-        try {
-            const atcfUrl = `https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/` +
-                `gfs.${date}/${cycle}/atmos/gfs.t${cycle}z.atcfunix.all`;
+        // ── Source 1: the GFS tracker file (per-forecast-hour positions) ──
+        for (const atcfUrl of gfsTrackerUrls(date, cycle)) {
+            if (atcfText !== null) break;
+            try {
+                console.info(`[fetch-gfs-tracker] Trying atcfunix: ${atcfUrl}`);
+                const resp = await fetchWithTimeout(atcfUrl, ASK, 10_000);
 
-            console.info(`[fetch-gfs-tracker] Trying atcfunix: ${atcfUrl}`);
-            const resp = await fetchWithTimeout(atcfUrl, {}, 10_000);
-
-            if (resp.ok) {
-                const text = await readResponseTextLimited(resp, 5_000_000);
-                if (text !== null && text.trim().length > 10 && !text.includes('<!DOCTYPE')) {
-                    atcfText = text;
-                    result.storms = parseAtcfunix(text, cycle);
-                    const count = Object.keys(result.storms).length;
-                    if (count > 0) {
-                        result.source = 'atcfunix';
-                        for (const [sid, storm] of Object.entries(result.storms)) {
-                            console.info(
-                                `[fetch-gfs-tracker] ✅ atcfunix: ${sid} — ${storm.positions.length} forecast hours ` +
-                                    `(fhr 0-${storm.positions[storm.positions.length - 1]?.fhr || 0})`,
-                            );
+                if (resp.ok) {
+                    const text = await readResponseTextLimited(resp, 5_000_000);
+                    if (text !== null && text.trim().length > 10 && !text.includes('<!DOCTYPE')) {
+                        atcfText = text;
+                        result.storms = parseAtcfunix(text, cycle);
+                        const count = Object.keys(result.storms).length;
+                        if (count > 0) {
+                            result.source = 'atcfunix';
+                            for (const [sid, storm] of Object.entries(result.storms)) {
+                                console.info(
+                                    `[fetch-gfs-tracker] ✅ atcfunix: ${sid} — ${storm.positions.length} forecast hours ` +
+                                        `(fhr 0-${storm.positions[storm.positions.length - 1]?.fhr || 0})`,
+                                );
+                            }
                         }
                     }
+                } else {
+                    console.warn(`[fetch-gfs-tracker] atcfunix: ${resp.status} ${resp.statusText}`);
+                    await resp.body?.cancel().catch(() => undefined);
                 }
-            } else {
-                console.warn(`[fetch-gfs-tracker] atcfunix: ${resp.status} ${resp.statusText}`);
+            } catch (e) {
+                console.warn('[fetch-gfs-tracker] atcfunix fetch failed:', e);
             }
-        } catch (e) {
-            console.warn('[fetch-gfs-tracker] atcfunix fetch failed:', e);
         }
 
         // ── Source 2: TCVitals fallback (T+0 only) ──
@@ -290,12 +284,14 @@ Deno.serve(async (req: Request) => {
                     `gfs.${date}/${cycle}/atmos/gfs.t${cycle}z.syndata.tcvitals.tm00`;
 
                 console.info(`[fetch-gfs-tracker] Trying tcvitals: ${vitalsUrl}`);
-                const resp = await fetchWithTimeout(vitalsUrl, {}, 10_000);
+                const resp = await fetchWithTimeout(vitalsUrl, ASK, 10_000);
 
                 if (resp.ok) {
                     const text = await readResponseTextLimited(resp, 1_000_000);
                     if (text !== null && text.trim().length > 10) {
-                        result.storms = parseTcvitals(text);
+                        result.storms = Object.fromEntries(
+                            Object.entries(parseTcvitals(text)).filter(([sid]) => /^[A-Z]{2}\d{2}$/.test(sid)),
+                        );
                         const count = Object.keys(result.storms).length;
                         if (count > 0) {
                             result.source = 'tcvitals';
@@ -313,7 +309,7 @@ Deno.serve(async (req: Request) => {
             try {
                 const vitalsUrl = `https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/` +
                     `gfs.${date}/${cycle}/atmos/gfs.t${cycle}z.syndata.tcvitals.tm00`;
-                const resp = await fetchWithTimeout(vitalsUrl, {}, 5_000);
+                const resp = await fetchWithTimeout(vitalsUrl, ASK, 5_000);
                 if (resp.ok) {
                     const text = await readResponseTextLimited(resp, 1_000_000);
                     const vitals = text === null ? {} : parseTcvitals(text);

@@ -59,3 +59,23 @@ test('no chart anywhere comes from bom.gov.au', () => {
     const source = readFileSync(new URL('./scheduler.ts', import.meta.url), 'utf8');
     assert.doesNotMatch(source, /bom\.gov\.au/i);
 });
+
+test('the cyclone feed is kept no longer than the app trusts it (129-09b)', () => {
+    // The app calls a feed made more than 60 min ago "Cyclone data unavailable since": the
+    // Pi's copy (its TTL, then up to 30 min served stale while it revalidates) plus the edge
+    // function's own 10 min and its 5 min max-age must stay inside that, or a healthy boat
+    // reads as an outage.
+    const ttl = (scheduler.TTL as Record<string, number>).CYCLONE_FEED;
+    assert.equal(typeof ttl, 'number', 'TTL.CYCLONE_FEED is the cyclone feed’s own TTL');
+    assert.ok(ttl + 30 * 60_000 + 10 * 60_000 + 5 * 60_000 < 60 * 60_000, `TTL.CYCLONE_FEED ${ttl} ms is too long`);
+    const route = readFileSync(new URL('./routes/misc.ts', import.meta.url), 'utf8');
+    const source = readFileSync(new URL('./scheduler.ts', import.meta.url), 'utf8');
+    for (const [name, text] of [
+        ['routes/misc.ts', route],
+        ['scheduler.ts', source],
+    ]) {
+        const at = text.indexOf('cacheKey: CYCLONE_FEED_KEY');
+        assert.ok(at > 0, `${name} caches the feed under CYCLONE_FEED_KEY`);
+        assert.match(text.slice(at, at + 200), /ttlMs: TTL\.CYCLONE_FEED,/, name);
+    }
+});

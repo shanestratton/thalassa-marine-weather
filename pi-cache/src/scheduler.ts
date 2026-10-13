@@ -30,10 +30,17 @@ export const TTL = {
     SYNOPTIC: 6 * 60 * 60 * 1000, // 6 hours — synoptic charts update 4x/day
     GRIB: 6 * 60 * 60 * 1000, // 6 hours — GFS model runs
     CYCLONE: 60 * 60 * 1000, // 1 hour — active storm tracking
+    // 10 min, as the cyclone-feed function keeps it: the app calls a feed made over an
+    // hour ago "unavailable since", and this, the 30 min stale window and the
+    // function's own 10 min stay inside that hour (129-09b).
+    CYCLONE_FEED: 10 * 60 * 1000,
     BUOY: 30 * 60 * 1000, // 30 min — observation frequency
     SEALEVEL: 60 * 60 * 1000, // 1 hour
     SEAMARK: 24 * 60 * 60 * 1000, // 24 hours — rarely change
 };
+
+/** The cache key of the cyclone-feed answer (129-09b), shared by the route and the pre-fetch. */
+export const CYCLONE_FEED_KEY = 'cyclones:feed';
 
 let scheduledTask: ScheduledTask | null = null;
 
@@ -443,17 +450,16 @@ async function prefetchBuoys(cache: Cache, _config: ProxyConfig, pf: PrefetchCon
     }
 }
 
-async function prefetchCyclones(cache: Cache, _config: ProxyConfig): Promise<void> {
-    const key = 'cyclones:active';
-    if (cache.hasFresh(key)) return;
+async function prefetchCyclones(cache: Cache, config: ProxyConfig): Promise<void> {
+    if (cache.hasFresh(CYCLONE_FEED_KEY)) return;
 
-    // KnackWx ATCF API — free, CORS-enabled, no API key needed
-    const url = 'https://api.knackwx.com/atcf/v2';
+    // Thalassa's cyclone-feed (129-09b): the warning centres direct, as the app reads it.
     await cachedJsonFetch(cache, {
-        cacheKey: key,
-        url,
-        ttlMs: TTL.CYCLONE,
-        source: 'knackwx-atcf',
+        cacheKey: CYCLONE_FEED_KEY,
+        url: supabaseEdgeUrl(config, 'cyclone-feed'),
+        ttlMs: TTL.CYCLONE_FEED,
+        source: 'thalassa-cyclone-feed',
+        headers: supabaseHeaders(config),
     });
 }
 

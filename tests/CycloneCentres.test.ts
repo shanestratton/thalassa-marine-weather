@@ -4,18 +4,16 @@
  * linked everywhere else. JTWC is a labelled US military advisory, never the
  * official warning. Global: no Australia-first default.
  */
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
     CYCLONE_CENTRES,
     JTWC_NOT_OFFICIAL,
     cycloneCentre,
-    esriTrackIssuer,
-    esriValidTime,
+    productIssuer,
     trackIssuerLabel,
     utcLabel,
+    validTimeNear,
 } from '../supabase/functions/_shared/cyclone/centres';
-import { parseEsriForecast } from '../supabase/functions/_shared/cyclone/esri';
 
 const at = (lat: number, lon: number) => cycloneCentre(lat, lon).id;
 
@@ -116,94 +114,53 @@ describe('issuer labels', () => {
         expect(trackIssuerLabel('NHC', cycloneCentre(20, 170)).official).toBe(false);
     });
 
-    it('esriTrackIssuer: AL and EP are NHC, CP is CPHC, every other basin is JTWC', () => {
-        expect(esriTrackIssuer('AL')).toBe('NHC');
-        expect(esriTrackIssuer('ep')).toBe('NHC');
-        expect(esriTrackIssuer('CP')).toBe('CPHC');
-        for (const basin of ['WP', 'IO', 'SH', '', undefined]) expect(esriTrackIssuer(basin)).toBe('JTWC');
+    it('NHC or CPHC from the product’s own office (MIA, HFO), never the basin letters alone', () => {
+        const miami = ['https://www.nhc.noaa.gov/text/MIATCMEP3.shtml'];
+        const honolulu = ['https://www.nhc.noaa.gov/text/HFOTCMEP4.shtml'];
+        expect(productIssuer(miami, 18, -108)).toBe('NHC');
+        // An EP id whose advisory Honolulu wrote is CPHC's, wherever the id says it began.
+        expect(productIssuer(honolulu, 14.2, -142.5)).toBe('CPHC');
+        expect(productIssuer(['https://www.nhc.noaa.gov/text/HFOTCMCP1.shtml'], 16, -155)).toBe('CPHC');
+        expect(productIssuer([undefined, 'https://www.nhc.noaa.gov/text/MIATCPAT1.shtml'], 25, -70)).toBe('NHC');
     });
 
-    it('an East Pacific storm west of 140°W is CPHC’s, whatever its EP id says', () => {
-        expect(esriTrackIssuer('EP', 16, -150)).toBe('CPHC'); // a Lane-2018 track
-        expect(esriTrackIssuer('EP', 16, -120)).toBe('NHC');
-        expect(esriTrackIssuer('CP', 16, -138)).toBe('NHC'); // back east of 140°W
-        expect(esriTrackIssuer('CP', 16, -175)).toBe('CPHC');
-        expect(esriTrackIssuer('AL', 25, -70)).toBe('NHC');
-        expect(esriTrackIssuer('WP', 20, 179.9)).toBe('JTWC');
+    it('with no office in the product, the storm’s position: west of 140°W north of the equator is CPHC’s', () => {
+        expect(productIssuer([], 16, -150)).toBe('CPHC'); // a Lane-2018 track
+        expect(productIssuer([], 16, -120)).toBe('NHC');
+        expect(productIssuer(['https://example.test/x'], 16, -138)).toBe('NHC'); // back east of 140°W
+        expect(productIssuer([null], 16, -175)).toBe('CPHC');
+        expect(productIssuer([], 25, -70)).toBe('NHC');
     });
 });
 
-describe('Esri forecast times are UTC from VALIDTIME, never the local label read as UTC', () => {
+describe('forecast times are UTC from VALIDTIME, never the local label read as UTC', () => {
     const advEp = Date.parse('2026-10-13T12:00:00Z');
 
     it('reads DD/HHMM against the advisory month', () => {
-        expect(esriValidTime('13/0900', advEp)).toBe('2026-10-13T09:00:00.000Z');
-        expect(esriValidTime('16/0900', advEp)).toBe('2026-10-16T09:00:00.000Z');
+        expect(validTimeNear('13/0900', advEp)).toBe('2026-10-13T09:00:00.000Z');
+        expect(validTimeNear('16/0900', advEp)).toBe('2026-10-16T09:00:00.000Z');
     });
 
     it('rolls into the next month and year', () => {
-        expect(esriValidTime('01/0000', Date.parse('2026-10-31T21:00:00Z'))).toBe('2026-11-01T00:00:00.000Z');
-        expect(esriValidTime('02/1200', Date.parse('2026-12-31T18:00:00Z'))).toBe('2027-01-02T12:00:00.000Z');
+        expect(validTimeNear('01/0000', Date.parse('2026-10-31T21:00:00Z'))).toBe('2026-11-01T00:00:00.000Z');
+        expect(validTimeNear('02/1200', Date.parse('2026-12-31T18:00:00Z'))).toBe('2027-01-02T12:00:00.000Z');
     });
 
     it('reads a valid time from the month before the advisory, and never a day the month lacks', () => {
         // ADVDATE just after 00Z on the 1st, valid time the last day of the month before.
-        expect(esriValidTime('31/1800', Date.parse('2026-11-01T00:30:00Z'))).toBe('2026-10-31T18:00:00.000Z');
-        expect(esriValidTime('30/1800', Date.parse('2026-12-01T00:30:00Z'))).toBe('2026-11-30T18:00:00.000Z');
-        expect(esriValidTime('31/1800', Date.parse('2027-01-01T03:00:00Z'))).toBe('2026-12-31T18:00:00.000Z');
+        expect(validTimeNear('31/1800', Date.parse('2026-11-01T00:30:00Z'))).toBe('2026-10-31T18:00:00.000Z');
+        expect(validTimeNear('30/1800', Date.parse('2026-12-01T00:30:00Z'))).toBe('2026-11-30T18:00:00.000Z');
+        expect(validTimeNear('31/1800', Date.parse('2027-01-01T03:00:00Z'))).toBe('2026-12-31T18:00:00.000Z');
         // 31 November and 29 February 2027 do not exist: never rolled into the next month,
         // and no other month puts them within days of the advisory.
-        expect(esriValidTime('31/0000', Date.parse('2026-11-29T00:00:00Z'))).toBeNull();
-        expect(esriValidTime('29/1200', Date.parse('2027-02-27T12:00:00Z'))).toBeNull();
+        expect(validTimeNear('31/0000', Date.parse('2026-11-29T00:00:00Z'))).toBeNull();
+        expect(validTimeNear('29/1200', Date.parse('2027-02-27T12:00:00Z'))).toBeNull();
     });
 
     it('refuses what it cannot read', () => {
-        expect(esriValidTime('13/09', advEp)).toBeNull();
-        expect(esriValidTime('13/0900', undefined)).toBeNull();
-        expect(esriValidTime(undefined, advEp)).toBeNull();
-    });
-
-    it('parses the feed: NHC in MST lands 7 h later than the label read as UTC; JTWC basins are JTWC', () => {
-        const storms = parseEsriForecast(JSON.parse(readFileSync('tests/fixtures/cyclone/esri-forecast.json', 'utf8')));
-        const ella = storms.find((s) => s.name === 'ZZELLA')!;
-        expect(ella).toMatchObject({ key: 'EP41', issuer: 'NHC', advisory: '24A' });
-        expect(ella.issued).toBe('2026-10-13T12:00:00.000Z');
-        // FLDATELBL "2026-10-13 2:00 AM Tue MST" is 09:00 UTC, not 02:00 UTC.
-        expect(ella.points[0]).toEqual({
-            lat: 18,
-            lon: -108,
-            time: '2026-10-13T09:00:00.000Z',
-            windKts: 80,
-            pressureMb: 960,
-        });
-        const dora = storms.find((s) => s.name === 'ZZDORA')!;
-        expect(dora).toMatchObject({ key: 'SH38', issuer: 'JTWC', advisory: '2026-10-13T06:00:00.000Z' });
-        const cora = storms.find((s) => s.name === 'ZZCORA')!;
-        expect(cora.points.map((p) => p.lon)).toEqual([178.5, 179.6, -179.3, -177.4]);
-    });
-
-    it('a feature with no storm number still gets a key the watcher can store', () => {
-        const feature = (name: string, num: number | null, lon: number, lat: number) => ({
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [lon, lat] },
-            properties: {
-                STORMNAME: name,
-                BASIN: 'EP',
-                STORMNUM: num,
-                ADVISNUM: '3',
-                ADVDATE: Date.parse('2026-10-13T12:00:00Z'),
-                VALIDTIME: '13/1200',
-                MAXWIND: 30,
-            },
-        });
-        const storms = parseEsriForecast({
-            features: [feature('Twenty-One-E', null, -150, 16), feature('ÑANDÚ', null, -100, 12)],
-        });
-        expect(storms.map((s) => s.key)).toEqual(['TWENTYONEE', 'NANDU']);
-        for (const s of storms) expect(s.key).toMatch(/^[A-Z0-9]{2,12}$/);
-        // Issued by position: an EP id west of 140°W is CPHC's.
-        expect(storms[0].issuer).toBe('CPHC');
-        expect(storms[1].issuer).toBe('NHC');
+        expect(validTimeNear('13/09', advEp)).toBeNull();
+        expect(validTimeNear('13/0900', undefined)).toBeNull();
+        expect(validTimeNear(undefined, advEp)).toBeNull();
     });
 });
 

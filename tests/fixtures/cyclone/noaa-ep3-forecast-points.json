@@ -1,0 +1,120 @@
+{
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [-110.6, 19.9]
+            },
+            "properties": {
+                "stormname": "Hurricane Zzella",
+                "stormtype": "HU",
+                "basin": "EP",
+                "advdate": "500 AM MST Tue Oct 13 2026",
+                "advisnum": "24",
+                "maxwind": 90,
+                "mslp": 9999,
+                "stormnum": 41,
+                "tau": 24,
+                "timezone": "MST",
+                "validtime": "14/0900",
+                "fldatelbl": "2026-10-13 2:00 AM Tue MST",
+                "idp_source": "ep412026-024_5day_pts",
+                "binnumber": "EP3"
+            }
+        },
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [-108.0, 18.0]
+            },
+            "properties": {
+                "stormname": "Hurricane Zzella",
+                "stormtype": "HU",
+                "basin": "EP",
+                "advdate": "500 AM MST Tue Oct 13 2026",
+                "advisnum": "24",
+                "maxwind": 80,
+                "mslp": 960,
+                "stormnum": 41,
+                "tau": 0,
+                "timezone": "MST",
+                "validtime": "13/0900",
+                "fldatelbl": "2026-10-13 2:00 AM Tue MST",
+                "idp_source": "ep412026-024_5day_pts",
+                "binnumber": "EP3"
+            }
+        },
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [-109.4, 18.9]
+            },
+            "properties": {
+                "stormname": "Hurricane Zzella",
+                "stormtype": "HU",
+                "basin": "EP",
+                "advdate": "500 AM MST Tue Oct 13 2026",
+                "advisnum": "24",
+                "maxwind": 85,
+                "mslp": 9999,
+                "stormnum": 41,
+                "tau": 12,
+                "timezone": "MST",
+                "validtime": "13/2100",
+                "fldatelbl": "2026-10-13 2:00 AM Tue MST",
+                "idp_source": "ep412026-024_5day_pts",
+                "binnumber": "EP3"
+            }
+        },
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [-112.4, 21.8]
+            },
+            "properties": {
+                "stormname": "Hurricane Zzella",
+                "stormtype": "HU",
+                "basin": "EP",
+                "advdate": "500 AM MST Tue Oct 13 2026",
+                "advisnum": "24",
+                "maxwind": 80,
+                "mslp": 9999,
+                "stormnum": 41,
+                "tau": 48,
+                "timezone": "MST",
+                "validtime": "15/0900",
+                "fldatelbl": "2026-10-13 2:00 AM Tue MST",
+                "idp_source": "ep412026-024_5day_pts",
+                "binnumber": "EP3"
+            }
+        },
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [-113.6, 23.6]
+            },
+            "properties": {
+                "stormname": "Hurricane Zzella",
+                "stormtype": "HU",
+                "basin": "EP",
+                "advdate": "500 AM MST Tue Oct 13 2026",
+                "advisnum": "24",
+                "maxwind": 65,
+                "mslp": 9999,
+                "stormnum": 41,
+                "tau": 72,
+                "timezone": "MST",
+                "validtime": "16/0900",
+                "fldatelbl": "2026-10-13 2:00 AM Tue MST",
+                "idp_source": "ep412026-024_5day_pts",
+                "binnumber": "EP3"
+            }
+        }
+    ]
+}

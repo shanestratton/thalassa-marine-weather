@@ -1,12 +1,19 @@
 /**
  * CycloneTrackingService — Global tropical cyclone tracking.
  *
- * Primary source: KnackWx ATCF API (real-time, 15-min updates, global)
- *   → https://api.knackwx.com/atcf/v2
- *   → Free, CORS-enabled, JSON
+ * The storms and their issuers' tracks: Thalassa's cyclone-feed edge function
+ * (129-09b), through the boat's Pi when it has one. It reads the warning
+ * centres themselves: NHC's storm list and NOAA's MapServer for NHC and CPHC,
+ * JTWC's own products elsewhere, NCEP's TC vitals for every basin
+ * (supabase/functions/_shared/cyclone/feed.ts). No Esri, no knackwx.
  *
- * Fallback/track source: NOAA IBTrACS Active CSV (historical track paths)
- *   → Updates weekly, used for storm track lines only
+ * Track history: NOAA IBTrACS Active CSV (NCEI), else the issuer's own past
+ * track, else the positions this device has seen.
+ *
+ * A feed made more than an hour ago (the Pi's copy while the boat's uplink is
+ * down) is "Cyclone data unavailable since" the time it was made, its storms
+ * shown as the last known; a JTWC warning whose product did not come, with
+ * no position in any list, is said by name ("Partial cyclone data").
  *
  * Saffir-Simpson category from max sustained wind (knots):
  *   TD: < 34 kts    TS: 34-63 kts    Cat 1: 64-82 kts
@@ -20,8 +27,8 @@ import { satelliteModeBlocks } from '../networkPolicy';
 import { withDeadline } from '../../utils/deadline';
 import { piCache } from '../PiCacheService';
 import type { WindGrid } from './windField';
-import { parseEsriForecast, type EsriForecastStorm } from '../../supabase/functions/_shared/cyclone/esri';
 import { cycloneCentre, trackIssuerLabel } from '../../supabase/functions/_shared/cyclone/centres';
+import type { CycloneFeed, FeedList, UnplacedWarning } from '../../supabase/functions/_shared/cyclone/feed';
 
 const log = createLogger('CycloneTrackingService');
 export interface CyclonePosition {
@@ -46,8 +53,10 @@ export interface ActiveCyclone {
     maxWindKts: number;
     minPressureMb: number | null;
     nature: string; // TY, TS, TD, DB, etc.
-    /** Who issued forecastTrack (the Esri feed: NHC/CPHC for AL/EP/CP, JTWC elsewhere) and when (129-09). */
+    /** Who issued forecastTrack (NHC/CPHC from NOAA, JTWC elsewhere) and when (129-09). */
     forecastBy?: { by: 'NHC' | 'CPHC' | 'JTWC'; advisory: string; issued: string | null };
+    /** Whose position currentPosition is, credited where no track is drawn (129-09b). */
+    positionBy?: 'NHC' | 'CPHC' | 'JTWC';
     /** The issuer's own published polygon: NHC's cone, or JTWC's danger area. Never generated here. */
     cone?: GeoJSON.Polygon | GeoJSON.MultiPolygon;
     /** How the chart, the card and the push name forecastTrack's issuer: official, or not. */
@@ -70,32 +79,28 @@ export interface CycloneModelTrack {
 
 // ── Constants ──────────────────────────────────────────────
 
-// The storm catalogue. knackwx publishes no terms of use or uptime statement
-// (https://www.knackwx.com/ is a bare page, read 2026-10-14): a catalogue only,
-// with positions and tracks from NOAA/JTWC. A direct source is follow-up work.
-const ATCF_URL = 'https://api.knackwx.com/atcf/v2';
 const IBTRACS_URL =
     'https://www.ncei.noaa.gov/data/international-best-track-archive-for-climate-stewardship-ibtracs/v04r01/access/csv/ibtracs.ACTIVE.list.v04r01.csv';
-const NOAA_FORECAST_URL =
-    'https://services9.arcgis.com/RHVPKKiFTONKtxq3/ArcGIS/rest/services/Active_Hurricanes_v1/FeatureServer/0/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=500';
-const NOAA_OBSERVED_URL =
-    'https://services9.arcgis.com/RHVPKKiFTONKtxq3/ArcGIS/rest/services/Active_Hurricanes_v1/FeatureServer/1/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=500';
-/**
- * Layer 4: NHC's own forecast cone, and JTWC's danger area, as published.
- * Layers 0, 1 and 4 are Esri's Living Atlas item "Active Hurricanes, Cyclones
- * and Typhoons": NHC's and JTWC's data under the Esri Master License
- * Agreement, credited "NHC, JTWC, Esri", so the card credits Esri as well
- * (see supabase/functions/_shared/cyclone/centres.ts on that access).
- */
-const NOAA_CONE_URL =
-    'https://services9.arcgis.com/RHVPKKiFTONKtxq3/ArcGIS/rest/services/Active_Hurricanes_v1/FeatureServer/4/query?where=1%3D1&outFields=STORMNAME&geometryPrecision=3&f=geojson';
 
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
-const CACHE_VERSION = 9; // v9: never manufacture forecast positions from track history
+const CACHE_VERSION = 10; // v10: the warning centres' own feed (129-09b)
+/**
+ * A feed made longer ago than this is not today's ocean. A healthy boat's is
+ * always younger: the Pi keeps its copy 10 min, and up to 30 min more while it
+ * revalidates (pi-cache TTL.CYCLONE_FEED); the edge function 10 min, and its
+ * answer says max-age 5 min.
+ */
+const FEED_MAX_AGE_MS = 60 * 60 * 1000;
 
 // ── Cache ──────────────────────────────────────────────────
 
-let cachedCyclones: { data: ActiveCyclone[]; fetchedAt: number; version: number } | null = null;
+let cachedCyclones: {
+    data: ActiveCyclone[];
+    fetchedAt: number;
+    version: number;
+    /** When the feed these storms came from was made (its generatedAt). */
+    generatedAt: number;
+} | null = null;
 let inflightFetch: Promise<ActiveCyclone[]> | null = null;
 /** Since when the catalogue feed has failed; null while it answers (129-09: never an empty all-clear). */
 let feedDownSince: number | null = null;
@@ -103,16 +108,34 @@ let feedDownSince: number | null = null;
 let forecastDownSince: number | null = null;
 /** Since when the issuers' cones have failed. */
 let coneDownSince: number | null = null;
+/** Since when each storm list (NHC, JTWC, the vitals) has not answered, inside a feed that did. */
+const listDownSince = new Map<FeedList, number>();
+const LIST_NAMES: Record<FeedList, string> = { nhc: 'NHC storm list', jtwc: 'JTWC', vitals: 'NCEP storm vitals' };
+/** Since when JTWC has listed warnings whose product did not come and that no list places, and which. */
+let unplacedDown: { since: number; source: string } | null = null;
+
+/** "JTWC warning on ZZHANUL (WP29)": the warnings by name, the key alone where it has none. */
+function unplacedSource(list: UnplacedWarning[]): string {
+    const names = list.map((u) => (u.name && u.name !== u.key ? `${u.name} (${u.key})` : u.key));
+    return `JTWC warning${list.length > 1 ? 's' : ''} on ${names.join(', ')}`;
+}
 
 export function cycloneFeedStatus(): {
     unavailableSince: number | null;
     forecastUnavailableSince: number | null;
     coneUnavailableSince: number | null;
+    sourcesUnavailable: { source: string; since: number }[];
 } {
     return {
         unavailableSince: feedDownSince,
         forecastUnavailableSince: forecastDownSince,
         coneUnavailableSince: coneDownSince,
+        sourcesUnavailable: [
+            ...(['nhc', 'jtwc', 'vitals'] as const)
+                .filter((l) => listDownSince.has(l))
+                .map((l) => ({ source: LIST_NAMES[l], since: listDownSince.get(l)! })),
+            ...(unplacedDown ? [{ source: unplacedDown.source, since: unplacedDown.since }] : []),
+        ],
     };
 }
 
@@ -140,22 +163,6 @@ function fuzzyGet<T>(map: Map<string, T>, name: string): T | undefined {
         if (key.startsWith(name) || name.startsWith(key)) return val;
     }
     return undefined;
-}
-
-// ── ATCF JSON Response Type ───────────────────────────────
-
-interface ATCFStorm {
-    atcf_id: string;
-    long_atcf_id: string;
-    storm_name: string;
-    analysis_time: string;
-    latitude: number;
-    longitude: number;
-    cyclone_nature: string;
-    winds: number;
-    pressure: number;
-    last_updated: string;
-    origin_basin: string;
 }
 
 // ── IBTrACS CSV Parser (for track history) ────────────────
@@ -205,120 +212,23 @@ function parseIBTrACStracks(csv: string): Map<string, CyclonePosition[]> {
     return tracks;
 }
 
-// ── Primary Fetch: ATCF API (real-time) ──────────────────
+// ── The warning centres' feed (129-09b) ─────────────────
 
-async function fetchATCF(): Promise<ATCFStorm[]> {
-    log.info('[CYCLONE] Fetching real-time ATCF data...');
-
-    // Route through Pi Cache's dedicated cyclone endpoint (aligns with scheduler pre-fetch)
-    if (piCache.isAvailable()) {
-        try {
-            const result = await piCache.fetch<ATCFStorm[]>('/api/misc/cyclones', {}, async () => {
-                throw new Error('fallback');
-            });
-            if (result.source !== 'direct' && Array.isArray(result.data)) {
-                log.info(`[CYCLONE] ATCF via Pi: ${result.data.length} systems (${result.source})`);
-                return result.data;
-            }
-        } catch {
-            // Pi failed — fall through to direct fetch
-        }
-    }
-
-    const response = await withDeadline(fetch(ATCF_URL), 15_000, 'ATCF fetch');
-    // A failed feed is not an empty ocean: thrown, so the catalogue says unavailable.
-    if (!response.ok) throw new Error(`ATCF fetch failed: HTTP ${response.status}`);
-    const data: ATCFStorm[] = await response.json();
-    log.info(`[CYCLONE] ATCF: ${data.length} systems returned`);
-    return data;
-}
-
-// ── Tertiary Fetch: NOAA ArcGIS Forecast Points ─────────
-
-interface NOAAForecastFeature {
-    geometry: { type: string; coordinates: [number, number] };
-    properties: {
-        STORMNAME: string;
-        MAXWIND: number;
-        MSLP: number;
-        DATELBL: string;
+/** The cyclone-feed answer, through the Pi when the boat has one; throws when it does not come. */
+async function fetchFeed(): Promise<CycloneFeed> {
+    const direct = async (): Promise<CycloneFeed> => {
+        const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+        if (!supabaseUrl) throw new Error('No SUPABASE_URL for the cyclone feed');
+        const response = await withDeadline(fetch(`${supabaseUrl}/functions/v1/cyclone-feed`), 15_000, 'cyclone feed');
+        // A failed feed is not an empty ocean: thrown, so the catalogue says unavailable.
+        if (!response.ok) throw new Error(`cyclone feed HTTP ${response.status}`);
+        return response.json();
     };
-}
-
-/** The feed's forecast points by storm name, with who issued them (_shared/cyclone/esri.ts); null when it failed. */
-async function fetchNOAAForecast(): Promise<Map<string, EsriForecastStorm> | null> {
-    try {
-        const response = await withDeadline(fetch(NOAA_FORECAST_URL), 15_000, 'NOAA forecast fetch');
-        if (!response.ok) return null;
-        return new Map(parseEsriForecast(await response.json()).map((s) => [s.name, s]));
-    } catch (err) {
-        log.warn('[CYCLONE] NOAA forecast fetch failed:', err);
-        return null;
-    }
-}
-
-/** The issuers' own polygons by storm name; null when the layer failed. */
-async function fetchNOAACones(): Promise<Map<string, GeoJSON.Polygon | GeoJSON.MultiPolygon> | null> {
-    const cones = new Map<string, GeoJSON.Polygon | GeoJSON.MultiPolygon>();
-    try {
-        const response = await withDeadline(fetch(NOAA_CONE_URL), 15_000, 'NOAA cone fetch');
-        if (!response.ok) return null;
-        const geojson: GeoJSON.FeatureCollection = await response.json();
-        for (const f of geojson.features ?? []) {
-            const name = String(f.properties?.STORMNAME ?? '').toUpperCase();
-            const g = f.geometry;
-            if (name && (g?.type === 'Polygon' || g?.type === 'MultiPolygon')) cones.set(name, g);
-        }
-    } catch {
-        log.warn('[CYCLONE] NOAA cone fetch failed');
-        return null;
-    }
-    return cones;
-}
-
-// ── NOAA Observed Position (NHC satellite-derived) ──────
-
-/**
- * Fetch NOAA NHC observed (advisory) positions.
- * These are satellite-verified and much more accurate than ATCF automated analyses.
- * Layer 1 of the Active Hurricanes service.
- */
-async function fetchNOAAObserved(): Promise<Map<string, CyclonePosition[]>> {
-    try {
-        log.info('[CYCLONE] Fetching NOAA NHC observed positions...');
-        const response = await withDeadline(fetch(NOAA_OBSERVED_URL), 15_000, 'NOAA observed fetch');
-        if (!response.ok) {
-            log.warn(`[CYCLONE] NOAA observed fetch HTTP ${response.status}`);
-            return new Map();
-        }
-        const geojson: { features: NOAAForecastFeature[] } = await response.json();
-
-        const observed = new Map<string, CyclonePosition[]>();
-
-        for (const f of geojson.features) {
-            const name = f.properties.STORMNAME?.toUpperCase();
-            if (!name || !f.geometry?.coordinates) continue;
-
-            const [lon, lat] = f.geometry.coordinates;
-            const windKts = f.properties.MAXWIND > 0 ? f.properties.MAXWIND : null;
-            const pressureMb = f.properties.MSLP > 0 && f.properties.MSLP < 9999 ? f.properties.MSLP : null;
-
-            // Parse time if available
-            let time = '';
-            if (f.properties.DATELBL) {
-                time = f.properties.DATELBL;
-            }
-
-            if (!observed.has(name)) observed.set(name, []);
-            observed.get(name)!.push({ lat, lon, time, windKts, pressureMb });
-        }
-
-        log.info(`[CYCLONE] NOAA observed: ${observed.size} storm(s) with track history`);
-        return observed;
-    } catch (err) {
-        log.warn('[CYCLONE] NOAA observed fetch failed:', err);
-        return new Map();
-    }
+    const feed = piCache.isAvailable()
+        ? (await piCache.fetch<CycloneFeed>('/api/misc/cyclone-feed', {}, direct)).data
+        : await direct();
+    if (!feed || !Array.isArray(feed.storms) || !feed.sources) throw new Error('Not a cyclone feed');
+    return feed;
 }
 
 async function fetchIBTrACStracks(): Promise<Map<string, CyclonePosition[]>> {
@@ -577,7 +487,7 @@ export async function fetchPressureEye(approxLat: number, approxLon: number): Pr
 
 /**
  * Fetch active tropical cyclones worldwide.
- * Uses real-time ATCF API for current positions + IBTrACS for track history.
+ * From the warning centres' own feed (cyclone-feed), with IBTrACS for track history.
  */
 export async function fetchActiveCyclones(): Promise<ActiveCyclone[]> {
     // Check cache
@@ -606,102 +516,74 @@ export async function fetchActiveCyclones(): Promise<ActiveCyclone[]> {
 
 async function _fetchActiveCyclonesImpl(): Promise<ActiveCyclone[]> {
     try {
-        // Fetch real-time positions + historical tracks + NOAA forecast + NOAA observed in parallel
-        const [atcfStorms, trackHistory, forecastFeed, observedTracks, coneFeed] = await Promise.all([
-            fetchATCF(),
-            fetchIBTrACStracks(),
-            fetchNOAAForecast(),
-            fetchNOAAObserved(),
-            fetchNOAACones(),
-        ]);
-        feedDownSince = null;
-        // A missing half is said ("Forecast track unavailable since …"), since its first failure.
-        forecastDownSince = forecastFeed ? null : (forecastDownSince ?? Date.now());
-        coneDownSince = coneFeed ? null : (coneDownSince ?? Date.now());
-        const forecastTracks = forecastFeed ?? new Map<string, EsriForecastStorm>();
-        const cones = coneFeed ?? new Map<string, GeoJSON.Polygon | GeoJSON.MultiPolygon>();
+        const [feed, trackHistory] = await Promise.all([fetchFeed(), fetchIBTrACStracks()]);
+        const t = Date.now();
+        // An old feed (the Pi's copy while the boat's uplink is down) is said to be one:
+        // unavailable since it was made, its storms the last known, never today's ocean.
+        const made = Date.parse(String(feed.generatedAt ?? ''));
+        const oldSince = Number.isFinite(made) && t - made <= FEED_MAX_AGE_MS ? null : Number.isFinite(made) ? made : t;
+        if (oldSince !== null && cachedCyclones && cachedCyclones.generatedAt >= oldSince) {
+            // What this device already holds is newer: kept, and said once it is past the hour too.
+            const held = cachedCyclones.generatedAt;
+            if (t - held > FEED_MAX_AGE_MS) feedDownSince = Math.min(feedDownSince ?? held, held);
+            return cachedCyclones.data;
+        }
+        // Each storm list that did not answer is said by name, since it first failed.
+        for (const list of ['nhc', 'jtwc', 'vitals'] as const) {
+            if (feed.sources[list] === 'ok') listDownSince.delete(list);
+            else if (!listDownSince.has(list)) listDownSince.set(list, t);
+        }
+        // No storm list at all: unavailable, never an empty ocean.
+        if (listDownSince.size === 3) throw new Error('No cyclone storm list answered');
+        // JTWC warnings no list places: no storm to draw, so said by name.
+        const unplaced = Array.isArray(feed.unplaced) ? feed.unplaced : [];
+        unplacedDown = unplaced.length ? { since: unplacedDown?.since ?? t, source: unplacedSource(unplaced) } : null;
+        feedDownSince = oldSince === null ? null : Math.min(feedDownSince ?? oldSince, oldSince);
+        // A missing track or cone is said ("Forecast track unavailable since …"), since its first failure.
+        const trackDown = feed.storms.some((s) => s.forecastUnavailable);
+        const coneDown = feed.storms.some((s) => s.forecastUnavailable || s.forecast?.coneUnavailable);
+        forecastDownSince = trackDown ? (forecastDownSince ?? t) : null;
+        coneDownSince = coneDown ? (coneDownSince ?? t) : null;
 
         const cyclones: ActiveCyclone[] = [];
 
-        for (const s of atcfStorms) {
+        for (const s of feed.storms) {
+            const winds = s.current.windKts;
             // Skip invests and weak disturbances (< TS strength)
-            if (s.winds < 34 || s.storm_name === 'INVEST') continue;
+            if ((winds !== null && winds < 34) || Number(s.key.slice(2)) >= 90) continue;
 
-            const cat = windToCategory(s.winds);
+            const cat = windToCategory(winds ?? 34);
 
-            // Get historical track from IBTrACS if available
-            const name = s.storm_name.toUpperCase();
-            const histTrack = fuzzyGet(trackHistory, name) ?? [];
+            // Track history: IBTrACS, or the issuer's own past track where that is longer.
+            const name = s.name.toUpperCase();
+            const ibtracs = fuzzyGet(trackHistory, name) ?? [];
+            const past = s.forecast?.past ?? [];
+            const histTrack = past.length > ibtracs.length ? past : ibtracs;
 
-            // Get NOAA forecast positions if available, and who issued them
-            const fc = fuzzyGet(forecastTracks, name);
-            const forecast = fc?.points ?? [];
-
-            // Add current position to track
-            const currentPos: CyclonePosition = {
-                lat: s.latitude,
-                lon: s.longitude,
-                time: s.analysis_time,
-                windKts: s.winds,
-                pressureMb: s.pressure,
-            };
+            const currentPos: CyclonePosition = { ...s.current };
 
             // Combine historical track + current position
-            const fullTrack = [...histTrack, currentPos].sort(
+            const fullTrack = [...histTrack.filter((p) => p.time !== currentPos.time), currentPos].sort(
                 (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
             );
 
+            const fc = s.forecast;
             cyclones.push({
-                sid: s.long_atcf_id || s.atcf_id,
-                name: s.storm_name,
-                basin: s.origin_basin,
+                sid: s.sid,
+                name: s.name,
+                basin: s.basin,
                 category: cat.category,
                 categoryLabel: cat.label,
                 currentPosition: currentPos,
                 track: fullTrack,
-                forecastTrack: forecast,
-                maxWindKts: s.winds,
-                minPressureMb: s.pressure,
-                nature: s.cyclone_nature,
-                ...(fc ? { forecastBy: { by: fc.issuer, advisory: fc.advisory, issued: fc.issued } } : {}),
-                ...(fuzzyGet(cones, name) ? { cone: fuzzyGet(cones, name) } : {}),
+                forecastTrack: fc?.points.map((p) => ({ ...p })) ?? [],
+                maxWindKts: winds ?? 0,
+                minPressureMb: s.current.pressureMb,
+                nature: s.nature,
+                positionBy: s.positionBy,
+                ...(fc ? { forecastBy: { by: fc.by, advisory: fc.advisory, issued: fc.issued } } : {}),
+                ...(fc?.cone ? { cone: fc.cone as GeoJSON.Polygon | GeoJSON.MultiPolygon } : {}),
             });
-        }
-
-        // ── Merge NOAA observed track history ──
-        // NOAA Layer 1 has satellite-verified track points from NHC advisories.
-        // Merge these into the storm's track for a richer history,
-        // but ONLY override position if NOAA data is more recent than ATCF.
-        for (const c of cyclones) {
-            const observedPositions = fuzzyGet(observedTracks, c.name.toUpperCase());
-            if (!observedPositions || observedPositions.length === 0) continue;
-
-            // Merge observed track into existing track (adds density)
-            if (observedPositions.length > c.track.length) {
-                c.track = observedPositions;
-            }
-
-            // Only override current position if NOAA observation is newer
-            const latestObserved = observedPositions[observedPositions.length - 1];
-            const atcfTime = new Date(c.currentPosition.time).getTime();
-            const noaaTime = latestObserved.time ? new Date(latestObserved.time).getTime() : 0;
-
-            if (noaaTime > atcfTime && !isNaN(noaaTime)) {
-                log.info(
-                    `[CYCLONE] 📍 ${c.name}: NOAA observed is newer — using (${latestObserved.lat.toFixed(1)}, ${latestObserved.lon.toFixed(1)}) instead of ATCF (${c.currentPosition.lat.toFixed(1)}, ${c.currentPosition.lon.toFixed(1)})`,
-                );
-                c.currentPosition = {
-                    lat: latestObserved.lat,
-                    lon: latestObserved.lon,
-                    time: latestObserved.time || c.currentPosition.time,
-                    windKts: latestObserved.windKts ?? c.currentPosition.windKts,
-                    pressureMb: latestObserved.pressureMb ?? c.currentPosition.pressureMb,
-                };
-            } else {
-                log.info(
-                    `[CYCLONE] 📍 ${c.name}: ATCF position is more recent — keeping (${c.currentPosition.lat.toFixed(1)}, ${c.currentPosition.lon.toFixed(1)})`,
-                );
-            }
         }
 
         // ── Interpolate current position along forecast track ──
@@ -864,14 +746,19 @@ async function _fetchActiveCyclonesImpl(): Promise<ActiveCyclone[]> {
         // A storm that drops out of the feed is kept, marked, for 12 h: not
         // erased in silence while it may still be near a boat (129-09).
         const now0 = Date.now();
-        const inFeed = new Set(atcfStorms.map((s) => s.long_atcf_id || s.atcf_id));
+        const inFeed = new Set(feed.storms.map((s) => s.sid));
         for (const prev of cachedCyclones?.data ?? []) {
             if (inFeed.has(prev.sid)) continue;
             const droppedAt = prev.droppedAt ?? new Date(now0).toISOString();
             if (now0 - Date.parse(droppedAt) <= 12 * 3_600_000) cyclones.push({ ...prev, droppedAt });
         }
 
-        cachedCyclones = { data: cyclones, fetchedAt: Date.now(), version: CACHE_VERSION };
+        cachedCyclones = {
+            data: cyclones,
+            fetchedAt: Date.now(),
+            version: CACHE_VERSION,
+            generatedAt: Number.isFinite(made) ? made : t,
+        };
         return cyclones;
     } catch (e) {
         log.error('[CYCLONE] ❌ Fetch error:', e);

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+    <channel>
+        <title>JTWC TROPICAL CYCLONE INFORMATION FEED</title>
+        <description>Fictional fixture in the layout of the JTWC RSS feed (129-09b); no real storm.</description>
+        <pubDate>Tue, 13 Oct 2026 09:30:00 +0000</pubDate>
+        <item>
+            <title>Current Northwest Pacific/North Indian Ocean* Tropical Systems</title>
+            <description><![CDATA[<ul><li><font color='red'>No Current Tropical Cyclone Warnings.</font></li></ul>
+]]></description>
+            <guid>NWPAC-NIO-WARNINGS</guid>
+        </item>
+        <item>
+            <title>Current Central/Eastern Pacific Tropical Systems</title>
+            <description><![CDATA[<p><b>Hurricane  41E (Zzella) Warning #24 </b><br>
+<b>Issued at 13/1200Z<b>
+
+<ul>
+<li><a href='https://www.metoc.navy.mil/jtwc/products/ep4126web.txt' target='newwin'>TC Warning Text </a></li>
+ <li><a href='https://www.metoc.navy.mil/jtwc/products/ep4126.tcw' target='newwin'>JMV 3.0 Data</a></li>
+ <li><a href='https://www.metoc.navy.mil/jtwc/products/ep4126.kmz' target='newwin'>Google Earth Overlay</a></li>
+ </ul>
+]]></description>
+            <guid>EPAC-CPAC-WARNINGS</guid>
+        </item>
+        <item>
+            <title>Current Southern Hemisphere Tropical Systems</title>
+            <description><![CDATA[<p><b>Tropical Cyclone  37P (Zzcora) Warning #07 </b><br>
+<b>Issued at 13/0900Z<b>
+
+<ul>
+<li><a href='https://www.metoc.navy.mil/jtwc/products/sh3727web.txt' target='newwin'>TC Warning Text </a></li>
+ <li><a href='https://www.metoc.navy.mil/jtwc/products/sh3727.gif' target='newwin'>TC Warning Graphic</a></li>
+ <li><a href='https://www.metoc.navy.mil/jtwc/products/sh3727.tcw' target='newwin'>JMV 3.0 Data</a></li>
+ <li><a href='https://www.metoc.navy.mil/jtwc/products/sh3727.kmz' target='newwin'>Google Earth Overlay</a></li>
+ </ul>
+<br>
+<p><b>Tropical Cyclone  38P (Zzdora) Warning #12 </b><br>
+<b>Issued at 13/0900Z<b>
+
+<ul>
+<li><a href='https://www.metoc.navy.mil/jtwc/products/sh3827web.txt' target='newwin'>TC Warning Text </a></li>
+ <li><a href='https://www.metoc.navy.mil/jtwc/products/sh3827.tcw' target='newwin'>JMV 3.0 Data</a></li>
+ <li><a href='https://www.metoc.navy.mil/jtwc/products/sh3827.kmz' target='newwin'>Google Earth Overlay</a></li>
+ </ul>
+]]></description>
+            <guid>SH-WARNINGS</guid>
+        </item>
+    </channel>
+</rss>

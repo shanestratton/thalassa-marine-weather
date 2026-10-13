@@ -3,9 +3,11 @@
  *
  * Runs every 30 min from pg_cron (held migration 20261014120000_cyclone_watch)
  * through invoke_edge_function with the service key. Each run:
- *   1. fetches the storms: the Esri feed's forecast positions (NHC/CPHC
- *      official, JTWC advisory elsewhere), and the GFS tracker file for any
- *      storm that feed lacks;
+ *   1. fetches the storms direct from the warning centres (129-09b, no Esri,
+ *      no knackwx: _shared/cyclone/sources.ts fetchCycloneFeed): NHC/CPHC's
+ *      official track from NOAA, JTWC's advisory track elsewhere, then the
+ *      GFS tracker file for any storm neither covers, then the centre's
+ *      position alone from the storm list (NHC, JTWC, NCEP's TC vitals);
  *   2. finds each boat (resolveBoat): the Pi's fix (vessel_telemetry) or the
  *      fix the phone already sends (guardian_profiles' last known, which
  *      check-weather-alerts reads too) while under 72 h old, else the home
@@ -14,61 +16,39 @@
  *      near the boat" not turned off. No new position is shared, and
  *      positions are read here and nowhere else;
  *   3. decides with _shared/cyclone/watch.ts (levels, the 72 h track rule,
- *      collapse, re-arming, quiet hours: tests/CycloneWatch.test.ts);
+ *      collapse, re-arming, quiet hours on each boat's own clock from
+ *      tz-lookup here on the server: tests/CycloneWatch.test.ts);
  *   4. queues the pushes in push_notification_queue (send-push delivers them,
  *      one lock-screen notification per storm), keeps the per-boat state in
  *      cyclone_watch_alerts, and writes cyclone_watch_status, which the app
  *      reads before it shows the switch.
  * A run where no source answers assesses nothing and clears nothing, and the
- * status says since when the data has been unavailable. Logs carry counts
- * only: never a position or a user id.
+ * status says since when the storm lists have been unavailable, and each
+ * source since when it has. Logs carry counts only: never a position or a
+ * user id.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import tzLookup from 'npm:tz-lookup@6.1.25';
 import { jsonResponse, requireServiceRolePost } from '../_shared/http-security.ts';
-import { cycleIso, parseAdeck } from '../_shared/cyclone/adeck.ts';
-import { fetchEsriForecast, fetchGfsAtcfunix } from '../_shared/cyclone/sources.ts';
+import { parseAdeck } from '../_shared/cyclone/adeck.ts';
+import { fetchCycloneFeed, fetchGfsAtcfunix } from '../_shared/cyclone/sources.ts';
 import {
     type Boat,
-    gcDistanceNm,
+    feedPartial,
+    gfsOnlyStorms,
+    positionOnlyStorms,
     resolveBoat,
     runWatch,
-    TRACK_WINDOW_MS,
     type WatchState,
     type WatchStorm,
-    watchStormsFromEsri,
+    watchStormsFromFeed,
 } from '../_shared/cyclone/watch.ts';
 
-const H = 3_600_000;
 /** cyclone_watch_alerts.storm_key's CHECK: a key it would refuse is never stored or pushed under. */
 const STORM_KEY = /^[A-Z0-9]{2,12}$/;
 
 type Row = Record<string, unknown>;
 const asRecord = (v: unknown): Row | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Row) : null);
-
-/** GFS tracker storms the Esri feed does not carry (not invests): the model's track, labelled as such. */
-function gfsOnlyStorms(text: string, known: WatchStorm[]): WatchStorm[] {
-    const out: WatchStorm[] = [];
-    for (const t of parseAdeck(text)) {
-        const iso = cycleIso(t.cycle);
-        if ((t.tech !== 'AVNO' && t.tech !== 'GFSO') || !iso || Number(t.storm.slice(2)) >= 90) continue;
-        if (t.points[0]?.tau !== 0) continue;
-        const t0 = Date.parse(iso);
-        const current = { lat: t.points[0].lat, lon: t.points[0].lon };
-        if (known.some((k) => k.key === t.storm || gcDistanceNm(k.current, current) < 300)) continue;
-        const winds = t.points.filter((p) => p.tau * H <= TRACK_WINDOW_MS && p.vmax !== null).map((p) => p.vmax!);
-        out.push({
-            key: t.storm,
-            name: `Tropical cyclone ${t.storm}`,
-            issuer: 'GFS',
-            advisory: t.cycle,
-            issuedMs: t0,
-            current,
-            track: t.points.map((p) => ({ lat: p.lat, lon: p.lon, t: t0 + p.tau * H })),
-            maxWindKts: winds.length ? Math.max(...winds) : null,
-        });
-    }
-    return out;
-}
 
 function chunk<T>(items: T[], size: number): T[][] {
     const out: T[][] = [];
@@ -88,12 +68,18 @@ Deno.serve(async (req: Request) => {
         const nowMs = Date.now();
         const nowIso = new Date(nowMs).toISOString();
 
-        // ── 1. The storms ──
-        const [esri, gfs] = await Promise.all([fetchEsriForecast(), fetchGfsAtcfunix(nowMs)]);
-        const fromEsri = esri ? watchStormsFromEsri(esri) : [];
-        const storms: WatchStorm[] | null = esri || gfs
-            ? [...fromEsri, ...(gfs ? gfsOnlyStorms(gfs.text, fromEsri) : [])].filter((s) => STORM_KEY.test(s.key))
+        // ── 1. The storms: the issuer's track, else GFS's, else the centre's position ──
+        const [feed, gfs] = await Promise.all([fetchCycloneFeed(nowMs), fetchGfsAtcfunix(nowMs)]);
+        const tracked = feed ? watchStormsFromFeed(feed.storms) : [];
+        const names = new Map((feed?.storms ?? []).map((s) => [s.key, s.name]));
+        const modelled = gfs ? gfsOnlyStorms(parseAdeck(gfs.text), tracked, names) : [];
+        const covered = new Set([...tracked, ...modelled].map((s) => s.key));
+        const positions = feed ? positionOnlyStorms(feed.storms).filter((s) => !covered.has(s.key)) : [];
+        const storms: WatchStorm[] | null = feed || gfs
+            ? [...tracked, ...modelled, ...positions].filter((s) => STORM_KEY.test(s.key))
             : null;
+        // A storm list, NOAA's or JTWC's tracks, or a JTWC warning no list places: part of the feed is not answering.
+        const partial = feedPartial(feed);
 
         // ── 2. Prior state ──
         const states = new Map<string, WatchState>();
@@ -167,7 +153,7 @@ Deno.serve(async (req: Request) => {
         }
 
         // ── 4. Decide ──
-        const out = runWatch({ storms, boats, states, nowMs });
+        const out = runWatch({ storms, boats, states, nowMs, partial, zoneAt: tzLookup });
 
         // ── 5. Queue the pushes, then keep the state of those that queued ──
         // One row at a time: each insert posts to send-push at once, and one
@@ -214,15 +200,33 @@ Deno.serve(async (req: Request) => {
         // ── 6. Answer: the app shows the switch once this row exists ──
         const { data: prev } = await db
             .from('cyclone_watch_status')
-            .select('unavailable_since')
+            .select('unavailable_since, sources')
             .eq('id', 1)
             .maybeSingle();
-        const unavailableSince = esri ? null : (prev?.unavailable_since ?? nowIso);
+        // Unavailable while no storm list answers; GFS alone is a model, not the list.
+        const unavailableSince = feed ? null : (prev?.unavailable_since ?? nowIso);
+        // Each source, and since when it has not answered (kept from the run before).
+        const before = asRecord(prev?.sources) ?? {};
+        const now: Record<string, string> = {
+            nhc: feed?.sources.nhc ?? 'unavailable',
+            jtwc: feed?.sources.jtwc ?? 'unavailable',
+            vitals: feed?.sources.vitals ?? 'unavailable',
+            noaa: feed?.sources.noaa ?? 'unavailable',
+            jtwcTracks: feed?.sources.jtwcTracks ?? 'unavailable',
+            gfs: gfs ? 'ok' : 'unavailable',
+        };
+        const sources: Row = {};
+        for (const [name, status] of Object.entries(now)) {
+            const was = asRecord(before[name]);
+            sources[name] = status === 'unavailable'
+                ? { unavailable_since: typeof was?.unavailable_since === 'string' ? was.unavailable_since : nowIso }
+                : status;
+        }
         const { error: statusError } = await db.from('cyclone_watch_status').upsert({
             id: 1,
             ran_at: nowIso,
             unavailable_since: unavailableSince,
-            sources: { esri: esri ? 'ok' : 'unavailable', gfs: gfs ? 'ok' : 'unavailable' },
+            sources,
             storms: storms?.length ?? null,
             pushes: out.pushes.length - failed.size,
         });

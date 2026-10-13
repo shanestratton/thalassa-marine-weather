@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 // The cyclone watcher's tables, its status call and its cron job (129-09).
 // Written with 129, NOT pushed: supabase db push applies every file in
 // supabase/migrations, and this one waits until Shane has deployed send-push,
-// fetch-gfs-tracker and cyclone-watch. Until then nothing answers, so the
+// cyclone-feed, fetch-gfs-tracker and cyclone-watch. Until then nothing answers, so the
 // app keeps the switch hidden. It is released by moving it into
 // supabase/migrations under a stamp newer than the newest applied one, and
 // this test is rewritten in that same commit to read the released file and
@@ -66,5 +66,20 @@ describe('cyclone watch migration', () => {
         expect(edge).toContain(".from('push_notification_queue')");
         // Positions are read inside the watcher only and never logged.
         expect(edge).not.toMatch(/console\.\w+\([^)]*\b(lat|lon|position)\b/);
+    });
+
+    it('gives runWatch each boat’s real clock and the feed’s gaps (129-09b), on the server only', () => {
+        const edge = readFileSync('supabase/functions/cyclone-watch/index.ts', 'utf8');
+        // Quiet hours on the IANA zone of the boat's position; without this one line they fall
+        // back to the nautical clock and a Sydney boat in summer gets a notice at 22:30.
+        expect(edge).toContain("import tzLookup from 'npm:tz-lookup@6.1.25';");
+        expect(edge).toMatch(/runWatch\(\{[^}]*\bzoneAt: tzLookup\b[^}]*\}\)/);
+        // A storm missing while part of the feed is down is "not answering", never "no longer in the feed".
+        expect(edge).toContain('const partial = feedPartial(feed);');
+        expect(edge).toMatch(/runWatch\(\{[^}]*\bpartial\b[^}]*\}\)/);
+        // The lookup stays out of the app bundle.
+        for (const app of ['services/weather/CycloneTrackingService.ts', 'components/map/useCycloneLayer.ts']) {
+            expect(readFileSync(app, 'utf8')).not.toMatch(/tz-lookup/);
+        }
     });
 });

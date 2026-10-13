@@ -196,7 +196,7 @@ const ROWS: Row[] = [
     ['GET /api/tides/stations', 'read'],
     ['GET /api/tides/noaa', 'read'],
     ['GET /api/tides/sealevel', 'read'],
-    ['GET /api/misc/cyclones', 'read'],
+    ['GET /api/misc/cyclone-feed', 'read'],
     ['GET /api/misc/cyclones/:id', 'read'],
     ['GET /api/misc/buoys', 'read'],
     ['GET /api/misc/buoys/:stationId', 'read'],

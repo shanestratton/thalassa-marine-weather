@@ -4,17 +4,12 @@
  * Warning Centre (TCWC) for that ocean (129-09). Pure and dependency-free:
  * the app's storm layer and the cyclone-watch push both read it.
  *
- * Drawn: NHC and CPHC. Their own products are US Government public domain
- * (weather.gov/disclaimer, read 2026-10-14), but Thalassa reads them, and
- * JTWC's, through Esri's Living Atlas item "Active Hurricanes, Cyclones and
- * Typhoons" (248e7b5827a34b248647afb012c58787), which Esri licenses under its
- * Master License Agreement and credits "NHC, JTWC, Esri" (item read
- * 2026-10-14). So every track and cone drawn from it credits Esri too; whether
- * that access suits a commercial app is Shane's call (NOAA's own
- * mapservices.weather.noaa.gov NHC_tropical_weather service is the direct
- * route for NHC and CPHC). Every other centre is a link until its terms are
+ * Drawn: NHC and CPHC, read direct from NOAA (129-09b: NOAA's own
+ * NHC_tropical_weather MapServer and NHC's CurrentStorms.json; US Government
+ * work, public domain per weather.gov/disclaimer, read 2026-10-14, and still
+ * credited "NHC (NOAA)"). Every other centre is a link until its terms are
  * checked. JTWC is never the official warning: it is a US military advisory,
- * and is labelled as one.
+ * read from JTWC's own products, and is labelled as one.
  *
  * Areas, checked 2026-10-14:
  *   RSMC Miami (NHC): North Atlantic, and the East Pacific east of 140°W.
@@ -124,17 +119,17 @@ export function cycloneCentre(lat: number, lon: number): CycloneCentre {
 export type TrackIssuer = 'NHC' | 'CPHC' | 'JTWC';
 
 /**
- * The Esri Active Hurricanes feed carries NHC/CPHC for AL, EP and CP, and JTWC
- * for every other basin. EP and CP are told apart by the storm's position
- * (west of 140°W north of the equator is CPHC's), as cycloneCentre does: an EP
- * storm keeps its id after it crosses into CPHC's waters.
+ * NHC or CPHC, from the product itself: the office in its AWIPS id ("MIA" for
+ * NHC in Miami, "HFO" for CPHC in Honolulu, as in .../text/HFOTCMEP4.shtml).
+ * An East Pacific storm keeps its EP id after it crosses into CPHC's waters,
+ * so the basin letters alone cannot say. With no office in the product, the
+ * storm's position decides, as cycloneCentre does (west of 140°W north of the
+ * equator is CPHC's).
  */
-export function esriTrackIssuer(basin: unknown, lat?: number, lon?: number): TrackIssuer {
-    const b = String(basin ?? '').toUpperCase();
-    if (b === 'AL') return 'NHC';
-    if (b !== 'EP' && b !== 'CP') return 'JTWC';
-    if (lat === undefined || lon === undefined || !Number.isFinite(lat) || !Number.isFinite(lon)) {
-        return b === 'CP' ? 'CPHC' : 'NHC';
+export function productIssuer(urls: unknown[], lat: number, lon: number): 'NHC' | 'CPHC' {
+    for (const u of urls) {
+        const office = /\/(MIA|HFO)TC[A-Z]{1,2}(?:AT|EP|CP)\d/i.exec(String(u ?? ''))?.[1]?.toUpperCase();
+        if (office) return office === 'HFO' ? 'CPHC' : 'NHC';
     }
     return cycloneCentre(lat, lon).id === 'cphc' ? 'CPHC' : 'NHC';
 }
@@ -159,16 +154,17 @@ export function utcLabel(ms: number): string {
 }
 
 /**
- * A forecast point's valid time: the feed's VALIDTIME ("DD/HHMM", UTC) in the
- * month before, of or after its advisory (ADVDATE, epoch ms), whichever puts
- * it nearest the advisory: an advisory issued just after 00Z on the 1st still
- * has tau 0 on the last day of the month before. A day that month does not
- * have (31 November) is not rolled into the next, and a time more than 3 days
- * before or 8 days after the advisory is no forecast point of it: null.
- * FLDATELBL is local time for NHC storms ("5:00 AM Tue MST"), so reading it as
- * UTC put East Pacific points seven hours early.
+ * A forecast point's valid time: VALIDTIME ("DD/HHMM", UTC; NOAA's forecast
+ * points, JTWC's DDHHMM stamps) in the month before, of or after a reference
+ * time near it (the advisory, epoch ms), whichever puts it nearest: an
+ * advisory issued just after 00Z on the 1st still has tau 0 on the last day of
+ * the month before. A day that month does not have (31 November) is not rolled
+ * into the next, and a time more than 3 days before or 8 days after the
+ * reference is no forecast point of it: null. NOAA's FLDATELBL is local time
+ * for NHC storms ("5:00 AM Tue MST"), so reading it as UTC put East Pacific
+ * points seven hours early.
  */
-export function esriValidTime(validTime: unknown, advDateMs: unknown): string | null {
+export function validTimeNear(validTime: unknown, advDateMs: unknown): string | null {
     const m = /^(\d{1,2})\/(\d{2})(\d{2})$/.exec(String(validTime ?? '').trim());
     const adv = Number(advDateMs);
     if (!m || !Number.isFinite(adv) || advDateMs == null || +m[2] > 23 || +m[3] > 59) return null;

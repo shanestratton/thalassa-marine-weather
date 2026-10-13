@@ -1,13 +1,27 @@
 /**
- * CycloneTrackingService tells the truth about its sources (129-09): who
- * issued each forecast (NHC/CPHC or JTWC, from the feed's basin), the
- * issuer's own cone, every model's track from fetch-gfs-tracker, and a feed
- * that fails is "unavailable since", never an empty all-clear. A storm that
- * drops out of the feed is kept, marked, for 12 h rather than erased.
+ * CycloneTrackingService tells the truth about its sources (129-09, and
+ * 129-09b: the storm list and the issuers' tracks now come from the
+ * cyclone-feed edge function, direct from NHC/CPHC (NOAA), JTWC and NCEP, with
+ * no Esri and no knackwx): who issued each forecast, the issuer's own cone,
+ * every model's track from fetch-gfs-tracker, and a feed that fails is
+ * "unavailable since", never an empty all-clear, per storm list as well as
+ * whole. A storm that drops out of the feed is kept, marked, for 12 h rather
+ * than erased.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CycloneFeed, FeedStorm } from '../supabase/functions/_shared/cyclone/feed';
 
-vi.mock('../services/PiCacheService', () => ({ piCache: { isAvailable: () => false } }));
+/** The boat's Pi: off, or serving its own copy of the feed. */
+const pi = vi.hoisted(() => ({ serve: null as null | (() => unknown) }));
+vi.mock('../services/PiCacheService', () => ({
+    piCache: {
+        isAvailable: () => pi.serve !== null,
+        fetch: async (_path: string, _q: unknown, direct: () => Promise<unknown>) =>
+            pi.serve
+                ? { data: pi.serve(), source: 'pi-stale', latencyMs: 1 }
+                : { data: await direct(), source: 'direct', latencyMs: 1 },
+    },
+}));
 vi.mock('../services/networkPolicy', () => ({ satelliteModeBlocks: () => false }));
 vi.mock('../utils/createLogger', () => ({ createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }) }));
 
@@ -15,105 +29,132 @@ const T0 = Date.parse('2026-10-13T14:00:00Z');
 const MIN = 60_000;
 
 interface Feed {
-    knack: 'ok' | 'down';
-    /** The issuers' forecast points and cones (FeatureServer layers 0 and 4). */
+    /** The cyclone-feed function itself. */
+    catalogue: 'ok' | 'down';
+    /** The issuers' tracks and cones (NOAA's MapServer, JTWC's products). */
     forecast: 'ok' | 'down';
+    /** Storm lists that did not answer, inside an answering feed. */
+    listsDown: ('nhc' | 'jtwc' | 'vitals')[];
     storms: string[];
+    /** JTWC warnings whose product did not come, placed by no list. */
+    unplaced: CycloneFeed['unplaced'];
 }
-const feed: Feed = { knack: 'ok', forecast: 'ok', storms: ['ZZELLA', 'ZZDORA'] };
+const feed: Feed = { catalogue: 'ok', forecast: 'ok', listsDown: [], storms: ['ZZELLA', 'ZZDORA'], unplaced: [] };
+const urls: string[] = [];
 
-const knackRow = (name: string) =>
-    name === 'ZZELLA'
-        ? {
-              atcf_id: '41E',
-              long_atcf_id: 'ep412026',
-              storm_name: 'ZZELLA',
-              analysis_time: '2026-10-13T12:00:00.000Z',
-              latitude: 18.1,
-              longitude: -108.1,
-              cyclone_nature: 'HU',
-              winds: 80,
-              pressure: 960,
-              origin_basin: 'E',
-              basin: 'EPAC',
-          }
-        : {
-              atcf_id: '38P',
-              long_atcf_id: 'sh382027',
-              storm_name: 'ZZDORA',
-              analysis_time: '2026-10-13T06:00:00.000Z',
-              latitude: -15,
-              longitude: 153,
-              cyclone_nature: 'TS',
-              winds: 55,
-              pressure: 995,
-              origin_basin: 'P',
-              basin: 'SHEM',
-          };
+const CONE = {
+    type: 'Polygon' as const,
+    coordinates: [
+        [
+            [-108, 18],
+            [-112, 22],
+            [-110, 23],
+            [-108, 18],
+        ],
+    ],
+};
 
-const point = (name: string, basin: string, num: number, adv: string, lon: number, lat: number, vt: string) => ({
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [lon, lat] },
-    properties: {
-        STORMNAME: name,
-        BASIN: basin,
-        STORMNUM: num,
-        ADVISNUM: adv,
-        ADVDATE: Date.parse('2026-10-13T12:00:00Z'),
-        VALIDTIME: vt,
-        FLDATELBL: '2026-10-13 5:00 AM Tue MST',
-        MAXWIND: 80,
-        MSLP: 960,
-    },
-});
+function feedStorm(name: string): FeedStorm {
+    const down = feed.forecast === 'down';
+    if (name === 'ZZELLA') {
+        return {
+            key: 'EP41',
+            sid: 'ep412026',
+            name: 'ZZELLA',
+            basin: 'E',
+            nature: 'HU',
+            current: { lat: 18.1, lon: -108.1, time: '2026-10-13T12:00:00.000Z', windKts: 80, pressureMb: 960 },
+            positionBy: 'NHC',
+            from: ['nhc', 'vitals'],
+            ...(down
+                ? { forecastUnavailable: true as const }
+                : {
+                      forecast: {
+                          by: 'NHC' as const,
+                          advisory: '24A',
+                          issued: '2026-10-13T12:00:00.000Z',
+                          points: [
+                              { lat: 18, lon: -108, time: '2026-10-13T09:00:00.000Z', windKts: 80, pressureMb: 960 },
+                              {
+                                  lat: 19.9,
+                                  lon: -110.6,
+                                  time: '2026-10-14T09:00:00.000Z',
+                                  windKts: 80,
+                                  pressureMb: 960,
+                              },
+                          ],
+                          past: [
+                              {
+                                  lat: 17.1,
+                                  lon: -106.4,
+                                  time: '2026-10-13T00:00:00.000Z',
+                                  windKts: 70,
+                                  pressureMb: null,
+                              },
+                              {
+                                  lat: 17.6,
+                                  lon: -107.2,
+                                  time: '2026-10-13T06:00:00.000Z',
+                                  windKts: 75,
+                                  pressureMb: 965,
+                              },
+                          ],
+                          cone: CONE,
+                      },
+                  }),
+        };
+    }
+    return {
+        key: 'SH38',
+        sid: 'sh382027',
+        name: 'ZZDORA',
+        basin: 'P',
+        nature: '',
+        current: { lat: -15, lon: 153, time: '2026-10-13T06:00:00.000Z', windKts: 55, pressureMb: 995 },
+        positionBy: 'JTWC',
+        from: ['jtwc', 'vitals'],
+        ...(down
+            ? { forecastUnavailable: true as const }
+            : {
+                  forecast: {
+                      by: 'JTWC' as const,
+                      advisory: '12',
+                      issued: '2026-10-13T09:00:00.000Z',
+                      points: [
+                          { lat: -15, lon: 153, time: '2026-10-13T06:00:00.000Z', windKts: 55, pressureMb: null },
+                          { lat: -16.7, lon: 151.5, time: '2026-10-14T06:00:00.000Z', windKts: 65, pressureMb: null },
+                      ],
+                      past: [],
+                  },
+              }),
+    };
+}
+
+function feedBody(): CycloneFeed {
+    const down = new Set(feed.listsDown);
+    return {
+        generatedAt: new Date(Date.now()).toISOString(),
+        storms: feed.storms.map(feedStorm),
+        sources: {
+            nhc: down.has('nhc') ? 'unavailable' : 'ok',
+            jtwc: down.has('jtwc') ? 'unavailable' : 'ok',
+            vitals: down.has('vitals') ? 'unavailable' : 'ok',
+            noaa: feed.forecast === 'down' ? 'unavailable' : 'ok',
+            jtwcTracks: feed.forecast === 'down' || feed.unplaced.length ? 'unavailable' : 'ok',
+        },
+        unplaced: feed.unplaced,
+    };
+}
 
 function fetchFixture() {
     return vi.fn(async (input: string) => {
         const url = String(input);
-        if (url.includes('api.knackwx.com')) {
-            if (feed.knack === 'down') return { ok: false, status: 503, json: async () => ({}) };
-            return { ok: true, json: async () => feed.storms.map(knackRow) };
-        }
-        if (feed.forecast === 'down' && /FeatureServer\/[04]\//.test(url)) {
-            return { ok: false, status: 503, json: async () => ({}) };
+        urls.push(url);
+        if (url === 'https://fixture.supabase.test/functions/v1/cyclone-feed') {
+            if (feed.catalogue === 'down') return { ok: false, status: 503, json: async () => ({}) };
+            return { ok: true, json: async () => feedBody() };
         }
         if (url.includes('ibtracs.ACTIVE')) return { ok: true, text: async () => 'NAME,ISO_TIME,LAT,LON\nunits\n' };
-        if (url.includes('FeatureServer/0'))
-            return {
-                ok: true,
-                json: async () => ({
-                    features: [
-                        point('Zzella', 'EP', 41, '24A', -108, 18, '13/0900'),
-                        point('Zzella', 'EP', 41, '24A', -110.6, 19.9, '14/0900'),
-                        point('Zzdora', 'SH', 38, ' ', 153, -15, '13/0600'),
-                        point('Zzdora', 'SH', 38, ' ', 151.5, -16.7, '14/0600'),
-                    ],
-                }),
-            };
-        if (url.includes('FeatureServer/1')) return { ok: true, json: async () => ({ features: [] }) };
-        if (url.includes('FeatureServer/4'))
-            return {
-                ok: true,
-                json: async () => ({
-                    features: [
-                        {
-                            type: 'Feature',
-                            geometry: {
-                                type: 'Polygon',
-                                coordinates: [
-                                    [
-                                        [-108, 18],
-                                        [-112, 22],
-                                        [-110, 23],
-                                        [-108, 18],
-                                    ],
-                                ],
-                            },
-                            properties: { STORMNAME: 'Zzella', BASIN: 'EP', STORMNUM: 41 },
-                        },
-                    ],
-                }),
-            };
         if (url.includes('fetch-gfs-tracker'))
             return {
                 ok: true,
@@ -176,9 +217,13 @@ describe('CycloneTrackingService source honesty', () => {
         vi.useFakeTimers();
         vi.setSystemTime(T0);
         vi.stubEnv('VITE_SUPABASE_URL', 'https://fixture.supabase.test');
-        feed.knack = 'ok';
+        feed.catalogue = 'ok';
         feed.forecast = 'ok';
+        feed.listsDown = [];
         feed.storms = ['ZZELLA', 'ZZDORA'];
+        feed.unplaced = [];
+        pi.serve = null;
+        urls.length = 0;
         localStorage.removeItem('thalassa-cyclone-tracks');
         vi.stubGlobal('fetch', fetchFixture());
     });
@@ -189,7 +234,7 @@ describe('CycloneTrackingService source honesty', () => {
         localStorage.removeItem('thalassa-cyclone-tracks');
     });
 
-    it('names who issued each forecast from the feed’s basin, with the advisory', async () => {
+    it('names who issued each forecast, with the advisory, from the warning centres’ own feed', async () => {
         const svc = await load();
         const storms = await svc.fetchActiveCyclones();
         const ella = storms.find((s) => s.name === 'ZZELLA')!;
@@ -207,8 +252,11 @@ describe('CycloneTrackingService source honesty', () => {
             short: 'Bureau of Meteorology',
             url: 'https://www.bom.gov.au/weather-and-climate/warnings-and-alerts',
         });
-        // UTC from VALIDTIME: the MST label is not read as UTC.
+        // The feed's UTC times, as given (NOAA's VALIDTIME, never its MST label).
         expect(ella.forecastTrack[0].time).toBe('2026-10-13T09:00:00.000Z');
+        expect(ella.basin).toBe('E');
+        expect(ella.positionBy).toBe('NHC');
+        expect(dora.sid).toBe('sh382027');
     });
 
     it('attaches the issuer’s own cone, and only where one was published', async () => {
@@ -236,7 +284,7 @@ describe('CycloneTrackingService source honesty', () => {
         const svc = await load();
         expect((await svc.fetchActiveCyclones()).map((s) => s.name).sort()).toEqual(['ZZDORA', 'ZZELLA']);
         expect(svc.cycloneFeedStatus().unavailableSince).toBeNull();
-        feed.knack = 'down';
+        feed.catalogue = 'down';
         vi.setSystemTime(T0 + 11 * MIN);
         const during = await svc.fetchActiveCyclones();
         expect(during.map((s) => s.name).sort()).toEqual(['ZZDORA', 'ZZELLA']);
@@ -245,7 +293,7 @@ describe('CycloneTrackingService source honesty', () => {
         await svc.fetchActiveCyclones();
         // Since the FIRST failure, not the latest.
         expect(svc.cycloneFeedStatus().unavailableSince).toBe(T0 + 11 * MIN);
-        feed.knack = 'ok';
+        feed.catalogue = 'ok';
         vi.setSystemTime(T0 + 33 * MIN);
         await svc.fetchActiveCyclones();
         expect(svc.cycloneFeedStatus().unavailableSince).toBeNull();
@@ -261,6 +309,7 @@ describe('CycloneTrackingService source honesty', () => {
             unavailableSince: null,
             forecastUnavailableSince: T0,
             coneUnavailableSince: T0,
+            sourcesUnavailable: [],
         });
         vi.setSystemTime(T0 + 11 * MIN);
         await svc.fetchActiveCyclones();
@@ -273,7 +322,7 @@ describe('CycloneTrackingService source honesty', () => {
     });
 
     it('with no storms ever loaded, a failed feed is still unavailable, not "none"', async () => {
-        feed.knack = 'down';
+        feed.catalogue = 'down';
         const svc = await load();
         expect(await svc.fetchActiveCyclones()).toEqual([]);
         expect(svc.cycloneFeedStatus().unavailableSince).toBe(T0);
@@ -292,5 +341,105 @@ describe('CycloneTrackingService source honesty', () => {
         );
         vi.setSystemTime(T0 + 11 * MIN + 12 * 60 * MIN + MIN);
         expect((await svc.fetchActiveCyclones()).find((s) => s.name === 'ZZDORA')).toBeUndefined();
+    });
+
+    it('keeps the issuer’s own past track when it is longer than IBTrACS’s', async () => {
+        const svc = await load();
+        const ella = (await svc.fetchActiveCyclones()).find((s) => s.name === 'ZZELLA')!;
+        expect(ella.track.map((p) => p.time)).toEqual([
+            '2026-10-13T00:00:00.000Z',
+            '2026-10-13T06:00:00.000Z',
+            '2026-10-13T12:00:00.000Z',
+        ]);
+    });
+
+    it('a storm list that did not answer is said by name, since it first failed, and cleared when it answers', async () => {
+        feed.listsDown = ['jtwc'];
+        const svc = await load();
+        expect((await svc.fetchActiveCyclones()).map((s) => s.name).sort()).toEqual(['ZZDORA', 'ZZELLA']);
+        expect(svc.cycloneFeedStatus().unavailableSince).toBeNull();
+        expect(svc.cycloneFeedStatus().sourcesUnavailable).toEqual([{ source: 'JTWC', since: T0 }]);
+        feed.listsDown = ['jtwc', 'vitals'];
+        vi.setSystemTime(T0 + 11 * MIN);
+        await svc.fetchActiveCyclones();
+        expect(svc.cycloneFeedStatus().sourcesUnavailable).toEqual([
+            { source: 'JTWC', since: T0 },
+            { source: 'NCEP storm vitals', since: T0 + 11 * MIN },
+        ]);
+        feed.listsDown = [];
+        vi.setSystemTime(T0 + 22 * MIN);
+        await svc.fetchActiveCyclones();
+        expect(svc.cycloneFeedStatus().sourcesUnavailable).toEqual([]);
+    });
+
+    it('every storm list down is the catalogue unavailable, and the last storms are kept, never an empty ocean', async () => {
+        const svc = await load();
+        await svc.fetchActiveCyclones();
+        feed.listsDown = ['nhc', 'jtwc', 'vitals'];
+        feed.storms = [];
+        vi.setSystemTime(T0 + 11 * MIN);
+        expect((await svc.fetchActiveCyclones()).map((s) => s.name).sort()).toEqual(['ZZDORA', 'ZZELLA']);
+        expect(svc.cycloneFeedStatus().unavailableSince).toBe(T0 + 11 * MIN);
+    });
+
+    it('a JTWC warning whose product did not come, placed by no list, is said by name, never an empty sea', async () => {
+        feed.unplaced = [{ key: 'WP29', name: 'ZZHANUL', warning: '35' }];
+        const svc = await load();
+        await svc.fetchActiveCyclones();
+        expect(svc.cycloneFeedStatus()).toMatchObject({
+            unavailableSince: null,
+            sourcesUnavailable: [{ source: 'JTWC warning on ZZHANUL (WP29)', since: T0 }],
+        });
+        feed.unplaced = [
+            { key: 'WP29', name: 'ZZHANUL', warning: '36' },
+            { key: 'IO02', name: 'IO02', warning: '1' },
+        ];
+        vi.setSystemTime(T0 + 11 * MIN);
+        await svc.fetchActiveCyclones();
+        expect(svc.cycloneFeedStatus().sourcesUnavailable).toEqual([
+            { source: 'JTWC warnings on ZZHANUL (WP29), IO02', since: T0 },
+        ]);
+        feed.unplaced = [];
+        vi.setSystemTime(T0 + 22 * MIN);
+        await svc.fetchActiveCyclones();
+        expect(svc.cycloneFeedStatus().sourcesUnavailable).toEqual([]);
+    });
+
+    it('the Pi’s old copy of the feed (its uplink down) is unavailable since it was made, its storms the last known', async () => {
+        const DAY = 24 * 60 * MIN;
+        pi.serve = () => ({ ...feedBody(), generatedAt: new Date(T0 - 2 * DAY).toISOString() });
+        const svc = await load();
+        expect((await svc.fetchActiveCyclones()).map((s) => s.name).sort()).toEqual(['ZZDORA', 'ZZELLA']);
+        expect(svc.cycloneFeedStatus().unavailableSince).toBe(T0 - 2 * DAY);
+        // A copy inside the hour is today's ocean.
+        vi.setSystemTime(T0 + 11 * MIN);
+        pi.serve = () => ({ ...feedBody(), generatedAt: new Date(T0 + 11 * MIN - 50 * MIN).toISOString() });
+        await svc.fetchActiveCyclones();
+        expect(svc.cycloneFeedStatus().unavailableSince).toBeNull();
+    });
+
+    it('never trades newer storms for the Pi’s older copy, and says so once what it holds is past the hour', async () => {
+        const DAY = 24 * 60 * MIN;
+        const svc = await load();
+        await svc.fetchActiveCyclones();
+        // On the boat LAN now, and the Pi has only a two-day-old empty copy.
+        feed.storms = [];
+        pi.serve = () => ({ ...feedBody(), generatedAt: new Date(T0 - 2 * DAY).toISOString() });
+        vi.setSystemTime(T0 + 11 * MIN);
+        const held = await svc.fetchActiveCyclones();
+        expect(held.map((s) => s.name).sort()).toEqual(['ZZDORA', 'ZZELLA']);
+        expect(held.every((s) => !s.droppedAt)).toBe(true);
+        expect(svc.cycloneFeedStatus().unavailableSince).toBeNull();
+        vi.setSystemTime(T0 + 61 * MIN);
+        expect((await svc.fetchActiveCyclones()).map((s) => s.name).sort()).toEqual(['ZZDORA', 'ZZELLA']);
+        expect(svc.cycloneFeedStatus().unavailableSince).toBe(T0);
+    });
+
+    it('asks only Thalassa’s own feed and NCEI, never Esri or knackwx', async () => {
+        const svc = await load();
+        await svc.fetchActiveCyclones();
+        await svc.fetchGfsTrackerPositions();
+        expect(urls.length).toBeGreaterThan(0);
+        for (const u of urls) expect(new URL(u).hostname).toMatch(/^(fixture\.supabase\.test|www\.ncei\.noaa\.gov)$/);
     });
 });

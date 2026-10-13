@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+    <name>JTWC WARNINGS</name>
+    <description>Fictional fixture in the layout of a JTWC warning KMZ (129-09b); no real storm.</description>
+    <Folder>
+        <name>ZZCORA</name>
+        <Placemark>
+            <name>sh37 Storm Track</name>
+            <LineString>
+                <coordinates>178.5,-16.8,0 179.6,-17.8,0 -179.3,-18.8,0 -177.4,-20.9,0</coordinates>
+            </LineString>
+        </Placemark>
+        <Placemark>
+            <name>34 knot Danger Swath</name>
+            <styleUrl>#msn_ylw-pushpin</styleUrl>
+            <Polygon>
+                <tessellate>1</tessellate>
+                <outerBoundaryIs>
+                    <LinearRing>
+                        <coordinates>
+176.5000,-15.0000,0 178.2000,-14.6000,0 179.9500,-15.4000,0 -178.6000,-17.2000,0 -176.0000,-19.6000,0
+-175.4000,-22.3000,0 -178.0000,-23.0000,0 -179.9000,-21.0000,0 178.9000,-19.6000,0 177.0000,-18.0000,0
+176.5000,-15.0000,0
+                        </coordinates>
+                    </LinearRing>
+                </outerBoundaryIs>
+            </Polygon>
+        </Placemark>
+        <Placemark>
+            <name>Previous Best Track Posits</name>
+            <Point><coordinates>176.0,-15.0,0</coordinates></Point>
+        </Placemark>
+    </Folder>
+</Document>
+</kml>

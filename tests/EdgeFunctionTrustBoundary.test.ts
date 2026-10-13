@@ -80,6 +80,7 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
 
     it('requires quotas and timeouts around paid upstream weather/data services', () => {
         const publicPaid = [
+            'cyclone-feed',
             'fetch-gfs-tracker',
             'fetch-precip-grid',
             'fetch-pressure-grid',
@@ -111,7 +112,13 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
         for (const name of publicPaid) {
             const edge = functionSource(name);
             expect(edge, name).toContain('requireAuthenticatedOrPublicQuota(');
-            if (name === 'osm-overlay') {
+            if (name === 'cyclone-feed') {
+                // The centres are fetched by the shared feed, each with its own timeout.
+                expect(edge).toContain('fetchCycloneFeed(');
+                const feed = source('supabase/functions/_shared/cyclone/sources.ts');
+                expect(feed).toContain('fetchWithTimeout(');
+                expect(feed).not.toMatch(/\bfetch\(/);
+            } else if (name === 'osm-overlay') {
                 expect(edge).toContain('fetchOverpassDocument(');
                 const transport = source('supabase/functions/_shared/overpass-fetch.ts');
                 expect(transport).toContain('Promise.race(');

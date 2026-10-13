@@ -56,6 +56,8 @@ const EXISTING_PROTECTED_FUNCTIONS = {
 const CREDENTIALLESS_ALLOWLIST = {
     'apple-server-notification': 'provider-signed Apple JWS webhook',
     'check-weather-alerts': 'pg_cron/pg_net POST with the service key; exact service-role POST checked before work',
+    'cyclone-feed':
+        'bare fetch(url) from CycloneTrackingService and the Pi; per-client public quota inside; public storm positions (129-09b)',
     'cyclone-watch': 'pg_cron/pg_net POST with the service key; exact service-role POST checked before work (129-09)',
     'deepgram-ws-proxy': 'browser WebSocket upgrade cannot carry Authorization; 60-second one-use ticket',
     'diary-comments':
@@ -186,8 +188,9 @@ describe('Supabase Edge gateway JWT policy', () => {
         // token, or a user JWT checked inside the function.
         // satellite-tile and proxy-himawari-ir (map raster proxies) were deleted
         // on 2026-10-09, 18 → 16. cyclone-watch (129-09) is check-weather-alerts'
-        // shape: the cron's service-key POST, 16 → 17.
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(17);
+        // shape: the cron's service-key POST, 16 → 17. cyclone-feed (129-09b) is
+        // fetch-gfs-tracker's shape: a bare fetch with a public quota, 17 → 18.
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(18);
     });
 
     it('every declared function has a comment explaining its policy', () => {
