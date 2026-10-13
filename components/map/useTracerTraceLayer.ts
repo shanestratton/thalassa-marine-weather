@@ -197,8 +197,8 @@ export function useTracerTraceLayer({
                 // line-dasharray is not reliably data-driven; the coloured
                 // layers leave sketch legs out, so one is never green or amber.
                 // On the web every leg rides the casing, so it reads on Light's
-                // pale sea; the phone's planner is unchanged in 127, so there
-                // only the sketch dashes sit on it.
+                // pale sea; on the phone only the sketch dashes sit on it until
+                // MapHub's base pass finds Light under them (lineEdges, 128).
                 const sketch = ['==', ['get', 'sketch'], true];
                 const notSketch = ['!=', ['get', 'sketch'], true];
                 const grade = [

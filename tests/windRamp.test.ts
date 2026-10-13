@@ -10,7 +10,7 @@
  * noticed for months.
  */
 import { describe, expect, it } from 'vitest';
-import { contrast, deltaE } from './helpers/colourScience';
+import { contrast, deltaE, lch } from './helpers/colourScience';
 
 import {
     WIND_BANDS,
@@ -193,23 +193,151 @@ describe('the streak palette for a light base', () => {
         expect(edges).toEqual([20, 25, 30, 34, 40, 48]);
     });
 
-    // 4.5:1 as inks so the streaks' cores land 3:1 as drawn (1 px antialiased
-    // lines, 0.88 alpha, additive trails; browser-tests/desk-wind-layout.spec.ts
-    // measures the pixels).
-    it('reads on every Light water and land colour: 4.5:1 for each warm band, 7:1 below the reef line', async () => {
-        const { WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
+    // 128-LIGHT (Shane 2026-10-13: "yes to all of your questions for 128"):
+    // the field draws Light's ink normally (source-over), so an ink lands as
+    // itself, mixed in sRGB with the chart under it: at the stroke's own
+    // 0.882 alpha where a streak is whole, and at about 0.6 of it in the soft
+    // cores a Retina screen shows of the CSS-pixel canvas (0.61-0.69 measured
+    // in WebKit at DPR 2 for 22-52 kt, 0.57 for the slower sub-20 kt streaks;
+    // browser-tests/desk-wind-layout.spec.ts reads the pixels). 127 darkened
+    // the inks to 4.5:1 against the additive 'lighter' blend instead, which
+    // made the 26 kt red a maroon that the soft cores turned mauve.
+    const STROKE_ALPHA = 0.9 * 0.98;
+    const RETINA_CORE = { warm: 0.6, slate: 0.57 };
+    const drawn = (ink: string, ground: string, alpha: number) => {
+        const [a, b] = [ink, ground].map((hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)));
+        return `#${a
+            .map((v, i) =>
+                Math.round(alpha * v + (1 - alpha) * b[i])
+                    .toString(16)
+                    .padStart(2, '0'),
+            )
+            .join('')}`;
+    };
+    const lightGrounds = async () => {
         const { LIGHT_PALETTE } = await import('../components/map/reliefBase');
-        const grounds = [
-            ...LIGHT_PALETTE.ramp.map(([, colour]) => colour),
+        const hexes = (colours: string[]) => colours.filter((c) => c.startsWith('#'));
+        const ramp = LIGHT_PALETTE.ramp.filter(([, colour]) => colour.startsWith('#'));
+        const water = hexes([...ramp.map(([, colour]) => colour), ...LIGHT_PALETTE.bands, LIGHT_PALETTE.water]);
+        // Open sea: the 10 m stop and out, the bands and the flat water (the
+        // 2 and 5 m stops are the shore's fringe).
+        const sea = hexes([
+            ...ramp.filter(([d]) => d >= 10).map(([, c]) => c),
             ...LIGHT_PALETTE.bands,
-            LIGHT_PALETTE.land,
             LIGHT_PALETTE.water,
-        ].filter((c) => c.startsWith('#'));
-        expect(grounds.length).toBeGreaterThan(8);
+        ]);
+        return { water, sea, all: [...water, LIGHT_PALETTE.land] };
+    };
+
+    // The reef orange (20-25 kt) is light on purpose (128-LIGHT review,
+    // 2026-10-13): to a colour-blind eye a red and an orange differ only in
+    // lightness, and the 26 kt red has to stay red to its soft edges, so it
+    // cannot be dark. The orange is the lighter ink of the pair and holds its
+    // own, lower, contrast floors (the reef orange test below).
+    const reefOrange = (k: number) => k >= 20 && k < 25;
+    const VISIONS = ['normal', 'deutan', 'protan'] as const;
+
+    it('reads on every Light water and land colour as drawn: 3.6:1 at the stroke’s alpha for each warm band past the reef orange, 7:1 as ink below the reef line', async () => {
+        const { WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
+        const { all } = await lightGrounds();
+        expect(all.length).toBeGreaterThan(8);
         WIND_PARTICLE_COLORS_LIGHT.forEach((ink, k) => {
-            for (const ground of grounds)
-                expect(contrast(ink, ground), `${k} kt ${ink} on ${ground}`).toBeGreaterThanOrEqual(k < 20 ? 7 : 4.5);
+            if (reefOrange(k)) return;
+            for (const ground of all)
+                if (k < 20) expect(contrast(ink, ground), `${k} kt ${ink} on ${ground}`).toBeGreaterThanOrEqual(7);
+                else
+                    expect(
+                        contrast(drawn(ink, ground, STROKE_ALPHA), ground),
+                        `${k} kt ${ink} drawn on ${ground}`,
+                    ).toBeGreaterThanOrEqual(3.6);
         });
+    });
+
+    it('reads in a Retina screen’s soft cores on Light’s open sea: 3.25:1 at 0.6 of each warm ink past the reef orange, 3.5:1 at 0.57 of the slate', async () => {
+        const { WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
+        const { sea } = await lightGrounds();
+        WIND_PARTICLE_COLORS_LIGHT.forEach((ink, k) => {
+            if (reefOrange(k)) return;
+            const [alpha, bar] = k < 20 ? [RETINA_CORE.slate, 3.5] : [RETINA_CORE.warm, 3.25];
+            for (const ground of sea)
+                expect(
+                    contrast(drawn(ink, ground, alpha), ground),
+                    `${k} kt ${ink} at ${alpha} on ${ground}`,
+                ).toBeGreaterThanOrEqual(bar);
+        });
+    });
+
+    // The trade, chosen on purpose: the lowest luminance contrast of the
+    // palette, never under these floors, and lighter than the red as drawn
+    // by 8 L* for every vision (127's pair managed 4.6, this package's first
+    // draft had the orange 0.4-14 L* DARKER than its red, one band to a protan eye).
+    it('the reef orange: light on purpose, yet 3.5:1 at the stroke on the open sea, 2.85:1 on every Light colour, 2.35:1 in a Retina core, and 8 L* lighter than the red as drawn', async () => {
+        const { WIND_PARTICLE_COLORS_LIGHT: inks } = await import('../components/map/windRamp');
+        const { sea, all } = await lightGrounds();
+        const [orange, red] = [inks[20], inks[25]];
+        for (let k = 20; k < 25; k++) expect(inks[k]).toBe(orange);
+        for (const ground of all)
+            expect(contrast(drawn(orange, ground, STROKE_ALPHA), ground), `stroke on ${ground}`).toBeGreaterThanOrEqual(
+                2.85,
+            );
+        for (const ground of sea) {
+            expect(
+                contrast(drawn(orange, ground, STROKE_ALPHA), ground),
+                `stroke on the open sea, ${ground}`,
+            ).toBeGreaterThanOrEqual(3.5);
+            expect(
+                contrast(drawn(orange, ground, RETINA_CORE.warm), ground),
+                `Retina core on ${ground}`,
+            ).toBeGreaterThanOrEqual(2.35);
+            for (const alpha of [STROKE_ALPHA, RETINA_CORE.warm])
+                for (const vision of VISIONS)
+                    expect(
+                        lch(drawn(orange, ground, alpha), vision)[0] - lch(drawn(red, ground, alpha), vision)[0],
+                        `${orange} over ${red}, ${vision}, ${alpha} on ${ground}`,
+                    ).toBeGreaterThanOrEqual(8);
+        }
+    });
+
+    // What makes up for the orange's lower contrast: orange on pale blue is a
+    // step in colour as well as in lightness. Every ink, the slate and the
+    // orange included, stands that far off the sea in a Retina core.
+    it('stands every ink off Light’s open sea in a Retina core: ΔE2000 ≥ 28 for normal, deutan and protan vision', async () => {
+        const { WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
+        const { sea } = await lightGrounds();
+        WIND_PARTICLE_COLORS_LIGHT.forEach((ink, k) => {
+            const alpha = k < 20 ? RETINA_CORE.slate : RETINA_CORE.warm;
+            for (const ground of sea)
+                for (const vision of VISIONS)
+                    expect(
+                        deltaE(drawn(ink, ground, alpha), ground, vision),
+                        `${k} kt ${ink} at ${alpha} on ${ground} (${vision})`,
+                    ).toBeGreaterThanOrEqual(28);
+        });
+    });
+
+    // The 26 kt red reads red (the 128 decision): a pure red, so even a soft
+    // core over the pale blue sea keeps red above green and blue by the
+    // pixel test's 40, with room (50) on the open sea, and still by the 40 at
+    // the streaks' soft edges (0.455 of the ink: the weakest pixel of the
+    // @pixel test's "red to the soft edges" fifth, 2.52:1 in WebKit,
+    // 2026-10-13), so it cannot be darkened to part it from the orange.
+    // 127's maroon (#650b19, blue 25) came out mauve: red over blue by only
+    // 26 in a core on the open sea.
+    it('keeps the 25-30 kt ink red in a Retina core on every Light water colour, and to its soft edges on the open sea', async () => {
+        const { WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
+        const { water, sea } = await lightGrounds();
+        const lead = (ground: string, alpha = RETINA_CORE.warm) => {
+            const [r, g, b] = [1, 3, 5].map((i) =>
+                parseInt(drawn(WIND_PARTICLE_COLORS_LIGHT[26], ground, alpha).slice(i, i + 2), 16),
+            );
+            return Math.min(r - g, r - b);
+        };
+        for (const ground of water) expect(lead(ground), `on ${ground}`).toBeGreaterThan(40);
+        for (const ground of sea) {
+            expect(lead(ground), `on the open sea, ${ground}`).toBeGreaterThanOrEqual(50);
+            expect(lead(ground, 0.455), `soft edge on ${ground}`).toBeGreaterThan(40);
+        }
+        for (let k = 25; k < 30; k++) expect(WIND_PARTICLE_COLORS_LIGHT[k]).toBe(WIND_PARTICLE_COLORS_LIGHT[26]);
     });
 
     it('keeps each warm band’s own hue family (within 15°)', async () => {
@@ -220,20 +348,47 @@ describe('the streak palette for a light base', () => {
         }
     });
 
+    // Review 2026-10-13: the ink-only bars passed while the screen did not
+    // (this package's first-draft orange, #451501, drew C* 8 on the open sea:
+    // a grey-brown beside the slate). As drawn, at the stroke and in a Retina
+    // core, on every open-sea colour, each warm band is a colour (CIELAB
+    // chroma ≥ 20) and its hue stays within 20° of its own band's
+    // WIND_COLORS hue drawn the same way.
+    it('keeps each warm band a colour of its own family as drawn: chroma ≥ 20, hue within 20° of its band drawn the same way', async () => {
+        const { WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
+        const { sea } = await lightGrounds();
+        for (let k = 20; k < WIND_COLORS.length; k++)
+            for (const ground of sea)
+                for (const alpha of [STROKE_ALPHA, RETINA_CORE.warm]) {
+                    const [, chroma, h] = lch(drawn(WIND_PARTICLE_COLORS_LIGHT[k], ground, alpha));
+                    const [, , own] = lch(drawn(WIND_COLORS[k], ground, alpha));
+                    const delta = Math.abs(h - own) % 360;
+                    expect(chroma, `${k} kt chroma at ${alpha} on ${ground}`).toBeGreaterThanOrEqual(20);
+                    expect(Math.min(delta, 360 - delta), `${k} kt hue at ${alpha} on ${ground}`).toBeLessThanOrEqual(
+                        20,
+                    );
+                }
+    });
+
     // Review 2026-10-10: at one lightness the dark inks ran together (25-30
     // against 30-34 kt nearly one red; 20-25 against 25-30 ΔE 1.4 to a deutan
     // eye). Neighbours, the slate below the reef line included, stay apart for
     // every common colour vision, so a streak's band can be read off the key.
-    it('keeps every pair of neighbouring bands apart: ΔE2000 ≥ 10 for normal, deutan and protan vision', async () => {
+    // Review 2026-10-13: as drawn, not as inks, which never reach the screen
+    // (the first draft passed protan 10.1 as inks and drew 0.9 in a core).
+    it('keeps every pair of neighbouring bands apart as drawn: ΔE2000 ≥ 10 at the stroke and in a Retina core on every open-sea colour, for normal, deutan and protan vision', async () => {
         const { WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
+        const { sea } = await lightGrounds();
         const inks = [...new Set(WIND_PARTICLE_COLORS_LIGHT)];
         expect(inks).toHaveLength(7);
         for (let i = 1; i < inks.length; i++)
-            for (const vision of ['normal', 'deutan', 'protan'] as const)
-                expect(
-                    deltaE(inks[i - 1], inks[i], vision),
-                    `${inks[i - 1]} | ${inks[i]} (${vision})`,
-                ).toBeGreaterThanOrEqual(10);
+            for (const ground of sea)
+                for (const alpha of [STROKE_ALPHA, RETINA_CORE.warm])
+                    for (const vision of VISIONS)
+                        expect(
+                            deltaE(drawn(inks[i - 1], ground, alpha), drawn(inks[i], ground, alpha), vision),
+                            `${inks[i - 1]} | ${inks[i]} at ${alpha} on ${ground} (${vision})`,
+                        ).toBeGreaterThanOrEqual(10);
     });
 
     it('windParticleColorForKt(kt, "light") is that palette at the renderer’s bucket edges; "dark" is today’s', async () => {

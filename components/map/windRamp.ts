@@ -125,27 +125,50 @@ export const WIND_PARTICLE_COLORS: string[] = WIND_COLORS.map((hex, k) =>
  * 1.3-2.0:1 on Light's pale sea and the reef orange 1.4-2.2:1: the field would
  * vanish on the base the desk opens on. Same buckets; below 20 kt a slate ink
  * (7:1 on every Light colour), from the reef line up each band's own hue
- * family darkened to 4.5:1 on every Light water and land colour. Not 3: the
- * field draws 1 px antialiased lines at 0.88 alpha and adds where trails meet
- * ('lighter'), which took 3:1 inks to 2.5:1 on screen and 4:1 inks to 2.7:1;
- * at 4.5:1 the streaks' cores land 3:1 as drawn. Darkening every band to one
- * lightness made neighbours run together (25-30 and 30-34 kt nearly one red,
- * 20-25 and 25-30 one colour to a deutan eye), so the inks alternate in
- * lightness as well as hue: each pair of neighbours stays ΔE2000 ≥ 10 for
- * normal, deutan and protan vision, and the 30 kt cross-family flip still
- * reads. (tests/windRamp.test.ts holds the inks against reliefBase's
- * LIGHT_PALETTE, browser-tests/desk-wind-layout.spec.ts the pixels.)
+ * family, dark enough to read on every Light water and land colour.
+ *
+ * DRAWN NORMALLY (128-LIGHT; Shane 2026-10-13: "yes to all of your questions
+ * for 128"). The field strokes Light's ink with source-over, not
+ * leaflet-velocity's additive 'lighter' (MapboxVelocityOverlay drawInkOver,
+ * CloseInWindLayer), so an ink lands as itself, mixed with the chart under
+ * it: at the stroke's 0.882 where a streak is whole, and at about 0.6 of it
+ * in the soft cores a Retina screen shows of the CSS-pixel canvas (0.61-0.69
+ * measured in WebKit at DPR 2 for 22-52 kt, 0.57 for the slower sub-20 kt
+ * streaks, 2026-10-13). Every rule here holds for that colour as drawn on
+ * Light's open sea, not for the ink (tests/windRamp.test.ts):
+ *  - the 26 kt red is a pure red, so its soft edges stay red (127's maroon,
+ *    #650b19, turned them mauve in WebKit);
+ *  - neighbours stay ΔE2000 ≥ 10 apart at the stroke and in a Retina core,
+ *    for normal, deutan and protan vision;
+ *  - each warm band keeps its hue family and, as drawn, a colour, not a grey;
+ *  - every ink stands off the sea by ΔE2000 ≥ 28 in a Retina core;
+ *  - every ink but the reef orange reaches 3.25:1 in a Retina core and 3.6:1
+ *    at the stroke on every Light colour; the slate 7:1 as ink.
+ * THE REEF ORANGE (20-25 kt) IS LIGHT ON PURPOSE (128-LIGHT review). To a
+ * colour-blind eye a red and an orange differ only in lightness, and a red
+ * that stays red to its soft edges cannot be dark, so the orange is the
+ * lighter of the pair. A dark orange turns brown-grey on the pale sea (this
+ * package's first draft, #451501, came out a grey-brown beside the slate) or
+ * merges with the red. The trade: the orange has the lowest luminance contrast
+ * of the palette, 2.4:1 in a Retina core and 3.5:1 at the stroke on the open
+ * sea as modelled (its streak cores measured 2.7:1 in WebKit at DPR 2 and
+ * 3.2:1 in Chromium at 1x, 2026-10-13, where the other inks reach 3:1). It
+ * still stands off the sea as far as the other inks do, because
+ * orange on pale blue is a step in colour as well as in lightness. The slate
+ * is a shade darker than 127's #1e2b38 (still the label ink): drawn normally,
+ * 127's slate cores fell to 3.2:1. (reliefBase's LIGHT_PALETTE gives the
+ * grounds; browser-tests/desk-wind-layout.spec.ts holds the pixels.)
  */
 const LIGHT_HUES: Record<string, string> = {
-    '#ee7a0b': '#862200',
-    '#e63020': '#650b19',
-    '#ee2b74': '#7a294a',
-    '#cf35bd': '#4e1c54',
-    '#a24ef0': '#4d21ba',
-    '#6d28d9': '#31256f',
+    '#ee7a0b': '#ab3700',
+    '#e63020': '#920000',
+    '#ee2b74': '#741030',
+    '#cf35bd': '#780064',
+    '#a24ef0': '#4408d0',
+    '#6d28d9': '#440c64',
 };
 export const WIND_PARTICLE_COLORS_LIGHT: string[] = WIND_COLORS.map((hex, k) =>
-    k < WIND_PARTICLE_WHITE_BELOW_KT ? '#1e2b38' : LIGHT_HUES[hex],
+    k < WIND_PARTICLE_WHITE_BELOW_KT ? '#141c26' : LIGHT_HUES[hex],
 );
 /** Which streak palette: 'light' for a pale base (the desk's Light by day), 'dark' everywhere else. */
 export type WindPalette = 'light' | 'dark';

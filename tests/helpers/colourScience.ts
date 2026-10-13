@@ -110,6 +110,12 @@ function ciede2000([L1, a1, b1]: number[], [L2, a2, b2]: number[]): number {
     return Math.sqrt((dL / Sl) ** 2 + (dC / Sc) ** 2 + (dH / Sh) ** 2 + Rt * (dC / Sc) * (dH / Sh));
 }
 
+/** CIELAB lightness, chroma and hue angle (degrees) of a colour as a viewer with `vision` sees it. */
+export function lch(hex: string, vision: Vision = 'normal'): [number, number, number] {
+    const [L, a, b] = lab(linearRgb(hex, vision));
+    return [L, Math.hypot(a, b), ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360];
+}
+
 /** CIEDE2000 between two colours as a viewer with `vision` sees them. */
 export function deltaE(a: string, b: string, vision: Vision = 'normal'): number {
     return ciede2000(lab(linearRgb(a, vision)), lab(linearRgb(b, vision)));
