@@ -20,6 +20,7 @@ final class ResearchFullAppSceneUiFixture: NSObject, WKScriptMessageHandler {
     private var resourceSHA256: String?
     private var documents: URL?
     private var observerFile: URL?
+    private var firstInboxDiagnosticFile: URL?
     private weak var scene: UIScene?
     private weak var delegate: ResearchSceneDelegate?
     private weak var view: WKWebView?
@@ -121,6 +122,47 @@ final class ResearchFullAppSceneUiFixture: NSObject, WKScriptMessageHandler {
         // The append is never replaced by a later safe snapshot. A failed write
         // leaves partial evidence; it cannot make this scenario pass.
         observerFile = try observer.persist(inNativeDocumentsRoot: documents)
+        Self.persistFirstInboxDiagnostic()
+    }
+
+    // Optional diagnostic I/O is separate from every operation, reply and scene
+    // acceptance report. Failure is retained as missing/refused driver evidence;
+    // it must not change native authority or the original PM resolution.
+    static func persistFirstInboxDiagnostic() {
+        try? shared.writeFirstInboxDiagnostic()
+    }
+    private func writeFirstInboxDiagnostic() throws {
+        guard let observer, let documents, let observerFile,
+              try observer.persist(inNativeDocumentsRoot: documents).path == observerFile.path,
+              let slash = observerFile.path.lastIndex(of: "/") else { throw ResearchFullAppSceneUiError.unavailable }
+        let directory = String(observerFile.path[..<slash])
+        let file = URL(fileURLWithPath: directory + "/scene-first-inbox-stage.json")
+        let bytes = try JSONSerialization.data(withJSONObject:
+            ScuttlebuttResearchAuthPlugin.firstInboxStageEvidence.snapshot().json, options: [.sortedKeys])
+        guard (1...4096).contains(bytes.count) else { throw ResearchFullAppSceneUiError.unavailable }
+        if let existing = firstInboxDiagnosticFile {
+            guard existing.path == file.path else { throw ResearchFullAppSceneUiError.unavailable }
+            try requireFirstInboxDiagnostic(file)
+            try bytes.write(to: file, options: [.atomic, .completeFileProtection])
+        } else {
+            // Never adopt or overwrite a pre-existing diagnostic, including an
+            // incomplete first write. The observer owns this private directory.
+            try bytes.write(to: file, options: [.withoutOverwriting, .completeFileProtection])
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        try requireFirstInboxDiagnostic(file)
+        firstInboxDiagnosticFile = file
+    }
+    private func requireFirstInboxDiagnostic(_ file: URL) throws {
+        // Parent ownership/canonical ancestors were checked by observer.persist.
+        guard let canonical = file.path.withCString({ realpath($0, nil) }) else { throw ResearchFullAppSceneUiError.unavailable }
+        defer { free(canonical) }
+        var metadata = stat()
+        guard String(cString: canonical) == file.path,
+              file.path.withCString({ lstat($0, &metadata) }) == 0,
+              (UInt32(metadata.st_mode) & UInt32(S_IFMT)) == UInt32(S_IFREG),
+              metadata.st_uid == getuid(), (UInt32(metadata.st_mode) & 0o7777) == 0o600,
+              (1...4096).contains(Int(metadata.st_size)) else { throw ResearchFullAppSceneUiError.unavailable }
     }
 
     private func activation(_ state: UIScene.ActivationState?) -> ResearchSceneLifecycleEvidence.ActivationState {

@@ -47,6 +47,10 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     private var privateMessaging: ResearchPrivateMessageAdapter?
     private var messageTransport: VodozemacRelayTransport?
     private static let unavailable: [String: Any] = ["status": "unavailable", "reason": "unavailable"]
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+    // One passive recorder for this fresh fixture process, never native authority.
+    static let firstInboxStageEvidence = ResearchFirstInboxStageEvidence()
+#endif
 
     // Native App-owned callbacks, never a JS option or a fixture mutation.
     @MainActor func suspendSceneAuthority() {
@@ -428,11 +432,26 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         guard exactOptions(call, names.union(["lifecycleVersion"])),
               let version = call.getString("lifecycleVersion"), version.utf8.count == 36,
               let admitted = try? sceneAuthority.begin({ try privateMessageAdapter() }) else { call.resolve(Self.unavailable); return }
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+        let firstInboxSelected = call.methodName == "privateMessageInbox" && Self.firstInboxStageEvidence.beginFirstInbox()
+#endif
         Task {
             do {
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+                if firstInboxSelected { Self.firstInboxStageEvidence.note(.taskOriginalTicket) }
+#endif
                 try self.sceneAuthority.withCurrent(admitted.0) { () }
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+                if firstInboxSelected { Self.firstInboxStageEvidence.note(.adapterOperation) }
+#endif
                 let result = try await operation(admitted.1, version)
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+                if firstInboxSelected { Self.firstInboxStageEvidence.note(.publicationOriginalTicket) }
+#endif
                 try self.sceneAuthority.withCurrent(admitted.0) {
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+                    if firstInboxSelected { Self.firstInboxStageEvidence.note(.resultPublication) }
+#endif
                     let published = try result.publish()
 #if E2EE_FULL_APP_PROTECTED_UI_FIXTURE
                 ResearchFullAppProtectedUiFixture.notePmResult(method: call.methodName, status: published["status"] as? String ?? "unavailable")
@@ -440,8 +459,14 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                 ResearchLocalUiFixture.notePmResult(method: call.methodName, status: published["status"] as? String ?? "unavailable")
 #endif
                     call.resolve(published)
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+                    if firstInboxSelected { Self.firstInboxStageEvidence.note(.completed) }
+#endif
                 }
             } catch {
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+                if firstInboxSelected { Self.firstInboxStageEvidence.note(.failed) }
+#endif
 #if E2EE_FULL_APP_PROTECTED_UI_FIXTURE
                 ResearchFullAppProtectedUiFixture.notePmResult(method: call.methodName, status: "unavailable")
 #elseif E2EE_PROTECTED_UI_FIXTURE

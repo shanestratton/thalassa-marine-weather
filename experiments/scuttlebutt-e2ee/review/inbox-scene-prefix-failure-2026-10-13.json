@@ -1,0 +1,242 @@
+{
+    "schemaVersion": 1,
+    "kind": "current-inbox-completed-protected-prefix-background-witness-failure",
+    "recordedDate": "2026-10-13",
+    "timezone": "Australia/Brisbane",
+    "sourceBase": "49db9154547abccc47c3cc1c0106e573487b26d3",
+    "branch": "codex/scuttlebutt-e2ee-integration-clean-2026-10-11",
+    "status": "protected-prefix-observed-background-failed-current-diagnostic-hardening-prepared-not-merge-ready",
+    "currentSourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "59e8f08554eef5218202afa343065b8a2367649f7faeba6fc1ea51c51bff6461",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppSceneUiFixture.swift": "e63c7d8bdbdfe60de67af65468ca0b5c092c5a812457be1fd6bc3b79614f729a",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "07133f01a090234a57a5e3ae8b73e33785908f0be43e0a8afaee3e8ae72cfbcb",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFirstInboxStageEvidence.swift": "4ba97c4cdfeda4468ed70cffa2de4a6db54124fcdaeaa7ec01d891442f5c8893",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageContract.mjs": "5253d1e5639c13b35e4db3e2666ed32ea81f46ad8a0d1f7a784847c5adf742eb",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageWiring.test.mjs": "eb83c27b284f6c7c6bdb11d7d0ef1262fe63386a83d5800fadcce0d4d593f77e",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs": "940c8986d4c3e569ba9f284c3e27f145d590243080afd6e691ae425bcb67da3b",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "16ceaa3d51c9e0a417d042eedc49d8bc56144947fcf5c88d5ad76436ab07c781",
+        "experiments/scuttlebutt-e2ee/bridge-native/generate_project.rb": "77ac2dd9f7b1e1a2254acaf9a4f9a8be5a887c567a4c935fe8e53f1e4f2517ca",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/windowProofContract.mjs": "588965f4820c34ddd0990ef8b7cbdac09682b66a9fab9765f1b6a6c566029f3a",
+        "tests/E2eeSceneLifecycleEvidence.test.ts": "cd0ddf6a5ddda551fcaf2119f07bbfda32a69181172a47c46058f28d35fd7327",
+        "tests/E2eeFullAppProtectedNativeContract.test.ts": "3656a66887b41c606eaf7435ede9b1098216df1e293e3d13b0fc6f6fd258a5b4",
+        "tests/E2eeFullAppNativeResume.test.ts": "db0118742145779db80f73d2f073fd6efc4566a246fdff7b5c7e1b7029c5c359",
+        "tests/E2eeProtectedUiFixture.test.ts": "483e7155f20300755555066ba6dccd59a98c89540d827414bbd3b250cb5d88fb",
+        "tests/E2eeFullAppWindowProof.test.ts": "174cc9fc34fbc454cddb6be29bda3757a0e39740236a9b0e06578805741dd930"
+    },
+    "currentSyntheticChecks": {
+        "receipt": {
+            "path": "/private/tmp/thalassa-inbox-evidence-final.iAMceB/checks-receipt.json",
+            "sha256": "9d9147b04e742ea4ff61ee5e1914e20da108a5e0b3cfadcc88d08d0fb3bd0c7d"
+        },
+        "cases": 370,
+        "suites": 5,
+        "newNodeCases": 24,
+        "syntaxFormatLintNarrowTypes": "passed",
+        "scope": "Synthetic/source/helper checks, not encryption/OS/physical acceptance"
+    },
+    "webAttempt": {
+        "build": {
+            "path": "/private/tmp/thalassa-inbox-web-bound.JrFahC/build-receipt.json",
+            "sha256": "12d21f36d7ee12d61615dadeba2ff78a3d5e3904d08b545d091d056e42f1a330"
+        },
+        "window": {
+            "path": "/private/tmp/thalassa-full-app-window-Lvw9fp/window-receipt.json",
+            "sha256": "1ba1335f7e052bbc36713a39dbb57d5b810498717c95bde0a867eff49e88dcab"
+        },
+        "moduleInputs": 1751,
+        "outputs": 293,
+        "workers": 2,
+        "graphIDs": [
+            "main",
+            "worker-1",
+            "worker-2"
+        ],
+        "consoleErrors": 6,
+        "pageErrors": 0,
+        "scope": "Executed actual unsupported Chrome startup/chat/closure/remount/CSP, no native encryption",
+        "sourceSchema": "Graph-bound worker entries and required routing sources; subsequent full inventory correspondence hardening is NOT executed by this older receipt"
+    },
+    "workerTopology": {
+        "upstreamCommit": "9badea10166a6dc21126b764f7fecc9461c01b5c",
+        "change": "Independent navGrid Vite worker deleted; runtime route/grid Worker persists through routeJob/routeWorkerHost in the gated main graph",
+        "currentWorkerEntries": [
+            "services/enc/encParseWorker.ts",
+            "services/enc/encGeometryWorker.ts"
+        ],
+        "hardening": "Exact Rollup isEntry source/graph/hash binding; one named closed ES gate per graph; current additional bidirectional all-module/raw-source checks",
+        "unchangedFenceAndCSP": true
+    },
+    "nativeAttempt": {
+        "parent": {
+            "path": "/private/tmp/thalassa-full-root-protected-J7YHVR/run-receipt.json",
+            "sha256": "da7ace79e7a65111c9ec2d1a28be0490b5f240c346cac74f0e71a450ad0bd35b"
+        },
+        "controller": {
+            "path": "/private/tmp/thalassa-inbox-native-controller.yHpDOL/controller-receipt.json",
+            "sha256": "10b254a3eaf72ed5ce0470349f3761eddad0e2d687e7bc0176c61b7036eea56f"
+        },
+        "nativeReport": {
+            "path": "/private/tmp/thalassa-full-root-protected-J7YHVR/native-receipt.json",
+            "sha256": "b21fc5a53a859b16da54795c6545e2cba5875ca8b6684950afeb792d50f975f4"
+        },
+        "observer": {
+            "path": "/private/tmp/thalassa-full-root-protected-J7YHVR/failed-scene-observer.json",
+            "sha256": "7f7f04ea32ef81e14ad8b5a5b46273a31614dc432ffa6480be6327cf6502f71d",
+            "lastEvent": "did-enter-background",
+            "independentlyMeasuredLaunchPIDAvailable": true,
+            "wholeRunAccepted": false
+        },
+        "build": {
+            "path": "/private/tmp/thalassa-messaging-build-Gq6QAg/build-receipt.json",
+            "sha256": "e4073701ce3662b010523cc3aaaa39bba807bea7bf3c4ad40aefe5c2ab35a23f"
+        },
+        "status": "failed",
+        "failedOperation": "scene-background-validate",
+        "independentLaunchPID": 29531,
+        "swiftInputs": 27,
+        "driverInputs": 23,
+        "unsignedFiles": 342,
+        "signedFiles": 345,
+        "firstInbox": {
+            "status": "completed",
+            "selectedAttempts": 1,
+            "failed": 0,
+            "receipt": {
+                "path": "/private/tmp/thalassa-full-root-protected-J7YHVR/first-inbox-stage-diagnostic.json",
+                "sha256": "25c63f882a8fdbea60ccf6d340e45a7a02a8e5f0e232eb89b3e3d7f01f6ad0b1",
+                "sourceSHA256": "f8cba45ee758e430be8ae767f1f394b675618ef68a01f0477167aa5a16410008"
+            },
+            "ordinaryAdmissionPermissionAndRepliesChanged": false,
+            "olderFirstInboxFailureCause": "Still unknown; not reproduced in this fresh run"
+        },
+        "prefix": {
+            "hostRole": "responder",
+            "cases": 11,
+            "uiAssertions": 126,
+            "nativeProtectedExchangeAssertions": 55,
+            "relayAcceptedSends": 3,
+            "terminalAssertions": 0,
+            "scope": "Real provider/Keychain/sealed store/admission/adapter; synthetic SDK Auth and URLProtocol relay; deduplicated history",
+            "wholeRunAccepted": false
+        },
+        "observations": [
+            {
+                "event": "protected-ready",
+                "activationState": "foreground-active",
+                "authority": {
+                    "observationStatus": "observed",
+                    "facadeObserved": true,
+                    "originalSnapshotObserved": true,
+                    "accountPresent": true,
+                    "originalSnapshotCurrent": true,
+                    "verifyFenceCompletions": 1
+                },
+                "cover": {
+                    "present": false,
+                    "opaque": false,
+                    "attachedToOwnedWindow": false,
+                    "coversOwnedWindowBounds": false,
+                    "accessibilityModal": false,
+                    "contentAccessibilityHidden": false
+                }
+            },
+            {
+                "event": "will-resign-active",
+                "activationState": "foreground-active",
+                "authority": {
+                    "observationStatus": "observed",
+                    "facadeObserved": true,
+                    "originalSnapshotObserved": true,
+                    "accountPresent": false,
+                    "originalSnapshotCurrent": false,
+                    "verifyFenceCompletions": 2
+                },
+                "cover": {
+                    "present": true,
+                    "opaque": true,
+                    "attachedToOwnedWindow": true,
+                    "coversOwnedWindowBounds": true,
+                    "accessibilityModal": true,
+                    "contentAccessibilityHidden": true
+                }
+            },
+            {
+                "event": "did-enter-background",
+                "activationState": "background",
+                "authority": {
+                    "observationStatus": "observed",
+                    "facadeObserved": true,
+                    "originalSnapshotObserved": false,
+                    "accountPresent": false,
+                    "originalSnapshotCurrent": null,
+                    "verifyFenceCompletions": 2
+                },
+                "cover": {
+                    "present": true,
+                    "opaque": true,
+                    "attachedToOwnedWindow": true,
+                    "coversOwnedWindowBounds": true,
+                    "accessibilityModal": true,
+                    "contentAccessibilityHidden": true
+                }
+            }
+        ],
+        "failure": "did-enter-background lost its original witness: originalSnapshotObserved false and originalSnapshotCurrent null. The contract correctly requires true/false. Account absence, all six covers and successful verify growth 1→2 were observed; do not label this as authority remaining current.",
+        "explanation": "The sole original=nil assignment is fixture finish cleanup; which report/error triggered finish is unknown. Only the earlier prefix was retained, not the later failed protected envelope. Observer did not mutate authority.",
+        "foregroundDispatched": false,
+        "coldProcessDispatched": false,
+        "cleanup": {
+            "idAbsent": true,
+            "nameAbsent": true,
+            "sourcesUnchanged": true
+        },
+        "nativeSourceBoundCountsNotTransferredToNewDriver": true
+    },
+    "currentPreparation": {
+        "rawByteDiagnosticRetention": "Strictly admitted original bytes now copied privately with matching original/copy hashes; synthetic checks passed. Previous run retained canonical JSON plus original hashes, NOT original bytes.",
+        "latestSceneNativeDiagnostic": "New optional separately bound raw latest protected-envelope capture before cleanup, retaining prefix immutable and granting no acceptance. Source/helper checks only; actual capture unrun.",
+        "inventoryCompleteness": "All nonvirtual module paths and raw source rows now cross-bound bidirectionally; virtual identity validated. Current actual older graph was separately found complete, but fresh web receipt required for this changed contract.",
+        "originalWitness": "No bearer retention extended, no cached bools substituted, no scene gate lowered; value-only owner observation stamp design remains unimplemented and changes a 61-source prerequisite"
+    },
+    "retainedFailures": [
+        {
+            "path": "/private/tmp/thalassa-inbox-wiring-current.CnWyX8/checks-receipt.json",
+            "sha256": "19d49c8b75c1028f520d9e5f690b5253f5504a3098f489c054e4ebc78844a6a0",
+            "result": "272/274 source cases; scoped launch matcher and strict scene conjunction parser repaired, +5 adversarial cases"
+        },
+        {
+            "path": "/private/tmp/thalassa-inbox-web-current.ca6Eg5/coordinator-receipt.json",
+            "sha256": "50bb2c6d0ed8ff881e5bb0cdf9b18e4f32cf047a80fd232f6cb8f3ab4555487c",
+            "result": "Web compiled, Window refused input obsolete three-worker topology; no Chrome execution"
+        },
+        {
+            "path": "/private/tmp/thalassa-full-app-window-1Dwm8m/window-receipt.json",
+            "result": "Input-only failed; all Window request/console counters zero"
+        },
+        {
+            "path": "/private/tmp/thalassa-inbox-bound-contracts.r4c7Ar/checks-receipt.json",
+            "sha256": "271038ecf34cfb1568d88908723e6f8c0b872d5c8de5ee1933ff911bb7162f11",
+            "result": "Lint failed missing Buffer import; fixed explicit node:buffer import, no rule suppressed"
+        }
+    ],
+    "waiting": {
+        "cumulativeSharedWaitMs": 600,
+        "budgetMs": 120000,
+        "nativeChildWaitMs": 0,
+        "helperBudgets": "Each child received only remaining run budget",
+        "operationalStepDeadlinesChanged": false
+    },
+    "independentAudit": false,
+    "mergeReady": false,
+    "ordinaryAndLiveEncryptionDisabled": true,
+    "productionTouched": false,
+    "primaryCheckoutTouched": false,
+    "humanDevicesAccountsKeysTouched": false,
+    "next": [
+        "Refresh exact current graph web receipt after inventory hardening before new native invocation",
+        "Capture later scene failed envelope/phase to locate finish trigger; fixed selected-once callsite enum if still ambiguous",
+        "Preserve original guard provenance with a native-issued owner-only credential-free observation stamp, never fake cached authority; legitimately regenerate changed 61-source HTTPS/provider chain",
+        "Execute actual same-process foreground/navigation closure, opposite role/current HTTPS/Auth, cold guard and separate same-store recovery",
+        "Production fail-closed cutover, device/prekey/retention/recovery, physical acceptance, provenance/licences and independent assessment"
+    ]
+}

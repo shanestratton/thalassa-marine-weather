@@ -1,10 +1,11 @@
 /** Pure contracts only. These cases never launch Chrome, start a server or exercise native/SDK Auth. */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     WINDOW_BOUNDARY_COUNTERS,
     WINDOW_MEMORY_COUNTERS,
     WINDOW_FENCE_COUNTERS,
     WINDOW_REQUIRED_BUILD_SOURCES,
+    WINDOW_REQUIRED_WORKER_ENTRY_SOURCES,
     WINDOW_REQUIRED_PROOF_SOURCES,
     WINDOW_RUN_QUERY,
     WINDOW_NONCE_QUERY,
@@ -61,11 +62,32 @@ function buildReceipt() {
         inheritedCanariesAbsent: true,
         inheritedSyntheticCanariesInjected: true,
         moduleSourceHashOmissions: [],
-        workerGraphCount: 3,
-        moduleSourceInputs: WINDOW_REQUIRED_BUILD_SOURCES.map((name: string) => ({
+        workerGraphCount: WINDOW_REQUIRED_WORKER_ENTRY_SOURCES.length,
+        moduleSourceInputs: [...WINDOW_REQUIRED_BUILD_SOURCES, ...WINDOW_REQUIRED_WORKER_ENTRY_SOURCES].map(
+            (name: string) => ({
+                path: checkout + '/' + name,
+                sha256: digest,
+            }),
+        ),
+        workerEntrySourceInputs: WINDOW_REQUIRED_WORKER_ENTRY_SOURCES.map((name: string, index: number) => ({
             path: checkout + '/' + name,
             sha256: digest,
+            graph: 'worker-' + (index + 1),
         })),
+        moduleInventory: [
+            ...WINDOW_REQUIRED_BUILD_SOURCES.map((name: string) => ({
+                graph: 'main',
+                id: checkout + '/' + name,
+                virtual: false,
+                transformedCodeSha256: nonce,
+            })),
+            ...WINDOW_REQUIRED_WORKER_ENTRY_SOURCES.map((name: string, index: number) => ({
+                graph: 'worker-' + (index + 1),
+                id: checkout + '/' + name,
+                virtual: false,
+                transformedCodeSha256: nonce,
+            })),
+        ],
         explicitAssetSourceInputs: [
             {
                 path: checkout + '/public/thalassa-icon-128.png',
@@ -101,8 +123,9 @@ function buildReceipt() {
             },
         ],
         outputCount: 3,
-        graphPolicyObservations: [false, true, true, true].map((isWorker) => ({
-            isWorker,
+        graphPolicyObservations: ['main', 'worker-1', 'worker-2'].map((graph) => ({
+            graph,
+            isWorker: graph !== 'main',
             closedGraphInstances: 1,
             workerFormat: 'es',
         })),
@@ -272,10 +295,264 @@ describe('bounded actual Window evidence contract — pure fixtures', () => {
 });
 describe('passed hashed isolated build contract — pure fixtures', () => {
     it('accepts exact runtime, proof, artifact and single-gate worker inventories', () => {
-        const result = inspectWindowBuildReceipt(buildReceipt(), checkout);
+        const row = buildReceipt(),
+            result = inspectWindowBuildReceipt(row, checkout);
         expect(result.dist).toBe('/owned/built/dist');
         expect(result.artifacts).toHaveLength(3);
         expect(result.proofSources).toHaveLength(WINDOW_REQUIRED_PROOF_SOURCES.length);
+        expect(WINDOW_REQUIRED_WORKER_ENTRY_SOURCES).toEqual([
+            'services/enc/encParseWorker.ts',
+            'services/enc/encGeometryWorker.ts',
+        ]);
+        expect(result.workerEntrySourceInputs).toEqual(row.workerEntrySourceInputs);
+        expect(Object.isFrozen(result.workerEntrySourceInputs)).toBe(true);
+        expect(Object.isFrozen(result.workerEntrySourceInputs[0])).toBe(true);
+        expect(Object.isFrozen(result.moduleInventory)).toBe(true);
+        expect(Object.isFrozen(result.moduleInventory[0])).toBe(true);
+        expect(result.moduleInventory[0].transformedCodeSha256).not.toBe(row.moduleSourceInputs[0].sha256);
+        row.workerEntrySourceInputs[0].sha256 = nonce;
+        expect(result.workerEntrySourceInputs[0].sha256).toBe(digest);
+    });
+    it('refuses missing, unknown or duplicate worker entries and graph identities', () => {
+        const row = buildReceipt(),
+            entries = row.workerEntrySourceInputs;
+        for (const workerEntrySourceInputs of [
+            undefined,
+            null,
+            [],
+            entries.slice(1),
+            [...entries, { ...entries[0], graph: 'worker-3' }],
+            [entries[0], { ...entries[1], path: entries[0].path }],
+            [entries[0], { ...entries[1], graph: entries[0].graph }],
+            [{ ...entries[0], graph: 'worker-3' }, entries[1]],
+            [{ ...entries[0], graph: 'main' }, entries[1]],
+            [{ ...entries[0], graph: 1 }, entries[1]],
+            [{ path: entries[0].path, sha256: digest }, entries[1]],
+            [{ ...entries[0], extra: true }, entries[1]],
+        ])
+            expect(() => inspectWindowBuildReceipt({ ...row, workerEntrySourceInputs }, checkout)).toThrow(
+                'contract refused',
+            );
+        const { workerEntrySourceInputs: _entries, ...missing } = row;
+        expect(() => inspectWindowBuildReceipt(missing, checkout)).toThrow('contract refused');
+        const reordered = buildReceipt();
+        reordered.workerEntrySourceInputs.reverse();
+        expect(inspectWindowBuildReceipt(reordered, checkout).workerEntrySourceInputs).toEqual(
+            reordered.workerEntrySourceInputs,
+        );
+    });
+    it('binds worker entry hashes to compiled module sources and refuses invented paths', () => {
+        for (const path of [
+            'services/enc/encParseWorker.ts',
+            checkout + '/services/enc/../enc/encParseWorker.ts',
+            '/outside/services/enc/encParseWorker.ts',
+            checkout + '/services/enc/unknownWorker.ts',
+            checkout + '/services/engine/navGridWorker.ts',
+        ]) {
+            const row = buildReceipt();
+            row.workerEntrySourceInputs[0].path = path;
+            row.moduleSourceInputs.push({ path, sha256: digest });
+            expect(() => inspectWindowBuildReceipt(row, checkout)).toThrow('contract refused');
+        }
+        for (const hash of [nonce, 'not-a-hash', digest.toUpperCase()]) {
+            const row = buildReceipt();
+            row.workerEntrySourceInputs[0].sha256 = hash;
+            expect(() => inspectWindowBuildReceipt(row, checkout)).toThrow('contract refused');
+        }
+        const missingModule = buildReceipt();
+        missingModule.moduleSourceInputs = missingModule.moduleSourceInputs.filter(
+            (source) => source.path !== missingModule.workerEntrySourceInputs[0].path,
+        );
+        expect(() => inspectWindowBuildReceipt(missingModule, checkout)).toThrow('contract refused');
+    });
+    it('requires every main routing worker source in the compiled source inventory', () => {
+        for (const path of [
+            'services/routing/routeWorkerHost.ts',
+            'services/routing/routeJob.ts',
+            'services/engine/navGridWorkerHost.ts',
+        ]) {
+            expect(WINDOW_REQUIRED_BUILD_SOURCES).toContain(path);
+            const row = buildReceipt();
+            row.moduleSourceInputs = row.moduleSourceInputs.filter((source) => source.path !== checkout + '/' + path);
+            expect(() => inspectWindowBuildReceipt(row, checkout)).toThrow('contract refused');
+        }
+    });
+    it('requires exactly one main and two workers with one closed ES graph each', () => {
+        const row = buildReceipt(),
+            graphs = row.graphPolicyObservations;
+        for (const graphPolicyObservations of [
+            undefined,
+            [],
+            graphs.slice(1),
+            [...graphs, { ...graphs[1] }],
+            graphs.map((graph) => ({ ...graph, isWorker: true })),
+            graphs.map((graph) => ({ ...graph, isWorker: false })),
+            [{ ...graphs[0], closedGraphInstances: 0 }, ...graphs.slice(1)],
+            [{ ...graphs[0], workerFormat: 'iife' }, ...graphs.slice(1)],
+            [graphs[0], { ...graphs[1], closedGraphInstances: 2 }, graphs[2]],
+            [graphs[0], { ...graphs[1], workerFormat: 'iife' }, graphs[2]],
+            [graphs[0], { ...graphs[1], graph: 'worker-3' }, graphs[2]],
+            [graphs[0], graphs[1], { ...graphs[2], graph: 'worker-1' }],
+            [{ ...graphs[0], graph: 'worker-1' }, graphs[1], graphs[2]],
+            [graphs[0], { ...graphs[1], extra: true }, graphs[2]],
+            graphs.map(({ graph: _graph, ...observation }) => observation),
+        ])
+            expect(() => inspectWindowBuildReceipt({ ...row, graphPolicyObservations }, checkout)).toThrow(
+                'contract refused',
+            );
+        for (const workerGraphCount of [undefined, 0, 1, 3, '2', NaN])
+            expect(() => inspectWindowBuildReceipt({ ...row, workerGraphCount }, checkout)).toThrow('contract refused');
+    });
+    it('requires worker roots in their declared graph and routing modules in the main graph', () => {
+        const row = buildReceipt(),
+            root = row.workerEntrySourceInputs[0],
+            modules = row.moduleInventory;
+        for (const moduleInventory of [
+            undefined,
+            null,
+            [],
+            modules.filter((module) => module.id !== root.path),
+            modules.map((module) => (module.id === root.path ? { ...module, graph: 'main' } : module)),
+            modules.map((module) => (module.id === root.path ? { ...module, graph: 'worker-3' } : module)),
+            modules.map((module) => (module.id === root.path ? { ...module, id: root.path + '?worker' } : module)),
+            modules.map((module) => (module.id === root.path ? { ...module, virtual: true } : module)),
+            modules.map((module) =>
+                module.id === root.path ? { ...module, transformedCodeSha256: 'invalid' } : module,
+            ),
+            modules.map((module) => (module.id === root.path ? { ...module, extra: true } : module)),
+            [...modules, { ...modules[0] }],
+        ])
+            expect(() => inspectWindowBuildReceipt({ ...row, moduleInventory }, checkout)).toThrow('contract refused');
+        for (const name of [
+            'services/routing/routeWorkerHost.ts',
+            'services/routing/routeJob.ts',
+            'services/engine/navGridWorkerHost.ts',
+        ]) {
+            const path = checkout + '/' + name;
+            for (const moduleInventory of [
+                modules.filter((module) => module.id !== path),
+                modules.map((module) => (module.id === path ? { ...module, graph: root.graph } : module)),
+                modules.map((module) => (module.id === path ? { ...module, virtual: true } : module)),
+            ])
+                expect(() => inspectWindowBuildReceipt({ ...row, moduleInventory }, checkout)).toThrow(
+                    'contract refused',
+                );
+        }
+    });
+    it('preserves query and hash suffixes, repeated sources across graphs and explicit virtual modules', () => {
+        const row = buildReceipt(),
+            worker = row.moduleInventory.find((module) => module.id === row.workerEntrySourceInputs[0].path);
+        if (!worker) throw new Error('Synthetic worker entry absent');
+        row.moduleInventory.push(
+            { ...worker, graph: 'main' },
+            { ...worker, graph: 'main', id: worker.id + '?worker#main-import' },
+            { ...row.moduleInventory[0], graph: 'worker-2', id: row.moduleInventory[0].id + '#worker-import' },
+            { graph: 'main', id: '\0vite/preload-helper.js', virtual: true, transformedCodeSha256: nonce },
+        );
+        const result = inspectWindowBuildReceipt(row, checkout);
+        expect(result.moduleInventory).toEqual(row.moduleInventory);
+        expect(result.sourceInputs).toHaveLength(row.moduleSourceInputs.length + row.explicitAssetSourceInputs.length);
+        expect(result.workerEntrySourceInputs).toEqual(row.workerEntrySourceInputs);
+    });
+    it('refuses any nonvirtual compiled module without a corresponding frozen raw source', () => {
+        const row = buildReceipt();
+        row.moduleInventory.push({ ...row.moduleInventory[0], id: checkout + '/services/unlisted.ts?compiled' });
+        expect(() => inspectWindowBuildReceipt(row, checkout)).toThrow('contract refused');
+    });
+    it('refuses any raw source absent from the nonvirtual module inventory', () => {
+        const row = buildReceipt();
+        row.moduleSourceInputs.push({ path: checkout + '/services/orphaned.ts', sha256: digest });
+        expect(() => inspectWindowBuildReceipt(row, checkout)).toThrow('contract refused');
+    });
+    it('refuses false virtual flags and empty, relative or nonnormalized cleaned module paths', () => {
+        for (const change of [
+            { id: '\0vite/preload-helper.js', virtual: false },
+            { id: checkout + '/App.tsx?worker', virtual: true },
+            { id: '?worker', virtual: false },
+            { id: '#fragment', virtual: false },
+            { id: 'App.tsx?worker', virtual: false },
+            { id: checkout + '/services/routing/../routing/routeJob.ts?worker', virtual: false },
+            { id: '/owned//thalassa/App.tsx#worker', virtual: false },
+            { id: checkout + '/App.tsx\0?worker', virtual: false },
+        ]) {
+            const row = buildReceipt();
+            row.moduleInventory.push({ ...row.moduleInventory[0], ...change });
+            expect(() => inspectWindowBuildReceipt(row, checkout)).toThrow('contract refused');
+        }
+    });
+    it.each(['path', 'sha256'])('refuses a raw source %s getter before module correspondence checks', (name) => {
+        const row = buildReceipt(),
+            getter = vi.fn(() => {
+                throw new Error('Private getter must not run');
+            });
+        Object.defineProperty(row.moduleSourceInputs[0], name, { get: getter, enumerable: true });
+        expect(() => inspectWindowBuildReceipt(row, checkout)).toThrow('contract refused');
+        expect(getter).not.toHaveBeenCalled();
+    });
+    it.each([
+        'workerEntrySourceInputs',
+        'workerGraphCount',
+        'graphPolicyObservations',
+        'moduleInventory',
+        'moduleSourceInputs',
+    ])('refuses a %s receipt getter without invoking it', (name) => {
+        const row = buildReceipt(),
+            getter = vi.fn(() => {
+                throw new Error('Private getter must not run');
+            });
+        Object.defineProperty(row, name, { get: getter, enumerable: true });
+        expect(() => inspectWindowBuildReceipt(row, checkout)).toThrow('contract refused');
+        expect(getter).not.toHaveBeenCalled();
+    });
+    it.each(['path', 'sha256', 'graph'])('refuses a worker entry %s getter without invoking it', (name) => {
+        const row = buildReceipt(),
+            getter = vi.fn(() => {
+                throw new Error('Private getter must not run');
+            });
+        Object.defineProperty(row.workerEntrySourceInputs[0], name, { get: getter, enumerable: true });
+        expect(() => inspectWindowBuildReceipt(row, checkout)).toThrow('contract refused');
+        expect(getter).not.toHaveBeenCalled();
+    });
+    it.each(['graph', 'id', 'virtual', 'transformedCodeSha256'])(
+        'refuses a module inventory %s getter without invoking it',
+        (name) => {
+            const row = buildReceipt(),
+                getter = vi.fn(() => {
+                    throw new Error('Private getter must not run');
+                });
+            Object.defineProperty(row.moduleInventory[0], name, { get: getter, enumerable: true });
+            expect(() => inspectWindowBuildReceipt(row, checkout)).toThrow('contract refused');
+            expect(getter).not.toHaveBeenCalled();
+        },
+    );
+    it.each(['graph', 'isWorker', 'closedGraphInstances', 'workerFormat'])(
+        'refuses a graph policy %s getter without invoking it',
+        (name) => {
+            const row = buildReceipt(),
+                getter = vi.fn(() => {
+                    throw new Error('Private getter must not run');
+                });
+            Object.defineProperty(row.graphPolicyObservations[0], name, { get: getter, enumerable: true });
+            expect(() => inspectWindowBuildReceipt(row, checkout)).toThrow('contract refused');
+            expect(getter).not.toHaveBeenCalled();
+        },
+    );
+    it('refuses worker-entry and graph array getters, holes or unknown array fields', () => {
+        for (const name of ['workerEntrySourceInputs', 'graphPolicyObservations', 'moduleInventory'] as const) {
+            const row = buildReceipt(),
+                getter = vi.fn(() => {
+                    throw new Error('Private getter must not run');
+                });
+            Object.defineProperty(row[name], '0', { get: getter, enumerable: true });
+            expect(() => inspectWindowBuildReceipt(row, checkout)).toThrow('contract refused');
+            expect(getter).not.toHaveBeenCalled();
+            const sparse = buildReceipt();
+            delete sparse[name][0];
+            expect(() => inspectWindowBuildReceipt(sparse, checkout)).toThrow('contract refused');
+            const extra = buildReceipt();
+            Object.defineProperty(extra[name], 'extra', { value: true });
+            expect(() => inspectWindowBuildReceipt(extra, checkout)).toThrow('contract refused');
+        }
     });
     it('refuses older builds without actual Window instrumentation or proof freeze hashes', () => {
         const row = buildReceipt();

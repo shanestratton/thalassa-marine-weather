@@ -1,6 +1,6 @@
 # Scuttlebutt private message E2EE review brief
 
-Updated 12 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work. Commit IDs in the historical evidence below predate the 10 October licensed-chart history cleanup and must not be used as push bases or relabelled as current acceptance.
+Updated 13 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work. Commit IDs in the historical evidence below predate the 10 October licensed-chart history cleanup and must not be used as push bases or relabelled as current acceptance.
 
 The installed isolated Research candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c` on `codex/scuttlebutt-e2ee-foundation`. It passed 1,069 tests across 15 isolated suites, focused strict TypeScript, named lint, formatting and separate web/unsigned physical-iOS builds before local signing and in-place installation on both devices. Research entitlements match the previous candidate, and identical 11-file metadata inventories were retained across each update. Normal Thalassa's compared bundle/version/build metadata is unchanged. Launch requests succeeded; the owner subsequently reported signing into both. These are fixture/build/update checks and an owner report; the later bounded new-candidate message observations below are separate, not a full acceptance pass or an audit.
 
@@ -50,6 +50,30 @@ were inspected, no reset or re-enrollment occurred, and no primary build/sync,
 production or server changes accompanied the update.
 
 ## Current integration candidate
+
+The [latest 13 October evidence](../experiments/scuttlebutt-e2ee/review/inbox-scene-prefix-failure-2026-10-13.json)
+has 370 source/mock cases plus 24 helper cases, a fresh scoped actual Chrome proof
+(six console errors retained), and a compiled/launched 27-source native App.
+First inbox succeeded; the real native-provider responder exchange prefix has
+11 cases, 126 UI assertions and 55 protected-exchange assertions over synthetic
+Auth/relay. **Whole OS run failed**: the first inactive callback observed stale
+original authority and verify growth, but fixture finish cleanup discarded the
+baseline before did-enter-background. The triggering error remains unknown;
+no foreground/cold acceptance is credited. Later diagnostic retention/inventory
+hardening is source-tested, not a newer executed native proof. Original receipts
+remain failed and are source-bound in the checkpoint. Physical, production,
+provenance/licence and independent-assessment gates remain open.
+
+The [13 October local diagnostic wiring](../experiments/scuttlebutt-e2ee/review/inbox-stage-wiring-queued-2026-10-13.json)
+adds fixed, non-secret first-inbox Task markers and separately bound private
+capture, without changing native permission or PM reply paths. At that earlier
+checkpoint it was local unstaged WIP: guarded checks exhausted the shared-Mac waiting
+budget before any dispatch (120,018 ms including 18 ms overshoot). Earlier agent
+source/helper checks are not final-source, native or independent acceptance.
+Fresh combined-App web/Window and 27-source native proof were then queued; the original
+inbox cause remains unknown and the old failed native report stays failed. All
+61 HTTPS prerequisite sources remain unchanged. See the checkpoint for exact
+hashes, unrun states and the next reproducible steps. Nothing is merge-ready.
 
 The [current native owner preparation](../experiments/scuttlebutt-e2ee/review/scene-owner-integration-failure-2026-10-12.json)
 adds original scene epochs, synchronous existing-host closure, bounded

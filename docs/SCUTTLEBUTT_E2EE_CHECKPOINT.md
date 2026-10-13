@@ -11,6 +11,115 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
+## Current inbox completion and failed background witness on 13 October
+
+The [source-bound current record](../experiments/scuttlebutt-e2ee/review/inbox-scene-prefix-failure-2026-10-13.json)
+records **370 synthetic/source cases in five suites and 24 Node helper cases**,
+strict types, lint, formatting and syntax. Initial 272/274 source failures were
+repaired by scoping the actual launch-to-poll guard and explicitly parsing scene
+compiler conjunctions, without weakening physical exclusions. A missing Buffer
+import failed lint and was corrected without suppressing the rule. Failed
+receipts stay failed. These checks are not native crypto or OS acceptance.
+
+Fresh web build/actual unsupported Chrome proof passed startup, chat, closure,
+remount and CSP with **1,751 module inputs, 293 outputs, two workers**, zero page
+errors and **six retained console errors**. An earlier Window attempt refused
+before launch because its old contract expected three workers. Upstream commit
+`9badea101` deleted the independent navGrid compilation; runtime route/grid Worker
+still exists in the closed main graph. New exact Rollup-entry/source/hash and
+named-graph evidence preserves all gates rather than broadly lowering a count.
+
+The **27-source native app compiled and launched**, independent PID **29531**.
+The first inbox completed all original-ticket/adapter/publication boundaries;
+three inbox results succeeded. The current **responder** encrypted prefix passed
+11 cases, 126 UI assertions and 55 native protected-exchange assertions with three
+synthetic relay accepts. Provider, Keychain, sealed store, admission and adapter
+are real; SDK Auth and URLProtocol relay are synthetic. The older first-inbox
+failure was not reproduced; its precise cause is **still unknown**.
+
+Whole run **failed `scene-background-validate`**. At protected-ready the original
+snapshot/account were current, verify completions 1. At real will-resign-active,
+all six cover facts were true, account and ORIGINAL snapshot were stale, and
+successful completions grew to 2. At did-enter-background, account remained
+absent and cover/count facts held, but the fixture had discarded its original
+witness: observed false/current null. The strict gate correctly refuses that
+missing comparison. The sole clearing assignment is fixture finish cleanup;
+the report/error triggering finish remains unknown. Do not claim authority
+remained current, an OS roundtrip pass or a diagnosed fix. Foreground/cold actions
+were not dispatched; exact simulator ID/name absence and source stability passed.
+
+Parent `/private/tmp/thalassa-full-root-protected-J7YHVR/run-receipt.json`, SHA-256
+`da7ace79e7a65111c9ec2d1a28be0490b5f240c346cac74f0e71a450ad0bd35b`.
+Current final contract receipt SHA-256
+`9d9147b04e742ea4ff61ee5e1914e20da108a5e0b3cfadcc88d08d0fb3bd0c7d`.
+Total shared waiting **600/120,000 ms**, native child zero; no operational deadline
+was widened. No human devices, production, primary target or hosted service changed.
+
+Internal review then hardened evidence collection: privately retain exact admitted
+diagnostic bytes, not just canonical JSON; separately preserve the latest scene
+protected report even after a prefix exists; require complete bidirectional raw
+source/module inventory correspondence. All current source/helper checks pass,
+but these later changes have **not executed in a native run** and require fresh
+web/proof pins before another invocation. The earlier actual graph was independently
+checked internally complete; this is not an external audit or current new-schema
+Window acceptance. No authority restoration, bearer retention extension or gate
+relaxation was implemented.
+
+Next diagnose the later failed report/finish callsite, then design a facade-issued
+owner-only credential-free immutable observation stamp preserving exact original
+issuer/revision/expiry/binding/context checks. It must grant no operations and
+must not substitute cached booleans. That changes a **61-source prerequisite**,
+so legitimate provider/HTTPS regeneration is required. Existing helper snapshots
+also retain native credentials; do not claim zeroization. Actual foreground and
+navigation closure, cold/separate recovery, current HTTPS/Auth, physical,
+cutover/policy, licence/provenance and independent-review gates remain open.
+
+## Earlier first-inbox wiring queued by shared-Mac budget on 13 October
+
+The [local wiring record](../experiments/scuttlebutt-e2ee/review/inbox-stage-wiring-queued-2026-10-13.json)
+now wires the passive first-inbox recorder at six plugin Task boundaries, after
+the existing admission guard. Only the selected first inbox retains the Boolean
+and records stages. Native permission, operation, original-ticket checks, status
+and reply behavior are unchanged. This diagnoses boundaries; it does not fix or
+prove the cause of the previous inbox refusal.
+
+Scene-only persistence writes the fixed six-key snapshot separately into the
+validated observer-owned directory. Optional bounded private I/O cannot throw
+into PM resolution. The driver retains strict private copies and exact source
+byte hashes before cleanup, including failed runs, externally binding sources,
+resources, independent launch PID and directory/process epoch. A completed,
+selected-once diagnostic is an **additional** scene gate, never a replacement for
+native exchange, OS or cleanup evidence. The report remains exactly 20 keys;
+the scene Swift inventory is now 27, ordinary maximum remains 24 and the original
+11 scene source bindings are unchanged. All **61 HTTPS prerequisites** remain
+byte-identical to `f61`; no prerequisite was changed or rerun.
+
+The current guarded validation was **queued before its first dispatch** after
+**120,018/120,000 ms** cumulative shared-Mac waiting (18 ms actual overshoot).
+Its receipt is `/private/tmp/thalassa-inbox-wiring-checks.N5nVMd/checks-receipt.json`,
+SHA-256 `4e7155ac43c31cc4ddd94a4b27166d5b644f35080b61d1d024e8ba20a857e667`.
+Thirteen inputs were hashed; no syntax/test/build stage in that coordinator ran.
+No new budget was granted to downstream helpers. The 23 new source/helper cases
+and four affected suites remain queued. Earlier lightweight agent runs were
+18/23 (harness assumptions) and 23/23 before final matcher cleanup, without saved
+source hashes; they are retained as historical, **not final-source acceptance**.
+Internal read-only Swift review found no concrete issue, not an audit or compile.
+
+Latest published base remains `49db9154547abccc47c3cc1c0106e573487b26d3`;
+fetched master remains `c7d49a32b7f6ef9f3e6ce860b9d28caefc9ba8c7`.
+Retired chart paths remain absent from this tree and ancestry. **Wiring, tests
+and this record are local unstaged/unpublished WIP**, not a verified pushed slice.
+No native compilation/launch, protected exchange, OS transition or fresh Window
+proof occurred. A fresh current-graph web build helper is prepared privately but
+unrun. Production, primary targets, hosted services and human devices/accounts/
+keys are untouched. Master/release gates are still open.
+
+Next run: preserve this WIP, execute fresh source-bound guarded contracts first
+using a NEW owned receipt directory and that run's single cumulative budget;
+then refresh the changed App graph's startup/I/O-fence/Window evidence and execute
+the scene-only 27-source diagnostic. Never reuse `wx` output paths, reconstruct
+a passed receipt, widen a deadline or modify the 61-source adapter to add telemetry.
+
 ## Passive inbox-stage preparation and upstream reconciliation on 13 October
 
 The [preparation record](../experiments/scuttlebutt-e2ee/review/inbox-stage-preparation-2026-10-13.json)
@@ -42,8 +151,9 @@ No prerequisite execution was repeated. The changed upstream App graph invalidat
 earlier combined-graph acceptance; fresh startup I/O-fence/web/Window evidence is
 required before the next native proof.
 
-Runtime selection/markers, private persistence and scene build inventory are
-**not wired yet**. The actual inbox cause remains unknown; no new native launch,
+At this earlier preparation checkpoint, runtime selection/markers, private
+persistence and scene build inventory were **not wired yet**. The later local
+wiring above remains unvalidated. The actual inbox cause remains unknown; no new native launch,
 protected exchange or real lifecycle stage occurred. Production, primary targets,
 hosted services and human devices/accounts/keys remain untouched. This is bounded
 preparation, not a diagnosed fix or merge readiness.

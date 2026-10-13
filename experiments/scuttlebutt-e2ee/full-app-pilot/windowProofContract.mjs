@@ -74,6 +74,11 @@ export const WINDOW_MEMORY_COUNTERS = Object.freeze([
     'versionWrites',
     'refusals',
 ]);
+const mainRoutingWorkerSources = Object.freeze([
+    'services/routing/routeWorkerHost.ts',
+    'services/routing/routeJob.ts',
+    'services/engine/navGridWorkerHost.ts',
+]);
 export const WINDOW_REQUIRED_BUILD_SOURCES = Object.freeze([
     'App.tsx',
     'viewRegistry.tsx',
@@ -81,6 +86,7 @@ export const WINDOW_REQUIRED_BUILD_SOURCES = Object.freeze([
     'context/ThalassaContext.tsx',
     'contexts/CrewCountContext.tsx',
     'components/ChatPage.tsx',
+    ...mainRoutingWorkerSources,
     'experiments/scuttlebutt-e2ee/app-pilot/PrivateMessageResearchApp.tsx',
     ...[
         'entry.ts',
@@ -95,6 +101,10 @@ export const WINDOW_REQUIRED_BUILD_SOURCES = Object.freeze([
         'boundaries.ts',
         'boundaryMemory.ts',
     ].map((name) => 'experiments/scuttlebutt-e2ee/full-app-pilot/' + name),
+]);
+export const WINDOW_REQUIRED_WORKER_ENTRY_SOURCES = Object.freeze([
+    'services/enc/encParseWorker.ts',
+    'services/enc/encGeometryWorker.ts',
 ]);
 export const WINDOW_REQUIRED_PROOF_SOURCES = Object.freeze([
     ...['vite.config.mjs', 'graphIsolation.mjs', 'brandAsset.mjs', 'windowProof.mjs', 'windowProofContract.mjs'].map(
@@ -295,11 +305,23 @@ export function inspectWindowBuildReceipt(raw, checkout) {
     demand(Array.isArray(omissions) && omissions.length === 0);
     const inputs = value('moduleSourceInputs'),
         outputs = value('outputs');
-    function rows(list, max) {
+    function items(list, max) {
         demand(Array.isArray(list) && list.length > 0 && list.length <= max);
+        const keys = Reflect.ownKeys(list);
+        demand(
+            keys.length === list.length + 1 &&
+                keys.every(
+                    (key) =>
+                        key === 'length' ||
+                        (typeof key === 'string' && /^(0|[1-9][0-9]*)$/.test(key) && Number(key) < list.length),
+                ),
+        );
+        return Array.from({ length: list.length }, (_, index) => data(list, String(index)));
+    }
+    function rows(list, max, names = ['path', 'sha256']) {
         const seen = new Set();
-        return list.map((item) => {
-            const row = exact(item, ['path', 'sha256']);
+        return items(list, max).map((item) => {
+            const row = exact(item, names);
             demand(
                 typeof row.path === 'string' &&
                     isAbsolute(row.path) &&
@@ -327,6 +349,24 @@ export function inspectWindowBuildReceipt(raw, checkout) {
     demand(value('outputCount') === artifacts.length);
     for (const name of WINDOW_REQUIRED_BUILD_SOURCES)
         demand(sourceInputs.some((row) => row.path === resolve(checkout, name)));
+    const workerEntrySourceInputs = rows(
+        value('workerEntrySourceInputs'),
+        WINDOW_REQUIRED_WORKER_ENTRY_SOURCES.length,
+        ['path', 'sha256', 'graph'],
+    );
+    demand(workerEntrySourceInputs.length === WINDOW_REQUIRED_WORKER_ENTRY_SOURCES.length);
+    const workerPaths = new Set(WINDOW_REQUIRED_WORKER_ENTRY_SOURCES.map((name) => resolve(checkout, name))),
+        workerGraphs = new Set(WINDOW_REQUIRED_WORKER_ENTRY_SOURCES.map((_, index) => 'worker-' + (index + 1))),
+        seenWorkerGraphs = new Set();
+    for (const row of workerEntrySourceInputs) {
+        demand(
+            workerPaths.has(row.path) &&
+                workerGraphs.has(row.graph) &&
+                !seenWorkerGraphs.has(row.graph) &&
+                sourceInputs.some((source) => source.path === row.path && source.sha256 === row.sha256),
+        );
+        seenWorkerGraphs.add(row.graph);
+    }
     const html = artifacts.filter((row) => row.path.endsWith(sep + 'index.html'));
     demand(html.length === 1);
     const dist = dirname(html[0].path);
@@ -353,15 +393,70 @@ export function inspectWindowBuildReceipt(raw, checkout) {
             return name !== '' && !name.startsWith('..' + sep) && !isAbsolute(name) && !name.includes('\\');
         }),
     );
-    const graphs = value('graphPolicyObservations');
-    demand(Array.isArray(graphs) && graphs.length === 4 && value('workerGraphCount') === 3);
+    const graphNames = new Set(['main', ...workerGraphs]),
+        graphs = items(value('graphPolicyObservations'), graphNames.size),
+        seenGraphs = new Set();
+    demand(graphs.length === graphNames.size && value('workerGraphCount') === workerEntrySourceInputs.length);
     for (const graph of graphs) {
-        const row = exact(graph, ['isWorker', 'closedGraphInstances', 'workerFormat']);
-        demand(typeof row.isWorker === 'boolean' && row.closedGraphInstances === 1 && row.workerFormat === 'es');
+        const row = exact(graph, ['graph', 'isWorker', 'closedGraphInstances', 'workerFormat']);
+        demand(
+            graphNames.has(row.graph) &&
+                !seenGraphs.has(row.graph) &&
+                row.isWorker === (row.graph !== 'main') &&
+                row.closedGraphInstances === 1 &&
+                row.workerFormat === 'es',
+        );
+        seenGraphs.add(row.graph);
     }
-    demand(graphs.filter((row) => row.isWorker).length === 3);
+    const seenModules = new Map(),
+        sourcePaths = new Set(sourceInputs.map((row) => row.path)),
+        representedSourcePaths = new Set();
+    const moduleInventory = items(value('moduleInventory'), 10000).map((module) => {
+        const row = exact(module, ['graph', 'id', 'virtual', 'transformedCodeSha256']);
+        demand(
+            graphNames.has(row.graph) &&
+                typeof row.id === 'string' &&
+                row.id.length > 0 &&
+                row.id.length <= 4096 &&
+                typeof row.virtual === 'boolean' &&
+                row.virtual === row.id.startsWith('\0') &&
+                isWindowProofHash(row.transformedCodeSha256),
+        );
+        if (!row.virtual) {
+            const path = row.id.split(/[?#]/)[0];
+            demand(
+                path.length > 0 &&
+                    !path.includes('\0') &&
+                    isAbsolute(path) &&
+                    resolve(path) === path &&
+                    sourcePaths.has(path),
+            );
+            // Transformed code can differ from source bytes. The caller checks
+            // the frozen raw digests; every compiled source must map to one.
+            representedSourcePaths.add(path);
+        }
+        if (!seenModules.has(row.graph)) seenModules.set(row.graph, new Set());
+        const graphModules = seenModules.get(row.graph);
+        demand(!graphModules.has(row.id));
+        graphModules.add(row.id);
+        return Object.freeze(row);
+    });
+    for (const source of sourceInputs) demand(representedSourcePaths.has(source.path));
+    for (const worker of workerEntrySourceInputs)
+        demand(
+            moduleInventory.some(
+                (row) => row.graph === worker.graph && row.id === worker.path && row.virtual === false,
+            ),
+        );
+    for (const name of mainRoutingWorkerSources) {
+        const path = resolve(checkout, name);
+        demand(moduleInventory.some((row) => row.graph === 'main' && row.id === path && row.virtual === false));
+        demand(sourceInputs.some((row) => row.path === path));
+    }
     return Object.freeze({
         sourceInputs: Object.freeze([...sourceInputs, ...assetInputs]),
+        workerEntrySourceInputs: Object.freeze(workerEntrySourceInputs),
+        moduleInventory: Object.freeze(moduleInventory),
         proofSources: Object.freeze(proofSources),
         artifacts: Object.freeze(artifacts),
         dist,

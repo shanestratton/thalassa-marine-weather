@@ -611,16 +611,23 @@ describe('v3 and existing UI semantics — read-only source preservation, not ex
     });
     it('keeps Research launch at the default bound and gates polling on its exact positive PID', () => {
         const driver = readFileSync('experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs', 'utf8');
-        const launch = driver.indexOf(
+        const phase = driver.indexOf("receipt.phase = 'actual-full-root-protected';");
+        const poll = driver.indexOf("receipt.lastOperation = 'native-status-poll';", phase);
+        expect(phase).toBeGreaterThan(0);
+        expect(poll).toBeGreaterThan(phase);
+        // Diagnostic capture also checks the independent PID. Only the actual
+        // launch-to-poll block can prove this guard precedes native polling.
+        const launchToPoll = driver.slice(phase, poll);
+        const launch = launchToPoll.indexOf(
             "quiet('/usr/bin/xcrun', ['simctl', 'launch', '--terminate-running-process', simulator, bundle]);",
         );
-        const gate = driver.indexOf(
+        const gate = launchToPoll.indexOf(
             'assert(Number.isSafeInteger(receipt.ownedLaunchPID) && receipt.ownedLaunchPID > 0);',
+            launch,
         );
-        const poll = driver.indexOf("receipt.lastOperation = 'native-status-poll';");
         expect(launch).toBeGreaterThan(0);
         expect(gate).toBeGreaterThan(launch);
-        expect(poll).toBeGreaterThan(gate);
+        expect(poll).toBeGreaterThan(phase + gate);
         expect(driver).toContain('function quiet(bin, args, timeout = 30000');
         expect(driver).toContain('app\\.thalassa\\.research\\.scuttlebutt-auth: ([1-9][0-9]{0,8})');
     });

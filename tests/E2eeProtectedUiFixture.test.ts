@@ -463,27 +463,46 @@ describe('actual protected fixture JS — jsdom SDK/control/PM DOM fakes only', 
 
 // Source contracts only. Respect nested #if/#elseif/#else boundaries; a greedy regex
 // would accidentally erase simulator refusal or the cold scenario branch.
+const FLAGS = {
+    E2EE_LOCAL_UI_FIXTURE: true,
+    E2EE_PROTECTED_UI_FIXTURE: true,
+    E2EE_FULL_APP_UI_FIXTURE: false,
+    E2EE_FULL_APP_PROTECTED_UI_FIXTURE: false,
+    E2EE_FULL_APP_SCENE_UI_FIXTURE: false,
+    'targetEnvironment(simulator)': true,
+};
 function scenario(source: string, flags: Record<string, boolean>) {
     // Existing v1-v4 source scenarios leave the newly isolated scene lane off.
     // Unknown conditions still refuse; do not default arbitrary flags to false.
     flags = { E2EE_FULL_APP_SCENE_UI_FIXTURE: false, ...flags };
+    function conditionValue(condition: string) {
+        let value = true;
+        // Only conjunctions of these explicit Boolean compiler atoms are
+        // supported. Validate every atom even after a false value so inactive
+        // branches cannot hide unknown flags or unsupported expressions.
+        for (const atom of condition.split('&&').map((part) => part.trim())) {
+            if (!Object.hasOwn(FLAGS, atom) || !Object.hasOwn(flags, atom) || typeof flags[atom] !== 'boolean')
+                throw new Error('Unknown source-contract condition');
+            value = value && flags[atom];
+        }
+        return value;
+    }
     const stack: Array<{ parent: boolean; matched: boolean; seenElse: boolean }> = [];
     let active = true;
     const output: string[] = [];
     for (const line of source.split('\n')) {
         const directive = line.trim();
         if (directive.startsWith('#if ')) {
-            const condition = directive.slice(4);
-            if (!Object.hasOwn(flags, condition)) throw new Error('Unknown source-contract condition');
-            stack.push({ parent: active, matched: flags[condition], seenElse: false });
-            active = active && flags[condition];
+            const condition = conditionValue(directive.slice(4));
+            stack.push({ parent: active, matched: condition, seenElse: false });
+            active = active && condition;
         } else if (directive.startsWith('#elseif ')) {
             const frame = stack.at(-1),
                 condition = directive.slice(8);
             if (!frame || frame.seenElse) throw new Error('Invalid source-contract elseif');
-            if (!Object.hasOwn(flags, condition)) throw new Error('Unknown source-contract condition');
-            active = frame.parent && !frame.matched && flags[condition];
-            frame.matched = frame.matched || flags[condition];
+            const value = conditionValue(condition);
+            active = frame.parent && !frame.matched && value;
+            frame.matched = frame.matched || value;
         } else if (directive === '#else') {
             const frame = stack.at(-1);
             if (!frame || frame.seenElse) throw new Error('Invalid source-contract else');
@@ -499,18 +518,22 @@ function scenario(source: string, flags: Record<string, boolean>) {
     if (stack.length) throw new Error('Unclosed source-contract condition');
     return output.join('\n');
 }
-const FLAGS = {
-    E2EE_LOCAL_UI_FIXTURE: true,
-    E2EE_PROTECTED_UI_FIXTURE: true,
-    E2EE_FULL_APP_UI_FIXTURE: false,
-    E2EE_FULL_APP_PROTECTED_UI_FIXTURE: false,
-    'targetEnvironment(simulator)': true,
-};
 describe('protected fixture source contracts — no compilation/native execution', () => {
     it('refuses unknown, unsupported and malformed conditional directives', () => {
         for (const source of [
             '#if UNKNOWN\n#endif',
             '#if E2EE_LOCAL_UI_FIXTURE\n#elseif UNKNOWN\n#endif',
+            '#if E2EE_FULL_APP_SCENE_UI_FIXTURE && UNKNOWN\n#endif',
+            '#if UNKNOWN && E2EE_FULL_APP_SCENE_UI_FIXTURE\n#endif',
+            '#if E2EE_FULL_APP_SCENE_UI_FIXTURE\n#if UNKNOWN\n#endif\n#endif',
+            '#if E2EE_LOCAL_UI_FIXTURE\n#elseif E2EE_FULL_APP_SCENE_UI_FIXTURE && UNKNOWN\n#endif',
+            '#if E2EE_FULL_APP_SCENE_UI_FIXTURE || targetEnvironment(simulator)\n#endif',
+            '#if E2EE_FULL_APP_SCENE_UI_FIXTURE &&\n#endif',
+            '#if && targetEnvironment(simulator)\n#endif',
+            '#if E2EE_FULL_APP_SCENE_UI_FIXTURE &&& targetEnvironment(simulator)\n#endif',
+            '#if !E2EE_FULL_APP_SCENE_UI_FIXTURE\n#endif',
+            '#if (E2EE_FULL_APP_SCENE_UI_FIXTURE)\n#endif',
+            '#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(iOS)\n#endif',
             '#warning unavailable',
             '#if E2EE_LOCAL_UI_FIXTURE\n#else\n#elseif E2EE_PROTECTED_UI_FIXTURE\n#endif',
             '#else',
@@ -523,6 +546,72 @@ describe('protected fixture source contracts — no compilation/native execution
         expect(scenario(source, FLAGS)).toBe('old-protected');
         expect(scenario(source, { ...FLAGS, E2EE_FULL_APP_UI_FIXTURE: true })).toBe('startup');
         expect(scenario(source, { ...FLAGS, E2EE_PROTECTED_UI_FIXTURE: false })).toBe('cold');
+    });
+    it('evaluates every known Boolean conjunction operand and refuses supplied unknown flags', () => {
+        const source =
+            '#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)\nscene-simulator\n#else\nexcluded\n#endif';
+        for (const scene of [false, true])
+            for (const simulator of [false, true]) {
+                const flags = {
+                    ...FLAGS,
+                    E2EE_FULL_APP_SCENE_UI_FIXTURE: scene,
+                    'targetEnvironment(simulator)': simulator,
+                };
+                expect(scenario(source, flags)).toBe(scene && simulator ? 'scene-simulator' : 'excluded');
+                expect(scenario(source.replace('#if ', '#if E2EE_FULL_APP_UI_FIXTURE\nstartup\n#elseif '), flags)).toBe(
+                    scene && simulator ? 'scene-simulator' : 'excluded',
+                );
+            }
+        expect(() => scenario('#if UNKNOWN\nallowed\n#endif', { ...FLAGS, UNKNOWN: true })).toThrow(
+            'Unknown source-contract condition',
+        );
+        expect(() =>
+            scenario(source, { ...FLAGS, 'targetEnvironment(simulator)': 'true' as unknown as boolean }),
+        ).toThrow('Unknown source-contract condition');
+        const { 'targetEnvironment(simulator)': _simulator, ...missingSimulator } = FLAGS;
+        expect(() => scenario(source, missingSimulator)).toThrow('Unknown source-contract condition');
+    });
+    it.each([
+        { name: 'scene simulator', scene: true, simulator: true, diagnostics: true },
+        { name: 'protected-only simulator', scene: false, simulator: true, diagnostics: false },
+        { name: 'scene-flagged physical', scene: true, simulator: false, diagnostics: false },
+        { name: 'protected-only physical', scene: false, simulator: false, diagnostics: false },
+    ])('keeps first-inbox diagnostics gated in the $name scenario', ({ scene, simulator, diagnostics }) => {
+        const flags = {
+            ...FLAGS,
+            E2EE_PROTECTED_UI_FIXTURE: false,
+            E2EE_FULL_APP_PROTECTED_UI_FIXTURE: true,
+            E2EE_FULL_APP_SCENE_UI_FIXTURE: scene,
+            'targetEnvironment(simulator)': simulator,
+        };
+        const plugin = scenario(readFileSync(join(NATIVE, 'ScuttlebuttResearchAuthPlugin.swift'), 'utf8'), flags);
+        const fixture = scenario(readFileSync(join(NATIVE, 'ResearchFullAppProtectedUiFixture.swift'), 'utf8'), flags);
+        if (diagnostics) {
+            expect(plugin).toContain('static let firstInboxStageEvidence = ResearchFirstInboxStageEvidence()');
+            expect(plugin).toContain('let firstInboxSelected = call.methodName == "privateMessageInbox"');
+            for (const stage of [
+                'taskOriginalTicket',
+                'adapterOperation',
+                'publicationOriginalTicket',
+                'resultPublication',
+                'completed',
+                'failed',
+            ])
+                expect(plugin).toContain(`if firstInboxSelected { Self.firstInboxStageEvidence.note(.${stage}) }`);
+            expect(fixture).toContain('ResearchFullAppSceneUiFixture.persistFirstInboxDiagnostic()');
+        } else {
+            expect(plugin).not.toContain('ResearchFirstInboxStageEvidence');
+            expect(plugin).not.toContain('firstInboxStageEvidence');
+            expect(plugin).not.toContain('firstInboxSelected');
+            expect(fixture).not.toContain('persistFirstInboxDiagnostic');
+        }
+        expect(plugin).toContain('try self.sceneAuthority.withCurrent(admitted.0)');
+        expect(plugin).toContain('call.resolve(published)');
+        expect(plugin).toContain('ResearchFullAppProtectedUiFixture.notePmResult');
+        if (!simulator) {
+            expect(fixture).not.toContain('runID = id; nonce = n; script = source');
+            expect(fixture).toContain('throw ResearchFullAppProtectedUiError.unavailable');
+        }
     });
     it('keeps v4 wiring explicit and separate from the preserved v1/v2/v3 branches', () => {
         const flags = { ...FLAGS, E2EE_PROTECTED_UI_FIXTURE: false, E2EE_FULL_APP_PROTECTED_UI_FIXTURE: true };

@@ -1109,7 +1109,7 @@ describe('explicit scene wiring — source regression evidence, not native execu
         expect(builder).toContain('receipt.sourceHashes[source] = hash(source)');
         expect(builder).toContain('assert(hash(path) === expected)');
     });
-    it('keeps the Ruby scene whitelist at exact 26 sources and the ordinary bound at 24', () => {
+    it('keeps the Ruby scene whitelist at exact 27 sources and the ordinary bound at 24', () => {
         const ruby = nativeSource('generate_project.rb'),
             builder = nativeSource('build.mjs');
         const scene =
@@ -1118,8 +1118,8 @@ describe('explicit scene wiring — source regression evidence, not native execu
                 .trim()
                 .split(/\s+/)
                 .sort() ?? [];
-        expect(scene).toHaveLength(26);
-        expect(new Set(scene).size).toBe(26);
+        expect(scene).toHaveLength(27);
+        expect(new Set(scene).size).toBe(27);
         expect(ruby).toContain(
             "manifest['sceneUiFixture'] ? sources.sort == scene_sources : sources.length.between?(3, 24)",
         );

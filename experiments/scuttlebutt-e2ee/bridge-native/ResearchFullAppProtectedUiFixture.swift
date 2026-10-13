@@ -550,6 +550,9 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
         }
     }
     @MainActor private func write(status: String, phase: String, report: Report?, nativeAssertions: Int, state: [String: Any], initial: Bool) throws {
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+        ResearchFullAppSceneUiFixture.persistFirstInboxDiagnostic()
+#endif
         guard let runID, let nonce else { throw ResearchFullAppProtectedUiError.unavailable }
 #if E2EE_FULL_APP_SCENE_UI_FIXTURE
         let syntheticPagehide = false

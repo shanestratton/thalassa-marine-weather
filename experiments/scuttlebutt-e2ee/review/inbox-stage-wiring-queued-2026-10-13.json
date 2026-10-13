@@ -1,0 +1,156 @@
+{
+    "schemaVersion": 1,
+    "kind": "first-inbox-stage-wiring-with-shared-slot-exhaustion",
+    "recordedDate": "2026-10-13",
+    "timezone": "Australia/Brisbane",
+    "sourceBase": "49db9154547abccc47c3cc1c0106e573487b26d3",
+    "branch": "codex/scuttlebutt-e2ee-integration-clean-2026-10-11",
+    "status": "wired-local-unpublished-current-validation-queued-cause-unknown",
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "59e8f08554eef5218202afa343065b8a2367649f7faeba6fc1ea51c51bff6461",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppSceneUiFixture.swift": "e63c7d8bdbdfe60de67af65468ca0b5c092c5a812457be1fd6bc3b79614f729a",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "07133f01a090234a57a5e3ae8b73e33785908f0be43e0a8afaee3e8ae72cfbcb",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFirstInboxStageEvidence.swift": "4ba97c4cdfeda4468ed70cffa2de4a6db54124fcdaeaa7ec01d891442f5c8893",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageContract.mjs": "5253d1e5639c13b35e4db3e2666ed32ea81f46ad8a0d1f7a784847c5adf742eb",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageWiring.test.mjs": "094ea2b86a1b3db2dd4325fa2c95725d9077a5ffc2e3e77912a39d4c049d6bef",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs": "c76ebe8dbe2c5e386a2332c03540e4c10661f66c665aef57831c28a26a7b3357",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "16ceaa3d51c9e0a417d042eedc49d8bc56144947fcf5c88d5ad76436ab07c781",
+        "experiments/scuttlebutt-e2ee/bridge-native/generate_project.rb": "77ac2dd9f7b1e1a2254acaf9a4f9a8be5a887c567a4c935fe8e53f1e4f2517ca",
+        "tests/E2eeSceneLifecycleEvidence.test.ts": "cd0ddf6a5ddda551fcaf2119f07bbfda32a69181172a47c46058f28d35fd7327",
+        "tests/E2eeFullAppProtectedNativeContract.test.ts": "8b3250989f471a95b7598c2aaea52de9a006cb19d44907c727f24b5952ea9d8c",
+        "tests/E2eeFullAppNativeResume.test.ts": "db0118742145779db80f73d2f073fd6efc4566a246fdff7b5c7e1b7029c5c359",
+        "tests/E2eeProtectedUiFixture.test.ts": "5da483709bdea746b390535aeb704088c71352902114909f0f382fc9c78d5f6d"
+    },
+    "implementation": {
+        "scope": "Simulator-only full-App scene diagnostic; unchanged PM admission, status, operation and original-ticket publication path",
+        "selection": "One first admitted inbox Task retains the selected Boolean; later attempts never mark the first",
+        "markers": [
+            "task-original-ticket",
+            "adapter-operation",
+            "publication-original-ticket",
+            "result-publication",
+            "completed",
+            "failed"
+        ],
+        "diagnosticSchemaKeys": 6,
+        "countsBound": "each marker 0 or 1",
+        "acceptanceEvidence": false,
+        "persistence": "Separate scene-first-inbox-stage.json in validated observer-owned directory; exclusive initial create, bounded atomic updates, regular owned 0600 leaf, optional I/O outside PM Task",
+        "externalBinding": "Exact parsed source byte hashes and private copies, source/resource pins, independent launch PID and observer process epoch/directory match",
+        "protectedReportKeysUnchanged": 20,
+        "sceneSwiftInventory": 27,
+        "ordinarySwiftMaximumUnchanged": 24,
+        "sceneBindingsUnchanged": 11,
+        "driverScenePins": 23,
+        "extraPassGate": "A selected-once completed bound diagnostic is required in addition to original native/scene/cleanup acceptance; it cannot promote a failed native result",
+        "privateMessageAdapterModified": false,
+        "prerequisite61ByteIdenticalToF61": true
+    },
+    "currentGuardedValidation": {
+        "receipt": {
+            "path": "/private/tmp/thalassa-inbox-wiring-checks.N5nVMd/checks-receipt.json",
+            "sha256": "4e7155ac43c31cc4ddd94a4b27166d5b644f35080b61d1d024e8ba20a857e667"
+        },
+        "status": "queued-unrun",
+        "sourceInputs": 13,
+        "sharedWaitBudgetMs": 120000,
+        "actualSharedWaitMs": 120018,
+        "overshootMs": 18,
+        "phase": "syntax-driver",
+        "dispatchedStages": 0,
+        "executedTestCounts": 0,
+        "checks": [
+            {
+                "name": "Syntax",
+                "status": "queued-unrun"
+            },
+            {
+                "name": "Ruby generator",
+                "status": "queued-unrun"
+            },
+            {
+                "name": "named formatting",
+                "status": "queued-unrun"
+            },
+            {
+                "name": "23 new source/helper contracts",
+                "status": "queued-unrun"
+            },
+            {
+                "name": "four affected contract suites",
+                "status": "queued-unrun"
+            }
+        ],
+        "policy": "No downstream build/test dispatch after cumulative exhaustion; this run budget was not reset or granted again to a helper"
+    },
+    "auxiliaryLightChecks": {
+        "driverAgent": "Node syntax, Ruby syntax, named formatting and whitespace reported passed; no native build or launch",
+        "contractsAgent": {
+            "firstHistoricalResult": {
+                "passed": 18,
+                "total": 23,
+                "durationMs": 296.114209,
+                "sourceHashRecorded": false,
+                "status": "failed-test-harness-assumptions"
+            },
+            "secondHistoricalResult": {
+                "passed": 23,
+                "total": 23,
+                "durationMs": 910.510833,
+                "sourceHashRecorded": false,
+                "status": "historical-before-final-matcher-cleanup-not-current-source-acceptance"
+            },
+            "correctedAssumptions": [
+                "comment falsely matched Task",
+                "concurrent mode-mask strengthening",
+                "inventory matcher selected wrong declaration",
+                "byte snapshot read expectation",
+                "VM buffers/hash/epoch mocks"
+            ],
+            "finalCurrentSourceDispatch": "unrun under root guard"
+        },
+        "swiftReview": "Read-only internal agent review found no concrete issue in three changed Swift files; no compilation/execution or independent audit",
+        "whitespace": "Root git diff --check passed"
+    },
+    "web": {
+        "status": "queued-unrun",
+        "preparedBuilder": {
+            "path": "/private/tmp/thalassa-inbox-current-web.NgIRt8/build-proof.mjs",
+            "sha256": "ba752e48d933158a507aaaac2cabd2fd5a09f3562652ad15c2dbb36aced90bac"
+        },
+        "scope": "Preserved build helper adapted only to current base in a fresh owned directory; not executed"
+    },
+    "native": {
+        "status": "unrun",
+        "newSwiftCompilation": false,
+        "launch": false,
+        "protectedExchange": false,
+        "osRoundtrip": false,
+        "currentInboxCause": "unknown",
+        "oldFailedRunStillFailed": true
+    },
+    "git": {
+        "fetchedMaster": "c7d49a32b7f6ef9f3e6ce860b9d28caefc9ba8c7",
+        "publishedCleanContinuation": "49db9154547abccc47c3cc1c0106e573487b26d3",
+        "historyRewritten": false,
+        "retiredTreeAbsent": true,
+        "retiredAncestryAbsent": true,
+        "manualCommit": false,
+        "push": false,
+        "work": "Named runtime/build/test/documentation WIP remains local unstaged"
+    },
+    "remaining": [
+        "Guarded current-source contracts and compile",
+        "Fresh combined-App startup/I/O-fence/unsupported actual Window after changed upstream graph",
+        "Fresh owned 27-source native diagnostic to identify actual inbox failing boundary",
+        "Current protected exchange and actual UIKit/navigation roundtrip",
+        "Opposite role, full adapter HTTPS/current Auth, cold process and separate same-store recovery",
+        "Production cutover/legacy queues/push rollback; device/prekey/retention/recovery",
+        "Current physical acceptance, licensing/source-binary provenance and independent assessment"
+    ],
+    "productionTouched": false,
+    "primaryCheckoutTouched": false,
+    "humanResearchDevicesAccountsKeysTouched": false,
+    "hostedServicesChanged": false,
+    "mergeReady": false
+}

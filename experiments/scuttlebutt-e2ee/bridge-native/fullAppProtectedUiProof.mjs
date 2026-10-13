@@ -51,6 +51,7 @@ import {
     FULL_APP_CONTROL_LAUNCH_BOUND_MS,
 } from './fullAppUiResumeContract.mjs';
 import { inspectSimulatorEntitlementSections } from './machOEntitlementEvidence.mjs';
+import { inspectFirstInboxStageEvidence } from './firstInboxStageContract.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const checkout = resolve(here, '../../..');
@@ -99,7 +100,8 @@ let waited = 0,
     waitBudget = 120000;
 let prerequisiteInputs = [],
     builtInputs = [],
-    nativeObservationPassed = false;
+    nativeObservationPassed = false,
+    firstInboxDiagnosticCaptureComplete = false;
 function regular(path, limit = 16 * 1024 * 1024) {
     assert(isAbsolute(path));
     for (let p = path; p !== dirname(p); p = dirname(p)) assert(!lstatSync(p).isSymbolicLink());
@@ -278,12 +280,14 @@ function sceneFiles() {
     assert(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(epoch));
     const directory = join(ownedDocuments, directories[0]);
     assert(lstatSync(directory).isDirectory() && !lstatSync(directory).isSymbolicLink());
-    return { observer: join(directory, 'scene-observer.json'), closure: join(directory, 'scene-ui-closure.json') };
+    return {
+        epoch,
+        observer: join(directory, 'scene-observer.json'),
+        closure: join(directory, 'scene-ui-closure.json'),
+        firstInboxDiagnostic: join(directory, 'scene-first-inbox-stage.json'),
+    };
 }
-function sceneObservation(diagnostic = false) {
-    const files = sceneFiles();
-    if (!files || !existsSync(files.observer)) return null;
-    const raw = JSON.parse(readFileSync(regular(files.observer, 65536), 'utf8'));
+function inspectSceneObservation(raw, diagnostic = false) {
     const independentPid = scenePins?.pid ?? receipt.ownedLaunchPID;
     // A file-supplied PID is used only to validate an explicitly unaccepted
     // diagnostic shape. It can NEVER supply the driver's launch identity.
@@ -296,6 +300,110 @@ function sceneObservation(diagnostic = false) {
     });
     if (scenePins) assert(observed.process.epoch === scenePins.epoch && observed.process.pid === scenePins.pid);
     return observed;
+}
+function sceneObservation(diagnostic = false) {
+    const files = sceneFiles();
+    if (!files || !existsSync(files.observer)) return null;
+    return inspectSceneObservation(JSON.parse(readFileSync(regular(files.observer, 65536), 'utf8')), diagnostic);
+}
+function captureFirstInboxStageDiagnostic() {
+    if (!sceneProof) return;
+    firstInboxDiagnosticCaptureComplete = false;
+    receipt.firstInboxStageDiagnosticStatus = 'no-file';
+    receipt.firstInboxDiagnosticCaptureComplete = false;
+    try {
+        const files = sceneFiles();
+        if (!files || !existsSync(files.firstInboxDiagnostic)) return;
+        // The recorder intentionally owns no identities. Its provenance comes
+        // only from this owned launch, strict observer and pinned parent inputs.
+        assert(Number.isSafeInteger(receipt.ownedLaunchPID) && receipt.ownedLaunchPID > 0);
+        const observerSource = regular(files.observer, 65536);
+        const directory = lstatSync(dirname(observerSource));
+        assert(directory.uid === process.getuid() && (directory.mode & 0o7777) === 0o700);
+        assert((lstatSync(observerSource).mode & 0o7777) === 0o600);
+        const observerBytes = readFileSync(observerSource);
+        assert(observerBytes.length > 0 && observerBytes.length <= 65536);
+        const observerSourceSHA256 = createHash('sha256').update(observerBytes).digest('hex');
+        const observer = inspectSceneObservation(JSON.parse(observerBytes.toString('utf8')));
+        assert(observer.process.pid === receipt.ownedLaunchPID);
+        assert(observer.process.epoch === files.epoch);
+        assert(hash(sceneFixtureFile) === receipt.sceneFixtureResource.sha256);
+        assert(hash(protectedFixtureFile) === receipt.fixtureResource.sha256);
+        for (const [name, expected] of Object.entries(receipt.sourceHashes))
+            assert(hash(regular(join(checkout, name))) === expected);
+        const source = regular(files.firstInboxDiagnostic, 4096);
+        assert((lstatSync(source).mode & 0o7777) === 0o600);
+        const diagnosticBytes = readFileSync(source);
+        assert(diagnosticBytes.length > 0 && diagnosticBytes.length <= 4096);
+        const sourceSHA256 = createHash('sha256').update(diagnosticBytes).digest('hex');
+        const diagnostic = JSON.parse(diagnosticBytes.toString('utf8'));
+        const inspection = inspectFirstInboxStageEvidence(diagnostic);
+        const path = join(scratch, 'first-inbox-stage-diagnostic.json');
+        const observerPath = join(scratch, 'first-inbox-scene-observer.json');
+        // After strict admission retain the exact bytes, not reconstructed JSON.
+        // No arbitrary failed input or raw parser error is preserved here.
+        writeFileSync(path, diagnosticBytes, { mode: 0o600, flag: 'wx' });
+        writeFileSync(observerPath, observerBytes, { mode: 0o600, flag: 'wx' });
+        assert(hash(regular(source, 4096)) === sourceSHA256);
+        assert(hash(regular(observerSource, 65536)) === observerSourceSHA256);
+        receipt.firstInboxStageDiagnostic = {
+            path,
+            sha256: hash(path),
+            sourceSHA256,
+            inspection,
+            binding: {
+                runID,
+                resourceSHA256: receipt.sceneFixtureResource.sha256,
+                protectedResourceSHA256: receipt.fixtureResource.sha256,
+                pid: observer.process.pid,
+                epoch: observer.process.epoch,
+                observerReceipt: {
+                    path: observerPath,
+                    sha256: hash(observerPath),
+                    sourceSHA256: observerSourceSHA256,
+                },
+            },
+            acceptanceEvidence: false,
+            wholeRunAccepted: false,
+        };
+        receipt.firstInboxStageDiagnosticStatus = 'observed-unaccepted';
+        firstInboxDiagnosticCaptureComplete = inspection.status === 'completed' && inspection.selectedAttempts === 1;
+    } catch {
+        receipt.firstInboxStageDiagnosticStatus = 'refused';
+    }
+    receipt.firstInboxDiagnosticCaptureComplete = firstInboxDiagnosticCaptureComplete;
+    save();
+}
+function captureLatestSceneNativeDiagnostic() {
+    if (!sceneProof) return;
+    receipt.latestSceneNativeDiagnosticStatus = 'no-file';
+    try {
+        if (!statusFile || !existsSync(statusFile)) return;
+        const source = regular(statusFile, 65536);
+        assert((lstatSync(source).mode & 0o7777) === 0o600);
+        const bytes = readFileSync(source);
+        const inspected = inspectFullAppSceneProtectedEnvelope(JSON.parse(bytes.toString('utf8')), runID, nonce);
+        const sourceSHA256 = createHash('sha256').update(bytes).digest('hex');
+        const path = join(scratch, 'latest-scene-native-diagnostic.json');
+        // The prefix remains immutable. A later failed report is diagnostic,
+        // never a substitute prefix or a way to promote lifecycle acceptance.
+        writeFileSync(path, bytes, { mode: 0o600, flag: 'wx' });
+        assert(hash(source) === sourceSHA256 && hash(path) === sourceSHA256);
+        receipt.latestSceneNativeDiagnostic = {
+            path,
+            sha256: sourceSHA256,
+            sourceSHA256,
+            status: inspected.status,
+            phase: inspected.phase,
+            afterProtectedPrefix: !!receipt.nativeReceipt,
+            acceptanceEvidence: false,
+            wholeRunAccepted: false,
+        };
+        receipt.latestSceneNativeDiagnosticStatus = 'observed-unaccepted';
+    } catch {
+        receipt.latestSceneNativeDiagnosticStatus = 'refused';
+    }
+    save();
 }
 function sceneSourceBindings() {
     const names = {
@@ -442,6 +550,8 @@ try {
             'bridge-native/researchSceneLifecycleContract.mjs',
             'bridge-native/ResearchSceneLifecycleEvidence.swift',
             'bridge-native/ResearchFullAppSceneUiFixture.swift',
+            'bridge-native/ResearchFirstInboxStageEvidence.swift',
+            'bridge-native/firstInboxStageContract.mjs',
             'full-app-pilot/windowProofContract.mjs',
         );
     receipt.sourceHashes = Object.fromEntries(
@@ -711,6 +821,17 @@ try {
     receipt.lastOperationBeforeCleanup = receipt.lastOperation ?? null;
     receipt.expectedNativeFilePresent = statusFile ? existsSync(statusFile) : null;
     receipt.expectedPhaseFilePresent = phaseFile ? existsSync(phaseFile) : null;
+    captureLatestSceneNativeDiagnostic();
+    captureFirstInboxStageDiagnostic();
+    if (sceneProof && nativeObservationPassed && !firstInboxDiagnosticCaptureComplete) {
+        receipt.status = 'failed';
+        receipt.failedOrQueuedPhase = receipt.phase;
+        receipt.failedOperation = 'first-inbox-diagnostic-validate';
+        receipt.failedOperationExitStatus = null;
+        receipt.failedOperationTimedOut = false;
+        process.exitCode = 1;
+        console.error('Protected scene fixture incomplete; bounded inbox diagnostic refused or unfinished.');
+    }
     if (simulator) {
         try {
             const d = own();
@@ -731,7 +852,11 @@ try {
             process.exitCode = 1;
         }
     }
-    if (nativeObservationPassed && receipt.ownedSimulatorRemoved === true) {
+    if (
+        nativeObservationPassed &&
+        (!sceneProof || firstInboxDiagnosticCaptureComplete) &&
+        receipt.ownedSimulatorRemoved === true
+    ) {
         receipt.status = 'passed';
         receipt.phase = 'complete';
         receipt.nativeProtectedExchangeAccepted = true;
