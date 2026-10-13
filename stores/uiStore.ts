@@ -141,6 +141,34 @@ export const useUIStore = create<UIState>()((set, get) => ({
     },
 }));
 
+// The boot's own page change (the tablet start, App.tsx), held back from the
+// crumb until the session watch has read the previous session's from it.
+let bootViewCrumb: string | null = null;
+let sessionCrumbRead = false;
+
+/**
+ * Open `page` as part of starting up, not as a navigation. The crumb still
+ * names where the LAST session was until useAppBootstrap's session watch has
+ * read it (services/webContentKill.ts detectAbnormalExit: "this runs before
+ * anything has navigated"); a kill on the Log must not be booked to the chart
+ * the next start opened. Written the moment it has been read.
+ */
+export function showBootView(page: string): void {
+    const prev = useUIStore.getState().currentView;
+    useUIStore.setState({ currentView: page, previousView: prev, transitionDirection: 'tab' });
+    if (sessionCrumbRead) writeLastView(page);
+    else bootViewCrumb = page;
+}
+
+/** The session watch has read the last session's crumb: record the boot's page now. */
+export function sessionCrumbConsumed(): void {
+    sessionCrumbRead = true;
+    const page = bootViewCrumb;
+    bootViewCrumb = null;
+    // A real navigation since has written its own crumb.
+    if (page && useUIStore.getState().currentView === page) writeLastView(page);
+}
+
 // Offline listener — a definite "offline" from navigator is authoritative
 // (link layer is physically down), so we react immediately. The reverse
 // signal ("online") is NOT authoritative though — you can be on a WiFi

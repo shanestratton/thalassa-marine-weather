@@ -53,6 +53,10 @@ function settingsFixtureStorage(): { name: string; value: string }[] {
             displacement: 12000,
         },
         savedLocations: ['Sydney, NSW'],
+        // Desktop Chrome's 1280 x 720 is a wide landscape window, which now
+        // starts with The Glass beside Obs (build 128). These journeys start
+        // as they always have; e2e/glass-split-start.spec.ts covers the start.
+        glassBesideChartAtStart: false,
     };
     const value = JSON.stringify({ version: 2, owner_user_id: null, settings });
 
