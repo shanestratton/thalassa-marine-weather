@@ -11,7 +11,78 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
-## Bounded progress and failed foreground correlation on 14 October
+## Current same-process OS roundtrip and exact closure capture on 14 October
+
+The [current source-bound record](../experiments/scuttlebutt-e2ee/review/scene-closure-os-roundtrip-2026-10-14.json)
+records a **passed owned-simulator same-process protected/background/foreground
+run**, with all original acceptance predicates and deadlines intact. This is
+bounded technical acceptance, **not merge readiness or independent assessment**.
+The preceding foreground failure below remains failed; it was not reproduced
+and its precise cause is still unknown. No underlying runtime fix is claimed.
+
+This slice adds passive capture of strictly admitted foreground closure bytes
+**before** full correlation can refuse them. All seven resource/process/source
+pins and the existing exact schema must pass first; malformed or arbitrarily
+failed JSON is not retained. Private exclusive copies have a 16,384-byte bound,
+source/copy equality and attempted-once ownership. The inspection exposes only
+seven group booleans and 33 native / eight PM-result / four relay comparisons,
+with `acceptanceEvidence:false`. It cannot grant authority. Original scene
+contract bytes remain SHA-256
+`8002624e1c946b0bcaafe2509ead14d38bef12af7b33c722dc696c92bec59d97`;
+no native Swift, permission, lifecycle or provider rule changed. An additional
+capture-completeness gate retains every earlier whole-run gate.
+
+Executed **551 Node schema/source/helper cases and 370 affected contract cases**,
+plus syntax, formatting, lint and narrow strict types. The initial 549/551
+receipt remains failed: two extracted-stage mock cases lacked synthetic resource
+byte buffers. Adding those buffers preserved the original expected stage refusal
+and capture-before-refusal assertions. Unchanged Foundation checks were verified,
+not reexecuted or counted as newly executed. Corrected checker SHA-256
+`c1f613d27a88cd6dcedb4e53c049e04b9b295a15944c6706740e34a310b45a6b`.
+
+Fresh **29-Swift-source / 28-driver-pin** App compiled and launched with independent
+PID **20232**; foreground used that same process. The 342 unsigned / 345 signed
+file inventories are source-bound. Current **initiator** protected prefix passed
+11 cases, 126 UI assertions and 47 protected-exchange assertions with two synthetic
+relay accepts. Provider/Keychain/sealed store/admission/adapter are real; SDK Auth
+and URLProtocol relay remain synthetic. Genuine UIKit inactive/background samples
+had all six cover facts true, original account/snapshot stale and successful
+verify completions grown from baseline 1 to 2. Foreground stayed covered until
+actual closed-DOM acknowledgement; closed UI, unchanged SDK/Auth, native/PM/relay
+correlation and authority remaining stale passed the original full stage gates.
+
+All three saved stages matched. The exact 3,707-byte closure copy/source hash is
+`dd5b571e4c1dac31ad50f03c7159b11a30c00ea7f83ddef419134c86bad4003b`;
+its diagnostic booleans all match, separately from the original acceptance.
+Parent `/private/tmp/thalassa-full-root-protected-j9J4kA/run-receipt.json`, SHA-256
+`bb186a7d955bcf79ad8794df05d72f771a53fa76d356e3f436bc918411cd21e4`,
+passed `complete`. Exact disposable simulator ID/name absence and source stability
+were checked. Raw closure/observer/resource bytes remain private.
+
+A saved lightweight deterministic replay matched all three original stages,
+28 driver / 29 native input hashes and 342 unsigned / 345 signed recorded file
+entries, exact closure/observer bytes and all boolean maps. It also checked the
+original contract and preceding failed receipt unchanged. Receipt SHA-256
+`31b341ba58f29ade92d7c999a04423c4b83673b82318a867d3b96db60a9dffd3`.
+This entry-hash replay does not enumerate extra artifact files and is an internal
+check, not a second native execution or an independent security assessment.
+
+All 61 provider/HTTPS prerequisites, framework artifacts and actual web/Window
+inputs are unchanged and byte-verified; no unchanged web proof was repeated.
+Six historical Window console errors remain recorded. Shared waiting was
+**10,491/120,000 ms**, child zero; only 109,509 ms remaining was passed to it.
+No deadline was widened. Primary checkout, human devices/accounts/keys,
+production and hosted services remain untouched.
+
+Next obtain separately source-bound opposite-role and actual protected-away/back
+navigation evidence, then distinct cold-process refusal and narrowly evidenced
+same-store recovery. Current driver does not execute those actions. One passing
+run does not resolve earlier intermittent failures; retain ordered evidence if
+they recur. Current HTTPS/Auth, cutover/queue/push/rollback, shipping device/prekey,
+retention/recovery, physical acceptance, provenance/licence and independent
+assessment remain open. **Not merge-ready.**
+
+## Historical bounded progress and failed foreground correlation on 14 October
 
 The [current source-bound record](../experiments/scuttlebutt-e2ee/review/scene-progress-foreground-failure-2026-10-14.json)
 adds a separate ordered simulator-only in-progress channel: maximum 64 immutable
@@ -4704,10 +4775,13 @@ attachments or uploads.
 
 ## Safe cutover and acceptance gates
 
-Latest bounded evidence is [the 14 October record](../experiments/scuttlebutt-e2ee/review/scene-progress-foreground-failure-2026-10-14.json):
-current initiator protected prefix and background fencing matched, but complete
-foreground correlation failed. None of the five shipping gates below is closed
-by diagnostic, source/mock or partial simulator evidence.
+Latest bounded evidence is [the 14 October same-process record](../experiments/scuttlebutt-e2ee/review/scene-closure-os-roundtrip-2026-10-14.json):
+current initiator protected exchange, genuine background fencing and complete
+foreground/closed-UI correlation passed in one owned simulator process. The
+earlier foreground failure remains failed and unexplained. Cold/recovery,
+protected-away navigation, current opposite role, physical and live full-App
+Auth/HTTPS acceptance are not credited. None of the five shipping gates below
+is closed by this bounded simulator, diagnostic or source/mock evidence.
 
 1. **Provider spike:** license decision, pinned dependency, two real iPhones
    exchange messages with confirmed negotiated suite; native store design and
@@ -4730,11 +4804,12 @@ by diagnostic, source/mock or partial simulator evidence.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: compile and execute the current full-App protected native fixture using
-the completed fresh HTTPS prerequisite above. Extend the bounded native-to-hosted acceptance
-above into the actual app,
-and connect native durable selection
-to main-app cold-start denial. Native controls alone do not close that boundary.
+Next: extend current same-process evidence with a separately source-bound
+opposite role and actual protected-away/back navigation; preserve distinct
+cold-start refusal and same-store recovery contracts and receipts. Extend the
+bounded native-to-hosted acceptance above into actual current App Auth/HTTPS,
+and connect native durable selection to main-app cold-start denial. Native
+controls alone do not close that boundary.
 Apply actual legacy-table
 and notification-worker enforcement only through separately scoped, reviewed
 deployment; local stand-ins do not complete that boundary. Preserve explicit

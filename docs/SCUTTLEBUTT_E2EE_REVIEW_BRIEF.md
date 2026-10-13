@@ -51,7 +51,28 @@ production or server changes accompanied the update.
 
 ## Current integration candidate
 
-The [14 October record](../experiments/scuttlebutt-e2ee/review/scene-progress-foreground-failure-2026-10-14.json)
+The [current 14 October same-process record](../experiments/scuttlebutt-e2ee/review/scene-closure-os-roundtrip-2026-10-14.json)
+passed a fresh owned-simulator protected/background/foreground run with original
+acceptance predicates and deadlines unchanged: 29 Swift sources, 28 driver pins,
+342 unsigned / 345 signed files and independent PID 20232. Current initiator
+prefix passed 11 cases, 126 UI assertions and 47 protected-exchange assertions,
+with two synthetic relay accepts. Native provider/Keychain/sealed store/admission/
+adapter are real; SDK Auth and URLProtocol relay are synthetic. Genuine UIKit
+background fencing and independently correlated actual foreground closed DOM
+passed, with original authority still stale. Cold/recovery, protected-away/back
+navigation, current opposite role, physical and live Auth/HTTPS remain unrun.
+
+The change is passive, private, exact-byte closure retention before possible
+correlation refusal, not a native runtime or permission fix. Seven boolean groups
+plus fixed native/PM/relay comparison maps cannot grant acceptance or authority.
+Separate 551 Node and 370 affected contract cases passed; the initial missing
+synthetic-buffer mock failures remain recorded. No unchanged web proof or
+Foundation execution is relabelled as newly run. The prior foreground failure
+was not reproduced, stays failed and has unknown cause. One passing run does not
+prove general reliability. Ordinary/live encryption and every shipping gate
+remain disabled/open; **not merge-ready or independently assessed**.
+
+The [earlier 14 October record](../experiments/scuttlebutt-e2ee/review/scene-progress-foreground-failure-2026-10-14.json)
 adds bounded value-only in-progress diagnostics, with 377 Node cases, 370 affected
 contract cases and 27,072 direct synthetic recorder assertions in distinct groups.
 The 29-source native app compiled/launched and its current initiator prefix

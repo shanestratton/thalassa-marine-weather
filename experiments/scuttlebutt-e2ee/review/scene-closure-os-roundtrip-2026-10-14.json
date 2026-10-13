@@ -1,0 +1,420 @@
+{
+    "schemaVersion": 1,
+    "category": "source-bound-owned-simulator-same-process-os-roundtrip",
+    "dateBrisbane": "2026-10-14",
+    "sourceBase": "c54d3fec2aa32de6e3460890445f025a439c1b92",
+    "branch": "codex/scuttlebutt-e2ee-integration-clean-2026-10-11",
+    "mergeReady": false,
+    "independentlyReviewed": false,
+    "productionEncryptionEnabled": false,
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "59e8f08554eef5218202afa343065b8a2367649f7faeba6fc1ea51c51bff6461",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppSceneUiFixture.swift": "682bcd8272fc300be8028d29dde0f6b36d6c42b2d71e7c778642c94e97674d3a",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "440944c87fda2e4de76a817f8a2aaff5a25f4a84be4958f4536c95a306916cae",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFirstInboxStageEvidence.swift": "4ba97c4cdfeda4468ed70cffa2de4a6db54124fcdaeaa7ec01d891442f5c8893",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageContract.mjs": "5253d1e5639c13b35e4db3e2666ed32ea81f46ad8a0d1f7a784847c5adf742eb",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageWiring.test.mjs": "d60d9c3f08e24ef282131a88dd37386b883ede36c2ae171c17611dffef2519dd",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs": "692f7700c51723b029ae15c3b2da0003616cd83be6337a5fe8a2e3ddb03f33ff",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "0ff9314baebe9526585f796ddf4ed9312bc463efba882fa8ebadf142c89a3609",
+        "experiments/scuttlebutt-e2ee/bridge-native/generate_project.rb": "f7c280d539758b9f28972f65844da3628dc08f3810b83e468f8d8d28db7cb854",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/windowProofContract.mjs": "588965f4820c34ddd0990ef8b7cbdac09682b66a9fab9765f1b6a6c566029f3a",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneFinishStageEvidence.swift": "0cdf0a2b8f60eed7adb68105229817c2848905419c7b6017900ac320c66a071f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneFinishStageEvidenceSyntheticTests.swift": "95a8a1dbf470e6279aa80d6bdc085da671e03ec6c07c929f8e0a9cd23512ccb8",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneFinishStageContract.mjs": "4f5e478e1025137ac7eff1461ee2d13bea653e516b49619f35272b2d48458bf3",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneFinishStageContract.test.mjs": "d677909d210156aa7c7a88651ad4bcc1829bb914eee1ab0f3f3843f52d4693b9",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneFinishStageWiring.test.mjs": "a02aa5b7019f4c967a0197dd8ec9e1af629a0323dc17a7f182f528b2ce8aad12",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeProtectedUiFixture.js": "9bba7e51dc829fa9e10d9b9a34e27ed8886fcbd3deaf9995f115725908808a49",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneProgressStageEvidence.swift": "5cb9d2bac9c3df7202c112faddcb01098907f02bee9f8132154f486bf0f1928e",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneProgressStageEvidenceSyntheticTests.swift": "102e24c7ee4d3290e61aa27c5dba6541089b6021b86efe8d705e30a0ec579ad7",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneProgressStageContract.mjs": "e8b55a37cfd944e7092a8c24546951da1b5ee42c0c6152ec1eb82dd8c15dde57",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneProgressStageContract.test.mjs": "cd2d2616a7ece6d0e43d17da54dcf85d740b57554b6f1a8e60c43e45d24939e5",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneProgressStageWiring.test.mjs": "f2044f81a1ddd5fdbec0d7c0fe8796a9ba867f7fd0f8aedd2d4c09772275d335",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneClosureCorrelationDiagnostic.mjs": "31be9518b491b4c30dd947228db69a2d90d77feaa404040749a2016bb0409b05",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneClosureCorrelationDiagnostic.test.mjs": "5567e35228e576c96280970a0dd05423e78f4c02365913b17f599b1c43604e5f",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneClosureDiagnosticWiring.test.mjs": "c03cdaa0c6b67fd9d0885eb895fd60dbd47fffe161ffcd16d7f47e4684b8f9c8",
+        "experiments/scuttlebutt-e2ee/bridge-native/researchSceneLifecycleContract.mjs": "8002624e1c946b0bcaafe2509ead14d38bef12af7b33c722dc696c92bec59d97",
+        "tests/E2eeSceneLifecycleEvidence.test.ts": "28938f6985452f40d4b2b7dc95f3eaaffc9d3df25718ba1e7ca4c78104b4706f",
+        "tests/E2eeFullAppProtectedNativeContract.test.ts": "86f87cc4a4803db48ae1da0876e4ae61f960aa05aa72be7d6f5aabf58a4e8658",
+        "tests/E2eeFullAppNativeResume.test.ts": "db0118742145779db80f73d2f073fd6efc4566a246fdff7b5c7e1b7029c5c359",
+        "tests/E2eeProtectedUiFixture.test.ts": "483e7155f20300755555066ba6dccd59a98c89540d827414bbd3b250cb5d88fb",
+        "tests/E2eeFullAppWindowProof.test.ts": "174cc9fc34fbc454cddb6be29bda3757a0e39740236a9b0e06578805741dd930"
+    },
+    "nativeDriverSourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs": "692f7700c51723b029ae15c3b2da0003616cd83be6337a5fe8a2e3ddb03f33ff",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiContract.mjs": "61afb5bd58a16ce4001a27f8596f5447f213938ed15d3c7b613976bde88524e0",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppUiContract.mjs": "45686e1a466369bc41e36497f1e4858a7724bdb9fd34909508a7e3b90822b383",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppUiResumeContract.mjs": "1cc1039feeea9836b9a69d4410b7c9b78cfabf13179ada54dd2bbedcd2cb426b",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "0ff9314baebe9526585f796ddf4ed9312bc463efba882fa8ebadf142c89a3609",
+        "experiments/scuttlebutt-e2ee/bridge-native/generate_project.rb": "f7c280d539758b9f28972f65844da3628dc08f3810b83e468f8d8d28db7cb854",
+        "experiments/scuttlebutt-e2ee/bridge-native/machOEntitlementEvidence.mjs": "5c84c1f38049420b0a3137d31834bffbe084b61e6d331105cc7cb0efc5df3040",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchApp.swift": "e4f158994fbe1c4852dd34354a2d4621bb00a5f5a381cffaf42e1a1cbeacca1f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "59e8f08554eef5218202afa343065b8a2367649f7faeba6fc1ea51c51bff6461",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneAuthority.swift": "3e0d463ed8d598b5fcc6b57036317f4b4ed7b71da92c1df295306a55f32ba71f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchAuthHost.swift": "3a56713041ba5fd77aa488ee105bcaaacf2803cc5f243b52682cb3b31bc83bf2",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchLocalUiFixture.swift": "6e8c5bcc52ccbd4e8d5e8754955a111b594f05bff1f56a4101c1bda698aedbe6",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "440944c87fda2e4de76a817f8a2aaff5a25f4a84be4958f4536c95a306916cae",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedHttpFence.swift": "18516b408ae2a1e38d0c014a744d2101cdba8c84f0fa6c06b1ae1c8ab21924a4",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiFixture.swift": "da48c8d6951685581d6c8cf25e126a7f9b32e76cef827a9aca2d4fb92dfc8651",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiRelay.swift": "479663fb9b843c7f563c024f2e32c52ef51facb4ddde7288782090ea2c1312ec",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeProtectedUiFixture.js": "9bba7e51dc829fa9e10d9b9a34e27ed8886fcbd3deaf9995f115725908808a49",
+        "experiments/scuttlebutt-e2ee/bridge-native/researchSceneLifecycleContract.mjs": "8002624e1c946b0bcaafe2509ead14d38bef12af7b33c722dc696c92bec59d97",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneLifecycleEvidence.swift": "aad7f9851d8ae12de3a8eb2e972cb1c1c1dbb71068d7332e14a90e1f211d67fd",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppSceneUiFixture.swift": "682bcd8272fc300be8028d29dde0f6b36d6c42b2d71e7c778642c94e97674d3a",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFirstInboxStageEvidence.swift": "4ba97c4cdfeda4468ed70cffa2de4a6db54124fcdaeaa7ec01d891442f5c8893",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageContract.mjs": "5253d1e5639c13b35e4db3e2666ed32ea81f46ad8a0d1f7a784847c5adf742eb",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneFinishStageEvidence.swift": "0cdf0a2b8f60eed7adb68105229817c2848905419c7b6017900ac320c66a071f",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneFinishStageContract.mjs": "4f5e478e1025137ac7eff1461ee2d13bea653e516b49619f35272b2d48458bf3",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneProgressStageEvidence.swift": "5cb9d2bac9c3df7202c112faddcb01098907f02bee9f8132154f486bf0f1928e",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneProgressStageContract.mjs": "e8b55a37cfd944e7092a8c24546951da1b5ee42c0c6152ec1eb82dd8c15dde57",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneClosureCorrelationDiagnostic.mjs": "31be9518b491b4c30dd947228db69a2d90d77feaa404040749a2016bb0409b05",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/windowProofContract.mjs": "588965f4820c34ddd0990ef8b7cbdac09682b66a9fab9765f1b6a6c566029f3a"
+    },
+    "nativeSwiftSourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchApp.swift": "e4f158994fbe1c4852dd34354a2d4621bb00a5f5a381cffaf42e1a1cbeacca1f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "59e8f08554eef5218202afa343065b8a2367649f7faeba6fc1ea51c51bff6461",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchAuthHost.swift": "3a56713041ba5fd77aa488ee105bcaaacf2803cc5f243b52682cb3b31bc83bf2",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneAuthority.swift": "3e0d463ed8d598b5fcc6b57036317f4b4ed7b71da92c1df295306a55f32ba71f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift": "cb3bd8fb92e8f922462007e12f228ee9fc7f10875bb32cd134d3646dd93ae4d1",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchPrivateMessageAdapter.swift": "ec0597684d323ed061e40cf81d3f8238adb78afdd100ef663133be0753d88c36",
+        "experiments/scuttlebutt-e2ee/VodozemacSealedStore.swift": "08a8c821035eca23e5730006c6c8989221eeb292e8637c14960d5444945e352f",
+        "experiments/scuttlebutt-e2ee/VodozemacDmFrame.swift": "f584998cd8e0cdc0ae6e22557b6d01e20a3081596f7198996a2a12c6699d7887",
+        "experiments/scuttlebutt-e2ee/VodozemacDmCoordinator.swift": "690d8ee170f9aed212317eb76d8d51cd930c3e18832012c11a7164062464b489",
+        "experiments/scuttlebutt-e2ee/VodozemacMessageOperations.swift": "bb6101fcc468ccee3c52c5d23c70e9ebf51785e9771610a9d7ba07c1caab56d9",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayCodec.swift": "b1ff7f6df1988bcde00dbd21ba571f1060d683d60624778c9e55bf7b19f340ec",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayTransport.swift": "32522d35d2b009a6ab4ffa63b1ee8a099f6cd8253efb46aa2f11eff7e13c02fe",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayResult.swift": "5603d96eee328194c8bd73990027cacc5f68d474a9b49ae0d90501d21e287e26",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayPolicy.swift": "1ff34288ffe3f92733effd1540858e50048d313ee36248ab1f4c7abe4cd1db5e",
+        "experiments/scuttlebutt-e2ee/VodozemacScopedRelayClient.swift": "28408a37cb00f98a194c27b2fcebc18b0528f5c8dc6d30c667d9331c09b340e8",
+        "experiments/scuttlebutt-e2ee/VodozemacSupabaseAuth.swift": "103cfe325fcd57342e8c5b0fe9601acfa6441977f860a8d499af193f195adc10",
+        "experiments/scuttlebutt-e2ee/VodozemacAuthSession.swift": "1db48cad76d4d4b1bc6c958fab675a8b9cafcc8ea771a2d2aaccadf2ecb243fe",
+        "experiments/scuttlebutt-e2ee/VodozemacAccountDirectory.swift": "8d229dd4e68b61e72c071440b2f70eb3a0c60cb25465e4e2daa30a4bbd49181b",
+        "experiments/scuttlebutt-e2ee/VodozemacSessionFacade.swift": "d53cbd065d4b3ba5cae11ded3284d5f3703fc8c9aa1522e7c0c2772d5dbc2dcc",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchLocalUiFixture.swift": "6e8c5bcc52ccbd4e8d5e8754955a111b594f05bff1f56a4101c1bda698aedbe6",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedHttpFence.swift": "18516b408ae2a1e38d0c014a744d2101cdba8c84f0fa6c06b1ae1c8ab21924a4",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "440944c87fda2e4de76a817f8a2aaff5a25f4a84be4958f4536c95a306916cae",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiRelay.swift": "479663fb9b843c7f563c024f2e32c52ef51facb4ddde7288782090ea2c1312ec",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiFixture.swift": "da48c8d6951685581d6c8cf25e126a7f9b32e76cef827a9aca2d4fb92dfc8651",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneLifecycleEvidence.swift": "aad7f9851d8ae12de3a8eb2e972cb1c1c1dbb71068d7332e14a90e1f211d67fd",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppSceneUiFixture.swift": "682bcd8272fc300be8028d29dde0f6b36d6c42b2d71e7c778642c94e97674d3a",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFirstInboxStageEvidence.swift": "4ba97c4cdfeda4468ed70cffa2de4a6db54124fcdaeaa7ec01d891442f5c8893",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneFinishStageEvidence.swift": "0cdf0a2b8f60eed7adb68105229817c2848905419c7b6017900ac320c66a071f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneProgressStageEvidence.swift": "5cb9d2bac9c3df7202c112faddcb01098907f02bee9f8132154f486bf0f1928e"
+    },
+    "sourceChecks": {
+        "receipt": {
+            "path": "/private/tmp/thalassa-scene-closure-verified-checks.rVNKFB/checks-receipt.json",
+            "sha256": "c1f613d27a88cd6dcedb4e53c049e04b9b295a15944c6706740e34a310b45a6b"
+        },
+        "status": "passed",
+        "nodeCases": 551,
+        "affectedContracts": {
+            "total": 370,
+            "passed": 370,
+            "failed": 0
+        },
+        "syntaxFormattingLintNarrowTypesPassed": true,
+        "failedReceipt": {
+            "path": "/private/tmp/thalassa-scene-closure-checks.GDr6Fk/checks-receipt.json",
+            "sha256": "5db8780208057c7884cbe3d256ef354b94886439bf76f538678223f2d9233bdb"
+        },
+        "failureBeforeCorrection": {
+            "passedNodeCases": 549,
+            "totalNodeCases": 551,
+            "cause": "Two extracted-stage mock tests omitted resource file byte buffers; expectations for capture-before-original-stage-refusal were retained, and the missing synthetic buffers were added."
+        },
+        "foundationUnchangedNotReexecuted": true
+    },
+    "implementation": {
+        "originalSceneValidatorsUnchanged": true,
+        "originalSceneStagePreservedExceptOnePassiveCaptureCall": true,
+        "closureCopiedBeforeFullCorrelation": true,
+        "strictClosureSchemaAndSevenPinBindingsRequired": true,
+        "sourceArtifactIndependentLaunchAndEpochBindingRequired": true,
+        "exactAdmittedSourceAndCopyHashes": true,
+        "privateCaptureLimitBytes": 16384,
+        "privateModes": {
+            "directory": "0700",
+            "file": "0600"
+        },
+        "exclusiveCopies": true,
+        "attemptedOnce": true,
+        "refusalBoundaryFixedValuesOnly": true,
+        "noUnparsedOrArbitrarilyFailedJsonRetained": true,
+        "diagnosticBooleanGroups": 7,
+        "nativeCounterBooleanKeys": 33,
+        "pmResultBooleanKeys": 8,
+        "relayBooleanKeys": 4,
+        "noCounterValuesTokensMessagesNoncesErrorsOrAuthorityInInspection": true,
+        "acceptanceEvidenceFromDiagnostics": false,
+        "existingAcceptanceGatesRetained": true,
+        "extraCaptureCompletenessGate": true,
+        "noNativePermissionLifecycleOrProviderRuleChanged": true
+    },
+    "nativeRun": {
+        "parentReceipt": {
+            "path": "/private/tmp/thalassa-full-root-protected-j9J4kA/run-receipt.json",
+            "sha256": "bb186a7d955bcf79ad8794df05d72f771a53fa76d356e3f436bc918411cd21e4"
+        },
+        "controllerReceipt": {
+            "path": "/private/tmp/thalassa-scene-closure-native-controller.LVbWBe/controller-receipt.json",
+            "sha256": "14072dd3d8a7e71fa586f905301d0db14bdd407ba5b85fe9477894fa47bc572c"
+        },
+        "status": "passed",
+        "phase": "complete",
+        "initialLaunchPID": 20232,
+        "foregroundLaunchSamePID": 20232,
+        "swiftSources": 29,
+        "driverPins": 28,
+        "buildReceipt": {
+            "path": "/private/tmp/thalassa-messaging-build-K5L7Rh/build-receipt.json",
+            "sha256": "c1d92abf51600b431179dedba0038fbf07b2ccbd89dcb5fab241590cecdd95ad"
+        },
+        "unsignedFiles": 342,
+        "signedFiles": 345,
+        "protectedPrefixReceipt": {
+            "path": "/private/tmp/thalassa-full-root-protected-j9J4kA/native-receipt.json",
+            "sha256": "d2c241176e0a8d09bbc24c0cb7473b48872a85ac42b22f38479023f2f849915b"
+        },
+        "protectedPrefix": {
+            "cases": 11,
+            "uiAssertions": 126,
+            "protectedExchangeAssertions": 47,
+            "hostInitiates": true,
+            "syntheticRelayAcceptedSends": 2,
+            "terminalAssertions": 0,
+            "realProviderKeychainSealedStoreAdmissionAdapter": true,
+            "sdkAuthAndUrlProtocolRelaySynthetic": true
+        },
+        "stages": [
+            {
+                "stage": "protected-ready",
+                "receipt": {
+                    "path": "/private/tmp/thalassa-full-root-protected-j9J4kA/scene-protected-ready.json",
+                    "sha256": "9b5d8610442366d7631250961a039165c3d0fa14c6f76d171f41546b725aa6e4"
+                },
+                "protectedUiClosed": false,
+                "sameProcessSceneRoundTrip": false,
+                "wholeRunAcceptedByPureStage": false
+            },
+            {
+                "stage": "background-fenced",
+                "receipt": {
+                    "path": "/private/tmp/thalassa-full-root-protected-j9J4kA/scene-background-fenced.json",
+                    "sha256": "92501e9efa1dcc2726282e45d11ecd580e11ae49a17af68303b1633d66912fbf"
+                },
+                "protectedUiClosed": false,
+                "sameProcessSceneRoundTrip": false,
+                "wholeRunAcceptedByPureStage": false
+            },
+            {
+                "stage": "foreground-closed",
+                "receipt": {
+                    "path": "/private/tmp/thalassa-full-root-protected-j9J4kA/scene-foreground-closed.json",
+                    "sha256": "e78fcd9da3844dd399ffe677bb0ea94b5e6dcc30767258a99f3e2253d80114bc"
+                },
+                "protectedUiClosed": true,
+                "sameProcessSceneRoundTrip": true,
+                "wholeRunAcceptedByPureStage": false
+            }
+        ],
+        "exactClosure": {
+            "path": "/private/tmp/thalassa-full-root-protected-j9J4kA/scene-closure-diagnostic.json",
+            "sha256": "dd5b571e4c1dac31ad50f03c7159b11a30c00ea7f83ddef419134c86bad4003b",
+            "sourceSHA256": "dd5b571e4c1dac31ad50f03c7159b11a30c00ea7f83ddef419134c86bad4003b",
+            "inspection": {
+                "version": 1,
+                "kind": "scene-closure-correlation-diagnostic",
+                "facts": {
+                    "groups": {
+                        "closureFactsPresent": true,
+                        "domClosed": true,
+                        "windowClosed": true,
+                        "sdkAndAuthUnchanged": true,
+                        "nativeCountersCorrelated": true,
+                        "pmResultsCorrelated": true,
+                        "relayCorrelated": true
+                    },
+                    "nativeCounterMatches": {
+                        "configuration": true,
+                        "fenceSession": true,
+                        "authenticate": true,
+                        "currentAccount": true,
+                        "lifecycleState": true,
+                        "acknowledgeClosedPresentation": true,
+                        "messageState": true,
+                        "messagePrivateAdmission": true,
+                        "messagePairingCard": true,
+                        "messageInspectPeerCard": true,
+                        "messageConfirmPeer": true,
+                        "messageRegisterDevice": true,
+                        "messageClaimPeer": true,
+                        "messageRefreshPolicy": true,
+                        "messageRequireProtected": true,
+                        "messageAccountMode": true,
+                        "messageThread": true,
+                        "messagePrepareText": true,
+                        "messageSendPending": true,
+                        "messageSyncInbox": true,
+                        "privateMessageIssue": true,
+                        "privateMessageReadiness": true,
+                        "privateMessagePermissions": true,
+                        "privateMessageInbox": true,
+                        "privateMessageThread": true,
+                        "privateMessageSendText": true,
+                        "privateMessageRetryPending": true,
+                        "nativeAuthRequests": true,
+                        "unexpectedNativeRequests": true,
+                        "relayRequests": true,
+                        "unexpectedMethods": true,
+                        "fixtureSetupControls": true,
+                        "fixtureReplyControls": true
+                    },
+                    "pmResultCounterMatches": {
+                        "privateMessagePermissions:ok": true,
+                        "privateMessagePermissions:unavailable": true,
+                        "privateMessageInbox:ok": true,
+                        "privateMessageInbox:unavailable": true,
+                        "privateMessageSendText:ok": true,
+                        "privateMessageSendText:unavailable": true,
+                        "privateMessageRetryPending:ok": true,
+                        "privateMessageRetryPending:unavailable": true
+                    },
+                    "relayCounterMatches": {
+                        "auth": true,
+                        "register": true,
+                        "dispatch": true,
+                        "unexpected": true
+                    }
+                },
+                "acceptanceEvidence": false
+            },
+            "observerReceipt": {
+                "path": "/private/tmp/thalassa-full-root-protected-j9J4kA/scene-closure-observer.json",
+                "sha256": "4a72f038bd3e5a773f5b2439c442ec6d0785f5ec037d09b55b98b1f98585c365",
+                "sourceSHA256": "4a72f038bd3e5a773f5b2439c442ec6d0785f5ec037d09b55b98b1f98585c365"
+            }
+        },
+        "closureDiagnosticStatus": "observed-unaccepted",
+        "latestNativeDiagnostic": {
+            "path": "/private/tmp/thalassa-full-root-protected-j9J4kA/latest-scene-native-diagnostic.json",
+            "sha256": "db1aa843cfa4427231be7fabacea9790436b8df4d13a638d4c6c0e1e001ee1b8",
+            "sourceSHA256": "db1aa843cfa4427231be7fabacea9790436b8df4d13a638d4c6c0e1e001ee1b8",
+            "status": "running",
+            "phase": "native-proof-captured",
+            "afterProtectedPrefix": true,
+            "acceptanceEvidence": false,
+            "wholeRunAccepted": false
+        },
+        "firstInboxDiagnosticCompleted": true,
+        "finishChannels": {
+            "nativeSelectedFinishes": 0,
+            "javascriptSelectedFailures": 0
+        },
+        "progressEntries": 27,
+        "progressLastEnteredPhase": "await-closure-ack",
+        "cleanup": {
+            "idAbsent": true,
+            "nameAbsent": true,
+            "sourcesUnchanged": true
+        },
+        "nativeProtectedExchangeAccepted": true,
+        "realOsLifecycleProved": true,
+        "evidenceScope": "Owned simulator, genuine UIKit same-process inactive/background/foreground plus independently correlated actual closed DOM; original native authority stays stale. Not physical or live service acceptance.",
+        "coldProcessExecuted": false,
+        "sameStoreRecoveryExecuted": false,
+        "protectedAwayAndBackNavigationExecuted": false,
+        "oppositeCurrentRoleExecuted": false
+    },
+    "internalDeterministicReplay": {
+        "category": "internal-deterministic-read-only-replay",
+        "status": "passed",
+        "independentlyReviewed": false,
+        "receipt": {
+            "path": "/private/tmp/thalassa-scene-closure-replay.6j0haM/replay-receipt.json",
+            "sha256": "31b341ba58f29ade92d7c999a04423c4b83673b82318a867d3b96db60a9dffd3"
+        },
+        "script": {
+            "path": "/private/tmp/thalassa-scene-closure-replay.6j0haM/replay.mjs",
+            "sha256": "a39d2583b998dcc641f00e165de73014a8c8537c46c3b8080ca81241a519c13a"
+        },
+        "originalStagesMatched": 3,
+        "driverSourceEntriesMatched": 28,
+        "nativeSourceEntriesMatched": 29,
+        "unsignedArtifactEntriesMatched": 342,
+        "signedArtifactEntriesMatched": 345,
+        "artifactEntryCheckDoesNotEnumerateExtraFiles": true,
+        "originalContractBytesUnchanged": true,
+        "priorFailedReceiptUnchangedAndStillFailed": true,
+        "exactClosureAndSavedForegroundCorrespondence": true,
+        "allSevenBooleanGroupsAndFixedMapsMatched": true,
+        "noNewNativeExecution": true
+    },
+    "priorFailure": {
+        "receipt": {
+            "path": "/private/tmp/thalassa-full-root-protected-05faMD/run-receipt.json",
+            "sha256": "178e7668ba647d05a79b41cb958a44d28e1f7f7a951cecb009530da2a456110c"
+        },
+        "status": "failed",
+        "failedOperation": "scene-foreground-validate",
+        "preciseCauseStillUnknown": true,
+        "failureNotReproducedInThisRun": true,
+        "noClaimUnderlyingRuntimeBugFixed": true,
+        "noEarlierCountsTransferred": true,
+        "matchingHashesDoNotRecreateLostRejectedClosure": true
+    },
+    "unchangedPrerequisites": {
+        "sourceCount": 61,
+        "byteIdenticalToF61": true,
+        "httpsReceipt": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/review/fresh-native-https-2026-10-11.json",
+            "sha256": "19e7c0b7208d890365c0bddaab4c9e309d5cd2d6be4bb0ec3502004d0ec56016"
+        },
+        "frameworkReceipt": {
+            "path": "/private/tmp/thalassa-local-ui-frameworks-44i7uE/frameworks-receipt.json",
+            "sha256": "54ede12d286d6ba89660529a0c0d4403c4ee28f3391d1b7809781fafc564b667"
+        },
+        "webReceipt": {
+            "path": "/private/tmp/thalassa-scene-late-current-web.q8yc1o/build-receipt.json",
+            "sha256": "49231a0be80f5396316dcc6884e3718a812c66f5e6092ff1681d71fcb1885243"
+        },
+        "windowReceipt": {
+            "path": "/private/tmp/thalassa-full-app-window-IMSEQ2/window-receipt.json",
+            "sha256": "b0b376b097a683e146948b78e2defab255b9535650ef9d139766b4611be19ef6"
+        },
+        "currentWebCorrespondence": {
+            "moduleInputs": 1751,
+            "proofInputs": 6,
+            "outputs": 293,
+            "byteIdentical": true
+        },
+        "unchangedWebProofNotRerun": true,
+        "consoleErrorsRetained": 6,
+        "sourceBinaryProvenanceNotIndependentlyEstablished": true
+    },
+    "sharedWaiting": {
+        "budgetMs": 120000,
+        "firstSourceChecksMs": 5226,
+        "correctedSourceChecksMs": 5206,
+        "parentMs": 59,
+        "nativeChildMs": 0,
+        "totalMs": 10491,
+        "remainingPassedToChildMs": 109509,
+        "deadlineWidened": false
+    },
+    "remainingGates": [
+        "Earlier intermittent inbox/send/foreground failures remain failed and their precise causes unproved; do not infer general reliability from one passing changed-driver run.",
+        "Current opposite role, protected away/back navigation, distinct cold-process fresh-install refusal and narrowly evidenced same-store recovery.",
+        "Credential-free original witness and lifecycle/recovery policies; any changed61-source facade requires legitimate provider/HTTPS regeneration.",
+        "Full adapter HTTPS/current Auth and adversarial integration.",
+        "Fail-closed old-client/private queues/push cutover and rollback.",
+        "Shipping device/prekey lifecycle, retention/scalable sync and recovery.",
+        "Current physical acceptance, reproducible dependency/binary provenance/licence and independent assessment."
+    ],
+    "scope": {
+        "primaryEditedOrSynced": false,
+        "masterPushed": false,
+        "humanDevicesAccountsKeysChanged": false,
+        "productionOrHostedServicesChanged": false,
+        "ordinaryBuildEncryptionDisabled": true
+    }
+}

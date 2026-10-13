@@ -54,6 +54,7 @@ import { inspectSimulatorEntitlementSections } from './machOEntitlementEvidence.
 import { inspectFirstInboxStageEvidence } from './firstInboxStageContract.mjs';
 import { inspectSceneFinishStageEvidence } from './sceneFinishStageContract.mjs';
 import { inspectSceneProgressStageEvidence } from './sceneProgressStageContract.mjs';
+import { inspectSceneClosureCorrelationDiagnostic } from './sceneClosureCorrelationDiagnostic.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const checkout = resolve(here, '../../..');
@@ -105,7 +106,9 @@ let prerequisiteInputs = [],
     nativeObservationPassed = false,
     firstInboxDiagnosticCaptureComplete = false,
     sceneFinishDiagnosticCaptureComplete = false,
-    sceneProgressDiagnosticCaptureComplete = false;
+    sceneProgressDiagnosticCaptureComplete = false,
+    sceneClosureDiagnosticCaptureComplete = false,
+    sceneClosureDiagnosticAttempted = false;
 function regular(path, limit = 16 * 1024 * 1024) {
     assert(isAbsolute(path));
     for (let p = path; p !== dirname(p); p = dirname(p)) assert(!lstatSync(p).isSymbolicLink());
@@ -553,6 +556,88 @@ function captureSceneProgressStageDiagnostic() {
     receipt.sceneProgressDiagnosticCaptureComplete = sceneProgressDiagnosticCaptureComplete;
     save();
 }
+function captureSceneClosureDiagnostic() {
+    if (!sceneProof || sceneClosureDiagnosticAttempted) return;
+    sceneClosureDiagnosticAttempted = true;
+    let boundary = 'input-file';
+    sceneClosureDiagnosticCaptureComplete = false;
+    receipt.sceneClosureDiagnosticStatus = 'no-file';
+    receipt.sceneClosureDiagnosticCaptureComplete = false;
+    try {
+        const files = sceneFiles();
+        if (!files || !existsSync(files.closure)) return;
+        boundary = 'launch-and-sources';
+        assert(scenePins && sceneBaseline);
+        assert(Number.isSafeInteger(receipt.ownedLaunchPID) && receipt.ownedLaunchPID > 0);
+        const observerSource = regular(files.observer, 65536);
+        const directory = lstatSync(dirname(observerSource));
+        assert(directory.uid === process.getuid() && (directory.mode & 0o7777) === 0o700);
+        assert((lstatSync(observerSource).mode & 0o7777) === 0o600);
+        const observerBytes = readFileSync(observerSource);
+        assert(observerBytes.length > 0 && observerBytes.length <= 65536);
+        const observerSourceSHA256 = createHash('sha256').update(observerBytes).digest('hex');
+        const observer = inspectSceneObservation(JSON.parse(observerBytes.toString('utf8')));
+        assert(observer.process.pid === receipt.ownedLaunchPID && observer.process.epoch === files.epoch);
+        assert(hash(regular(sceneFixtureFile, 65536)) === receipt.sceneFixtureResource.sha256);
+        assert(hash(regular(protectedFixtureFile, 128 * 1024)) === receipt.fixtureResource.sha256);
+        for (const [name, expected] of Object.entries(receipt.sourceHashes))
+            assert(hash(regular(join(checkout, name))) === expected);
+        assert(scenePins.pid === observer.process.pid && scenePins.epoch === observer.process.epoch);
+        boundary = 'private-file';
+        const source = regular(files.closure, 16384);
+        assert((lstatSync(source).mode & 0o7777) === 0o600);
+        const diagnosticBytes = readFileSync(source);
+        assert(diagnosticBytes.length > 0 && diagnosticBytes.length <= 16384);
+        const sourceSHA256 = createHash('sha256').update(diagnosticBytes).digest('hex');
+        boundary = 'shape-and-bindings';
+        const pin = Object.fromEntries(Object.entries(scenePins).filter(([key]) => key !== 'sourceBindings'));
+        const inspection = inspectSceneClosureCorrelationDiagnostic(
+            { closure: JSON.parse(diagnosticBytes.toString('utf8')), protectedReport: sceneBaseline },
+            pin,
+        );
+        boundary = 'copy';
+        const privateDirectory = lstatSync(scratch);
+        assert(privateDirectory.uid === process.getuid() && (privateDirectory.mode & 0o7777) === 0o700);
+        const path = join(scratch, 'scene-closure-diagnostic.json');
+        const observerPath = join(scratch, 'scene-closure-observer.json');
+        // Preserve only strictly admitted exact bytes BEFORE full correlation can
+        // refuse them. Boolean diagnostics grant no authority or stage acceptance.
+        writeFileSync(path, diagnosticBytes, { mode: 0o600, flag: 'wx' });
+        writeFileSync(observerPath, observerBytes, { mode: 0o600, flag: 'wx' });
+        assert((lstatSync(path).mode & 0o7777) === 0o600);
+        assert((lstatSync(observerPath).mode & 0o7777) === 0o600);
+        assert(hash(regular(source, 16384)) === sourceSHA256 && hash(regular(path, 16384)) === sourceSHA256);
+        assert(hash(regular(observerSource, 65536)) === observerSourceSHA256);
+        assert(hash(regular(observerPath, 65536)) === observerSourceSHA256);
+        receipt.sceneClosureDiagnostic = {
+            path,
+            sha256: sourceSHA256,
+            sourceSHA256,
+            inspection,
+            binding: {
+                runID,
+                resourceSHA256: receipt.sceneFixtureResource.sha256,
+                protectedResourceSHA256: receipt.fixtureResource.sha256,
+                pid: observer.process.pid,
+                epoch: observer.process.epoch,
+                observerReceipt: {
+                    path: observerPath,
+                    sha256: observerSourceSHA256,
+                    sourceSHA256: observerSourceSHA256,
+                },
+            },
+            acceptanceEvidence: false,
+            wholeRunAccepted: false,
+        };
+        receipt.sceneClosureDiagnosticStatus = 'observed-unaccepted';
+        sceneClosureDiagnosticCaptureComplete = true;
+    } catch {
+        receipt.sceneClosureDiagnosticStatus = 'refused';
+        receipt.sceneClosureDiagnosticRefusalBoundary = boundary;
+    }
+    receipt.sceneClosureDiagnosticCaptureComplete = sceneClosureDiagnosticCaptureComplete;
+    save();
+}
 function sceneSourceBindings() {
     const names = {
         driver: 'bridge-native/fullAppProtectedUiProof.mjs',
@@ -570,6 +655,7 @@ function sceneSourceBindings() {
     return Object.fromEntries(Object.entries(names).map(([key, name]) => [key, hash(join(here, '..', name))]));
 }
 function sceneStage(stage) {
+    if (stage === 'foreground-closed') captureSceneClosureDiagnostic();
     const observer = sceneObservation();
     assert(observer && scenePins && sceneBaseline);
     const files = sceneFiles();
@@ -704,6 +790,7 @@ try {
             'bridge-native/sceneFinishStageContract.mjs',
             'bridge-native/ResearchSceneProgressStageEvidence.swift',
             'bridge-native/sceneProgressStageContract.mjs',
+            'bridge-native/sceneClosureCorrelationDiagnostic.mjs',
             'full-app-pilot/windowProofContract.mjs',
         );
     receipt.sourceHashes = Object.fromEntries(
@@ -977,6 +1064,7 @@ try {
     captureFirstInboxStageDiagnostic();
     captureSceneFinishStageDiagnostic();
     captureSceneProgressStageDiagnostic();
+    captureSceneClosureDiagnostic();
     if (sceneProof && nativeObservationPassed && !firstInboxDiagnosticCaptureComplete) {
         receipt.status = 'failed';
         receipt.failedOrQueuedPhase = receipt.phase;
@@ -1015,6 +1103,22 @@ try {
         process.exitCode = 1;
         console.error('Protected scene fixture incomplete; bounded progress diagnostic refused or absent.');
     }
+    if (
+        sceneProof &&
+        nativeObservationPassed &&
+        firstInboxDiagnosticCaptureComplete &&
+        sceneFinishDiagnosticCaptureComplete &&
+        sceneProgressDiagnosticCaptureComplete &&
+        !sceneClosureDiagnosticCaptureComplete
+    ) {
+        receipt.status = 'failed';
+        receipt.failedOrQueuedPhase = receipt.phase;
+        receipt.failedOperation = 'scene-closure-diagnostic-validate';
+        receipt.failedOperationExitStatus = null;
+        receipt.failedOperationTimedOut = false;
+        process.exitCode = 1;
+        console.error('Protected scene fixture incomplete; bounded closure diagnostic refused or absent.');
+    }
     if (simulator) {
         try {
             const d = own();
@@ -1040,6 +1144,7 @@ try {
         (!sceneProof || firstInboxDiagnosticCaptureComplete) &&
         (!sceneProof || sceneFinishDiagnosticCaptureComplete) &&
         (!sceneProof || sceneProgressDiagnosticCaptureComplete) &&
+        (!sceneProof || sceneClosureDiagnosticCaptureComplete) &&
         receipt.ownedSimulatorRemoved === true
     ) {
         receipt.status = 'passed';

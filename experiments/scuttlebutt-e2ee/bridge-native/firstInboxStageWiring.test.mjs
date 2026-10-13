@@ -460,7 +460,7 @@ test('synthetic source captures admitted diagnostic/hash/binding on both failed 
     position(final, "quiet('/usr/bin/xcrun', ['simctl', 'delete', simulator])", extraction);
     position(
         final,
-        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
+        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && (!sceneProof || sceneClosureDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
         extraction,
     );
     position(final, 'save()', extraction);

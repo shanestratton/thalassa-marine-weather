@@ -899,7 +899,7 @@ test('capture/refusal checks precede owned cleanup and diagnostics alone never a
     after = position(list, "quiet('/usr/bin/xcrun', ['simctl', 'delete', simulator])", after);
     after = position(
         list,
-        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
+        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && (!sceneProof || sceneClosureDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
         after,
     );
     position(list, 'receipt.nativeProtectedExchangeAccepted = true', after);

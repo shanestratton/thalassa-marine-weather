@@ -565,7 +565,7 @@ test('driver diagnostic capture and refusal gates precede owned cleanup and cann
     const cleanup = position(list, 'if (simulator)', gate);
     position(
         list,
-        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
+        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && (!sceneProof || sceneClosureDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
         cleanup,
     );
     const latestBody = jsBody(driver, 'captureLatestSceneNativeDiagnostic');
