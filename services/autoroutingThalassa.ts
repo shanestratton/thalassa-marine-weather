@@ -104,7 +104,7 @@ const WATCHDOG = 'Routing took longer than this phone allows (85 s). Try a short
  * They open in memory on the boat's Wi-Fi since 127-C-c.
  */
 export const THALASSA_BUCKET_UNREACHABLE =
-    "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: open them on the boat's Wi-Fi, then try again. Nothing changed.";
+    "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: open them aboard, then try again. Nothing changed.";
 const NOT_SIGNED_IN_FILL =
     "The missing charts wouldn't download. You're probably not signed in: sign in and try again. Nothing changed.";
 

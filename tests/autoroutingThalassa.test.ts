@@ -444,7 +444,7 @@ describe('calculateThalassaProposal', () => {
         // the cloud cannot fill points there, not at sign-in or the connection.
         m.fill.mockReset().mockResolvedValue({ downloaded: 0, needed: 2, bucketAvailable: false });
         await expect(calculateThalassaProposal(request())).rejects.toThrow(
-            "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: open them on the boat's Wi-Fi, then try again. Nothing changed.",
+            "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: open them aboard, then try again. Nothing changed.",
         );
         // The shared shelf holds public NOAA charts only: no "licensed" bucket.
         m.fill.mockReset().mockResolvedValue({ downloaded: 0, needed: 2, bucketAvailable: true });
