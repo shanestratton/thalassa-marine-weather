@@ -8,16 +8,45 @@
  * The 85 s watchdog now really stops the router, with today's words.
  *
  * The prep runs for real on a small synthetic scene in the open North
- * Atlantic; the OSM water can be held to keep a run in the prep. The route
- * worker's host is a fake that holds each job until the test lets it go.
+ * Atlantic; the OSM water, the satellite water and the cells can be held to
+ * keep a run in the prep. The route worker's host is a fake that holds each
+ * job until the test lets it go.
+ *
+ * 128-ROUTE-P: the prep asks for its independent waits together (the OSM
+ * water, the satellite water, the notice zones beside the cells), so a run
+ * stopped in the prep has usually asked for them already. What a stop
+ * guarantees now: the run ends at once, never posts its job, starts nothing
+ * after the stop (no further cell read, no vector water, no second ask), and
+ * the satellite crops it asked for are told to stop before their main-thread
+ * read. A run that ends without its asks (no cell could be read) tells them
+ * the same, and a cell the phone does not hold yet is fetched before the
+ * crops are asked for.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AIR_DRAFT_M, DRAFT_M, FIXED_NOW, installAtlanticChannel, scene } from './helpers/routeJobScenes';
+import {
+    AIR_DRAFT_M,
+    DRAFT_M,
+    FIXED_NOW,
+    installArchipelago,
+    installAtlanticChannel,
+    scene,
+} from './helpers/routeJobScenes';
 
 const host = vi.hoisted(() => ({
     jobs: [] as { aborted: boolean; release: () => void; job: unknown }[],
     osmHold: null as null | Promise<void>,
     osmCalls: 0,
+    satHold: null as null | Promise<void>,
+    /** The stop signal each satellite crop was handed (128-ROUTE-P). */
+    satSignals: [] as (AbortSignal | undefined)[],
+    cellHold: null as null | Promise<void>,
+    cellCalls: 0,
+    /** Cells not on the phone: each read pulls it from the boat's Pi first. */
+    missing: new Set<string>(),
+    /** Cells on the phone that cannot be read (a bad blob): loadCellGeoJSON answers null. */
+    unreadable: new Set<string>(),
+    pullHold: null as null | Promise<void>,
+    pulls: 0,
     /** The prep's later waits: the satellite and vector water, and the notices. */
     satCalls: 0,
     vectorCalls: 0,
@@ -62,7 +91,22 @@ vi.mock('../services/enc/EncCellStore', async (original) => {
     const { scene } = await import('./helpers/routeJobScenes');
     return {
         ...(await original<Record<string, unknown>>()),
-        loadCellGeoJSON: async (id: string) => {
+        hasCellGeoJSON: async (id: string) => !host.missing.has(id),
+        // A cell in host.missing is not on the phone: it climbs the remote
+        // ladder (a Pi pull) through the caller's gate, as EncCellStore does.
+        loadCellGeoJSON: async (
+            id: string,
+            _remote = true,
+            climbOneAtATime: <T>(climb: () => Promise<T>) => Promise<T> = (climb) => climb(),
+        ) => {
+            host.cellCalls++;
+            if (host.cellHold) await host.cellHold;
+            if (host.missing.has(id))
+                await climbOneAtATime(async () => {
+                    host.pulls++;
+                    if (host.pullHold) await host.pullHold;
+                });
+            if (host.unreadable.has(id)) return null;
             const blob = scene.blobs.get(id);
             return blob ? structuredClone(blob) : null;
         },
@@ -77,8 +121,10 @@ vi.mock('../services/OsmRouteOverlayService', async (original) => ({
     },
 }));
 vi.mock('../services/satelliteWater', () => ({
-    fetchSatelliteWater: async () => {
+    fetchSatelliteWater: async (_b: unknown, _token: unknown, _z: unknown, _c: unknown, signal?: AbortSignal) => {
         host.satCalls++;
+        host.satSignals.push(signal);
+        if (host.satHold) await host.satHold;
         return { type: 'FeatureCollection', features: [] };
     },
 }));
@@ -106,7 +152,7 @@ vi.mock('../services/TideHeightService', async (original) => ({
 
 import { tryInshoreRoute } from '../services/InshoreRouter';
 
-let ends: ReturnType<typeof installAtlanticChannel>;
+let ends: { from: [number, number]; to: [number, number] };
 const ask = (opts: { signal?: AbortSignal; onStage?: (s: string) => void } = {}) =>
     tryInshoreRoute(
         { lat: ends.from[1], lon: ends.from[0] },
@@ -126,6 +172,14 @@ beforeEach(() => {
     host.jobs = [];
     host.osmHold = null;
     host.osmCalls = 0;
+    host.satHold = null;
+    host.satSignals = [];
+    host.cellHold = null;
+    host.cellCalls = 0;
+    host.missing.clear();
+    host.unreadable.clear();
+    host.pullHold = null;
+    host.pulls = 0;
     host.satCalls = 0;
     host.vectorCalls = 0;
     host.ntmCalls = 0;
@@ -206,23 +260,151 @@ describe('callers asking for the same leg share one run', () => {
 });
 
 describe('a stop during the prep', () => {
-    it('never posts the job, and the stopped prep starts nothing after its current wait', async () => {
-        let release!: () => void;
-        host.osmHold = new Promise<void>((r) => (release = r));
+    const asked = () => ({
+        osm: host.osmCalls,
+        sat: host.satCalls,
+        vector: host.vectorCalls,
+        ntm: host.ntmCalls,
+        cells: host.cellCalls,
+    });
+    const exitLines = () =>
+        (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls
+            .map((c) => c.map(String).join(' '))
+            .filter((l) => l.includes('EXIT:'));
+
+    it('ends the run at once, never posts the job, and starts nothing after the stop', async () => {
+        let releaseOsm!: () => void;
+        let releaseSat!: () => void;
+        host.osmHold = new Promise<void>((r) => (releaseOsm = r));
+        host.satHold = new Promise<void>((r) => (releaseSat = r));
         const stop = new AbortController();
         const a = ask({ signal: stop.signal });
         for (let i = 0; i < 200 && host.osmCalls === 0; i++) await new Promise((r) => setTimeout(r, 5));
+        // Let the prep read every cell and settle onto the OSM wait (the OSM
+        // water is asked for before the cells, so its count alone says nothing
+        // about where the prep is): the stop lands there, where a phone's
+        // 2.5-45 s of OSM waiting is.
+        await settle();
+        expect(host.cellCalls).toBe((scene.cells as unknown[]).length);
+        expect(exitLines()).toHaveLength(0);
+        const satAskedBesideOsm = host.satCalls;
+        const before = asked();
         stop.abort();
         await expect(a).rejects.toMatchObject({ name: 'AbortError' });
-        release();
+        await settle();
+        // The run's EXIT line is written now. (It reads "stopped" in the app;
+        // here vitest's AbortSignal hands back Node's DOMException, which the
+        // jsdom global does not claim, so the same line reads "threw".)
+        const endedAtOnce = exitLines().length === 1;
+        releaseOsm();
+        releaseSat();
         await settle();
         expect(host.jobs).toHaveLength(0);
-        // Review 2026-10-11: it drops out when the OSM wait ends, so no
-        // satellite or vector water is fetched (or read on the main thread)
-        // and no notices are asked for, beside a re-tap's fresh prep.
-        expect(host.satCalls).toBe(0);
+        // Review 2026-10-11: beside a re-tap's fresh prep, the stopped run
+        // starts nothing new (no vector water, no second ask, no cell read)…
+        expect(asked()).toEqual(before);
+        // 128-ROUTE-P: the satellite crops were asked for beside the OSM
+        // water; they read nothing on the main thread, each handed the run's
+        // stop, now aborted…
+        expect(satAskedBesideOsm).toBe(2);
+        expect(host.satSignals).toHaveLength(2);
+        expect(host.satSignals.every((s) => s?.aborted)).toBe(true);
+        // …and the run itself ended at the stop, not when its OSM wait (up to
+        // 20-45 s) ended.
+        expect(endedAtOnce).toBe(true);
+    });
+
+    it('a stop while the cells load reads no more cells', async () => {
+        const archipelago = installArchipelago()['5nm'];
+        ends = { from: archipelago.from, to: archipelago.to };
+        let releaseCells!: () => void;
+        host.cellHold = new Promise<void>((r) => (releaseCells = r));
+        const stop = new AbortController();
+        const a = ask({ signal: stop.signal });
+        for (let i = 0; i < 200 && host.cellCalls === 0; i++) await new Promise((r) => setTimeout(r, 5));
+        await settle();
+        const before = asked();
+        stop.abort();
+        await expect(a).rejects.toMatchObject({ name: 'AbortError' });
+        releaseCells();
+        await settle();
+        expect(asked().cells).toBe(before.cells);
+        expect(host.jobs).toHaveLength(0);
+        // Two of the three cells read at once (128-ROUTE-P), never more.
+        expect(before.cells).toBe(2);
+    });
+
+    it('a run that ends without its asks (no cell could be read) stops them: no crop is read, no vector water asked', async () => {
+        // Listed and on the phone, but unreadable: the run ends at "No cells
+        // could be loaded" with its satellite crops still in flight.
+        for (const c of scene.cells as { id: string }[]) host.unreadable.add(c.id);
+        let releaseSat!: () => void;
+        host.satHold = new Promise<void>((r) => (releaseSat = r));
+        let releaseCells!: () => void;
+        host.cellHold = new Promise<void>((r) => (releaseCells = r));
+        const run = ask();
+        for (let i = 0; i < 200 && host.satCalls < 2; i++) await new Promise((r) => setTimeout(r, 5));
+        releaseCells();
+        const res = await run;
+        expect(res).toBeNull();
+        expect(host.satCalls).toBe(2);
+        // The crops were told the run has ended, so they read nothing on the
+        // main thread and fall back to no vector water when they land.
+        expect(host.satSignals.every((s) => s?.aborted)).toBe(true);
+        releaseSat();
+        await settle();
         expect(host.vectorCalls).toBe(0);
-        expect(host.ntmCalls).toBe(0);
+        expect(host.jobs).toHaveLength(0);
+    });
+
+    it('a cell the phone does not hold yet comes before the satellite crops; a stop meanwhile asks for none', async () => {
+        const archipelago = installArchipelago()['5nm'];
+        ends = { from: archipelago.from, to: archipelago.to };
+        const [first] = scene.cells as { id: string }[];
+        host.missing.add(first.id);
+        let releasePull!: () => void;
+        host.pullHold = new Promise<void>((r) => (releasePull = r));
+        const stop = new AbortController();
+        const a = ask({ signal: stop.signal });
+        a.catch(() => {});
+        try {
+            for (let i = 0; i < 200 && host.pulls === 0; i++) await new Promise((r) => setTimeout(r, 5));
+            await settle();
+            // The OSM water is asked for beside the pull; the crops wait for the cells.
+            expect({ osm: host.osmCalls, sat: host.satCalls, pulls: host.pulls }).toEqual({ osm: 1, sat: 0, pulls: 1 });
+            stop.abort();
+            await expect(a).rejects.toMatchObject({ name: 'AbortError' });
+            releasePull();
+            await settle();
+            expect({ sat: host.satCalls, vector: host.vectorCalls }).toEqual({ sat: 0, vector: 0 });
+            expect(host.jobs).toHaveLength(0);
+        } finally {
+            // A failure above must not leave this leg's run in the dedupe map for the next test.
+            stop.abort();
+            releasePull();
+        }
+    });
+
+    it("a stop during a Pi pull pulls no more cells, though the next one's read had already started", async () => {
+        const archipelago = installArchipelago()['5nm'];
+        ends = { from: archipelago.from, to: archipelago.to };
+        // None of the three cells is on the phone yet: each comes from the boat's Pi.
+        for (const c of scene.cells as { id: string }[]) host.missing.add(c.id);
+        let releasePull!: () => void;
+        host.pullHold = new Promise<void>((r) => (releasePull = r));
+        const stop = new AbortController();
+        const a = ask({ signal: stop.signal });
+        for (let i = 0; i < 200 && host.pulls === 0; i++) await new Promise((r) => setTimeout(r, 5));
+        await settle();
+        // One pull at a time, as when the cells loaded one by one.
+        expect(host.pulls).toBe(1);
+        stop.abort();
+        await expect(a).rejects.toMatchObject({ name: 'AbortError' });
+        releasePull();
+        await settle();
+        // The cell read ahead was waiting for the Pi: after the stop it pulls nothing.
+        expect(host.pulls).toBe(1);
+        expect(host.jobs).toHaveLength(0);
     });
 
     it('leaves the dedupe map at once: a re-tap starts a fresh run, which the stopped run never disturbs', async () => {
@@ -240,14 +422,15 @@ describe('a stop during the prep', () => {
         await posted(1);
         expect(host.osmCalls).toBe(2);
 
-        // The stopped run's prep now finishes; its late clean-up must not
+        // The stopped run's OSM wait now ends; its late clean-up must not
         // remove the fresh run from the dedupe map…
+        const freshAsked = { sat: host.satCalls, vector: host.vectorCalls, ntm: host.ntmCalls };
         releaseFirst();
         await settle();
         expect(host.jobs).toHaveLength(1);
-        // …and runs no second prep beside it: only the fresh run's water and notices.
-        expect(host.satCalls).toBe(2);
-        expect(host.ntmCalls).toBe(1);
+        // …and it starts nothing beside the fresh run once that wait ends: no
+        // water and no notices.
+        expect({ sat: host.satCalls, vector: host.vectorCalls, ntm: host.ntmCalls }).toEqual(freshAsked);
         // …so a third ask for the same leg joins the fresh run.
         const joined = ask();
         await settle();
@@ -256,6 +439,10 @@ describe('a stop during the prep', () => {
         const [rf, rj] = await Promise.all([fresh, joined]);
         expect(rf && 'polyline' in rf).toBe(true);
         expect(rj).toBe(rf);
+        // 128-ROUTE-P: the crops are asked once the prep has looked which
+        // cells the phone holds; the first run was stopped before that, so it
+        // asked for none, and these two are the fresh run's.
+        expect(freshAsked.sat).toBe(2);
     });
 });
 

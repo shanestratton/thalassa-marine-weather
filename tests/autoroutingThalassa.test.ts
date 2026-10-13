@@ -743,6 +743,49 @@ describe('calculateThalassaProposal', () => {
         expect(quiet.warnings.join(' ')).not.toMatch(/Notice to Mariners/);
     });
 
+    it('asks for the notices beside the satellite land check, and says them in the same order (128-ROUTE-P)', async () => {
+        m.tryInshoreRoute.mockResolvedValue(engineResult());
+        // ETOPO and the notice packs answer only when the test lets them; the
+        // local notices answer at once, so they land first.
+        let landCheck!: (v: unknown) => void;
+        m.crossesLand.mockImplementation(() => new Promise((r) => (landCheck = r)));
+        let packsAnswer!: (v: unknown[]) => void;
+        m.packs.mockImplementation(() => new Promise<unknown[]>((r) => (packsAnswer = r)));
+        m.notices.mockResolvedValue([
+            { id: 'syn-bar', title: 'Synthetic Bar — shoaling', lat: -31.01, lon: 161.02, radiusM: 300 },
+        ]);
+        const pending = calculateThalassaProposal(request());
+        await vi.waitFor(() => expect(m.crossesLand).toHaveBeenCalled());
+        // Both lookups are asked while ETOPO still runs: they need only the line.
+        await vi.waitFor(() => {
+            expect(m.packs).toHaveBeenCalled();
+            expect(m.notices).toHaveBeenCalled();
+        });
+        landCheck({ status: 'verified', crossesLand: false, runs: [] });
+        packsAnswer([
+            {
+                pack: { noticeKey: 'NtM 99/2026', title: 'Synthetic Bar — surveyed depths', surveyed: '2026-09-01' },
+                status: { status: 'current' },
+                optedOut: false,
+            },
+        ]);
+        const route = await pending;
+        const pack = route.warnings.findIndex((w) => w.startsWith('Routing follows a current Notice to Mariners'));
+        const local = route.warnings.findIndex((w) => w.startsWith('Notice to Mariners on this route'));
+        expect(pack).toBeGreaterThan(-1);
+        expect(local, 'the pack line first, then the local notice, as before').toBe(pack + 1);
+    });
+
+    it('a land refusal still refuses with its own words while failing notice lookups run beside it', async () => {
+        m.tryInshoreRoute.mockResolvedValue(engineResult());
+        m.crossesLand.mockResolvedValue({ status: 'verified', crossesLand: true, runs: [{}] });
+        m.packs.mockRejectedValue(new Error('feed down'));
+        m.notices.mockRejectedValue(new Error('offline'));
+        await expect(calculateThalassaProposal(request())).rejects.toThrow(
+            'Satellite relief shows land on this route. The route is not shown. Check that stretch on a detailed chart, or plot this passage in Manual. Nothing changed.',
+        );
+    });
+
     it('cancels without a proposal', async () => {
         const controller = new AbortController();
         m.tryInshoreRoute.mockImplementation(async () => {

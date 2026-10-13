@@ -639,9 +639,15 @@ export async function hasCellGeoJSON(cellId: string): Promise<boolean> {
  * Two rungs and no third: the personal cloud shelf that once followed them
  * was deleted in 127.
  * `remoteFallback=false` marks the post-download retry so a bad blob can't
- * loop the ladder forever.
+ * loop the ladder forever. `climbOneAtATime` runs the ladder for a caller that
+ * reads several cells at once (the router, 128-ROUTE-P), so the Pi still gets
+ * one pull at a time.
  */
-export async function loadCellGeoJSON(cellId: string, remoteFallback = true): Promise<EncConversionResult | null> {
+export async function loadCellGeoJSON(
+    cellId: string,
+    remoteFallback = true,
+    climbOneAtATime: <T>(climb: () => Promise<T>) => Promise<T> = (climb) => climb(),
+): Promise<EncConversionResult | null> {
     // COMPOSED from the pipeline halves (closing audit: this body was a
     // third hand-written copy of readCellRaw + parseAndCacheCellText —
     // three parse/shape-gate/cache sites to keep in sync).
@@ -652,7 +658,8 @@ export async function loadCellGeoJSON(cellId: string, remoteFallback = true): Pr
         log.warn(`loadCellGeoJSON ${cellId} failed (read error, staying local)`);
         return null;
     }
-    if (remoteFallback) {
+    if (!remoteFallback) return null;
+    return climbOneAtATime(async () => {
         // Rung 1: the boat's Pi. importCell persists + warms the parse
         // cache, so the retry read is a cache hit. No-ops in <1 ms when
         // the Pi probe says unreachable (off the boat / HTTPS web).
@@ -662,8 +669,8 @@ export async function loadCellGeoJSON(cellId: string, remoteFallback = true): Pr
         // any request).
         const { downloadCloudCell } = await import('./cloudCellSync');
         if (await downloadCloudCell(cellId)) return loadCellGeoJSON(cellId, false);
-    }
-    return null;
+        return null;
+    });
 }
 
 /**
