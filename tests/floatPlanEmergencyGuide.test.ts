@@ -88,3 +88,30 @@ describe('every channel tells the holder what to do', () => {
         expect(text).toMatch(/CALL:/);
     });
 });
+
+describe('the guide reads as plain English on every channel', () => {
+    // The Tailwind 4 codemod (c3c1e1f3c, 2 Sep 2026) renamed the class `ring`
+    // to `ring-3` inside this prose too, so every plan carried "They will
+    // ring-3 back for more" until 129. No class name belongs in this text.
+    const input = {
+        vessel: { name: 'Example Star', type: 'sail', shoreContact1: 'Robin Example — 0400 000 003' },
+        route: { from: 'Port Example', to: 'Example Cove', waypoints: [] },
+        departureMs: NOW,
+        overdueMs: NOW + 12 * 3600e3,
+        personsOnBoard: 3,
+        whoToCall: 'Coast Radio Example — +1 555 0100',
+        contactAboard: 'Sat phone +881 600 000 000',
+        timeZone: 'Pacific/Auckland',
+    } as unknown as FloatPlanInput;
+    const CLASS_NAME = /\b(?:ring|shadow|drop-shadow|blur|rounded|outline)-(?:\d|xs|sm|hidden)\b/;
+
+    it.each(['email', 'whatsapp', 'generic', 'sms'] as const)('%s has no class names in it', (channel) => {
+        expect(createFloatPlanSharePayload(input, channel).text).not.toMatch(CLASS_NAME);
+    });
+
+    it('asks the holder to keep the phone free because they will ring back', () => {
+        expect(createFloatPlanSharePayload(input, 'email').text).toContain(
+            'Keep your phone free. They will ring back for more, and you are now the person',
+        );
+    });
+});

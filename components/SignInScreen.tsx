@@ -330,7 +330,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 wordmark, and "MARINE DATA & NAVIGATION" descriptor —
                 all baked into one SVG so proportions and weights
                 stay exactly as designed. The pulse keyframe (below)
-                animates a teal drop-shadow-sm around it so the mark
+                animates a teal drop-shadow around it so the mark
                 breathes like a beacon. */}
                 <div className="relative z-10 mt-auto mb-6 [@media(max-height:812px)]:mb-3 flex shrink-0 flex-col items-center text-center">
                     <div
@@ -528,7 +528,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                     </p>
                 </footer>
 
-                {/* Pulse keyframe — drop-shadow-sm filter rather than the
+                {/* Pulse keyframe — drop-shadow filter rather than the
                 old disc-based box-shadow, because the lockup is now a
                 free-standing image (no surrounding container disc).
                 Two stacked drop-shadows: a tight inner glow that

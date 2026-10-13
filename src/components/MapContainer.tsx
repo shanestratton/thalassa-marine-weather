@@ -979,7 +979,7 @@ function MapContainer({
                 {/* Diary entry pins — camera badge if it carries photos.
                     When the entry is the one selected in the sidebar, the
                     pin gets a pulsing halo and a lit rim (camera badge
-                    variant) or an intensified drop-shadow-sm (emoji variant)
+                    variant) or an intensified drop-shadow (emoji variant)
                     so the viewer can quickly spot where on the route the
                     story happened. */}
                 {pinnedEntries.map((entry) => {
