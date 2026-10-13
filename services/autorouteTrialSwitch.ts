@@ -12,8 +12,10 @@
  * delegation (2026-10-01: "any questions please answer with whatever your
  * recommendation is").
  *
- * Plan Your Day read it too until build 124 ("Today on the water"): the
- * planner no longer routes, so it no longer asks.
+ * Plan Your Day read it until build 124 ("Today on the water") and reads it
+ * again since 127-PYD-2: the stop she opens is routed through Auto's own
+ * provider (owner-only in 127, services/dayPlanner/pydRouting.ts), behind
+ * this same switch, and its stop page turns it on in place.
  *
  * Stored with the other Preferences switches (UserSettings, per account).
  * The manual planner's ⚡ Auto route and the passage planner do not read it.

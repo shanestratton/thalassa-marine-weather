@@ -335,7 +335,9 @@ describe('leg-verdict persistence (remount cold-cache fix, 2026-07-17)', () => {
         persistLegVerdicts(cache, 2.4, false, FP);
         const back = hydrateLegVerdicts(2.4, false, FP)!;
         expect(back.get('a|b')?.grade).toBe('clear');
-        expect(back.get('a|b')?.minDepthM).toBe(8);
+        // 127-C-b: no open chart known under it, so the bank kept its grade only.
+        expect(back.get('a|b')?.minDepthM).toBeNull();
+        expect(back.get('a|b')?.stub).toBe(true);
     });
 
     it('a different keel, honesty flag, or chart version drops the lot', () => {

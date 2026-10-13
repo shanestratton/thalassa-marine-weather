@@ -68,7 +68,8 @@ import {
     encCellStorageIdentity,
     S57_CELL_NAME_PATTERN,
 } from './types';
-import type { EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
+import type { ChartLicence, EncAreaGraze, EncCatzoc, EncCell, EncConversionResult, EncHazardResult } from './types';
+import { chartLicenceOf } from './chartLicence';
 import { crumb } from '../../utils/flightRecorder';
 import { awaitHeapHeadroom, heapTag } from '../../utils/heapGauge';
 import { createSerialQueue } from '../../utils/serialQueue';
@@ -512,10 +513,11 @@ async function importCellSerialized(
     options: {
         usage?: 'navigation' | 'reference' | 'demo';
         cloudManifestVersion?: number;
-        personalManifestVersion?: number;
         contentSha256?: string;
         /** The size the Pi's index reported for this revision (see EncCell.piSizeBytes). */
         piSizeBytes?: number;
+        /** The source's licence stamp (127-C-b): it can only make a cell stricter. */
+        licence?: ChartLicence;
         /**
          * A route-time Pi pull (piCellSync downloadPiCell) has no index row to
          * hand in contentSha256 / piSizeBytes. When the bytes it wrote are the
@@ -604,12 +606,6 @@ async function importCellSerialized(
         (!Number.isInteger(options.cloudManifestVersion) || options.cloudManifestVersion < 0)
     ) {
         throw new Error(`${canonicalId} cloud manifest version is invalid; bytes were not written.`);
-    }
-    if (
-        options.personalManifestVersion !== undefined &&
-        (!Number.isInteger(options.personalManifestVersion) || options.personalManifestVersion < 0)
-    ) {
-        throw new Error(`${canonicalId} personal manifest version is invalid; bytes were not written.`);
     }
     const storageIdentity = encCellStorageIdentity(canonicalId);
     const installedDisplayCell =
@@ -737,12 +733,16 @@ async function importCellSerialized(
         usage: requestedUsage,
         catzocRange,
         sizeBytes,
+        // A held record's 'protected' (the Pi said so) survives a re-import
+        // that carries no stamp, such as a route-time pull.
+        licence: chartLicenceOf({
+            id: canonicalId,
+            sourceHO: normalizedBlob.sourceHO,
+            licence: options.licence ?? installedDisplayCell?.licence,
+        }),
         ...(piSizeBytes !== undefined ? { piSizeBytes } : {}),
         ...(Number.isInteger(options.cloudManifestVersion)
             ? { cloudManifestVersion: options.cloudManifestVersion }
-            : {}),
-        ...(Number.isInteger(options.personalManifestVersion)
-            ? { personalManifestVersion: options.personalManifestVersion }
             : {}),
     };
     // Only the validated byte-import transaction may raise metadata authority.
@@ -765,9 +765,9 @@ export function importCell(
     options: {
         usage?: 'navigation' | 'reference' | 'demo';
         cloudManifestVersion?: number;
-        personalManifestVersion?: number;
         contentSha256?: string;
         piSizeBytes?: number;
+        licence?: ChartLicence;
         keepPiRevisionWhenUnchanged?: boolean;
         assertAuthority?: () => void;
     } = {},
@@ -1906,21 +1906,11 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
     let flushedCount = 0;
     const supersededIds: string[] = [];
     try {
+        // The curated shelf only. Since 126-20 it answers NOAA cells only
+        // (it refuses others before any request), and the personal shelf that
+        // followed it here was deleted in 127, so a licensed cell is never
+        // fetched from the cloud by this walk.
         const { downloadCloudCell } = await import('./cloudCellSync');
-        const { downloadPersonalCell } = await import('./personalCellSync');
-        // Curated first, then the skipper's OWN published cells. Since 126-20
-        // the curated shelf answers NOAA cells only and the personal one is
-        // closed (both refuse before any request), so a licensed cell is
-        // never fetched from the cloud here.
-        //
-        // This walk does NOT go through loadCellGeoJSON, so it does not inherit that
-        // function's remote-fallback ladder — a personal-only cell (Noumea,
-        // Port Vila: licensed to one account, never in the curated bucket)
-        // would register as pending, fail its cloud download, and sit in the
-        // failure cooldown forever. Visible to the skipper as a chart that
-        // lists but never draws.
-        const downloadRemoteCell = async (id: string): Promise<boolean> =>
-            (await downloadCloudCell(id)) || downloadPersonalCell(id);
         // PARALLEL, pool of 3 (z10-boot audit #5): one-at-a-time downloads
         // made the cold walk O(N) on the slowest cell — one stalled socket
         // (30 s deadline) head-of-line blocked the entire coast. Three slots
@@ -1930,7 +1920,7 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
         let done = 0;
         const runOne = async (id: string): Promise<void> => {
             const manifestVersionAtStart = cellMeta.getRegisteredCell(id)?.cloudManifestVersion;
-            const ok = await downloadRemoteCell(id);
+            const ok = await downloadCloudCell(id);
             if (ok) {
                 hydrationCooldownUntil.delete(id);
                 // Success is provisional until the next merge actually READS

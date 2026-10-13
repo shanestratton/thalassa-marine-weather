@@ -1,6 +1,8 @@
 import { supabase, supabaseAnonKey, supabaseUrl } from '../supabase';
 
-export type OpenMeteoOperation = 'forecast' | 'marine';
+/** proxy-openmeteo's fixed operations; `geocode` is Calypso's place-name lookup (127-H). */
+export type OpenMeteoOperation = 'forecast' | 'marine' | 'geocode';
+type OpenMeteoPointOperation = Exclude<OpenMeteoOperation, 'geocode'>;
 export type OpenMeteoParameterValue = string | number;
 export type OpenMeteoParameters = Record<string, OpenMeteoParameterValue>;
 
@@ -113,7 +115,7 @@ export async function fetchOpenMeteoProxy<T>(
  * and grid code can never attach one coordinate's weather to another.
  */
 export async function fetchOpenMeteoPoints<T>(
-    operation: OpenMeteoOperation,
+    operation: OpenMeteoPointOperation,
     points: readonly OpenMeteoPoint[],
     params: OpenMeteoParameters,
     concurrency = 4,

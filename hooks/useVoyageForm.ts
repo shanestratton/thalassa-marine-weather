@@ -791,7 +791,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                 const backstop = chartedLand
                                     ? null
                                     : await inshoreRouteCrossesLand(inshoreRes.polyline, {
-                                          chartWater: inshoreRes.chartWater,
+                                          chartVerdicts: inshoreRes.chartVerdicts,
                                       });
                                 if (!operationIsCurrent()) return;
                                 if (!backstop) {

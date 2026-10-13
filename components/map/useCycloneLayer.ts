@@ -16,6 +16,7 @@ import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import type { ActiveCyclone, CyclonePosition, GfsTrackerPosition } from '../../services/weather/CycloneTrackingService';
 import { cloudOverlayBeforeId } from './imageryOrder';
+import { chartBearing } from './chartOrientation';
 import { mountCloudOverlay, removeCloudOverlay } from './cloudOverlay';
 import { WindStore } from '../../stores/WindStore';
 
@@ -1146,20 +1147,38 @@ export function sanitizeTrackLongitudes(points: [number, number][]): [number, nu
  * longitude, safe because mercator y depends only on latitude. A continuous
  * input cannot split, whatever the camera, because only one point ever
  * touches project()'s x-wrap.
+ *
+ * On a turned chart (127-11a) those are north-up screen axes, so the track
+ * drew skewed off its own GL cone. There the whole offset comes from mercator
+ * (y from the latitude too) and is turned by minus the bearing; the anchor is
+ * still the one point project() sees. North up is exactly as before.
  */
 export function projectTrackContinuously(
-    map: Pick<mapboxgl.Map, 'project' | 'getZoom'>,
+    map: Pick<mapboxgl.Map, 'project' | 'getZoom'> & Partial<Pick<mapboxgl.Map, 'getBearing'>>,
     points: readonly [number, number][],
 ): mapboxgl.Point[] {
     if (points.length === 0) return [];
     const wrap = (lon: number) => ((((lon + 180) % 360) + 360) % 360) - 180;
-    const anchorLon = points[0][0];
-    const anchor = map.project([wrap(anchorLon), points[0][1]]);
+    const [anchorLon, anchorLat] = points[0];
+    const anchor = map.project([wrap(anchorLon), anchorLat]);
     const worldPx = 512 * Math.pow(2, map.getZoom());
-    return points.map(
-        ([lon, lat]) =>
-            new mapboxgl.Point(anchor.x + ((lon - anchorLon) / 360) * worldPx, map.project([wrap(lon), lat]).y),
-    );
+    const bearing = chartBearing(map as Pick<mapboxgl.Map, 'getBearing'>);
+    if (!bearing) {
+        return points.map(
+            ([lon, lat]) =>
+                new mapboxgl.Point(anchor.x + ((lon - anchorLon) / 360) * worldPx, map.project([wrap(lon), lat]).y),
+        );
+    }
+    const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+    const a = (bearing * Math.PI) / 180;
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    return points.map(([lon, lat]) => {
+        const dx = ((lon - anchorLon) / 360) * worldPx;
+        const dy = ((mercY(anchorLat) - mercY(lat)) / (2 * Math.PI)) * worldPx;
+        // North-up (dx, dy) turned by minus the bearing on screen.
+        return new mapboxgl.Point(anchor.x + dx * cos + dy * sin, anchor.y - dx * sin + dy * cos);
+    });
 }
 
 /**

@@ -10,6 +10,7 @@
  * noticed for months.
  */
 import { describe, expect, it } from 'vitest';
+import { contrast, deltaE } from './helpers/colourScience';
 
 import {
     WIND_BANDS,
@@ -165,5 +166,110 @@ describe('windParticleColorForKt (the close-in streak colour)', () => {
         expect(windParticleColorForKt(Number.NaN)).toBe(WIND_PARTICLE_WHITE);
         expect(windParticleColorForKt(-3)).toBe(WIND_PARTICLE_WHITE);
         expect(windParticleColorForKt(500)).toBe(WIND_BANDS[WIND_BANDS.length - 1].hex);
+    });
+});
+
+// ── The desk's Light base (127-DESKMAP-b) ────────────────────────────────
+// White streaks measured 1.28-2.03:1 on Light and the reef orange 1.39-2.21:1:
+// the wind would vanish on the base the desk opens on. The light palette keeps
+// the buckets and each band's hue, darkened until it reads on every Light
+// water and land colour.
+describe('the streak palette for a light base', () => {
+    const hue = (hex: string) => {
+        const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+        const max = Math.max(r, g, b);
+        const d = max - Math.min(r, g, b);
+        if (!d) return 0;
+        const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+        return (h * 60 + 360) % 360;
+    };
+
+    it('keeps WIND_COLORS’ bucket edges: one colour per band, changing only at 20, 25, 30, 34, 40 and 48 kt', async () => {
+        const { WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
+        expect(WIND_PARTICLE_COLORS_LIGHT).toHaveLength(WIND_COLORS.length);
+        const edges = WIND_PARTICLE_COLORS_LIGHT.flatMap((hex, k) =>
+            k > 0 && hex !== WIND_PARTICLE_COLORS_LIGHT[k - 1] ? [k] : [],
+        );
+        expect(edges).toEqual([20, 25, 30, 34, 40, 48]);
+    });
+
+    // 4.5:1 as inks so the streaks' cores land 3:1 as drawn (1 px antialiased
+    // lines, 0.88 alpha, additive trails; browser-tests/desk-wind-layout.spec.ts
+    // measures the pixels).
+    it('reads on every Light water and land colour: 4.5:1 for each warm band, 7:1 below the reef line', async () => {
+        const { WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
+        const { LIGHT_PALETTE } = await import('../components/map/reliefBase');
+        const grounds = [
+            ...LIGHT_PALETTE.ramp.map(([, colour]) => colour),
+            ...LIGHT_PALETTE.bands,
+            LIGHT_PALETTE.land,
+            LIGHT_PALETTE.water,
+        ].filter((c) => c.startsWith('#'));
+        expect(grounds.length).toBeGreaterThan(8);
+        WIND_PARTICLE_COLORS_LIGHT.forEach((ink, k) => {
+            for (const ground of grounds)
+                expect(contrast(ink, ground), `${k} kt ${ink} on ${ground}`).toBeGreaterThanOrEqual(k < 20 ? 7 : 4.5);
+        });
+    });
+
+    it('keeps each warm band’s own hue family (within 15°)', async () => {
+        const { WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
+        for (let k = 20; k < WIND_COLORS.length; k++) {
+            const delta = Math.abs(hue(WIND_PARTICLE_COLORS_LIGHT[k]) - hue(WIND_COLORS[k]));
+            expect(Math.min(delta, 360 - delta), `${k} kt`).toBeLessThanOrEqual(15);
+        }
+    });
+
+    // Review 2026-10-10: at one lightness the dark inks ran together (25-30
+    // against 30-34 kt nearly one red; 20-25 against 25-30 ΔE 1.4 to a deutan
+    // eye). Neighbours, the slate below the reef line included, stay apart for
+    // every common colour vision, so a streak's band can be read off the key.
+    it('keeps every pair of neighbouring bands apart: ΔE2000 ≥ 10 for normal, deutan and protan vision', async () => {
+        const { WIND_PARTICLE_COLORS_LIGHT } = await import('../components/map/windRamp');
+        const inks = [...new Set(WIND_PARTICLE_COLORS_LIGHT)];
+        expect(inks).toHaveLength(7);
+        for (let i = 1; i < inks.length; i++)
+            for (const vision of ['normal', 'deutan', 'protan'] as const)
+                expect(
+                    deltaE(inks[i - 1], inks[i], vision),
+                    `${inks[i - 1]} | ${inks[i]} (${vision})`,
+                ).toBeGreaterThanOrEqual(10);
+    });
+
+    it('windParticleColorForKt(kt, "light") is that palette at the renderer’s bucket edges; "dark" is today’s', async () => {
+        const { windParticleColorForKt, WIND_PARTICLE_COLORS, WIND_PARTICLE_COLORS_LIGHT } =
+            await import('../components/map/windRamp');
+        // The renderer's own bucket: floor(len * v / max) over m/s, clamped.
+        const bucket = (kt: number) =>
+            Math.min(
+                WIND_COLORS.length - 1,
+                Math.max(0, Math.floor((WIND_COLORS.length * kt * (1852 / 3600)) / WIND_MAX_MS)),
+            );
+        for (let tenths = 1; tenths <= 650; tenths += 1) {
+            const kt = tenths / 10;
+            expect(windParticleColorForKt(kt, 'dark')).toBe(windParticleColorForKt(kt));
+            expect(windParticleColorForKt(kt)).toBe(WIND_PARTICLE_COLORS[bucket(kt)]);
+            expect(windParticleColorForKt(kt, 'light'), `${kt} kt`).toBe(WIND_PARTICLE_COLORS_LIGHT[bucket(kt)]);
+        }
+        expect(windParticleColorForKt(19.9, 'light')).toBe(WIND_PARTICLE_COLORS_LIGHT[0]);
+        expect(windParticleColorForKt(20, 'light')).toBe(WIND_PARTICLE_COLORS_LIGHT[20]);
+        expect(windParticleColorForKt(Number.NaN, 'light')).toBe(WIND_PARTICLE_COLORS_LIGHT[0]);
+        expect(windParticleColorForKt(500, 'light')).toBe(WIND_PARTICLE_COLORS_LIGHT[WIND_COLORS.length - 1]);
+    });
+
+    it('gives the legend a derived light twin: hard stops, bottom-up, the light inks in band order', async () => {
+        const { WIND_PARTICLE_GRADIENT_LIGHT, WIND_PARTICLE_COLORS_LIGHT, WIND_PARTICLE_GRADIENT } =
+            await import('../components/map/windRamp');
+        expect(
+            WIND_PARTICLE_GRADIENT_LIGHT.startsWith(`linear-gradient(to top, ${WIND_PARTICLE_COLORS_LIGHT[0]} 0.00%`),
+        ).toBe(true);
+        const inks = [...new Set(WIND_PARTICLE_COLORS_LIGHT)];
+        const positions = inks.map((hex) => WIND_PARTICLE_GRADIENT_LIGHT.indexOf(hex));
+        expect(positions.every((p) => p >= 0)).toBe(true);
+        expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+        // Hard stops: every warm band opens and closes its own span.
+        for (const hex of inks.slice(1)) expect(WIND_PARTICLE_GRADIENT_LIGHT.split(hex).length - 1).toBe(2);
+        // The dark twin is untouched.
+        expect(WIND_PARTICLE_GRADIENT.startsWith('linear-gradient(to top, #ffffff 0.00%')).toBe(true);
     });
 });

@@ -123,6 +123,30 @@ describe('public voyage map freshness', () => {
         expect(screen.queryByText('Nearby')).not.toBeInTheDocument();
     });
 
+    it('has no wind toggle, draws no wind barbs and asks no weather host from the viewer (127-H)', () => {
+        const fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+        vi.stubGlobal('fetch', fetchSpy);
+        try {
+            render(
+                <MapContainer
+                    track={[]}
+                    telemetry={TELEMETRY}
+                    entries={[]}
+                    passageLine={null}
+                    waypoints={[]}
+                    nearbyVessels={[NEARBY]}
+                    connectionLost={false}
+                    onEntryClick={vi.fn()}
+                />,
+            );
+            expect(screen.queryByRole('button', { name: /wind/i })).not.toBeInTheDocument();
+            expect(screen.queryByText('Wind')).not.toBeInTheDocument();
+            for (const [url] of fetchSpy.mock.calls) expect(String(url)).not.toContain('open-meteo.com');
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
     it('stops the live pulse, marks AIS last-known, and expires unsafe frozen contacts', async () => {
         const { container } = render(
             <MapContainer

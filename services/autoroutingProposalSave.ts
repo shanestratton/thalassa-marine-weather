@@ -13,6 +13,12 @@ import {
 } from './autoroutingProposalEvidence';
 import type { PushResult } from './savedRoutesSync';
 import { backstopUnavailableSaveReason, backstopUnavailableWords } from './routing/landBackstopWords';
+import {
+    chartFreeEvidence,
+    LICENSED_SAVE_WAITS,
+    proposalUsedProtectedCharts,
+    SAVE_ROUTES_FROM_LICENSED_CHARTS,
+} from './chartFacts';
 
 const NEAR_SHALLOW_SAVE =
     'Part of this route passes too close to water charted shallower than this boat needs. It cannot be saved.';
@@ -37,6 +43,13 @@ export function evaluateAutoroutingProposalSave(
     const deny = (reason: string) => ({ eligible: false, reason });
     // Thalassa's router is Auto's only provider since 2026-10-01.
     if (route.provider !== 'Thalassa') return deny('The proposal origin is not recognised.');
+    // Shane's decision 5 (127-C-b): routes worked out on licensed charts save
+    // as a line and grade words; switched off, they are not saved at all.
+    if (
+        !SAVE_ROUTES_FROM_LICENSED_CHARTS &&
+        proposalUsedProtectedCharts(route.engine?.cellsUsed, review?.basis?.registryFingerprint)
+    )
+        return deny(LICENSED_SAVE_WAITS);
     if (route.localEdit !== undefined)
         return deny("This edited route has not been rechecked by Thalassa's router and cannot be saved. Recalculate.");
     // The line was routed but its safety classifications did not arrive intact
@@ -160,7 +173,11 @@ export function prepareReviewedAutoroutingProposal(
             })),
         })),
     };
-    const evidence: SavedAutoroutingProposalEvidence | null = normaliseAutoroutingProposalEvidence(candidate, points);
+    // Over licensed charts the depths, positions and chart notes stay in memory
+    // (127-C-b): what is written is the line, each leg's grade and her own words.
+    const normalised = normaliseAutoroutingProposalEvidence(candidate, points);
+    const evidence: SavedAutoroutingProposalEvidence | null =
+        normalised && chartFreeEvidence(normalised, route.engine?.cellsUsed);
     if (!evidence)
         throw new Error(
             'The complete proposal evidence is invalid or exceeds the 1 MiB save limit. Nothing was saved.',

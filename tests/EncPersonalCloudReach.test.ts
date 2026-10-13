@@ -14,16 +14,17 @@
  * Since build 126 (126-20) there is nothing to publish: o-charts says
  * unencrypted chart data must never be stored in the cloud, so the card is one
  * plain line about where charts live, the publish and Auto-publish controls
- * are gone, the service is switched off, and the old per-device Auto-publish
- * flag is cleared at every launch so it can never turn uploads back on.
+ * are gone, and the old per-device Auto-publish flag is cleared at every
+ * launch so it can never turn uploads back on. Build 127 deletes the service
+ * itself, and the launch clean-up also drops its per-account manifest keys.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const account = readFileSync('components/settings/AccountTab.tsx', 'utf8');
 const encCard = readFileSync('components/vessel/EncCellManager.tsx', 'utf8');
 const panel = readFileSync('components/vessel/EncPersonalCloudPanel.tsx', 'utf8');
-const sync = readFileSync('services/enc/personalCellSync.ts', 'utf8');
+const bootstrap = readFileSync('hooks/useAppBootstrap.ts', 'utf8');
 
 describe('where the charts line lives (it was chart backup until 126)', () => {
     it('is mounted in Settings → System & Cloud, which needs no Pi', () => {
@@ -46,8 +47,8 @@ describe('it can honestly live outside the Pi build', () => {
         expect(panel).not.toMatch(/piCache|PiCacheService|EncImportService|PI_INTEGRATION_ENABLED/);
     });
 
-    it('and neither does the service behind it', () => {
-        expect(sync).not.toMatch(/piCache|PiCacheService|EncImportService/);
+    it('and there is no service behind it any more (127)', () => {
+        expect(existsSync('services/enc/personalCellSync.ts')).toBe(false);
     });
 });
 
@@ -61,18 +62,17 @@ describe('nothing in it can send a chart to the cloud (126-20)', () => {
         expect(panel).not.toMatch(/from '[^']*(personalCellSync|supabase)'/);
     });
 
-    it('the service behind the old card is switched off, auto-publish included', () => {
-        expect(sync).toContain('export const PERSONAL_CHART_CLOUD_ENABLED = false;');
-        const auto = sync.slice(sync.indexOf('export async function publishNewCellsIfEnabled'));
-        expect(auto.slice(0, 200)).toContain('if (!PERSONAL_CHART_CLOUD_ENABLED) return;');
+    it('the service behind the old card is deleted, auto-publish included (127)', () => {
+        expect(existsSync('services/enc/personalCellSync.ts')).toBe(false);
+        expect(panel).not.toMatch(/from '[^']*personalCellSync'|import\('[^']*personalCellSync'\)/);
     });
 
-    it('the old per-device Auto-publish flag is cleared at every launch', () => {
+    it('the old per-device Auto-publish flag and the per-account manifest keys are cleared at every launch', () => {
         // A device that turned it on before 126 keeps '1' in localStorage.
         // Nothing reads it now, but no later build may ever take it as a yes.
-        const bootstrap = readFileSync('hooks/useAppBootstrap.ts', 'utf8');
-        expect(sync).toContain("const AUTO_PUBLISH_KEY = 'thalassa_enc_auto_publish';");
+        // The deleted shelf also left one manifest version per account.
         expect(bootstrap).toContain("localStorage.removeItem('thalassa_enc_auto_publish');");
+        expect(bootstrap).toContain("'thalassa_enc_personal_manifest_version_'");
     });
 
     it('still never reads the network type to decide anything', () => {

@@ -7,6 +7,11 @@
  * forecast is never Inside, times are the PLACE's, and a rough day still
  * lists every place with a reason. Non-Australian fixtures alongside: Marseille
  * on a 25-hour day, Tromsø under the midnight sun, Nouméa with no atlas.
+ *
+ * Build 127 (127-PYD-1, "say why"): a ✕ stop says why on its own row, the
+ * stop page opens on its verdict, thunder is in the headline, the day chips
+ * speak her limits, and VoiceOver says each thing once, swept over every mode
+ * the layout fixture draws (e2e/fixtures/day-planner.tsx).
  */
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -25,7 +30,6 @@ import {
     type ScoredDeparture,
 } from '../services/passageDepartureSuggestion';
 import {
-    areaVerdict,
     dayParts,
     dayWindow,
     distanceLine,
@@ -37,13 +41,16 @@ import {
     resolveDayPlanLimits,
     stopDetail,
     stopTimes,
+    type StopDetailArgs,
     type DayPlanInput,
     type DayPlanLimits,
     type DayPlanView,
     type StopLegs,
 } from '../services/dayPlanner/today';
+import * as today from '../services/dayPlanner/today';
+import { pinDepth, voyageEnds } from '../services/dayPlanner/pick';
 import type { PassageSpeedModel } from '../services/passagePlan';
-import type { RouteForecast } from '../services/routeForecastSampler';
+import { sampleRouteForecast, type RouteForecast } from '../services/routeForecastSampler';
 import type { RouteSea } from '../services/routeSeaSampler';
 import type { RouteSpread } from '../services/routeForecastSpread';
 import { routeLengthNm, pointAlongRoute } from '../services/routeProgress';
@@ -52,6 +59,8 @@ import { ATMOS_VARS } from '../services/weather/ModelSpreadService';
 import { COMPARE_MODELS } from '../services/weather/forecastModels';
 import { getFirstLight, getLastLight, localNoon } from '../utils/celestial';
 import { DEFAULT_VESSEL } from '../utils/defaultVessel';
+import { loadStopLegs, loadToday, todayInput, type RouteWindModels } from '../services/dayPlanner/todayLoader';
+import * as fixture from './helpers/dayPlanFixtures';
 
 const H = 3_600_000;
 const BRISBANE = 'Australia/Brisbane';
@@ -227,6 +236,18 @@ function whitsundayPlaces(): GatheredPlaces {
     });
 }
 
+/** Cid Harbour alone: its own card, whatever the pick would choose among seventy places. */
+function cidOnly(): GatheredPlaces {
+    return gatherPlaces({
+        start: MARINA,
+        nowMs: NOW,
+        radiusNm: 30,
+        atlas: QLD_TILE.features.filter((f) => f.properties.id === 'osm-node3020491514'),
+        osm: [],
+        coastline: null,
+    });
+}
+
 function osmPoint(node: number, name: string, lat: number, lon: number): CruisingPoint {
     return {
         id: `osm-node${node}`,
@@ -292,6 +313,10 @@ describe("Shane's case: Coral Sea Marina, Thursday 8 October, a south-east trade
         expect(view.top.length).toBeGreaterThanOrEqual(1);
         expect(view.top.some((row) => (row.plan?.window.length ?? 0) >= 1)).toBe(true);
         for (const row of view.top) expect(row.line2).toMatch(/^\d\d:\d\d → \d\d:\d\d · back \d\d:\d\d$/);
+        // Near rows keep their times on line 2 (127-PYD-1): only a ✕ or ? row says why there.
+        for (const row of view.top) expect([row.level, row.line2Reason]).toEqual(['near', null]);
+        // The trade's members spread a little: the headline says so, in the app's own words.
+        expect(view.headline.text).toBe('Near your limits at best: SE 14 kn, gusts 21. Some spread.');
     });
 
     // 126-17c (Shane, offered the shorter times line so they can grow: "your pick").
@@ -308,8 +333,15 @@ describe("Shane's case: Coral Sea Marina, Thursday 8 October, a south-east trade
         }
     });
 
-    it('puts Cid Harbour in the top three', () => {
-        expect(view.top.map((row) => row.name).join(' | ')).toMatch(/Cid Harbour/);
+    // 127-PYD-4 (Shane: "why does it only ever show the same 3 destinations"): Cid Harbour was on
+    // 109 of 120 cards. It is still ranked and listed; the card is three places picked for a reason.
+    it('ranks and lists Cid Harbour, and the card is the best fit and two tagged alternatives', () => {
+        expect(view.ranked.map((stop) => stop.candidate.id)).toContain('osm-node3020491514');
+        expect([...view.fits, ...view.unchecked, ...view.notToday].map((row) => row.id)).toContain(
+            'osm-node3020491514',
+        );
+        expect(view.top).toHaveLength(3);
+        expect(view.top.map((row) => row.tag)).toEqual([null, expect.any(String), expect.any(String)]);
     });
 
     it('reads Nara Inlet as closed by Queensland Parks, and never scores it', () => {
@@ -338,7 +370,8 @@ describe("Shane's case: Coral Sea Marina, Thursday 8 October, a south-east trade
     });
 
     it('Cid Harbour keeps its Parks shark warning, under the stay, in its detail', () => {
-        const cid = view.top.find((row) => row.id === 'osm-node3020491514')!;
+        const cid = planWithLegs({ places: cidOnly() }, SE_TRADE).top[0];
+        expect(cid.id).toBe('osm-node3020491514');
         expect(cid.candidate.reviewed?.accessNotes.join(' ')).toMatch(/Do not swim in Cid Harbour.*sharks/);
         const detail = stopDetail({
             plan: cid.plan!,
@@ -361,8 +394,23 @@ describe("Shane's case: Coral Sea Marina, Thursday 8 October, a south-east trade
         const chance = view.ranked.find((stop) => stop.candidate.id === 'osm-node8925547809')!;
         expect(chance.stay?.grade).toBe('tenable');
         expect(chance.stay?.reasons[0]).toBe('South-easterlies can make access difficult (Queensland Parks)');
-        const row = [...view.fits, ...view.unchecked].find((r) => r.id === 'osm-node8925547809');
-        expect(row?.shelter).toBe('Some chop');
+        // On her polar walk 2 h ashore there is home after dark (127-PYD-4: no longer judged at cruising speed).
+        const last = hhmm(view.window.lastLightMs!, BRISBANE);
+        expect(view.notToday.find((r) => r.id === 'osm-node8925547809')?.reason).toBe(
+            `over your limits: home after dark (${last})`,
+        );
+        // An hour ashore fits the light: its row says "Some chop".
+        const chanceOnly = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: QLD_TILE.features.filter((f) => f.properties.id === 'osm-node8925547809'),
+            osm: [],
+            coastline: null,
+        });
+        const row = planWithLegs({ places: chanceOnly, stay: '1h' }, SE_TRADE).top[0];
+        expect(row.id).toBe('osm-node8925547809');
+        expect(row.shelter).toBe('Some chop');
     });
 
     it('reads its limits from the default boat and its times in the place’s zone', () => {
@@ -450,11 +498,12 @@ describe('thunder', () => {
         expect(view.parts[0].level).toBe('near');
         const cell = partCell(view.parts[0], 7);
         expect(cell.word).toBe('Thunder');
-        expect(cell.glyph).toBe('≈');
+        // 127-PYD-1: the bolt, not ≈, when thunder is what holds the part at Near.
+        expect(cell.glyph).toBe('⚡');
         expect(cell.ariaLabel).toMatch(/, near your wind limits, thunder in 3 of 7 models$/);
     });
 
-    it('stays out of the headline, which keeps its line budget (it ran to five lines at 320 px)', () => {
+    it("stays out of a split day's headline, which keeps its line budget (it ran to five lines at 320 px)", () => {
         const limits = resolveDayPlanLimits({ maxWindKts: 30, maxGustKts: 40 }, null, false);
         const kts = [9, 11, 14, 16, 18, 21, 24];
         const block = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: kts[m], dir: 135, code: m < 3 ? 95 : 3 }));
@@ -477,9 +526,16 @@ describe('over all day', () => {
     it('says Stay put, and offers the lighter day', () => {
         expect(view.headline.text).toMatch(/^Stay put today: SE \d+(–\d+)? kn, gusts 35, over your limits all day\.$/);
         expect(view.headline.link).toEqual({ label: 'Sat looks lighter ›', date: '2026-10-10' });
+        // 127-PYD-1: each day chip carries that day's best part in her limits' glyph, not the models' agreement.
+        expect(view.chips.map((c) => [c.label, c.best, c.glyph])).toEqual([
+            ['Today', 'over', '✕'],
+            ['Fri', 'over', '✕'],
+            ['Sat', 'inside', '✓'],
+        ]);
+        expect(view.chips[2].ariaLabel).toBe('Saturday 10 October, inside your wind limits at best, Models agree');
     });
 
-    it('beyond the best three, the wind in the area rules each stop out: nothing is listed as fitting', () => {
+    it('beyond the five route-checked, the wind in the area rules each stop out: nothing is listed as fitting', () => {
         expect(view.state).toBe('stay-put');
         expect(view.fits).toEqual([]);
         expect(view.unchecked).toEqual([]);
@@ -490,9 +546,10 @@ describe('over all day', () => {
             const reason = view.notToday.find((row) => row.id === stop.candidate.id)?.reason ?? '';
             expect(reason).toMatch(/^over your limits: (SE \d+ kn|gusts \d+ kn) in the area$|^over your limits: /);
         }
-        // e.g. Chance Bay, "very sheltered" by its land table, in a 29 kn day.
+        // e.g. Chance Bay, "very sheltered" by its land table, in a 29 kn day: its area plan's own
+        // reason, in the chart's model at the point (127-PYD-4; the block's first member here).
         const chance = view.notToday.find((row) => row.id === 'osm-node8925547809');
-        expect(chance?.reason).toBe('over your limits: SE 27 kn in the area');
+        expect(chance?.reason).toBe('over your limits: SE 26 kn in the area');
     });
 
     it('still lists every place, ranked, each with a plain reason', () => {
@@ -500,7 +557,11 @@ describe('over all day', () => {
         for (const row of view.top) {
             expect(row.level).toBe('over');
             expect(row.glyph).toBe('✕');
-            expect(row.reason).toMatch(/over your limits/);
+            // 127-PYD-1: the reason is kept without its prefix, shown on the row, said once.
+            expect(row.reason).toMatch(/^SE \d+ kn on the way$/);
+            expect(row.line2Reason).toBe(row.reason);
+            expect(row.ariaLabel).toBe(`${row.line1}. over your limits: ${row.reason}`);
+            expect(view.notToday.find((r) => r.id === row.id)?.reason).toBe(`over your limits: ${row.reason}`);
         }
         expect(view.notToday.length).toBeGreaterThanOrEqual(view.top.length);
         const listed = new Set([...view.fits, ...view.unchecked, ...view.notToday].map((row) => row.id));
@@ -552,7 +613,7 @@ describe('a day over her limits with a gap in it', () => {
         const view = planWithLegs({ atmos: block, places }, () => ({ kts: 12, dir: 135, gust: 16 }));
         const best = view.top[0].plan!.best!;
         expect(best.level).toBe('over');
-        expect(best.reason).toBe('over your limits: SE 28 kn in the area');
+        expect(best.reason).toBe('SE 28 kn in the area');
     });
 });
 
@@ -645,6 +706,9 @@ describe('a stop whose route weather failed', () => {
             expect(row.line2).toMatch(/^About \d+ NM · weather not checked$/);
             expect(row.line2Spoken).toBe(row.line2);
             expect(row.glyph).toBe('?');
+            // 127-PYD-1: the row says why, and VoiceOver hears it once.
+            expect(row.line2Reason).toBe("Weather didn't load");
+            expect(row.ariaLabel).toBe(`${row.line1}. not known: weather didn't load`);
             expect(view.notToday.find((r) => r.id === row.id)?.reason).toBe("weather didn't load");
         }
         expect(view.fits).toEqual([]);
@@ -673,18 +737,20 @@ describe('the earliest leave', () => {
     });
 });
 
-describe('areaVerdict', () => {
+describe('the area plan (127-PYD-4; it replaces areaVerdict)', () => {
     it('finds the calm hours: a stop is out only when every departure meets the blow', () => {
         const blowFrom = Date.UTC(2026, 9, 8, 2); // 12:00 local
         const block = atmos(Math.floor(NOW / H) * H, (m, t) =>
             t < blowFrom ? { kts: 9, dir: 135 } : { kts: 30, dir: 135, gust: 38 },
         );
-        const view = planDay(input({ atmos: block }));
-        const hours = pointHours(block);
-        const near = view.ranked.find((stop) => stop.estNm < 6)!;
-        const far = view.ranked.find((stop) => stop.estNm > 20)!;
-        expect(areaVerdict(near, view.window, '1h', hours, DEFAULT_LIMITS)).toBeNull();
-        expect(areaVerdict(far, view.window, '4h', hours, DEFAULT_LIMITS)).toBe(
+        const short = planDay(input({ atmos: block, stay: '1h' }));
+        const near = short.ranked.find((stop) => stop.estNm < 6)!;
+        expect(short.scores.get(near.candidate.id)?.level).not.toBe('over');
+        const long = planDay(input({ atmos: block, stay: '4h' }));
+        const checks = new Set(long.needsLegs.map((n) => n.id));
+        const far = long.ranked.find((stop) => stop.estNm > 20 && !checks.has(stop.candidate.id))!;
+        expect(long.scores.get(far.candidate.id)?.level).toBe('over');
+        expect(long.notToday.find((r) => r.id === far.candidate.id)?.reason).toBe(
             'over your limits: SE 30 kn in the area',
         );
     });
@@ -782,6 +848,7 @@ describe('beyond the forecast', () => {
         for (const departure of plan.departures) expect(departure.level).not.toBe('inside');
         expect(plan.best!.level).toBe('unknown');
         expect(view.top[0].glyph).toBe('?');
+        expect(view.top[0].line2Reason).toBe('Past the end of the forecast');
     });
 });
 
@@ -1056,7 +1123,17 @@ describe('offline', () => {
             expect(row.level).toBeNull();
             expect(row.glyph).toBe('?');
             expect(row.line2).toMatch(/^About \d+ NM · weather not checked$/);
+            // Said once (127-PYD-1): never "… weather not checked. weather not checked".
+            expect(row.line2Reason).toBeNull();
+            expect(row.ariaLabel).toBe(`${row.line1}. ${row.line2}`);
         }
+        // Reviewed stops come first, so the order is not simply by distance: the headline never says it is.
+        expect(view.headline.text).toBe('No forecast for today: places shown, weather not checked.');
+        expect(view.chips.map((c) => [c.best, c.glyph])).toEqual([
+            ['none', ''],
+            ['none', ''],
+            ['none', ''],
+        ]);
         for (const part of view.parts) expect(part.level).toBe('none');
         expect(view.facts.text).toMatch(/^☀ 05:\d\d–18:\d\d · HW/);
         expect(view.notices.top?.text).toBe('Offline: light and cached tides only');
@@ -1166,5 +1243,1023 @@ describe('departureScore and compactWindow (shared with the passage HUD)', () =>
             substituted: true,
         });
         expect(pickHeadlineMember(null, 'ecmwf_ifs025', ROUTE_MODELS)).toBeNull();
+    });
+});
+
+// ── 16. Say why (build 127, 127-PYD-1) ─────────────────────────
+
+/**
+ * Shane, 2026-10-10: "plan your day?? … it needs another good clean up claude
+ * … once you have made it pop a little more". The engine already knew why a
+ * stop is ✕; the sheet only told VoiceOver. Now line 2 of a ✕ or ? row is the
+ * reason, the stop page opens on its verdict, thunder is in the headline in
+ * place of the clause it causes, the day chips carry her limits' glyph, and
+ * every reason is kept once, without its "over your limits: " prefix, which
+ * is added where words need it (VoiceOver, Not today, the stop page).
+ */
+const WIND: RouteWindModels = { ids: ROUTE_MODELS, preferred: 'ecmwf_ifs025', labels: { ecmwf_ifs025: 'ECMWF' } };
+const FIXTURE_MODES = ['normal', 'split', 'over', 'offline', 'thunder', 'too-late', 'tromso', 'noumea'] as const;
+type FixtureMode = (typeof FIXTURE_MODES)[number];
+
+/** A day as the layout fixture draws it (e2e/fixtures/day-planner.tsx): its sources, boat, limits and legs. */
+async function fixtureView(mode: FixtureMode, stay: DayPlanInput['stay'] = '2h'): Promise<DayPlanView> {
+    const nowMs =
+        mode === 'too-late' ? Date.UTC(2026, 9, 8, 6) : mode === 'tromso' ? Date.UTC(2026, 5, 21, 6) : fixture.NOW;
+    const start =
+        mode === 'noumea' ? fixture.NOUMEA : mode === 'tromso' ? { lat: 69.6496, lon: 18.956 } : fixture.MARINA;
+    const worldwide = mode === 'noumea' || mode === 'tromso';
+    const deps = fixture.fakeTodayDeps({
+        scenario: mode === 'too-late' || worldwide ? 'normal' : mode,
+        nowMs,
+        atlas: worldwide ? [] : QLD_TILE.features,
+        osm:
+            mode === 'noumea'
+                ? [
+                      fixture.osmAnchorage(910001, 'Fixture Anse', { lat: -22.33, lon: 166.42 }),
+                      fixture.osmAnchorage(910002, 'Fixture Baie', { lat: -22.36, lon: 166.55 }),
+                      fixture.osmAnchorage(910003, 'Fixture Îlot', { lat: -22.41, lon: 166.38 }),
+                  ]
+                : mode === 'tromso'
+                  ? [
+                        fixture.osmAnchorage(920001, 'Fixture Vika', { lat: 69.7, lon: 18.83 }, nowMs - 72 * H),
+                        fixture.osmAnchorage(920002, 'Fixture Sund', { lat: 69.6, lon: 19.1 }, nowMs - 72 * H),
+                        fixture.osmAnchorage(920003, 'Fixture Hamna', { lat: 69.76, lon: 19.12 }, nowMs - 72 * H),
+                    ]
+                  : [],
+        ...(mode === 'tromso' ? { tides: null } : {}),
+    });
+    const signal = new AbortController().signal;
+    const base = await loadToday({ start, cruiseKts: 6 }, { signal, deps });
+    const defaultBoat = mode === 'thunder';
+    const vessel = defaultBoat ? DEFAULT_VESSEL : { ...DEFAULT_VESSEL, length: 40, draft: 7.87, cruisingSpeed: 6 };
+    const comfort = mode === 'split' ? { maxWindKts: 30, maxGustKts: 40 } : undefined;
+    const args = {
+        stay,
+        limits: resolveDayPlanLimits(comfort, vessel, defaultBoat),
+        speed: SAIL,
+        usingDefaultVessel: defaultBoat,
+    };
+    const first = planDay(todayInput(base, args));
+    const legs = await loadStopLegs(first.needsLegs, WIND, { signal, deps });
+    return planDay(todayInput(base, { ...args, legs }));
+}
+
+/** Today's longest headline, the window's (the thunder fixture's before 127): a headline never grows past it. */
+const LONGEST_HEADLINE =
+    "Afternoon's your window: inside your wind limits until about 16:00. Evening gets near your limits.";
+
+describe('say why (127-PYD-1): a ✕ stop says why on its own row', () => {
+    it('an Over stop shows its reason in place of its times: "Home after dark (18:28)"', () => {
+        // 18 NM east of the marina and four hours ashore, close-hauled out in a light south-easterly: past last light.
+        const limits = resolveDayPlanLimits({ maxWindKts: 30, maxGustKts: 40, maxWaveM: 3 }, null, false);
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: [],
+            osm: [{ points: [osmPoint(9401, 'Fictional Long Reach', -20.265, 148.969)], stale: false }],
+            coastline: null,
+        });
+        const light = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 9 + (m % 2), dir: 135, gust: 13 }));
+        const view = planWithLegs({ limits, places, stay: '4h', atmos: light }, () => ({ kts: 9, dir: 135, gust: 13 }));
+        const row = view.top[0];
+        const last = hhmm(view.window.lastLightMs!, BRISBANE);
+        expect(row.level).toBe('over');
+        expect(row.reason).toBe(`home after dark (${last})`);
+        expect(row.line2Reason).toBe(`Home after dark (${last})`);
+        // The times move to the stop page; the row and VoiceOver say why, once.
+        expect(row.line2Reason).not.toMatch(/→/);
+        expect(row.ariaLabel).toBe(
+            `Fictional Long Reach · Shelter not known. over your limits: home after dark (${last})`,
+        );
+        expect(view.notToday.find((r) => r.id === row.id)?.reason).toBe(`over your limits: home after dark (${last})`);
+    });
+
+    it('a thunder stop: "⚡ Thunder on the way home" on the row; the models are counted where it is said in full', async () => {
+        // Four hours ashore, so every stop on the card is home into the afternoon's thunder (with two,
+        // a short hop home before noon fits, and takes its place on the card: 127-PYD-4).
+        const view = await fixtureView('thunder', '4h');
+        expect(view.top.length).toBeGreaterThanOrEqual(2);
+        for (const row of view.top) {
+            expect(row.level).toBe('over');
+            expect(row.reason).toBe('thunder in 3 of 7 models on the way home');
+            expect(row.line2Reason).toBe('⚡ Thunder on the way home');
+            expect(row.ariaLabel).toBe(`${row.line1}. over your limits: thunder in 3 of 7 models on the way home`);
+        }
+        const detail = stopDetail({
+            plan: view.top[0].plan!,
+            stay: '4h',
+            window: view.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: true,
+        });
+        expect(detail.rows[0]).toBe('✕ Over your limits: thunder in 3 of 7 models on the way home');
+    });
+
+    it('VoiceOver says each thing once, in every mode the layout fixture draws', async () => {
+        for (const mode of FIXTURE_MODES) {
+            const view = await fixtureView(mode);
+            const labels = [
+                ...[...view.top, ...view.fits, ...view.unchecked].map((row) => row.ariaLabel),
+                ...view.chips.map((chip) => chip.ariaLabel),
+                ...view.parts.map((part) => partCell(part, 7).ariaLabel),
+                ...view.notToday.map((row) => row.reason),
+                view.facts.ariaLabel,
+            ];
+            for (const label of labels) {
+                expect(label, mode).not.toMatch(/over your limits: over your limits/i);
+                expect(label, mode).not.toMatch(/weather not checked\. weather not checked/i);
+                for (const words of ['over your limits', 'not checked', 'not known'])
+                    expect(label.split(words).length - 1, `${mode}: "${label}"`).toBeLessThanOrEqual(1);
+            }
+        }
+    });
+
+    it('the stop page opens on its verdict, with the reason, for Over and Near; an Inside stop opens on its times', async () => {
+        const detail = (view: DayPlanView, at = 0) =>
+            stopDetail({
+                plan: view.top[at].plan!,
+                stay: '2h',
+                window: view.window,
+                speed: SAIL,
+                polarIsOwn: false,
+                leavingMarina: false,
+            }).rows;
+        const over = await fixtureView('over');
+        expect(detail(over)[0]).toMatch(/^✕ Over your limits: SE \d+ kn on the way$/);
+        const near = await fixtureView('normal');
+        expect(near.top[0].level).toBe('near');
+        expect(detail(near)[0]).toMatch(/^≈ Near your limits: SE \d+ kn on the way$/);
+        expect(detail(near)[1]).toMatch(/^Leave \d\d:\d\d → there /);
+        // Worldwide: Nouméa's OpenStreetMap stops, no Queensland data, the same verdict first.
+        const noumea = await fixtureView('noumea');
+        for (const at of noumea.top.keys()) expect(detail(noumea, at)[0]).toMatch(/^≈ Near your limits: \S/);
+        const limits = resolveDayPlanLimits({ maxWindKts: 30, maxGustKts: 40, maxWaveM: 3 }, null, false);
+        const calm = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 7 + (m % 2), dir: 135, gust: 11 }));
+        const cid = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: QLD_TILE.features.filter((f) => f.properties.id === 'osm-node3020491514'),
+            osm: [],
+            coastline: null,
+        });
+        const inside = planWithLegs({ limits, atmos: calm, places: cid }, () => ({ kts: 8, dir: 135, gust: 12 }));
+        expect(inside.top[0].level).toBe('inside');
+        expect(detail(inside)[0]).toMatch(/^Leave \d\d:\d\d → there /);
+    });
+
+    it('a reviewed stop says its landing tide once: the note names it, the row gives the window', () => {
+        const view = planWithLegs({ places: cidOnly() }, SE_TRADE);
+        const cid = view.top.find((row) => row.id === 'osm-node3020491514')!;
+        const rows = (landing: StopDetailArgs['landing']) =>
+            stopDetail({
+                plan: cid.plan!,
+                stay: '2h',
+                window: view.window,
+                speed: SAIL,
+                polarIsOwn: false,
+                leavingMarina: false,
+                landing,
+            }).rows;
+        const window = { fromMs: Date.UTC(2026, 9, 7, 23, 10), toMs: Date.UTC(2026, 9, 8, 3, 40) };
+        for (const [landing, line] of [
+            ['no-curve', 'Landing window: no tide prediction here.'],
+            [window, 'Landing window ≈ 09:10–13:40 (approx.)'],
+        ] as const) {
+            const said = rows(landing);
+            expect(said.join(' ').match(/mid to high tide/g)).toHaveLength(1);
+            // The note that says it stays whole ("not a beach landing" is a caution), and the window follows it.
+            const note = said.findIndex((r) => /^Queensland Parks describes shore access at mid to high tide/.test(r));
+            expect(note).toBeGreaterThan(-1);
+            expect(said.indexOf(line)).toBeGreaterThan(note);
+        }
+    });
+});
+
+describe('say why (127-PYD-1): thunder is in the headline, which grows no longer', () => {
+    it("the fixture's thunder day: the thunder clause takes the place of the one it causes", async () => {
+        const view = await fixtureView('thunder');
+        expect(view.headline.text).toBe(
+            "Morning's your window: inside your wind limits until about 12:00, then thunder in 3 of 7 models.",
+        );
+        expect(view.headline.text).not.toMatch(/gets near your limits/);
+        expect(view.headline.text.length).toBeLessThanOrEqual(LONGEST_HEADLINE.length);
+        // The tiles it falls in carry the bolt as well as the word.
+        expect(view.parts.map((part) => partCell(part, 7)).map((cell) => [cell.glyph, cell.word])).toEqual([
+            ['✓', 'Inside'],
+            ['⚡', 'Thunder'],
+            ['⚡', 'Thunder'],
+        ]);
+    });
+
+    it('thunder that starts after the window has closed for wind follows it, within the same length', () => {
+        // The morning Inside; from noon 14-15 kn (near the default boat's 13), thunder in three models from 13:00.
+        // "… 12:00. Thunder from about 13:00 in 3 of 7 models." was 108 characters: a fourth line at 390 and
+        // 320 px, and the stops clipped under the fade on a notice day (review, 2026-10-10).
+        const noon = Date.UTC(2026, 9, 8, 2);
+        const at13 = Date.UTC(2026, 9, 8, 3);
+        const block = atmos(Math.floor(NOW / H) * H, (m, t) =>
+            t < noon
+                ? { kts: 8 + (m % 3), dir: 120 }
+                : { kts: 14 + (m % 2), dir: 120, code: t >= at13 && m < 3 ? 95 : 3 },
+        );
+        const view = planDay(input({ atmos: block }));
+        expect(view.headline.text).toBe(
+            "Morning's your window: inside your wind limits until about 12:00, then thunder in 3 of 7 models.",
+        );
+        expect(view.headline.text.length).toBeLessThanOrEqual(LONGEST_HEADLINE.length);
+    });
+
+    it("the afternoon's window and the evening's thunder: the longest window headline is no longer than before", () => {
+        // A blow all morning (over the default boat's limits), the afternoon Inside, thunder in three models from 16:00.
+        const noon = Date.UTC(2026, 9, 8, 2);
+        const four = Date.UTC(2026, 9, 8, 6);
+        const block = atmos(Math.floor(NOW / H) * H, (m, t) =>
+            t < noon
+                ? { kts: 30 + (m % 2), dir: 120 }
+                : t < four
+                  ? { kts: 8 + (m % 3), dir: 120 }
+                  : { kts: 9, dir: 120, code: m < 3 ? 95 : 3 },
+        );
+        const view = planDay(input({ atmos: block }));
+        expect(view.headline.text).toBe(
+            "Afternoon's your window: inside your wind limits until about 16:00, then thunder in 3 of 7 models.",
+        );
+        expect(view.headline.text.length).toBeLessThanOrEqual(LONGEST_HEADLINE.length);
+    });
+
+    it('a Near day with no gust forecast and a wide wind keeps its thunder within the same length', () => {
+        // 18-24 kn from the south-west and no model with a gust: "Thunder from about …" would make 99.
+        const limits = resolveDayPlanLimits({ maxWindKts: 30, maxGustKts: 40 }, null, false);
+        const noon = Date.UTC(2026, 9, 8, 2);
+        const block = atmos(Math.floor(NOW / H) * H, (m, t) => ({
+            kts: 18 + (Math.round((t - NOW) / H) % 7),
+            dir: 225,
+            gust: null,
+            code: t >= noon && m < 3 ? 95 : 3,
+        }));
+        const view = planDay(input({ limits, atmos: block }));
+        expect(view.headline.text).toMatch(
+            /^Near your limits at best: SW \d+–\d+ kn, no gust forecast\. Thunder from 12:00 in 3 of 7 models\.$/,
+        );
+        expect(view.headline.text.length).toBeLessThanOrEqual(LONGEST_HEADLINE.length);
+    });
+
+    it('a day near her limits at best names its thunder once, after the wind', () => {
+        const limits = resolveDayPlanLimits({ maxWindKts: 25, maxGustKts: 35 }, null, false);
+        const noon = Date.UTC(2026, 9, 8, 2);
+        const block = atmos(Math.floor(NOW / H) * H, (m, t) => ({
+            kts: 21,
+            dir: 135,
+            gust: 26,
+            code: t >= noon && m < 4 ? 95 : 3,
+        }));
+        const view = planDay(input({ limits, atmos: block }));
+        expect(view.headline.text).toBe(
+            'Near your limits at best: SE 21 kn, gusts 26. Thunder from about 12:00 in 4 of 7 models.',
+        );
+        expect(view.headline.text.match(/[Tt]hunder/g)).toHaveLength(1);
+    });
+});
+
+describe('say why (127-PYD-1): a stay reason is short on the row, whole where words have room', () => {
+    /** A fictional atlas bay about 4 NM off `start`, `fetchNm` of open water on every side. */
+    const bay = (id: string, name: string, start: { lat: number; lon: number }, fetchNm: number): AtlasFeature => {
+        const table = Array.from({ length: 36 }, () => fetchNm);
+        return {
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [start.lon + 0.07, start.lat - 0.02] },
+            properties: {
+                id,
+                name,
+                kind: 'anchorage',
+                source: 'OpenStreetMap',
+                likelyAnchorage: true,
+                noAnchoring: false,
+                noAnchoringName: null,
+                notes: null,
+                fetchLandNM: table,
+                fetchReefNM: table,
+            },
+        };
+    };
+    // Airlie Beach, and Nouméa (no Queensland data at all): her comfort limits 30/40 kn and 3 m.
+    const STARTS = [
+        { start: MARINA, zone: BRISBANE },
+        { start: { ...fixture.NOUMEA, name: 'Fixture Port' }, zone: 'Pacific/Noumea' },
+    ];
+    const limits = resolveDayPlanLimits({ maxWindKts: 30, maxGustKts: 40, maxWaveM: 3 }, null, false);
+    /** The day at one stop, every leg and the point block `kts` from `dir`; `swellM` long-period swell at the stop. */
+    function exposedDay(at: (typeof STARTS)[number], fetchNm: number, kts: number, dir: number, swellM = 0) {
+        const places = gatherPlaces({
+            start: at.start,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: [bay('fixture-open-bay', 'Fictional Open Bay', at.start, fetchNm)],
+            osm: [],
+            coastline: null,
+        });
+        const block = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: kts + (m % 2), dir, gust: kts + 4 }));
+        const over = { limits, places, atmos: block, start: at.start, zone: at.zone, tides: null };
+        const first = planDay(input(over));
+        const legs = legsFor(first, () => ({ kts, dir, gust: kts + 4 }));
+        if (swellM)
+            for (const leg of legs.values())
+                for (const s of leg.sea!.stations) {
+                    // The swell reaches the stop itself (the fixture's sea is inshore at both ends).
+                    s.inshore = false;
+                    s.waveM = s.waveM.map(() => swellM);
+                    s.wavePeriodS = s.wavePeriodS.map(() => 12);
+                    s.waveFromDeg = s.waveFromDeg.map(() => dir);
+                }
+        return planDay(input({ ...over, legs }));
+    }
+    const detail = (view: DayPlanView) =>
+        stopDetail({
+            plan: view.top[0].plan!,
+            stay: '2h',
+            window: view.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: false,
+        }).rows;
+    /** A compass point broken by lowercasing ("sE 18 kn", ": e 15 kn"). */
+    const BROKEN_COMPASS = /\b[a-z][A-Z]{1,2}\b|: [nesw]{1,3} \d/;
+
+    it('exposed to the wind: "Chop for the stay (SE 22 kn)" on the row, the whole sentence in VoiceOver and on the stop page', () => {
+        for (const at of STARTS)
+            for (const [fetchNm, sentence] of [
+                [15, /^Open to the ([NESW]{1,3}) — \1 22 kn has 15\+ NM of fetch$/],
+                [9.5, /^([NESW]{1,3}) 22 kn works across 9\.5 NM — expect chop$/],
+            ] as const)
+                for (const dir of [0, 45, 90, 135, 180, 225, 270, 315]) {
+                    const view = exposedDay(at, fetchNm, 23, dir);
+                    const row = view.top[0];
+                    const say = `${at.zone} ${fetchNm} NM ${dir}°`;
+                    expect(row.level, say).toBe('over');
+                    const whole = row.plan!.best!.stay!.reasons[0];
+                    expect(whole, say).toMatch(sentence);
+                    const point = whole.match(sentence)![1];
+                    // The row keeps its two lines: at most 30 characters ("About 22 NM · weather not checked" is 33).
+                    expect(row.line2Reason, say).toBe(`Chop for the stay (${point} 22 kn)`);
+                    expect(row.line2Reason!.length, say).toBeLessThanOrEqual(30);
+                    // In full, with its compass point whole, where words have room.
+                    const lower = whole.startsWith('Open') ? `o${whole.slice(1)}` : whole;
+                    expect(row.reason, say).toBe(lower);
+                    expect(row.ariaLabel, say).toBe(`${row.line1}. over your limits: ${lower}`);
+                    expect(view.notToday.find((r) => r.id === row.id)?.reason, say).toBe(`over your limits: ${lower}`);
+                    const rows = detail(view);
+                    expect(rows[0], say).toBe(`✕ Over your limits: ${lower}`);
+                    // Said once: the stay row names the shelter, the verdict above it says why.
+                    expect(
+                        rows.find((r) => r.startsWith('Ashore')),
+                        say,
+                    ).toMatch(/^Ashore \d\d:\d\d–\d\d:\d\d · Exposed$/);
+                    expect(
+                        rows.filter((r) => r.includes(whole.slice(1))),
+                        say,
+                    ).toHaveLength(1);
+                    for (const text of [row.ariaLabel, rows[0], ...view.notToday.map((r) => r.reason)])
+                        expect(text, say).not.toMatch(BROKEN_COMPASS);
+                }
+    });
+
+    it('a rolly stay: "Swell for the stay (1.8 m SE)" on the row', () => {
+        for (const at of STARTS) {
+            const view = exposedDay(at, 15, 12, 135, 1.8);
+            const row = view.top[0];
+            expect(row.level, at.zone).toBe('over');
+            expect(row.plan!.best!.stay!.reasons[0]).toBe('1.8 m SE swell finds a way in — expect roll');
+            expect(row.reason).toBe('1.8 m SE swell finds a way in — expect roll');
+            expect(row.line2Reason).toBe('Swell for the stay (1.8 m SE)');
+            expect(detail(view)[0]).toBe('✕ Over your limits: 1.8 m SE swell finds a way in — expect roll');
+        }
+    });
+
+    it('some chop for the stay holds a stop at Near, and its verdict keeps the compass point: "SE 18 kn", never "sE 18 kn"', () => {
+        for (const at of STARTS)
+            for (const dir of [45, 135, 225, 315]) {
+                const view = exposedDay(at, 9.5, 19, dir);
+                const row = view.top[0];
+                expect(row.level, `${at.zone} ${dir}°`).toBe('near');
+                // A Near row keeps its times.
+                expect(row.line2Reason).toBeNull();
+                const rows = detail(view);
+                expect(rows[0]).toMatch(/^≈ Near your limits: [NESW]{1,2} 18 kn works across 9\.5 NM — expect chop$/);
+                expect(rows.find((r) => r.startsWith('Ashore'))).toMatch(/ · Some chop$/);
+                expect(rows[0]).not.toMatch(BROKEN_COMPASS);
+            }
+    });
+
+    it('home after dark is said once on the stop page: the verdict, not a second light row', () => {
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: [],
+            osm: [{ points: [osmPoint(9401, 'Fictional Long Reach', -20.265, 148.969)], stale: false }],
+            coastline: null,
+        });
+        const light = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 9 + (m % 2), dir: 135, gust: 13 }));
+        const view = planWithLegs({ limits, places, stay: '4h', atmos: light }, () => ({ kts: 9, dir: 135, gust: 13 }));
+        const last = hhmm(view.window.lastLightMs!, BRISBANE);
+        const rows = stopDetail({
+            plan: view.top[0].plan!,
+            stay: '4h',
+            window: view.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: false,
+        }).rows;
+        expect(rows[0]).toBe(`✕ Over your limits: home after dark (${last})`);
+        expect(rows.filter((r) => /after dark/i.test(r))).toHaveLength(1);
+    });
+
+    it('in every mode the layout fixture draws, no stop page says its verdict twice, nor breaks a compass point', async () => {
+        for (const mode of FIXTURE_MODES) {
+            const view = await fixtureView(mode);
+            for (const row of view.top) {
+                const d = row.plan?.best;
+                if (!row.plan?.weatherLoaded || !d) continue;
+                const rows = stopDetail({
+                    plan: row.plan,
+                    stay: '2h',
+                    window: view.window,
+                    speed: SAIL,
+                    polarIsOwn: false,
+                    leavingMarina: false,
+                }).rows;
+                if (d.reason) {
+                    const words = d.reason.slice(1);
+                    expect(
+                        rows.filter((r) => r.includes(words)),
+                        `${mode}: ${rows.join(' | ')}`,
+                    ).toHaveLength(1);
+                }
+                for (const text of [rows[0], row.ariaLabel]) expect(text, mode).not.toMatch(BROKEN_COMPASS);
+            }
+            for (const r of view.notToday) expect(r.reason, mode).not.toMatch(BROKEN_COMPASS);
+        }
+    });
+});
+
+// ── 17. Different places, picked for a reason (build 127, 127-PYD-4) ──
+
+/**
+ * Shane, 2026-10-10: "plan your day?? why does it only ever show the same 3
+ * destinations." Every place in reach is planned on the area wind (the point
+ * block already loaded, zero requests): her polar walk, so the light is judged
+ * on her real passage time. The five stops the pick names are route-checked;
+ * their pins are checked against her charts (memory only, a verdict only).
+ */
+describe('a free plan for every place: the area wind (127-PYD-4)', () => {
+    const limits = resolveDayPlanLimits({ maxWindKts: 30, maxGustKts: 40, maxWaveM: 3 }, null, false);
+
+    it('areaLegs is a valid route forecast from the point block: the chart model at the point, the members as the spread, no sea', () => {
+        const block = trade(Math.floor(NOW / H) * H);
+        const legs = today.areaLegs(block, 'dwd_icon')!;
+        expect(legs.area).toBe(true);
+        expect(legs.sea).toBeNull();
+        expect(legs.headlineModel).toBe('ICON');
+        const icon = block.models.find((m) => m.id === 'dwd_icon')!;
+        expect(legs.headline!.model).toBe('dwd_icon');
+        const station = legs.headline!.stations[0];
+        expect(station.timesMs).toEqual(block.times);
+        expect(station.speedKts).toEqual(icon.values.wind_speed_10m);
+        // Whatever the distance along, the wind is the point's.
+        for (const along of [0, 4, 17.5]) {
+            const s = sampleRouteForecast(legs.headline, along, block.times[3]);
+            expect(s.twsKts).toBeCloseTo(icon.values.wind_speed_10m[3]!, 6);
+        }
+        expect(Object.keys(legs.spread!.members).sort()).toEqual(block.models.map((m) => m.id).sort());
+        // A model that is not in the block: the first that has wind stands in, named.
+        const stand = today.areaLegs(block, 'no_such_model')!;
+        expect(stand.substituted).toBe(true);
+        expect(stand.headline!.model).toBe(block.models[0].id);
+    });
+
+    it('an area plan says it is on the area wind, its wind reasons say "in the area", and an unread sea does not cap it', () => {
+        const calm = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 7 + (m % 2), dir: 135, gust: 11 }));
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: QLD_TILE.features.filter((f) => f.properties.id === 'osm-node3020491514'),
+            osm: [],
+            coastline: null,
+        });
+        const view = planDay(input({ limits, atmos: calm, places }));
+        // No legs yet: the area plan alone, and with no sea read anywhere it is still Inside.
+        expect(view.scores.get('osm-node3020491514')?.level).toBe('inside');
+        const area = today.areaLegs(calm, 'ecmwf_ifs025')!;
+        const plan = today.planStop({
+            pre: view.ranked[0],
+            start: MARINA,
+            window: view.window,
+            stay: '2h',
+            speed: SAIL,
+            limits,
+            legs: area,
+            hours: pointHours(calm),
+            blockModels: 7,
+        });
+        expect((plan as { area?: boolean }).area).toBe(true);
+        expect(plan.level).toBe('inside');
+        const detail = stopDetail({
+            plan,
+            stay: '2h',
+            window: view.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: false,
+        });
+        expect(detail.footnote).toMatch(/on the area wind/);
+        const blow = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 26 + (m % 3), dir: 135, gust: 45 }));
+        const over = today.planStop({
+            pre: view.ranked[0],
+            start: MARINA,
+            window: view.window,
+            stay: '2h',
+            speed: SAIL,
+            limits,
+            legs: today.areaLegs(blow, 'ecmwf_ifs025')!,
+            hours: pointHours(blow),
+            blockModels: 7,
+        });
+        expect(over.level).toBe('over');
+        expect(over.best!.reason).toBe('gusts 45 kn in the area');
+    });
+
+    it('the light is judged on her polar walk, not her cruising speed: close-hauled out is home after dark, and is not the best fit', () => {
+        // East of the marina, close-hauled out in a light south-easterly (the cruising estimate fits);
+        // north-east, a beam reach both ways at about the same distance.
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: [],
+            osm: [
+                {
+                    points: [
+                        osmPoint(9401, 'Fictional Long Reach', -20.265, 148.969),
+                        osmPoint(9402, 'Fictional Beam Reach', -20.1, 148.895),
+                    ],
+                    stale: false,
+                },
+            ],
+            coastline: null,
+        });
+        const light = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 9 + (m % 2), dir: 135, gust: 13 }));
+        const view = planDay(input({ limits, places, stay: '4h', atmos: light }));
+        // The cruising estimate keeps both in reach.
+        expect(view.ranked.map((p) => p.candidate.id).sort()).toEqual(['osm-node9401', 'osm-node9402']);
+        expect(view.scores.get('osm-node9401')?.level).toBe('over');
+        expect(view.scores.get('osm-node9402')?.level).not.toBe('over');
+        expect(view.top[0].id).toBe('osm-node9402');
+        // Not route-checked yet: listed with the area plan's own reason.
+        const last = hhmm(view.window.lastLightMs!, BRISBANE);
+        const after = planWithLegs({ limits, places, stay: '4h', atmos: light }, () => ({
+            kts: 9,
+            dir: 135,
+            gust: 13,
+        }));
+        expect(after.notToday.find((r) => r.id === 'osm-node9401')?.reason).toBe(
+            `over your limits: home after dark (${last})`,
+        );
+    });
+
+    it('her charts at the pin, every case: words say "charted from N m" and "may need tide", never "needs tide"', () => {
+        const draft = 2.4;
+        const cases: [Parameters<typeof pinDepth>[0], string, boolean][] = [
+            [{ covered: false, hazard: false, minDepthM: null }, 'depth not checked', false],
+            [{ covered: true, hazard: false, minDepthM: null }, '15 m or more charted at the pin', false],
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: 5.2 },
+                'charted from 5.2 m at the pin',
+                false,
+            ],
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: 2.1 },
+                'may need tide at the anchorage (charted from 2.1 m)',
+                true,
+            ],
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: -0.4 },
+                'dries at the pin (charted)',
+                true,
+            ],
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: null },
+                'depth not charted at the pin',
+                false,
+            ],
+            [
+                { covered: true, hazard: true, hazardType: 'land', minDepthM: null },
+                'pin is on charted land: the stop is the water off it',
+                false,
+            ],
+            [
+                { covered: true, hazard: true, hazardType: 'coast', minDepthM: null },
+                'pin is on charted land: the stop is the water off it',
+                false,
+            ],
+            [{ covered: true, hazard: true, hazardType: 'rock', minDepthM: 1 }, 'charted rock near the pin', true],
+            [{ covered: true, hazard: true, hazardType: 'wreck', minDepthM: 3 }, 'charted wreck near the pin', true],
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: 1.6, soundingOnly: true },
+                'depth not checked · a charted sounding of 1.6 m near the pin',
+                false,
+            ],
+        ];
+        for (const [result, words, cap] of cases) {
+            const v = pinDepth(result, draft);
+            expect(v, JSON.stringify(result)).toEqual({ words, cap });
+            expect(v.words).not.toMatch(/needs tide/);
+            // DRVAL1 is the area's shallow end: never "2.1 m at the pin" without "charted from".
+            expect(v.words).not.toMatch(/(?<!from )(?<![\d.])\d+(\.\d)? m at the pin/);
+        }
+        // The default boat (no draft of hers) and no answer: not checked.
+        expect(pinDepth({ covered: true, hazard: true, hazardType: 'shallow', minDepthM: 2.1 }, null)).toEqual({
+            words: 'depth not checked',
+            cap: false,
+        });
+        expect(pinDepth(undefined, draft)).toEqual({ words: 'depth not checked', cap: false });
+    });
+
+    it('a shallow pin holds a route-checked stop at Near, with its words first on the stop page; the default boat is not checked', () => {
+        const calm = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 7 + (m % 2), dir: 135, gust: 11 }));
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: QLD_TILE.features.filter((f) => f.properties.id === 'osm-node3020491514'),
+            osm: [],
+            coastline: null,
+        });
+        const pin = new Map([
+            ['osm-node3020491514', { covered: true, hazard: true, hazardType: 'shallow' as const, minDepthM: 1.2 }],
+        ]);
+        const light = () => ({ kts: 8, dir: 135, gust: 12 });
+        const shallow = planWithLegs({ limits, atmos: calm, places, pinDepth: pin, draftM: 2.4 }, light);
+        const row = shallow.top[0];
+        expect(row.level).toBe('near');
+        const rows = stopDetail({
+            plan: row.plan!,
+            stay: '2h',
+            window: shallow.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: false,
+        }).rows;
+        expect(rows[0]).toBe('≈ Near your limits: may need tide at the anchorage (charted from 1.2 m)');
+        const unset = planWithLegs({ limits, atmos: calm, places, pinDepth: pin, draftM: null }, light);
+        expect(unset.top[0].level).toBe('inside');
+    });
+
+    it('a stop already Near or Over for its wind still says what her charts say at the pin, reviewed or not', () => {
+        // Review 2026-10-10: the words were said only where they became the verdict (an Inside stop
+        // held at Near), so a drying, shallow or rocky pin on a stop Near for its wind said nothing.
+        const cases: [NonNullable<Parameters<typeof pinDepth>[0]>, string][] = [
+            [{ covered: true, hazard: true, hazardType: 'shallow', minDepthM: -0.5 }, 'dries at the pin (charted)'],
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: 1 },
+                'may need tide at the anchorage (charted from 1.0 m)',
+            ],
+            [{ covered: true, hazard: true, hazardType: 'rock', minDepthM: 1 }, 'charted rock near the pin'],
+            // Never coverage, but a caution a reviewed stop says too.
+            [
+                { covered: true, hazard: true, hazardType: 'shallow', minDepthM: 1.6, soundingOnly: true },
+                'a charted sounding of 1.6 m near the pin',
+            ],
+        ];
+        const trade16 = (): LegWind => ({ kts: 16, dir: 135, gust: 21 });
+        for (const [result, words] of cases) {
+            const checks = planDay(input({ draftM: 2.4 })).needsLegs;
+            const pin = new Map(checks.map((n) => [n.id, result]));
+            const view = planWithLegs({ pinDepth: pin, draftM: 2.4 }, trade16);
+            let forWind = 0;
+            let reviewed = 0;
+            for (const row of view.rows.values()) {
+                const plan = row.plan!;
+                expect(plan, row.name).toBeTruthy();
+                const shown = stopDetail({
+                    plan,
+                    stay: '2h',
+                    window: view.window,
+                    speed: SAIL,
+                    polarIsOwn: false,
+                    leavingMarina: false,
+                    why: row.why,
+                    place: row.place,
+                }).rows.join('\n');
+                expect(shown.toLowerCase(), `${row.name}: ${words}`).toContain(words);
+                // Said once on the page, not as the verdict and again below it.
+                expect(shown.toLowerCase().split(words).length - 1, `${row.name}: ${words}`).toBe(1);
+                if (plan.best && plan.best.level !== 'inside' && plan.best.reason !== words) forWind++;
+                if (row.parks) reviewed++;
+            }
+            expect(forWind, words).toBeGreaterThan(0);
+            expect(reviewed, words).toBeGreaterThan(0);
+        }
+    });
+
+    it('an unreviewed place says what it is, and what her charts say at its pin; a reviewed one keeps its "Local notes"', () => {
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: QLD_TILE.features.filter((f) =>
+                ['osm-node3020491514', 'osm-node2503741556'].includes(f.properties.id),
+            ),
+            osm: [{ points: [osmPoint(9403, 'Fictional Seamark', -20.2, 148.86)], stale: false }],
+            coastline: null,
+        });
+        const pin = new Map([
+            ['osm-node2503741556', { covered: true, hazard: true, hazardType: 'shallow' as const, minDepthM: 4.4 }],
+        ]);
+        const view = planWithLegs({ places, pinDepth: pin, draftM: 2.4 }, SE_TRADE);
+        const rows = view.rows;
+        expect(rows.get('osm-node2503741556')?.place).toBe('Mapped bay · not reviewed · charted from 4.4 m at the pin');
+        expect(rows.get('osm-node9403')?.place).toBe('Mapped anchorage · not reviewed · depth not checked');
+        expect(rows.get('osm-node3020491514')?.place ?? null).toBeNull();
+        expect(rows.get('osm-node3020491514')?.parks).toBe(true);
+    });
+
+    it('the why line is the first row under the verdict, and claims nothing the plan does not support', () => {
+        const view = planWithLegs({}, SE_TRADE);
+        for (const row of view.top) {
+            const why = row.why;
+            expect(why, row.name).toBeTruthy();
+            const rows = stopDetail({
+                plan: row.plan!,
+                stay: '2h',
+                window: view.window,
+                speed: SAIL,
+                polarIsOwn: false,
+                leavingMarina: false,
+                why,
+            }).rows;
+            expect(rows[row.plan!.best!.reason ? 1 : 0]).toBe(why);
+            const best = row.plan!.best!;
+            if (/both ways/.test(why!)) expect(best.out.how).toBe(best.home!.how);
+            expect(why).not.toMatch(/reaching|running/);
+        }
+    });
+
+    it('"New to you" needs her voyage history: with none on the phone (getCachedSummaries null) no place says it', () => {
+        expect(voyageEnds(null)).toBeNull();
+        const summaries = [
+            { isPlannedRoute: false, isImported: false, lastLat: -20.2452, lastLon: 148.9484 },
+            { isPlannedRoute: true, isImported: false, lastLat: -20.1, lastLon: 148.9 },
+            { isPlannedRoute: false, isImported: true, lastLat: -20.3, lastLon: 148.8 },
+            { isPlannedRoute: false, isImported: false, lastLat: null, lastLon: null },
+            { isPlannedRoute: false, isImported: false, lastLat: 0, lastLon: 0 },
+        ];
+        expect(voyageEnds(summaries)).toEqual([
+            { lat: -20.2452, lon: 148.9484 },
+            { lat: -20.3, lon: 148.8 },
+        ]);
+        const unknown = planWithLegs({ visited: null }, SE_TRADE);
+        for (const row of unknown.top) expect(row.tag).not.toBe('New to you');
+        // With her history known, and the stop the other way one she has ended a voyage at, the third
+        // is somewhere none of her voyages ended, and says so.
+        const other = unknown.top[1].candidate;
+        const known = planWithLegs({ visited: [{ lat: other.lat, lon: other.lon }] }, SE_TRADE);
+        const fresh = known.top.find((row) => row.tag === 'New to you');
+        expect(fresh).toBeDefined();
+        expect(fresh!.id).not.toBe(other.id);
+        expect(fresh!.why).toMatch(/^None of your voyages ended here/);
+    });
+});
+
+// ── 127-PYD-2: the stop she opens, routed on her charts ───────
+
+describe('a routed stop (127-PYD-2): its times walk the routed line, and the pick never sees it', () => {
+    const HORTA = { lat: 38.533, lon: -28.627, name: 'Marina da Horta' };
+    const HORTA_NOW = Date.UTC(2026, 9, 8, 8);
+    const ZONE = 'Atlantic/Azores';
+    const STOP = { lat: 38.47, lon: -28.53 };
+    const hortaInput = (over: Partial<DayPlanInput> = {}): DayPlanInput =>
+        input({
+            nowMs: HORTA_NOW,
+            zone: ZONE,
+            start: HORTA,
+            atmos: trade(Math.floor(HORTA_NOW / H) * H),
+            tides: null,
+            places: gatherPlaces({
+                start: HORTA,
+                nowMs: HORTA_NOW,
+                radiusNm: 30,
+                atlas: [],
+                osm: [{ points: [osmPoint(9201, 'Baía Fictícia', STOP.lat, STOP.lon)], stale: false }],
+                coastline: null,
+            }),
+            ...over,
+        });
+    /** A dog-leg round a fictional headland, as the engine would hand it over (memory only). */
+    const DOG_LEG = [{ lat: HORTA.lat, lon: HORTA.lon }, { lat: 38.56, lon: -28.56 }, STOP];
+    const routedLeg = (points = DOG_LEG, nm = 9.37): today.RoutedLeg => ({
+        basis: 'routed',
+        factor: 1,
+        straightNm: routeLengthNm([HORTA, STOP]),
+        nm,
+        route: { name: '', points, lengthNm: routeLengthNm(points) },
+    });
+    /** The legs the sheet asks for the routed line, under `${id}#routed`. */
+    const routedLegsFor = (id: string, points: { lat: number; lon: number }[]) =>
+        legsFor({ needsLegs: [{ id: `${id}#routed`, coords: points }] } as unknown as DayPlanView, SE_TRADE, {
+            from: Math.floor(HORTA_NOW / H) * H,
+        });
+    const straightView = () => {
+        const first = planDay(hortaInput());
+        return { first, legs: legsFor(first, SE_TRADE, { from: Math.floor(HORTA_NOW / H) * H }) };
+    };
+
+    it('basis routed, factor 1, the engine’s own distance exactly; the candidate keeps its estimate', () => {
+        const { first, legs } = straightView();
+        const id = first.needsLegs[0].id;
+        const leg = routedLeg();
+        const view = planDay(
+            hortaInput({ legs: new Map([...legs, ...routedLegsFor(id, DOG_LEG)]), routes: new Map([[id, leg]]) }),
+        );
+        const row = view.rows.get(id)!;
+        expect(row.plan?.routed).toEqual(leg);
+        expect(row.plan?.routed).toMatchObject({ basis: 'routed', factor: 1, nm: 9.37 });
+        expect(row.route).toBe('routed');
+        // The routed leg lives on the plan, never on the candidate (the chart hand-over reads that).
+        expect(row.candidate.distance.basis).not.toBe('routed');
+        expect(today.plotDayAction(HORTA, row.candidate, '2h').points).toHaveLength(3);
+        // An overnight stay says the routed distance once, to the tenth, no "about".
+        const night = planDay(
+            hortaInput({
+                stay: 'overnight',
+                legs: new Map([...legs, ...routedLegsFor(id, DOG_LEG)]),
+                routes: new Map([[id, leg]]),
+            }),
+        );
+        expect(night.rows.get(id)!.line2).toMatch(/^\d\d:\d\d → \d\d:\d\d · 9\.4 NM$/);
+    });
+
+    it('a dog-leg in a fixed south-east wind takes a different time from the straight line', () => {
+        const { first, legs } = straightView();
+        const id = first.needsLegs[0].id;
+        const straight = planDay(hortaInput({ legs })).rows.get(id)!.plan!.best!;
+        const routed = planDay(
+            hortaInput({
+                legs: new Map([...legs, ...routedLegsFor(id, DOG_LEG)]),
+                routes: new Map([[id, routedLeg()]]),
+            }),
+        ).rows.get(id)!.plan!;
+        const same = routed.departures.find((d) => d.departureMs === straight.departureMs)!;
+        expect(same.out.durationMs).not.toBeNull();
+        expect(same.out.durationMs).not.toBe(straight.out.durationMs);
+        // The same line straight, walked at factor 1, is not the estimate's stretched clock either.
+        const direct = [{ lat: HORTA.lat, lon: HORTA.lon }, STOP];
+        const unstretched = planDay(
+            hortaInput({
+                legs: new Map([...legs, ...routedLegsFor(id, direct)]),
+                routes: new Map([[id, routedLeg(direct, routeLengthNm(direct))]]),
+            }),
+        ).rows.get(id)!.plan!;
+        const at = unstretched.departures.find((d) => d.departureMs === straight.departureMs)!;
+        expect(at.out.durationMs! * first.rows.get(id)!.candidate.distance.factor).toBeCloseTo(
+            straight.out.durationMs!,
+            -3,
+        );
+    });
+
+    it('until the wind along the routed line is in, the times stay the estimate’s and the row says it is updating', () => {
+        const { first, legs } = straightView();
+        const id = first.needsLegs[0].id;
+        const view = planDay(hortaInput({ legs, routes: new Map([[id, routedLeg()]]) }));
+        const row = view.rows.get(id)!;
+        expect(row.route).toBe('updating');
+        expect(row.plan?.routed).toBeUndefined();
+        expect(row.line2).toBe(planDay(hortaInput({ legs })).rows.get(id)!.line2);
+    });
+
+    it('preRank, the pick and the card are identical with and without routes: rows never reshuffle', () => {
+        const first = planDay(input());
+        const legs = legsFor(first, SE_TRADE);
+        const plain = planDay(input({ legs }));
+        const ids = plain.top.map((row) => row.id);
+        // A long dog-leg for every card stop: the rows' times change, the selection does not.
+        const routes = new Map<string, today.RoutedLeg>();
+        const all = new Map(legs);
+        for (const row of plain.top) {
+            const points = [
+                { lat: MARINA.lat, lon: MARINA.lon },
+                { lat: MARINA.lat - 0.15, lon: (MARINA.lon + row.candidate.lon) / 2 },
+                { lat: row.candidate.lat, lon: row.candidate.lon },
+            ];
+            routes.set(row.id, {
+                basis: 'routed',
+                factor: 1,
+                straightNm: row.candidate.straightNm,
+                nm: routeLengthNm(points),
+                route: { name: '', points, lengthNm: routeLengthNm(points) },
+            });
+            for (const [key, value] of legsFor(
+                { needsLegs: [{ id: `${row.id}#routed`, coords: points }] } as unknown as DayPlanView,
+                SE_TRADE,
+            ))
+                all.set(key, value);
+        }
+        const routed = planDay(input({ legs: all, routes }));
+        expect(routed.ranked.map((p) => p.candidate.id)).toEqual(plain.ranked.map((p) => p.candidate.id));
+        expect(routed.needsLegs).toEqual(plain.needsLegs);
+        expect(routed.top.map((row) => row.id)).toEqual(ids);
+        expect(routed.top.map((row) => row.tag)).toEqual(plain.top.map((row) => row.tag));
+        expect(routed.top.every((row) => row.route === 'routed')).toBe(true);
+        expect(routed.top.map((row) => row.line2)).not.toEqual(plain.top.map((row) => row.line2));
+    });
+
+    it('distanceLine says a routed leg once, to the tenth, routed on her charts', () => {
+        expect(distanceLine(routedLeg())).toBe('9.4 NM each way (routed on your charts)');
+    });
+
+    it('the stop page: the route row is the distance row, the footnote says how it was routed, home is the line turned round', () => {
+        const { first, legs } = straightView();
+        const id = first.needsLegs[0].id;
+        const view = planDay(
+            hortaInput({
+                legs: new Map([...legs, ...routedLegsFor(id, DOG_LEG)]),
+                routes: new Map([[id, routedLeg()]]),
+            }),
+        );
+        const row = view.rows.get(id)!;
+        const args: StopDetailArgs = {
+            plan: row.plan!,
+            stay: '2h',
+            window: view.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: false,
+            routed: { draftM: 2.4 },
+        };
+        const detail = stopDetail(args);
+        expect(detail.rows.some((r) => /NM each way/.test(r))).toBe(false);
+        expect(detail.footnote).toBe(
+            'Route from your charts: draft 2.40 m + 0.5 m under the keel at chart datum; tide shown, never assumed. ' +
+                'Home is the same route turned round. Times from a typical cruising polar at 6.0 kn in ECMWF wind. ' +
+                'No current. Not a clearance.',
+        );
+        // One way overnight: no home to turn round.
+        expect(stopDetail({ ...args, stay: 'overnight' }).footnote).not.toMatch(/turned round/);
+        // Unrouted, the estimate and today's footnote stay.
+        const plain = stopDetail({ ...args, routed: null });
+        expect(plain.rows.some((r) => /^About \d+ NM each way/.test(r))).toBe(true);
+        expect(plain.footnote).toMatch(/Depth and tide over the route are not checked\. Not a clearance\.$/);
+    });
+
+    it('while the routed wind loads, the leave row says it is updating for the route', () => {
+        const { first, legs } = straightView();
+        const id = first.needsLegs[0].id;
+        const view = planDay(hortaInput({ legs, routes: new Map([[id, routedLeg()]]) }));
+        const detail = stopDetail({
+            plan: view.rows.get(id)!.plan!,
+            stay: '2h',
+            window: view.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: false,
+            routed: { draftM: 2.4 },
+            updating: true,
+        });
+        expect(detail.rows.find((r) => r.startsWith('Leave '))).toMatch(
+            /^Leave \d\d:\d\d → there \d\d:\d\d \(updating for the route\)$/,
+        );
+    });
+
+    it('a routed wind that failed never replaces the estimate’s loaded times: they stay, said as the estimate', () => {
+        // Review 2026-10-11: patchy Starlink, the two calls along the routed line time out.
+        const { first, legs } = straightView();
+        const id = first.needsLegs[0].id;
+        const failed: StopLegs = { headline: null, headlineModel: 'ECMWF', spread: null, sea: null, failed: true };
+        const view = planDay(
+            hortaInput({ legs: new Map([...legs, [`${id}#routed`, failed]]), routes: new Map([[id, routedLeg()]]) }),
+        );
+        const row = view.rows.get(id)!;
+        const plain = planDay(hortaInput({ legs })).rows.get(id)!;
+        expect(row.route).toBe('estimate');
+        expect(row.plan?.weatherLoaded).toBe(true);
+        expect(row.plan?.routed).toBeUndefined();
+        expect(row.line2).toBe(plain.line2);
+        expect(row.level).toBe(plain.level);
+        const detail = stopDetail({
+            plan: row.plan!,
+            stay: '2h',
+            window: view.window,
+            speed: SAIL,
+            polarIsOwn: false,
+            leavingMarina: false,
+            routed: { draftM: 2.4 },
+            updating: 'estimate',
+        });
+        expect(detail.rows.find((r) => r.startsWith('Leave '))).toMatch(
+            /^Leave \d\d:\d\d → there \d\d:\d\d \(estimate: route weather didn't load\)$/,
+        );
     });
 });

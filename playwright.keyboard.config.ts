@@ -136,6 +136,30 @@ export default defineConfig({
         // A phone without Thalassa held to a box tag (126-11b): public/box.html fits 320 × 568
         // and 430 × 932, light and dark, and loads nothing but itself.
         'box-fallback-page.spec.ts',
+        // The desk chart (127-DESKMAP): Light base, Relief seabed and OpenSeaMap seamarks drawn
+        // offline (e2e/fixtures/desk-map.tsx), a fictional NOAA-shaped chart in chart mode, and
+        // the real web planner's menu and strip at 1440 to 320 px in wide fonts.
+        'desk-map-light.spec.ts',
+        // Charts stay on the boat (127-C-b): the tracer's stub rows, the departure planner's
+        // "tide gates need your boat's charts" and a saved plan's number-free notes fit 320 to the
+        // iPad split, landscape and large text, in the system face and wide fonts
+        // (e2e/fixtures/chart-words.tsx); NOAA keeps its figures.
+        'chart-words-layout.spec.ts',
+        // Wind on the desk (127-DESKMAP-b): the menu's Wind row, the panel bottom right clear of
+        // the planner's controls, dark streaks on Light, the model credit, the models' agreement,
+        // and the wind credit on the phone's Obs, offline with a stubbed proxy-openmeteo.
+        // Its two streak-pixel tests are tagged @pixel and run in a step of their own, one
+        // worker, after the shards (which pass --grep-invert @pixel):
+        //   npx playwright test --config playwright.keyboard.config.ts --grep @pixel --workers=1 --retries=1
+        'desk-wind-layout.spec.ts',
+        // The chart can turn (127-11a): the wind field, her marker and a distress
+        // beacon stay true at a fixed bearing (e2e/fixtures/chart-orientation.tsx);
+        // its 820 x 1180 turn-on-its-side case in a browser of its own.
+        'chart-orientation.spec.ts',
+        'chart-orientation-sideways.spec.ts',
+        // Routing off the main thread (127-ROUTE-W2): while Auto routes the archipelago's 20 NM
+        // leg in the worker, no pause over 150 ms; Stop; and the no-Worker freeze, seen.
+        'route-worker.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
@@ -163,6 +187,9 @@ export default defineConfig({
         url: 'http://127.0.0.1:4199/e2e/fixtures/keyboard.html',
         reuseExistingServer: false,
         timeout: 60_000,
+        // Vite's own lines in the log, so a dev-server reload under a test shows
+        // ("optimized dependencies changed. reloading", the retry comment above).
+        stdout: 'pipe',
         // The sign-in sheet's worst case is all three providers (sign-in-layout:
         // a browser shows email, Apple and Google, the same three buttons as a
         // phone). Only SignInScreen and googleSignIn read these, and no other

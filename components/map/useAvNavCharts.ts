@@ -17,6 +17,7 @@ import {
     isAuthIdentityScopeCurrent,
 } from '../../services/authIdentityScope';
 import { redactSensitiveDiagnostic } from '../../utils/redactSensitiveDiagnostic';
+import { chartFitBearing } from './chartOrientation';
 
 let _chartLogSeq = 0;
 async function chartLog(msg: string) {
@@ -223,7 +224,7 @@ export function useAvNavCharts(
                         [chart.bounds[0], chart.bounds[1]],
                         [chart.bounds[2], chart.bounds[3]],
                     ],
-                    { padding: 40, duration: 1500, retainPadding: false },
+                    { padding: 40, duration: 1500, retainPadding: false, bearing: chartFitBearing(map) },
                 );
                 return;
             }

@@ -64,6 +64,7 @@ import {
 } from '../GebcoDepthService';
 import type { ChartWaterProbe, ChartWaterVerdict } from '../engine/chartWaterEvidence';
 import { createLogger } from '../../utils/createLogger';
+import { greatCircleM as dist, samplePolyline, type BackstopChartVerdict, type LonLat } from './backstopSamples';
 import { withTimeout } from '../../utils/deadline';
 
 const log = createLogger('landBackstop');
@@ -86,14 +87,14 @@ export const BACKSTOP_DEADLINE_MS =
     ROUTE_RELIEF_RETRY_DELAYS_MS.reduce((sum, ms) => sum + ms, 0) +
     2_000;
 
-export type LonLat = [number, number];
+// The samples and what the charts can say at one moved to a pure module the
+// route job shares (127-ROUTE-W); every import of them from here still works.
+export { MAX_SAMPLES, SAMPLE_STEP_M, samplePolyline, type BackstopChartVerdict, type LonLat } from './backstopSamples';
 
 /** ETOPO elevation at/above sea level counts as land-ish. */
 export const LAND_DEPTH_THRESHOLD_M = 0;
 /** Consecutive land-reading request points required to call it a crossing. */
 export const MIN_RUN_SAMPLES = 2;
-/** Along-route sampling interval. */
-export const SAMPLE_STEP_M = 400;
 /**
  * A lone ETOPO land sample counts on its own only this far along the route
  * from BOTH of its ends (review fix-up, 2026-10-02): nearer, it is a pin's own
@@ -108,8 +109,6 @@ export const LONE_SAMPLE_END_CLEARANCE_M = 500;
  * so two stray samples kilometres apart up an OSM-only river never join.
  */
 export const MAX_OSM_WATER_BRIDGE_SAMPLES = 2;
-/** Hard cap on samples per validation (legacy gebco-depth endpoint batch limit). */
-export const MAX_SAMPLES = 180;
 
 /**
  * What the installed charts said where ETOPO read land: 'land' (a detailed
@@ -165,43 +164,6 @@ export function findLandRuns(depths: DepthResult[], thresholdM = LAND_DEPTH_THRE
     return runs;
 }
 
-/** Great-circle metres between two [lon, lat] points. */
-function dist(a: LonLat, b: LonLat): number {
-    const R = 6371000;
-    const dLat = ((b[1] - a[1]) * Math.PI) / 180;
-    const dLon = ((b[0] - a[0]) * Math.PI) / 180;
-    const s =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((a[1] * Math.PI) / 180) * Math.cos((b[1] * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(s));
-}
-
-/** Pure: sample a polyline every ~stepM, capped at maxSamples (incl. ends). */
-export function samplePolyline(polyline: LonLat[], stepM = SAMPLE_STEP_M, maxSamples = MAX_SAMPLES): LonLat[] {
-    if (polyline.length < 2) return [...polyline];
-    let total = 0;
-    for (let i = 0; i < polyline.length - 1; i++) total += dist(polyline[i], polyline[i + 1]);
-    const step = Math.max(stepM, total / Math.max(1, maxSamples - 1));
-
-    const out: LonLat[] = [polyline[0]];
-    let carried = 0;
-    for (let i = 0; i < polyline.length - 1; i++) {
-        const a = polyline[i];
-        const b = polyline[i + 1];
-        const segLen = dist(a, b);
-        if (segLen === 0) continue;
-        let along = step - carried;
-        while (along < segLen) {
-            const t = along / segLen;
-            out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
-            along += step;
-        }
-        carried = (carried + segLen) % step;
-    }
-    out.push(polyline[polyline.length - 1]);
-    return out;
-}
-
 export interface LandBackstopResult {
     /** Whether the no-land/crosses-land verdict is complete enough to trust. */
     status: 'verified' | 'unavailable';
@@ -232,24 +194,21 @@ export interface LandBackstopResult {
     chartVerdicts?: BackstopChartVerdict[];
 }
 
-/** What the charts said at one sample: a probe's verdict, or 'unchecked'
- *  where the probe threw (it vouches nothing there — fail closed). */
-export type BackstopChartVerdict = ChartWaterVerdict | 'unchecked';
-
 export interface LandBackstopOptions {
     /**
-     * What the installed charts say at a point — the route's own layers
-     * (InshoreRouteResult.chartWater, built by the engine wrapper from the
-     * cells and OSM water it routed on). Absent: nothing vouches, every ETOPO
-     * land sample counts (the backstop as it was).
+     * What the installed charts say at a point — a probe over a route's own
+     * layers (safetyAudit.backstopChartWaterProbe). Absent: nothing vouches,
+     * every ETOPO land sample counts (the backstop as it was).
      */
     chartWater?: ChartWaterProbe;
     /**
-     * The charts' verdict at every sample, from an earlier run of this check
-     * on the SAME polyline (LandBackstopResult.chartVerdicts) — for a retry
-     * that has no engine layers. Used only when it has one verdict per sample;
-     * otherwise nothing vouches (fail closed). `chartWater` wins when both are
-     * given.
+     * The charts' verdict at every sample of the SAME polyline: from the
+     * route job, which works them out where it routed
+     * (InshoreRouteResult.chartVerdicts, 127-ROUTE-W: every caller passes
+     * these), or from an earlier run of this check (LandBackstopResult.
+     * chartVerdicts, Review's Retry). Used only when it has one verdict per
+     * sample; otherwise nothing vouches (fail closed). `chartWater` wins when
+     * both are given.
      */
     chartVerdicts?: readonly BackstopChartVerdict[];
 }

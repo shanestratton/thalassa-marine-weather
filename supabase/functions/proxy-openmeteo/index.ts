@@ -6,13 +6,14 @@ declare const Deno: {
 
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { fetchWithTimeout, readJsonObject, readResponseTextLimited } from '../_shared/http-security.ts';
-import { validateRequest } from './validation.ts';
+import { isOperation, UPSTREAMS, validateRequest } from './validation.ts';
 
 /**
  * Commercial Open-Meteo trust boundary.
  *
- * Clients choose one of two fixed operations and a deliberately small query
- * vocabulary. The upstream host, path and commercial key are server-owned.
+ * Clients choose one of three fixed operations (forecast, marine, geocode) and
+ * a deliberately small query vocabulary. The upstream host, path and
+ * commercial key are server-owned.
  */
 const CORS: Record<string, string> = {
     'Access-Control-Allow-Origin': '*',
@@ -26,11 +27,6 @@ const JSON_HEADERS = {
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
 };
-
-const UPSTREAMS = {
-    forecast: 'https://customer-api.open-meteo.com/v1/forecast',
-    marine: 'https://customer-marine-api.open-meteo.com/v1/marine',
-} as const;
 
 function response(error: string | null, status: number, body?: string): Response {
     return new Response(body ?? JSON.stringify(error ? { error } : {}), {
@@ -53,7 +49,7 @@ Deno.serve(async (req: Request) => {
     const operation = body?.operation;
     const rawParams = body?.params;
     if (
-        (operation !== 'forecast' && operation !== 'marine') ||
+        !isOperation(operation) ||
         !rawParams ||
         typeof rawParams !== 'object' ||
         Array.isArray(rawParams)

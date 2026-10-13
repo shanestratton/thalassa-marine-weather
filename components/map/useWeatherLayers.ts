@@ -9,7 +9,7 @@
  * static tile overlays, velocity).
  */
 
-import { useState, useRef, useEffect, useCallback, useMemo, type MutableRefObject } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, type MutableRefObject } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('WeatherLayers');
@@ -350,6 +350,13 @@ export function useWeatherLayers(
     passageContext?: { hudEnabled: boolean; squallVisible: boolean },
     /** OBS opens clean, even if a previous tab session stored overlays. */
     startEmpty = false,
+    /**
+     * The planner's OWN layers (127-DESKMAP-b: the desk's Wind switch), painted
+     * while planning in place of the empty set. Never written to `userLayers`,
+     * so Obs comes back exactly as left, and never framed: the camera and its
+     * zoom limits stay the planner's.
+     */
+    planLayers?: Set<WeatherLayer>,
 ) {
     const passageOwnsCamera = !planMode && (passageContext?.hudEnabled ?? false);
     const passageSquallVisible = !planMode && (passageContext?.squallVisible ?? false);
@@ -383,7 +390,7 @@ export function useWeatherLayers(
      * that gets persisted — is never touched.
      */
     const EMPTY_LAYERS = useMemo(() => new Set<WeatherLayer>(), []);
-    const activeLayers = planMode ? EMPTY_LAYERS : userLayers;
+    const activeLayers = planMode ? (planLayers ?? EMPTY_LAYERS) : userLayers;
     const userKey = [...userLayers].sort().join(',');
 
     // Toggle a layer on/off. 'none' clears all layers.
@@ -650,6 +657,26 @@ export function useWeatherLayers(
             return next;
         });
     }, []);
+
+    /**
+     * Back to now and following it, as a fresh layer set starts. Obs and the
+     * desk planner share this one timeline (127-DESKMAP-b), so crossing
+     * between them does it too: the desk's start or scrub never paints as
+     * Obs's live wind, nor Obs's scrub on the desk. A layout effect, so the
+     * desk's start hand-off (a child's effect) still lands after it.
+     */
+    const followWindNow = useCallback(() => {
+        windUserScrubbedRef.current = false;
+        windUserScrubbedTimeRef.current = 0;
+        setWindHourInternal(windNowIdxRef.current);
+        if (WindStore.getState().hour !== windNowIdxRef.current) WindStore.setState({ hour: windNowIdxRef.current });
+    }, []);
+    const planModeSeenRef = useRef(planMode);
+    useLayoutEffect(() => {
+        if (planModeSeenRef.current === planMode) return;
+        planModeSeenRef.current = planMode;
+        followWindNow();
+    }, [planMode, followWindNow]);
 
     /** Compute which forecast hour index best matches 'now' given the model refTime */
     const computeNowIndex = useCallback((refTime: string, fhrs: number[]): number => {
@@ -1444,8 +1471,9 @@ export function useWeatherLayers(
         // EVERY layer-set change (adding rain to wind included), and usually no
         // new grid follows to re-run this — so the particles sat at "now" under
         // a +6 h ghost for up to a minute. That effect is declared first, so in
-        // the same commit it resets and this re-applies.
-    }, [windReady, windLayerOn, windForecastHours, setWindHour, activeKey]);
+        // the same commit it resets and this re-applies. planMode: crossing
+        // between Obs and the planner hands the timeline back to now too.
+    }, [windReady, windLayerOn, windForecastHours, setWindHour, activeKey, planMode]);
 
     // ── …and the layers that do NOT follow it say so ──
     // Separate from the effect above, which stands down when the wind layer is
@@ -1867,10 +1895,11 @@ export function useWeatherLayers(
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady || embedded) return;
-
-        const hasWind = activeLayers.has('wind') || activeLayers.has('velocity');
-        const hasPressureLayer = activeLayers.has('pressure');
-        const layerCount = activeLayers.size;
+        // While planning, the planner's own wind sets no zoom floor of its own.
+        const framed = planMode ? EMPTY_LAYERS : activeLayers;
+        const hasWind = framed.has('wind') || framed.has('velocity');
+        const hasPressureLayer = framed.has('pressure');
+        const layerCount = framed.size;
 
         if (passageOwnsCamera) {
             // These are overlays on a navigational route view, not a weather
@@ -2170,8 +2199,11 @@ export function useWeatherLayers(
         const cmemsSstEnabled = import.meta.env.VITE_CMEMS_SST_ENABLED === 'true';
         // Note: chlorophyll isn't in this gate — it's a net-new CMEMS
         // layer with no Xweather tile equivalent to replace.
+        // No 'sea' (127-DESKMAP B4): it drew OpenSeaMap a SECOND time, as an
+        // uncredited raster outside the ENC hide (the Mooloolaba doubled icon,
+        // alive through this path) and asking OpenSeaMap's free server for
+        // every tile twice. Sea marks draw through 'openseamap-permanent' alone.
         const TILE_LAYERS: WeatherLayer[] = [
-            'sea',
             'temperature',
             'clouds',
             ...(cmemsWavesEnabled ? [] : (['waves'] as WeatherLayer[])),
@@ -2239,10 +2271,11 @@ export function useWeatherLayers(
             }
         }
 
-        // Sync permanent sea marks layers with the 'sea' toggle
+        // Sync permanent sea marks layers with the 'sea' toggle. Not the
+        // OpenSeaMap raster: useOpenSeaMapRasterHide is its one owner (127-
+        // DESKMAP B1), so a plan-layer change (the desk's wind) never blinks it.
         const seaVisible = activeLayers.has('sea') ? 'visible' : 'none';
         for (const lid of [
-            'openseamap-permanent',
             'harbour-seamarks-circle',
             'harbour-seamarks-label',
             'nav-markers-glow',
@@ -2787,7 +2820,6 @@ export function useWeatherLayers(
                 // Per-layer opacity: sea marks stay solid, weather heatmaps
                 // are translucent so coastlines/countries remain visible.
                 const LAYER_OPACITY: Partial<Record<WeatherLayer, number>> = {
-                    sea: 1.0,
                     temperature: 0.6,
                     // Clouds take the SHARED density knobs from cloudOverlay —
                     // the storm page and the Sky menu must be one cloud, one
@@ -2987,6 +3019,7 @@ export function useWeatherLayers(
         windForecastHoursRef,
         windNowIdx,
         windNowIdxRef,
+        followWindNow,
         // Model + field switcher (chart wind overlay)
         windModel: windState.model,
         windField: windState.field,

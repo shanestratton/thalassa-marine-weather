@@ -18,11 +18,11 @@
  *      strip of it under 10 m wide, was "clear of every hazard's buffer".
  * Each now keeps its red, and says why.
  *
- * Measured first on the real cells (tests/repro/whitsundayFieldRouteRealCells
- * .local.test.ts, AU421148 copied read-only to scratch and deleted after): the
- * field route's North Molle corner GRID_ONLY segments pass 12.3–27.3 m from
- * its 2–5 m band, 31.6 m+ from the 0–2 m band and 43 m+ from the reef that
- * dries 3.6 m — clear of 10 m and 30 m, so the corner stays green.
+ * Measured first on a real cell with a local-only suite (retired in 127: no
+ * decrypted cells on a Mac's disk; real-chart checks move to the Pi, in
+ * memory): the field route's corner GRID_ONLY segments passed well clear of
+ * 10 m and 30 m from the nearest shallow bands and reef, so the corner stayed
+ * green.
  *
  * Re-pinned 2026-10-03 (the real-chart check): a line too close keeps its red
  * over the STRETCH inside the clearance — a chartedShallowSpan with `near`,

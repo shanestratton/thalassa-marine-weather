@@ -205,6 +205,39 @@ describe('PassageBanner', () => {
         expect(plan.__inshoreRouting).toEqual({ status: 'success', caveats });
     });
 
+    // 127-C-b: the charts the route was worked out on ride with its caveats, so
+    // a NOAA route's notes reach the Log whole; over licensed charts (or none
+    // known) only the lines with no chart figure in them are kept.
+    it('Save to Log carries the route’s charts with its caveats', async () => {
+        const { routeCaveatNotes } = await import('../services/shiplog/PassagePlanSave');
+        const { CHART_NOTES_ABOARD } = await import('../services/chartFacts');
+        shipLog.savePassagePlanToLogbook.mockResolvedValue('voyage-1');
+        const caveats = [
+            'Bridges and power lines not checked on this chart — known bridges are.',
+            'Your destination pin is in 1.2 m charted water — the route ends there and needs +0.6 m of tide.',
+        ];
+        render(
+            <PassageBanner
+                {...baseProps}
+                passage={{ ...baseProps.passage, routeCaveats: caveats, routeCellsRef: { current: ['US5XX01M'] } }}
+                isoProgress={null}
+            />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Save to Log' }));
+        await waitFor(() => expect(shipLog.savePassagePlanToLogbook).toHaveBeenCalledTimes(1));
+        const plan = shipLog.savePassagePlanToLogbook.mock.calls[0][0];
+        expect(plan.__inshoreRouting).toEqual({ status: 'success', caveats, cellsUsed: ['US5XX01M'] });
+        // Chesapeake (public domain): every line, figures and all.
+        expect(routeCaveatNotes(plan)).toContain('1.2 m charted water');
+        // Nouméa (licensed): the bridge line stays, the figure line does not.
+        const licensed = routeCaveatNotes({
+            __inshoreRouting: { ...plan.__inshoreRouting, cellsUsed: ['OC-99-ZZTEST'] },
+        });
+        expect(licensed).toContain(caveats[0]);
+        expect(licensed).not.toContain('1.2 m');
+        expect(licensed).toContain(CHART_NOTES_ABOARD);
+    });
+
     it('shows route actions only for the exact geometry marked verified', () => {
         render(<PassageBanner {...baseProps} isoProgress={null} />);
 

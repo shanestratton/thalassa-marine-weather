@@ -269,7 +269,11 @@ describe('explicit planned proposal save', () => {
     });
 
     it('retains every sub-metre point and warning/location in the canonical library as Thalassa evidence, without the router disclosure, navigation proof or a voyage/trip', async () => {
+        // All-NOAA (public domain): the full evidence is kept (127-C-b).
+        mock.registry = 'US5XX01M@1@2026-09-13@42';
         const input = fixture(10_000);
+        input.route.engine!.cellsUsed = ['US5XX01M'];
+        input.review.basis!.registryFingerprint = mock.registry;
         for (const leg of input.review.legs.slice(1)) {
             leg!.incomplete = false;
             Object.assign(leg!.verdict, { grade: 'clear', minDepthM: 8, minAt: null, issues: [] });
@@ -443,7 +447,10 @@ describe('explicit planned proposal save', () => {
     });
 
     it('snapshots local and cloud material before callers can mutate a returned trace or input', async () => {
+        mock.registry = 'US5XX01M@1@2026-09-13@42';
         const input = fixture();
+        input.route.engine!.cellsUsed = ['US5XX01M'];
+        input.review.basis!.registryFingerprint = mock.registry;
         const original = structuredClone(input);
         const result = saveReviewedAutoroutingProposal(input, getAuthIdentityScope());
         input.route.coordinates[0][0] = 0;
@@ -508,5 +515,77 @@ describe('explicit planned proposal save', () => {
         const malformed = structuredClone(legacy);
         malformed.providerCheck.findings[0].geometry = { type: 'LineString', coordinates: [[0, 0]] } as never;
         expect(normaliseAutoroutingProposalEvidence(malformed, points)).toBeNull();
+    });
+});
+
+/**
+ * Charts stay on the boat (127-C-b, C8): a route worked out on licensed charts
+ * is kept as its line, each leg's grade and her own words. The chart notes
+ * (depths, positions, leading-line offsets) are shown while she reviews and
+ * are never written: not to the device library, not to the account. Shane's
+ * decision 5 (our recommendation): Save keeps working; if he says no, one
+ * switch denies it. Fictional cells: OC-99-SYN001 / ZZ5TEST1 protected,
+ * US5XX01M open.
+ */
+describe('a proposal over licensed charts saves as a line and grades', () => {
+    it('stores null depths and positions, no issues, and only her own words plus the chart-notes line', async () => {
+        const { CHART_NOTES_ABOARD } = await import('../services/chartFacts');
+        const { THALASSA_PLANNED_ONLY_WARNING } = await import('../services/autoroutingNotes');
+        const input = fixture();
+        input.route.warnings = [
+            THALASSA_PLANNED_ONLY_WARNING,
+            'Routed on this phone by Thalassa from your installed charts: draft 1.50 m + 0.5 m under the keel at chart datum (LAT). Tide is shown, never assumed.',
+            'Water charted 1.37 m at Passe Fictive.',
+            'Beam and length are not used by the router yet.',
+        ];
+        const result = saveReviewedAutoroutingProposal(input, getAuthIdentityScope());
+        await result.cloud;
+        const [saved] = loadSavedTraces();
+        const evidence = saved.proposalEvidence!;
+        expect(
+            evidence.legs.every((leg) => leg.minDepthM === null && leg.minAt === null && leg.issues.length === 0),
+        ).toBe(true);
+        expect(evidence.legs.map((leg) => [leg.grade, leg.incomplete])).toEqual(
+            input.review.legs.map((leg) => [leg!.verdict.grade, leg!.incomplete]),
+        );
+        expect(evidence.warnings).toEqual([
+            input.route.warnings[0],
+            input.route.warnings[1],
+            input.route.warnings[3],
+            CHART_NOTES_ABOARD,
+        ]);
+        expect(normaliseAutoroutingProposalEvidence(evidence, saved.points)).toEqual(evidence);
+        const stored = Array.from({ length: localStorage.length }, (_, i) =>
+            localStorage.getItem(localStorage.key(i)!),
+        );
+        const written = [...stored, JSON.stringify(mock.push.mock.calls[0][0])].join('\n');
+        for (const figure of ['Passe Fictive', '1.37', 'Missing depth', 'track-1'])
+            expect(written, figure).not.toContain(figure);
+        // Her line is untouched.
+        expect(saved.points.map(({ lat, lon }) => [lon, lat])).toEqual(input.route.coordinates);
+    });
+
+    it("denies the save, in o-charts' words, only when the decision-5 switch is off", async () => {
+        vi.resetModules();
+        vi.doMock('../services/chartFacts', async (importOriginal) => ({
+            ...(await importOriginal<typeof import('../services/chartFacts')>()),
+            SAVE_ROUTES_FROM_LICENSED_CHARTS: false,
+        }));
+        try {
+            const save = await import('../services/autoroutingProposalSave');
+            const { LICENSED_SAVE_WAITS } = await import('../services/chartFacts');
+            const input = fixture();
+            expect(save.evaluateAutoroutingProposalSave(input.route, input.review, 1.5, true)).toEqual({
+                eligible: false,
+                reason: LICENSED_SAVE_WAITS,
+            });
+            mock.registry = 'US5XX01M@1@2026-09-13@42';
+            input.route.engine!.cellsUsed = ['US5XX01M'];
+            input.review.basis!.registryFingerprint = mock.registry;
+            expect(save.evaluateAutoroutingProposalSave(input.route, input.review, 1.5, true).eligible).toBe(true);
+        } finally {
+            vi.doUnmock('../services/chartFacts');
+            vi.resetModules();
+        }
     });
 });

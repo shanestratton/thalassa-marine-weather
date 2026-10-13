@@ -25,6 +25,8 @@ interface PassageBannerProps {
         routeActionsAvailable: boolean;
         /** What the drawn route itself must say (usePassagePlanner routeCaveats). */
         routeCaveats?: readonly string[];
+        /** The charts the route was worked out on (127-C-b: they decide what its saved notes keep). */
+        routeCellsRef?: React.MutableRefObject<string[]>;
         /** Which polar the ETA was sailed on (services/routingPolar label); null when none was. */
         routingPolarLabel?: string | null;
         departureTime: string | null;
@@ -148,7 +150,8 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
             // 2026-09-30: saving from the map dropped every one of them).
             // PassagePlanSave keeps them on the logbook route.
             const caveats = (passage.routeCaveats ?? []).filter((c) => typeof c === 'string' && c.trim() !== '');
-            if (caveats.length > 0) plan.__inshoreRouting = { status: 'success', caveats };
+            if (caveats.length > 0)
+                plan.__inshoreRouting = { status: 'success', caveats, cellsUsed: passage.routeCellsRef?.current };
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const voyageId = await ShipLogService.savePassagePlanToLogbook(plan as any);

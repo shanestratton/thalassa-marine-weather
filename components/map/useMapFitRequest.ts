@@ -10,6 +10,7 @@ import type { MutableRefObject } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
 import { claimObsCamera } from './obsCameraClaims';
+import { chartFitBearing } from './chartOrientation';
 
 export function useMapFitRequest(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean): void {
     // ── Pending fit-to-bbox request ──
@@ -43,6 +44,7 @@ export function useMapFitRequest(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                         duration: 1200,
                         essential: true,
                         retainPadding: false,
+                        bearing: chartFitBearing(map),
                     },
                 );
             } catch (err) {

@@ -41,10 +41,10 @@ export interface AreaGeometry {
     triangles: [[number, number], [number, number], [number, number]][];
     rings?: [number, number][][];
     /**
-     * Multiple disjoint polygons, each `[outer, ...holes]`. Set by the S-63
-     * path, where an AREA feature is recovered from its triangle mesh
-     * (meshOutline) and routinely resolves to several separate islands or
-     * basins — `rings` cannot express that, because its first entry is the
+     * Multiple disjoint polygons, each `[outer, ...holes]`. Set when an AREA
+     * feature is recovered from its triangle mesh (meshOutline; the S-63
+     * parser that did this was retired in 127) and resolves to several
+     * separate islands or basins — `rings` cannot express that, because its first entry is the
      * outer and everything after it is a HOLE in that outer. Emitting two
      * islands through `rings` would punch the second one out of the first.
      */
@@ -77,9 +77,9 @@ export interface LineGeometry {
  * discontinuous (S-57 allows a line feature to map disjoint edges, e.g. a
  * coastline interrupted by a masked span). Each part renders independently;
  * concatenating them would draw connecting chords the chart never asserted.
- * Currently produced only by the s63 dialect parser — the binary-format walk
- * in this file concatenates (see resolveLineGeometry), which predates this
- * type.
+ * Nothing in the extractor produces it since the S-63 parser was retired in
+ * 127 (S-63 opens in OpenCPN only); the binary-format walk in this file
+ * concatenates (see resolveLineGeometry). The emitters still accept it.
  */
 export interface MultiLineGeometry {
     type: 'MultiLine';

@@ -6,7 +6,8 @@ import sourceLayoutConfig from './playwright.keyboard.config';
 /** Source-only fixture; no build, live account, provider or boat connection. */
 export default defineConfig({
     ...sourceLayoutConfig,
-    testMatch: ['day-planner-layout.spec.ts'],
+    // Screen 1 and All places; the stop page's routing cases (127-PYD-2, 3, 11) in their own spec.
+    testMatch: ['day-planner-layout.spec.ts', 'day-planner-route.spec.ts'],
     outputDir: process.env.CI ? 'test-results/day-planner' : join(tmpdir(), 'thalassa-day-planner-e2e'),
     workers: 1,
     webServer: {

@@ -99,7 +99,8 @@ describe('map hook dependency safety', () => {
                 [153.2, -27.3],
             ],
             // The padding is for this fit only: Obs shares the map (build 124).
-            { padding: 72, maxZoom: 10, duration: 1200, essential: true, retainPadding: false },
+            // North up, the fit says bearing 0, as Mapbox's default did (127-11a).
+            { padding: 72, maxZoom: 10, duration: 1200, essential: true, retainPadding: false, bearing: 0 },
         );
     });
 

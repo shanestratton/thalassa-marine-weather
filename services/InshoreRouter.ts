@@ -44,26 +44,8 @@ import type { EncCell } from './enc/types';
 import { readS57 } from './enc/types';
 import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
-import type {
-    CautionNearShallow,
-    ChartedShallowSpan,
-    DepthBend,
-    DryRun,
-    NavGrid,
-    PinOffWater,
-    PinTail,
-    ShallowRunInfo,
-    SurveyRunInfo,
-    SurveyUncheckedCell,
-    TideCeiling,
-} from './engine/types';
-import {
-    classifyNoTideRuns,
-    collectDryRuns,
-    NO_TIDE_CLIP_TOLERANCE_M,
-    routeCrossesUncheckedShallow,
-    tideCeilingLookup,
-} from './engine/tideCeiling';
+import type { SurveyUncheckedCell, TideCeiling } from './engine/types';
+import { tideCeilingLookup } from './engine/tideCeiling';
 import { pinTailTideWindows, routeAreaTideCeilings } from './routing/tideCeilings';
 import type { TideCurve } from './TideHeightService';
 import {
@@ -75,15 +57,11 @@ import {
 } from './enc/scaleShadow';
 import { capCellsForMerge } from './enc/mergeCap';
 import { crumb } from '../utils/flightRecorder';
-import { routeCachedGrid, shadowCompare, shadowSummary } from './seaway/seawayRouter';
-import { leadPromotionVerdict, leadShadowSummary, searchLeadGraph } from './seaway/leadGraphSearch';
 import { peekLeadGraphForView } from './routing/leadOverlayData';
-import { compileSeawayGraph } from './seaway/graphCompiler';
-import { splitMarkFeatures, type PointFeatureLike } from './seaway/markSplit';
 import { piCache } from './PiCacheService';
 import { fetchVerifiedFromPi, routeRequestBinding } from './PiPairingService';
 import { getOsmRouteOverlay, type OsmOverlayProvenance, type OsmRouteOverlay } from './OsmRouteOverlayService';
-import { applyWaterPack, waterPackUseFor, type WaterPackUse } from './waterPack/waterPackWords';
+import { applyWaterPack, waterPackUseFor } from './waterPack/waterPackWords';
 import { nearShallowSummary } from '../components/map/inshoreRouteNotice';
 import { curatedFairwayCanalFeatures } from './curatedFairways';
 import { fetchMapboxWater } from './mapboxWater';
@@ -91,27 +69,15 @@ import { fetchSatelliteWater } from './satelliteWater';
 import { pairWingFeatures } from './pairWings';
 import { createLogger } from '../utils/createLogger';
 import { navLineLeads, osmNavLineLeads, withChartTrackSource } from './leadingLine';
-import { cardinalWrongSideMask } from './tier3/cardinalClamp';
 import {
     chartClearanceBars,
     curatedClearanceBars,
     CLEARANCE_STRUCTURE_LAYERS,
-    polylineCrossesClearanceBar,
     type ClearanceBarProperties,
     type ClearanceStructureLayer,
 } from './routing/overheadClearance';
-import type { ChartWaterProbe } from './engine/chartWaterEvidence';
-import {
-    auditUnvouchedHardLand,
-    backstopChartWaterProbe,
-    hardLandAwayFromPinEdges,
-    hazardBufferSegments,
-    MAX_UNVOUCHED_HARD_LAND_RUN_M,
-    unvouchedAlong,
-} from './engine/safetyAudit';
-import { UNCHARTED_MAX_RUN_M } from './engine/constants';
-import { collectShallowRuns, collectSurveyRuns } from './engine/shallowRuns';
-import { routeTierMasks } from './engine/tierPipeline';
+import type { InshoreOrigin, InshoreRouteFailure, InshoreRouteResult, RouteJob } from './routing/routeJob';
+import { routeStopped, runRouteJobHosted, type RouteStage } from './routing/routeWorkerHost';
 
 const log = createLogger('InshoreRouter');
 
@@ -163,299 +129,18 @@ function cellScaleFacts(
  */
 const CLOUD_ROUTER_ENABLED = false;
 
-// Phase 12 shadow router (services/seaway/seawayRouter): logs a one-line
-// graph-vs-direct comparison after every successful LOCAL route. Telemetry
-// only — the user's route is untouched; flip off if the shadow ever shows
-// up in route latency (it rides the grid cache, so it shouldn't).
-const SEAWAY_SHADOW_ENABLED = true;
-
-// Phase 3 (2026-10-01): the lead-graph SHADOW (services/seaway/leadGraphSearch)
-// — would routing over the Phase 1 lead graph (recommended tracks, leading
-// lines, hops between them) have done better? One 'LEAD SHADOW' warn line per
-// LOCAL route, with its own timings. Telemetry only: it never returns and
-// never alters the route; promotion is Phase 3b. Flip off if it shows up in
-// route latency, as with the Seaway shadow.
-const LEAD_GRAPH_SHADOW_ENABLED = true;
-
-// Phase 13 — PROMOTE the Seaway Graph route (it threads dead-centre through the
-// lateral-mark gates by construction) when it is side-correct AND stays within the
-// PER-LEG detour cap. The engine route is computed first regardless and remains the
-// PERMANENT fallback. A compile-time `const` (NOT env/remote) so the minifier
-// dead-code-eliminates the whole promotion branch when off → the shipped binary is
-// provably engine-only and byte-identical to today; flipping it is a one-line commit.
-const SEAWAY_ROUTER_ENABLED = true;
-// PER-LEG (not whole-route) detour cap — a long near-straight open-water connector leg
-// must survive (the Newport→Rivergate direct-bay route).
-const SEAWAY_DETOUR_CAP = 1.35;
-// Effectively 100% gate side-correctness; 0.999 only absorbs float-equality.
-const SEAWAY_GATE_COMPLIANCE_MIN = 0.999;
-
-export function seawayPromotionBlockReason(result: {
-    canalMask?: readonly boolean[];
-    debug?: { threeTier?: string };
-    shallowRuns?: readonly ShallowRunInfo[];
-    pinOffWater?: { origin?: string; destination?: string };
-    dryRuns?: readonly DryRun[];
-}): string | null {
-    const provenance = result.debug?.threeTier ?? '';
-    if (result.canalMask?.some(Boolean)) return 'tier-1 canal/marina mask present';
-    if (provenance.includes('egress-channel')) return 'engine egress-channel gate chain present';
-    if (provenance.includes('canalsnap')) return 'engine canal centreline snap present';
-    // The engine route runs to a pin in charted-shallow water through its own
-    // 'needs tide' tail (decision 7), or says a pin is off the water: a graph
-    // route is drawn by its own connectors, ends short of such a pin and
-    // carries neither (fix-up, 2026-09-30 — measured 22.6 m short of a pin in
-    // charted 1 m water, with no tail and no report).
-    if (result.shallowRuns?.some((r) => r.endpointTail)) return 'engine route ends in a charted needs-tide tail';
-    if (result.pinOffWater?.origin || result.pinOffWater?.destination)
-        return 'engine route reports a pin off the water';
-    // Package 125-05: the engine route crosses dry water — red, each stretch
-    // named — where there is no deeper way round; a graph route drawn by its
-    // own connectors would carry none of that.
-    if (result.dryRuns?.length) return 'engine route crosses dry water (red, named)';
-    return null;
-}
-
-/** Does the polyline enter the bbox ([minLon, minLat, maxLon, maxLat])? A
- * vertex inside, or a segment crossing it (Liang–Barsky clip). */
-export function polylineTouchesBbox(
-    polyline: readonly (readonly [number, number])[],
-    [x0, y0, x1, y1]: readonly [number, number, number, number],
-): boolean {
-    for (let i = 0; i < polyline.length; i++) {
-        const [ax, ay] = polyline[i];
-        if (ax >= x0 && ax <= x1 && ay >= y0 && ay <= y1) return true;
-        if (i === 0) continue;
-        const [bx, by] = polyline[i - 1];
-        const dx = ax - bx;
-        const dy = ay - by;
-        let t0 = 0;
-        let t1 = 1;
-        let inside = true;
-        for (const [p, q] of [
-            [-dx, bx - x0],
-            [dx, x1 - bx],
-            [-dy, by - y0],
-            [dy, y1 - by],
-        ] as const) {
-            if (p === 0) {
-                if (q < 0) inside = false;
-            } else {
-                const r = q / p;
-                if (p < 0) t0 = Math.max(t0, r);
-                else t1 = Math.min(t1, r);
-            }
-        }
-        if (inside && t0 <= t1) return true;
-    }
-    return false;
-}
-
-/**
- * The route a PROMOTED Seaway Graph polyline ships as (Phase 13), with every
- * per-segment fact the planner reads off an engine route. Extracted so it is
- * testable (round 3, 2026-09-30).
- *   • Channel-edge segments render YELLOW; connector approach/exit legs stay
- *     TEAL; caution sampled against the grid so the promoted route sheds red
- *     honestly — the engine's recompute never sees this path. A mask that
- *     does not fit is NO channel, never all-channel: an all-true fallback
- *     painted the whole route yellow, over its red (fix-up, 2026-09-30).
- *   • Its 'needs tide' runs from the engine's own sampler, so the tide chips
- *     survive promotion (a promoted route shipped none; fix-up, 2026-09-30).
- *   • Its survey stretches from the engine's own sampler (owner decision 9).
- *   • Its canal and offshore masks by the engine's own rules
- *     (engine/tierPipeline routeTierMasks; round 3, 2026-09-30): without them
- *     the planner's verified-colour contract (inshoreSegmentStates) failed
- *     and every promoted route drew as unverified dashes that could not be
- *     saved, exported or shared.
- */
-export function promotedSeawayRoute(
-    g: {
-        polyline: [number, number][];
-        channelSegMask: readonly boolean[];
-        cautionSegMask: readonly boolean[];
-        lengthM: number;
-        edgesUsed: string[];
-        gateCount: number;
-        gateCompliance: number | null;
-        detourRatio: number;
-    },
-    grid: NavGrid | undefined,
-    layers: InshoreLayers,
-    opts: { draftM: number; safetyM: number; unchartedPolicy?: 'permissive' | 'strict'; obstructionBufferM?: number },
-    base: {
-        cellsUsed: string[];
-        elapsedMs: number;
-        surveyUncheckedCells?: readonly SurveyUncheckedCell[];
-        structuresUnknownCells?: string[];
-        /** It crosses water a tide must clear where no tide was loaded (decision 11). */
-        tideCheck?: 'not-loaded';
-        /** The tide ceilings the engine routed with (decision 11): a near
-         *  stretch no tide clears is red (round-3 fix-up, 2026-10-03). */
-        tideCeilings?: readonly TideCeiling[];
-    },
-): InshoreRouteResult {
-    const segCount = Math.max(0, g.polyline.length - 1);
-    const chanMask = g.channelSegMask.length === segCount ? [...g.channelSegMask] : new Array(segCount).fill(false);
-    const graphCaution = g.cautionSegMask.length === segCount ? [...g.cautionSegMask] : undefined;
-    // Strict policy: water no source vouches for is caution on the graph route
-    // exactly as on the engine's (round-3 review, 2026-09-30). The graph
-    // sampler reads red only from land or charted-shallow cells, and a no-
-    // evidence cell is UNKNOWN_OPEN (0) — so a promoted route drew a 400 m
-    // uncharted strip teal, or yellow on a channel leg, and saved it verified.
-    const unvouched = grid && opts.unchartedPolicy === 'strict' ? unvouchedAlong(grid, g.polyline) : null;
-    // A charted hazard's buffer is caution on the graph route exactly as on
-    // the engine's (its final hazard audit), at the engine's own default
-    // buffer when the caller names none — and it keeps its red whatever the
-    // tide (owner decision 10, 2026-09-30). Round-4 review (2026-09-30): the
-    // mask only reached the tide depth, so a charted-shallow stretch beside a
-    // drying rock went from red to needs-tide amber on a promoted route.
-    const nearHazard = hazardBufferSegments(
-        g.polyline,
-        layers,
-        opts.obstructionBufferM ?? 30,
-        opts.draftM + opts.safetyM,
-    );
-    // …and a cardinal's wrong side, as on the engine's route (G2, 2026-10-04).
-    const cardinalMask = cardinalWrongSideMask(g.polyline, layers);
-    const cautionMask = graphCaution?.map(
-        (c, i) => c || unvouched?.segMask[i] === true || nearHazard[i] === true || cardinalMask[i],
-    );
-    const tiers = grid ? routeTierMasks(g.polyline, grid, layers, chanMask) : null;
-    // Every segment's clearance from the shallow bands is measured here as on
-    // an engine route (the real-chart check, 2026-10-03): the promoted
-    // route's caution comes from the graph's cell samples, so a segment whose
-    // cells read clean was never measured — Cid Harbour's connector leg 4.3 m
-    // off South Molle's reef was drawn green.
-    const runs =
-        grid && cautionMask
-            ? collectShallowRuns({
-                  layers,
-                  grid,
-                  polyline: g.polyline,
-                  caution: cautionMask,
-                  draftM: opts.draftM,
-                  safetyM: opts.safetyM,
-                  hazardMask: nearHazard,
-                  cardinalMask,
-                  ...(tiers ? { canalMask: tiers.canalMask } : {}),
-                  ...(base.tideCeilings?.length ? { tideCeilings: base.tideCeilings } : {}),
-              })
-            : null;
-    const survey = collectSurveyRuns({
-        layers,
-        polyline: g.polyline,
-        draftM: opts.draftM,
-        safetyM: opts.safetyM,
-        uncheckedCells: base.surveyUncheckedCells,
-        ...(grid ? { grid } : {}),
-    });
-    return {
-        polyline: g.polyline,
-        channelMask: chanMask,
-        tier4Mask: chanMask,
-        cautionMask,
-        ...(tiers ? { canalMask: tiers.canalMask, offshoreMask: tiers.offshoreMask } : {}),
-        ...(runs
-            ? {
-                  shallowRuns: runs.shallowRuns,
-                  chartedShallowMask: runs.chartedShallowMask,
-                  tideDepthM: runs.tideDepthM,
-                  tideNeedM: opts.draftM + opts.safetyM,
-              }
-            : {}),
-        ...(runs && runs.chartedShallowSpans.length > 0 ? { chartedShallowSpans: runs.chartedShallowSpans } : {}),
-        ...(runs
-            ? {
-                  landPaintConflictMask: runs.landPaintConflictMask,
-                  cautionWhy: runs.cautionWhy,
-                  cautionDepthM: runs.cautionDepthM,
-                  cautionNearShallow: runs.cautionNearShallow,
-              }
-            : {}),
-        surveyRuns: survey.surveyRuns,
-        ...(survey.uncheckedCells.length > 0 ? { surveyUncheckedCells: survey.uncheckedCells } : {}),
-        distanceNM: g.lengthM / 1852,
-        cellsUsed: base.cellsUsed,
-        elapsedMs: base.elapsedMs,
-        ...(base.structuresUnknownCells?.length ? { structuresUnknownCells: base.structuresUnknownCells } : {}),
-        ...(base.tideCheck ? { tideCheck: base.tideCheck } : {}),
-        debug: {
-            seaway: {
-                edgesUsed: g.edgesUsed,
-                gateCount: g.gateCount,
-                gateCompliance: g.gateCompliance,
-                detourRatio: g.detourRatio,
-            },
-        },
-    };
-}
-
-/**
- * The engine's own final checks, on a Seaway graph polyline about to be
- * PROMOTED (fix-up, 2026-09-30). A promoted route skipped every one of them —
- * they run inside routeInshore on engine geometry — and a connector that
- * squeezed diagonally through a cable's bar staircase shipped under a 10 m
- * cable with an 18 m mast. Null when the graph route passes:
- *   • never under a structure this mast cannot clear (the exact mast gate);
- *   • never across more unvouched charted land than the engine route it
- *     would replace (the exact hard-land audit — the engine's own figure,
- *     debug.hardLandTotalM, when it ran), nor a run the engine would refuse.
- */
-export function seawayGraphSafetyFault(
-    polyline: readonly [number, number][],
-    layers: InshoreLayers,
-    engine: { polyline: readonly [number, number][]; debug?: { hardLandTotalM?: number } },
-    strict?: { grid: NavGrid | undefined },
-    /** Decision 11 (2026-10-01): the tide ceilings the engine routed with,
-     *  and its draft + safety. */
-    noTide?: { tideCeilings?: readonly TideCeiling[]; needM: number },
-): string | null {
-    const bar = polylineCrossesClearanceBar(polyline, layers.OBSTRN?.features ?? []);
-    if (bar) return `passes under a ${String(bar.properties._structure)} this mast cannot clear`;
-    // Never through water no tide clears (owner decision 11, 2026-10-01) —
-    // the engine route cannot take it, and neither may a graph route. The
-    // engine's own rule (fix-up, 2026-10-01; tideCeiling classifyNoTideRuns):
-    // only a clip — a corner with a way round it right there, no more than
-    // NO_TIDE_CLIP_TOLERANCE_M — is kept; the graph cannot redraw a creek,
-    // and a crossing of any width declines it.
-    if (noTide) {
-        const lookup = tideCeilingLookup(noTide.tideCeilings);
-        const sorted = classifyNoTideRuns(layers, polyline, lookup, noTide.needM, {
-            toleranceM: NO_TIDE_CLIP_TOLERANCE_M,
-        });
-        const across = [...sorted.crossings, ...sorted.splices];
-        if (across.length > 0)
-            return `crosses ${Math.round(across.reduce((m, c) => m + c.run.lengthM, 0))} m of water no tide clears`;
-        // Nor across DRY water (package 125-05 review fix-up, 2026-10-09):
-        // drying ground no known tide lifts to the need — with no tide data,
-        // any drying ground — which the engine names, red (collectDryRuns).
-        // An engine route that names any is never replaced
-        // (seawayPromotionBlockReason), so it crosses none: a graph route
-        // that does would ship it unnamed and follow on one tap. The draft is
-        // only words on a stretch, not read here.
-        const dry = collectDryRuns(layers, polyline, lookup, noTide.needM, noTide.needM);
-        if (dry.length > 0)
-            return `crosses dry water (${dry.map((d) => d.place).join('; ')}) the engine route goes round`;
-    }
-    const graph = auditUnvouchedHardLand(layers, polyline);
-    const engineTotalM = engine.debug?.hardLandTotalM ?? auditUnvouchedHardLand(layers, engine.polyline).totalM;
-    if (graph.maxRunM > MAX_UNVOUCHED_HARD_LAND_RUN_M || graph.totalM > engineTotalM + 1) {
-        return `crosses ${Math.round(graph.totalM)} m of unvouched charted land (engine route ${Math.round(engineTotalM)} m)`;
-    }
-    // Strict policy: the engine's uncharted-water rules (round-3 review,
-    // 2026-09-30) — never a run the engine would refuse ('uncharted-corridor',
-    // over UNCHARTED_MAX_RUN_M), never more no-evidence water than the engine
-    // route it would replace. Both ran only inside routeInshore.
-    if (strict?.grid) {
-        const g = unvouchedAlong(strict.grid, polyline);
-        const e = unvouchedAlong(strict.grid, engine.polyline);
-        if (g.maxRunM > UNCHARTED_MAX_RUN_M || g.totalM > e.totalM + 1) {
-            return `crosses ${Math.round(g.totalM)} m of water no chart vouches for (engine route ${Math.round(e.totalM)} m)`;
-        }
-    }
-    return null;
-}
+// The router's own job moved to services/routing/routeJob.ts (127-ROUTE-W:
+// routing off the main thread): the Seaway promotion's checks and the result
+// types live there, and every import of them from here still works.
+export {
+    polylineTouchesBbox,
+    promotedSeawayRoute,
+    seawayGraphSafetyFault,
+    seawayPromotionBlockReason,
+    type InshoreOrigin,
+    type InshoreRouteFailure,
+    type InshoreRouteResult,
+} from './routing/routeJob';
 
 // Verbose orchestration diagnostics (OSM-coverage dumps, per-tag promotion,
 // Scarborough/marker/midpoint traces, ribbon continuity, full polyline
@@ -465,217 +150,6 @@ export function seawayGraphSafetyFault(
 // Lifecycle (ENTRY/EXIT), GATE, cell-load, and cloud/error logs stay
 // unconditional so field failures remain diagnosable.
 const ROUTE_DEBUG = false;
-
-// ── Types ───────────────────────────────────────────────────────────
-
-export interface InshoreOrigin {
-    lat: number;
-    lon: number;
-}
-
-export interface InshoreRouteResult {
-    polyline: [number, number][]; // [lon, lat]
-    /**
-     * Per-segment caution flag, length `polyline.length - 1`.
-     * true = the segment crosses water that reads too shallow for this
-     * vessel in our coarse public bathymetry (but is not land/hazard).
-     * The map renderer draws these segments red. May be undefined on
-     * cloud results that predate the field — treat undefined as "all
-     * segments normal".
-     */
-    cautionMask?: boolean[];
-    /**
-     * Per-segment canal flag, length `polyline.length - 1`. true = the segment
-     * rides a charted canal centre-line. The map renderer draws these the SAME
-     * red as caution (a canal is careful, slow, narrow water), but it is kept
-     * SEPARATE from cautionMask because the canal is known charted water, not
-     * water-to-verify — so it never inflates the safety/scorecard caution metric.
-     */
-    canalMask?: boolean[];
-    /**
-     * Per-segment tier-2 flag, length `polyline.length - 1`. true = the segment rides
-     * the MARKED-CHANNEL / lead-out leg (lateral marks / recommended track from a
-     * canal-mouth out to bay water). The map renderer draws these YELLOW — pilotage
-     * water — distinct from RED canal/caution, GREEN inshore bay, and DARK BLUE offshore.
-     */
-    channelMask?: boolean[];
-    /**
-     * Deprecated compatibility alias for channelMask. It used to mean "marked
-     * channel" before tier 4 was reserved for offshore.
-     */
-    tier4Mask?: boolean[];
-    /**
-     * Per-segment offshore flag, length `polyline.length - 1`. true = the OFFSHORE leg
-     * (engine TierId 4, off the ENC grid). The map renderer draws these DARK BLUE.
-     * Empty/absent on a fully-inshore route.
-     */
-    offshoreMask?: boolean[];
-    /** Phase 13: present ONLY on a PROMOTED Seaway Graph route (for UI / Bosun
-     *  narration). Absent on every engine-fallback route. */
-    debug?: { seaway?: { edgesUsed: string[]; gateCount: number; gateCompliance: number | null; detourRatio: number } };
-    /**
-     * Charted-shallow caution runs (≥200 m, or an endpoint tail of any
-     * length) with the real charted min depth where the chart vouches one
-     * (null = uncharted/conflict caution — never fabricate a tide window from
-     * those). Substrate for the Phase 7 "clears HH:MM–HH:MM" chips. Absent on
-     * cloud results; a promoted Seaway route carries its own
-     * (promotedSeawayRoute, fix-up 2026-09-30).
-     */
-    shallowRuns?: ShallowRunInfo[];
-    /** Per segment: caution over charted-shallow water (engine
-     *  RouteResult.chartedShallowMask) — it beats a marked channel's yellow. */
-    chartedShallowMask?: boolean[];
-    /** Per segment: the charted depth a tide must lift (engine
-     *  RouteResult.tideDepthM, owner decision 10) — amber where some tide
-     *  gives draft + UKC over it, red where none does; null keeps the red. */
-    tideDepthM?: (number | null)[];
-    /** Draft + UKC the router judged tideDepthM against (engine
-     *  RouteResult.tideNeedM; round-4 review, 2026-09-30). */
-    tideNeedM?: number;
-    /** The renderer's backstop (engine RouteResult.chartedShallowSpans,
-     *  round-3 review, 2026-09-30): charted-shallow stretches of segments the
-     *  grid did not flag caution — drawn red whatever else they are. */
-    chartedShallowSpans?: ChartedShallowSpan[];
-    /** Per segment: caution over decision-1 water (engine
-     *  RouteResult.landPaintConflictMask) — it beats a marked channel's yellow. */
-    landPaintConflictMask?: boolean[];
-    /** Per segment: why a caution segment is caution, read exactly along its
-     *  line (engine RouteResult.cautionWhy, CAUTION_WHY bits; round 2,
-     *  2026-10-02) — GRID_ONLY is not drawn red; every other reason is named. */
-    cautionWhy?: number[];
-    /** Per segment: the charted depth under a SHALLOW caution segment
-     *  (engine RouteResult.cautionDepthM), else null. */
-    cautionDepthM?: (number | null)[];
-    /** Per segment: the shallow band a NEAR_SHALLOW segment passes too close
-     *  to (engine RouteResult.cautionNearShallow), else null. */
-    cautionNearShallow?: (CautionNearShallow | null)[];
-    /** Metres of overland tail trimmed off an inland destination pin —
-     *  present only when the trim fired (route ends at the water's edge). */
-    destinationInlandTrimM?: number;
-    /** A pin on charted land or a drying bank (engine RouteResult.pinOffWater,
-     *  owner decision 7): no charted 'needs tide' tail; the route stops at the
-     *  edge of the bank or the land, never across the drying ground to the
-     *  pin (round 3, 2026-09-30). The route notice says so. A pin in
-     *  charted-shallow water gets the route all the way to it instead, its
-     *  tail a 'needs tide' shallowRuns entry (endpointTail). */
-    pinOffWater?: { origin?: PinOffWater; destination?: PinOffWater };
-    /** A pin in charted-shallow water: its depth, the tide it needs, and
-     *  whether its tail runs direct — or why not (engine RouteResult.pinTail;
-     *  Shane, 2026-10-03). The route notes say why when it does not. */
-    pinTail?: { origin?: PinTail; destination?: PinTail };
-    /** The route's turn off the straight line for deeper water (engine
-     *  RouteResult.depthBend; Port of Airlie, 2026-10-04): the route notes say why. */
-    depthBend?: DepthBend;
-    /** The stretches over water no tide clears the route crosses, red, where
-     *  there is no deeper way round (engine RouteResult.dryRuns; package
-     *  125-05): the route notes name each one. */
-    dryRuns?: DryRun[];
-    /**
-     * Owner decision 11 (2026-10-01): 'not-loaded' when the route crosses
-     * water a tide must clear (a band charted no deeper than draft + UKC) in
-     * a place no tide curve was loaded for before it was computed (offline,
-     * no station, a non-LAT datum, past the per-route cap, a fetch that timed
-     * out — fix-up, 2026-10-01: it used to mean "none loaded anywhere", said
-     * of all-deep routes and never of a partial load). The router cannot
-     * prove water no tide clears there: that stretch routed as before, and
-     * the route says so in one plain caveat.
-     */
-    tideCheck?: 'not-loaded';
-    /**
-     * Cells this route used whose chart data carries no bridge / overhead
-     * cable / overhead pipe layers (converted before schema 2 — "not
-     * extracted", unlike an empty layer, which is "none charted"). The route
-     * was NOT checked against charted overhead clearance there; only the
-     * curated bridge list gated it. Absent when every cell carries them.
-     * Shown next to the route (usePassagePlanner).
-     */
-    structuresUnknownCells?: string[];
-    /**
-     * The route's survey-quality stretches (owner decision 9, 2026-09-30:
-     * "Yes, amber on the route"; engine RouteResult.surveyRuns) — amber where
-     * the survey may be out by more than the keel margin, or is old or
-     * ungraded. Disclosure only. Promoted Seaway routes carry them too.
-     */
-    surveyRuns?: SurveyRunInfo[];
-    /** Cells with no M_QUAL layer that own some of the route: its survey
-     * quality was not checked there (a caveat, never amber). */
-    surveyUncheckedCells?: string[];
-    /**
-     * The charted land this route crosses (2026-10-01 review; engine
-     * debug.hardLandTotalM / hardLandAwayM / hardLandAwayAt): all of it, and
-     * the part away from a pin's own edge, with the middle of its longest
-     * run. The engine refuses only a run over 500 m; Auto refuses any land
-     * away from a pin's edge (services/autoroutingThalassa). Absent when the
-     * audit did not run (a permissive or cloud route).
-     */
-    hardLand?: { totalM: number; awayM: number; awayAt?: [number, number] };
-    /** The localized relax zones the route was built with (engine
-     *  debug.relaxZones): circles round a far-snapped pin where charted land
-     *  was opened as caution so the route could reach the berth. */
-    relaxZones?: { lat: number; lon: number; radiusM: number }[];
-    /** Tide ceilings (the highest tide per place) were loaded before routing
-     *  (owner decision 11), so water no tide clears was ruled out where they
-     *  reach. */
-    tideCeilingsLoaded?: boolean;
-    /** Where the route's canal and marina water came from (Phase 2b,
-     *  2026-10-01): the phone's offline water pack, the Pi's stale copy, or
-     *  none saved for an end — said next to the route (waterPackCaveats).
-     *  Absent when the overlay carried no provenance (a mock). */
-    waterPack?: WaterPackUse;
-    /**
-     * What this route's own charts say at a point — the cells as merged for
-     * it (ranked) plus the OSM water it was routed on — for the satellite land
-     * check (services/routing/landBackstop, 2026-10-02): an ETOPO land sample
-     * counts only where this does not answer 'water'. Every caller of the
-     * check passes it (Auto, the passage planner, the voyage form). In-memory
-     * only — a function, never serialised or cloned; absent when it could not
-     * be built (the check then counts every ETOPO land sample, as before).
-     */
-    chartWater?: ChartWaterProbe;
-    distanceNM: number;
-    cellsUsed: string[];
-    elapsedMs: number;
-}
-
-/**
- * The satellite land check's chart evidence for a finished route
- * (safetyAudit.backstopChartWaterProbe), indexed over the route's own bbox
- * only. Never throws: a probe that cannot be built is left off, and the check
- * then trusts no chart (fail closed).
- */
-function routeChartWater(
-    layers: InshoreLayers,
-    polyline: readonly [number, number][],
-): { chartWater?: ChartWaterProbe } {
-    try {
-        let w = Infinity;
-        let sLat = Infinity;
-        let e = -Infinity;
-        let n = -Infinity;
-        for (const [lon, lat] of polyline) {
-            w = Math.min(w, lon);
-            e = Math.max(e, lon);
-            sLat = Math.min(sLat, lat);
-            n = Math.max(n, lat);
-        }
-        if (!Number.isFinite(w) || !Number.isFinite(sLat)) return {};
-        // A hair of pad: the samples lie on the line, never off it.
-        const pad = 1e-6;
-        return { chartWater: backstopChartWaterProbe(layers, [w - pad, sLat - pad, e + pad, n + pad]) };
-    } catch (err) {
-        log.warn(`chart evidence for the land check unavailable: ${err instanceof Error ? err.message : String(err)}`);
-        return {};
-    }
-}
-
-export interface InshoreRouteFailure {
-    error: string;
-    code?: string;
-    cellsUsed?: string[];
-    /** As InshoreRouteResult.waterPack. With an end's water missing offline,
-     *  `error` leads with that (owner decision 2); the code is the engine's. */
-    waterPack?: WaterPackUse;
-}
 
 // ── Coverage check ──────────────────────────────────────────────────
 
@@ -824,8 +298,46 @@ export function inshoreOverlayBbox(
 // for the same origin/destination on each plan request. Without
 // dedupe, the engine runs the 20 s buildNavGrid twice in parallel.
 // Cache by a coarse origin+destination+draft signature; subsequent
-// concurrent calls return the same Promise.
-const inflightRouteRequests = new Map<string, Promise<InshoreRouteResult | InshoreRouteFailure | null>>();
+// concurrent calls join the same run.
+//
+// 127-ROUTE-W: a run can be stopped. Each entry counts the callers that
+// joined it; a caller that stops detaches alone (its promise rejects with an
+// AbortError), and the run stops (the route worker is ended) when the LAST
+// caller has gone. That last detach takes the entry out of the map at once:
+// a run stopped in the prep still waits out its network calls (up to
+// 20-45 s), and a re-tap of the same leg must start afresh, not join it.
+interface InshoreRun {
+    run: Promise<InshoreRouteResult | InshoreRouteFailure | null>;
+    callers: number;
+    stop: AbortController;
+    stage?: RouteStage;
+    listeners: Set<(stage: RouteStage) => void>;
+}
+const inflightRouteRequests = new Map<string, InshoreRun>();
+
+/** What one run took, for its EXIT line (durations only: no position, name or depth). */
+interface InshoreRunTiming {
+    t0: number;
+    prepMs: number;
+    waitMs: number;
+    handoffMs: number;
+    engineMs: number;
+    shadowMs: number;
+    backMs: number;
+    where?: 'worker' | 'main';
+}
+
+/** The run's hold on its own stop signal, stage listener and timings (tryInshoreRouteInner). */
+interface InshoreRunControl {
+    signal: AbortSignal;
+    onStage: (stage: RouteStage) => void;
+    timing: InshoreRunTiming;
+}
+
+const exitDurations = (t: InshoreRunTiming): string =>
+    t.where
+        ? ` · prep ${t.prepMs} ms · wait ${t.waitMs} ms · handoff ${t.handoffMs} ms · engine ${t.engineMs} ms · shadow ${t.shadowMs} ms · back ${t.backMs} ms · ${t.where}`
+        : '';
 
 export async function tryInshoreRoute(
     origin: InshoreOrigin,
@@ -847,8 +359,17 @@ export async function tryInshoreRoute(
      * curves are loaded for (the chips' own window, so they share the cache;
      * default now). `tideCeilings` hands in the highest tide per place
      * instead of loading it — an empty list means none is known.
+     * 127-ROUTE-W: `signal` stops this caller's wait (and the run, when no
+     * other caller is waiting on it); `onStage` hears the router's stages
+     * (routeWorkerHost RouteStage). A caller that passes neither sees no
+     * change.
      */
-    opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[] } = {},
+    opts: {
+        departureMs?: number;
+        tideCeilings?: readonly TideCeiling[];
+        signal?: AbortSignal;
+        onStage?: (stage: RouteStage) => void;
+    } = {},
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     // Loud entry log so we can tell from a noisy console whether this
     // function is even being called. createLogger silences info() in
@@ -857,40 +378,110 @@ export async function tryInshoreRoute(
     log.warn(
         `ENTRY origin=${origin.lat.toFixed(4)},${origin.lon.toFixed(4)} dest=${destination.lat.toFixed(4)},${destination.lon.toFixed(4)} draft=${draftM}`,
     );
+    const { signal, onStage, ...routeOpts } = opts;
+    if (signal?.aborted) throw routeStopped(signal);
 
     // Dedupe check — quantise to 4 decimal places (~11 m precision)
     // so tiny float jitter between callers still hits the same key.
     // …and the tides it routes with (decision 11 fix-up, 2026-10-01): handed-in
     // ceilings by their quantised set, else the departure's hour — a promise
     // computed with other tides is never shared.
-    const tideKey = opts.tideCeilings
-        ? `tc${tideCeilingLookup(opts.tideCeilings).key}`
-        : `dep${Math.floor((opts.departureMs ?? Date.now()) / 3_600_000)}`;
+    const tideKey = routeOpts.tideCeilings
+        ? `tc${tideCeilingLookup(routeOpts.tideCeilings).key}`
+        : `dep${Math.floor((routeOpts.departureMs ?? Date.now()) / 3_600_000)}`;
     const dedupeKey = `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}_${airDraftM ?? 'na'}_${routeProfile}_${tideKey}`;
-    const inflight = inflightRouteRequests.get(dedupeKey);
-    if (inflight) {
+    let entry = inflightRouteRequests.get(dedupeKey);
+    if (entry) {
         log.warn(`DEDUPE: another call for the same route is already running — returning its promise`);
-        return inflight;
+    } else {
+        entry = startInshoreRun(dedupeKey, origin, destination, draftM, airDraftM, routeProfile, routeOpts);
+        inflightRouteRequests.set(dedupeKey, entry);
     }
+    return joinInshoreRun(dedupeKey, entry, signal, onStage);
+}
+
+/** One caller's wait on a run: it detaches alone when it stops; the last one stops the run. */
+function joinInshoreRun(
+    key: string,
+    entry: InshoreRun,
+    signal: AbortSignal | undefined,
+    onStage: ((stage: RouteStage) => void) | undefined,
+): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
+    entry.callers++;
+    if (onStage) {
+        entry.listeners.add(onStage);
+        if (entry.stage) onStage(entry.stage);
+    }
+    return new Promise((resolve, reject) => {
+        const detach = (): void => {
+            signal?.removeEventListener('abort', onAbort);
+            if (onStage) entry.listeners.delete(onStage);
+        };
+        function onAbort(): void {
+            detach();
+            reject(routeStopped(signal));
+            if (--entry.callers > 0) return;
+            if (inflightRouteRequests.get(key) === entry) inflightRouteRequests.delete(key);
+            entry.stop.abort();
+        }
+        signal?.addEventListener('abort', onAbort, { once: true });
+        entry.run.then(
+            (res) => {
+                detach();
+                resolve(res);
+            },
+            (err) => {
+                detach();
+                reject(err);
+            },
+        );
+    });
+}
+
+function startInshoreRun(
+    key: string,
+    origin: InshoreOrigin,
+    destination: InshoreOrigin,
+    draftM: number,
+    airDraftM: number | null,
+    routeProfile: 'safest' | 'tideAssist' | 'tideDirect',
+    opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[] },
+): InshoreRun {
     // Wall-clock watchdog (reply 19 fix 2): bounds every ASYNC await in
     // the pipeline (cell loads, OSM overlay, marker fetch — AbortSignal
     // is a no-op under the CapacitorHttp patch) so the .finally below
-    // ALWAYS runs and the dedupe map can't wedge on a dead socket. It
-    // cannot interrupt the synchronous engine compute (no JS timer fires
-    // mid-A*; a Worker thread is the eventual fix) — 85 s sits under
-    // Claude A's 90 s caller-side race so this one fires first and
-    // returns a skipper-readable failure instead of an opaque throw.
+    // ALWAYS runs and the dedupe map can't wedge on a dead socket. Since
+    // 127-ROUTE-W it also stops the router itself: the job runs in the route
+    // worker, which the stop ends (on the main-thread fallback the A* still
+    // runs to its end, as before). 85 s sits under Claude A's 90 s
+    // caller-side race so this one fires first and returns a
+    // skipper-readable failure instead of an opaque throw.
     const INSHORE_WATCHDOG_MS = 85_000;
     // Where this route's OSM water came from (Phase 2b): one holder per call,
     // so two routes in flight never read each other's.
     const overlayUse: { overlay?: OsmOverlayProvenance } = {};
-    const promise = withDeadline(
-        tryInshoreRouteInner(origin, destination, draftM, airDraftM, routeProfile, opts, overlayUse),
+    const entry: InshoreRun = {
+        run: Promise.resolve(null),
+        callers: 0,
+        stop: new AbortController(),
+        listeners: new Set(),
+    };
+    const control: InshoreRunControl = {
+        signal: entry.stop.signal,
+        onStage: (stage) => {
+            entry.stage = stage;
+            for (const listener of [...entry.listeners]) listener(stage);
+        },
+        timing: { t0: Date.now(), prepMs: 0, waitMs: 0, handoffMs: 0, engineMs: 0, shadowMs: 0, backMs: 0 },
+    };
+    entry.run = withDeadline(
+        tryInshoreRouteInner(origin, destination, draftM, airDraftM, routeProfile, opts, overlayUse, control),
         INSHORE_WATCHDOG_MS,
         'inshore route',
     )
         .catch((err) => {
             if (err instanceof DeadlineExceeded) {
+                entry.stop.abort();
                 log.warn(
                     `WATCHDOG: inshore route exceeded ${INSHORE_WATCHDOG_MS}ms — failing so retries get a fresh run`,
                 );
@@ -912,24 +503,32 @@ export async function tryInshoreRoute(
             //   • error/code → engine ran but couldn't route
             //   • null → gated out (distance / ENC coverage / no cells)
             // The latter two were previously near-silent at this layer.
+            // 127-ROUTE-W: with how long each stage took and where the router
+            // ran (worker or main) — the first real phone numbers.
+            const took = exitDurations(control.timing);
             if (res && 'polyline' in res) {
-                log.warn(`EXIT: success — ${res.polyline.length} polyline pts, ${res.distanceNM.toFixed(1)} NM`);
+                log.warn(`EXIT: success — ${res.polyline.length} polyline pts, ${res.distanceNM.toFixed(1)} NM${took}`);
             } else if (res && 'error' in res) {
-                log.warn(`EXIT: engine failure — ${res.error} (code=${res.code ?? 'none'})`);
+                log.warn(`EXIT: engine failure — ${res.error} (code=${res.code ?? 'none'})${took}`);
             } else {
-                log.warn(`EXIT: gated null — see prior GATE/STAGE logs for which check failed`);
+                log.warn(`EXIT: gated null — see prior GATE/STAGE logs for which check failed${took}`);
             }
             return res;
         })
         .catch((err) => {
-            log.warn(`EXIT: threw — ${err instanceof Error ? err.message : String(err)}`);
+            const stopped = entry.stop.signal.aborted && err instanceof DOMException && err.name === 'AbortError';
+            log.warn(`EXIT: ${stopped ? 'stopped' : 'threw'} — ${err instanceof Error ? err.message : String(err)}`);
             throw err;
         })
         .finally(() => {
-            inflightRouteRequests.delete(dedupeKey);
+            // Only this run's own entry: a stopped run that finishes late
+            // must not remove the fresh run that replaced it.
+            if (inflightRouteRequests.get(key) === entry) inflightRouteRequests.delete(key);
         });
-    inflightRouteRequests.set(dedupeKey, promise);
-    return promise;
+    // A run every caller has left can still settle (a stopped prep): nobody
+    // is waiting on it, so its rejection is not an unhandled one.
+    entry.run.catch(() => {});
+    return entry;
 }
 
 async function tryInshoreRouteInner(
@@ -940,7 +539,12 @@ async function tryInshoreRouteInner(
     routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
     opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[] } = {},
     overlayUse: { overlay?: OsmOverlayProvenance } = {},
+    run: InshoreRunControl,
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
+    // A run every caller has stopped drops out at its next wait (review
+    // 2026-10-11): it starts no more fetches and no satellite reads beside a
+    // re-tap's fresh run. The waits themselves can't be cancelled.
+    const stillWanted = (): void => run.signal.throwIfAborted();
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {
         log.warn(
@@ -1048,13 +652,9 @@ async function tryInshoreRouteInner(
     // Cells whose data carries no bridge / overhead-clearance layers (below).
     const structuresUnknownCells: string[] = [];
     // Each such cell's extent: the caveat counts only the cells the ROUTE
-    // crosses, not every cell merged for its window (fix-up, 2026-09-30).
+    // crosses, not every cell merged for its window (fix-up, 2026-09-30;
+    // the route job reads it).
     const structuresUnknownBbox = new Map<string, [number, number, number, number]>();
-    const structuresUnknownOn = (polyline: readonly [number, number][]): string[] =>
-        structuresUnknownCells.filter((id) => {
-            const b = structuresUnknownBbox.get(id);
-            return !b || polylineTouchesBbox(polyline, b);
-        });
     // Chart bridges, overhead cables and overhead pipes (Part B): each one this
     // vessel's mast cannot clear — too low, no charted clearance, or no air
     // draft set — becomes a low-clearance bar below (overheadClearance.ts).
@@ -1083,6 +683,7 @@ async function tryInshoreRouteInner(
     const cellExtents = candidateCells.map((c) => ({ id: c.id, bbox: c.bbox }));
     for (const cell of candidateCells) {
         const blob = await loadCellGeoJSON(cell.id);
+        stillWanted();
         if (!blob) {
             log.warn(`cell ${cell.id} listed but GeoJSON not on device — sync via Pi Cache first`);
             continue;
@@ -1672,6 +1273,7 @@ async function tryInshoreRouteInner(
             `OSM overlay fetch failed (continuing chart-only): ${err instanceof Error ? err.message : String(err)}`,
         );
     }
+    stillWanted();
 
     // ── Mapbox vector water — the canal/marina channels the ENC omits ──
     // The breakthrough (2026-06-18): the ENC charts marina lots as land and
@@ -1767,6 +1369,7 @@ async function tryInshoreRouteInner(
             `Mapbox water fetch failed (continuing chart-only): ${err instanceof Error ? err.message : String(err)}`,
         );
     }
+    stillWanted();
 
     // ── Low-clearance structures (air-draft gating) ──
     // A bridge, overhead cable or overhead pipe this vessel's mast cannot
@@ -1819,6 +1422,7 @@ async function tryInshoreRouteInner(
     // For now we only have one regional file (SE QLD). Future regions
     // will live at parallel URLs and the lookup table can grow.
     const regionalMarkersUrl = await pickRegionalMarkersUrl(origin, destination);
+    stillWanted();
     // Step-3 accepted pairs, captured for the Seaway shadow's tier-2
     // gates (regionalGates, 0.7). Stays empty when the regional fetch is
     // skipped or fails — the shadow compiles chart + geometric tiers only.
@@ -1887,6 +1491,7 @@ async function tryInshoreRouteInner(
             );
         }
     }
+    stillWanted();
 
     // Fold ENC cardinals (BOYCAR/BCNCAR) into the hazard set — REGION-INDEPENDENT.
     // (This used to live inside the regionalMarkersUrl gate above, which matches a single
@@ -2002,12 +1607,6 @@ async function tryInshoreRouteInner(
         );
     // The tides started loading with the cells (above).
     const tideCeilings = await tideCeilingsLoad;
-    /** The finished route crosses water a tide must clear where no tide was
-     *  loaded (fix-up, 2026-10-01): offline, a bucket past the cap, a fetch
-     *  that timed out. Only then the caveat — an all-deep route never needed
-     *  a tide, and a partial load used to say nothing. */
-    const tideUnchecked = (polyline: readonly [number, number][]): boolean =>
-        routeCrossesUncheckedShallow(merged, polyline, tideCeilingLookup(tideCeilings), draftM + routeOpts.safetyM);
     log.warn(
         `[noTide] ${tideCeilings.length} place(s) with a tide ceiling for this route${tideCeilings.length > 0 ? `: ${tideCeilings.map((c) => `${c.lat.toFixed(2)},${c.lon.toFixed(2)} top ${c.highestM.toFixed(2)} m / ${c.days} d`).join('; ')}` : ' — water no tide clears cannot be proved here'}`,
     );
@@ -2152,336 +1751,57 @@ async function tryInshoreRouteInner(
             log.warn(`STAGE: cloud router skipped — piCache not available (probe failed or disabled in settings)`);
     }
 
-    if (!result) {
-        try {
-            result = routeInshore(merged, routeOpts);
-        } catch (err) {
-            log.warn(`local inshore route compute threw: ${err instanceof Error ? err.message : String(err)}`);
-            return null;
-        }
-    }
-    const elapsedMs = Date.now() - t0;
-    const computeWhere = routedOnCloud ? 'cloud' : 'local';
-
-    if ('error' in result) {
-        log.warn(`inshore router failed: ${result.error} (${result.code ?? 'no code'})`);
-        return {
-            error: result.error,
-            code: result.code,
-            cellsUsed,
-        };
-    }
-
-    // Success telemetry at info-level (no-op'd in production builds; the
-    // outer tryInshoreRoute wrapper logs a concise EXIT line at warn).
-    log.info(
-        `SUCCESS inshore route ${result.distanceNM.toFixed(2)} NM (${result.polyline.length} pts, ${elapsedMs} ms ${computeWhere}, cells: ${cellsUsed.join(',')})`,
-    );
-    // TEMP diag (2026-06-19): which segmentation actually RENDERED? The [tiers]
-    // ENGAGED lines log every attempt (strict / relaxed / shadow); this is the
-    // ONE that won — its provenance tells us whether the canal span rendered as
-    // finegrid or fell back to a coarse tier-3 passthrough.
-    log.warn(
-        `RENDERED ROUTE prov="${(result as { debug?: { threeTier?: string } }).debug?.threeTier ?? 'n/a'}" (${result.distanceNM.toFixed(1)} NM, ${result.polyline.length} pts)`,
-    );
-    // Full polyline vertex dump (lat,lon) — see exactly where the route
-    // runs without eyeballing the rendered map.
-    if (ROUTE_DEBUG)
-        log.warn(
-            `STAGE: polyline — ${result.polyline.map((p) => `${p[1].toFixed(4)},${p[0].toFixed(4)}`).join('  →  ')}`,
-        );
-    // Per-phase timing breakdown from the engine (only for local
-    // computes — cloud results don't pass timings through yet).
-    if (ROUTE_DEBUG) {
-        const phaseTimings = (result as { phaseTimings?: Record<string, number> }).phaseTimings;
-        if (phaseTimings && Object.keys(phaseTimings).length > 0) {
-            const breakdown = Object.entries(phaseTimings)
-                .map(([k, v]) => `${k}=${v}ms`)
-                .join(' ');
-            log.warn(`STAGE: engine phase timings — ${breakdown}`);
-        }
-    }
-
-    // What Auto must know of how the route was made (2026-10-01 review):
-    // the relax zones it was built with, and whether tides were loaded.
-    const relaxZonesUsed = result.debug?.relaxZones;
-    const routeContext = {
-        ...(relaxZonesUsed && relaxZonesUsed.length > 0
-            ? { relaxZones: relaxZonesUsed.map((z) => ({ lat: z.lat, lon: z.lon, radiusM: z.radiusM })) }
-            : {}),
-        tideCeilingsLoaded: tideCeilings.length > 0,
-    };
-
-    // ── Lead-graph SHADOW (Phase 3, 2026-10-01) ──────────────────────
-    // Placed BEFORE the Seaway block, not after it: a promoted Seaway route
-    // returns early from that block, and the shadow must see every local
-    // route. It reads the route's own cached grid (never builds one) and the
-    // lead graph ONLY if the chart overlay has already compiled it for these
-    // charts (peekLeadGraphForView) — on a miss it logs 'no-graph' and stops.
-    // Review fix-up (2026-10-01): it used to compile the graph on a miss —
-    // the normal case, the overlay is off by default — reading every cell
-    // under the route again, inside the 85 s watchdog and beside the
-    // engine's peak grid memory; and its await let an overdue watchdog fire
-    // before a finished route was delivered. Synchronous now, no await.
-    // try/catch: a shadow failure never reaches the route.
-    if (LEAD_GRAPH_SHADOW_ENABLED && !routedOnCloud) {
-        try {
-            const tLead = Date.now();
-            const grid = routeCachedGrid(merged, routeOpts, result);
-            let w = Math.min(origin.lon, destination.lon);
-            let sLat = Math.min(origin.lat, destination.lat);
-            let e = Math.max(origin.lon, destination.lon);
-            let n = Math.max(origin.lat, destination.lat);
-            for (const [lon, lat] of result.polyline) {
-                w = Math.min(w, lon);
-                e = Math.max(e, lon);
-                sLat = Math.min(sLat, lat);
-                n = Math.max(n, lat);
-            }
-            const leadGraph = grid ? peekLeadGraphForView([w, sLat, e, n], routeOpts.draftM, false, airDraftM) : null;
-            const tGraph = Date.now() - tLead;
-            if (grid && !leadGraph) {
-                log.warn(`LEAD SHADOW: no-graph — not compiled for these charts; skipped (lookup ${tGraph}ms)`);
-            } else {
-                const report = searchLeadGraph({ grid, graph: leadGraph, origin, destination, direct: result });
-                const marks = [
-                    ...(merged.BOYLAT?.features ?? []),
-                    ...(merged.BCNLAT?.features ?? []),
-                ] as PointFeatureLike[];
-                const { chartFeatures, unnumberedMarks } = splitMarkFeatures(marks);
-                const gates =
-                    report.route && chartFeatures.length + unnumberedMarks.length > 0
-                        ? compileSeawayGraph({ chartFeatures, unnumberedMarks }).graph.gates
-                        : [];
-                const verdict = leadPromotionVerdict(report, result, merged, {
-                    checks: {
-                        blockReason: (r: typeof result) =>
-                            seawayPromotionBlockReason(r as Parameters<typeof seawayPromotionBlockReason>[0]),
-                        safetyFault: (polyline, layers, r, strict, noTide) =>
-                            seawayGraphSafetyFault(
-                                polyline,
-                                layers,
-                                r as Parameters<typeof seawayGraphSafetyFault>[2],
-                                strict,
-                                noTide,
-                            ),
-                    },
-                    needM: routeOpts.draftM + routeOpts.safetyM,
-                    tideCeilings,
-                    ...(grid ? { grid } : {}),
-                    strict: routeOpts.unchartedPolicy === 'strict',
-                    gates,
-                });
-                log.warn(
-                    `LEAD SHADOW: ${leadShadowSummary(report, verdict)} graph=${tGraph}ms total=${Date.now() - tLead}ms`,
-                );
-            }
-        } catch (err) {
-            log.warn(`LEAD SHADOW: failed (route unaffected): ${err instanceof Error ? err.message : String(err)}`);
-        }
-    }
-
-    // ── Seaway SHADOW (masterplan Phase 12) ──────────────────────────
-    // Telemetry only: would the Seaway Graph have routed this passage
-    // better? The user gets `result` regardless; the shadow rides the
-    // grid cache (same bbox/params) so its cost is two connector
-    // searches + a tiny graph Dijkstra. warn-level so the numbers show
-    // up in the Xcode console on device — this log IS Phase 12's
-    // deliverable until the scorecard arbitration promotes (Phase 13).
-    // Local computes only (the prepped cloud path predates the seaway
-    // modules; CLOUD_ROUTER_ENABLED is false until Phase 9 anyway).
-    if (SEAWAY_SHADOW_ENABLED && !routedOnCloud) {
-        try {
-            const tShadow = Date.now();
-            const report = shadowCompare(merged, routeOpts, result, { regionalPairs: regionalPairsForShadow });
-            if (report) {
-                log.warn(`SEAWAY SHADOW: ${shadowSummary(report, result.distanceNM)} (${Date.now() - tShadow} ms)`);
-                // Phase 13 — PROMOTE the graph route when it threads the gates side-correctly
-                // and every leg stays within the detour cap. Returns early with the graph
-                // polyline (which passes through every gate midpoint, "geometry is the law"),
-                // structurally skipping the engine post-hoc passes (they only run inside
-                // routeInshore on engine geometry). Any reject falls through to the engine route.
-                if (SEAWAY_ROUTER_ENABLED && report.graph) {
-                    const g = report.graph;
-                    const promotionBlockReason = seawayPromotionBlockReason({
-                        canalMask: (result as { canalMask?: boolean[] }).canalMask,
-                        debug: (result as { debug?: { threeTier?: string } }).debug,
-                        shallowRuns: (result as { shallowRuns?: ShallowRunInfo[] }).shallowRuns,
-                        pinOffWater: (result as { pinOffWater?: InshoreRouteResult['pinOffWater'] }).pinOffWater,
-                        dryRuns: (result as { dryRuns?: DryRun[] }).dryRuns,
-                    });
-                    const promotable =
-                        promotionBlockReason === null &&
-                        g.crossLineViolations === 0 &&
-                        g.gateCompliance !== null &&
-                        g.gateCompliance >= SEAWAY_GATE_COMPLIANCE_MIN &&
-                        g.maxLegDetour <= SEAWAY_DETOUR_CAP &&
-                        g.polyline.length >= 2;
-                    // The engine's final checks, on the graph's own geometry
-                    // (fix-up, 2026-09-30) — only once it is otherwise promotable.
-                    const safetyFault = promotable
-                        ? seawayGraphSafetyFault(
-                              g.polyline,
-                              merged,
-                              result as Parameters<typeof seawayGraphSafetyFault>[2],
-                              routeOpts.unchartedPolicy === 'strict' ? { grid: report.grid } : undefined,
-                              { tideCeilings, needM: routeOpts.draftM + routeOpts.safetyM },
-                          )
-                        : null;
-                    if (promotionBlockReason) {
-                        log.warn(
-                            `SEAWAY ROUTER: graph route SHADOW-ONLY — ${promotionBlockReason}; engine tier route ships`,
-                        );
-                    } else if (safetyFault) {
-                        log.warn(`SEAWAY ROUTER: graph route DECLINED — it ${safetyFault}; engine route ships`);
-                    } else if (promotable) {
-                        log.warn(
-                            `SEAWAY ROUTER: PROMOTED graph route (${g.edgesUsed.length} edges, compliance ${g.gateCompliance}, maxLegDetour ${g.maxLegDetour.toFixed(2)})`,
-                        );
-                        const promoted = promotedSeawayRoute(g, report.grid, merged, routeOpts, {
-                            cellsUsed,
-                            elapsedMs,
-                            surveyUncheckedCells,
-                            structuresUnknownCells: structuresUnknownOn(g.polyline),
-                            ...(tideUnchecked(g.polyline) ? { tideCheck: 'not-loaded' as const } : {}),
-                            tideCeilings,
-                        });
-                        // The land it crosses, on its own geometry (2026-10-01
-                        // review): a promoted route never reports a pin off the
-                        // water (seawayPromotionBlockReason), so all of it counts.
-                        const promotedLand =
-                            routeOpts.unchartedPolicy === 'strict' ? auditUnvouchedHardLand(merged, g.polyline) : null;
-                        const promotedAway = promotedLand
-                            ? hardLandAwayFromPinEdges(promotedLand, { origin: false, destination: false })
-                            : null;
-                        return {
-                            ...promoted,
-                            ...routeChartWater(merged, g.polyline),
-                            ...(promotedLand && promotedAway
-                                ? {
-                                      hardLand: {
-                                          totalM: Math.round(promotedLand.totalM),
-                                          awayM: Math.round(promotedAway.metres),
-                                          ...(promotedAway.at ? { awayAt: promotedAway.at } : {}),
-                                      },
-                                  }
-                                : {}),
-                            ...routeContext,
-                        };
-                    }
-                    log.warn(
-                        `SEAWAY ROUTER: graph route DECLINED — violations=${g.crossLineViolations} ` +
-                            `compliance=${g.gateCompliance} maxLegDetour=${g.maxLegDetour.toFixed(2)} (engine route ships)`,
-                    );
-                }
-            } else if (ROUTE_DEBUG) {
-                log.warn('SEAWAY SHADOW: corridor has no lateral marks — nothing to shadow-sm');
-            }
-        } catch (err) {
-            // Shadow failures must never touch the live route.
-            log.warn(`SEAWAY SHADOW: failed (route unaffected): ${err instanceof Error ? err.message : String(err)}`);
-        }
-    }
-
-    // Mask-desync guard: a mask whose length fits neither per-vertex (n) nor
-    // per-segment (n-1) is silently ignored by the renderer — the whole route
-    // paints single-colour teal with ZERO log output, indistinguishable from a
-    // mask-less route. Name the desync here so it is a console line, not a
-    // silent colour regression.
-    {
-        const n = result.polyline.length;
-        const auditMask = (name: string, m: boolean[] | undefined): void => {
-            if (m && m.length !== n && m.length !== n - 1)
-                log.warn(`MASK DESYNC: ${name}.length=${m.length} vs polyline=${n} — renderer will ignore it`);
-        };
-        const r = result as {
-            cautionMask?: boolean[];
-            canalMask?: boolean[];
-            channelMask?: boolean[];
-            offshoreMask?: boolean[];
-        };
-        auditMask('cautionMask', r.cautionMask);
-        auditMask('canalMask', r.canalMask);
-        auditMask('channelMask', r.channelMask);
-        auditMask('offshoreMask', r.offshoreMask);
-    }
-
-    return {
-        polyline: result.polyline,
-        cautionMask: (result as { cautionMask?: boolean[] }).cautionMask,
-        canalMask: (result as { canalMask?: boolean[] }).canalMask,
-        channelMask: (result as { channelMask?: boolean[] }).channelMask,
-        tier4Mask: (result as { tier4Mask?: boolean[] }).tier4Mask,
-        offshoreMask: (result as { offshoreMask?: boolean[] }).offshoreMask,
-        shallowRuns: (result as { shallowRuns?: ShallowRunInfo[] }).shallowRuns,
-        chartedShallowMask: (result as { chartedShallowMask?: boolean[] }).chartedShallowMask,
-        ...((result as { tideDepthM?: (number | null)[] }).tideDepthM
-            ? { tideDepthM: (result as { tideDepthM?: (number | null)[] }).tideDepthM }
-            : {}),
-        ...(typeof (result as { tideNeedM?: number }).tideNeedM === 'number'
-            ? { tideNeedM: (result as { tideNeedM?: number }).tideNeedM }
-            : {}),
-        landPaintConflictMask: (result as { landPaintConflictMask?: boolean[] }).landPaintConflictMask,
-        ...((result as { cautionWhy?: number[] }).cautionWhy
-            ? { cautionWhy: (result as { cautionWhy?: number[] }).cautionWhy }
-            : {}),
-        ...((result as { cautionDepthM?: (number | null)[] }).cautionDepthM
-            ? { cautionDepthM: (result as { cautionDepthM?: (number | null)[] }).cautionDepthM }
-            : {}),
-        ...((result as { cautionNearShallow?: (CautionNearShallow | null)[] }).cautionNearShallow
-            ? {
-                  cautionNearShallow: (result as { cautionNearShallow?: (CautionNearShallow | null)[] })
-                      .cautionNearShallow,
-              }
-            : {}),
-        ...((result as { chartedShallowSpans?: ChartedShallowSpan[] }).chartedShallowSpans
-            ? { chartedShallowSpans: (result as { chartedShallowSpans?: ChartedShallowSpan[] }).chartedShallowSpans }
-            : {}),
-        destinationInlandTrimM: (result as { destinationInlandTrimM?: number }).destinationInlandTrimM,
-        ...((result as { pinOffWater?: InshoreRouteResult['pinOffWater'] }).pinOffWater
-            ? { pinOffWater: (result as { pinOffWater?: InshoreRouteResult['pinOffWater'] }).pinOffWater }
-            : {}),
-        ...((result as { pinTail?: InshoreRouteResult['pinTail'] }).pinTail
-            ? { pinTail: (result as { pinTail?: InshoreRouteResult['pinTail'] }).pinTail }
-            : {}),
-        ...((result as { depthBend?: DepthBend }).depthBend
-            ? { depthBend: (result as { depthBend?: DepthBend }).depthBend }
-            : {}),
-        // A pin's dry tail with when the boat floats over it (125-05b).
-        ...((result as { dryRuns?: DryRun[] }).dryRuns?.length
-            ? {
-                  dryRuns: pinTailTideWindows(
-                      (result as { dryRuns?: DryRun[] }).dryRuns,
-                      tideCurves,
-                      Math.max(Date.now(), opts.departureMs ?? Date.now()),
-                  ),
-              }
-            : {}),
-        ...(structuresUnknownOn(result.polyline).length > 0
-            ? { structuresUnknownCells: structuresUnknownOn(result.polyline) }
-            : {}),
-        ...((result as { surveyRuns?: SurveyRunInfo[] }).surveyRuns
-            ? { surveyRuns: (result as { surveyRuns?: SurveyRunInfo[] }).surveyRuns }
-            : {}),
-        ...((result as { surveyUncheckedCells?: string[] }).surveyUncheckedCells?.length
-            ? { surveyUncheckedCells: (result as { surveyUncheckedCells?: string[] }).surveyUncheckedCells }
-            : {}),
-        ...(tideUnchecked(result.polyline) ? { tideCheck: 'not-loaded' as const } : {}),
-        ...(typeof result.debug?.hardLandTotalM === 'number'
-            ? {
-                  hardLand: {
-                      totalM: result.debug.hardLandTotalM,
-                      awayM: result.debug.hardLandAwayM ?? result.debug.hardLandTotalM,
-                      ...(result.debug.hardLandAwayAt ? { awayAt: result.debug.hardLandAwayAt } : {}),
-                  },
-              }
-            : {}),
-        ...routeContext,
-        ...routeChartWater(merged, result.polyline),
-        distanceNM: result.distanceNM,
+    // ── The route job (127-ROUTE-W): off the main thread ─────────────
+    // Shane, 2026-10-10: "yes for a short while it looked as though the app
+    // had frozen". From here to the result was one long task on the main
+    // thread: the engine, the lead and Seaway shadows, the promotion and the
+    // result. It is now ONE job (services/routing/routeJob.ts) that runs in the
+    // route worker, or here where a worker cannot start: the same function, so
+    // the same route. Only plain data crosses: the chart overlay's lead graph
+    // is looked up here first (its cache lives on this thread), for the route's
+    // corridor box rather than the finished line's (telemetry only). The tide
+    // curves stay here too; a pin's dry tail gets its tide windows after.
+    const job: RouteJob = {
+        layers: merged,
+        routeOpts,
+        origin,
+        destination,
+        airDraftM,
         cellsUsed,
-        elapsedMs,
+        structuresUnknownCells,
+        structuresUnknownBboxes: [...structuresUnknownBbox],
+        regionalPairs: regionalPairsForShadow,
+        leadGraph: peekLeadGraphForView(inshoreOverlayBbox(origin, destination), routeOpts.draftM, false, airDraftM),
+        tideCeilings,
+        ...(result && routedOnCloud && 'polyline' in result
+            ? { cloud: { polyline: result.polyline, distanceNM: result.distanceNM, elapsedMs: Date.now() - t0 } }
+            : {}),
     };
+    // …and a stop during the last wait (the tides) never posts the job.
+    stillWanted();
+    run.timing.prepMs = Date.now() - run.timing.t0;
+    const hosted = await runRouteJobHosted(job, { signal: run.signal, onStage: run.onStage });
+    Object.assign(run.timing, {
+        waitMs: hosted.waitMs,
+        handoffMs: hosted.handoffMs,
+        engineMs: hosted.output.timings.engineMs,
+        shadowMs: hosted.output.timings.shadowMs,
+        backMs: hosted.backMs,
+        where: hosted.where,
+    });
+    const res = hosted.output.result;
+    // A pin's dry tail with when the boat floats over it (125-05b), from the
+    // tide curves this thread loaded.
+    return res && 'polyline' in res && res.dryRuns?.length
+        ? {
+              ...res,
+              dryRuns: pinTailTideWindows(
+                  res.dryRuns,
+                  tideCurves,
+                  Math.max(Date.now(), opts.departureMs ?? Date.now()),
+              ),
+          }
+        : res;
 }
 
 /**

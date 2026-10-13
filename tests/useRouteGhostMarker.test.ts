@@ -183,6 +183,28 @@ describe('the ghost', () => {
         expect(m.element.style.transform).toBe(''); // only the hull turns
     });
 
+    // 127-11a, audit A12: a damped orientation turn fires 'rotate' every
+    // frame for a second; each one only re-turns the hull, never touches the
+    // path sources or moves the marker.
+    it('a turn of the chart re-turns the hull only: no source is read or written, the marker stays put', () => {
+        mount();
+        act(() => {
+            startPassageLookAhead();
+            publishPassageGhost(GHOST);
+            publishPassageGhostPath(PATH);
+        });
+        const m = markers.made[0];
+        // setLngLat stores a fresh array: the same one afterwards means it was not called.
+        const placed = m.lngLat;
+        const getSource = vi.spyOn(map, 'getSource');
+        map.bearing = 45;
+        act(() => map.fire('rotate'));
+        expect(m.element.querySelector('svg')!.style.transform).toBe('rotate(285deg)');
+        expect(getSource).not.toHaveBeenCalled();
+        expect(m.lngLat).toBe(placed);
+        act(() => stopPassageLookAhead());
+    });
+
     it('cannot be mistaken for the boat, and takes no taps from the chart', () => {
         mount();
         act(() => publishPassageGhost(GHOST));

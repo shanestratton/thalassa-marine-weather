@@ -17,12 +17,8 @@
  * the legend/scrubber column rather than floating centred over the chart.
  */
 import React, { memo } from 'react';
-import {
-    AVAILABLE_MODELS,
-    WIND_OVERLAY_MODELS,
-    type WeatherModelId,
-} from '../../services/weather/MultiModelWeatherService';
-import { SELECTABLE_MODELS } from '../../services/weather/forecastModels';
+import { WIND_OVERLAY_MODELS, type WeatherModelId } from '../../services/weather/MultiModelWeatherService';
+import { windModelLabel } from './deskWind';
 
 /**
  * The Glass-matching five, resolved in WIND_OVERLAY_MODELS order.
@@ -32,13 +28,10 @@ import { SELECTABLE_MODELS } from '../../services/weather/forecastModels';
  * since 2026-07-22. Two reasons, both real: the labels then cannot drift
  * apart again (the chart said "ECMWF IFS" where the Glass said "ECMWF"), and
  * the Glass names are shorter, which is most of the width the row needed to
- * lose. Falls back to the long name if a model has no Glass entry.
+ * lose. Falls back to the long name if a model has no Glass entry. The desk
+ * menu's Wind row names the model through the same helper (deskWind.ts).
  */
-const MODELS = WIND_OVERLAY_MODELS.map((id) => {
-    const m = AVAILABLE_MODELS.find((x) => x.id === id)!;
-    const glass = SELECTABLE_MODELS.find((g) => g.id === m.openMeteoModel);
-    return { id: m.id, label: glass?.label ?? m.name };
-});
+const MODELS = WIND_OVERLAY_MODELS.map((id) => ({ id, label: windModelLabel(id) }));
 
 interface WindModelFieldSelectorProps {
     model: WeatherModelId;

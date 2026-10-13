@@ -118,6 +118,9 @@ describe('tracer: bridges and overhead lines', () => {
         ]);
         persistLegVerdicts(cache as never, 2.4, false, 'fp', 25);
         expect(hydrateLegVerdicts(2.4, false, 'fp', 25)?.get('leg-1')?.grade).toBe('clear');
+        // v5 (127-C-b): a leg with no open chart known under it is banked as a
+        // grade stub, and the stub carries the same mast stamp.
+        expect(hydrateLegVerdicts(2.4, false, 'fp', 25)?.get('leg-1')?.stub).toBe(true);
         expect(hydrateLegVerdicts(2.4, false, 'fp', 18)).toBeNull();
         expect(hydrateLegVerdicts(2.4, false, 'fp', null)).toBeNull();
         localStorage.clear();

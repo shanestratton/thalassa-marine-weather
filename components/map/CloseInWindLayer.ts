@@ -13,14 +13,15 @@
  * draw additively. Same 30 fps cadence, same 60-frame particle life.
  *
  * Panning carries the streaks with the water; a pinch rescales them about the
- * camera. prefers-reduced-motion draws a static arrow field and never starts
+ * camera; a turn of the chart re-aims the flow from the same wind (127-11a),
+ * eased like any change of direction. prefers-reduced-motion draws a static arrow field and never starts
  * the animation loop. The loop runs only while there is something to draw: a
  * hidden app, a 0x0 container (Obs kept alive under display:none) or no local
  * wind stops it. Losing the wind clears the canvas at once, so the last
  * frame's streaks can never stay painted, frozen, in an old direction.
  */
 import { CLOSE_IN_CALM_KT, closeInParticleCount, closeInScreenSpeed, type LocalWind } from './closeInWind';
-import { windParticleColorForKt } from './windRamp';
+import { windParticleColorForKt, type WindPalette } from './windRamp';
 
 export interface CloseInWindMap {
     getContainer(): HTMLElement;
@@ -35,6 +36,8 @@ export interface CloseInWindMap {
 export interface CloseInWindLayerOptions {
     /** The overlay's CSS filter — MapboxVelocityOverlay's PARTICLE_HALO. */
     filter?: string;
+    /** The streak palette for the base under it (windRamp; dark ink on the desk's Light). */
+    palette?: WindPalette;
     /** MapboxVelocityOverlay's PARTICLE_FADE. */
     fade?: number;
     /** MapboxVelocityOverlay's PARTICLE_LINE_WIDTH. */
@@ -78,6 +81,7 @@ export class CloseInWindLayer {
     private readonly reducedMotion: boolean;
     private readonly frameTime: number;
     private readonly random: () => number;
+    readonly palette: WindPalette;
     private readonly requestFrame: (callback: FrameRequestCallback) => number;
     private readonly cancelFrame: (id: number) => void;
 
@@ -110,6 +114,7 @@ export class CloseInWindLayer {
         this.reducedMotion = options.reducedMotion ?? false;
         this.frameTime = 1000 / (options.frameRate ?? 30);
         this.random = options.random ?? Math.random;
+        this.palette = options.palette ?? 'dark';
         const raf = typeof requestAnimationFrame === 'function';
         this.requestFrame =
             options.requestFrame ??
@@ -169,6 +174,7 @@ export class CloseInWindLayer {
             this.map.on('move', this.onMove);
             this.map.on('moveend', this.onMoveEnd);
             this.map.on('resize', this.onResize);
+            this.map.on('rotate', this.onRotate);
             document.addEventListener('visibilitychange', this.onVisibility);
             if (typeof ResizeObserver !== 'undefined') {
                 this.sizeObserver = new ResizeObserver(() => this.onResize());
@@ -198,7 +204,7 @@ export class CloseInWindLayer {
         }
         const first = this.wind === null;
         this.wind = { kt: wind.kt, fromDeg: wind.fromDeg };
-        this.colour = windParticleColorForKt(wind.kt);
+        this.colour = windParticleColorForKt(wind.kt, this.palette);
         const perFrame = (closeInScreenSpeed(wind.kt) * this.frameTime) / 1000;
         // Calm with no direction keeps drifting the way it was going, slowly.
         const heading = wind.fromDeg === null ? this.currentScreenAngle() : this.screenAngle(wind);
@@ -239,6 +245,7 @@ export class CloseInWindLayer {
         this.map.off('move', this.onMove);
         this.map.off('moveend', this.onMoveEnd);
         this.map.off('resize', this.onResize);
+        this.map.off('rotate', this.onRotate);
         document.removeEventListener('visibilitychange', this.onVisibility);
         this.sizeObserver?.disconnect();
         this.sizeObserver = null;
@@ -407,6 +414,16 @@ export class CloseInWindLayer {
         if (this.destroyed) return;
         this.resize();
         this.resetAnchor();
+    };
+
+    /** The chart turned: the same wind flows another way on screen (the easing in stepFrame smooths it). */
+    private readonly onRotate = (): void => {
+        const wind = this.wind;
+        if (!wind || wind.fromDeg === null) return;
+        const speed = Math.hypot(this.targetVx, this.targetVy);
+        const heading = this.screenAngle(wind);
+        this.targetVx = Math.cos(heading) * speed;
+        this.targetVy = Math.sin(heading) * speed;
     };
 
     private readonly onVisibility = (): void => {

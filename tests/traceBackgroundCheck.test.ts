@@ -206,6 +206,29 @@ describe('traceBackgroundCheck', () => {
         expect(loadSavedTraces().find((t) => t.id === A)?.verification).toBeUndefined();
     });
 
+    it('over licensed charts a danger leg is stored as "no-go leg", never its charted depth (127-C-b)', async () => {
+        setLogPageActive(true);
+        enqueueTraceChecks([A], 'sheet');
+        await vi.waitFor(() => expect(calls).toHaveLength(1));
+        calls[0].resolve({
+            ok: false,
+            reason: 'Acknowledge the no-go leg in Route report before saving, exporting or sailing.',
+            needsTracer: true,
+            report: {
+                verdicts: [verdict('clear'), verdict('danger', 'thin water — 1.6 m charted at low tide (LAT)')],
+                tideWindowLabel: '',
+                status: 'ready',
+                ackableDangerLegs: [1],
+            },
+        });
+        await vi.waitFor(() => expect(getTraceCheckOutcome(A)?.kind).toBe('finding'));
+        expect(getTraceCheckOutcome(A)?.legs).toEqual([{ from: 2, to: 3, message: 'no-go leg' }]);
+        const stored = Array.from({ length: localStorage.length }, (_, i) =>
+            localStorage.getItem(localStorage.key(i)!),
+        );
+        expect(stored.join('\n')).not.toContain('1.6 m');
+    });
+
     it('an ACKNOWLEDGED danger leg is not a finding: a failed tide lookup stays amber "tide", not red', async () => {
         // Fictional Hauraki Gulf passage (NZ): Westhaven → Rangitoto Channel →
         // Waiheke. Leg 1 (pins 1→2) has a charted wreck the skipper accepted

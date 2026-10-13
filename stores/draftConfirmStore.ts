@@ -3,7 +3,8 @@
  * 2.40 m. Please confirm." (Shane 2026-09-29).
  *
  * Anything that plans against the draft — ⚡ Auto route, the Auto routing
- * trial, the inshore departure sweep, "Show charted leads" — calls
+ * trial, the inshore departure sweep, "Show charted leads", Plan Your Day's
+ * "Route round the land" — calls
  * requireConfirmedDraft(reason) (or runWithConfirmedDraft) before it
  * runs. A confirmed draft passes straight through; otherwise the single
  * <DraftConfirmModal/> that App mounts asks once, and the promise resolves
@@ -25,7 +26,13 @@ import { useSettingsStore } from './settingsStore';
 const log = createLogger('DraftConfirm');
 
 /** What asked — for the log and the dialog's data attribute; the copy is the same for all. */
-export type DraftConfirmReason = 'auto-route' | 'autorouting-trial' | 'departure-sweep' | 'charted-leads';
+export type DraftConfirmReason =
+    | 'auto-route'
+    | 'autorouting-trial'
+    | 'departure-sweep'
+    | 'charted-leads'
+    /** Plan Your Day's "Route round the land" (127-PYD-2). */
+    | 'day-plan';
 
 export interface DraftConfirmRequest {
     id: number;

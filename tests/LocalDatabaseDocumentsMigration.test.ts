@@ -2,8 +2,9 @@
  * Private vessel records left the Files-visible Documents folder.
  *
  * Info.plist turns on UIFileSharingEnabled + LSSupportsOpeningDocumentsInPlace
- * so the S-63 chart fingerprint is findable in the Files app — a deliberate
- * export. That makes the WHOLE Documents folder browsable, and LocalDatabase
+ * (first for the S-63 chart fingerprint export, retired in 127; an old
+ * fingerprint file is left where it is). That makes the WHOLE Documents
+ * folder browsable, and LocalDatabase
  * was writing inventory, maintenance history, ship documents, crew profiles
  * and the sync queue there as plaintext JSON (external audit, 2026-09-05).
  *

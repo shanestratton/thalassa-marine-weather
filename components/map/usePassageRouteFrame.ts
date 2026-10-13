@@ -11,6 +11,7 @@ import {
     validFramePoint,
     type FramePoint,
 } from './passageRouteFrame';
+import { chartFitBearing } from './chartOrientation';
 
 const PHONE_MAX_AGE_MS = 10 * 60_000;
 
@@ -111,7 +112,9 @@ export function usePassageRouteFrame({ mapRef, mapReady, enabled, route, routeKe
                     padding,
                     maxZoom: 14,
                     duration: 0,
-                    bearing: 0,
+                    // The orientation mode's bearing (127-11a): bearing 0 here
+                    // and a turning mode would re-fit and re-turn for ever.
+                    bearing: chartFitBearing(map),
                     pitch: 0,
                     retainPadding: false,
                 });

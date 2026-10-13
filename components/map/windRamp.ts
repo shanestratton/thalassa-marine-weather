@@ -121,22 +121,58 @@ export const WIND_PARTICLE_COLORS: string[] = WIND_COLORS.map((hex, k) =>
 );
 
 /**
+ * The streaks on the desk's LIGHT base (127-DESKMAP-b). White measured
+ * 1.3-2.0:1 on Light's pale sea and the reef orange 1.4-2.2:1: the field would
+ * vanish on the base the desk opens on. Same buckets; below 20 kt a slate ink
+ * (7:1 on every Light colour), from the reef line up each band's own hue
+ * family darkened to 4.5:1 on every Light water and land colour. Not 3: the
+ * field draws 1 px antialiased lines at 0.88 alpha and adds where trails meet
+ * ('lighter'), which took 3:1 inks to 2.5:1 on screen and 4:1 inks to 2.7:1;
+ * at 4.5:1 the streaks' cores land 3:1 as drawn. Darkening every band to one
+ * lightness made neighbours run together (25-30 and 30-34 kt nearly one red,
+ * 20-25 and 25-30 one colour to a deutan eye), so the inks alternate in
+ * lightness as well as hue: each pair of neighbours stays ΔE2000 ≥ 10 for
+ * normal, deutan and protan vision, and the 30 kt cross-family flip still
+ * reads. (tests/windRamp.test.ts holds the inks against reliefBase's
+ * LIGHT_PALETTE, browser-tests/desk-wind-layout.spec.ts the pixels.)
+ */
+const LIGHT_HUES: Record<string, string> = {
+    '#ee7a0b': '#862200',
+    '#e63020': '#650b19',
+    '#ee2b74': '#7a294a',
+    '#cf35bd': '#4e1c54',
+    '#a24ef0': '#4d21ba',
+    '#6d28d9': '#31256f',
+};
+export const WIND_PARTICLE_COLORS_LIGHT: string[] = WIND_COLORS.map((hex, k) =>
+    k < WIND_PARTICLE_WHITE_BELOW_KT ? '#1e2b38' : LIGHT_HUES[hex],
+);
+/** Which streak palette: 'light' for a pale base (the desk's Light by day), 'dark' everywhere else. */
+export type WindPalette = 'light' | 'dark';
+const particleColors = (palette: WindPalette) =>
+    palette === 'light' ? WIND_PARTICLE_COLORS_LIGHT : WIND_PARTICLE_COLORS;
+
+/**
  * The streak colour for one speed, bucketed exactly as windColorForKt — for
  * the close-in renderer (CloseInWindLayer), which draws the whole view in the
  * one local wind rather than handing leaflet-velocity a colour scale.
  */
-export function windParticleColorForKt(kt: number): string {
+export function windParticleColorForKt(kt: number, palette: WindPalette = 'dark'): string {
+    const colors = particleColors(palette);
     const v = kt * KT_TO_MS;
-    if (!Number.isFinite(v) || v <= 0) return WIND_PARTICLE_COLORS[0];
-    if (v >= WIND_MAX_MS) return WIND_PARTICLE_COLORS[WIND_PARTICLE_COLORS.length - 1];
-    const i = Math.floor((WIND_PARTICLE_COLORS.length * v) / WIND_MAX_MS);
-    return WIND_PARTICLE_COLORS[Math.min(Math.max(i, 0), WIND_PARTICLE_COLORS.length - 1)];
+    if (!Number.isFinite(v) || v <= 0) return colors[0];
+    if (v >= WIND_MAX_MS) return colors[colors.length - 1];
+    return colors[Math.min(Math.floor((colors.length * v) / WIND_MAX_MS), colors.length - 1)];
 }
 
-/** The legend for the streaks: WIND_GRADIENT with the sub-20 kt bands white. */
-export const WIND_PARTICLE_GRADIENT = `linear-gradient(to top, ${WIND_BANDS.map((b, i) => {
-    const fromKt = i === 0 ? 0 : WIND_BANDS[i - 1].toKt;
-    const pct = (kt: number) => ((kt / WIND_TOP_KT) * 100).toFixed(2);
-    const hex = b.toKt <= WIND_PARTICLE_WHITE_BELOW_KT ? WIND_PARTICLE_WHITE : b.hex;
-    return `${hex} ${pct(fromKt)}%, ${hex} ${pct(b.toKt)}%`;
-}).join(', ')})`;
+/** The legend for the streaks, hard stops at the band edges, bottom-up: the palette's own inks. */
+const particleGradient = (palette: WindPalette) =>
+    `linear-gradient(to top, ${WIND_BANDS.map((b, i) => {
+        const fromKt = i === 0 ? 0 : WIND_BANDS[i - 1].toKt;
+        const pct = (kt: number) => ((kt / WIND_TOP_KT) * 100).toFixed(2);
+        const hex = particleColors(palette)[fromKt];
+        return `${hex} ${pct(fromKt)}%, ${hex} ${pct(b.toKt)}%`;
+    }).join(', ')})`;
+/** WIND_GRADIENT with the sub-20 kt bands white. */
+export const WIND_PARTICLE_GRADIENT = particleGradient('dark');
+export const WIND_PARTICLE_GRADIENT_LIGHT = particleGradient('light');

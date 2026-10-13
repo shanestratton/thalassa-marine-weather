@@ -44,6 +44,13 @@ import { createLogger } from '../utils/createLogger';
 import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from './piPublicBetaBoundary';
 import { piPairingFetch, piRequest, type PiTlsResponse } from './piTls';
 import { utf8ByteLength } from './enc/types';
+import {
+    getSecureValue,
+    removeSecureValue,
+    SECURE_PI_CHART_DEVICE_KEY,
+    setSecureValue,
+    usesNativeSecureStorage,
+} from './auth/secureStorage';
 
 const log = createLogger('PiPairing');
 
@@ -96,6 +103,7 @@ export function savePairing(record: PiPairingRecord): void {
 
 export function forgetPairing(): void {
     localStorage.removeItem(PAIRING_KEY);
+    dropChartDevice();
 }
 
 /** Hosts that have ever advertised pairing support — the no-downgrade list. */
@@ -143,6 +151,144 @@ export function markHostPairable(host: string): void {
 export function isLegacyPlainConnectionAllowed(host: string): boolean {
     if (!PI_INTEGRATION_ENABLED) return false;
     return getPairing() === null && !seenPairableHosts().has(host);
+}
+
+// ── This phone's chart device token (127-C-d) ─────────────────────
+//
+// Pi update 3 serves /api/enc/* only to phones and tablets it enrolled by
+// code (services/enc/piChartDevice.ts). The token it issued is kept in the
+// Keychain (this device only: never iCloud or a backup), read once per launch
+// and then held here. It is bound to the Pi's deviceId AND the key pinned when
+// it was issued: the deviceId alone is public (/api/pair/info), and a Keychain
+// record can outlive a reinstall. It goes out as one header on /api/enc/* and
+// nowhere else: never a URL, a log line or localStorage. Today's Pi (update 2)
+// ignores the header, so with or without a token charts load from it exactly
+// as before.
+
+const CHART_DEVICE_HEADER = 'X-Thalassa-Chart-Device';
+
+interface ChartDeviceCredential {
+    /** The paired Pi's deviceId and pinned key (publicKeySpki) when the token was issued. */
+    pi: string;
+    key: string;
+    id: string;
+    token: string;
+}
+
+let chartCredential: Promise<ChartDeviceCredential | null> | undefined;
+
+function loadChartCredential(): Promise<ChartDeviceCredential | null> {
+    chartCredential ??= (async () => {
+        if (!usesNativeSecureStorage()) return null; // the browser lane keeps it in memory only
+        const raw = await getSecureValue(SECURE_PI_CHART_DEVICE_KEY);
+        try {
+            return raw ? (JSON.parse(raw) as ChartDeviceCredential) : null;
+        } catch {
+            return null;
+        }
+    })().catch(() => {
+        // Keychain not readable yet (before the first unlock): ask again next time.
+        chartCredential = undefined;
+        return null;
+    });
+    return chartCredential;
+}
+
+async function currentChartCredential(): Promise<ChartDeviceCredential | null> {
+    const pairing = getPairing();
+    if (!pairing) return null;
+    const c = await loadChartCredential();
+    return c?.token && c.pi === pairing.deviceId && c.key === pairing.publicKeySpki ? c : null;
+}
+
+/** This phone's chart device for the paired Pi, or null. Never the token. */
+export async function getChartDevice(): Promise<{ chartDeviceId: string } | null> {
+    const c = await currentChartCredential();
+    return c ? { chartDeviceId: c.id } : null;
+}
+
+/**
+ * Keep the token the paired Pi issued at enrolment. It is held for this launch
+ * first: the Pi has spent the one-time code by now, so a Keychain that refuses
+ * it must not lose it too. False when only this launch has it.
+ */
+export async function saveChartDevice(device: { chartDeviceId: string; token: string }): Promise<boolean> {
+    const pairing = getPairing();
+    if (!pairing) throw new Error('Not paired');
+    const c = { pi: pairing.deviceId, key: pairing.publicKeySpki, id: device.chartDeviceId, token: device.token };
+    chartCredential = Promise.resolve(c);
+    try {
+        if (usesNativeSecureStorage()) await setSecureValue(SECURE_PI_CHART_DEVICE_KEY, JSON.stringify(c));
+        return true;
+    } catch {
+        log.warn('chart token kept for this launch only: the Keychain refused it');
+        return false;
+    }
+}
+
+/** Forget this phone's chart token: on Forget, and when the Pi says it removed this phone. */
+export function dropChartDevice(): void {
+    chartCredential = Promise.resolve(null);
+    void (async () => {
+        if (usesNativeSecureStorage()) await removeSecureValue(SECURE_PI_CHART_DEVICE_KEY);
+    })().catch(() => log.warn('chart token not cleared from the Keychain'));
+}
+
+function isEncUrl(url: string): boolean {
+    try {
+        const path = new URL(url).pathname;
+        return path === '/api/enc' || path.startsWith('/api/enc/');
+    } catch {
+        return false;
+    }
+}
+
+/** The request's headers, plus the chart device token on /api/enc/* only. */
+async function withChartDevice(
+    url: string,
+    headers: Record<string, string> | undefined,
+): Promise<Record<string, string> | undefined> {
+    const c = isEncUrl(url) ? await currentChartCredential() : null;
+    return c ? { ...headers, [CHART_DEVICE_HEADER]: c.token } : headers;
+}
+
+// ── Errors ─────────────────────────────────────────────────────────
+
+/**
+ * A Pi answer that was not 2xx, with the Pi's own refusal code when its JSON
+ * body carried one (`{code}`). The message stays `HTTP <status>`, as callers
+ * read it before this existed. services/enc/piChartAccessWords.ts has the words.
+ */
+export class PiHttpError extends Error {
+    readonly status: number;
+    readonly code?: string;
+    constructor(status: number, code?: string) {
+        super(`HTTP ${status}`);
+        this.name = 'PiHttpError';
+        this.status = status;
+        this.code = code;
+    }
+}
+
+/** The PiHttpError for a refused response. */
+export function piHttpError(res: { status: number; data?: unknown }): PiHttpError {
+    let code: unknown;
+    try {
+        code = (JSON.parse(String(res.data)) as { code?: unknown } | null)?.code;
+    } catch {
+        /* an HTML error page or an empty body: no code */
+    }
+    return new PiHttpError(res.status, typeof code === 'string' && /^[a-z0-9-]{1,64}$/.test(code) ? code : undefined);
+}
+
+/** A refusal on /api/enc/*; 'chart-device-removed' means the Pi took this phone off its list. */
+function encRefusal(url: string, res: PiTlsResponse): PiHttpError {
+    const error = piHttpError(res);
+    if (error.code === 'chart-device-removed' && isEncUrl(url)) {
+        log.warn('the Pi removed this chart device');
+        dropChartDevice();
+    }
+    return error;
 }
 
 // ── Crypto ─────────────────────────────────────────────────────────
@@ -350,7 +496,13 @@ export async function pinnedPiRequest(options: {
     responseType?: 'text' | 'arraybuffer';
 }): Promise<PiTlsResponse> {
     if (!PI_INTEGRATION_ENABLED) throw new Error(PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE);
-    return piRequest({ ...options, pinnedSpki: getPairing()?.publicKeySpki });
+    const res = await piRequest({
+        ...options,
+        headers: await withChartDevice(options.url, options.headers),
+        pinnedSpki: getPairing()?.publicKeySpki,
+    });
+    if (res.status === 401) encRefusal(options.url, res);
+    return res;
 }
 
 export async function fetchVerifiedFromPi<T>(options: {
@@ -387,7 +539,7 @@ export async function fetchVerifiedFromPi<T>(options: {
     const res = await piRequest({
         url,
         method,
-        headers: method === 'POST' ? { 'Content-Type': 'application/json' } : undefined,
+        headers: await withChartDevice(url, method === 'POST' ? { 'Content-Type': 'application/json' } : undefined),
         data: method === 'POST' ? data : undefined,
         pinnedSpki: getPairing()?.publicKeySpki,
         connectTimeout,
@@ -395,7 +547,7 @@ export async function fetchVerifiedFromPi<T>(options: {
         responseType: 'text',
     });
 
-    if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
+    if (res.status < 200 || res.status >= 300) throw encRefusal(url, res);
     const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
     if (maxResponseBytes !== undefined) {
         if (!Number.isFinite(maxResponseBytes) || maxResponseBytes <= 0) throw new Error('Invalid response size limit');

@@ -51,7 +51,8 @@ const proposalEvidence = (positions = points): SavedAutoroutingProposalEvidence 
         geometryKey: autoroutingProposalGeometryKey(positions.map((p) => [p.lon, p.lat])),
         draftM: 1.5,
         draftAssumed: true,
-        registryFingerprint: 'charts',
+        // Open (NOAA) charts: the transport tests below carry full evidence.
+        registryFingerprint: 'US5XX01M@1@2026-09-01@100',
         checkedAt: '2026-09-13T00:01:00Z',
         vesselProfileKey: 'null',
     },
@@ -309,6 +310,57 @@ describe('savedRoutesSync — canonical chain and deletion integrity', () => {
             },
         ];
         expect((await syncSavedRoutes())[0]).toEqual(result.trace);
+    });
+
+    it('a pulled row with full evidence over licensed charts is stored stripped and pushed again once (127-C-b)', async () => {
+        const base = proposalEvidence();
+        const full = {
+            ...base,
+            basis: { ...base.basis, registryFingerprint: 'OC-99-ZZTEST@2@2026-08-01@unknown' },
+            warnings: ['Water charted 1.37 m at Passe Fictive.'],
+            legs: [
+                {
+                    grade: 'caution' as const,
+                    incomplete: false,
+                    minDepthM: 1.37,
+                    minAt: { lat: -27.2311, lon: 153.2177 },
+                    issues: [
+                        {
+                            severity: 'caution' as const,
+                            message: 'thin water — 1.37 m charted',
+                            at: { lat: -27.2311, lon: 153.2177 },
+                        },
+                    ],
+                },
+            ],
+        };
+        mocks.rows = [
+            {
+                id: 'remote-licensed',
+                name: 'Remote proposal',
+                created_at: '2026-09-13T00:02:00Z',
+                updated_at: '2026-09-13T00:03:00Z',
+                points: points.map((p) => [p.lat, p.lon]),
+                proposal_evidence: full,
+            },
+        ];
+        const [saved] = await syncSavedRoutes();
+        expect(saved.proposalEvidence?.legs).toEqual([
+            { grade: 'caution', incomplete: false, minDepthM: null, minAt: null, issues: [] },
+        ]);
+        const stored = Array.from({ length: localStorage.length }, (_, i) =>
+            localStorage.getItem(localStorage.key(i)!),
+        );
+        for (const figure of ['1.37', 'Passe Fictive', '153.2177']) expect(stored.join('\n')).not.toContain(figure);
+        await vi.waitFor(() => expect(mocks.upsert).toHaveBeenCalledTimes(1));
+        const pushed = mocks.upsert.mock.calls[0][0];
+        expect(pushed.id).toBe('remote-licensed');
+        expect(pushed.proposal_evidence).toEqual(saved.proposalEvidence);
+        // The account now holds the stripped copy: the next pull sends nothing.
+        mocks.rows = [{ ...mocks.rows[0], proposal_evidence: pushed.proposal_evidence }];
+        await syncSavedRoutes();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(mocks.upsert).toHaveBeenCalledTimes(1);
     });
 
     it('snapshots before asynchronous auth lookup and fences a changed account', async () => {

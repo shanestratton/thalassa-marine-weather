@@ -64,6 +64,8 @@ describe('own-ship label obstacle', () => {
         expect(layer.layout['icon-ignore-placement']).toBe(false);
         // The chip is to the right of the dot, so the box is too.
         expect(layer.layout['icon-anchor']).toBe('left');
+        // The marker stays upright on a turned chart (127-11a, A4); so does its box.
+        expect(layer.layout['icon-rotation-alignment']).toBe('viewport');
     });
 
     it('moves with the fix, and leaves with the marker', () => {

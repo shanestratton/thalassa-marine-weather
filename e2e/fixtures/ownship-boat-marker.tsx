@@ -30,6 +30,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import {
     createVesselElement,
+    OWNSHIP_MARKER_OPTIONS,
     presentOwnshipDirection,
     presentOwnshipStatus,
     presentOwnshipWind,
@@ -324,13 +325,13 @@ if (windParam) {
             { kind: 'boat', crewOwnerId: null },
             windUnit,
         ),
+        map.getBearing(),
     );
 }
 el.setAttribute('role', 'img');
 el.setAttribute('aria-label', `${boatName}, ${spokenStatus}; ${spokenDirection}${spokenWind ? `; ${spokenWind}` : ''}`);
-new mapboxgl.Marker({ element: el, anchor: 'center', rotationAlignment: 'map', pitchAlignment: 'map' })
-    .setLngLat(BOAT)
-    .addTo(map);
+// The production marker's own options: upright on screen however the chart is turned (127-11a).
+new mapboxgl.Marker({ element: el, ...OWNSHIP_MARKER_OPTIONS }).setLngLat(BOAT).addTo(map);
 
 // ── Current Location: the phone's own dot where the chart centres (useLocationDot) ──
 // With a place chosen it is drawn too, where the phone is (126-18).

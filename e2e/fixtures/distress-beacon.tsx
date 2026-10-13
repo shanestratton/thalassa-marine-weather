@@ -339,21 +339,8 @@ async function map() {
             };
         });
         m.addSource('ais-targets', { type: 'geojson', data: { type: 'FeatureCollection', features } });
-        // The chart's AIS target layer (components/map/useMapInit.ts), its symbol expressions shared.
-        m.addLayer({
-            id: 'ais-targets-circle',
-            type: 'symbol',
-            source: 'ais-targets',
-            layout: {
-                'icon-image': symbol.AIS_TARGET_ICON_IMAGE as unknown as mapboxgl.Expression,
-                'icon-size': symbol.AIS_TARGET_ICON_SIZE as unknown as mapboxgl.Expression,
-                'icon-rotate': ['coalesce', ['get', 'orientation'], 0],
-                'icon-rotation-alignment': 'map',
-                'icon-allow-overlap': true,
-                'icon-pitch-alignment': 'map',
-            },
-            paint: { 'icon-color': ['coalesce', ['get', 'typeColor'], ['get', 'statusColor']] },
-        });
+        // The chart's own AIS target layers (components/map/aisDistressSymbol.ts, as useMapInit adds them).
+        for (const layer of symbol.AIS_TARGET_ICON_LAYERS) m.addLayer(layer as unknown as mapboxgl.AnyLayer);
         loaded = true;
     });
 
@@ -367,7 +354,9 @@ async function map() {
         const background = probe(0, -200);
         return {
             placed: m
-                .queryRenderedFeatures(undefined as unknown as mapboxgl.PointLike, { layers: ['ais-targets-circle'] })
+                .queryRenderedFeatures(undefined as unknown as mapboxgl.PointLike, {
+                    layers: ['ais-targets-circle', symbol.AIS_SART_LAYER],
+                })
                 .map((f) => ({ mmsi: Number(f.properties?.mmsi), iconKind: String(f.properties?.iconKind) })),
             hasImage: m.hasImage(symbol.AIS_DISTRESS_ICON),
             painted: background[3] > 0,

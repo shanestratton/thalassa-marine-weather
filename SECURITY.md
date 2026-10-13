@@ -46,7 +46,12 @@ CSP is defined in both `index.html` (meta tag) and `vercel.json` (HTTP header).
 - `frame-src 'none'` — no iframes allowed
 - `base-uri 'self'` — prevents base tag injection
 - `object-src 'none'` and `form-action 'self'` are present in the configured Vercel HTTP policy
-- `connect-src` is a constrained allowlist; it still includes required direct Deepgram, Open-Meteo, and Google origins
+- `connect-src` is a constrained allowlist; it still includes required direct Deepgram and Google origins. Open-Meteo
+  is no longer listed (127-H): every Open-Meteo request goes through the Supabase edge functions to the customer
+  endpoints, with `OPEN_METEO_API_KEY` held only in edge function secrets. The CSP blocks the free hosts only for a
+  browser on the production web: the iOS app's requests go through native `CapacitorHttp`, which no CSP governs, and
+  `index.html`'s meta policy keeps a bare `http:` source (CSP3 lets it match https too). The real gate everywhere is
+  the source scan in `tests/OpenMeteoSecretBoundary.test.ts`.
 
 These are source and hosting-configuration properties, not deployment evidence. The hosted preview must return the
 expected headers and pass the release smoke before the HTTP policy can be described as deployed.

@@ -199,7 +199,7 @@ Shane, 2026-10-02: "Trust the detailed chart". His third route crossed Cid
 Harbour (between Cid Island and Whitsunday Island). The map drew the harbour
 as brown land with 16–35 m soundings inside it, and the leg was red, "Danger
 reported · review required", with Save blocked. On the Pi's cells at
-148.935° E, 20.255° S, the 1:3,500,000 overview AU130120 paints land, the
+one point on the route, the 1:3,500,000 overview AU130120 paints land, the
 1:1,500,000 AU230140 charts 0–30 m, and the 1:90,000 AU421148 charts
 10–15 m.
 
@@ -272,7 +272,7 @@ reported · review required", with Save blocked. On the Pi's cells at
       router had opened; with the protection kept, it does not. One finding
       is not fixed here: the new line's 5.9 km chord to Daydream clips the
       north-east corner of a charted obstruction area in AU421148 (foul ground
-      that covers and uncovers, 208 × 285 m, near 20°14.0′ S, 148°46.2′ E). It
+      that covers and uncovers, 208 × 285 m). It
       is drawn red, "within the keep-out of a charted rock, wreck or
       obstruction", and Save stays blocked. Before D12, the overview's land
       paint over the water west of it kept the route farther north. The grid
@@ -754,12 +754,12 @@ the fifth (B, the Hamilton reach's lateral chain) follows, below.
 
 With the SE-QLD marker file loaded (the normal online case) the Brisbane
 River's Hamilton reach bend left the 9.1 m dredged channel and crossed ~250 m
-of 2 m water 87 m NW of the chart's green beacon at about -27.418,153.141
+of 2 m water 87 m NW of one of the chart's green beacons
 (Rivergate leg 26 red SHALLOW|WING 424 m; newport-shane leg 30, 2,418 m).
 Without the file it stayed in the channel.
 
 - **Why.** The last tier-2 leg runs from the bay to the destination. With the
-  file, a two-gate regional chain at the river mouth (-27.400) snapped onto
+  file, a two-gate regional chain at the river mouth snapped onto
   it (`tier2:chain×1`), and a chain claims the WHOLE leg: no RECTRC snap,
   fairlead, gate-follower or RECTRC ride runs after it. The bend, 2 km on,
   kept the raw A\* slice. Without the file there are no pairs at all (the
@@ -808,7 +808,7 @@ Without the file it stayed in the channel.
       as a charted track is never vetoed by the hazard it guides past. Tried
       the other way on the real cells, weighing every non-land blocked cell
       first put the bend back over 2 m water (Rivergate 463 m SHALLOW|WING):
-      on the reach below the bend (-27.4105,153.1484) the RECTRC crosses a
+      on the reach below the bend the RECTRC crosses a
       mark's avoidance disc and an obstruction's buffer, 110 m of blocked
       cells, so its ride was refused.
     - DECIDED: uncharted water counts as red under the strict policy (the
@@ -842,7 +842,7 @@ Without the file it stayed in the channel.
       chords past the east cardinal's disc at the mouth).
     - newport-shane 24.59 → 24.69 NM, 20 → 18 caution segments, red 9,080 →
       6,662 m: the 2,418 m SHALLOW from the bend is gone, and the red beacon
-      at about -27.432,153.120 is passed 74 m off, not 5 m.
+      at the bend is passed 74 m off, not 5 m.
     - At a 2.5 m tide the same (amber 3,756 → 3,295 m on Rivergate, 5,759 →
       3,341 m on newport-shane). Unchanged: Tangalooma (with the marker
       file), Rivergate and newport-shane without it (no pairs at all, so no
@@ -1137,7 +1137,7 @@ cases in `tests/routeTracer.test.ts` (item 4) and `tests/engine/redNamesItsReaso
       full.)
 2. **A cardinal's wrong side is red, and the router keeps to its safe side.** With no
    SE-QLD marker file, Newport → Rivergate passed 12 m (newport-shane 5 m) on the WEST
-   side of the river mouth's east cardinal (about -27.397, 153.153), drawn as channel. The
+   side of the river mouth's east cardinal, drawn as channel. The
    chart's track (RECTRC) passes 60 m east of it; the tier-2 snap onto it, which has land
    as its only veto, joined the route to the track's next piece across the mark's west
    side.
@@ -1184,8 +1184,7 @@ cases in `tests/routeTracer.test.ts` (item 4) and `tests/engine/redNamesItsReaso
    Save for a needs-tide crossing the review already refuses. (Withdrawn by the review
    fix-up below: it drew a line 5 m off a 0–2 m bank green.)
     - The route: with the chart's pairs (item 3) the last leg follows the river's track
-      round the bend into Murrarie (-27.43087,153.11964 → -27.44131,153.11096 →
-      -27.44366,153.10604), as with the marker file. And a tier-2 leg no chain shaped (the
+      round the bend into Murrarie, as with the marker file. And a tier-2 leg no chain shaped (the
       charted track's pieces, the raw A\* slice or the lateral follower) is weighed against
       the ride on the track's pieces joined where they meet by finding B's `tier2RedLoad`;
       a tie keeps the leg. DECIDED: the gate follower keeps its line (it threads the pairs'
@@ -1602,8 +1601,8 @@ TestFlight upload, server deployment, commit or push was performed.
 
 ### Canal size-limit correction — 2026-09-13
 
-The 06:09 screenshot supplied departure `-27.21448333, 153.0878` and Canal exit
-`-27.17196667, 153.0942` (converted from the displayed rounded minutes). Their
+The 06:09 screenshot supplied a departure and a Canal exit (converted from the
+displayed rounded minutes; the positions are not kept here). Their
 separation is 4,775 m / 2.58 NM. The old fixed 4 km guard rejected this before
 loading water or obstacles, even though its crop needs only 659,610 cells and
 33 z16 map tiles, within the existing 750,000-cell / 48-tile limits.

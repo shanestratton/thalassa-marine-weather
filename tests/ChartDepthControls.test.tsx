@@ -8,6 +8,13 @@ import {
 } from '../components/map/ChartDepthControls';
 import { ChartKeyPanel } from '../components/map/ChartKeyPanel';
 
+// The phone's notice: on the web the no-charts words are 127-DESKMAP C2's
+// (tests/DeskBoatChartsLine.test.tsx), and this file pins the native sentence.
+vi.mock('@capacitor/core', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@capacitor/core')>();
+    return { ...actual, Capacitor: { ...actual.Capacitor, isNativePlatform: () => true } };
+});
+
 const triggerHaptic = vi.hoisted(() => vi.fn());
 vi.mock('../utils/system', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../utils/system')>()),

@@ -17,13 +17,13 @@ test('watcher reconciles startup, rewritten charts and key-only updates without 
     process.env.ENC_CHART_DIR = join(directory, 'store');
     process.env.ENC_WATCHER_DEBOUNCE_MS = '5';
     process.env.ENC_WATCHER_ENABLED = 'true';
-    process.env.ENC_S63_WATCHER_ENABLED = 'false';
-    process.env.ENC_CHARTWORLD_ENABLED = 'false';
     process.env.ENC_DEFAULT_SOURCE_HO = 'AU'; // legacy environment must no longer stamp all packages AU
     const fakeWatcher = new EventEmitter() as EventEmitter & { close: () => Promise<void> };
     fakeWatcher.close = async () => {};
     let options: Parameters<typeof chokidar.watch>[1];
-    mock.method(chokidar, 'watch', (_path: unknown, opts: typeof options) => {
+    const watched: unknown[] = [];
+    mock.method(chokidar, 'watch', (path: unknown, opts: typeof options) => {
+        watched.push(path);
         options = opts;
         return fakeWatcher;
     });
@@ -48,6 +48,10 @@ test('watcher reconciles startup, rewritten charts and key-only updates without 
         await rm(directory, { recursive: true, force: true });
     });
     watcher.startEncWatcher();
+    // One watch, on the o-charts tree. Since 127 there is no S-63 (.es57)
+    // watcher and no ChartWorld poller: S-63 opens in OpenCPN only.
+    assert.deepEqual(watched, [directory]);
+    assert.equal('s63' in watcher.getWatcherStatus(), false);
     let reconciled = false;
     void watcher.whenInitialReconcileSettled().then(() => {
         reconciled = true;

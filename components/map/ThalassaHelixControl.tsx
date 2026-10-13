@@ -804,6 +804,8 @@ export interface LegendDockProps {
     pressureOverlay?: boolean;
     extraLegend?: React.ReactNode;
     extraLegendCount?: number;
+    /** The streaks' own legend on a light base (127-DESKMAP-b: the desk's Light), drawn on its pale sea. */
+    windGradient?: string;
 }
 
 export const LegendDock: React.FC<LegendDockProps> = memo(
@@ -817,6 +819,7 @@ export const LegendDock: React.FC<LegendDockProps> = memo(
         pressureOverlay = false,
         extraLegend,
         extraLegendCount,
+        windGradient,
     }) => {
         const [expanded, setExpanded] = useState(false);
         const validLayers = [...new Set(layers)].filter((l): l is NonNullable<HelixLayer> => !!l && !!LAYER_CONFIGS[l]);
@@ -889,9 +892,25 @@ export const LegendDock: React.FC<LegendDockProps> = memo(
                                                         data-weather-scale={layer}
                                                         aria-hidden="true"
                                                         className="mt-2 h-2 rounded-full border border-white/10"
-                                                        style={{
-                                                            background: config.gradient.replace('to top', 'to right'),
-                                                        }}
+                                                        // On a light base the key's inks sit on a chip of
+                                                        // its pale sea (Light's 20 m stop), as the streaks do.
+                                                        style={
+                                                            windGradient && config.label === 'Wind'
+                                                                ? {
+                                                                      background: windGradient.replace(
+                                                                          'to top',
+                                                                          'to right',
+                                                                      ),
+                                                                      border: '3px solid #c9e1f0',
+                                                                      height: 14,
+                                                                  }
+                                                                : {
+                                                                      background: config.gradient.replace(
+                                                                          'to top',
+                                                                          'to right',
+                                                                      ),
+                                                                  }
+                                                        }
                                                     />
                                                     <div className="mt-1 flex justify-between gap-3">
                                                         <span>{config.lowLabel}</span>

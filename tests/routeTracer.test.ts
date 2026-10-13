@@ -5,7 +5,7 @@
  * lead fixtures. Verifies the green/amber/red grading Shane specced
  * 2026-07-08 ("check depth and markers between that pin and the next").
  */
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import type { FeatureCollection } from 'geojson';
 import { buildNavGrid } from '../services/engine/navGrid';
 import type { InshoreLayers } from '../services/inshoreRouterEngine';
@@ -41,6 +41,9 @@ import {
     type TracerContext,
 } from '../services/routeTracer';
 import { authScopedStorageKey } from '../services/authIdentityScope';
+import { clearAllCellMetadata, putCell } from '../services/enc/EncCellMetadata';
+import { purgeChartFactsOnDisk, TRACE_LAND_CROSSING_MESSAGE } from '../services/chartFacts';
+import type { EncCell } from '../services/enc/types';
 import {
     parseChartTrackLines,
     parseLeadingLines,
@@ -341,6 +344,102 @@ describe('routeTracer — persisted verdicts survive only their own schema', () 
         );
         expect(hydrateLegVerdicts(2.4, false, 'AU5BR001@12@2026-01-01@100@cloud-3')).toBeNull();
         localStorage.clear();
+    });
+});
+
+describe('routeTracer — the v5 bank keeps chart facts off the disk (127-C-b)', () => {
+    // o-charts: "Storing unencrypted data on any medium ... is strictly
+    // prohibited". A leg over a licensed chart is banked as its grade alone
+    // (a stub), so a relaunch still grades nothing; NOAA legs keep everything.
+    // Fictional cells: OC-99-ZZTEST off Nouméa (protected), US5XX01M in the
+    // Chesapeake (open).
+    const cell = (id: string, sourceHO: string, bbox: EncCell['bbox']): EncCell => ({
+        id,
+        sourceHO,
+        edition: 2,
+        issued: '2026-08-01',
+        importedAt: '2026-09-01T00:00:00.000Z',
+        bbox,
+        geojsonPath: `enc/${id}.json`,
+        hazardCount: 3,
+        usage: 'navigation',
+    });
+    const FP = 'OC-99-ZZTEST@2@2026-08-01@unknown|US5XX01M@2@2026-08-01@unknown';
+    const legKey = (a: [number, number], b: [number, number]) =>
+        `${a[0].toFixed(6)},${a[1].toFixed(6)}|${b[0].toFixed(6)},${b[1].toFixed(6)}`;
+    const noumeaKey = legKey([-22.27, 166.41], [-22.31, 166.43]);
+    const landKey = legKey([-22.31, 166.43], [-22.33, 166.45]);
+    const chesapeakeKey = legKey([38.95, -76.45], [38.99, -76.4]);
+    const charted = (lat: number, lon: number, grade: 'caution' | 'danger', message: string) => ({
+        grade,
+        issues: [{ severity: grade, message, at: { lat, lon }, mark: { lat: lat + 0.0011, lon: lon + 0.0013 } }],
+        minDepthM: 1.37,
+        minAt: { lat, lon },
+        needsTide: grade === 'caution',
+        nudge: 'deeper water ~412 m to port',
+        nudgeTo: { lat: lat - 0.0021, lon: lon - 0.0017 },
+    });
+
+    beforeEach(() => {
+        localStorage.clear();
+        clearAllCellMetadata();
+        putCell(cell('OC-99-ZZTEST', 'FR', [166.3, -22.4, 166.5, -22.2]));
+        putCell(cell('US5XX01M', 'US', [-76.5, 38.9, -76.3, 39.1]));
+    });
+
+    it('is a new bank: v4 verdicts held depths and positions', () => {
+        expect(LEG_VERDICTS_KEY).toBe('thalassa_leg_verdicts_v5');
+    });
+
+    it('protected legs hydrate as stubs with no depth or position anywhere in storage; NOAA legs in full', () => {
+        const noumea = charted(-22.3011, 166.4233, 'caution', 'thin water — 1.37 m charted at low tide (LAT)');
+        const land = charted(-22.3166, 166.4377, 'danger', TRACE_LAND_CROSSING_MESSAGE);
+        const chesapeake = charted(38.9712, -76.4231, 'caution', 'thin water — 1.37 m charted at low tide (MLLW)');
+        persistLegVerdicts(
+            new Map([
+                [noumeaKey, noumea],
+                [landKey, land],
+                [chesapeakeKey, chesapeake],
+            ]) as never,
+            2.4,
+            false,
+            FP,
+            18,
+        );
+        const raw = localStorage.getItem(authScopedStorageKey(LEG_VERDICTS_KEY))!;
+        const noumeaText = raw.split(chesapeakeKey)[0];
+        for (const figure of ['1.37', '166.4233', '-22.3011', '166.4377', '-22.3166', '412', 'thin water'])
+            expect(noumeaText, figure).not.toContain(figure);
+        const back = hydrateLegVerdicts(2.4, false, FP, 18)!;
+        expect(back.get(noumeaKey)).toEqual({
+            grade: 'caution',
+            needsTide: true,
+            issues: [],
+            minDepthM: null,
+            minAt: null,
+            nudge: null,
+            nudgeTo: null,
+            stub: true,
+        });
+        expect(back.get(landKey)?.issues).toEqual([{ severity: 'danger', message: TRACE_LAND_CROSSING_MESSAGE }]);
+        expect(back.get(chesapeakeKey)).toEqual(chesapeake);
+    });
+
+    it('removes every older bank, for every account, at launch, and keeps v5', () => {
+        for (const k of [
+            'thalassa_leg_verdicts_v4::account-a',
+            'thalassa_leg_verdicts_v4::account-b',
+            'thalassa_leg_verdicts_v3::account-a',
+            'thalassa_leg_verdicts_v1',
+            'thalassa_leg_verdicts_v5::account-a',
+        ])
+            localStorage.setItem(k, '{"entries":[["k",{"grade":"clear","minDepthM":1.37}]]}');
+        purgeChartFactsOnDisk();
+        expect(localStorage.getItem('thalassa_leg_verdicts_v4::account-a')).toBeNull();
+        expect(localStorage.getItem('thalassa_leg_verdicts_v4::account-b')).toBeNull();
+        expect(localStorage.getItem('thalassa_leg_verdicts_v3::account-a')).toBeNull();
+        expect(localStorage.getItem('thalassa_leg_verdicts_v1')).toBeNull();
+        expect(localStorage.getItem('thalassa_leg_verdicts_v5::account-a')).not.toBeNull();
     });
 });
 

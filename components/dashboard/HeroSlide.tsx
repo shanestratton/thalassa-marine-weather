@@ -42,10 +42,8 @@ import type { GlassForecastRange } from './hero/heroSlideHelpers';
 import { DailySummaryCard, type DayAgreementChip } from './hero/DailySummaryCard';
 import { WindVsTideView } from './tide/WindVsTideView';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { useUIStore } from '../../stores/uiStore';
-import { queryModelSpread } from '../../services/weather/ModelSpreadService';
-import { verdictAt, windAgreementByDay, type WindDayVerdict } from '../../services/weather/dayAgreement';
-import { resolveTimeZone } from '../../utils/timezone';
+// The day card's agreement chip (W1-09): one chain with the desk's wind panel.
+import { useWindAgreementAt } from '../../hooks/useWindAgreementAt';
 import { localNoon } from '../../utils/celestial';
 
 // Stable fallback: `weatherData?.forecast || []` minted a fresh array on every
@@ -141,71 +139,6 @@ const ForecastHorizonCard: React.FC<{
         ) : null}
     </div>
 );
-
-/** One verdict list per spread answer, however many day rows read it. */
-const verdictsBySpread = new WeakMap<object, WindDayVerdict[]>();
-
-/**
- * The models' wind verdict for a forecast day card's agreement chip (W1-09):
- * the local day holding `dayMs`. Read from the ten-day comparison's own
- * memoised answer (queryModelSpread: one per 0.1° cell for 30 minutes,
- * shared with the sheet), so the chip adds no request of its own and cannot
- * disagree with the sheet. Asked only while the day is on screen and the
- * phone is online, and as a passive reader: an answer with a leg missing is
- * reused for five minutes, so day swipes never become proxy traffic.
- * undefined: not known yet, so the chip's line is held; null: none to show
- * (offline, unplaced, outside the answer, or the servers never answered), so
- * no chip rather than a stale one. Days are cut in the zone the sheet uses.
- */
-function useDayWindVerdict(
-    coordinates: { lat: number; lon: number } | undefined,
-    dayMs: number | null,
-    wanted: boolean,
-    /** The Glass report's own refresh: asks again then, so the chip is never
-     *  older than the report under it (the spread memo keeps it to one
-     *  request per cell per half hour). */
-    refreshedAt?: string,
-): WindDayVerdict | null | undefined {
-    const isOffline = useUIStore((s) => s.isOffline);
-    const lat = coordinates?.lat;
-    const lon = coordinates?.lon;
-    // 0°, 0° is the optimistic stub of a location still being geocoded.
-    const key =
-        lat != null &&
-        lon != null &&
-        dayMs != null &&
-        Number.isFinite(lat) &&
-        Number.isFinite(lon) &&
-        (lat !== 0 || lon !== 0)
-            ? `${lat},${lon}@${dayMs}`
-            : null;
-    const [answer, setAnswer] = useState<{ key: string; verdict: WindDayVerdict | null } | null>(null);
-    useEffect(() => {
-        if (!wanted || isOffline || !key || lat == null || lon == null || dayMs == null) return;
-        let cancelled = false;
-        // Passive: a leg that keeps failing is asked again every few minutes,
-        // not on every day swipe; the sheet itself still retries when opened.
-        queryModelSpread(lat, lon, { passive: true })
-            .then((spread) => {
-                if (cancelled) return;
-                const atmos = spread.unreachable?.includes('atmos') ? null : spread.atmos;
-                let verdicts = atmos ? verdictsBySpread.get(atmos) : undefined;
-                if (atmos && !verdicts) {
-                    verdicts = windAgreementByDay(atmos, resolveTimeZone(lat, lon));
-                    verdictsBySpread.set(atmos, verdicts);
-                }
-                setAnswer({ key, verdict: verdicts ? verdictAt(verdicts, dayMs) : null });
-            })
-            .catch(() => {
-                if (!cancelled) setAnswer({ key, verdict: null });
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [wanted, isOffline, key, lat, lon, dayMs, refreshedAt]);
-    if (!key || isOffline) return null;
-    return answer?.key === key ? answer.verdict : undefined;
-}
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
 /** Module-level so the memoised radar card sees one stable onMapTap identity. */
@@ -541,7 +474,7 @@ const HeroSlideComponent = ({
         () => (overviewIso && skyLat != null && skyLon != null ? daySky(overviewIso, skyLat, skyLon, timeZone) : null),
         [overviewIso, skyLat, skyLon, timeZone],
     );
-    const dayVerdict = useDayWindVerdict(
+    const dayVerdict = useWindAgreementAt(
         coordinates,
         overviewIso ? localNoon(overviewIso, timeZone).getTime() : null,
         index > 0 && isVisible && !showMapInstead,

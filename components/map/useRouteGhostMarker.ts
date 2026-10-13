@@ -193,6 +193,13 @@ export function useRouteGhostMarker(mapRef: React.MutableRefObject<mapboxgl.Map 
             ensurePathsAboveImagery();
         };
 
+        // Bearing is true; the screen is rotated by the map's own bearing. A
+        // damped turn fires 'rotate' every frame: it re-turns the hull only.
+        const turnHull = () => {
+            const ghost = getPassageGhost();
+            if (parts && ghost) parts.hull.style.transform = `rotate(${ghost.bearingDeg - map.getBearing()}deg)`;
+        };
+
         const draw = () => {
             drawPaths();
             const ghost = getPassageGhost();
@@ -213,18 +220,17 @@ export function useRouteGhostMarker(mapRef: React.MutableRefObject<mapboxgl.Map 
                 marker.setLngLat([ghost.lon, ghost.lat]);
             }
             parts.chip.textContent = ghost.label;
-            // Bearing is true; the screen is rotated by the map's own bearing.
-            parts.hull.style.transform = `rotate(${ghost.bearingDeg - map.getBearing()}deg)`;
+            turnHull();
         };
 
         draw();
         const unsubscribe = subscribePassageGhost(draw);
-        map.on('rotate', draw);
+        map.on('rotate', turnHull);
         map.on('styledata', syncPaths);
         map.on('idle', ensurePathsAboveImagery);
         return () => {
             unsubscribe();
-            map.off('rotate', draw);
+            map.off('rotate', turnHull);
             map.off('styledata', syncPaths);
             map.off('idle', ensurePathsAboveImagery);
             marker?.remove();

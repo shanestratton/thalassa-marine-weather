@@ -31,11 +31,18 @@ export function answeredProviders(base: TodayBase | null): string[] {
     return unique(base?.atmos?.models.map((m) => m.provider) ?? []);
 }
 
-/** Screen 1's credit: "Forecast: ECMWF, DWD, UKMO, JMA · Waves: Météo-France · Not a clearance". */
-export function shortCredit(base: TodayBase | null): string {
+/** A wave forecast answered along the way to a stop. */
+const seaAnswered = (legs?: ReadonlyMap<string, StopLegs>) => [...(legs?.values() ?? [])].some((l) => l.sea);
+
+/**
+ * Screen 1's credit: "Forecast: ECMWF, DWD, UKMO, JMA · Waves: Météo-France ·
+ * Not a clearance", naming only the sources that answered (127-PYD-1: offline,
+ * no wave model is credited).
+ */
+export function shortCredit(base: TodayBase | null, legs?: ReadonlyMap<string, StopLegs>): string {
     const providers = answeredProviders(base).map((p) => SHORT_PROVIDER[p] ?? p);
     const forecast = providers.length ? `Forecast: ${providers.join(', ')}` : 'No forecast loaded';
-    return `${forecast} · Waves: Météo-France · Not a clearance`;
+    return `${forecast}${seaAnswered(legs) ? ' · Waves: Météo-France' : ''} · Not a clearance`;
 }
 
 /** Which of the seven models answered for the chosen day, by name. */
@@ -149,7 +156,7 @@ export function TodaySources({
             <h3 className="today-h3">Credits</h3>
             <ul className="today-credits">
                 {credit && <li>{credit}</li>}
-                <li>Waves: Météo-France (MFWAM)</li>
+                {seaAnswered(legs) && <li>Waves: Météo-France (MFWAM)</li>}
                 <li>
                     {base.tidesStatus === 'ok'
                         ? `Tides: WorldTides, ${base.tideStation ?? 'nearest station'}, metres above LAT, approx. ±0.3 m`

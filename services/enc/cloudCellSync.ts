@@ -40,6 +40,7 @@ import {
     type EncConversionResult,
     utf8ByteLength,
 } from './types';
+import { isOpenChartCell } from './chartLicence';
 import { createLogger } from '../../utils/createLogger';
 import { withTimeout } from '../../utils/deadline';
 
@@ -89,11 +90,10 @@ const inflightCells = new Map<string, InflightCellDownload>();
 let activeManifest: ActiveManifest | null = null;
 
 /** A NOAA ENC cell name, exactly as the server's root read policy matches its
- *  file (20261009070000: `^US[0-9][A-Z0-9]{5}\.json$`). */
-const NOAA_CELL_ID = /^US[0-9][A-Z0-9]{5}$/;
-
+ *  file (20261009070000: `^US[0-9][A-Z0-9]{5}\.json$`): the licence rule's
+ *  only open charts (services/enc/chartLicence, 127-C-b). */
 export function isNoaaEncCellId(cellId: string): boolean {
-    return NOAA_CELL_ID.test(canonicalEncCellId(cellId));
+    return isOpenChartCell({ id: cellId });
 }
 
 const CLOUD_MANIFEST_MAX_BYTES = 512 * 1024;
@@ -511,10 +511,8 @@ export async function downloadCloudCellsForBBox(bbox: [number, number, number, n
     await registerCloudCells(); // ensure the manifest is registered (bboxes known)
     let downloaded = 0;
     let needed = 0;
-    // A curated manifest may legitimately be absent now — an account whose only
-    // charts are its OWN published cells has nothing in the shared bucket. The
-    // old unconditional early return here reported "no bucket" for exactly that
-    // case, which reads to the caller as "sign in / you're offline".
+    // The NOAA manifest is the only shelf (the personal one was deleted in
+    // 127), so the bucket is available exactly when that manifest is.
     if (activeManifest) {
         const [west, south, east, north] = bbox;
         const covering = listRegisteredCells().filter((cell) => {
@@ -527,12 +525,5 @@ export async function downloadCloudCellsForBBox(bbox: [number, number, number, n
             if (await downloadCloudCell(c.id)) downloaded++;
         }
     }
-    // Then the skipper's own cells, which the curated filter above can never
-    // match (they carry personalManifestVersion, not cloudManifestVersion).
-    // Closed since 126-20: this answers "nothing, unavailable" without a request.
-    const { downloadPersonalCellsForBBox } = await import('./personalCellSync');
-    const personal = await downloadPersonalCellsForBBox(bbox);
-    downloaded += personal.downloaded;
-    needed += personal.needed;
-    return { downloaded, needed, bucketAvailable: Boolean(activeManifest) || personal.available };
+    return { downloaded, needed, bucketAvailable: Boolean(activeManifest) };
 }

@@ -60,6 +60,10 @@ import { getPairing } from '../../services/PiPairingService';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
+/** The Pi's errorCode for a ChartWorld S-63 delivery, which opens in OpenCPN only (pi-cache routes/enc.ts, 127). */
+const S63_OPENCPN_ONLY_CODE = 's63-opencpn-only';
+const S63_OPENCPN_ONLY_RECEIPT = 'ChartWorld S-63 charts open in OpenCPN on your Pi (Remote screen), not in Thalassa.';
+
 interface DeliveryInstall {
     package: EncChartDeliveryPackage;
     status: 'queued' | 'installing' | 'complete' | 'failed' | 'phone-pending' | 'pi-pending';
@@ -1010,7 +1014,9 @@ export const EncCellManager: React.FC = () => {
                                     <p className="text-xs font-bold text-white">Recent install {index + 1}</p>
                                     <p className="text-[11px] text-gray-300">
                                         {receipt.status === 'error'
-                                            ? 'The Pi could not finish this install. Paste the delivery again to retry.'
+                                            ? receipt.errorCode === S63_OPENCPN_ONLY_CODE
+                                                ? S63_OPENCPN_ONLY_RECEIPT
+                                                : 'The Pi could not finish this install. Paste the delivery again to retry.'
                                             : receipt.status === 'done'
                                               ? receipt.resultKind === 'installed'
                                                   ? 'Installed on Pi. Phone availability is checked when you sync.'
@@ -1032,31 +1038,31 @@ export const EncCellManager: React.FC = () => {
                                     {resumingReceiptId === receipt.id && progress && (
                                         <ImportProgressBar progress={progress} />
                                     )}
-                                    {receipt.status === 'error' ? (
-                                        <button
-                                            type="button"
-                                            disabled={importing}
-                                            onClick={openUrlInstallDialog}
-                                            className="min-h-11 text-xs font-bold text-sky-300 disabled:opacity-50"
-                                        >
-                                            Paste delivery again
-                                        </button>
-                                    ) : (
-                                        (receipt.status !== 'done' || receipt.resultKind === 'installed') && (
-                                            <button
-                                                type="button"
-                                                disabled={importing}
-                                                onClick={() => void handleResumeInstall(receipt)}
-                                                className="min-h-11 text-xs font-bold text-sky-300 disabled:opacity-50"
-                                            >
-                                                {resumingReceiptId === receipt.id
-                                                    ? 'Working…'
-                                                    : receipt.status === 'done'
-                                                      ? 'Sync charts'
-                                                      : 'Continue install'}
-                                            </button>
-                                        )
-                                    )}
+                                    {receipt.status === 'error'
+                                        ? receipt.errorCode !== S63_OPENCPN_ONLY_CODE && (
+                                              <button
+                                                  type="button"
+                                                  disabled={importing}
+                                                  onClick={openUrlInstallDialog}
+                                                  className="min-h-11 text-xs font-bold text-sky-300 disabled:opacity-50"
+                                              >
+                                                  Paste delivery again
+                                              </button>
+                                          )
+                                        : (receipt.status !== 'done' || receipt.resultKind === 'installed') && (
+                                              <button
+                                                  type="button"
+                                                  disabled={importing}
+                                                  onClick={() => void handleResumeInstall(receipt)}
+                                                  className="min-h-11 text-xs font-bold text-sky-300 disabled:opacity-50"
+                                              >
+                                                  {resumingReceiptId === receipt.id
+                                                      ? 'Working…'
+                                                      : receipt.status === 'done'
+                                                        ? 'Sync charts'
+                                                        : 'Continue install'}
+                                              </button>
+                                          )}
                                 </div>
                             ))}
                         </section>

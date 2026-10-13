@@ -14,6 +14,7 @@ import {
 } from '../../services/authIdentityScope';
 import { getRegistryFingerprint, subscribe } from '../../services/enc/EncCellMetadata';
 import type { PushResult } from '../../services/savedRoutesSync';
+import { CHART_NOTES_ABOARD, proposalUsedProtectedCharts } from '../../services/chartFacts';
 
 interface Props {
     route: AutoroutingTrialRoute;
@@ -159,8 +160,11 @@ function SaveForm({ route, review, draftM, draftAssumed, onSaved, onOpenSavedRou
                         </span>
                     </label>
                     <p className="text-slate-300">
-                        All {route.coordinates.length} detailed route points and bounded review evidence are retained. A
-                        new private Saved Routes entry becomes available to Trip Legs; no trip, voyage or navigation
+                        {/* 127-C-b: over licensed charts the chart notes stay in memory. */}
+                        {proposalUsedProtectedCharts(route.engine?.cellsUsed, review?.basis?.registryFingerprint)
+                            ? `All ${route.coordinates.length} route points and each leg's grade are kept. ${CHART_NOTES_ABOARD}`
+                            : `All ${route.coordinates.length} detailed route points and bounded review evidence are retained.`}{' '}
+                        A new private Saved Routes entry becomes available to Trip Legs; no trip, voyage or navigation
                         starts.
                     </p>
                     <div className="flex flex-wrap gap-2">
