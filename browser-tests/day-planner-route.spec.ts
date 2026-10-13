@@ -24,6 +24,12 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  * row anywhere. Nouméa and Tromsø say why there is no route in global words,
  * never a blank row, never "Pi". The routing cases of 127-PYD-2, 3 and 11 live
  * here, apart from screen 1's spec (127-PYD-common, "the serial file").
+ *
+ * 127-PYD-3: routed, the main button is "Show route on chart": Auto's chart
+ * opens over Plan Your Day (its sheet hidden behind it, the tab bar under it),
+ * Back returns to the same stop page, and "Use on the main chart" hands the
+ * chart the routed line, never a straight one. With no route, or for a
+ * tester, "Plot by hand" hands it two marks and no pins.
  */
 
 test.use({ timezoneId: 'Europe/London' });
@@ -234,7 +240,7 @@ for (const size of OTHER)
 test('a tester sees no route row anywhere: the stop page is today’s', async ({ page }) => {
     const errors = await open(page, AS_DRAWN.mid, `&mode=routed${AS_DRAWN.mid.query}`);
     const detail = await openStop(page);
-    await expect(detail.getByRole('button', { name: 'Plot on chart', exact: true })).toBeVisible();
+    await expect(detail.getByRole('button', { name: 'Plot by hand', exact: true })).toBeVisible();
     await expect(detail.locator('li[data-route]')).toHaveCount(0);
     await expect(detail.getByRole('button', { name: 'Route round the land' })).toHaveCount(0);
     expect(await page.locator('body').textContent()).not.toMatch(/round the land|Routed in/);
@@ -276,7 +282,7 @@ for (const [mode, words] of [
         await expect(row.getByText(/^About \d+ NM each way/)).toBeVisible();
         await expect(detail.getByText(/NM each way \(/)).toHaveCount(1);
         await expect(detail.getByText(/^No route after 6\.4 s$/)).toBeVisible();
-        await expect(detail.getByRole('button', { name: 'Plot on chart', exact: true })).toBeVisible();
+        await expect(detail.getByRole('button', { name: 'Plot by hand', exact: true })).toBeVisible();
         expect(await layoutIssues(page, false)).toEqual([]);
         expect(errors).toEqual([]);
     });
@@ -306,5 +312,99 @@ for (const [refuse, estimate] of [
         await expect(detail.getByText(/^No route after 6\.4 s$/)).toBeVisible();
         expect(await layoutIssues(page, false)).toEqual([]);
         await expect(row.getByText(estimate)).toBeVisible();
+        expect(errors).toEqual([]);
+    });
+
+// ── 127-PYD-3: the routed line on the chart, never a straight one ──
+
+type Plotted = { kind: string; points: unknown[]; routed?: boolean; frame?: { why: string; to: { name: string } } };
+const plotted = (page: Page) =>
+    page.evaluate(
+        () => (window as unknown as { __dayPlannerFixture: { plotted: Plotted[] } }).__dayPlannerFixture.plotted,
+    );
+
+for (const size of [AS_DRAWN.se, AS_DRAWN.mid, OTHER[1]])
+    test(`routed: Show route on chart opens Auto's chart over the sheet and Back returns to the stop, at ${size.name}`, async ({
+        page,
+    }) => {
+        const errors = await open(page, size, `&mode=routed&owner=1${size.query}`);
+        await openStop(page);
+        const detail = await routeIt(page);
+        await expect(detail.locator('li[data-route]')).toHaveText(ROUTED, { timeout: 10_000 });
+        const show = detail.getByRole('button', { name: 'Show route on chart', exact: true });
+        await show.click();
+        const chart = page.getByRole('dialog', { name: /^Plan Your Day route to / });
+        await expect(chart).toBeVisible({ timeout: 15_000 });
+        // Plan Your Day's own screens are hidden behind it, not just covered.
+        await expect(page.locator('.today-overlay:visible')).toHaveCount(0);
+        await expect(page.getByRole('dialog', { name: 'Plan Your Day', exact: true })).toBeHidden();
+        // Its buttons are on top: never under the tab bar.
+        for (const name of ['Use on the main chart', 'Back to Plan Your Day']) {
+            const button = chart.getByRole('button', { name, exact: true });
+            await button.scrollIntoViewIfNeeded();
+            const onTop = await button.evaluate((node) => {
+                const r = node.getBoundingClientRect();
+                const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                return !!hit && node.contains(hit) && r.bottom <= innerHeight + 0.5;
+            });
+            expect(onTop, name).toBe(true);
+        }
+        await chart.getByRole('button', { name: 'Back to Plan Your Day', exact: true }).click();
+        await expect(chart).toHaveCount(0);
+        // The same stop page, its route still in, focus on its main button.
+        await expect(detail.locator('li[data-route]')).toHaveText(ROUTED);
+        await expect(show).toBeFocused();
+        expect(await layoutIssues(page, size.height < 640 || size.query.includes('largeText'))).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+
+test('Use on the main chart hands the chart the routed line out and back: more than two points, never straight', async ({
+    page,
+}) => {
+    const errors = await open(page, AS_DRAWN.se2, `&mode=routed&owner=1${AS_DRAWN.se2.query}`);
+    await openStop(page);
+    const detail = await routeIt(page);
+    await expect(detail.locator('li[data-route]')).toHaveText(ROUTED, { timeout: 10_000 });
+    await detail.getByRole('button', { name: 'Show route on chart', exact: true }).click();
+    const chart = page.getByRole('dialog', { name: /^Plan Your Day route to / });
+    await chart.getByRole('button', { name: 'Use on the main chart', exact: true }).click();
+    await expect(chart).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Plan Your Day', exact: true })).toHaveCount(0);
+    const sent = await plotted(page);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ kind: 'plot-day', routed: true });
+    // The fixture's three-point line, there and back.
+    expect(sent[0].points).toHaveLength(5);
+    expect(sent[0].frame).toBeUndefined();
+    expect(errors).toEqual([]);
+});
+
+for (const [who, query, why] of [
+    // Nouméa, the owner: no chart at the stop, said in global words.
+    ['the owner with no chart (Nouméa)', '&mode=no-chart&owner=1', /^No chart for Fixture .+ on this phone/],
+    // The owner with Auto route (trial) off: what routing needs, and still never a line.
+    [
+        'the owner with Auto route off',
+        '&mode=no-route&owner=1',
+        /^Turn on Auto route \(trial\) to route round the land\.$/,
+    ],
+    // A tester: nothing about routing.
+    ['a tester', '&mode=routed', /^$/],
+] as const)
+    test(`Plot by hand for ${who} hands the chart two marks and no pins`, async ({ page }) => {
+        const errors = await open(page, AS_DRAWN.se2, `${query}${AS_DRAWN.se2.query}`);
+        const detail = await openStop(page);
+        if (query.includes('no-chart')) {
+            await routeIt(page);
+            await expect(detail.locator('li[data-route="no-route"]')).toBeVisible({ timeout: 10_000 });
+        }
+        await detail.getByRole('button', { name: 'Plot by hand', exact: true }).click();
+        const sent = await plotted(page);
+        expect(sent).toHaveLength(1);
+        expect(sent[0].kind).toBe('plot-day');
+        expect(sent[0].points).toHaveLength(0);
+        expect(sent[0].routed).toBeUndefined();
+        expect(sent[0].frame!.why).toMatch(why);
+        expect(sent[0].frame!.to.name).toMatch(/\S/);
         expect(errors).toEqual([]);
     });

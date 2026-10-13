@@ -160,6 +160,8 @@ function drawn(legVerdicts: Array<TraceLegVerdict | null>) {
             ghostLanes: [],
             traceOrigin: null,
             traceDest: { lat: 38.99, lon: -76.42, name: 'Fictional Creek' },
+            // The course frame's hint (127-PYD-3: never Plan Your Day's).
+            destHint: true,
         }),
     );
     return map;

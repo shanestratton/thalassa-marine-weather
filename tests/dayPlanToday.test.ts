@@ -2090,7 +2090,12 @@ describe('a routed stop (127-PYD-2): its times walk the routed line, and the pic
         expect(row.route).toBe('routed');
         // The routed leg lives on the plan, never on the candidate (the chart hand-over reads that).
         expect(row.candidate.distance.basis).not.toBe('routed');
-        expect(today.plotDayAction(HORTA, row.candidate, '2h').points).toHaveLength(3);
+        // The chart hand-over (127-PYD-3): with no routed line handed in, the two marks and no straight pins;
+        // with the routed line, that line out and back.
+        expect(today.plotDayAction(HORTA, row.candidate, '2h').points).toEqual([]);
+        const plotted = today.plotDayAction(HORTA, row.candidate, '2h', leg.route.points);
+        expect(plotted).toMatchObject({ routed: true });
+        expect(plotted.points).toHaveLength(2 * leg.route.points.length - 1);
         // An overnight stay says the routed distance once, to the tenth, no "about".
         const night = planDay(
             hortaInput({

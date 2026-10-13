@@ -7,13 +7,15 @@ import { OverlayPortal, type OverlayLayer } from '../ui/OverlayPortal';
  * clear of the tab bar (the house modal rule, GuardianPage's padding), a
  * header that never scrolls, a body that may scroll only when it must (large
  * text), and a footer that never scrolls. Focus is trapped while it is the
- * top screen; Escape and ✕ close it.
+ * top screen; Escape and ✕ close it. Hidden (state kept, no trap) while Auto's
+ * chart shows a stop's route over Plan Your Day (127-PYD-3).
  */
 export function TodayModal({
     title,
     sub,
     layer = 'nested',
     active = true,
+    hidden,
     onClose,
     closeLabel = 'Close',
     headerBody,
@@ -29,6 +31,7 @@ export function TodayModal({
     layer?: OverlayLayer;
     /** False while a nested screen is open over this one. */
     active?: boolean;
+    hidden?: boolean;
     onClose: () => void;
     closeLabel?: string;
     headerExtra?: React.ReactNode;
@@ -38,9 +41,9 @@ export function TodayModal({
 }) {
     const titleId = useId();
     const closeRef = useRef<HTMLButtonElement>(null);
-    const dialogRef = useFocusTrap<HTMLDivElement>(active, { initialFocusRef: closeRef, onEscape: onClose });
+    const dialogRef = useFocusTrap<HTMLDivElement>(active && !hidden, { initialFocusRef: closeRef, onEscape: onClose });
     return (
-        <OverlayPortal layer={layer} role="presentation" className="today-overlay">
+        <OverlayPortal layer={layer} role="presentation" className="today-overlay" hidden={hidden}>
             <div
                 ref={dialogRef}
                 role="dialog"

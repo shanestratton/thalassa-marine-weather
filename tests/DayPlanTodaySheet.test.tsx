@@ -19,6 +19,11 @@
  * stop page opens on its verdict, the day chips carry her limits' glyph (never
  * the models' agreement glyphs), line icons replace the emoji, a reviewed stop
  * is tagged "Local notes", and the credit names only the sources that answered.
+ *
+ * 127-PYD-3: the stop page's main button follows the route: Route round the
+ * land, Finding the way…, Show route on chart (Auto's chart over the sheet,
+ * lazily loaded; mocked here), Plot your saved route, or Plot by hand (her
+ * start and the stop as two marks, never a straight line).
  */
 import { readFileSync } from 'node:fs';
 import React from 'react';
@@ -38,6 +43,49 @@ import { H, MARINA, NOUMEA, NOW, fakeTodayDeps, type DayPlanScenario } from './h
 import { routeStop, type StopRouteDeps, type StopRouteRequest } from '../services/dayPlanner/stopRoute';
 import type { AutoroutingTrialRequest, AutoroutingTrialRoute } from '../types/autorouting';
 import { DraftConfirmModal } from '../components/vessel/DraftConfirmModal';
+
+// Auto's chart (127-PYD-3) is a Mapbox map: the sheet's side of it is tested here with a stand-in that
+// keeps the props it was given; tests/AutoroutingTrialWorkspace.test.tsx tests the chart's own day-plan mode.
+// Its satellite Retry is played by two buttons: land after all (Auto's words), or the checked copy.
+// `hold` keeps it loading (a thrown promise suspends, as a slow chunk does), so the fallback shows.
+const chart = vi.hoisted(() => ({
+    props: null as null | import('../components/autorouting/AutoroutingTrialWorkspace').AutoroutingTrialWorkspaceProps,
+    hold: null as null | Promise<void>,
+    land: 'Satellite relief shows land near 20.270° S, 148.930° E. The route is not shown. Nothing changed.',
+}));
+vi.mock('../components/autorouting/AutoroutingTrialWorkspace', () => ({
+    AutoroutingTrialWorkspace: (
+        props: import('../components/autorouting/AutoroutingTrialWorkspace').AutoroutingTrialWorkspaceProps,
+    ) => {
+        if (chart.hold) throw chart.hold;
+        chart.props = props;
+        const day = props.dayPlan!;
+        return (
+            <div role="dialog" aria-label={`Route chart: ${day.stopName}`}>
+                <button type="button" onClick={() => day.onUseOnMainChart(day.proposal)}>
+                    Use on the main chart
+                </button>
+                <button type="button" onClick={() => day.onRechecked(chart.land)}>
+                    Retry finds land
+                </button>
+                <button
+                    type="button"
+                    onClick={() =>
+                        day.onRechecked({
+                            ...day.proposal,
+                            engine: { ...day.proposal.engine!, backstop: 'verified', backstopReason: undefined },
+                        })
+                    }
+                >
+                    Retry clears it
+                </button>
+                <button type="button" onClick={props.onClose}>
+                    Back to Plan Your Day
+                </button>
+            </div>
+        );
+    },
+}));
 
 const QLD_TILE = JSON.parse(readFileSync('public/anchorages/qld/t-22e148.geojson', 'utf8')) as {
     features: AtlasFeature[];
@@ -393,8 +441,8 @@ describe('Stay and day', () => {
     });
 });
 
-describe('Screen 2: a stop, and Plot on chart', () => {
-    it('says how each time was worked out, and Plot on chart sets the departure and sends straight pins', async () => {
+describe('Screen 2: a stop, and Plot by hand', () => {
+    it('says how each time was worked out, and Plot by hand sets the departure and sends two marks, never a line', async () => {
         const { dialog, onPlot } = open();
         const [first] = await stopRows(dialog);
         // Screen 1 shortens a reviewed stop's name to its place; the detail has it whole.
@@ -431,17 +479,24 @@ describe('Screen 2: a stop, and Plot on chart', () => {
         const heard: Event[] = [];
         const listen = (e: Event) => heard.push(e);
         window.addEventListener(PLAN_DEPARTURE_EVENT, listen);
-        // The primary button: AA white on its cyan in dark as in light (127-PYD-1).
-        expect(within(detail).getByRole('button', { name: 'Plot on chart' })).toHaveClass('today-primary');
-        fireEvent.click(within(detail).getByRole('button', { name: 'Plot on chart' }));
+        // The primary button: AA white on its cyan in dark as in light (127-PYD-1). A tester (not the
+        // owner in 127) is offered no routing: Plot by hand (127-PYD-3).
+        expect(within(detail).queryByRole('button', { name: 'Plot on chart' })).toBeNull();
+        expect(within(detail).getByRole('button', { name: 'Plot by hand' })).toHaveClass('today-primary');
+        fireEvent.click(within(detail).getByRole('button', { name: 'Plot by hand' }));
         window.removeEventListener(PLAN_DEPARTURE_EVENT, listen);
 
         expect(onPlot).toHaveBeenCalledOnce();
         const action = onPlot.mock.calls[0][0];
         expect(action).toMatchObject({ kind: 'plot-day', name: `Day out: ${name}`, stop: name });
-        expect(action.points).toHaveLength(3);
-        expect(action.points[0]).toEqual({ lat: MARINA.lat, lon: MARINA.lon });
-        expect(action.points[2]).toEqual(action.points[0]);
+        // No pins and no line of any kind: her start and the stop, and nothing about routing.
+        expect(action.points).toEqual([]);
+        expect(action.frame).toMatchObject({
+            from: { lat: MARINA.lat, lon: MARINA.lon },
+            to: { name },
+            why: '',
+        });
+        expect(action.routed).toBeUndefined();
         const stored = sessionStorage.getItem(authScopedStorageKey(PLAN_DEPARTURE_KEY, getAuthIdentityScope()));
         expect(Number(stored)).toBeGreaterThan(NOW);
         expect(heard).toHaveLength(1);
@@ -529,8 +584,8 @@ describe('Screen 2: a stop, and Plot on chart', () => {
         expect(within(detail).getByText("Weather not checked: the forecast along the way didn't load.")).toBeTruthy();
         expect(within(detail).queryByRole('group', { name: 'Leave at' })).toBeNull();
         expect(within(detail).queryByText(/^Leave \d\d:\d\d → /)).toBeNull();
-        // Plot on chart still works, but sets no departure from a walk in no wind.
-        fireEvent.click(within(detail).getByRole('button', { name: 'Plot on chart' }));
+        // Plot by hand still works, but sets no departure from a walk in no wind.
+        fireEvent.click(within(detail).getByRole('button', { name: 'Plot by hand' }));
         expect(onPlot).toHaveBeenCalledOnce();
         expect(sessionStorage.getItem(authScopedStorageKey(PLAN_DEPARTURE_KEY, getAuthIdentityScope()))).toBeNull();
     });
@@ -886,6 +941,8 @@ describe('Route round the land (127-PYD-2)', () => {
             routeOnOpen?: boolean;
             extra?: React.ReactNode;
             loader?: Partial<TodayLoaderDeps>;
+            /** False when the route weather fails: the rows have no times to wait for. */
+            timed?: boolean;
         } = {},
     ) {
         const route = options.route ?? routes();
@@ -910,7 +967,14 @@ describe('Route round the land (127-PYD-2)', () => {
             </>,
         );
         const dialog = screen.getByRole('dialog', { name: 'Plan Your Day' });
-        const [first] = await stopRows(dialog);
+        const [first] =
+            options.timed === false
+                ? await waitFor(() => {
+                      const rows = within(within(dialog).getByRole('list', { name: 'Stops' })).getAllByRole('button');
+                      expect(rows[0].querySelector('.today-stop-l2')).toHaveTextContent("Weather didn't load");
+                      return rows;
+                  })
+                : await stopRows(dialog);
         const name = first.querySelector('.today-stop-name')!.textContent!;
         fireEvent.click(first);
         const detail = await screen.findByRole('dialog', { name: new RegExp(`^${name}`) });
@@ -934,7 +998,7 @@ describe('Route round the land (127-PYD-2)', () => {
         // Before the tap: the estimate, and what routing will take.
         await waitFor(() => expect(routeRow(detail)).toHaveTextContent('Not routed yet: takes a few seconds.'));
         expect(within(detail).getByText(/^About \d+ NM each way/)).toBeTruthy();
-        expect(within(detail).queryByRole('button', { name: 'Plot on chart' })).toBeNull();
+        expect(within(detail).queryByRole('button', { name: /^Plot / })).toBeNull();
         const button = within(detail).getByRole('button', { name: 'Route round the land' });
         expect(button).toHaveClass('today-primary');
         expect(route.fn).not.toHaveBeenCalled();
@@ -945,7 +1009,8 @@ describe('Route round the land (127-PYD-2)', () => {
         // The seconds are the row's own, unspoken: VoiceOver hears the stage only.
         expect(routeRow(detail)!.querySelector('[aria-live]')?.textContent).toBe('Finding the way round the land');
         expect(routeRow(detail)!.querySelector('[aria-hidden="true"]')).toBeTruthy();
-        expect(within(detail).getByRole('button', { name: 'Route round the land' })).toBeDisabled();
+        // While it routes the main button says so, and waits (127-PYD-3).
+        expect(within(detail).getByRole('button', { name: 'Finding the way…' })).toBeDisabled();
         await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Routing round the land/));
 
         await waitFor(() =>
@@ -985,8 +1050,8 @@ describe('Route round the land (127-PYD-2)', () => {
         const { detail } = await openStop({ owner: false, route });
         expect(routeRow(detail)).toBeNull();
         expect(within(detail).queryByRole('button', { name: 'Route round the land' })).toBeNull();
-        expect(within(detail).getByRole('button', { name: 'Plot on chart' })).toBeTruthy();
-        expect(detail.textContent).not.toMatch(/rout(e|ed|ing) round the land|Routed in/i);
+        expect(within(detail).getByRole('button', { name: 'Plot by hand' })).toBeTruthy();
+        expect(detail.textContent).not.toMatch(/rout(e|ed|ing) round the land|Routed in|Show route/i);
         expect(route.fn).not.toHaveBeenCalled();
     });
 
@@ -1053,11 +1118,11 @@ describe('Route round the land (127-PYD-2)', () => {
         expect(within(detail).queryByRole('button', { name: /Sign in/ })).toBeNull();
     });
 
-    it('no chart at an end: the global sentence, the estimate stays, and Plot on chart comes back', async () => {
+    it('no chart at an end: the global sentence, the estimate stays, and Plot by hand frames it with that reason', async () => {
         const route = routes(async () => {
             throw new Error('No installed chart covers the destination.');
         });
-        const { detail, name } = await openStop({ route });
+        const { detail, name, onPlot } = await openStop({ route });
         fireEvent.click(await within(detail).findByRole('button', { name: 'Route round the land' }));
         const place = name.split(' · ')[0];
         await waitFor(() =>
@@ -1068,7 +1133,12 @@ describe('Route round the land (127-PYD-2)', () => {
         expect(detail.textContent).not.toMatch(/\bPi\b/);
         expect(within(detail).getByText(/^About \d+ NM each way/)).toBeTruthy();
         expect(within(detail).getByText(/^No route after 6\.4 s$/)).toBeTruthy();
-        expect(within(detail).getByRole('button', { name: 'Plot on chart' })).toBeTruthy();
+        fireEvent.click(within(detail).getByRole('button', { name: 'Plot by hand' }));
+        const action = onPlot.mock.calls[0][0];
+        expect(action.points).toEqual([]);
+        expect(action.frame.why).toBe(
+            `No chart for ${place} on this phone: add charts for this area to route round the land.`,
+        );
     });
 
     it("an engine refusal is Auto's sentence, whole", async () => {
@@ -1138,7 +1208,7 @@ describe('Route round the land (127-PYD-2)', () => {
         });
         expect(within(detail).getByText(/NM each way \(your saved route 'Fixture way \d+'\)$/)).toBeTruthy();
         expect(routeRow(detail)).toBeNull();
-        expect(within(detail).getByRole('button', { name: 'Plot on chart' })).toBeTruthy();
+        expect(within(detail).getByRole('button', { name: 'Plot your saved route' })).toBeTruthy();
         expect(route.fn).not.toHaveBeenCalled();
     });
 
@@ -1187,13 +1257,223 @@ describe('Route round the land (127-PYD-2)', () => {
         expect(route.fn).toHaveBeenCalledTimes(2);
     });
 
-    it('while a setting stands in the way she can still plot by hand: Plot on chart stays', async () => {
+    it('while a setting stands in the way she can still plot by hand: two marks, and what routing needs', async () => {
         setStore(CONFIRMED, false);
         const { detail, onPlot } = await openStop();
         await within(detail).findByRole('button', { name: /^Turn on Auto route \(trial\)/ });
         expect(within(detail).queryByRole('button', { name: 'Route round the land' })).toBeNull();
-        fireEvent.click(within(detail).getByRole('button', { name: 'Plot on chart' }));
+        fireEvent.click(within(detail).getByRole('button', { name: 'Plot by hand' }));
         await waitFor(() => expect(onPlot).toHaveBeenCalledOnce());
+        expect(onPlot.mock.calls[0][0]).toMatchObject({
+            points: [],
+            frame: { why: 'Turn on Auto route (trial) to route round the land.' },
+        });
+    });
+
+    // ── 127-PYD-3: the routed line on the chart ──
+
+    it("routed: Show route on chart opens Auto's chart over the sheet at the leave she chose; Back returns to her stop", async () => {
+        const { detail, dialog, name, route } = await openStop();
+        fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+        const show = await within(detail).findByRole('button', { name: 'Show route on chart' });
+        expect(show).toHaveClass('today-primary');
+        fireEvent.click(show);
+        const routeChart = await screen.findByRole('dialog', { name: `Route chart: ${name.split(' · ')[0]}` });
+        expect(routeChart).toBeTruthy();
+        // The stored route, cloned at her leave: the sheet's own copy is never handed over.
+        const stored = chart.props!.dayPlan!.proposal;
+        expect(stored.coordinates).toHaveLength(3);
+        expect(stored.departureMs).toBeGreaterThan(NOW);
+        expect(chart.props!.initialDraftM).toBeCloseTo(2.4, 2);
+        expect(chart.props!.initialVesselProfile).toEqual(stored.vesselProfile);
+        // Plan Your Day's own screens are hidden (state kept), and none of them traps focus behind the chart.
+        const overlays = [dialog, detail].map((d) => d.closest('.today-overlay')!);
+        for (const overlay of overlays) expect(overlay).toHaveAttribute('hidden');
+        expect(screen.queryByRole('dialog', { name: 'Plan Your Day' })).toBeNull();
+
+        fireEvent.click(within(routeChart).getByRole('button', { name: 'Back to Plan Your Day' }));
+        await waitFor(() => expect(routeChart.isConnected).toBe(false));
+        for (const overlay of overlays) expect(overlay).not.toHaveAttribute('hidden');
+        // The same stop page, its route still in, focus back on its button.
+        const back = screen.getByRole('dialog', { name: new RegExp(`^${name}`) });
+        expect(back).toBe(detail);
+        expect(routeRow(back)).toHaveTextContent(/^Routed on your charts/);
+        await waitFor(() =>
+            expect(document.activeElement).toBe(within(back).getByRole('button', { name: 'Show route on chart' })),
+        );
+        // Shown and closed, it never routed again.
+        expect(route.fn).toHaveBeenCalledOnce();
+    });
+
+    it('the chart takes the leave she chose on the stop page, and changing it never routes again', async () => {
+        const { detail, dialog, route } = await openStop();
+        // A 1 h stay gives this stop two leaves (07:00 best, 08:00); the route is kept whatever the stay.
+        fireEvent.change(within(dialog).getByRole('combobox', { name: 'Stay', hidden: true }), {
+            target: { value: '1h' },
+        });
+        fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+        await within(detail).findByRole('button', { name: 'Show route on chart' });
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Routed on your charts/));
+        const chips = () => within(within(detail).getByRole('group', { name: 'Leave at' })).getAllByRole('button');
+        await waitFor(() => expect(chips().length).toBeGreaterThan(1));
+        const open = async (chip: () => HTMLElement) => {
+            fireEvent.click(chip());
+            await waitFor(() => expect(chip()).toHaveAttribute('aria-pressed', 'true'));
+            fireEvent.click(within(detail).getByRole('button', { name: 'Show route on chart' }));
+            await screen.findByRole('dialog', { name: /^Route chart: / });
+            const leave = chart.props!.dayPlan!.proposal.departureMs!;
+            fireEvent.click(screen.getByRole('button', { name: 'Back to Plan Your Day' }));
+            await waitFor(() => expect(screen.queryByRole('dialog', { name: /^Route chart: / })).toBeNull());
+            return leave;
+        };
+        const late = await open(() => chips().at(-1)!);
+        const early = await open(() => chips()[0]);
+        expect(late - early).toBe(H);
+        expect(early).toBeGreaterThanOrEqual(NOW);
+        // The leave it was routed for is the best one; another leave only moves the tide hour.
+        expect(early).toBe(route.calls[0].req.departureMs);
+        expect(route.fn).toHaveBeenCalledOnce();
+    });
+
+    it('Use on the main chart plots the routed line out and back, sets her leave, and never a straight line', async () => {
+        const { detail, onPlot, name } = await openStop();
+        fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+        fireEvent.click(await within(detail).findByRole('button', { name: 'Show route on chart' }));
+        await screen.findByRole('dialog', { name: /^Route chart: / });
+        const proposal = chart.props!.dayPlan!.proposal;
+        fireEvent.click(screen.getByRole('button', { name: 'Use on the main chart' }));
+        expect(onPlot).toHaveBeenCalledOnce();
+        const action = onPlot.mock.calls[0][0];
+        const line = proposal.coordinates.map(([lon, lat]) => ({ lat, lon }));
+        expect(action).toMatchObject({ kind: 'plot-day', routed: true, name: `Day out: ${name}` });
+        expect(action.points).toEqual([...line, ...[...line].reverse().slice(1)]);
+        expect(action.points.length).toBeGreaterThan(2);
+        expect(action.frame).toBeUndefined();
+        // Its satellite land check ran: nothing to caution.
+        expect(action.unchecked).toBeUndefined();
+        expect(Number(sessionStorage.getItem(authScopedStorageKey(PLAN_DEPARTURE_KEY, getAuthIdentityScope())))).toBe(
+            proposal.departureMs,
+        );
+    });
+
+    // ── Review fixes (stage 3): what the chart's satellite Retry finds comes back to her stop ──
+    const SLOW = "the satellite relief service didn't answer within 12 s";
+    /** The satellite land check could not be done when it was routed. */
+    const unchecked = () =>
+        routes(async (r) => {
+            const p = routedProposal(r);
+            return { ...p, engine: { ...p.engine!, backstop: 'unavailable', backstopReason: SLOW } };
+        });
+    const showChart = async (detail: HTMLElement) => {
+        fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+        fireEvent.click(await within(detail).findByRole('button', { name: 'Show route on chart' }));
+        return screen.findByRole('dialog', { name: /^Route chart: / });
+    };
+    const backFromChart = async (routeChart: HTMLElement) => {
+        fireEvent.click(within(routeChart).getByRole('button', { name: 'Back to Plan Your Day' }));
+        await waitFor(() => expect(routeChart.isConnected).toBe(false));
+    };
+
+    it("a satellite Retry that finds land: back on her stop it says so in Auto's words, plans on the estimate, and offers only Plot by hand", async () => {
+        const { detail, onPlot } = await openStop({ route: unchecked() });
+        const routeChart = await showChart(detail);
+        fireEvent.click(within(routeChart).getByRole('button', { name: 'Retry finds land' }));
+        await backFromChart(routeChart);
+        // Exactly as if the router had found it: no route, Auto's sentence, the estimate under it.
+        await waitFor(() => expect(routeRow(detail)).toHaveAttribute('data-route', 'no-route'));
+        expect(routeRow(detail)).toHaveTextContent(chart.land);
+        expect(within(detail).getByText(/^About \d+ NM each way/)).toBeTruthy();
+        expect(within(detail).queryByRole('button', { name: 'Show route on chart' })).toBeNull();
+        fireEvent.click(within(detail).getByRole('button', { name: 'Plot by hand' }));
+        const action = onPlot.mock.calls[0][0];
+        expect(action).toMatchObject({ kind: 'plot-day', points: [], frame: { why: chart.land } });
+        expect(action.routed).toBeUndefined();
+    });
+
+    it("a route whose satellite check didn't run goes on to the main chart saying so; once a Retry clears it, the stop keeps the checked copy", async () => {
+        const first = await openStop({ route: unchecked() });
+        let routeChart = await showChart(first.detail);
+        fireEvent.click(within(routeChart).getByRole('button', { name: 'Use on the main chart' }));
+        // A caution, not a gate: the line goes on, and why it is unchecked goes with it.
+        expect(first.onPlot.mock.calls[0][0]).toMatchObject({ kind: 'plot-day', routed: true, unchecked: SLOW });
+        cleanup();
+
+        const { detail, onPlot } = await openStop({ route: unchecked() });
+        routeChart = await showChart(detail);
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/satellite land check not done/));
+        fireEvent.click(within(routeChart).getByRole('button', { name: 'Retry clears it' }));
+        await backFromChart(routeChart);
+        await waitFor(() => expect(routeRow(detail)).not.toHaveTextContent(/satellite land check not done/));
+        expect(routeRow(detail)).toHaveTextContent(/^Routed on your charts/);
+        // Reopened, the chart is handed the checked copy; nothing routed again.
+        fireEvent.click(within(detail).getByRole('button', { name: 'Show route on chart' }));
+        await screen.findByRole('dialog', { name: /^Route chart: / });
+        expect(chart.props!.dayPlan!.proposal.engine!.backstop).toBe('verified');
+        fireEvent.click(screen.getByRole('button', { name: 'Use on the main chart' }));
+        expect(onPlot.mock.calls[0][0].unchecked).toBeUndefined();
+    });
+
+    it('a stop with no leave (its weather failed) goes on to the main chart without touching the Plan page departure', async () => {
+        const fail = async () => {
+            throw new Error('proxy 503');
+        };
+        const KEY = authScopedStorageKey(PLAN_DEPARTURE_KEY, getAuthIdentityScope());
+        // 17:00 today, set on the Plan page by another passage.
+        sessionStorage.setItem(KEY, String(NOW + 10.5 * H));
+        const { detail, onPlot } = await openStop({
+            loader: { loadRouteSpread: fail, loadRouteForecast: fail },
+            timed: false,
+        });
+        expect(within(detail).queryByRole('group', { name: 'Leave at' })).toBeNull();
+        const routeChart = await showChart(detail);
+        fireEvent.click(within(routeChart).getByRole('button', { name: 'Use on the main chart' }));
+        expect(onPlot.mock.calls[0][0]).toMatchObject({ kind: 'plot-day', routed: true });
+        expect(sessionStorage.getItem(KEY)).toBe(String(NOW + 10.5 * H));
+    });
+
+    it('while the chart loads, "Opening chart…" has its way back: focus on it, and Escape returns to her stop', async () => {
+        const { detail } = await openStop();
+        fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+        const show = await within(detail).findByRole('button', { name: 'Show route on chart' });
+        chart.hold = new Promise<void>(() => {});
+        try {
+            fireEvent.click(show);
+            const opening = await screen.findByRole('dialog', { name: 'Plan Your Day route' });
+            expect(opening).toHaveTextContent('Opening chart…');
+            const back = within(opening).getByRole('button', { name: 'Back to Plan Your Day' });
+            await waitFor(() => expect(document.activeElement).toBe(back));
+            fireEvent.keyDown(back, { key: 'Escape' });
+            await waitFor(() => expect(opening.isConnected).toBe(false));
+            expect(detail.closest('.today-overlay')).not.toHaveAttribute('hidden');
+            await waitFor(() => expect(document.activeElement).toBe(show));
+        } finally {
+            chart.hold = null;
+        }
+    });
+
+    it('Back to the list after a chart round trip: focus lands where it does without one, never lost', async () => {
+        const { dialog, name } = await openStop();
+        const title = new RegExp(`^${name}`);
+        const row = () => within(within(dialog).getByRole('list', { name: 'Stops' })).getAllByRole('button')[0];
+        const toList = async () => {
+            fireEvent.click(within(screen.getByRole('dialog', { name: title })).getByRole('button', { name: 'Back' }));
+            await waitFor(() => expect(screen.queryByRole('dialog', { name: title })).toBeNull());
+            await new Promise((r) => setTimeout(r, 0));
+            return document.activeElement;
+        };
+        // Opened from the keyboard: focus is on her row when she opens it.
+        const reopen = async () => {
+            row().focus();
+            fireEvent.click(row());
+            return screen.findByRole('dialog', { name: title });
+        };
+        await toList();
+        await reopen();
+        const plain = await toList();
+        expect(dialog.contains(plain)).toBe(true);
+        await backFromChart(await showChart(await reopen()));
+        // The hidden spell re-takes the stop page's restore target; the list's own trap still lands it the same.
+        expect(await toList()).toBe(plain);
     });
 
     it('a draft confirmed after the whole sheet has closed starts nothing', async () => {
