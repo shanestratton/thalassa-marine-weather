@@ -27,13 +27,41 @@
     --menu-room: calc(100cqh - 580px);
 }
 
-/* The menu box fades in; the cards above it still rise. The port's stagger-in
+/*
+ * The menu: Crew & Float Plan's own card, then the one box (Shane 2026-10-13:
+ * "ok the crew and float plan, really needs its own card, can we make a nice
+ * card for it without having to scroll up and down on the page, maybe a nice
+ * hue as well on the back of it"). A flex column: the card, a gap, the box.
+ * The card is a menu card of one row (it carries .vessel-hub-menu, so its row
+ * takes the box's type at every height), the app's one card hue over the
+ * hub's glass (styles/card-hue.css). It costs its own two edges and the gap,
+ * less the divider it had, ~9 px; the short tiers close the gap and the
+ * skipper card's (below), so there it costs nothing and a 375x662 SE still
+ * fits as it did.
+ */
+.vessel-hub-menus {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.vessel-hub-menus > * {
+    flex-shrink: 0;
+}
+.vessel-hub-crew {
+    background-color: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+/* The menu fades in; the cards above it still rise. The port's stagger-in
    starts each card 8 px low, and Chromium kept that first frame's scrollable
    overflow after the page had come to rest: at 320x627 the box ends 6 px above
    the port's end, and the page scrolled 2 px of nothing. WebKit measured 0,
-   but the box is the last thing on the page, the only one whose rise can push
+   but the menu is the last thing on the page, the only one whose rise can push
    past the end, so it alone does not rise. */
-.vessel-hub-port.stagger-in > .vessel-hub-menu {
+.vessel-hub-port.stagger-in > .vessel-hub-menus {
     animation-name: vessel-hub-menu-in;
 }
 
@@ -82,6 +110,16 @@
 }
 .vessel-hub-home .vessel-hub-menu > .hub-row {
     flex: 1 0 auto;
+}
+/* The menu takes the share the box took. Inside it the crew card grows by its
+   one row and the box by its five, so all six rows share alike; the card
+   wears the one card hue's halo, not the box's drop shadow. */
+.vessel-hub-home .vessel-hub-menus {
+    flex-grow: 1;
+}
+.vessel-hub-home .vessel-hub-menu.vessel-hub-crew {
+    flex-grow: 0.2;
+    box-shadow: var(--card-hue-halo);
 }
 /* The menu's icon chips take the hub accent's tint, as the cards above do. */
 .vessel-hub-home .vessel-hub-menu .hub-row-icon {
@@ -297,6 +335,11 @@
     .vessel-hub-journal {
         margin-bottom: 0.375rem;
     }
+    /* The crew card and the box sit closer, the room the crew card costs:
+       2.5 px, as the skipper card's (below). */
+    .vessel-hub-menus {
+        gap: 0.15625rem;
+    }
     /* The pair's floor is a 44 pt card; it still grows into what is left. */
     .vessel-hub-home .vessel-hub-journal {
         flex-basis: 44px;
@@ -310,10 +353,17 @@
     .vessel-hub-tile-icon {
         padding: 0.375rem;
     }
-    /* py-1 + the 1.25rem title row + the 1rem GPS row + a 44 px button. */
+    /* py-1 + the 1.25rem title row + the 1rem GPS row + a 44 px button. Its
+       gap to the menu is the menu's own (above), so the skipper card, the crew
+       card and the box keep one rhythm. The 6 px this card's gap was becomes
+       the two 2.5 px gaps, and with the crew card's two edges, less the
+       divider its row had in the box, the menu takes no more height than the
+       one box did, so nothing above it moves: a 6.1-inch iPhone's Diary pair
+       stays ~88 px, 2 px over the 86 it stacks at (pinned in
+       browser-tests/menu-pages-fit.spec.ts). */
     [data-testid='skipper-device-card'] {
         height: calc(3.125rem + 46px);
-        margin-bottom: 0.375rem;
+        margin-bottom: 0.15625rem;
         padding-top: 0.25rem;
         padding-bottom: 0.25rem;
     }
@@ -407,6 +457,9 @@
     [data-testid='skipper-device-card'] {
         margin-bottom: 0.125rem;
     }
+    .vessel-hub-menus {
+        gap: 0.125rem;
+    }
     .vessel-binder-label {
         line-height: 1;
     }
@@ -442,8 +495,8 @@
 /* Phone landscape (the app's own test: landscape and under 500 px tall, where
    the tab bar gives way to the bottom-left nav toggle). One column cannot hold
    the page in ~300 px, so it becomes two: the safety tiles, Diary and the
-   skipper card on the left, clear of the nav toggle; the menu box on the
-   right, running down to the home indicator. */
+   skipper card on the left, clear of the nav toggle; the menu (the crew card
+   over the box) on the right, running down to the home indicator. */
 @media (orientation: landscape) and (max-height: 499.98px) {
     .vessel-hub-surface.vessel-hub-home {
         display: grid !important;
@@ -474,7 +527,7 @@
         grid-column: 1;
         grid-row: 3;
     }
-    .vessel-hub-home .vessel-hub-menu {
+    .vessel-hub-home .vessel-hub-menus {
         grid-column: 2;
         grid-row: 1 / -1;
         align-self: start;

@@ -122,10 +122,13 @@ describe('Vessel hub accessible structure', () => {
         expect(onNavigate).toHaveBeenCalledWith('settings');
     });
 
-    it('gives the menu box a heading, so the rotor finds it between the cards', () => {
+    it('gives the menu a heading, so the rotor finds it between the cards', () => {
+        // Over both of its cards: Crew & Float Plan's own and the box (128-HUES).
         renderHub();
-        const box = screen.getByTestId('vessel-hub-menu');
-        expect(within(box).getByRole('heading', { level: 2, name: 'Vessel menu' })).toBeInTheDocument();
+        const menus = screen.getByTestId('vessel-hub-menus');
+        expect(within(menus).getByRole('heading', { level: 2, name: 'Vessel menu' })).toBeInTheDocument();
+        expect(within(menus).getByTestId('vessel-hub-crew')).toBeInTheDocument();
+        expect(within(menus).getByTestId('vessel-hub-menu')).toBeInTheDocument();
     });
 
     it('tells the two connection rows apart', () => {

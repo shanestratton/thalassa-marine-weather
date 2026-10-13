@@ -10,6 +10,12 @@
  * tile's div with its native select laid over it) and gives it
  * PLAN_TILE_CLASS and PLAN_TILE_STYLE; this draws what is inside.
  *
+ * Around them, the app's one card hue (styles/card-hue.css) in one calm sky
+ * for all four (Shane 2026-10-13: "ok the four big cards in the route plan
+ * page, can they have a nice hue around them also, just for consistency"):
+ * its edge from the class, its halo inline where the card's shadow was, so a
+ * hover's lift shadow (.card-lift) never swaps it out.
+ *
  * The tile grows with the page (styles/plan-page.css): a short tile is one
  * row with the short subline; a taller one puts the icon and title on one row
  * with the full subline beneath; a tall one stacks, icon on top, words at its
@@ -23,8 +29,15 @@ import { daylightUiColor } from '../../utils/daylightUiColor';
 
 /** The page's one accent, the Vessel hub's sky. */
 export const PLAN_ACCENT = daylightUiColor('#7dd3fc');
-export const PLAN_TILE_STYLE = JOURNAL_CARD;
-export const PLAN_TILE_CLASS = 'plan-tile card-lift text-left transition-all active:scale-[0.98]';
+export const PLAN_TILE_STYLE: React.CSSProperties = {
+    background: JOURNAL_CARD.background,
+    backdropFilter: JOURNAL_CARD.backdropFilter,
+    WebkitBackdropFilter: JOURNAL_CARD.WebkitBackdropFilter,
+    borderRadius: JOURNAL_CARD.borderRadius,
+    boxShadow: 'var(--card-hue-halo)',
+};
+export const PLAN_TILE_CLASS =
+    'plan-tile card-hue card-hue-plan card-lift text-left transition-all active:scale-[0.98]';
 
 export const PlanTileFace: React.FC<{
     icon: React.ReactNode;
