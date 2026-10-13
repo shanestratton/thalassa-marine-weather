@@ -123,8 +123,11 @@ describe('the Pi can actually be handed the shore watch', () => {
         // And this phone must stop watching BEFORE it goes ashore, or it alarms
         // on its own movement the moment the skipper steps into the dinghy.
         expect(becomeShore).toBeGreaterThan(standDown);
-        // A Pi that refuses leaves the phone armed and watching.
-        expect(fn).toMatch(/if \(!took\) \{[\s\S]{0,200}still keeping it/);
+        // A Pi that refuses leaves the phone armed and watching. Since 129-12
+        // a refusal by her Pi (this phone not set up for her) says so in its
+        // words first, and still that this phone keeps the watch.
+        expect(fn).toMatch(/if \(!took\) \{[\s\S]{0,500}still keeping it/);
+        expect(fn).toMatch(/if \(!took\) \{[\s\S]{0,400}This phone is still keeping the watch\./);
     });
 
     it("going ashore does not end the Pi's watch", () => {
@@ -378,7 +381,10 @@ describe('the Pi can actually be handed the shore watch', () => {
         expect(shoreWeigh).toMatch(/await AnchorPiWatchKeeper\.end\(\);\s*\} catch/);
         // It runs only from the Weigh Anchor button, not from any effect.
         expect(page.match(/handleWeighAnchorFromShore\b/g)).toHaveLength(2);
-        expect(page).toMatch(/<ShoreWeighAnchorBar onWeighAnchor=\{\(\) => void handleWeighAnchorFromShore\(\)\} \/>/);
+        // (Since 129-12 the bar also carries her Pi's words when it refused the stop.)
+        expect(page).toMatch(
+            /<ShoreWeighAnchorBar\s+onWeighAnchor=\{\(\) => void handleWeighAnchorFromShore\(\)\}\s+refused=\{weighRefused\}\s*\/>/,
+        );
         // …and it is in the WEIGH-ANCHOR handler, not an effect. Deriving it
         // from viewMode failed three times: an unmount cleanup (leaving the
         // page stopped the Pi), `viewMode === 'setup'` (coming back stopped

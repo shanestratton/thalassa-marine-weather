@@ -18,6 +18,7 @@ const { getPiTrackStatus, setPiTrackRecording } = vi.hoisted(() => ({
 vi.mock('../services/piTrackRecorder', () => ({ getPiTrackStatus, setPiTrackRecording }));
 
 import { PiTrackRecorderCard } from '../components/settings/PiTrackRecorderCard';
+import { clearPiCommandRefusal, notePiCommandRefusal } from '../services/piCommandRefusal';
 
 const T0 = Date.parse('2026-08-01T00:00:00Z');
 
@@ -82,6 +83,46 @@ describe('the boat track recorder card', () => {
         fireEvent.click(await screen.findByRole('switch'));
         await waitFor(() => expect(setPiTrackRecording).toHaveBeenCalledWith(true));
         await waitFor(() => expect(screen.getByTestId('pi-track-card').textContent).toContain('isn’t running'));
+    });
+
+    // 129-12 review (2026-10-14): her Pi may take this switch only from her own
+    // devices. Refused, the Pi DID answer: the card keeps what it knows and
+    // says why in her Pi's words, never "Can't reach the Pi". Fictional: Ψυχή.
+    it("a switch her Pi refuses says her Pi's words, and keeps what it knows", async () => {
+        getPiTrackStatus.mockResolvedValue(status({ enabled: false, running: false }));
+        setPiTrackRecording.mockImplementation(async () => {
+            notePiCommandRefusal('pi-device-not-set-up', 'Ψυχή');
+            return null;
+        });
+        try {
+            render(<PiTrackRecorderCard />);
+            fireEvent.click(await screen.findByRole('switch'));
+            const card = screen.getByTestId('pi-track-card');
+            await waitFor(() =>
+                expect(card.textContent).toContain("This phone isn't set up for Ψυχή's Pi. Type the code from her Pi."),
+            );
+            expect(card.textContent).not.toContain('Can’t reach the Pi');
+            expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false');
+            expect(card.textContent).toContain('4,321 points');
+        } finally {
+            clearPiCommandRefusal();
+        }
+    });
+
+    it('a switch that could not reach the Pi still says so, even just after a refusal elsewhere', async () => {
+        notePiCommandRefusal('pi-device-not-set-up', 'Ψυχή');
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        getPiTrackStatus.mockResolvedValue(status({ enabled: false, running: false }));
+        setPiTrackRecording.mockResolvedValue(null);
+        try {
+            render(<PiTrackRecorderCard />);
+            fireEvent.click(await screen.findByRole('switch'));
+            await waitFor(() =>
+                expect(screen.getByTestId('pi-track-card').textContent).toContain('Can’t reach the Pi'),
+            );
+        } finally {
+            clearPiCommandRefusal();
+        }
     });
 
     it('renders nothing until it has actually asked', async () => {

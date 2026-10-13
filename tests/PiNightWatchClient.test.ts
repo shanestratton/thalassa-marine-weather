@@ -348,7 +348,22 @@ describe('acknowledgements travel both ways', () => {
     });
 
     it('a DANGER the Pi was told to silence is muted here for 30 minutes', () => {
-        AisGuardAlertStore.setCollision([collisionCard(NORDLICHT, false)], NOW);
+        AisGuardAlertStore.setCollision(
+            [
+                {
+                    mmsi: NORDLICHT,
+                    name: 'NORDLICHT',
+                    distanceNm: 1.2,
+                    bearing: 88,
+                    sog: 12,
+                    cog: 270,
+                    shipType: '70',
+                    timestamp: NOW,
+                    collision: { cpaNm: 0.05, tcpaMin: 4, closeQuarters: false, reportAgeSec: 4, source: 'local' },
+                },
+            ],
+            NOW,
+        );
         hearLan(lanWatch('armed', [alarm({ kind: 'collision', mmsi: NORDLICHT, ackedAt: NOW - 2_000 })]));
         expect(AisGuardAlertStore.mutedUntil(NORDLICHT)).toBeGreaterThanOrEqual(NOW + 30 * 60_000 - 5_000);
         expect(AisGuardAlertStore.get().some((a) => a.mmsi === NORDLICHT && a.collision)).toBe(false);
@@ -399,7 +414,22 @@ describe('acknowledgements travel both ways', () => {
     it('an acknowledgement the Pi sent us is not echoed back', async () => {
         hearLan(lanWatch('armed'));
         stop = startPiNightWatch();
-        AisGuardAlertStore.setCollision([collisionCard(NORDLICHT, false)], NOW);
+        AisGuardAlertStore.setCollision(
+            [
+                {
+                    mmsi: NORDLICHT,
+                    name: 'NORDLICHT',
+                    distanceNm: 1.2,
+                    bearing: 88,
+                    sog: 12,
+                    cog: 270,
+                    shipType: '70',
+                    timestamp: NOW,
+                    collision: { cpaNm: 0.05, tcpaMin: 4, closeQuarters: false, reportAgeSec: 4, source: 'local' },
+                },
+            ],
+            NOW,
+        );
         hearLan(lanWatch('armed', [alarm({ kind: 'collision', mmsi: NORDLICHT, ackedAt: NOW })]));
         await settle();
         expect(posts('/api/ais-watch/ack')).toEqual([]);
@@ -706,6 +736,119 @@ describe('a Pi before Pi update 2', () => {
         await vi.advanceTimersByTimeAsync(2_000);
         await settle();
         expect(posts('/api/ais-watch')).toHaveLength(2);
+    });
+});
+
+describe('a Pi that only takes commands from her own devices (129-12)', () => {
+    const REFUSED = "This phone isn't set up for Kestrel's Pi. Type the code from her Pi.";
+    const lockRefusal = () => ({
+        status: 403,
+        data: JSON.stringify({ status: 'error', code: 'pi-device-not-set-up', error: REFUSED }),
+    });
+
+    it('a refused stand-down says so in the row, keeps the watch shown, and is not tried again every 10 s', async () => {
+        hearLan(lanWatch('armed', [], Date.now(), { devices: 2 }));
+        mocks.respond = (url, data) =>
+            url.endsWith('/api/ais-watch') && (data as { armed?: unknown }).armed === false
+                ? lockRefusal()
+                : { status: 200, data: JSON.stringify({ status: 'ok' }) };
+        stop = startPiNightWatch();
+        PiNightWatchStatus.standDownForEveryone();
+        await settle();
+        expect(posts('/api/ais-watch')).toHaveLength(1);
+        const view = PiNightWatchStatus.view(Date.now());
+        expect(view.pending).toBeNull();
+        expect(view.refused).toBe(REFUSED);
+        expect(presentCollisionWatchRow({ armed: false }, view, Date.now())).toEqual({
+            text: 'Watching: the Pi',
+            tone: 'warn',
+            note: REFUSED,
+            setUp: true,
+        });
+        for (let i = 0; i < 5; i += 1) {
+            vi.advanceTimersByTime(2_000);
+            hearLan(lanWatch('armed', [], Date.now(), { devices: 2 }));
+            await settle();
+        }
+        await vi.advanceTimersByTimeAsync(PI_WATCH_RETRY_MS * 3);
+        expect(posts('/api/ais-watch')).toHaveLength(1);
+    });
+
+    it('raising stays open: arming and an acknowledgement go, and nothing is said about set-up', async () => {
+        hearLan(lanWatch('off'));
+        mocks.respond = (url, data) =>
+            url.endsWith('/api/ais-watch') && (data as { armed?: unknown }).armed === false
+                ? lockRefusal()
+                : { status: 200, data: JSON.stringify({ status: 'ok' }) };
+        stop = startPiNightWatch();
+        setShield(true);
+        await settle();
+        expect(posts('/api/ais-watch')[0].data).toMatchObject({ armed: true });
+        AisGuardAlertStore.setCollision(
+            [
+                {
+                    mmsi: NORDLICHT,
+                    name: 'NORDLICHT',
+                    distanceNm: 1.2,
+                    bearing: 88,
+                    sog: 12,
+                    cog: 270,
+                    shipType: '70',
+                    timestamp: NOW,
+                    collision: { cpaNm: 0.05, tcpaMin: 4, closeQuarters: false, reportAgeSec: 4, source: 'local' },
+                },
+            ],
+            NOW,
+        );
+        AisGuardAlertStore.muteCollision(NORDLICHT);
+        await settle();
+        expect(posts('/api/ais-watch/ack').map((r) => r.data)).toEqual([{ kind: 'collision', mmsi: NORDLICHT }]);
+        expect(PiNightWatchStatus.view(Date.now()).refused).toBeNull();
+        expect(PiNightWatchStatus.view(Date.now()).pending).toBeNull();
+    });
+
+    // 129-12 review (2026-10-14): a phone not set up acknowledges for itself only.
+    // Her Pi answers `local`; the Pi's close quarters and beacon cards then stay
+    // away here while the Pi says they are open (not back every 30 s), a DANGER
+    // keeps its 30-minute mute, and a new alarm is a new card.
+    it('an acknowledgement her Pi keeps to this phone: its cards from the Pi stay away here while they are open', async () => {
+        const open = [
+            alarm({ kind: 'close-quarters', mmsi: NORDLICHT }),
+            alarm({ kind: 'distress', mmsi: SART, name: 'SART ACTIVE' }),
+            alarm({ kind: 'collision', mmsi: BAY_RUNNER, name: 'BAY RUNNER' }),
+        ];
+        hearLan(lanWatch('armed', open));
+        mocks.respond = (url) =>
+            url.endsWith('/api/ais-watch/ack')
+                ? { status: 200, data: JSON.stringify({ status: 'ok', acked: false, alarm: null, local: true }) }
+                : { status: 200, data: JSON.stringify({ status: 'ok' }) };
+        stop = startPiNightWatch();
+        const cards = PiNightWatchStatus.piCards(Date.now());
+        expect(cards.map((a) => a.mmsi).sort()).toEqual([NORDLICHT, BAY_RUNNER, SART].sort());
+        for (const card of cards) PiNightWatchStatus.acknowledge(card, Date.now());
+        await settle();
+        expect(posts('/api/ais-watch/ack')).toHaveLength(3);
+        // Two minutes on, the Pi still names all three, unsilenced: only the DANGER's mute is time-bound.
+        vi.advanceTimersByTime(120_000);
+        hearLan(lanWatch('armed', open));
+        expect(PiNightWatchStatus.piCards(Date.now())).toEqual([]);
+        vi.advanceTimersByTime(29 * 60_000);
+        hearLan(lanWatch('armed', open));
+        expect(PiNightWatchStatus.piCards(Date.now()).map((a) => a.mmsi)).toEqual([BAY_RUNNER]);
+        // Nordlicht's encounter ends on the Pi, then a new one starts: a new card.
+        hearLan(lanWatch('armed', open.slice(1)));
+        const again = alarm({ kind: 'close-quarters', mmsi: NORDLICHT, key: `close-quarters:${NORDLICHT}:${NOW}` });
+        hearLan(lanWatch('armed', [again, ...open.slice(1)]));
+        expect(PiNightWatchStatus.piCards(Date.now()).map((a) => a.mmsi)).toContain(NORDLICHT);
+    });
+
+    it('against an observing Pi, or one with no lock at all, the stand-down goes exactly as today', async () => {
+        hearLan(lanWatch('armed', [], Date.now(), { devices: 2 }));
+        stop = startPiNightWatch();
+        PiNightWatchStatus.standDownForEveryone();
+        await settle();
+        expect(posts('/api/ais-watch')[0].data).toEqual({ armed: false, everyone: true, device: DEVICE });
+        expect(PiNightWatchStatus.view(Date.now())).toMatchObject({ pending: null, refused: null });
     });
 });
 

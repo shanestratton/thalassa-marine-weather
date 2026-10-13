@@ -109,7 +109,7 @@ function piSays(alarms: unknown[], atAnchor = false, push: unknown = null) {
 
 if (view === 'key') {
     const key = params.get('key');
-    if (key !== 'standdown' && key !== 'wake') AisGuardZone.armAfterSoundCheck();
+    if (key !== 'standdown' && key !== 'wake' && key !== 'refused') AisGuardZone.armAfterSoundCheck();
     if (key === 'wake') {
         // As services/piNightWatch.ts does while it runs, for the skipper's own phone.
         setAuthIdentityScope('skipper-fictional');
@@ -123,9 +123,17 @@ if (view === 'key') {
     );
     // As services/piNightWatch.ts does while it runs.
     if (key === 'anchor') PiNightWatchStatus.setPhoneAnchorWatch('at-anchor');
-    if (key === 'standdown' || key === 'wake') {
+    if (key === 'standdown' || key === 'wake' || key === 'refused') {
         PiNightWatchStatus.setStandDownHandler(() => {
             document.body.dataset.piStoodDown = 'yes';
+        });
+    }
+    // 129-12: Kestrel's Pi refused this phone's stand-down (it is not set up for her Pi).
+    if (key === 'refused') {
+        const { notePiCommandRefusal } = await import('../../services/piCommandRefusal');
+        notePiCommandRefusal('pi-device-not-set-up', 'Kestrel');
+        window.addEventListener('thalassa:navigate', (event) => {
+            document.body.dataset.navigatedTo = String((event as CustomEvent<{ tab?: string }>).detail?.tab);
         });
     }
 }

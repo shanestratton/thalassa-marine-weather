@@ -30,7 +30,8 @@
  * into an unauthorised channel just collects 403s, and the first thing the
  * skipper would see is a shore watch that does not work.
  */
-import { pinnedPiRequest } from './PiPairingService';
+import { getPairing, pinnedPiRequest } from './PiPairingService';
+import { notePiCommandRefusalIn } from './piCommandRefusal';
 import { supabase } from './supabase';
 import { createLogger } from '../utils/createLogger';
 
@@ -89,7 +90,10 @@ export async function authoriseRelay(relayId: string, sessionCode: string): Prom
  * (the transport failed), which is the one case where the Pi MAY have taken
  * it: a moved mark then has to wait for the Pi's own report (126-07a).
  */
-export type PiAssignAnswer = { taken: true } | { taken: false; status: number | null; error: string };
+export type PiAssignAnswer =
+    | { taken: true }
+    /** `notSetUp`: her Pi takes commands only from her own devices, and this phone is not one (129-12). */
+    | { taken: false; status: number | null; error: string; notSetUp?: true };
 
 /** The Pi's own short reason (its JSON `{ error }`), for the log. */
 function piErrorText(data: unknown): string {
@@ -136,7 +140,8 @@ export async function sendAssignmentToPi(
     if (status >= 200 && status < 300) return { taken: true };
     const error = piErrorText(data);
     log.warn(`Pi would not take the watch (HTTP ${status})${error ? `: ${error}` : ''}`);
-    return { taken: false, status: Number.isFinite(status) ? status : 0, error };
+    const notSetUp = notePiCommandRefusalIn({ status, data }, () => getPairing()?.boatName) !== null;
+    return { taken: false, status: Number.isFinite(status) ? status : 0, error, ...(notSetUp ? { notSetUp } : {}) };
 }
 
 /** Step 2: whether the Pi took the assignment (a 2xx). Never throws. */
@@ -147,12 +152,18 @@ export async function assignWatchToPi(assignment: PiWatchAssignment, piBaseUrl: 
 }
 
 /** Tell the Pi to stop. Best effort — the authorisation lapsing is the
- *  backstop, so a Pi that missed this cannot broadcast for long. */
-export async function clearWatchOnPi(piBaseUrl: string): Promise<void> {
+ *  backstop, so a Pi that missed this cannot broadcast for long. True when
+ *  her Pi refused it: this phone is not set up for her Pi (129-12). */
+export async function clearWatchOnPi(piBaseUrl: string): Promise<boolean> {
     try {
-        await pinnedPiRequest({ url: `${piBaseUrl.replace(/\/$/, '')}/api/anchor/watch`, method: 'DELETE' });
+        const res = await pinnedPiRequest({
+            url: `${piBaseUrl.replace(/\/$/, '')}/api/anchor/watch`,
+            method: 'DELETE',
+        });
+        return notePiCommandRefusalIn(res, () => getPairing()?.boatName) !== null;
     } catch {
         /* the six-hour authorisation expiry is what actually guarantees this */
+        return false;
     }
 }
 

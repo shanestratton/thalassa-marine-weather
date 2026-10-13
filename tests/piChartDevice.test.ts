@@ -5,7 +5,7 @@ import { createHash, generateKeyPairSync, sign as nodeSign, type KeyObject } fro
  * This phone's place in the boat's chart vault (127-C-d, app half).
  *
  * Pi update 3 serves charts only to devices it has enrolled by code: each one
- * sends `X-Thalassa-Chart-Device: <token>` on /api/enc/*. These tests pin the
+ * sends `X-Thalassa-Chart-Device: <token>` (on every Pi call since 129-12). These tests pin the
  * phone's side of that:
  *
  *   - the token lives in the Keychain under 'thalassa-pi-chart-device' only,
@@ -411,7 +411,7 @@ describe('where the token goes', () => {
         expect(JSON.stringify({ ...localStorage })).not.toContain(TOKEN);
     });
 
-    it('goes to /api/enc/* only: never /api/admin, /api/pair, a look-alike path or the pairing card', async () => {
+    it('goes on every pinned Pi call since 129-12 (her Pi commands only her own devices), never the pairing card', async () => {
         newPi();
         await device.enrolChartDevice('HJKMN4PQRS');
         const sent = pi(() => json(200, {}));
@@ -420,7 +420,7 @@ describe('where the token goes', () => {
         await pairing.pinnedPiRequest({ url: `${BASE}/api/osm/overlay?next=/api/enc/installed` });
         await pairing.pinnedPiRequest({ url: `${BASE}/api/enc` });
         await pairing.pinnedPiRequest({ url: `${BASE}/api/enc/installed/ZZ5KESTR/data` });
-        expect(sent.map(headerOf)).toEqual([undefined, undefined, undefined, TOKEN, TOKEN]);
+        expect(sent.map(headerOf)).toEqual([TOKEN, TOKEN, TOKEN, TOKEN, TOKEN]);
 
         tls.pairingFetch.mockResolvedValue({ status: 404, data: '', headers: {}, peerSpki: '' });
         await pairing.fetchPairInfo(BASE);

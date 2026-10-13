@@ -22,11 +22,17 @@ document.documentElement.classList.toggle('display-light', mode === 'light');
  *   wifi-only   reached over the tailnet       limit    a sixth device (409)
  *   dongle      the o-charts dongle out        old-pi   today's Pi: no device routes (404)
  *
+ * &lock=observe | enforce (129-12): Pi update 4's "Only her own devices can
+ * command the Pi", its switch where the skipper left it. Without it the Pi is
+ * today's: no /api/pi-lock at all (404), and the row is hidden. Enforcing, a
+ * state-changing call from a phone not set up is refused in the Pi's words.
+ *
  * A browser shows no mobile keyboard under automation, so the visual viewport
  * is modelled (as e2e/fixtures/stores-boxes.tsx does) under the app's real
  * keyboard guard: dispatch `test:keyboard` with a height.
  */
 const charts = params.get('charts');
+const lock = params.get('lock');
 const PI = '192.168.4.20:3001';
 /** Fictional: 43 base64url characters, the shape of the vault's 32-byte tokens. */
 const TOKEN = 'kestrelFixtureChartToken' + 'z'.repeat(19);
@@ -58,6 +64,12 @@ async function installKestrelPi(state: string): Promise<void> {
 
     const now = Date.now();
     let enrolled = state === 'set-up' || state === 'dongle';
+    let lockMode: 'observe' | 'enforce' = lock === 'enforce' ? 'enforce' : 'observe';
+    const NOT_SET_UP = {
+        status: 'error',
+        code: 'pi-device-not-set-up',
+        error: "This phone isn't set up for Kestrel's Pi. Type the code from her Pi.",
+    };
     const devices = enrolled
         ? [
               { id: 'dev-kestrel-phone', label: 'iPhone', enrolledAt: '2026-10-10T09:05:00.000Z' },
@@ -85,6 +97,29 @@ async function installKestrelPi(state: string): Promise<void> {
         const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
         const withToken = header === TOKEN && enrolled;
 
+        if (path === '/api/pi-lock' && lock) {
+            if (method === 'POST') {
+                if (!withToken) return reply(403, NOT_SET_UP);
+                lockMode = body.mode === 'enforce' ? 'enforce' : 'observe';
+            }
+            return reply(200, {
+                v: 1,
+                capability: 'pi-command-lock',
+                mode: lockMode,
+                // Her other phone and iPad are set up even when this one is not.
+                enforcing: lockMode === 'enforce',
+                devices: Math.max(devices.length, 2),
+                thisDevice: withToken ? 'set-up' : 'not-set-up',
+                unenrolled: [
+                    { route: 'POST /api/ais-watch', calls: 2, lastAt: new Date(now - 600_000).toISOString() },
+                    { route: 'POST /api/configure', calls: 1, lastAt: new Date(now - 300_000).toISOString() },
+                ],
+                since: new Date(now - 3_600_000).toISOString(),
+            });
+        }
+        if (lockMode === 'enforce' && lock && !withToken && method !== 'GET' && !path.startsWith('/api/enc/')) {
+            if (path !== '/api/pair/challenge') return reply(403, NOT_SET_UP);
+        }
         if (path === '/api/admin/status') {
             return reply(200, {
                 status: 'ok',

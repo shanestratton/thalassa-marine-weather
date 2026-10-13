@@ -341,6 +341,27 @@ export class AisNightWatch {
     }
 
     /**
+     * An arm from a phone or tablet that is not set up for this Pi, while it
+     * only takes commands from her own devices (129-12, piCommandLock.ts): it
+     * may add to the watch, never weaken it. Off, it arms as arm() does. On,
+     * that device's thresholds can only tighten (the stricter of its old and
+     * new), a new device joins only while there is room (nobody already on the
+     * list is pushed off). Its MMSI is never taken, whether or not one is known
+     * (null keeps what arm() already holds): a guest cannot make another ship
+     * 'our own boat' and drop her from every alarm. Signal K's own `self` still
+     * keeps our boat off the list.
+     */
+    raiseArm(rawPrefs: unknown, opts: { ownMmsi?: number | null; device?: string | null } = {}): void {
+        const ownMmsi = null;
+        if (!this.armed) return this.arm(rawPrefs, { ownMmsi, device: opts.device });
+        const device = isDeviceId(opts.device) ? opts.device : AIS_WATCH_UNNAMED_DEVICE;
+        const before = this.armers.get(device);
+        if (!before && this.armers.size >= AIS_WATCH_MAX_DEVICES) return;
+        const prefs = sanitiseCollisionPrefs(rawPrefs);
+        this.arm(before ? strictest([before, prefs]) : prefs, { ownMmsi, device });
+    }
+
+    /**
      * One device stands down. The watch ends only when no device that armed
      * it is left, or with `everyone` (a deliberate stand-down from aboard). A
      * device that never armed it changes nothing.

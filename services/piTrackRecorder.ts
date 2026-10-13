@@ -15,9 +15,10 @@
  * is worse than one that says "not reachable".
  */
 import { createLogger } from '../utils/createLogger';
-import { getPairing } from './PiPairingService';
+import { getPairing, pinnedPiRequest } from './PiPairingService';
+import { notePiCommandRefusalIn } from './piCommandRefusal';
 import { piCache } from './PiCacheService';
-import { isPinnedTransportAvailable, piRequest } from './piTls';
+import { isPinnedTransportAvailable } from './piTls';
 
 const log = createLogger('PiTrackRecorder');
 
@@ -45,18 +46,22 @@ async function call(path: string, method: 'GET' | 'POST', data?: unknown): Promi
     if (!pinnedSpki) return null;
 
     try {
-        const res = await piRequest({
+        // pinnedPiRequest: pinned to the same pairing key, and her device token
+        // goes with it, so a Pi that takes commands only from her own devices
+        // takes this switch from one (129-12).
+        const res = await pinnedPiRequest({
             url: `${piCache.baseUrl}${path}`,
             method,
             data,
             headers: data ? { 'content-type': 'application/json' } : undefined,
-            pinnedSpki,
             connectTimeout: CONNECT_TIMEOUT_MS,
             readTimeout: READ_TIMEOUT_MS,
             responseType: 'text',
         });
         if (res.status < 200 || res.status >= 300) {
             log.warn(`track ${method} ${path} → ${res.status}`);
+            // The switch, refused by her Pi: this phone is not set up for it (129-12). The card says so.
+            if (method === 'POST') notePiCommandRefusalIn(res, () => getPairing()?.boatName);
             return null;
         }
         return JSON.parse(res.data) as PiTrackStatus;
@@ -117,10 +122,9 @@ async function callRaw(path: string): Promise<Record<string, unknown> | null> {
     const pinnedSpki = getPairing()?.publicKeySpki;
     if (!pinnedSpki) return null;
     try {
-        const res = await piRequest({
+        const res = await pinnedPiRequest({
             url: `${piCache.baseUrl}${path}`,
             method: 'GET',
-            pinnedSpki,
             connectTimeout: CONNECT_TIMEOUT_MS,
             readTimeout: READ_TIMEOUT_MS,
             responseType: 'text',

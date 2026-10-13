@@ -45,6 +45,7 @@ import {
 import { piCache } from './PiCacheService';
 import { authScopedStorageKey, getAuthIdentityScope } from './authIdentityScope';
 import { pinnedPiRequest } from './PiPairingService';
+import { piCommandRefusalWords } from './piCommandRefusal';
 import type { SyncBroadcast } from './AnchorWatchSyncService';
 import { calculateBearing, calculateDistance } from '../utils/navigationCalculations';
 import { createLogger } from '../utils/createLogger';
@@ -527,15 +528,32 @@ class AnchorPiWatchKeeperClass {
      * Best effort by design: the six-hour authorisation lapsing is what
      * actually guarantees a Pi stops broadcasting, so a Pi that never hears
      * this cannot keep publishing a position for long.
+     *
+     * True when her Pi refused to stop: it takes commands only from her own
+     * devices (129-12), and this phone is not one. A refused stop changes
+     * nothing, here either: the Pi is still watching, so this phone keeps the
+     * watch it holds (saved, renewed, shown as kept by the Pi) until a stop
+     * is taken, rather than forgetting a watch that is still broadcasting.
      */
-    async end(): Promise<void> {
+    async end(): Promise<boolean> {
         this.stopRenewing();
         const held = this.current;
         this.current = null;
         this.persist();
-        if (!held) return;
-        await clearWatchOnPi(held.target.baseUrl);
+        if (!held) return false;
+        const refused = await clearWatchOnPi(held.target.baseUrl);
+        if (refused) {
+            log.warn('Her Pi would not stop the shore watch: this phone is not set up for it, so it is still kept');
+            // Unless another watch was handed over meanwhile.
+            if (!this.current) {
+                this.current = held;
+                this.persist();
+                this.startRenewing();
+            }
+            return true;
+        }
         log.info('Shore watch handed back from the Pi');
+        return false;
     }
 
     /**
@@ -611,7 +629,9 @@ class AnchorPiWatchKeeperClass {
                 log.warn(
                     `Pi anchor move refused (HTTP ${answer.status})${answer.error ? ` — ${answer.error}` : ''}; the Pi keeps the old point`,
                 );
-                return { ok: false, outcome: 'refused', error: piMoveWords('refused') };
+                // Her Pi takes a move only from her own devices (129-12): say so in its words.
+                const words = (answer.notSetUp && piCommandRefusalWords()) || piMoveWords('refused');
+                return { ok: false, outcome: 'refused', error: words };
             }
         }
 

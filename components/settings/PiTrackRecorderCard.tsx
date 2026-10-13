@@ -17,6 +17,7 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { getPiTrackStatus, setPiTrackRecording, type PiTrackStatus } from '../../services/piTrackRecorder';
+import { piCommandRefusalWords } from '../../services/piCommandRefusal';
 import { triggerHaptic } from '../../utils/system';
 
 function human(bytes: number): string {
@@ -37,6 +38,8 @@ export const PiTrackRecorderCard: React.FC = () => {
     const [status, setStatus] = useState<PiTrackStatus | null>(null);
     const [asked, setAsked] = useState(false);
     const [busy, setBusy] = useState(false);
+    /** Her Pi refused the switch from this phone (129-12): its words. */
+    const [refused, setRefused] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
         setStatus(await getPiTrackStatus());
@@ -51,8 +54,13 @@ export const PiTrackRecorderCard: React.FC = () => {
         if (busy || !status) return;
         setBusy(true);
         triggerHaptic('light');
+        const askedAt = Date.now();
         try {
-            setStatus((await setPiTrackRecording(!status.enabled)) ?? null);
+            const next = await setPiTrackRecording(!status.enabled);
+            // Her Pi answered, and said no (129-12): not "can't reach", and nothing changed.
+            const words = next ? null : piCommandRefusalWords(Date.now(), askedAt);
+            setRefused(words);
+            if (!words) setStatus(next ?? null);
         } finally {
             setBusy(false);
         }
@@ -110,6 +118,11 @@ export const PiTrackRecorderCard: React.FC = () => {
                 would hide, and the one worth knowing about. */}
             {status.enabled && !status.running && (
                 <p className="text-[11px] text-amber-300/80">Switched on, but the recorder isn’t running.</p>
+            )}
+            {refused && (
+                <p aria-live="polite" className="text-[11px] text-amber-300/80">
+                    {refused}
+                </p>
             )}
         </div>
     );

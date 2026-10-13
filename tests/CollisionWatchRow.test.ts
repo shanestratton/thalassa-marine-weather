@@ -221,6 +221,37 @@ describe('who is watching', () => {
         ).toBeNull();
     });
 
+    it('a stand-down her Pi refused (129-12): the Pi still shown watching, the words in place of the stand-down', () => {
+        const refused = "This phone isn't set up for Kestrel's Pi. Type the code from her Pi.";
+        const view = pi({ report: lan('armed'), reachable: true, canStandDown: true, canTest: true, refused });
+        expect(presentCollisionWatchRow({ armed: false }, view, NOW)).toEqual({
+            text: 'Watching: the Pi',
+            tone: 'warn',
+            note: refused,
+            setUp: true,
+        });
+        // Armed here too: both watch, and the phone still hears why its change did not go.
+        expect(presentCollisionWatchRow({ armed: true }, view, NOW)).toMatchObject({
+            text: 'Watching: this phone and the Pi',
+            note: refused,
+            setUp: true,
+        });
+        // A Pi that is not answering says that first: the refusal is old news there.
+        expect(presentCollisionWatchRow({ armed: false }, pi({ report: lan('armed', 60_000), refused }), NOW)).toEqual({
+            text: "Not watching here (the Pi isn't answering)",
+            tone: 'warn',
+            note: null,
+        });
+        // No refusal: the row is exactly as before.
+        expect(
+            presentCollisionWatchRow(
+                { armed: false },
+                pi({ report: lan('armed'), reachable: true, canStandDown: true, refused: null }),
+                NOW,
+            ),
+        ).toMatchObject({ text: 'Watching: the Pi', action: 'stand-down-all' });
+    });
+
     it('every line is short enough for the key at 320 pt', () => {
         const views: PiWatchView[] = [
             pi({ report: lan('armed', 2_000, false), reachable: true }),

@@ -234,6 +234,40 @@ for (const size of [
     });
 }
 
+// 129-12 review (2026-10-14): her Pi refused this phone's Weigh Anchor (it is
+// not set up for her Pi). The Pi is still watching: the bar says so in her
+// Pi's words, with the way to set this phone up, whole and reachable inside
+// the readings on the smallest phone and in wide fonts. Fictional: Ψυχή.
+for (const size of [
+    { label: 'small phone', width: 320, height: 568, query: '?ownPi=true&refused=Ψυχή' },
+    { label: 'large text', width: 390, height: 844, query: '?ownPi=true&refused=Ψυχή&largeText=true' },
+]) {
+    test(`Shore Watch says her Pi refused Weigh Anchor, with the way to set up, on a ${size.label}`, async ({
+        page,
+    }) => {
+        await openFixture(page, size.width, size.height, size.query);
+        const bar = page.getByTestId('shore-weigh-anchor');
+        const words = bar.getByText("This phone isn't set up for Ψυχή's Pi. Type the code from her Pi.");
+        const setUp = bar.getByRole('button', { name: 'Set up this phone' });
+        for (const part of [bar.getByRole('button', { name: '⏏ Weigh Anchor' }), words, setUp]) {
+            await part.scrollIntoViewIfNeeded();
+            await assertInsideReadings(part);
+        }
+        expect(await setUp.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+        await assertNoHorizontalOverflow(page);
+        const navigated = page.evaluate(
+            () =>
+                new Promise((resolve) =>
+                    window.addEventListener('thalassa:navigate', (event) => resolve((event as CustomEvent).detail), {
+                        once: true,
+                    }),
+                ),
+        );
+        await setUp.click();
+        expect(await navigated).toEqual({ tab: 'avnav' });
+    });
+}
+
 // Crew following another skipper's boat keep Leave: Weigh Anchor is not
 // theirs, and Leave is how they stop following. It stays in the header row,
 // whole and tappable, beside the title on the smallest phone and at large text.

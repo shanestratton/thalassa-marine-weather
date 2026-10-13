@@ -63,6 +63,7 @@ import { SignInScreen } from './SignInScreen';
 
 import { getWeatherRecommendation, formatDistance, bearingToCardinal, formatElapsed } from './anchor-watch/anchorUtils';
 import { AnchorPiWatchKeeper, probePiWatchCapability } from '../services/anchorPiWatchKeeper';
+import { piCommandRefusalWords } from '../services/piCommandRefusal';
 import { piFixIsFresh } from '../services/anchorPiMove';
 import { AnchorPiWatchOfferModal } from './anchor/AnchorPiWatchOfferModal';
 
@@ -177,6 +178,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
      *  forgets the session at once, then waits on the Pi (up to 30 s), and the
      *  own boat must not look like crew meanwhile (Leave back in the header). */
     const [weighingFromShore, setWeighingFromShore] = useState(false);
+    /** Her Pi refused this phone's stop of its watch (129-12): its words, under Weigh Anchor. */
+    const [weighRefused, setWeighRefused] = useState<string | null>(null);
     /** The Move anchor sheet (build 123, must-do #3). */
     const [showMoveAnchor, setShowMoveAnchor] = useState(false);
     /** The same sheet for the watch this phone handed to the Pi (126-07a). */
@@ -702,13 +705,27 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         // the one and only place that ends the Pi's watch. Kept off the safety
         // path: a Pi that cannot be reached must not stop the skipper stopping
         // their own alarm, and the six-hour authorisation still bounds it.
+        // Her Pi takes a stop only from her own devices (129-12): when it refused, say so.
+        let piRefused = false;
         try {
-            await AnchorPiWatchKeeper.end();
+            piRefused = await AnchorPiWatchKeeper.end();
         } catch (e) {
             log.warn('Could not tell the Pi to stop watching', e);
         }
+        const refusedWords = piRefused ? piCommandRefusalWords() : null;
+        if (refusedWords) toast.error(refusedWords);
         try {
             await AnchorWatchService.stopWatch();
+            // Her Pi is still watching (it refused the stop, and the keeper still
+            // holds it): this phone goes ashore on that watch, as after a
+            // hand-off, rather than leave and forget it. Weigh Anchor is there.
+            const piKeeps = piRefused ? AnchorPiWatchKeeper.keepingSessionCode() : null;
+            if (piKeeps && (await AnchorWatchSyncService.joinSession(piKeeps).catch(() => false))) {
+                setPiKeepingWatch(true);
+                setWeighRefused(refusedWords);
+                setViewMode('shore');
+                return;
+            }
             await AnchorWatchSyncService.leaveSession();
             setViewMode('setup');
             setShoreData(null);
@@ -736,10 +753,23 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
      */
     const handleWeighAnchorFromShore = useCallback(async () => {
         setWeighingFromShore(true);
+        setWeighRefused(null);
+        let piRefused = false;
         try {
-            await AnchorPiWatchKeeper.end();
+            piRefused = await AnchorPiWatchKeeper.end();
         } catch (e) {
             log.warn('Could not tell the Pi to stop watching', e);
+        }
+        if (piRefused) {
+            // Her Pi takes a stop only from her own devices (129-12). A refused
+            // stop changes nothing: the Pi is still watching (the keeper still
+            // holds it), so this stays on its watch, in her Pi's words, with
+            // the way to set this phone up. Nothing is left.
+            const words = piCommandRefusalWords();
+            if (words) toast.error(words);
+            setWeighRefused(words);
+            setWeighingFromShore(false);
+            return;
         }
         try {
             await AnchorWatchSyncService.leaveSession();
@@ -836,6 +866,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 toast.error('Could not start a shore-watch session — check your connection.');
                 return;
             }
+            const askedAt = Date.now();
             const took = await AnchorPiWatchKeeper.begin({
                 sessionCode: code,
                 anchorLat: anchor.latitude,
@@ -847,7 +878,13 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 waterDepth: snap.config?.waterDepth,
             });
             if (!took) {
-                toast.error('The Pi would not take the watch — this phone is still keeping it.');
+                // Her Pi takes a watch only from her own devices while it keeps one (129-12): in its words.
+                const refused = piCommandRefusalWords(Date.now(), askedAt);
+                toast.error(
+                    refused
+                        ? `${refused} This phone is still keeping the watch.`
+                        : 'The Pi would not take the watch — this phone is still keeping it.',
+                );
                 return;
             }
             // The Pi is watching now, so this phone can stand down. If this
@@ -1784,7 +1821,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 <div className="mt-2 text-sm text-slate-400">Session: {syncState?.sessionCode}</div>
                             </div>
                         )}
-                        {ownPiWatch && <ShoreWeighAnchorBar onWeighAnchor={() => void handleWeighAnchorFromShore()} />}
+                        {ownPiWatch && (
+                            <ShoreWeighAnchorBar
+                                onWeighAnchor={() => void handleWeighAnchorFromShore()}
+                                refused={weighRefused}
+                            />
+                        )}
                     </div>
                 </div>
 

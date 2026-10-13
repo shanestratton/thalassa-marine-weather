@@ -65,6 +65,15 @@ import { loadOrCreateIdentity, readIdentityPrivateKeyPem } from './identity.js';
 import { ensureIdentityTls } from './tlsIdentity.js';
 import { createPairRoutes } from './routes/pair.js';
 import { createRemoteAccessRoutes } from './routes/remoteAccess.js';
+import {
+    PiInternetMemory,
+    PiLockLedger,
+    PiLockStore,
+    createPiCommandLock,
+    createPiLockRoutes,
+    uncommandedRenewal,
+    type PiCommandRequest,
+} from './piCommandLock.js';
 import { assertSupabaseOriginAssertion, resolveTrustedSupabaseOrigin } from './outboundHttp.js';
 import {
     INVALID_PI_CONFIGURATION_CODE,
@@ -289,6 +298,11 @@ try {
 }
 const chartVault = createVaultClient();
 const chartDevices = new EncDeviceStore(path.join(CACHE_DIR, 'enc-devices.json'));
+/* Only her own devices can command the Pi (129-12): the switch on disk, and who
+   tried a command without being set up since start (piCommandLock.ts). */
+const piLock = new PiLockStore(path.join(CACHE_DIR, 'pi-lock.json'));
+const piLockLedger = new PiLockLedger();
+const piInternet = new PiInternetMemory(path.join(CACHE_DIR, 'pi-internet.json'));
 /** Started with the server (below); until then the vault reads as unreachable. */
 let vaultLink: VaultLink | null = null;
 
@@ -314,6 +328,19 @@ app.use('/api/enc', encNoStore);
 // imports go through a different code path (raw octet-stream / base64)
 // so they aren't affected by this limit.
 app.use(express.json({ limit: UNSAFE_ADMIN_API_ENABLED ? '100mb' : '64kb' }));
+// Only her own devices can command the Pi (129-12): every route's class from
+// one table (piCommandLock.ts), before any route and after the body parser, so
+// a stand-down is told from an arm by its body. Observe until the skipper turns
+// it on; reads, the watch state and raising an alarm stay open to everyone.
+app.use(
+    createPiCommandLock({
+        devices: chartDevices,
+        store: piLock,
+        ledger: piLockLedger,
+        boatName: () => identity.boatName,
+        facts: { anchorWatch: () => anchorWatch.current(), internetPolicy: () => piInternet.read() },
+    }),
+);
 
 /**
  * ── Which gate, and why ───────────────────────────────────────────────────────
@@ -444,7 +471,7 @@ function configurationBody(value: unknown): Record<string, unknown> {
  * through the entry endpoint. This makes the Pi owner explicitly opt in once
  * and preserves that policy across restart without placing credentials in .env.
  */
-function applyDiaryRelayConfiguration(body: Record<string, unknown>): void {
+function applyDiaryRelayConfiguration(body: Record<string, unknown>): boolean | undefined {
     const nested = body.diaryRelay;
     const hasFlatPolicy = Object.prototype.hasOwnProperty.call(body, 'diaryRelayAllowInternet');
     const flatNames = {
@@ -454,7 +481,7 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): void {
         ownerId: 'diaryRelayOwnerId',
     } as const;
     const hasFlatRelay = Object.values(flatNames).some((name) => Object.prototype.hasOwnProperty.call(body, name));
-    if (nested === undefined && !hasFlatPolicy && !hasFlatRelay) return;
+    if (nested === undefined && !hasFlatPolicy && !hasFlatRelay) return undefined;
     if (nested !== undefined && !isObject(nested)) {
         throw new DiaryRelayValidationError('diaryRelay must be an object');
     }
@@ -499,6 +526,8 @@ function applyDiaryRelayConfiguration(body: Record<string, unknown>): void {
     }
 
     diaryRelayOutbox.configure(input);
+    // The internet policy it set, if any: kept for a phone not set up to say again (129-12).
+    return input.allowInternet;
 }
 
 app.post('/api/configure', requireAppApi, (req, res) => {
@@ -561,8 +590,19 @@ app.post('/api/configure', requireAppApi, (req, res) => {
         // Validate and persist Pi-private relay configuration before changing
         // the rest of the server settings, so an invalid relay cannot leave a
         // half-applied configuration request behind.
-        applyDiaryRelayConfiguration(requestBody);
+        const policy = applyDiaryRelayConfiguration(requestBody);
         writeEnvironmentFileAtomic(envPath, envContents);
+        // Only her own devices can command the Pi (129-12): the policy this Pi
+        // took as a command, so any phone aboard may say it again after a
+        // restart (piCommandLock.ts configureClass). A raise only repeats it.
+        if (policy !== undefined && (req as PiCommandRequest).piCommand?.commanded !== false) {
+            try {
+                piInternet.remember(policy);
+            } catch (error) {
+                // The gate is set; only a phone not set up, after a restart, would miss it.
+                console.warn(`[pi-lock] could not keep the internet policy: ${(error as Error).message}`);
+            }
+        }
     } catch (err) {
         const message = err instanceof Error ? err.message : 'Could not persist Pi configuration';
         return res.status(500).json({ status: 'error', code: 'PI_CONFIGURATION_WRITE_FAILED', error: message });
@@ -813,6 +853,12 @@ app.post('/api/anchor/watch', requireAppApi, (req, res) => {
     // shows "--" rather than failing.
     const rodeLength = Number(body.rodeLength);
     const waterDepth = Number(body.waterDepth);
+    // A device not set up, while the Pi enforces (129-12): the lock let this
+    // through only to start a watch or renew the running one unchanged, and a
+    // renewal leaves it running as it is, drag count and all.
+    if (uncommandedRenewal(req, anchorWatch.isRunning())) {
+        return res.json({ status: 'ok', watch: anchorWatch.describe() });
+    }
     anchorWatch.start(
         {
             sessionCode,
@@ -855,6 +901,18 @@ app.use('/api/misc', createMiscRoutes(cache, proxyConfig));
 // so it sits behind the same gate as /api/configure. The transport is the
 // pinned pairing channel either way.
 app.use('/api/remote-access', requireAppApi, createRemoteAccessRoutes());
+// The switch and its status read: an enrolled device on her own Wi-Fi turns it
+// on or off; the status counts calls from devices not set up (129-12).
+app.use(
+    '/api/pi-lock',
+    requireAppApi,
+    createPiLockRoutes({
+        devices: chartDevices,
+        store: piLock,
+        ledger: piLockLedger,
+        boatName: () => identity.boatName,
+    }),
+);
 // ── App routes vs admin routes ──
 // These used to share ONE flag, which meant pairing a phone required also
 // exposing /api/misc/proxy, the raster-chart download/delete API and a 100 MB

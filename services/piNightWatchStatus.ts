@@ -40,6 +40,7 @@ import { AisStore } from './AisStore';
 import { getAuthIdentityScope } from './authIdentityScope';
 import { useSettingsStore } from '../stores/settingsStore';
 import { PI_WATCH_STALE_MS, type PiPushState, type PiWatchState, type PiWatchView } from '../utils/collisionWatchRow';
+import { clearPiCommandRefusal, onPiCommandRefusal, piCommandRefusalWords } from './piCommandRefusal';
 
 /** The LAN counts as reaching the Pi while its last answer is this recent (PiTelemetryService's window). */
 export const PI_WATCH_PRESENT_MS = 10_000;
@@ -279,6 +280,14 @@ let standDownHandler: (() => void) | null = null;
 let phoneAnchor: PhoneAnchorWatch = 'none';
 /** Cards 'from the Pi' acknowledged here, while the Pi confirms: key → when. */
 const acksSent = new Map<string, number>();
+/**
+ * Close quarters and beacon alarms of the Pi's acknowledged here that her Pi
+ * kept to this phone (129-12: only her own devices silence an alarm for
+ * everyone aboard). They stay away here while the Pi says they are open; a
+ * DANGER keeps its own 30-minute mute, as on any phone.
+ */
+const ackedHereOnly = new Set<string>();
+const ACKED_HERE_MAX = 64;
 /** The Pi's alarms as pushes and the cloud told this phone (126-04b): key → alarm, and when heard. */
 const cloudAlarms = new Map<string, PiWatchAlarm & { heardAt: number }>();
 /** This phone's push token is registered for this account (services/piNightWatch.ts reads PushNotificationService). */
@@ -296,6 +305,9 @@ function emit(): void {
         }
     }
 }
+
+// Her Pi refused a command from this phone (129-12): the row says why.
+onPiCommandRefusal(emit);
 
 function lanFresh(nowMs: number): boolean {
     return lan !== null && lanSeenAt !== null && nowMs - lan.receivedAt <= PI_WATCH_STALE_MS;
@@ -318,6 +330,9 @@ function applyPeerAcks(nowMs: number): void {
         const alarm = open.find((a) => a.key === key) ?? cloudAlarms.get(key);
         if (!alarm || alarm.ackedAt !== null || nowMs - at > ACK_PENDING_MS) acksSent.delete(key);
     }
+    // Over when the Pi, heard now, no longer names it (a LAN gap is no news).
+    if (lanFresh(nowMs))
+        for (const key of ackedHereOnly) if (!open.some((a) => a.key === key)) ackedHereOnly.delete(key);
     AisGuardAlertStore.setPeerAcks(
         {
             closeQuarters: open.filter((a) => a.kind === 'close-quarters' && a.ackedAt !== null).map((a) => a.mmsi),
@@ -468,6 +483,7 @@ export const PiNightWatchStatus = {
             canStandDown: standDownHandler !== null,
             push: pushView(report?.via ?? null, nowMs),
             canTest: testHandler !== null,
+            refused: piCommandRefusalWords(nowMs),
         };
     },
 
@@ -497,11 +513,29 @@ export const PiNightWatchStatus = {
             if (a.ackedAt !== null || own.has(a.mmsi)) return false;
             const sent = acksSent.get(a.key);
             if (sent !== undefined && nowMs - sent <= ACK_PENDING_MS) return false;
+            if (ackedHereOnly.has(a.key)) return false;
             if (a.kind === 'distress') return !beacons.some((b) => b.mmsi === a.mmsi);
             if (cards.some((c) => c.mmsi === a.mmsi && c.collision && !c.collision.cleared)) return false;
             if (AisGuardAlertStore.acknowledged(a.mmsi)) return false;
             return !(a.kind === 'collision' && (AisGuardAlertStore.mutedUntil(a.mmsi) ?? 0) > nowMs);
         });
+    },
+
+    /**
+     * Her Pi kept this phone's acknowledgement to this phone (`local`, 129-12):
+     * this phone is not set up for it, so the alarm stays loud everywhere else.
+     * Here, close quarters and a beacon stay acknowledged while the Pi's alarm
+     * stays open (a DANGER keeps its 30-minute mute from acknowledgePiAlarm).
+     */
+    keepAckedHere(kind: AlarmAckKind, mmsi: number, nowMs = Date.now()): void {
+        if (kind === 'collision') return;
+        for (const a of [...(lanFresh(nowMs) ? lan!.alarms : []), ...cloudAlarms.values()])
+            if (a.kind === kind && a.mmsi === mmsi) ackedHereOnly.add(a.key);
+        for (const key of ackedHereOnly) {
+            if (ackedHereOnly.size <= ACKED_HERE_MAX) break;
+            ackedHereOnly.delete(key);
+        }
+        emit();
     },
 
     /** The button on a card 'from the Pi': to the Pi, and the card stands aside while it confirms. */
@@ -612,10 +646,12 @@ export const PiNightWatchStatus = {
         phoneAnchor = 'none';
         mutesApplied.clear();
         acksSent.clear();
+        ackedHereOnly.clear();
         cloudAlarms.clear();
         tokenHere = false;
         testHandler = null;
         listeners.clear();
+        clearPiCommandRefusal();
         AisGuardAlertStore.setPeerAcks({ closeQuarters: [], distress: [] });
     },
 };

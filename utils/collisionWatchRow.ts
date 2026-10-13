@@ -31,6 +31,11 @@
  * the skipper's phones only, or simply "can't wake a locked phone yet".
  * Aboard, with the Pi's push path known, it offers the skipper "Send a test
  * from the Pi" (not a crew phone: the test wakes the Pi's owner only).
+ *
+ * Build 129 (129-12): her Pi may take commands only from her own devices.
+ * When it refused this phone's stand-down, the row still shows the Pi
+ * watching, with the Pi's refusal in words in place of the stand-down and the
+ * test, and offers to set this phone up (`setUp`).
  */
 
 export type PiWatchState = 'off' | 'armed' | 'blind' | 'no-fix';
@@ -85,6 +90,8 @@ export interface PiWatchView {
     push?: { state: PiPushState | null; forThisAccount: boolean | null; tokenHere: boolean };
     /** This phone can send "a test from the Pi" (its link to the Pi is running). */
     canTest?: boolean;
+    /** Her Pi refused a command from this phone just now, in words (services/piCommandRefusal.ts); null: none. */
+    refused?: string | null;
 }
 
 export interface CollisionWatchRow {
@@ -95,6 +102,8 @@ export interface CollisionWatchRow {
     action?: 'stand-down-all' | null;
     /** The row offers "Send a test from the Pi" (aboard, the Pi's push path known). */
     test?: true;
+    /** The row offers to set this phone up for her Pi: it refused a command from it (129-12). */
+    setUp?: true;
 }
 
 /** Whether the Pi can wake this phone, said only as far as it is proved. */
@@ -140,12 +149,19 @@ export function presentCollisionWatchRow(phone: PhoneWatch, pi: PiWatchView, now
             (anchorUnseen ? "it can't see the anchor watch" : null) ??
             (report.via === 'cloud' ? "this phone can't reach it" : null);
         const who = phone.armed ? 'this phone and the Pi' : 'the Pi';
+        const refused = pi.refused ?? null;
         const standDown =
-            !phone.armed && report.via === 'lan' && pi.reachable && pi.pending === null && pi.canStandDown === true;
+            !refused &&
+            !phone.armed &&
+            report.via === 'lan' &&
+            pi.reachable &&
+            pi.pending === null &&
+            pi.canStandDown === true;
         // A Pi whose push path is known can prove it: aboard only, never with
         // its internet off, and only on the skipper's own account (the test
         // wakes the Pi's owner; a crew phone would be told to wait for nothing).
         const test =
+            !refused &&
             report.via === 'lan' &&
             pi.reachable &&
             pi.canTest === true &&
@@ -153,10 +169,11 @@ export function presentCollisionWatchRow(phone: PhoneWatch, pi: PiWatchView, now
             (pi.push.state === 'ready' || pi.push.state === 'unavailable');
         return {
             text: `Watching: ${who}${aside ? ` (${aside})` : ''}`,
-            tone: trouble || anchorUnseen ? 'warn' : 'ok',
-            note: anchorUnseen ? PI_WATCH_HAND_ANCHOR_NOTE : pushNote(pi.push),
+            tone: trouble || anchorUnseen || refused ? 'warn' : 'ok',
+            note: refused ?? (anchorUnseen ? PI_WATCH_HAND_ANCHOR_NOTE : pushNote(pi.push)),
             ...(standDown ? { action: 'stand-down-all' as const } : {}),
             ...(test ? { test: true as const } : {}),
+            ...(refused ? { setUp: true as const } : {}),
         };
     }
 

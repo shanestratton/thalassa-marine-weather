@@ -12,6 +12,7 @@
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { PiTrackRecorderCard } from './PiTrackRecorderCard';
+import { PiCommandLockRow } from './PiCommandLockRow';
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import {
     LockIcon,
@@ -88,6 +89,9 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
     const [status, setStatus] = useState<PiCacheStatus | null>(null);
     const [discovering, setDiscovering] = useState(false);
     const [pairing, setPairing] = useState<PiPairingRecord | null>(() => getPairing());
+    /** Bumped when Charts from <boat> sets this phone up or takes a device off: the lock row asks again (129-12). */
+    const [chartDevicesEpoch, setChartDevicesEpoch] = useState(0);
+    const onChartDevicesChanged = useCallback(() => setChartDevicesEpoch((n) => n + 1), []);
     const [pairable, setPairable] = useState<{ host: string; baseUrl: string; info: PairInfo } | null>(null);
     const [pairingBusy, setPairingBusy] = useState(false);
     const [piSetupOpen, setPiSetupOpen] = useState(false);
@@ -594,7 +598,19 @@ const PiCacheTabDevelopment: React.FC<SettingsTabProps> = ({ settings, onSave })
                                         </div>
                                     </div>
                                 )}
-                                <ChartsFromBoat key={pairing.deviceId} boatName={pairing.boatName} />
+                                <ChartsFromBoat
+                                    key={pairing.deviceId}
+                                    boatName={pairing.boatName}
+                                    onChanged={onChartDevicesChanged}
+                                />
+                                {/* 129-12: the owner's switch. Not for a phone whose account the Pi names as someone else's. */}
+                                {(!status.diaryRelayOwnerId || status.diaryRelayOwnerId === authUserId) && (
+                                    <PiCommandLockRow
+                                        key={`lock-${pairing.deviceId}`}
+                                        boatName={pairing.boatName}
+                                        reloadKey={chartDevicesEpoch}
+                                    />
+                                )}
                                 <button
                                     onClick={handleTest}
                                     disabled={visibleTesting}
@@ -996,7 +1012,7 @@ export const PiCacheTab: React.FC<SettingsTabProps> = (props) =>
  * piChartAccessWords; the quiet ones (off the boat's Wi-Fi, a Pi one update
  * behind) are muted, not warnings.
  */
-const ChartsFromBoat: React.FC<{ boatName: string }> = ({ boatName }) => {
+const ChartsFromBoat: React.FC<{ boatName: string; onChanged?: () => void }> = ({ boatName, onChanged }) => {
     const [access, setAccess] = useState<ChartAccess | null>(null);
     const [code, setCode] = useState('');
     /** A words code to show under the row; undefined is "couldn't answer", null is nothing. */
@@ -1025,6 +1041,8 @@ const ChartsFromBoat: React.FC<{ boatName: string }> = ({ boatName }) => {
             .then(
                 (said) => {
                     if (said) setNote(said);
+                    // Set up, or a device taken off: the lock row below asks her Pi again (129-12).
+                    onChanged?.();
                     return reload();
                 },
                 (error: unknown) => setNote(chartCodeOf(error)),

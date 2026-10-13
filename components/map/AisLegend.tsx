@@ -331,6 +331,35 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
                                 {confirmStandDown ? 'Tap again: stand down for everyone' : 'Stand the Pi down'}
                             </button>
                         )}
+                        {/* Her Pi refused this phone (129-12): to Boat Network, where the code is typed. */}
+                        {watchRow.setUp && (
+                            <button
+                                type="button"
+                                data-testid="collision-watch-set-up"
+                                className="hit-target-44"
+                                onClick={() =>
+                                    window.dispatchEvent(
+                                        new CustomEvent('thalassa:navigate', { detail: { tab: 'avnav' } }),
+                                    )
+                                }
+                                style={{
+                                    alignSelf: 'flex-start',
+                                    marginTop: 2,
+                                    minHeight: 44,
+                                    minWidth: 44,
+                                    padding: '3px 10px',
+                                    borderRadius: 10,
+                                    border: `1px solid ${ROW_TONE.warn.border}`,
+                                    background: 'transparent',
+                                    color: ROW_TONE.warn.colour,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                Set up this phone
+                            </button>
+                        )}
                     </div>
                 )}
 

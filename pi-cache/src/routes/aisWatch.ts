@@ -5,6 +5,7 @@
  *   POST /api/ais-watch        { armed: true, prefs, ownMmsi?, device? }
  *                              | { armed: false, device?, everyone? }
  *   POST /api/ais-watch/ack    { kind, mmsi }: silence one alarm, for every phone aboard
+ *                              (from her own devices while the Pi enforces, 129-12)
  *   POST /api/ais-watch/test   "Send a test from the Pi" (126-04b): one push through the
  *                              whole path to the skipper's phone; answers { push, queued }
  *
@@ -17,11 +18,19 @@
  * sanitiseCollisionPrefs the phone uses, so a Pi can never hold a pair the
  * phone would not. Mounted behind requireAppApi on the pinned TLS lane the app
  * pairs with (server.ts), like every other app endpoint.
+ *
+ * Only her own devices command the Pi (129-12, piCommandLock.ts): a stand-down
+ * and the test push are commands, arming for this caller and an
+ * acknowledgement are raises, open to anyone aboard. While the Pi enforces, an
+ * arm from a device not set up only adds to the watch (raiseArm), and its
+ * acknowledgement stays on that phone (`local: true`): only her own devices
+ * silence an alarm for everyone aboard.
  */
 import { Router, type Request, type Response } from 'express';
 import type { AisNightWatch, AisWatchKind, AisWatchPushState } from '../aisWatch.js';
 import { isDeviceId, isMmsi } from '../aisWatchStore.js';
 import { sanitiseCollisionPrefs } from '../collisionRule/collisionRule.js';
+import type { PiCommandRequest } from '../piCommandLock.js';
 
 const KINDS: ReadonlySet<string> = new Set<AisWatchKind>(['collision', 'close-quarters', 'distress']);
 
@@ -63,7 +72,8 @@ export function createAisWatchRoutes(watch: AisNightWatch, options: AisWatchRout
             if (ownMmsi !== null && !isMmsi(ownMmsi)) {
                 return res.status(400).json({ status: 'error', error: 'ownMmsi must be an MMSI' });
             }
-            watch.arm(sanitiseCollisionPrefs(body.prefs), { ownMmsi, device });
+            const arm = (req as PiCommandRequest).piCommand?.commanded === false ? 'raiseArm' : 'arm';
+            watch[arm](sanitiseCollisionPrefs(body.prefs), { ownMmsi, device });
         } else {
             if (body.everyone !== undefined && typeof body.everyone !== 'boolean') {
                 return res.status(400).json({ status: 'error', error: 'everyone must be true or false' });
@@ -77,6 +87,13 @@ export function createAisWatchRoutes(watch: AisNightWatch, options: AisWatchRout
         const body = bodyOf(req.body);
         if (!body || typeof body.kind !== 'string' || !KINDS.has(body.kind) || !isMmsi(body.mmsi)) {
             return res.status(400).json({ status: 'error', error: 'kind and mmsi must name one alarm' });
+        }
+        // A device not set up, while the Pi enforces (129-12): its own card is
+        // silenced on that phone, but here an acknowledgement mutes every phone
+        // aboard and the Pi's push, and settles alarms raised later. So it is
+        // not taken: `local` tells the phone to keep it to itself.
+        if ((req as PiCommandRequest).piCommand?.commanded === false) {
+            return res.json({ status: 'ok', acked: false, alarm: null, local: true, watch: watch.describe() });
         }
         // No alarm open here yet is still taken: the watch keeps it for one raised soon after.
         const alarm = watch.ack(body.kind as AisWatchKind, body.mmsi);

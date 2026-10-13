@@ -44,6 +44,7 @@ import { createLogger } from '../utils/createLogger';
 import { PI_INTEGRATION_ENABLED, PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE } from './piPublicBetaBoundary';
 import { piPairingFetch, piRequest, type PiTlsResponse } from './piTls';
 import { utf8ByteLength } from './enc/types';
+import { clearPiCommandRefusal, piCommandRefusalCode } from './piCommandRefusal';
 import {
     getSecureValue,
     removeSecureValue,
@@ -99,6 +100,8 @@ export function savePairing(record: PiPairingRecord): void {
     if (!PI_INTEGRATION_ENABLED) return;
     localStorage.setItem(PAIRING_KEY, JSON.stringify(record));
     markHostPairable(record.host);
+    // Another Pi, or this one again: what a Pi said about this phone no longer holds (129-12).
+    clearPiCommandRefusal();
 }
 
 export function forgetPairing(): void {
@@ -163,10 +166,16 @@ export function isLegacyPlainConnectionAllowed(host: string): boolean {
 // Keychain (this device only: never iCloud or a backup), read once per launch
 // and then held here. It is bound to the Pi's deviceId AND the key pinned when
 // it was issued: the deviceId alone is public (/api/pair/info), and a Keychain
-// record can outlive a reinstall. It goes out as one header on /api/enc/* and
-// nowhere else: never a URL, a log line or localStorage. Today's Pi (update 2)
-// ignores the header, so with or without a token charts load from it exactly
-// as before.
+// record can outlive a reinstall. It goes out as one header and nowhere else:
+// never a URL, a log line or localStorage. Today's Pi (update 2) ignores the
+// header, so with or without a token charts load from it exactly as before.
+//
+// Since 129-12 the same header goes on EVERY call through pinnedPiRequest and
+// fetchVerifiedFromPi, not only /api/enc/*: from Pi update 4 her Pi can take a
+// command only from her own devices (pi-cache/src/piCommandLock.ts), and this
+// token is how it knows this phone is one. One header, no alias. Never on the
+// pairing card (piPairingFetch takes a base URL only) or the identity
+// challenge (verifyPairedPi), which prove the Pi rather than the phone.
 
 const CHART_DEVICE_HEADER = 'X-Thalassa-Chart-Device';
 
@@ -220,6 +229,7 @@ export async function saveChartDevice(device: { chartDeviceId: string; token: st
     if (!pairing) throw new Error('Not paired');
     const c = { pi: pairing.deviceId, key: pairing.publicKeySpki, id: device.chartDeviceId, token: device.token };
     chartCredential = Promise.resolve(c);
+    clearPiCommandRefusal();
     try {
         if (usesNativeSecureStorage()) await setSecureValue(SECURE_PI_CHART_DEVICE_KEY, JSON.stringify(c));
         return true;
@@ -246,12 +256,11 @@ function isEncUrl(url: string): boolean {
     }
 }
 
-/** The request's headers, plus the chart device token on /api/enc/* only. */
+/** The request's headers, plus this phone's device token for the paired Pi when it has one (every call, 129-12). */
 async function withChartDevice(
-    url: string,
     headers: Record<string, string> | undefined,
 ): Promise<Record<string, string> | undefined> {
-    const c = isEncUrl(url) ? await currentChartCredential() : null;
+    const c = await currentChartCredential();
     return c ? { ...headers, [CHART_DEVICE_HEADER]: c.token } : headers;
 }
 
@@ -284,11 +293,17 @@ export function piHttpError(res: { status: number; data?: unknown }): PiHttpErro
     return new PiHttpError(res.status, typeof code === 'string' && /^[a-z0-9-]{1,64}$/.test(code) ? code : undefined);
 }
 
-/** A refusal on /api/enc/*; 'chart-device-removed' means the Pi took this phone off its list. */
+/**
+ * A refusal from the Pi. 'chart-device-removed' on /api/enc/* and
+ * 'pi-device-removed' anywhere (129-12) mean it took this phone off its list:
+ * the token is dead, so it stops going. The words for a refused command are
+ * said where this phone's own command was made (services/piCommandRefusal.ts),
+ * never for a call it made in the background.
+ */
 function encRefusal(url: string, res: PiTlsResponse): PiHttpError {
     const error = piHttpError(res);
-    if (error.code === 'chart-device-removed' && isEncUrl(url)) {
-        log.warn('the Pi removed this chart device');
+    if ((error.code === 'chart-device-removed' && isEncUrl(url)) || piCommandRefusalCode(res) === 'pi-device-removed') {
+        log.warn('the Pi removed this device');
         dropChartDevice();
     }
     return error;
@@ -501,10 +516,10 @@ export async function pinnedPiRequest(options: {
     if (!PI_INTEGRATION_ENABLED) throw new Error(PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE);
     const res = await piRequest({
         ...options,
-        headers: await withChartDevice(options.url, options.headers),
+        headers: await withChartDevice(options.headers),
         pinnedSpki: getPairing()?.publicKeySpki,
     });
-    if (res.status === 401) encRefusal(options.url, res);
+    if (res.status === 401 || res.status === 403) encRefusal(options.url, res);
     return res;
 }
 
@@ -542,7 +557,7 @@ export async function fetchVerifiedFromPi<T>(options: {
     const res = await piRequest({
         url,
         method,
-        headers: await withChartDevice(url, method === 'POST' ? { 'Content-Type': 'application/json' } : undefined),
+        headers: await withChartDevice(method === 'POST' ? { 'Content-Type': 'application/json' } : undefined),
         data: method === 'POST' ? data : undefined,
         pinnedSpki: getPairing()?.publicKeySpki,
         connectTimeout,

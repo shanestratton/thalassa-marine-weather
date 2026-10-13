@@ -732,6 +732,11 @@ export class AnchorWatchRunner {
         return this.timer !== null;
     }
 
+    /** The watch it keeps now, without its credential, or null (piCommandLock.ts reads it to tell a renewal from a move). */
+    current(): AnchorWatchAssignment | null {
+        return this.timer !== null && this.assignment ? { ...this.assignment } : null;
+    }
+
     /** Never includes the credential — this is safe to put in /status. */
     describe(): {
         running: boolean;
