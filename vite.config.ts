@@ -23,6 +23,7 @@ import {
     minifyPublicScriptWhitespace,
 } from './scripts/minify-public-scripts.mjs';
 import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
+import { stripNoopLogs } from './scripts/strip-noop-logs.mjs';
 import { debugAisInjectorFenceError } from './scripts/debug-ais-injector-fence.mjs';
 import { handleOcean } from './api/ocean/[view]';
 import {
@@ -608,6 +609,9 @@ export default defineConfig(({ mode }) => {
             react(),
             // The route job's own logger copy (127-ROUTE-W; build only).
             routeEngineLogger(),
+            // log.info()/log.debug() are no-ops in production: their calls go,
+            // arguments with side effects stay (129-10; tests/StripNoopLogs.test.ts).
+            stripNoopLogs(__dirname),
             mode === 'production' && releasePublicInputFence(),
             mode === 'production' && releaseMinifyPublicScripts(),
             mode === 'production' && releaseParkedPagesStayOut(),
@@ -785,6 +789,20 @@ export default defineConfig(({ mode }) => {
                 // build emits a ~159 KB canvg + core-js chunk nothing loads.
                 // See utils/vendorStubs/canvgUnavailable.ts.
                 { find: /^canvg$/, replacement: path.resolve(__dirname, 'utils/vendorStubs/canvgUnavailable.ts') },
+                // jsPDF's html() renderer and its sanitiser, reached only from
+                // doc.html(), which no PDF calls since 129-10 (the PDFs draw
+                // with jsPDF primitives). About 230 KB of lazy chunks nothing
+                // could load. Nothing else imports either package.
+                // See utils/vendorStubs/html2canvasUnavailable.ts and
+                // dompurifyUnavailable.ts; tests/JspdfHtmlStubs.test.ts.
+                {
+                    find: /^html2canvas$/,
+                    replacement: path.resolve(__dirname, 'utils/vendorStubs/html2canvasUnavailable.ts'),
+                },
+                {
+                    find: /^dompurify$/,
+                    replacement: path.resolve(__dirname, 'utils/vendorStubs/dompurifyUnavailable.ts'),
+                },
             ],
         },
         test: {

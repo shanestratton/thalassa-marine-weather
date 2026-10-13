@@ -67,6 +67,10 @@ export interface FloatPlanInput {
     timeZone?: string;
 }
 
+/** The overdue guide's heading in the text and email briefs. The PDF keeps
+ *  the section under it on one page when it fits (services/floatPlanPdf.ts). */
+export const FLOAT_PLAN_GUIDE_HEADING = 'IF WE ARE OVERDUE — WHAT TO DO';
+
 export type FloatPlanChannel = 'sms' | 'whatsapp' | 'email' | 'generic';
 
 export interface FloatPlanSharePayload {
@@ -465,7 +469,7 @@ export function composeFloatPlan(input: FloatPlanInput): string {
         section('SAFETY & SURVIVAL', safetyLines(document)),
         section('PERSONS ONBOARD', personsLines(document)),
         intendedTrack.length > 0 ? section('INTENDED TRACK', intendedTrack) : null,
-        section('IF WE ARE OVERDUE — WHAT TO DO', emergencyGuideLines(document)),
+        section(FLOAT_PLAN_GUIDE_HEADING, emergencyGuideLines(document)),
         `Please reply RECEIVED. Keep this plan until we send a safe-arrival message.\nPrepared in Thalassa. Thalassa does not upload this plan. Verify the recipients and audience in the destination app before sending. All times ${document.timeZoneLabel}.`,
     ];
 
@@ -544,7 +548,7 @@ function formatEmail(document: FloatPlanDocument): string {
             .filter(Boolean)
             .join('\n'),
         document.trackPoints.length > 0 ? ['INTENDED TRACK', ...trackLines(document)].join('\n') : '',
-        ['IF WE ARE OVERDUE — WHAT TO DO', ...emergencyGuideLines(document)].join('\n'),
+        [FLOAT_PLAN_GUIDE_HEADING, ...emergencyGuideLines(document)].join('\n'),
         `Please reply RECEIVED so we know you have this plan.\nKeep it until we send a safe-arrival message.\n\nPrepared in Thalassa. Thalassa does not upload this plan. Verify the recipient before sending. All times ${document.timeZoneLabel}.`,
     ];
     return blocks.filter(Boolean).join('\n\n────────────────────\n\n');
