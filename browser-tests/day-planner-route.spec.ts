@@ -497,6 +497,9 @@ for (const size of [AS_DRAWN.se2, AS_DRAWN.mid])
 test('the screen growing shorter folds the closing sentences when that makes it fit, and opens them with room again', async ({
     page,
 }) => {
+    // About 34 resizes of 4 px: Linux WebKit in CI took 24.5 s (release run 38361371829)
+    // and ran past the 30 s limit in 38366466523; 6 s in Chromium, under 2 s for the loop on a Mac.
+    test.slow();
     const size = AS_DRAWN.mid;
     const errors = await open(page, size, `&mode=routed-tide&owner=1${size.query}`);
     await stayOvernight(page);

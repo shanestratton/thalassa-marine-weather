@@ -185,9 +185,15 @@ test.describe('the north arrow (Heading up from her compass)', () => {
             await expect
                 .poll(async () => angleOff(kept(await orient(page)), heading), { timeout: 10_000 })
                 .toBeLessThan(0.5);
-            const needle = await page.evaluate(() => (window as unknown as { __orient: Orient }).__orient.needle());
-            const bearing = await orient(page);
-            expect(angleOff(needle, kept(-bearing))).toBeLessThan(1);
+            // Polled: the needle repaints on the frame after the bearing settles.
+            await expect
+                .poll(async () => {
+                    const needle = await page.evaluate(() =>
+                        (window as unknown as { __orient: Orient }).__orient.needle(),
+                    );
+                    return angleOff(needle, kept(-(await orient(page))));
+                })
+                .toBeLessThan(1);
             expect(errors).toEqual([]);
         });
     }
@@ -204,8 +210,13 @@ test.describe('the north arrow (Heading up from her compass)', () => {
         await expect.poll(async () => angleOff(kept(await orient(page)), 0)).toBeLessThan(0.5);
         await expect(page.getByRole('dialog')).toHaveCount(0);
         await expect(arrow).toHaveAccessibleName('Chart orientation: North up. Tap to choose');
-        const needle = await page.evaluate(() => (window as unknown as { __orient: Orient }).__orient.needle());
-        expect(angleOff(needle, 0)).toBeLessThan(1);
+        // The needle repaints on the next animation frame; Linux WebKit in CI can
+        // be a few frames behind the bearing (release run 38366466523, both attempts).
+        await expect
+            .poll(async () =>
+                angleOff(await page.evaluate(() => (window as unknown as { __orient: Orient }).__orient.needle()), 0),
+            )
+            .toBeLessThan(1);
     });
 });
 
