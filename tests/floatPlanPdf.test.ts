@@ -314,9 +314,9 @@ describe('float plan PDF, every script (129-10 decision B)', () => {
         expect(drawn).toContain(`From: ${GLOBAL_TEXT}`);
         expect(drawn).toContain(`To: ${GLOBAL_PLACES.cyrillic} (${GLOBAL_PLACES.japanese})`);
         expect(drawn).toContain(`Note: ${GLOBAL_TEXT}`);
-        expect(drawn).toContain(`${GLOBAL_PLACES.hebrew} — +972 0 000 0000`);
+        expect(drawn).toContain(`${GLOBAL_PLACES.hebrew} — \u200e+972 0 000 0000\u200e`);
         expect(drawn).toContain('3. דוד כהן — Navigator, 33, אלרגיה לפניצילין');
-        expect(drawn).toContain('4. ليلى حداد — Cook, 29, mobile +20 0 000 0001');
+        expect(drawn).toContain('4. ليلى حداد — Cook, 29, mobile \u200e+20 0 000 0001\u200e');
     });
 
     it('draws each run as selectable text or as a picture, and loses none of it', () => {
@@ -338,9 +338,9 @@ describe('float plan PDF, every script (129-10 decision B)', () => {
         expect(bidiLines.length).toBeGreaterThanOrEqual(6);
         for (const line of bidiLines) expect(pictured, line).toContain(bidiCanvasText(line.normalize('NFC')));
         expect(pictured).toContain('3. דוד כהן — Navigator, 33, אלרגיה לפניצילין');
-        expect(pictured).toContain('4. ليلى حداد — Cook, 29, mobile +20 0 000 0001');
+        expect(pictured).toContain('4. ليلى حداد — Cook, 29, mobile \u200e+20 0 000 0001\u200e');
         // The overdue guide's shore contact, indent and all.
-        expect(pictured).toContain(`   ${GLOBAL_PLACES.hebrew} — +972 0 000 0000`);
+        expect(pictured).toContain(`   ${GLOBAL_PLACES.hebrew} — \u200e+972 0 000 0000\u200e`);
         expect(canvas.draws.filter((draw) => draw.direction !== 'ltr')).toEqual([]);
     });
 
@@ -366,10 +366,11 @@ describe('float plan PDF, every script (129-10 decision B)', () => {
         for (const line of [
             '1. דוד כהן (חובש) — Skipper, 47',
             '2. \u2067דוד כהן\u2069 — Navigator, 33',
-            'Contact aboard: Iridium +881 600 000 000 · מרים\u200f',
+            // A number on a right-to-left line carries LRMs either side (holdNumbersLeftToRight).
+            'Contact aboard: Iridium \u200e+881 600 000 000\u200e · מרים\u200f',
             // The overdue guide: "1. Try us first." and "2. Ring the people ashore".
-            '   Iridium +881 600 000 000 · מרים\u200f',
-            '   מרים לוי — \u202a+972 50 000 0000\u202c',
+            '   Iridium \u200e+881 600 000 000\u200e · מרים\u200f',
+            '   מרים לוי — \u202a\u200e+972 50 000 0000\u200e\u202c',
         ]) {
             expect(drawn, line).toContain(line);
             expect(splitTextRuns(line), line).toHaveLength(1);

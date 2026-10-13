@@ -709,11 +709,31 @@ function formatSms(document: FloatPlanDocument): string {
     );
 }
 
+const RTL_LETTER = /[\u0590-\u05FF\u0600-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
+// An optional +, then digits with spaces, dots, dashes or brackets, ending in a digit.
+const PHONE_NUMBER = /\+?\(?\d[\d ().-]{4,}\d/g;
+const LRM = '\u200E';
+
+/**
+ * On a line with Hebrew or Arabic in it, a phone number after a name shows its
+ * digit groups right to left: "+972 50 000 0000" reads "0000 000 50 972+",
+ * because the bidi algorithm lets the digits take the name's direction. A
+ * left-to-right mark either side of the number (rule W7) keeps it in dialling
+ * order in every app and in the PDF. Lines without right-to-left letters are
+ * left alone, so a Latin-only SMS stays in the GSM alphabet.
+ */
+export function holdNumbersLeftToRight(text: string): string {
+    return text
+        .split('\n')
+        .map((line) => (RTL_LETTER.test(line) ? line.replace(PHONE_NUMBER, (number) => `${LRM}${number}${LRM}`) : line))
+        .join('\n');
+}
+
 export function createFloatPlanSharePayload(input: FloatPlanInput, channel: FloatPlanChannel): FloatPlanSharePayload {
     const document = prepareFloatPlan(input);
     const routeLabel = [oneLine(input.route.from), oneLine(input.route.to)].filter(Boolean).join(' to ');
     const subject = emailHeaderSafe(`Float plan | ${document.vesselName}${routeLabel ? ` | ${routeLabel}` : ''}`);
-    const text =
+    const composed =
         channel === 'email'
             ? formatEmail(document)
             : channel === 'whatsapp'
@@ -721,6 +741,7 @@ export function createFloatPlanSharePayload(input: FloatPlanInput, channel: Floa
               : channel === 'sms'
                 ? formatSms(document)
                 : composeFloatPlan(input);
+    const text = holdNumbersLeftToRight(composed);
     return {
         channel,
         title: subject,

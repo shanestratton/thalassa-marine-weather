@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createFloatPlanSharePayload } from '../services/floatPlan';
+import { createFloatPlanSharePayload, estimateSmsSegments, holdNumbersLeftToRight } from '../services/floatPlan';
 import type { FloatPlanInput } from '../services/floatPlan';
 
 const NOW = 1788000000000;
@@ -113,5 +113,48 @@ describe('the guide reads as plain English on every channel', () => {
         expect(createFloatPlanSharePayload(input, 'email').text).toContain(
             'Keep your phone free. They will ring back for more, and you are now the person',
         );
+    });
+});
+
+describe('a phone number after a Hebrew or Arabic name stays in dialling order', () => {
+    // Without a mark the bidi algorithm lays "+972 50 000 0000" out as
+    // "0000 000 50 972+" beside a right-to-left name: measured in WebKit and
+    // Chromium (scratchpad bidi129, 14 Oct 2026). A holder reading the guide
+    // left to right would dial the groups backwards.
+    const LRM = '\u200E';
+
+    it('marks the number on a right-to-left line, on both sides', () => {
+        expect(holdNumbersLeftToRight('   מרים לוי — +972 50 000 0000')).toBe(
+            `   מרים לוי — ${LRM}+972 50 000 0000${LRM}`,
+        );
+        expect(holdNumbersLeftToRight('ليلى حداد — (01) 000-000')).toBe(`ليلى حداد — ${LRM}(01) 000-000${LRM}`);
+    });
+
+    it('leaves Latin-only lines, short numbers and times alone', () => {
+        const latin = 'Alex Example (sister) — 0400 000 001\nVHF 16, 21:00, 2026';
+        expect(holdNumbersLeftToRight(latin)).toBe(latin);
+        expect(holdNumbersLeftToRight('חיפה VHF 16 at 21:00')).toBe('חיפה VHF 16 at 21:00');
+    });
+
+    it('carries the marks on every channel, and a Latin-only SMS stays in the GSM alphabet', () => {
+        const base = {
+            vessel: { name: 'Example Star', type: 'sail', shoreContact1: 'מרים לוי — +972 50 000 0000' },
+            route: { from: 'Port Example', to: 'Example Cove', waypoints: [] },
+            departureMs: NOW,
+            overdueMs: NOW + 12 * 3600e3,
+            personsOnBoard: 2,
+            whoToCall: 'Coast Radio Example — +1 555 0100',
+            contactAboard: 'Sat phone +881 600 000 000',
+            timeZone: 'Asia/Jerusalem',
+        } as unknown as FloatPlanInput;
+        for (const channel of ['email', 'whatsapp', 'generic'] as const) {
+            expect(createFloatPlanSharePayload(base, channel).text).toContain(
+                `מרים לוי — ${LRM}+972 50 000 0000${LRM}`,
+            );
+        }
+        const latinOnly = { ...base, vessel: { ...base.vessel, shoreContact1: 'Robin Example — 0400 000 003' } };
+        const sms = createFloatPlanSharePayload(latinOnly, 'sms');
+        expect(sms.text).not.toContain(LRM);
+        expect(sms.smsSegments).toBe(estimateSmsSegments(sms.text.replace(/\u200E/g, '')));
     });
 });
