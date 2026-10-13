@@ -29,9 +29,11 @@ import { createWeatherRoutes } from './routes/weather.js';
 import { createTileRoutes } from './routes/tiles.js';
 import { createGribRoutes } from './routes/grib.js';
 import { createTideRoutes } from './routes/tides.js';
-import { createMiscRoutes } from './routes/misc.js';
+import { createMiscRoutes, purgeGeocodeCache } from './routes/misc.js';
 import { createChartRoutes } from './routes/charts.js';
-import { createEncRoutes } from './routes/enc.js';
+import { createEncRoutes, sweepEncTempLeftovers } from './routes/enc.js';
+import { EncDeviceStore, encNoStore } from './encDevices.js';
+import { createVaultClient, startVaultLink, type VaultLink } from './vaultClient.js';
 import { createOsmRoutes } from './routes/osm.js';
 import { createDiaryRelayRoutes } from './routes/diary.js';
 import { createTrackRoutes } from './routes/track.js';
@@ -136,6 +138,10 @@ delete process.env[LEGACY_PROVIDER_ENV];
 // ── Bootstrap ──
 
 const cache = new Cache(CACHE_DIR);
+// Reverse geocodes are never stored (Pi update 3, 127-C-d decision 13; Mapbox
+// Product Terms §2.7.2). Earlier builds kept them for 7 days: delete those.
+const geocodesPurged = purgeGeocodeCache(cache);
+if (geocodesPurged > 0) console.log(`[misc] removed ${geocodesPurged} cached reverse geocode(s)`);
 // The boat's own barometer. Starts even with no sensor fitted — it just
 // reports unavailable, so a Pi without one behaves exactly as before.
 const barometer = new Barometer(CACHE_DIR);
@@ -267,6 +273,25 @@ const aisWatch = new AisNightWatch({
     pushStatus: () => piAlarmRelay.status(),
 });
 aisWatch.restore();
+
+/* ── The chart vault (Pi update 3, 127-C-d) ─────────────────────────────────
+   Licensed cells are opened in the thalassa-chart-vault process's RAM, never
+   here: this process keeps the watches, so it only reaches the vault over its
+   unix socket and streams what it answers. Leftover conversion work dirs from
+   before a restart (some held decrypted or converted charts) go first: the
+   jobs Map that used to clean them is empty now (decision 12). Awaited here,
+   after the watches are restored and before any request is taken. */
+try {
+    const swept = await sweepEncTempLeftovers();
+    if (swept > 0) console.log(`[enc] removed ${swept} leftover conversion work dir(s)`);
+} catch (error) {
+    console.warn(`[enc] start-up sweep failed: ${(error as NodeJS.ErrnoException).code ?? 'error'}`);
+}
+const chartVault = createVaultClient();
+const chartDevices = new EncDeviceStore(path.join(CACHE_DIR, 'enc-devices.json'));
+/** Started with the server (below); until then the vault reads as unreachable. */
+let vaultLink: VaultLink | null = null;
+
 /** The app's own alphabet is unambiguous; the relay accepts any alphanumeric. */
 const ANCHOR_SESSION_CODE_RE = /^[A-Za-z0-9]{12}$/;
 const app = express();
@@ -280,6 +305,9 @@ app.use(
         },
     }),
 );
+// Every /api/enc answer is no-store, a body parser's own 4xx included: mounted
+// ahead of it (the router's front door sets it again for its own routes).
+app.use('/api/enc', encNoStore);
 // Bump body parser limit for public-data chart uploads. A regional
 // GeoJSON pack for AU coastal coverage runs 10-50MB after gdal_contour
 // simplification — the 100kb default would reject them on POST. ENC
@@ -344,6 +372,9 @@ app.get('/status', (_req, res) => {
 /** Private development status. Never fold this detail back into /status. */
 app.get('/api/admin/status', requireAppApi, (_req, res) => {
     const diaryRelay = diaryRelayOutbox.getStats();
+    // From memory, never a call to the vault: this is the app's Pi health
+    // probe (2 s), and a large cell blocks the vault's loop for seconds.
+    const { status: vault, ageMs: vaultAgeMs } = vaultLink?.lastStatus() ?? { status: null, ageMs: null };
     res.json({
         status: 'ok',
         cache: cache.getStats(),
@@ -369,6 +400,18 @@ app.get('/api/admin/status', requireAppApi, (_req, res) => {
         // describe() never includes the credential, so this is safe here.
         anchorWatch: anchorWatch.describe(),
         aisWatch: aisWatch.describe(),
+        // Pi update 3: install.sh waits for 'ready', and purge.sh refuses until
+        // an enrolled device has received a cell from the vault since start.
+        chartVault: {
+            state: vault?.state ?? 'unreachable',
+            cells: vault?.cells ?? 0,
+            opened: vault?.opened ?? 0,
+            toOpen: vault?.toOpen ?? 0,
+            decoder: vault?.decoder ?? 'unknown',
+            // How old that answer is (the link asks every few seconds); null: never answered.
+            checkedAgoMs: vaultAgeMs,
+            servedToDevices: chartDevices.servedToDevices(),
+        },
     });
 });
 
@@ -821,7 +864,7 @@ app.use('/api/remote-access', requireAppApi, createRemoteAccessRoutes());
 // THALASSA_PI_LAN_BIND, so mounting these on a loopback-only server reaches
 // nobody. See publicBetaBoundary.appApiEnabled for why this one defaults ON.
 if (APP_API_ENABLED) {
-    app.use('/api/enc', createEncRoutes(identity));
+    app.use('/api/enc', createEncRoutes(identity, { vault: chartVault, devices: chartDevices }));
     app.use('/api/osm', createOsmRoutes());
     app.use('/api/pair', createPairRoutes(identity));
     app.use('/api/diary', createDiaryRelayRoutes(diaryRelayOutbox, diaryVideoRelay));
@@ -925,11 +968,23 @@ server.listen(PORT, BIND_HOST, () => {
         startEncWatcher();
     }
 
-    // Charts installed through the app keep their source under
-    // enc-charts/sources/; when the extractor's output schema moves, convert
-    // those again too (after the watcher's own startup reconcile, one source
-    // at a time on the conversion lane). Detached: never delays startup.
+    // Since Pi update 3 both of these are inert for o-charts sets: the chart
+    // vault opens them, and re-opens them for a new parser schema, in RAM.
     void startSourceReconvert();
+
+    // Keep the vault told whether a watch is on (no index work then) and, every
+    // 10 minutes, where the boat is (prewarm); and keep its status in memory
+    // for /api/admin/status. It has no network of its own.
+    if (APP_API_ENABLED) {
+        vaultLink = startVaultLink({
+            client: chartVault,
+            watching: () => anchorWatch.isRunning() || aisWatch.describe().armed === true,
+            fix: async () => {
+                const fix = await currentFix({ fetchImpl: fetch, signalkOrigin: SIGNALK_ORIGIN });
+                return fix && fixIsCurrent(fix) ? { lat: fix.latitude, lon: fix.longitude } : null;
+            },
+        });
+    }
 });
 
 // ── Plaintext port: a signpost, never a data path ──────────────────
@@ -975,6 +1030,7 @@ function shutdown() {
                 `[encReconvert] still busy after ${SOURCE_RECONVERT_STOP_WAIT_MS / 1000} s; exiting anyway. If chart writes then fail chart-store-busy, check enc-charts/.index.lock.`,
             );
     });
+    vaultLink?.stop();
     windHistory.stop();
     anchorWatch.close();
     aisWatch.close();

@@ -75,10 +75,13 @@ describe('S-63 is retired from Thalassa (127)', () => {
         expect(read('services/externalLinks.ts')).not.toMatch(/OCHARTS_USERPERMITS_URL|ocpermits/);
     });
 
-    it('the Pi watches .oesu only: no .es57 watcher, no poller, no S-63 settings', () => {
+    it('the Pi watches no S-63: no .es57 watcher, no poller, no S-63 settings', () => {
         const watcher = read('pi-cache/src/encWatcher.ts');
         expect(watcher).not.toMatch(/es57|ENC_S63_|ENC_CHARTWORLD|s63Watcher|startChartworldSync/);
-        expect(watcher).toContain("join(EXTRACTOR_DIR, 'src', 'decryptBatch.ts')");
+        // Since Pi update 3 (127-C-d) the watcher spawns nothing at all: the
+        // chart vault opens o-charts .oesu sets in its own memory.
+        expect(watcher).not.toMatch(/child_process|spawn\(/);
+        expect(watcher).toContain("mode: 'vault'");
     });
 
     it('an S-63 delivery dropped into Thalassa is answered, never staged or installed', () => {

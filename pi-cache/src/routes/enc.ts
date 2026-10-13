@@ -38,6 +38,19 @@
  *   DELETE /api/enc/jobs/:id
  *     → cleans up temp files for a finished job.
  *
+ * Pi update 3 (127-C-d), the chart vault
+ * ──────────────────────────────────────
+ * Licensed (protected) cells are no longer files here. They live encrypted,
+ * as o-charts delivered them, and the chart vault (src/vault, its own
+ * low-priority process) opens them in its RAM on demand. This router is the
+ * front door: every route passes createEncFrontDoor (no-store, the boat's own
+ * Wi-Fi only, an enrolled device's token), /installed lists the vault's
+ * catalogue beside the open (NOAA) cells, and /installed/:id/data streams the
+ * vault's bytes straight through, signed over the hash the vault checked.
+ * Only open charts are written as files (enc-charts/open/); an unencrypted
+ * S-57 that 127-C-b's classifier calls protected answers 415 not-open-chart.
+ * Routing runs on the phone: /route and /route-prepped answer 503.
+ *
  * License & data residency
  * ────────────────────────
  * The Pi never uploads ENC data anywhere. Cells stay on the user's
@@ -52,11 +65,10 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { routeInshore, type InshoreLayers, type RouteRequest } from '../services/inshoreRouter.js';
+import { pipeline } from 'node:stream';
 import { normaliseOutboundHttpUrl, outboundFetch } from '../outboundHttp.js';
-import { sendSignedJson, routeRequestBinding } from './pair.js';
+import { sendSignedJson } from './pair.js';
 import type { PiIdentity } from '../identity.js';
-import { validateInshoreRouteBoundary } from '../inshoreRouteBoundary.js';
 import {
     ChartInstallError,
     chartBlobPath,
@@ -68,6 +80,17 @@ import {
 } from '../encChartStore.js';
 import { installOChartsDelivery, verifyArchiveSha256 } from '../oChartsInstaller.js';
 import { piChartLicence } from '../chartLicence.js';
+import {
+    ChartDeviceError,
+    EncDeviceStore,
+    MAX_CHART_DEVICES,
+    createEncFrontDoor,
+    readBoatLanView,
+    type BoatLanView,
+    type ChartDeviceRequest,
+} from '../encDevices.js';
+import { VaultUnavailableError, createVaultClient, type VaultClient } from '../vaultClient.js';
+import type { VaultStatusWire } from '../vault/protocol.js';
 import { getSourceReconvertStatus } from '../encSourceReconvert.js';
 import { listEncJobReceipts, restoredEncJobReceipt, saveEncJobReceipt, type EncJobReceipt } from '../encJobJournal.js';
 import {
@@ -75,7 +98,9 @@ import {
     ENC_DOWNLOAD_POLICY,
     PiResourceBoundaryError,
     extractZipArchive,
+    inspectZipArchive,
     streamResponseToFile,
+    type SafeZipEntry,
 } from '../resourceBoundary.js';
 import {
     PiWorkloadAbortedError,
@@ -274,6 +299,55 @@ const OGR2OGR_TIMEOUT_MS = 60 * 1000; // 1 minute per layer is generous
  * data on a bigger disk.
  */
 const CHART_STORE_DIR = process.env.ENC_CHART_DIR || './enc-charts';
+
+/**
+ * Where one router keeps things: the chart store (job receipts, the o-charts
+ * sources the vault reads, the old plaintext store until purge.sh), its open
+ * store (enc-charts/open: NOAA cells, the only chart files this writes), the
+ * vault and the device list.
+ */
+interface EncContext {
+    storeDir: string;
+    openStoreDir: string;
+    installOCharts: typeof installOChartsDelivery;
+    vault: VaultClient;
+}
+
+/** What an unencrypted chart the licence rule calls protected is told (127-C-c's wording family). */
+export const NOT_OPEN_CHART =
+    'Thalassa keeps only open charts (NOAA) as files on the Pi. Open other charts in OpenCPN.';
+export const NOT_OPEN_CHART_CODE = 'not-open-chart';
+
+/** Open (NOAA, public domain) by 127-C-b's fail-closed rule, from the cell id alone. */
+function openByName(cellId: string): boolean {
+    const id = cellId.toUpperCase();
+    return piChartLicence({ cellId: id, sourceHO: id.slice(0, 2), source: 'phone-upload' }) === 'open';
+}
+
+/**
+ * The start-up sweep (127-C-d decision 12). Work dirs used to go only through
+ * the in-memory jobs Map (1 h), so a restart orphaned them, some holding
+ * decrypted or converted charts. At start that Map is empty: everything under
+ * TEMP_ROOT goes, and every thalassa-enc-persist-* stage and the retired
+ * re-conversion's work root, in this TMPDIR. Nothing else is touched (the
+ * encrypted deliveries live under enc-charts/sources, not here). Returns how
+ * many it removed.
+ */
+export async function sweepEncTempLeftovers(tmp: string = os.tmpdir()): Promise<number> {
+    let removed = 0;
+    const root = path.join(tmp, 'thalassa-enc-conversion');
+    for (const name of await fs.readdir(root).catch(() => [] as string[])) {
+        await fs.rm(path.join(root, name), { recursive: true, force: true });
+        removed++;
+    }
+    await fs.rm(root, { recursive: true, force: true });
+    for (const name of await fs.readdir(tmp).catch(() => [] as string[])) {
+        if (!/^thalassa-enc-persist-/.test(name) && name !== 'thalassa-enc-reconvert') continue;
+        await fs.rm(path.join(tmp, name), { recursive: true, force: true });
+        removed++;
+    }
+    return removed;
+}
 // Regional deliveries exceed 700 MB; allow ordinary boat/mobile links while
 // retaining a hard deadline and the separate streamed byte/storage limits.
 const URL_DOWNLOAD_TIMEOUT_MS = 30 * 60 * 1000;
@@ -302,10 +376,10 @@ function publicJobSummary(job: EncJob): EncJobReceipt {
     };
 }
 
-async function rememberJob(job: EncJob): Promise<void> {
+async function rememberJob(storeDir: string, job: EncJob): Promise<void> {
     try {
-        await saveEncJobReceipt(CHART_STORE_DIR, publicJobSummary(job));
-        await listEncJobReceipts(CHART_STORE_DIR); // bound receipt retention, including while no client is polling
+        await saveEncJobReceipt(storeDir, publicJobSummary(job));
+        await listEncJobReceipts(storeDir); // bound receipt retention, including while no client is polling
     } catch {
         console.warn('[enc] Could not save installation receipt');
     }
@@ -316,21 +390,36 @@ async function rememberJob(job: EncJob): Promise<void> {
 // ── Persistent chart store ────────────────────────────────────────
 
 /**
- * One entry per converted cell. Kept lean — fields the phone
- * needs to render the chart-locker list without fetching the
- * big GeoJSON blob. The index references an immutable version under cells/;
- * legacy indexes without a blobPath still resolve <cellId>.json.
+ * The open cells this Pi serves from files, and the store each is in: the
+ * open store, plus (until purge.sh moves it there) any open cell still in
+ * the old store. A protected cell in the old store is never listed or read:
+ * the vault is the only source of those.
  */
-const loadInstalledIndex = () => readChartIndex(CHART_STORE_DIR);
+async function openCells(ctx: EncContext): Promise<{ meta: InstalledCellMeta; dir: string }[]> {
+    const read = async (dir: string) => {
+        try {
+            return (await readChartIndex(dir)).cells.filter((cell) => piChartLicence(cell) === 'open');
+        } catch {
+            console.warn('[enc] a chart index could not be read; its open cells are left out');
+            return [];
+        }
+    };
+    const open = (await read(ctx.openStoreDir)).map((meta) => ({ meta, dir: ctx.openStoreDir }));
+    const listed = new Set(open.map((c) => c.meta.cellId));
+    for (const meta of await read(ctx.storeDir)) {
+        if (!listed.has(meta.cellId)) open.push({ meta, dir: ctx.storeDir });
+    }
+    return open;
+}
 
 /**
- * Write one converted cell to the persistent store and update the
- * index. The blob format is `{cells: [single]}` so it matches the
- * EncConversionBatch wire format the phone already understands.
- *
- * Use the same immutable publication path as licensed o-charts deliveries.
+ * Write one converted OPEN cell to the open store and its index. The blob
+ * format is `{cells: [single]}`, the EncConversionBatch wire format the phone
+ * already understands. A cell 127-C-b's rule calls protected is refused
+ * before anything is written (127-C-d decision 6).
  */
 async function persistCell(
+    ctx: EncContext,
     cell: {
         cellId: string;
         sourceHO: string;
@@ -346,6 +435,9 @@ async function persistCell(
 ): Promise<InstalledCellMeta> {
     const blob = { cells: [cell] };
     const data = JSON.stringify(blob);
+    if (piChartLicence({ cellId: cell.cellId, sourceHO: cell.sourceHO, source }) !== 'open') {
+        throw new ChartInstallError(NOT_OPEN_CHART_CODE, NOT_OPEN_CHART);
+    }
     const meta: InstalledCellMeta = {
         cellId: cell.cellId,
         sourceHO: cell.sourceHO,
@@ -366,15 +458,11 @@ async function persistCell(
     try {
         const filename = path.join(stageDir, 'cell.json');
         await fs.writeFile(filename, data, { mode: 0o600 });
-        const published = await publishChartDelivery(CHART_STORE_DIR, [{ filename, meta }]);
+        const published = await publishChartDelivery(ctx.openStoreDir, [{ filename, meta }]);
         return published.cells[0];
     } finally {
         await fs.rm(stageDir, { recursive: true, force: true });
     }
-}
-
-async function removeInstalledCell(cellId: string): Promise<boolean> {
-    return removeChartCell(CHART_STORE_DIR, cellId);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -383,6 +471,29 @@ function sanitiseFilename(name: string): string {
     const safe = name.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '');
     if (!safe || safe === '.' || safe === '..') return 'cell.000';
     return safe;
+}
+
+function sendVaultRefusal(res: Response, error: unknown): Response {
+    if (error instanceof VaultUnavailableError) {
+        if (error.retryAfterSeconds) res.setHeader('Retry-After', String(error.retryAfterSeconds));
+        const status = error.code === 'cell-not-found' ? 404 : error.status >= 400 ? error.status : 503;
+        return res
+            .status(status)
+            .json(
+                error.code === 'cell-not-found'
+                    ? { error: 'Cell not installed', code: error.code }
+                    : { code: error.code },
+            );
+    }
+    res.setHeader('Retry-After', '30');
+    return res.status(503).json({ code: 'vault-starting' });
+}
+
+/** The words code GET /devices/status sends for the vault (the app reads starting|busy|decoder-down). */
+function vaultWord(status: VaultStatusWire | null): 'starting' | 'busy' | 'decoder-down' | 'ready' {
+    if (!status || status.state === 'starting') return 'starting';
+    if (status.state === 'decoder-down') return 'decoder-down';
+    return status.waiting >= 64 ? 'busy' : 'ready';
 }
 
 function boundaryErrorCode(error: unknown): string | undefined {
@@ -823,7 +934,44 @@ async function countOesuFiles(root: string): Promise<number> {
     return entries.filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.oesu')).length;
 }
 
-async function runConversion(job: EncJob, installOCharts = installOChartsDelivery): Promise<void> {
+/** What a ZIP's names say before anything in it is unpacked (127-C-d decision 6). */
+interface ZipCellPlan {
+    /** Every entry to unpack: all of an o-charts or S-63 delivery (encrypted), else no protected S-57 file. */
+    select: (entry: SafeZipEntry) => boolean;
+    /** The protected base cells left packed (file names, for the job's skipped list). */
+    refused: string[];
+    /** Every S-57 cell in it is protected: refuse without unpacking. */
+    refuseAll: boolean;
+}
+
+export function planZipCells(entries: readonly SafeZipEntry[]): ZipCellPlan {
+    const files = entries.filter((entry) => !entry.isDirectory);
+    const baseName = (entry: SafeZipEntry) => entry.pathSegments[entry.pathSegments.length - 1] ?? entry.name;
+    const names = files.map(baseName);
+    const upper = new Set(names.map((name) => name.toUpperCase()));
+    // Encrypted deliveries are unpacked whole: the o-charts installer and the
+    // S-63 answer (detectChartworldArchive) read them as before.
+    if (names.some((name) => /\.oesu$/i.test(name)) || upper.has('SERIAL.ENC') || upper.has('PERMIT.TXT')) {
+        return { select: () => true, refused: [], refuseAll: false };
+    }
+    const s57 = /\.\d{3}$/;
+    const open = (name: string) => openByName(name.slice(0, name.lastIndexOf('.')));
+    const cells = names.filter((name) => /\.000$/i.test(name));
+    const refused = cells.filter((name) => !open(name));
+    return {
+        select: (entry) => !s57.test(baseName(entry)) || open(baseName(entry)),
+        refused,
+        refuseAll: refused.length > 0 && refused.length === cells.length,
+    };
+}
+
+/** A protected unencrypted S-57 is kept nowhere: the job's work dir goes at once, then the answer. */
+async function refuseNotOpen(job: EncJob): Promise<ChartInstallError> {
+    if (job.workDir) await fs.rm(job.workDir, { recursive: true, force: true });
+    return new ChartInstallError(NOT_OPEN_CHART_CODE, NOT_OPEN_CHART);
+}
+
+async function runConversion(job: EncJob, ctx: EncContext): Promise<void> {
     if (!job.workDir) throw new Error('workDir not set');
     const inputPath = path.join(job.workDir, job.filename);
 
@@ -857,14 +1005,29 @@ async function runConversion(job: EncJob, installOCharts = installOChartsDeliver
         // ── ZIP MODE ─────────────────────────────────────────────
         job.step = 'unzipping archive';
         const unzipDir = path.join(job.workDir, 'unzipped');
-        await fs.mkdir(unzipDir, { recursive: true });
 
+        // The names first, from the central directory alone (127-C-d decision
+        // 6): an unencrypted S-57 cell the classifier calls protected is never
+        // unpacked. An archive of nothing but such cells goes, upload and all,
+        // before anything is written; a mixed one unpacks its open cells only.
+        let plan: ZipCellPlan;
         try {
-            await extractZipArchive(inputPath, unzipDir, ENC_ARCHIVE_POLICY);
+            plan = planZipCells((await inspectZipArchive(inputPath, ENC_ARCHIVE_POLICY)).entries);
         } catch (err) {
             if (err instanceof PiResourceBoundaryError) throw err;
             throw new Error(`Failed to unzip: ${(err as Error).message}`);
         }
+        if (plan.refuseAll) throw await refuseNotOpen(job);
+        await fs.mkdir(unzipDir, { recursive: true });
+
+        try {
+            await extractZipArchive(inputPath, unzipDir, ENC_ARCHIVE_POLICY, { select: plan.select });
+        } catch (err) {
+            if (err instanceof PiResourceBoundaryError) throw err;
+            throw new Error(`Failed to unzip: ${(err as Error).message}`);
+        }
+        // The upload itself still holds the protected cells: it goes now, before any conversion.
+        if (plan.refused.length > 0) await fs.rm(inputPath, { force: true });
 
         // Keep source and output isolated until every licensed cell validates.
         // This job owns the conversion lease throughout, so do not re-acquire
@@ -874,20 +1037,22 @@ async function runConversion(job: EncJob, installOCharts = installOChartsDeliver
             job.status = 'converting';
             job.cellCount = oesuCount;
             job.cellsDone = 0;
-            const installed = await installOCharts({
+            // 127-C-d decision 11: the set stays encrypted. The installer checks
+            // its shape, keeps it in enc-charts/sources and asks the vault to
+            // open it in memory. Nothing is decrypted to disk.
+            const installed = await ctx.installOCharts({
                 extractedDir: unzipDir,
-                workDir: job.workDir,
-                chartStoreDir: CHART_STORE_DIR,
-                extractorDir:
-                    process.env.ENC_EXTRACTOR_DIR ||
-                    path.join(os.homedir(), 'thalassa-marine-weather', 'tools', 'senc-extractor'),
+                chartStoreDir: ctx.storeDir,
                 archiveHash: job.archiveSha256 ?? (await verifyArchiveSha256(inputPath)),
+                rescan: (cellIds) => ctx.vault.rescan(cellIds),
                 onProgress(step, completed, total) {
                     job.step = step;
                     job.cellsDone = completed;
                     job.progress = 0.1 + (completed / total) * 0.85;
                 },
             });
+            // The encrypted copy is kept in sources/; this one is not needed.
+            await fs.rm(unzipDir, { recursive: true, force: true });
             job.resultKind = 'installed';
             job.persistedCellIds = installed.persistedCellIds;
             job.packageSummary = installed.packageSummary;
@@ -895,7 +1060,12 @@ async function runConversion(job: EncJob, installOCharts = installOChartsDeliver
             job.cellsDone = installed.persistedCellIds.length;
             job.status = 'done';
             job.progress = 1;
-            job.step = `${installed.packageSummary.total} chart(s) ready on the Pi`;
+            job.step =
+                installed.queued === 'watch'
+                    ? `${installed.packageSummary.total} chart(s) kept on the Pi. New charts open in memory after the watch.`
+                    : installed.queued === 'vault-down'
+                      ? `${installed.packageSummary.total} chart(s) kept on the Pi, encrypted. They open when the chart vault is back.`
+                      : `${installed.packageSummary.total} chart(s) ready on the Pi`;
             job.completedAt = Date.now();
             return;
         }
@@ -906,10 +1076,14 @@ async function runConversion(job: EncJob, installOCharts = installOChartsDeliver
         // waiting out the job's hour, and nothing is written anywhere else.
         if (await detectChartworldArchive(unzipDir)) throw await refuseS63(job);
 
-        const cellPaths = await findEncCells(unzipDir);
-        if (cellPaths.length === 0) {
+        const found = await findEncCells(unzipDir);
+        if (found.length === 0 && plan.refused.length === 0) {
             throw new Error('No .000 or .oesu chart content found in ZIP');
         }
+        // Only open (NOAA) cells were unpacked, so only they convert and are kept (127-C-d decision 6).
+        const cellPaths = found.filter((cellPath) => openByName(path.basename(cellPath, path.extname(cellPath))));
+        if (cellPaths.length === 0) throw await refuseNotOpen(job);
+        for (const refused of plan.refused) skipped.push({ filename: refused, error: NOT_OPEN_CHART });
         job.cellCount = cellPaths.length;
         job.cellsDone = 0;
 
@@ -927,7 +1101,8 @@ async function runConversion(job: EncJob, installOCharts = installOChartsDeliver
                 // `/api/enc/installed/:cellId/data` without re-
                 // running the conversion.
                 await persistCell(
-                    conv.result as Parameters<typeof persistCell>[0],
+                    ctx,
+                    conv.result as Parameters<typeof persistCell>[1],
                     conv.featureCount,
                     job.installSource ?? 'phone-upload',
                     job.installUrl,
@@ -950,6 +1125,7 @@ async function runConversion(job: EncJob, installOCharts = installOChartsDeliver
         }
     } else {
         // ── SINGLE-CELL MODE ─────────────────────────────────────
+        if (!openByName(path.basename(inputPath, path.extname(inputPath)))) throw await refuseNotOpen(job);
         job.cellCount = 1;
         job.cellsDone = 0;
         job.step = 'parsing metadata';
@@ -957,7 +1133,8 @@ async function runConversion(job: EncJob, installOCharts = installOChartsDeliver
         const conv = await convertOneCell(inputPath, outputBaseDir);
         cells.push(conv.result);
         await persistCell(
-            conv.result as Parameters<typeof persistCell>[0],
+            ctx,
+            conv.result as Parameters<typeof persistCell>[1],
             conv.featureCount,
             job.installSource ?? 'phone-upload',
             job.installUrl,
@@ -991,12 +1168,104 @@ async function runConversion(job: EncJob, installOCharts = installOChartsDeliver
  * `identity` enables signed responses on the endpoints that ship navigation
  * data (installed list + per-cell blobs). Optional so a bare dev instance
  * without an identity file still serves everything, just unsigned.
+ *
+ * `dependencies` are the server's own (server.ts) or a test's: the vault
+ * client, the device store, where the chart store is, and how to read the
+ * boat's network and a request's peer (the socket's, never a header).
  */
 export function createEncRoutes(
     identity?: PiIdentity,
-    dependencies: { installOCharts?: typeof installOChartsDelivery } = {},
+    dependencies: {
+        installOCharts?: typeof installOChartsDelivery;
+        vault?: VaultClient;
+        devices?: EncDeviceStore;
+        chartStoreDir?: string;
+        lanView?: () => BoatLanView;
+        peerOf?: (req: Request) => string | undefined;
+    } = {},
 ): Router {
     const router = Router();
+    const storeDir = dependencies.chartStoreDir ?? CHART_STORE_DIR;
+    const ctx: EncContext = {
+        storeDir,
+        openStoreDir: path.join(storeDir, 'open'),
+        installOCharts: dependencies.installOCharts ?? installOChartsDelivery,
+        vault: dependencies.vault ?? createVaultClient(),
+    };
+    const devices =
+        dependencies.devices ?? new EncDeviceStore(path.join(process.env.CACHE_DIR || './cache', 'enc-devices.json'));
+
+    // The front door, before every route (127-C-d decision 4): no-store, the
+    // boat's own Wi-Fi only, and an enrolled device's token. The test that
+    // holds it enumerates this router's own stack (encFrontDoor.test.mts).
+    router.use(
+        createEncFrontDoor({
+            devices,
+            lanView: dependencies.lanView ?? readBoatLanView,
+            ...(dependencies.peerOf ? { peerOf: dependencies.peerOf } : {}),
+        }),
+    );
+
+    // ── Chart devices (decision 5; the app half: services/enc/piChartDevice.ts) ──
+
+    const deviceRefusal = (res: Response, error: unknown): Response => {
+        if (!(error instanceof ChartDeviceError)) throw error;
+        if (error.retryAfterSeconds) res.setHeader('Retry-After', String(error.retryAfterSeconds));
+        return res.status(error.status).json({ code: error.code, error: error.message });
+    };
+
+    /** Set up or not, with no data; untokened. An enrolled device also hears the vault's state. */
+    router.get('/devices/status', async (req: Request, res: Response) => {
+        const r = req as ChartDeviceRequest;
+        const seenAs = r.chartPeer?.seenAs;
+        if (!r.chartDevice) {
+            return res.json(
+                r.chartToken === 'removed' ? { enrolled: false, removed: true, seenAs } : { enrolled: false, seenAs },
+            );
+        }
+        const status = await ctx.vault.status();
+        const open = await openCells(ctx);
+        return res.json({
+            enrolled: true,
+            cells: (status?.cells ?? 0) + open.length,
+            vault: vaultWord(status),
+            seenAs,
+        });
+    });
+
+    /** { code, label } → { deviceId, token }. Untokened, still boat-Wi-Fi only, and rate-limited. */
+    router.post('/devices/enrol', async (req: Request, res: Response) => {
+        const body = (req.body ?? {}) as { code?: unknown; label?: unknown };
+        try {
+            const enrolled = await devices.enrol(
+                body.code,
+                body.label,
+                (req as ChartDeviceRequest).chartPeer?.address ?? '',
+            );
+            console.log('[enc] a chart device was enrolled');
+            return res.json(enrolled);
+        } catch (error) {
+            return deviceRefusal(res, error);
+        }
+    });
+
+    router.get('/devices', async (_req: Request, res: Response) => {
+        return res.json({ devices: await devices.list(), maxDevices: MAX_CHART_DEVICES });
+    });
+
+    /** A code for another phone or tablet, minted by an enrolled one. */
+    router.post('/devices/code', async (_req: Request, res: Response) => {
+        return res.json(await devices.mintCode());
+    });
+
+    /** Remove a device (any enrolled device may, itself included). */
+    router.delete('/devices/:id', async (req: Request, res: Response) => {
+        const id = req.params.id;
+        if (typeof id !== 'string' || !(await devices.remove(id))) {
+            return res.status(404).json({ code: 'chart-device-unknown', error: 'No such device' });
+        }
+        return res.json({ ok: true });
+    });
 
     type ReservedConversionRequest = Request & {
         conversionWorkload?: { lease: PiWorkloadLease; cleanup: () => void };
@@ -1057,6 +1326,13 @@ export function createEncRoutes(
      *          X-Body-Encoding: base64  (optional)
      */
     router.post('/convert', reserveConversionUpload, rawBodyParser, async (req: Request, res: Response) => {
+        // A single unencrypted cell the licence rule calls protected is kept
+        // nowhere, not even staged (decision 6): the bytes stay in this
+        // request's memory and go with it.
+        const named = sanitiseFilename(req.header('x-filename') || req.header('X-Filename') || 'cell.000');
+        if (/\.000$/i.test(named) && !openByName(named.slice(0, -4))) {
+            return res.status(415).json({ code: NOT_OPEN_CHART_CODE, error: NOT_OPEN_CHART });
+        }
         let rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
         if (!rawBody || rawBody.length === 0) {
             return res.status(400).json({ error: 'Empty body' });
@@ -1106,13 +1382,13 @@ export function createEncRoutes(
             return res.status(500).json({ error: 'Conversion workload lease was not reserved' });
         }
         jobs.set(jobId, job);
-        await rememberJob(job);
+        await rememberJob(ctx.storeDir, job);
         reserved.conversionWorkloadTransferred = true;
 
         // Run conversion in the background so the client can poll. Ownership
         // of the upload's admission lease transfers here and is released on
         // every conversion result, including process-spawn/archive failures.
-        void runConversion(job, dependencies.installOCharts)
+        void runConversion(job, ctx)
             .catch((err) => {
                 job.status = 'error';
                 job.error = err instanceof Error ? err.message : String(err);
@@ -1123,7 +1399,7 @@ export function createEncRoutes(
             .finally(async () => {
                 workload.lease.release();
                 workload.cleanup();
-                await rememberJob(job);
+                await rememberJob(ctx.storeDir, job);
             });
 
         return res.json({ jobId, status: 'pending' });
@@ -1132,7 +1408,7 @@ export function createEncRoutes(
     /** Recent installation receipts let a reconnected phone resume polling. */
     router.get('/jobs', async (req: Request, res: Response) => {
         const receipts = new Map(
-            (await listEncJobReceipts(CHART_STORE_DIR)).map((receipt) => [receipt.id, restoredEncJobReceipt(receipt)]),
+            (await listEncJobReceipts(ctx.storeDir)).map((receipt) => [receipt.id, restoredEncJobReceipt(receipt)]),
         );
         for (const job of jobs.values()) receipts.set(job.id, publicJobSummary(job));
         const payload = { jobs: [...receipts.values()].sort((a, b) => b.startedAt - a.startedAt).slice(0, 30) };
@@ -1146,7 +1422,7 @@ export function createEncRoutes(
         if (typeof id !== 'string') return res.status(400).json({ error: 'Invalid id' });
         const job = jobs.get(id);
         if (!job) {
-            const saved = (await listEncJobReceipts(CHART_STORE_DIR)).find((receipt) => receipt.id === id);
+            const saved = (await listEncJobReceipts(ctx.storeDir)).find((receipt) => receipt.id === id);
             if (!saved) return res.status(404).json({ error: 'Job not found' });
             const summary = restoredEncJobReceipt(saved);
             if (identity) return sendSignedJson(identity, req, res, summary);
@@ -1245,6 +1521,9 @@ export function createEncRoutes(
             ? lastPathComponent
             : 'charts.zip';
         const safeName = sanitiseFilename(filename ?? directCellName);
+        if (/\.000$/i.test(safeName) && !openByName(safeName.slice(0, -4))) {
+            return res.status(415).json({ code: NOT_OPEN_CHART_CODE, error: NOT_OPEN_CHART });
+        }
 
         const jobId = randomUUID();
         const workDir = path.join(TEMP_ROOT, jobId);
@@ -1305,7 +1584,7 @@ export function createEncRoutes(
                     // Hand off to the existing pipeline. runConversion
                     // checks magic bytes, unzips if needed, persists each
                     // cell to the chart store via persistCell.
-                    await runConversion(job, dependencies.installOCharts);
+                    await runConversion(job, ctx);
                 } catch (err) {
                     job.status = 'error';
                     job.error = err instanceof Error ? err.message : String(err);
@@ -1313,7 +1592,7 @@ export function createEncRoutes(
                     job.completedAt = Date.now();
                     job.progress = 0;
                 } finally {
-                    await rememberJob(job);
+                    await rememberJob(ctx.storeDir, job);
                 }
             });
         } catch (error) {
@@ -1322,7 +1601,7 @@ export function createEncRoutes(
             throw error;
         }
         jobs.set(jobId, job);
-        await rememberJob(job);
+        await rememberJob(ctx.storeDir, job);
         // Errors are recorded inside the job closure so polling retains the
         // existing status/error contract. Consume the completion either way.
         void submission.completion.catch(() => {});
@@ -1404,8 +1683,19 @@ export function createEncRoutes(
 
     router.get('/installed', async (req: Request, res: Response) => {
         try {
-            const index = await loadInstalledIndex();
-            const payload = { cells: index.cells, totalSizeBytes: index.cells.reduce((s, c) => s + c.sizeBytes, 0) };
+            // The vault's catalogue (protected cells, decision 6) and the open
+            // ones from files. A vault that is starting or busy says so: a
+            // partial list would read as charts removed.
+            let vaultCells;
+            try {
+                vaultCells = await ctx.vault.index();
+            } catch (error) {
+                return sendVaultRefusal(res, error);
+            }
+            const ids = new Set(vaultCells.map((cell) => cell.cellId));
+            const open = (await openCells(ctx)).map((c) => c.meta).filter((cell) => !ids.has(cell.cellId));
+            const cells = [...vaultCells, ...open];
+            const payload = { cells, totalSizeBytes: cells.reduce((s, c) => s + c.sizeBytes, 0) };
             // Signed when the server has an identity: the app verifies this
             // list against the pinned key so an on-path attacker can't hide
             // or inject cells. Unsigned on identity-less dev instances.
@@ -1418,316 +1708,97 @@ export function createEncRoutes(
 
     /**
      * GET /api/enc/installed/:cellId/data
-     * Returns the converted GeoJSON blob for a specific cell.
-     * Same wire format the device-side import flow already
-     * understands ({cells: [...], skipped?: [...]}).
+     * One cell, in the wire format the device-side import flow already
+     * understands ({cells: [...]}). An open cell is read from its file; a
+     * protected one is streamed from the vault's memory straight through,
+     * never parsed, hashed or held here, and signed over the hash the vault
+     * checked. A vault stream cut part-way destroys the client's socket.
      */
     router.get('/installed/:cellId/data', async (req: Request, res: Response) => {
         const cellId = req.params.cellId;
         if (typeof cellId !== 'string' || !cellId) {
             return res.status(400).json({ error: 'Invalid cellId' });
         }
-        try {
-            const index = await loadInstalledIndex();
-            const meta = index.cells.find((cell) => cell.cellId === cellId);
-            if (!meta) return res.status(404).json({ error: 'Cell not installed' });
-            const text = await fs.readFile(chartBlobPath(CHART_STORE_DIR, meta), 'utf8');
-            // Signed: this is navigation data — see /installed above.
-            if (identity) return sendSignedJson(identity, req, res, text);
-            res.setHeader('Content-Type', 'application/json');
-            return res.send(text);
-        } catch (err) {
-            const msg =
-                (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'Cell not installed' : (err as Error).message;
-            return res.status(404).json({ error: msg });
+        const open = (await openCells(ctx)).find((c) => c.meta.cellId === cellId);
+        if (open) {
+            try {
+                const text = await fs.readFile(chartBlobPath(open.dir, open.meta), 'utf8');
+                // Signed: this is navigation data — see /installed above.
+                if (identity) return sendSignedJson(identity, req, res, text);
+                res.setHeader('Content-Type', 'application/json');
+                return res.send(text);
+            } catch (err) {
+                const msg =
+                    (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'Cell not installed' : (err as Error).message;
+                return res.status(404).json({ error: msg });
+            }
         }
+        let cell;
+        try {
+            cell = await ctx.vault.openCell(cellId);
+        } catch (error) {
+            return sendVaultRefusal(res, error);
+        }
+        if (identity) {
+            const timestamp = Date.now();
+            const rawPath = (req.originalUrl || req.url).split('?')[0];
+            res.setHeader('X-Pi-Signature', identity.signPayload(cell.sha256, rawPath, timestamp));
+            res.setHeader('X-Pi-Signature-Time', String(timestamp));
+        }
+        res.status(200);
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Content-Length', String(cell.size));
+        const device = (req as ChartDeviceRequest).chartDevice;
+        pipeline(cell.stream, res, (error) => {
+            if (error) {
+                res.destroy();
+                return;
+            }
+            // A whole cell reached an enrolled device (purge.sh's phone smoke).
+            if (device) devices.markServed(device.id);
+        });
     });
 
     /**
      * DELETE /api/enc/installed/:cellId
-     * Removes a cell from the chart store. Idempotent; returns
-     * 404 only if the cell was never installed.
+     * Removes a cell (decision 10). An open cell's index line goes and every
+     * blob of that exact id is unlinked; a protected cell goes into the
+     * vault's removed.json and out of its memory, and its encrypted delivered
+     * file stays (it is the licensed delivery). 404 only if it was never there.
      */
     router.delete('/installed/:cellId', async (req: Request, res: Response) => {
         const cellId = req.params.cellId;
         if (typeof cellId !== 'string' || !cellId) {
             return res.status(400).json({ error: 'Invalid cellId' });
         }
-        const removed = await removeInstalledCell(cellId);
+        const open = (await openCells(ctx)).find((c) => c.meta.cellId === cellId);
+        let removed: boolean;
+        if (open) {
+            removed = await removeChartCell(open.dir, cellId);
+        } else {
+            try {
+                removed = await ctx.vault.remove(cellId);
+            } catch (error) {
+                return sendVaultRefusal(res, error);
+            }
+        }
         if (!removed) return res.status(404).json({ error: 'Cell not installed' });
         return res.json({ ok: true, cellId });
     });
 
     /**
-     * POST /api/enc/route
+     * POST /api/enc/route and /api/enc/route-prepped
      *
-     * Inshore A* routing through the installed ENC cells. Accepts
-     * origin/destination + draft, returns a polyline that follows
-     * channels and dodges land/shallow water/obstructions. See
-     * services/inshoreRouter.ts for the algorithm.
-     *
-     * Body: {
-     *   fromLat, fromLon, toLat, toLon: number,
-     *   draftM: number,
-     *   cellIds?: string[],         // explicit; default = all cells whose bbox intersects the route
-     *   resolutionM?: number,       // default 50 m
-     *   safetyM?: number,           // additional draft margin, default 1 m
-     *   obstructionBufferM?: number // default 30 m
-     * }
-     *
-     * 200 → { polyline: [[lon,lat],...], distanceNM, cellsUsed: string[], gridSize, ... }
-     * 422 → { error, code? } when grid build succeeded but no path exists
-     * 4xx → input validation
-     * 5xx → unexpected
+     * Routing runs on the phone in this build (127-C-d decision 9; 127-PYD-2,
+     * Auto). Nothing in the app calls these (services/InshoreRouter.ts
+     * CLOUD_ROUTER_ENABLED = false), and this file no longer imports the
+     * engine, so the watch's process never loads it. In 128-129 routing on
+     * the Pi returns inside the chart vault, the brain, not here.
      */
-    router.post('/route', async (req: Request, res: Response) => {
-        const body = (req.body ?? {}) as Partial<{
-            fromLat: number;
-            fromLon: number;
-            toLat: number;
-            toLon: number;
-            draftM: number;
-            cellIds: string[];
-            resolutionM: number;
-            safetyM: number;
-            obstructionBufferM: number;
-            minComponentCells: number;
-        }>;
-
-        const boundaryIssue = validateInshoreRouteBoundary(body, { validateCellIds: true });
-        if (boundaryIssue) return res.status(boundaryIssue.status).json(boundaryIssue);
-
-        const workload = await acquireRequestWorkload(req, res, 'route');
-        if (!workload) return;
-        try {
-            const fromLat = body.fromLat as number;
-            const fromLon = body.fromLon as number;
-            const toLat = body.toLat as number;
-            const toLon = body.toLon as number;
-            const draftM = body.draftM as number;
-
-            // ── Cell selection ──
-            // Either explicit cellIds, or auto-pick cells whose bbox
-            // intersects the route's lat/lon envelope.
-            let candidates: string[] | undefined = body.cellIds;
-            const index = await loadInstalledIndex();
-            if (!candidates || candidates.length === 0) {
-                const minLat = Math.min(fromLat, toLat);
-                const maxLat = Math.max(fromLat, toLat);
-                const minLon = Math.min(fromLon, toLon);
-                const maxLon = Math.max(fromLon, toLon);
-                candidates = index.cells
-                    .filter((c) => {
-                        const [bMinLon, bMinLat, bMaxLon, bMaxLat] = c.bbox;
-                        return !(bMaxLon < minLon || bMinLon > maxLon || bMaxLat < minLat || bMinLat > maxLat);
-                    })
-                    .map((c) => c.cellId);
-            }
-
-            const selectedCellsIssue = validateInshoreRouteBoundary(
-                { ...body, cellIds: candidates },
-                { validateCellIds: true },
-            );
-            if (selectedCellsIssue) return res.status(selectedCellsIssue.status).json(selectedCellsIssue);
-
-            if (candidates.length === 0) {
-                return res.status(404).json({
-                    error: 'No installed ENC cells cover this route. Import a chart for this area first.',
-                    code: 'no-coverage',
-                });
-            }
-
-            // ── Layer loading ──
-            // Load each cell's persisted blob; concat features per layer
-            // into one merged InshoreLayers struct. The router doesn't
-            // care which cell a feature came from.
-            const merged: InshoreLayers = {
-                LNDARE: { type: 'FeatureCollection', features: [] },
-                DEPARE: { type: 'FeatureCollection', features: [] },
-                OBSTRN: { type: 'FeatureCollection', features: [] },
-                WRECKS: { type: 'FeatureCollection', features: [] },
-                UWTROC: { type: 'FeatureCollection', features: [] },
-                FAIRWY: { type: 'FeatureCollection', features: [] },
-                DRGARE: { type: 'FeatureCollection', features: [] },
-                BOYLAT: { type: 'FeatureCollection', features: [] },
-                BCNLAT: { type: 'FeatureCollection', features: [] },
-            };
-            const cellsUsed: string[] = [];
-            for (const cellId of candidates) {
-                try {
-                    const meta = index.cells.find((cell) => cell.cellId === cellId);
-                    if (!meta) continue;
-                    const text = await fs.readFile(chartBlobPath(CHART_STORE_DIR, meta), 'utf8');
-                    const blob = JSON.parse(text) as {
-                        cells: { layers: Record<string, { features?: unknown[] }> }[];
-                    };
-                    const cell = blob.cells?.[0];
-                    if (!cell) continue;
-                    for (const layer of [
-                        'LNDARE',
-                        'DEPARE',
-                        'OBSTRN',
-                        'WRECKS',
-                        'UWTROC',
-                        'FAIRWY',
-                        'DRGARE',
-                        'BOYLAT',
-                        'BCNLAT',
-                    ] as const) {
-                        const fc = cell.layers?.[layer];
-                        if (fc?.features && Array.isArray(fc.features)) {
-                            // Features came from GDAL→GeoJSON so they conform to the
-                            // GeoJSON Feature shape; the persistence layer is just
-                            // typed `unknown[]` to avoid forcing a deep import.
-                            const target = merged[layer];
-                            if (target) {
-                                (target.features as unknown[]).push(...fc.features);
-                            }
-                        }
-                    }
-                    cellsUsed.push(cellId);
-                } catch {
-                    // Cell file missing/corrupt — skip and continue with the others.
-                }
-            }
-
-            if (cellsUsed.length === 0) {
-                return res.status(500).json({ error: 'Failed to load any cell GeoJSON' });
-            }
-
-            // ── Route ──
-            try {
-                const t0 = Date.now();
-                const reqRoute: RouteRequest = {
-                    fromLat,
-                    fromLon,
-                    toLat,
-                    toLon,
-                    draftM,
-                    resolutionM: body.resolutionM,
-                    safetyM: body.safetyM,
-                    obstructionBufferM: body.obstructionBufferM,
-                    minComponentCells: body.minComponentCells,
-                };
-                const result = routeInshore(merged, reqRoute);
-                const elapsedMs = Date.now() - t0;
-
-                if ('error' in result) {
-                    return res.status(422).json({ ...result, cellsUsed, elapsedMs });
-                }
-                // Signed for the same reason as /route-prepped above.
-                const payload = { ...result, cellsUsed, elapsedMs };
-                if (identity) return sendSignedJson(identity, req, res, payload, routeRequestBinding(body));
-                return res.json(payload);
-            } catch (err) {
-                return res
-                    .status(500)
-                    .json({ error: `Routing failed: ${err instanceof Error ? err.message : String(err)}` });
-            }
-        } finally {
-            workload.lease.release();
-            workload.cleanup();
-        }
-    });
-
-    /**
-     * POST /api/enc/route-prepped
-     *
-     * "Just run A*" endpoint. iOS does all the pre-processing on the
-     * device (cell merging, regional-marker pairing, FAIRWY ribbon
-     * synthesis, IALA-oriented hazards) and ships the prepared
-     * InshoreLayers blob here so the Pi can do the CPU-heavy A* search.
-     *
-     * Why a separate endpoint
-     * ───────────────────────
-     * `/api/enc/route` loads cells from the Pi's local disk and runs
-     * A* — that works for users who synced their charts to the Pi,
-     * but the iOS-side pipeline produces a much richer InshoreLayers
-     * (with synthesised FAIRWY ribbons from paired markers + IALA-
-     * oriented hazard half-circles + chain-clustered midpoints) that
-     * the Pi doesn't currently generate. Easiest path to speed: let
-     * iOS do the prep, then hand off the routing CPU.
-     *
-     * The wire payload is potentially large (several MB of GeoJSON
-     * once FAIRWY ribbons + IALA hazards + midpoints + DEPARE are
-     * combined). Over LAN that's a few hundred ms; over LTE we
-     * fall back to the iOS-local A* so cellular users aren't penalised.
-     *
-     * Body shape (JSON):
-     *   {
-     *     "fromLat": -27.21, "fromLon": 153.09,
-     *     "toLat":   -27.38, "toLon":   153.17,
-     *     "draftM":  2.4,
-     *     "layers":  { LNDARE: {...}, DEPARE: {...}, ... },
-     *     "safetyM":            0.2,   // optional
-     *     "obstructionBufferM": 60,    // optional
-     *     "resolutionM":        50,    // optional
-     *     "minComponentCells":  100    // optional
-     *   }
-     *
-     * Returns the same RouteResult shape as `/api/enc/route` but with
-     * `cellsUsed: []` (caller already knows; we didn't load anything
-     * from disk).
-     */
-    router.post('/route-prepped', async (req: Request, res: Response) => {
-        const body = (req.body ?? {}) as Partial<{
-            fromLat: number;
-            fromLon: number;
-            toLat: number;
-            toLon: number;
-            draftM: number;
-            layers: InshoreLayers;
-            resolutionM: number;
-            safetyM: number;
-            obstructionBufferM: number;
-            minComponentCells: number;
-        }>;
-
-        const boundaryIssue = validateInshoreRouteBoundary(body, { validatePreparedLayers: true });
-        if (boundaryIssue) return res.status(boundaryIssue.status).json(boundaryIssue);
-
-        const workload = await acquireRequestWorkload(req, res, 'route');
-        if (!workload) return;
-        try {
-            const fromLat = body.fromLat as number;
-            const fromLon = body.fromLon as number;
-            const toLat = body.toLat as number;
-            const toLon = body.toLon as number;
-            const draftM = body.draftM as number;
-
-            try {
-                const t0 = Date.now();
-                const result = routeInshore(body.layers as InshoreLayers, {
-                    fromLat,
-                    fromLon,
-                    toLat,
-                    toLon,
-                    draftM,
-                    resolutionM: body.resolutionM,
-                    safetyM: body.safetyM,
-                    obstructionBufferM: body.obstructionBufferM,
-                    minComponentCells: body.minComponentCells,
-                });
-                const elapsedMs = Date.now() - t0;
-                if ('error' in result) {
-                    return res.status(422).json({ ...result, cellsUsed: [], elapsedMs });
-                }
-                // Signed: this polyline is the course the boat follows. An
-                // on-path attacker who relays the identity challenge could
-                // otherwise substitute a route across a charted hazard.
-                const payload = { ...result, cellsUsed: [], elapsedMs };
-                if (identity) return sendSignedJson(identity, req, res, payload, routeRequestBinding(body));
-                return res.json(payload);
-            } catch (err) {
-                return res
-                    .status(500)
-                    .json({ error: `Routing failed: ${err instanceof Error ? err.message : String(err)}` });
-            }
-        } finally {
-            workload.lease.release();
-            workload.cleanup();
-        }
-    });
+    const routingOnPhone = (_req: Request, res: Response): Response =>
+        res.status(503).json({ code: 'routing-on-phone', error: 'Routing runs on your phone in this build.' });
+    router.post('/route', routingOnPhone);
+    router.post('/route-prepped', routingOnPhone);
 
     /**
      * POST /api/enc/install-public
@@ -1799,6 +1870,11 @@ export function createEncRoutes(
         if (features.length === 0) {
             return res.status(400).json({ error: 'FeatureCollection must contain at least one Feature' });
         }
+        // Only open charts are kept as files (decision 6): a region the
+        // licence rule does not call open is not written.
+        if (piChartLicence({ cellId: body.region, sourceHO: body.sourceHO || 'PUB', source: 'url' }) !== 'open') {
+            return res.status(415).json({ code: NOT_OPEN_CHART_CODE, error: NOT_OPEN_CHART });
+        }
 
         const workload = await acquireRequestWorkload(req, res, 'conversion');
         if (!workload) return;
@@ -1855,7 +1931,7 @@ export function createEncRoutes(
             // services/EncImportService.ts:415) — without a bump the device
             // never re-pulls when we regenerate the public-data pack with
             // new layers / finer contours / better simplification.
-            const existingIndex = await loadInstalledIndex();
+            const existingIndex = await readChartIndex(ctx.openStoreDir);
             const existing = existingIndex.cells.find((c) => c.cellId === body.region);
             const nextEdition = existing ? existing.edition + 1 : 1;
             const cell = {
@@ -1874,7 +1950,8 @@ export function createEncRoutes(
 
             try {
                 const meta = await persistCell(
-                    cell as unknown as Parameters<typeof persistCell>[0],
+                    ctx,
+                    cell as unknown as Parameters<typeof persistCell>[1],
                     features.length - untaggedCount,
                     'url', // closest existing source-type label; future: 'public-data'
                     undefined,
@@ -1915,13 +1992,19 @@ export function createEncRoutes(
                 proc.on('error', reject);
                 proc.on('close', (code) => (code === 0 ? resolve(buf.trim()) : reject(new Error(`exit ${code}`))));
             });
-            return res.json({ ok: true, gdal: version, sourceReconvert: getSourceReconvertStatus() });
+            return res.json({
+                ok: true,
+                gdal: version,
+                sourceReconvert: getSourceReconvertStatus(),
+                chartVault: await ctx.vault.status(),
+            });
         } catch (err) {
             return res.status(500).json({
                 ok: false,
                 error: 'GDAL/ogr2ogr not installed. Run: sudo apt install gdal-bin',
                 detail: err instanceof Error ? err.message : String(err),
                 sourceReconvert: getSourceReconvertStatus(),
+                chartVault: await ctx.vault.status(),
             });
         }
     });

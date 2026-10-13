@@ -286,7 +286,7 @@ test('concurrent writers merge under the shared filesystem lock', async (t) => {
     ]);
 });
 
-test('legacy blobs remain readable and removal does not invalidate existing snapshots', async (t) => {
+test('legacy blobs remain readable, and removal really deletes them (127-C-d decision 10)', async (t) => {
     const f = await fixture(t);
     const candidate = await f.cell('FR466870');
     delete candidate.meta.contentSha256;
@@ -295,9 +295,30 @@ test('legacy blobs remain readable and removal does not invalidate existing snap
     await fs.writeFile(path.join(f.storeDir, 'index.json'), JSON.stringify({ version: 1, cells: [candidate.meta] }));
     assert.equal((await publishChartDelivery(f.storeDir, [candidate])).packageSummary.unchanged, 1);
     const old = (await readChartIndex(f.storeDir)).cells[0];
+    assert.ok(await fs.readFile(chartBlobPath(f.storeDir, old), 'utf8'), 'the legacy blob is read');
     assert.equal(await removeChartCell(f.storeDir, old.cellId), true);
     assert.equal((await readChartIndex(f.storeDir)).cells.length, 0);
-    assert.ok(await fs.readFile(chartBlobPath(f.storeDir, old), 'utf8'));
+    await assert.rejects(fs.readFile(chartBlobPath(f.storeDir, old)), { code: 'ENOENT' });
+});
+
+test('deleting a cell unlinks its current and older blobs, never a longer id that shares its prefix', async (t) => {
+    // 2026-10-10: DELETE removed the index line only; every blob stayed on disk.
+    const f = await fixture(t);
+    await publishChartDelivery(f.storeDir, [await f.cell('ZZ5KESTR', 1), await f.cell('ZZ5KESTRA', 1)]);
+    await publishChartDelivery(f.storeDir, [await f.cell('ZZ5KESTR', 2), await f.cell('ZZ5OTHER', 1)]);
+    const cells = path.join(f.storeDir, 'cells');
+    // A legacy unversioned copy of the same cell, as older stores hold.
+    await fs.writeFile(path.join(cells, 'ZZ5KESTR.json'), '{"cells":[]}');
+    const before = (await fs.readdir(cells)).sort();
+    assert.equal(before.filter((name) => name.startsWith('ZZ5KESTR-')).length, 2, 'two editions of ZZ5KESTR');
+    assert.equal(await removeChartCell(f.storeDir, 'ZZ5KESTR'), true);
+    const after = (await fs.readdir(cells)).sort();
+    assert.deepEqual(
+        after.map((name) => name.replace(/-[0-9a-f]{64}\.json$/, '-<sha>.json')),
+        ['ZZ5KESTRA-<sha>.json', 'ZZ5OTHER-<sha>.json'],
+    );
+    assert.deepEqual((await readChartIndex(f.storeDir)).cells.map((c) => c.cellId).sort(), ['ZZ5KESTRA', 'ZZ5OTHER']);
+    assert.equal(await removeChartCell(f.storeDir, 'ZZ5KESTR'), false, 'idempotent: nothing left to remove');
 });
 
 test('corrupt indexes and unsafe version paths cannot replace the store', async (t) => {
