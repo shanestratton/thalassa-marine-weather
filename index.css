@@ -9,6 +9,7 @@
 @import './styles/plan-page.css';
 @import './styles/diary-compose.css';
 @import './styles/crew-page.css';
+@import './styles/card-hue.css';
 
 /*
   The default border color has changed to `currentcolor` in Tailwind CSS v4,

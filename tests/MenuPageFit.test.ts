@@ -95,7 +95,9 @@ describe('Vessel page fits one screen', () => {
         );
         expect(landscape).toContain('grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);');
         expect(value(landscape, '.vessel-hub-home > .vessel-hub-port', 'display')).toBe('contents');
-        expect(value(landscape, '.vessel-hub-home .vessel-hub-menu', 'grid-column')).toBe('2');
+        // The menu (Crew & Float Plan's card over the box, 128-HUES) is the right column.
+        expect(value(landscape, '.vessel-hub-home .vessel-hub-menus', 'grid-column')).toBe('2');
+        expect(landscape).not.toContain('.vessel-hub-home .vessel-hub-menu {');
         expect(landscape).toContain('padding-bottom: max(0.5rem, env(safe-area-inset-bottom)) !important;');
     });
 
@@ -103,7 +105,8 @@ describe('Vessel page fits one screen', () => {
         // stagger-in starts each card 8 px low. Chromium kept that first
         // frame's overflow after the page came to rest: at 320x627 the box
         // ended 6 px above the port's end and the page scrolled 2 px.
-        expect(value(css, '.vessel-hub-port.stagger-in > .vessel-hub-menu', 'animation-name')).toBe(
+        // The menu: Crew & Float Plan's own card and the box, together (128-HUES).
+        expect(value(css, '.vessel-hub-port.stagger-in > .vessel-hub-menus', 'animation-name')).toBe(
             'vessel-hub-menu-in',
         );
         const keyframes = block('@keyframes vessel-hub-menu-in');
@@ -124,6 +127,44 @@ describe('Vessel page fills its screen', () => {
         expect(value(css, '.vessel-hub-home .vessel-hub-journal', 'flex')).toBe('1 0 3.75rem');
         expect(value(css, '.vessel-hub-home .vessel-hub-menu', 'flex-grow')).toBe('1');
         expect(value(css, '.vessel-hub-home .vessel-hub-menu > .hub-row', 'flex')).toBe('1 0 auto');
+    });
+
+    // Shane 2026-10-13 (128-HUES): "the crew and float plan, really needs its
+    // own card ... without having to scroll up and down on the page".
+    it("lifts Crew & Float Plan into its own card that takes one row's share, the box the other five", () => {
+        // The menu is the port's last block: the crew card over the box, and
+        // it takes the menu box's old share of the height.
+        expect(value(css, '.vessel-hub-menus', 'display')).toBe('flex');
+        expect(value(css, '.vessel-hub-menus', 'flex-direction')).toBe('column');
+        expect(value(css, '.vessel-hub-home .vessel-hub-menus', 'flex-grow')).toBe('1');
+        expect(value(css, '.vessel-hub-menus > *', 'flex-shrink')).toBe('0');
+        // One row against the box's five, so all six rows grow alike.
+        expect(value(css, '.vessel-hub-home .vessel-hub-menu.vessel-hub-crew', 'flex-grow')).toBe('0.2');
+        // Its halo is the one card hue's, over the box's drop shadow.
+        expect(value(css, '.vessel-hub-home .vessel-hub-menu.vessel-hub-crew', 'box-shadow')).toBe(
+            'var(--card-hue-halo)',
+        );
+        // The hub's glass under the hue, as the box has (light mode's white too).
+        expect(value(css, '.vessel-hub-crew', 'background-color')).toBe('var(--vessel-card-bg, rgba(20, 25, 35, 0.6))');
+        expect(value(css, '.vessel-hub-crew', 'border-radius')).toBe('16px');
+    });
+
+    it("opens the gap between the two cards the page's own rhythm, closing it on short screens", () => {
+        // The cards above space by mb-2; the short tiers close the gap, which
+        // is the room the crew card costs (its own edges, less the divider).
+        expect(value(css, '.vessel-hub-menus', 'gap')).toBe('0.5rem');
+        // 2.5 px each: the skipper card's 6 px gap to the box, split in two
+        // less half a pixel, so the room comes out of the gaps and the Diary
+        // pair keeps the height it stacks at (measured in menu-pages-fit.spec).
+        expect(value(block(COMPACT), '.vessel-hub-menus', 'gap')).toBe('0.15625rem');
+        expect(value(block(COMPACT), "[data-testid='skipper-device-card']", 'margin-bottom')).toBe('0.15625rem');
+        expect(
+            value(
+                block('@container vessel-hub (max-width: 340px) and (max-height: 719.98px)'),
+                '.vessel-hub-menus',
+                'gap',
+            ),
+        ).toBe('0.125rem');
     });
 
     it('keeps the Diary pair a 44 pt card at its floor, and stacks it only when it is tall', () => {

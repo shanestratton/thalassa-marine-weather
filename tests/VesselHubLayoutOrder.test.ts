@@ -7,7 +7,9 @@
  * and the menu as one box, most used first (Shane 2026-10-04: "one box around
  * crew and float plan, boat binder, settings, nmea gateway, boat network, and
  * music ... order them in a better order from most used to least"): Crew &
- * Float Plan, Boat Binder, NMEA Gateway, Music, Settings, Boat Network.
+ * Float Plan, Boat Binder, NMEA Gateway, Music, Settings, Boat Network. Crew &
+ * Float Plan is a card of its own above the box since 2026-10-13 (Shane: "the
+ * crew and float plan, really needs its own card"); the order is unchanged.
  *
  * Pinned as a test because the order is a judgement about what a skipper
  * reaches for most, and nothing else in the file records it — a later edit
@@ -44,6 +46,8 @@ describe('Vessel tab running order', () => {
         // Not bare '<SkipperDeviceControl' — that also matches
         // React.FC<SkipperDeviceControlProps> where the component is defined.
         const skipper = at('<SkipperDeviceControl\n');
+        const menus = at('data-testid="vessel-hub-menus"');
+        const crew = at('data-testid="vessel-hub-crew"');
         const menu = at('data-testid="vessel-hub-menu"');
         // Most used first. "Crew & Float Plan" was "Passage Planning" (glossary,
         // UX scorecard run 6).
@@ -56,9 +60,13 @@ describe('Vessel tab running order', () => {
         expect(diary).toBeLessThan(scuttlebutt);
         // ...ahead of the card that says who speaks for the boat...
         expect(scuttlebutt).toBeLessThan(skipper);
-        // ...and the menu box comes last, its rows in the decided order.
-        expect(skipper).toBeLessThan(menu);
-        expect(menu).toBeLessThan(rows[0]);
+        // ...and the menu comes last: Crew & Float Plan's own card, then the
+        // box, its rows in the decided order.
+        expect(skipper).toBeLessThan(menus);
+        expect(menus).toBeLessThan(crew);
+        expect(crew).toBeLessThan(rows[0]);
+        expect(rows[0]).toBeLessThan(menu);
+        expect(menu).toBeLessThan(rows[1]);
         for (let i = 1; i < rows.length; i++) expect(rows[i - 1]).toBeLessThan(rows[i]);
         // Nothing is folded behind a header any more.
         expect(source.indexOf('<SectionHeader')).toBe(-1);

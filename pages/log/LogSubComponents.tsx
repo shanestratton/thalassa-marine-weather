@@ -516,6 +516,13 @@ export const VoyageCard: React.FC<{
         const avgSpeed = summary.avgSpeedKts;
         const isImported = summary.isImported;
         const isPlannedRoute = summary.isPlannedRoute;
+        // A standalone voyage wears the one card hue (styles/card-hue.css) in
+        // its nm chip's colour, quieter than the passage's purple (Shane
+        // 2026-10-13: "a nice coloured hue around the single log items similar
+        // (but different color) to the passage logs"). A passage's legs sit in
+        // the passage's purple; a plan and an import keep their own colours.
+        const hue =
+            summary.passageGroupId || isPlannedRoute || isImported ? null : isLand ? 'card-hue-land' : 'card-hue-sea';
 
         // Planned cards keep GPX and timeline points warm even while
         // collapsed. This used to happen incidentally inside the Follow
@@ -551,7 +558,10 @@ export const VoyageCard: React.FC<{
 
         return (
             <>
-                <div className="mb-3 relative overflow-hidden rounded-2xl snap-start">
+                {/* The slot clips the swipe actions, so it carries the hue's halo. */}
+                <div
+                    className={`mb-3 relative overflow-hidden rounded-2xl snap-start${hue ? ` ${hue} card-hue-halo` : ''}`}
+                >
                     {/* Action buttons revealed on swipe-left */}
                     <div
                         className={`absolute right-0 top-0 bottom-0 flex transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
@@ -623,9 +633,11 @@ export const VoyageCard: React.FC<{
                                     ? isExpanded
                                         ? 'bg-amber-900/20 border border-amber-500/25'
                                         : 'bg-white/2 border border-amber-500/10 hover:border-amber-500/20'
-                                    : isExpanded
-                                      ? 'bg-white/4 border border-white/10'
-                                      : 'bg-white/2 border border-white/6 hover:border-white/10'
+                                    : hue
+                                      ? `card-hue ${isExpanded ? 'bg-white/4' : 'bg-white/2'}`
+                                      : isExpanded
+                                        ? 'bg-white/4 border border-white/10'
+                                        : 'bg-white/2 border border-white/6 hover:border-white/10'
                         }`}
                         style={{
                             transform: `translateX(-${swipeOffset}px)`,

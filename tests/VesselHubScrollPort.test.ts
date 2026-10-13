@@ -100,12 +100,18 @@ describe('Vessel page scroll port', () => {
     });
 
     it('puts every menu row in the one box, Settings among them, none behind an expand', () => {
+        // Crew & Float Plan leads, in its own card just above the box (Shane
+        // 2026-10-13); the other five are the box's.
         const port = lowerPortMarkup();
+        const crew = port.indexOf('data-testid="vessel-hub-crew"');
         const box = port.indexOf('data-testid="vessel-hub-menu"');
         const order = ['Crew & Float Plan', 'Boat Binder', 'NMEA Gateway', 'Music', 'Settings', 'Boat Network'].map(
             (label) => port.indexOf(`label="${label}"`),
         );
-        expect(order[0]).toBeGreaterThan(box);
+        expect(crew).toBeGreaterThan(0);
+        expect(order[0]).toBeGreaterThan(crew);
+        expect(box).toBeGreaterThan(order[0]);
+        expect(order[1]).toBeGreaterThan(box);
         for (let i = 1; i < order.length; i++) expect(order[i]).toBeGreaterThan(order[i - 1]);
         const settings = order[4];
         expect(port.slice(settings, port.indexOf('/>', settings))).toContain("onNavigate('settings')");
