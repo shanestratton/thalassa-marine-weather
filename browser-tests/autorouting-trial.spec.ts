@@ -1474,8 +1474,10 @@ test('Real engine with no charts installed: Auto opens and Calculate stays disab
     const trial = watchRequests(page);
     await openFixture(page, sizes[0], 'dark', 'ready', 'engine=real&charts=none');
     await slideToChoice(page);
+    // A browser is the web desk: with no chart it says where Auto works (128, AUTO_NEEDS_BOAT_CHARTS_DESK),
+    // never 'install charts', which a computer cannot do. The phone keeps 'Install charts…'.
     await expect(page.getByRole('dialog', { name: 'Choose routing mode', exact: true })).toContainText(
-        'Install charts for your area to use Auto. Manual is ready.',
+        "Auto routes on your boat's charts, aboard. Route it on your phone and Save: it shows here. Manual is ready.",
     );
     await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
     await enterPins(page, [160.95, -31.0], [161.05, -31.0]);

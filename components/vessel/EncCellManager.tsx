@@ -274,7 +274,8 @@ const CellRow: React.FC<{
                 >
                     {formatBBox(cell.bbox)}
                 </button>
-                <p className="text-[11px] text-gray-400">
+                {/* Wraps anywhere: in large text at 320 px a word of this line ran past the card (128 release check). */}
+                <p className="text-[11px] text-gray-400 [overflow-wrap:anywhere]">
                     Edition {cell.edition} · Issued {cell.issued} · Imported {formatRelative(cell.importedAt)} ·{' '}
                     {cell.hazardCount.toLocaleString()} features
                 </p>

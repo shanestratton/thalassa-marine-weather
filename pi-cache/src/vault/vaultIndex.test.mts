@@ -302,6 +302,17 @@ function dongleAndHash(down: () => boolean) {
     };
 }
 
+/**
+ * The vault's pass-retry timer is unref'd: on the Pi the service's sockets keep the event loop alive.
+ * A bare test process has nothing else, so while these tests wait on a retry Node 22's runner cancels
+ * them ("Promise resolution is still pending but the event loop has already resolved", release run
+ * 38361371829; Node 24 waits). A ref'd interval stands in for the sockets, as in piAlarmRelay.test.mts.
+ */
+const keepLoopAlive = (t: { after: (fn: () => void) => void }) => {
+    const keepAlive = setInterval(() => undefined, 1_000);
+    t.after(() => clearInterval(keepAlive));
+};
+
 const three = () => [
     cell('OC-99-ZZ0001', 'ZZ5KESTR'),
     cell('OC-99-ZZ0002', 'ZZ5KESTS'),
@@ -309,6 +320,7 @@ const three = () => [
 ];
 
 test('decoder down: each retry resumes the pass without re-hashing the sets, and the retries back off', async (t) => {
+    keepLoopAlive(t);
     const w = await world(t);
     writeFixtureSet(path.join(w.charts, 'set'), { cells: three() });
     let down = true;
@@ -330,6 +342,7 @@ test('decoder down: each retry resumes the pass without re-hashing the sets, and
 });
 
 test('decoder down, then a set arrives: the retry sees the change and plans again', async (t) => {
+    keepLoopAlive(t);
     const w = await world(t);
     writeFixtureSet(path.join(w.charts, 'set'), { cells: three() });
     let down = true;
@@ -348,6 +361,7 @@ test('decoder down, then a set arrives: the retry sees the change and plans agai
 });
 
 test('the decoder answers a phone again: the waiting pass runs at once, not after its backoff', async (t) => {
+    keepLoopAlive(t);
     const w = await world(t);
     writeFixtureSet(path.join(w.charts, 'set'), { cells: three() });
     let down = false;
