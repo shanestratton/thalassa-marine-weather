@@ -14,7 +14,13 @@
 
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
-import type { ActiveCyclone, CyclonePosition, GfsTrackerPosition } from '../../services/weather/CycloneTrackingService';
+import type {
+    ActiveCyclone,
+    CycloneModelTrack,
+    CyclonePosition,
+    GfsTrackerPosition,
+} from '../../services/weather/CycloneTrackingService';
+import { openExternalUrl } from '../../services/externalLinks';
 import { cloudOverlayBeforeId } from './imageryOrder';
 import { chartBearing } from './chartOrientation';
 import { mountCloudOverlay, removeCloudOverlay } from './cloudOverlay';
@@ -575,80 +581,19 @@ function createTrackOverlay(map: mapboxgl.Map): {
                         pathData += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
                     }
 
-                    // ── CSS: Cone styling (inject once) ──
+                    // ── CSS: spine styling (inject once) ──
                     if (!document.getElementById('thalassaSleeveStyle')) {
                         const style = document.createElement('style');
                         style.id = 'thalassaSleeveStyle';
-                        style.textContent = `
-                            .thalassa-cone {
-                                pointer-events: none;
-                            }
-                            .thalassa-spine {
-                                filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.6));
-                                pointer-events: none;
-                            }
-                        `;
+                        style.textContent =
+                            '.thalassa-spine{filter:drop-shadow(0 0 4px rgba(255,255,255,.6));pointer-events:none}';
                         document.head.appendChild(style);
                     }
 
-                    // ── LAYER 1: FILLED CONE POLYGON (NHC-style expanding cone) ──
-                    // Build left and right edges that expand from eye to forecast end,
-                    // then close them into a filled polygon.
-                    const minEdge = isMacro ? 3 : 5;
-                    const maxEdge = isMacro ? 20 : 40;
-
-                    const leftEdge: { x: number; y: number }[] = [];
-                    const rightEdge: { x: number; y: number }[] = [];
-
-                    for (let j = 0; j < screenPts.length; j++) {
-                        const fraction = screenPts.length > 1 ? j / (screenPts.length - 1) : 0;
-                        const offset = minEdge + (maxEdge - minEdge) * fraction;
-
-                        // Compute tangent direction
-                        let tdx: number, tdy: number;
-                        if (j === 0) {
-                            tdx = screenPts[1].x - screenPts[0].x;
-                            tdy = screenPts[1].y - screenPts[0].y;
-                        } else if (j === screenPts.length - 1) {
-                            tdx = screenPts[j].x - screenPts[j - 1].x;
-                            tdy = screenPts[j].y - screenPts[j - 1].y;
-                        } else {
-                            tdx = screenPts[j + 1].x - screenPts[j - 1].x;
-                            tdy = screenPts[j + 1].y - screenPts[j - 1].y;
-                        }
-                        const tLen = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
-                        const pnx = -tdy / tLen;
-                        const pny = tdx / tLen;
-
-                        leftEdge.push({
-                            x: screenPts[j].x + pnx * offset,
-                            y: screenPts[j].y + pny * offset,
-                        });
-                        rightEdge.push({
-                            x: screenPts[j].x - pnx * offset,
-                            y: screenPts[j].y - pny * offset,
-                        });
-                    }
-
-                    // Build closed polygon: left edge forward → right edge reversed → close
-                    const allConePts = [...leftEdge, ...rightEdge.reverse()];
-                    if (allConePts.length >= 4) {
-                        let conePathData = `M ${allConePts[0].x.toFixed(1)} ${allConePts[0].y.toFixed(1)}`;
-                        for (let j = 1; j < allConePts.length; j++) {
-                            conePathData += ` L ${allConePts[j].x.toFixed(1)} ${allConePts[j].y.toFixed(1)}`;
-                        }
-                        conePathData += ' Z';
-
-                        // Filled cone polygon
-                        const coneFill = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                        coneFill.setAttribute('d', conePathData);
-                        coneFill.setAttribute('fill', 'rgba(255, 255, 255, 0.15)');
-                        coneFill.setAttribute('stroke', 'rgba(255, 255, 255, 0.6)');
-                        coneFill.setAttribute('stroke-width', '1.5');
-                        coneFill.setAttribute('stroke-linejoin', 'round');
-                        coneFill.classList.add('thalassa-cone');
-                        svg.appendChild(coneFill);
-                    }
+                    // No screen-space cone (129-09). It was a fixed 3-40 px
+                    // fan around the line, drawn as if it were NHC's cone for
+                    // every storm. The only cone now is the issuer's own
+                    // polygon, on the GL layer (addProbabilitySleeve).
 
                     // ── LAYER 2: SMOOTH CURVED CENTERLINE ──
                     const centerLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -660,6 +605,8 @@ function createTrackOverlay(map: mapboxgl.Map): {
                     centerLine.setAttribute('stroke-linecap', 'round');
                     centerLine.setAttribute('stroke-linejoin', 'round');
                     centerLine.classList.add('thalassa-spine');
+                    // JTWC's track is an advisory, never the official warning: dashed.
+                    if (c.forecastBy?.by === 'JTWC') centerLine.setAttribute('stroke-dasharray', '6 5');
                     svg.appendChild(centerLine);
                 }
 
@@ -1181,101 +1128,75 @@ export function projectTrackContinuously(
     });
 }
 
-/**
- * Build the probability sleeve polygon using standard maritime forecast error margins.
- * Error radii (nautical miles):
- *   0h → 0nm, 12h → 30nm, 24h → 50nm, 48h → 90nm, 72h → 130nm, 120h → 200nm
- *
- * @param smoothTrack  Smoothed [lon, lat] centerline points
- * @param totalHours   Total forecast window in hours
- * @param scale        Width multiplier (1.0 = standard, 1.6 = outer glow)
- * @returns            Closed polygon coordinates [lon, lat][]
- */
-function buildSleevePolygon(
-    smoothTrack: [number, number][],
-    totalHours: number = 120,
-    scale: number = 1.0,
-): [number, number][] {
-    const n = smoothTrack.length;
-    if (n < 2) return [];
-
-    // Maritime forecast error margins: [hours, radius_nm]
-    const ERROR_TABLE: [number, number][] = [
-        [0, 0],
-        [12, 30],
-        [24, 50],
-        [48, 90],
-        [72, 130],
-        [120, 200],
-    ];
-
-    // Interpolate radius in nautical miles for a given forecast hour
-    const radiusNm = (tHours: number): number => {
-        if (tHours <= 0) return 0;
-        for (let i = 1; i < ERROR_TABLE.length; i++) {
-            const [t0, r0] = ERROR_TABLE[i - 1];
-            const [t1, r1] = ERROR_TABLE[i];
-            if (tHours <= t1) {
-                const frac = (tHours - t0) / (t1 - t0);
-                return r0 + (r1 - r0) * frac;
-            }
-        }
-        // Beyond 120h — extrapolate linearly
-        const [tLast, rLast] = ERROR_TABLE[ERROR_TABLE.length - 1];
-        const [tPrev, rPrev] = ERROR_TABLE[ERROR_TABLE.length - 2];
-        return rLast + ((rLast - rPrev) / (tLast - tPrev)) * (tHours - tLast);
-    };
-
-    const leftEdge: [number, number][] = [];
-    const rightEdge: [number, number][] = [];
-
-    for (let i = 0; i < n; i++) {
-        const fraction = i / (n - 1);
-        const tHours = fraction * totalHours;
-        // Convert nm to degrees: 1nm = 1/60 degree latitude
-        const radiusDeg = (radiusNm(tHours) / 60) * scale;
-
-        // Calculate perpendicular normal at this point
-        let dx: number, dy: number;
-        if (i === 0) {
-            dx = smoothTrack[1][0] - smoothTrack[0][0];
-            dy = smoothTrack[1][1] - smoothTrack[0][1];
-        } else if (i === n - 1) {
-            dx = smoothTrack[n - 1][0] - smoothTrack[n - 2][0];
-            dy = smoothTrack[n - 1][1] - smoothTrack[n - 2][1];
-        } else {
-            dx = smoothTrack[i + 1][0] - smoothTrack[i - 1][0];
-            dy = smoothTrack[i + 1][1] - smoothTrack[i - 1][1];
-        }
-
-        const len = Math.sqrt(dx * dx + dy * dy) || 1;
-        const nx = -dy / len;
-        const ny = dx / len;
-
-        const [lon, lat] = smoothTrack[i];
-        // Adjust for latitude (degrees of longitude shrink at higher latitudes)
-        const latCos = Math.cos((lat * Math.PI) / 180);
-        const lonRadius = radiusDeg / (latCos || 1);
-
-        leftEdge.push([lon + nx * lonRadius, lat + ny * radiusDeg]);
-        rightEdge.push([lon - nx * lonRadius, lat - ny * radiusDeg]);
-    }
-
-    return [...leftEdge, ...rightEdge.reverse(), leftEdge[0]];
-}
-
-/** IDs for the Mapbox GL probability sleeve layers */
+/** IDs for the Mapbox GL cone (the issuer's polygon) and the model tracks */
 const SLEEVE_SOURCE = 'cyclone-sleeve-src';
-const SLEEVE_GLOW = 'cyclone-sleeve-glow';
 const SLEEVE_CORE = 'cyclone-sleeve-core';
 const SLEEVE_EDGE = 'cyclone-sleeve-edge';
-const SLEEVE_CENTER = 'cyclone-sleeve-center';
+const MODELS_SOURCE = 'cyclone-models-src';
+const MODELS_LINE = 'cyclone-models-line';
+const MODELS_LABEL = 'cyclone-models-label';
+/** The issuer's own label: a layer of its own, above the models', so it is placed first and never dropped. */
+const ISSUER_LABEL = 'cyclone-issuer-label';
+
+/** Every model's track for a storm, from the service once it has loaded (129-09). */
+let modelSource: ((c: ActiveCyclone) => CycloneModelTrack[]) | null = null;
+const modelsOf = (c: ActiveCyclone) => modelSource?.(c) ?? [];
+type FeedStatus = {
+    unavailableSince: number | null;
+    forecastUnavailableSince: number | null;
+    coneUnavailableSince: number | null;
+};
+/** The service's feed status, once it has loaded: a failed forecast feed is said on the card. */
+let statusSource: (() => FeedStatus) | null = null;
+
+/** One colour per model line, its label the same colour, so a line and its name read as one. */
+const MODEL_COLOURS = ['#93c5fd', '#86efac', '#fca5a5', '#c4b5fd', '#67e8f9', '#f9a8d4', '#fdba74', '#d9f99d'];
+
+/** "GFS 13/06Z": the model and its run, as model plots name them. */
+function modelRunLabel(m: CycloneModelTrack): string {
+    const t = Date.parse(m.cycle);
+    if (!Number.isFinite(t)) return m.label;
+    const d = new Date(t);
+    return `${m.label} ${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCHours()).padStart(2, '0')}Z`;
+}
+
+/**
+ * A published polygon with each ring's longitudes made continuous, so Mapbox
+ * fills a ring across 180° the short way: the feed spells dateline vertices
+ * with a sign flip (178.5, 179.6, -179.3), and a ring spelt so is filled the
+ * long way round the globe. Nothing is cut (unlike sanitizeTrackLongitudes):
+ * every vertex is kept. Each ring starts within 180° of the storm, so the cone
+ * sits on the same world copy as its track. Returns a copy.
+ */
+export function unwrapPolygonLongitudes<G extends GeoJSON.Polygon | GeoJSON.MultiPolygon>(g: G, refLon: number): G {
+    const ring = (r: GeoJSON.Position[]): GeoJSON.Position[] => {
+        let prev = Number.isFinite(refLon) ? refLon : (r[0]?.[0] ?? 0);
+        return r.map(([lon, ...rest]) => {
+            let x = lon;
+            while (x - prev > 180) x -= 360;
+            while (x - prev < -180) x += 360;
+            if (Number.isFinite(x)) prev = x;
+            return [x, ...rest];
+        });
+    };
+    return (
+        g.type === 'Polygon'
+            ? { ...g, coordinates: g.coordinates.map(ring) }
+            : { ...g, coordinates: (g as GeoJSON.MultiPolygon).coordinates.map((p) => p.map(ring)) }
+    ) as G;
+}
 
 function removeProbabilitySleeve(map: mapboxgl.Map): void {
-    for (const id of [SLEEVE_CENTER, SLEEVE_EDGE, SLEEVE_CORE, SLEEVE_GLOW]) {
+    for (const id of [ISSUER_LABEL, MODELS_LABEL, MODELS_LINE, SLEEVE_EDGE, SLEEVE_CORE]) {
         if (map.getLayer(id)) map.removeLayer(id);
     }
-    if (map.getSource(SLEEVE_SOURCE)) map.removeSource(SLEEVE_SOURCE);
+    for (const id of [MODELS_SOURCE, SLEEVE_SOURCE]) if (map.getSource(id)) map.removeSource(id);
+}
+
+/** "14 Oct 03:10 UTC", as _shared/cyclone/centres.ts utcLabel writes it (that table stays in the service chunk). */
+function utc(ms: number): string {
+    const d = new Date(ms).toUTCString(); // "Wed, 14 Oct 2026 03:10:00 GMT"
+    return `${+d.slice(5, 7)} ${d.slice(8, 11)} ${d.slice(17, 22)} UTC`;
 }
 
 /** Retire only this hook's canvas resources; never leave departed storm tracks. */
@@ -1296,134 +1217,181 @@ function removeRetiredCycloneLayers(map: mapboxgl.Map, active: readonly ActiveCy
     }
 }
 
+function setGeoJson(map: mapboxgl.Map, id: string, data: GeoJSON.FeatureCollection): boolean {
+    const existing = map.getSource(id) as mapboxgl.GeoJSONSource | undefined;
+    if (existing) existing.setData(data);
+    else map.addSource(id, { type: 'geojson', data });
+    return !existing;
+}
+
 /**
- * Add or update the Probability Sleeve on the map for the forecast track.
- * Creates a multi-layer glow effect using Mapbox GL fill + line layers.
+ * The cone and the model tracks for the storm in view (129-09).
+ *
+ * The cone is the issuer's own published polygon, drawn as published: NHC's
+ * forecast cone (official, white), or JTWC's danger area (an advisory,
+ * amber). Where the issuer published none, there is none: the sleeve this
+ * replaced was generated here from a fixed error table and drawn the same for
+ * every storm, so it read as NHC's cone in oceans NHC does not cover. Its
+ * longitudes are only made continuous across 180° (unwrapPolygonLongitudes).
+ * Each model's track is a thin line in its own colour, named along the line
+ * with its run time, and the forecast track's end names its issuer and the
+ * advisory time on the chart, in a label of its own that is never dropped.
  */
 function addProbabilitySleeve(map: mapboxgl.Map, cyclone: ActiveCyclone): void {
-    const forecast = cyclone.forecastTrack;
-    if (!forecast || forecast.length < 2) {
-        removeProbabilitySleeve(map);
+    const issuer = cyclone.issuer;
+    if (cyclone.cone) {
+        const fresh = setGeoJson(map, SLEEVE_SOURCE, {
+            type: 'FeatureCollection',
+            features: [
+                {
+                    type: 'Feature',
+                    properties: { official: !!issuer?.official },
+                    geometry: unwrapPolygonLongitudes(cyclone.cone, cyclone.currentPosition.lon),
+                },
+            ],
+        });
+        if (fresh) {
+            const official = ['get', 'official'];
+            map.addLayer({
+                id: SLEEVE_CORE,
+                type: 'fill',
+                source: SLEEVE_SOURCE,
+                paint: {
+                    'fill-color': ['case', official, '#ffffff', '#f59e0b'],
+                    'fill-opacity': ['case', official, 0.18, 0.12],
+                },
+            });
+            map.addLayer({
+                id: SLEEVE_EDGE,
+                type: 'line',
+                source: SLEEVE_SOURCE,
+                paint: {
+                    'line-color': ['case', official, '#ffffff', '#fbbf24'],
+                    'line-width': 1.5,
+                    'line-opacity': 0.7,
+                },
+                layout: { 'line-join': 'round' },
+            });
+        }
+    } else {
+        for (const id of [SLEEVE_EDGE, SLEEVE_CORE]) if (map.getLayer(id)) map.removeLayer(id);
+        if (map.getSource(SLEEVE_SOURCE)) map.removeSource(SLEEVE_SOURCE);
+    }
+
+    const features: GeoJSON.Feature[] = [];
+    modelsOf(cyclone).forEach((m, i) => {
+        const line = sanitizeTrackLongitudes(m.line);
+        if (line.length < 2) return;
+        features.push({
+            type: 'Feature',
+            properties: {
+                label: m.label,
+                text: modelRunLabel(m),
+                color: MODEL_COLOURS[i % MODEL_COLOURS.length],
+                // The consensus first, then the global models, then the rest.
+                rank: /^(Consensus|HCCA)$/.test(m.label) ? 0 : /^(GFS|ECMWF)$/.test(m.label) ? 1 : 2,
+            },
+            geometry: { type: 'LineString', coordinates: line },
+        });
+    });
+    const end = cyclone.forecastTrack[cyclone.forecastTrack.length - 1];
+    if (issuer && end) {
+        const issued = Date.parse(cyclone.forecastBy?.issued ?? '');
+        features.push({
+            type: 'Feature',
+            properties: {
+                issuer: true,
+                official: issuer.official,
+                label: issuer.text,
+                text: Number.isFinite(issued) ? `${issuer.text}\n${utc(issued)}` : issuer.text,
+            },
+            geometry: { type: 'Point', coordinates: [end.lon, end.lat] },
+        });
+    }
+    if (features.length === 0) {
+        for (const id of [ISSUER_LABEL, MODELS_LABEL, MODELS_LINE]) if (map.getLayer(id)) map.removeLayer(id);
+        if (map.getSource(MODELS_SOURCE)) map.removeSource(MODELS_SOURCE);
         return;
     }
+    if (setGeoJson(map, MODELS_SOURCE, { type: 'FeatureCollection', features })) {
+        const font = ['DIN Pro Medium', 'Arial Unicode MS Regular'];
+        const halo = { 'text-halo-color': '#000000', 'text-halo-width': 1 };
+        map.addLayer({
+            id: MODELS_LINE,
+            type: 'line',
+            source: MODELS_SOURCE,
+            filter: ['==', ['geometry-type'], 'LineString'],
+            paint: { 'line-color': ['get', 'color'], 'line-width': 1, 'line-opacity': 0.85 },
+        });
+        // Named along each line, where a crowded end cannot leave it anonymous.
+        map.addLayer({
+            id: MODELS_LABEL,
+            type: 'symbol',
+            source: MODELS_SOURCE,
+            filter: ['==', ['geometry-type'], 'LineString'],
+            layout: {
+                'symbol-placement': 'line',
+                'symbol-spacing': 160,
+                'symbol-sort-key': ['get', 'rank'],
+                'text-field': ['get', 'text'],
+                'text-font': font,
+                'text-size': 10,
+                'text-max-angle': 50,
+                'text-keep-upright': true,
+                'text-offset': [0, -0.7],
+            },
+            paint: { 'text-color': ['get', 'color'], ...halo },
+        });
+        map.addLayer({
+            id: ISSUER_LABEL,
+            type: 'symbol',
+            source: MODELS_SOURCE,
+            filter: ['==', ['get', 'issuer'], true],
+            layout: {
+                'text-field': ['get', 'text'],
+                'text-font': font,
+                'text-size': 10,
+                'text-max-width': 14,
+                'text-anchor': 'left',
+                'text-offset': [0.5, 0],
+                'text-allow-overlap': true,
+            },
+            paint: { 'text-color': ['case', ['get', 'official'], '#ffffff', '#fbbf24'], ...halo },
+        });
+    }
+}
 
-    // Build the track centerline from current position through forecast —
-    // continuous longitudes, corrupt fixes cut (see sanitizeTrackLongitudes).
-    const allPoints: [number, number][] = sanitizeTrackLongitudes([
-        [cyclone.currentPosition.lon, cyclone.currentPosition.lat],
-        ...forecast.map((p) => [p.lon, p.lat] as [number, number]),
-    ]);
-    if (allPoints.length < 2) {
-        removeProbabilitySleeve(map);
+/**
+ * "Cyclone data unavailable since …" while the storm list is down, and
+ * "Forecast track (or cone) unavailable since …" while the issuers' forecast
+ * is: never an empty chart, or a storm with no track, read as an all-clear.
+ */
+function showFeedStatus(map: mapboxgl.Map, status: FeedStatus | null): void {
+    const container = map.getContainer();
+    let el = container.querySelector<HTMLElement>('#cyclone-feed-status');
+    const line =
+        status?.unavailableSince != null
+            ? `Cyclone data unavailable since ${utc(status.unavailableSince)}`
+            : status?.forecastUnavailableSince != null
+              ? `Forecast track unavailable since ${utc(status.forecastUnavailableSince)}`
+              : status?.coneUnavailableSince != null
+                ? `Forecast cone unavailable since ${utc(status.coneUnavailableSince)}`
+                : null;
+    if (line === null) {
+        el?.remove();
         return;
     }
-
-    // Calculate total forecast hours from timestamps
-    let totalHours = 120;
-    if (forecast.length >= 2 && forecast[0].time && forecast[forecast.length - 1].time) {
-        const t0 = new Date(forecast[0].time).getTime();
-        const tN = new Date(forecast[forecast.length - 1].time).getTime();
-        if (tN > t0) totalHours = (tN - t0) / 3600000;
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'cyclone-feed-status';
+        el.setAttribute('role', 'status');
+        el.style.cssText =
+            'position:absolute;top:calc(env(safe-area-inset-top) + 72px);left:50%;transform:translateX(-50%);z-index:761;' +
+            'background:rgba(120,53,15,.94);color:#fde68a;font:600 12px -apple-system,system-ui,sans-serif;' +
+            'padding:6px 12px;border-radius:999px;pointer-events:none;white-space:nowrap;';
+        container.appendChild(el);
     }
-
-    // Smooth the track with Catmull-Rom spline
-    const smoothTrack = catmullRomSpline(allPoints, 10);
-
-    // Build the probability envelope polygon (maritime error margins)
-    const sleeveCoords = buildSleevePolygon(smoothTrack, totalHours, 1.0);
-    // Build wider glow polygon (1.6× scale)
-    const glowCoords = buildSleevePolygon(smoothTrack, totalHours, 1.6);
-
-    // GeoJSON FeatureCollection
-    const geojson: GeoJSON.FeatureCollection = {
-        type: 'FeatureCollection',
-        features: [
-            // Outer glow polygon
-            {
-                type: 'Feature',
-                properties: { layer: 'glow' },
-                geometry: { type: 'Polygon', coordinates: [glowCoords] },
-            },
-            // Core sleeve polygon
-            {
-                type: 'Feature',
-                properties: { layer: 'core' },
-                geometry: { type: 'Polygon', coordinates: [sleeveCoords] },
-            },
-            // Centerline
-            {
-                type: 'Feature',
-                properties: { layer: 'center' },
-                geometry: { type: 'LineString', coordinates: smoothTrack },
-            },
-        ],
-    };
-
-    // Update existing source or create new
-    const existing = map.getSource(SLEEVE_SOURCE) as mapboxgl.GeoJSONSource | undefined;
-    if (existing) {
-        existing.setData(geojson);
-        return;
-    }
-
-    // Add source
-    map.addSource(SLEEVE_SOURCE, { type: 'geojson', data: geojson, lineMetrics: true });
-
-    // Layer 1: Outer glow — wide transparent fill extending beyond core
-    map.addLayer({
-        id: SLEEVE_GLOW,
-        type: 'fill',
-        source: SLEEVE_SOURCE,
-        filter: ['==', ['get', 'layer'], 'glow'],
-        paint: {
-            'fill-color': '#ffffff',
-            'fill-opacity': 0.05,
-        },
-    });
-
-    // Layer 2: Core cone fill — NHC-style translucent white
-    map.addLayer({
-        id: SLEEVE_CORE,
-        type: 'fill',
-        source: SLEEVE_SOURCE,
-        filter: ['==', ['get', 'layer'], 'core'],
-        paint: {
-            'fill-color': '#ffffff',
-            'fill-opacity': 0.18,
-        },
-    });
-
-    // Layer 3: Cone edge outline — solid white boundary
-    map.addLayer({
-        id: SLEEVE_EDGE,
-        type: 'line',
-        source: SLEEVE_SOURCE,
-        filter: ['==', ['get', 'layer'], 'core'],
-        paint: {
-            'line-color': '#ffffff',
-            'line-width': 1.5,
-            'line-opacity': 0.6,
-        },
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-    });
-
-    // Layer 4: Centerline — smooth solid track through forecast positions
-    map.addLayer({
-        id: SLEEVE_CENTER,
-        type: 'line',
-        source: SLEEVE_SOURCE,
-        filter: ['==', ['get', 'layer'], 'center'],
-        paint: {
-            'line-width': 2,
-            'line-opacity': 0.9,
-            'line-color': '#ffffff',
-        },
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-    });
-
-    log.info(
-        `[CYCLONE] 🌀 Probability sleeve rendered for ${cyclone.name} (${smoothTrack.length} smooth points, ${totalHours.toFixed(0)}h window)`,
-    );
+    el.textContent = line;
 }
 
 // ── Hook ──────────────────────────────────────────────────
@@ -1502,17 +1470,9 @@ export function useCycloneLayer(
             if (map.getLayer(BORDER_ID)) map.removeLayer(BORDER_ID);
             if (map.getSource(BORDER_ID)) map.removeSource(BORDER_ID);
 
-            // Probability sleeve
-            const sleeveLayers = [
-                'cyclone-sleeve-glow',
-                'cyclone-sleeve-core',
-                'cyclone-sleeve-edge',
-                'cyclone-sleeve-center',
-            ];
-            for (const id of sleeveLayers) {
-                if (map.getLayer(id)) map.removeLayer(id);
-            }
-            if (map.getSource('cyclone-sleeve-src')) map.removeSource('cyclone-sleeve-src');
+            // The cone, the model tracks and the feed notice
+            removeProbabilitySleeve(map);
+            showFeedStatus(map, null);
 
             // Per-storm past track lines (dynamic IDs: past-track-{sid}-outline, past-track-{sid}-line)
             // getStyle() throws if style isn't loaded; cleanup shouldn't crash the app.
@@ -1764,11 +1724,14 @@ export function useCycloneLayer(
             // service used to be loaded alongside it; the storm view now draws
             // the shared world cloud overlay instead, so that import is gone.
             _cs = await getCycloneService();
+            modelSource = _cs.modelTracksFor;
+            statusSource = _cs.cycloneFeedStatus;
 
             log.info('[CYCLONE] 🌀 Fetching active cyclones (for discovery only)...');
             try {
                 const cyclones = await _cs.fetchActiveCyclones();
                 if (cancelled) return;
+                showFeedStatus(map, _cs.cycloneFeedStatus());
 
                 log.info(`[CYCLONE] Got ${cyclones.length} active cyclone(s)`);
 
@@ -2034,6 +1997,7 @@ export function useCycloneLayer(
             // Clean up HUD
             const hudEl = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
             if (hudEl) hudEl.remove();
+            showFeedStatus(map, null);
             removeCloudOverlay(map);
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
@@ -2283,7 +2247,40 @@ function buildBadgeData(cyclone: ActiveCyclone, onClose?: () => void): StormBadg
     };
     const basinStr = basinLabels[cyclone.basin] ?? cyclone.basin;
 
+    // Who issued the track, when, and the official centre (129-09)
+    const issuer = cyclone.issuer;
+    const centre = cyclone.centre;
+    const issued = Date.parse(cyclone.forecastBy?.issued ?? posTime ?? '');
+    const when = Number.isFinite(issued) ? ` · ${utc(issued)}` : '';
+    const adv = issuer?.official && cyclone.forecastBy?.advisory ? ` · advisory ${cyclone.forecastBy.advisory}` : '';
+    const dropped = Date.parse(cyclone.droppedAt ?? '');
+    const models = modelsOf(cyclone);
+    const producers = [...new Set(models.map((m) => m.by))];
+    const by = cyclone.forecastBy?.by;
+    const forecastDown = statusSource?.().forecastUnavailableSince ?? null;
+
     return {
+        issuerLine: issuer
+            ? `${issuer.text}${adv}${when}`
+            : forecastDown != null
+              ? `Forecast track unavailable since ${utc(forecastDown)}`
+              : 'No forecast track from the warning centre',
+        issuerOfficial: !!issuer?.official,
+        staleLine: Number.isFinite(dropped)
+            ? `Not in the latest feed since ${utc(dropped)}`
+            : Date.now() - issued > 12 * 3_600_000
+              ? `Last advisory ${utc(issued)}`
+              : null,
+        centreLink: issuer?.official || !centre ? null : { name: centre.short, url: centre.url },
+        // The feed is Esri's Living Atlas item, whose terms ask for Esri's
+        // credit beside its data providers' (see _shared/cyclone/centres.ts).
+        credits: [
+            by && (by === 'JTWC' ? 'Track: JTWC (US Navy) via Esri' : `Track and cone: ${by} via Esri`),
+            producers.length > 0 && `Models: ${producers.join(', ')}`,
+            producers.includes('ECMWF') && 'Forecast data: ECMWF',
+        ]
+            .filter(Boolean)
+            .join(' · '),
         accentColor,
         catLabel,
         stormName,
@@ -2451,6 +2448,10 @@ export function badgeSignature(c: ActiveCyclone): string {
         c.currentPosition?.lon,
         c.lastAdvisoryTime ?? c.currentPosition?.time,
         c.track?.length ?? 0,
+        c.forecastBy?.advisory,
+        c.droppedAt,
+        modelsOf(c).length,
+        statusSource?.().forecastUnavailableSince,
     ].join('|');
 }
 
@@ -2488,6 +2489,14 @@ export function refreshStormCardInPlace(container: HTMLElement, fresh: ActiveCyc
 
 // ── Shared storm badge DOM builder (no innerHTML) ──
 interface StormBadgeData {
+    /** Who issued the forecast track, with its advisory and time (129-09). */
+    issuerLine: string;
+    issuerOfficial: boolean;
+    /** "Last advisory …" past 12 h, or "Not in the latest feed since …". */
+    staleLine: string | null;
+    /** The official centre, linked wherever Thalassa does not draw its own track. */
+    centreLink: { name: string; url: string } | null;
+    credits: string;
     accentColor: string;
     catLabel: string;
     stormName: string;
@@ -2551,6 +2560,35 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     metaEl.style.cssText = 'font-size:11px;color:var(--day-ui-muted, rgba(255,255,255,0.6));margin-top:2px;';
     metaEl.textContent = `${d.basinStr} · ${d.sid} · ${d.latStr} ${d.lonStr}`;
     headerLeft.appendChild(metaEl);
+
+    // ── Who issued the track, and the official centre (129-09) ──
+    const line = (text: string, color: string) => {
+        const el = document.createElement('div');
+        el.style.cssText = `font-size:11px;line-height:1.3;margin-top:4px;color:${color};`;
+        el.textContent = text;
+        headerLeft.appendChild(el);
+        return el;
+    };
+    const amber = daylightUiColor('#fbbf24');
+    line(d.issuerLine, d.issuerOfficial ? 'var(--day-ui-text, #fff)' : amber);
+    if (d.staleLine) line(d.staleLine, amber);
+    if (d.centreLink) {
+        const { name, url } = d.centreLink;
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = `Official warnings: ${name} ↗`;
+        link.style.cssText = `display:block;font-size:11px;font-weight:700;margin-top:4px;color:${daylightUiColor('#7dd3fc')};`;
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            void openExternalUrl(url);
+        });
+        headerLeft.appendChild(link);
+    }
+    // Credits stay on the card even folded: attribution is a licence condition.
+    if (d.credits) line(d.credits, 'var(--day-ui-muted, rgba(255,255,255,0.6))').style.fontSize = '10px';
 
     header.appendChild(headerLeft);
 

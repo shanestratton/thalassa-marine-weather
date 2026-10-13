@@ -63,6 +63,22 @@
             "licence": "own",
             "source": "A snapshot of Thalassa's own customs guide (data/customsDb.ts at 058ba16e), kept as a regression baseline."
         },
+        "tests/fixtures/cyclone/adeck-atlantic.dat": {
+            "licence": "synthetic",
+            "source": "Fictional ATCF a-deck lines in the NHC/JTWC/NCEP column format, made by hand for 129-09; no real storm, the ZZ names are invented. North Atlantic (AL31), several model techs and cycles."
+        },
+        "tests/fixtures/cyclone/adeck-spac.dat": {
+            "licence": "synthetic",
+            "source": "Fictional ATCF a-deck lines in the NHC/JTWC/NCEP column format, made by hand for 129-09; no real storm, the ZZ names are invented. South Pacific (SH37) near Fiji over the antimeridian."
+        },
+        "tests/fixtures/cyclone/adeck-wpac.dat": {
+            "licence": "synthetic",
+            "source": "Fictional ATCF a-deck lines in the NHC/JTWC/NCEP column format, made by hand for 129-09; no real storm, the ZZ names are invented. West Pacific (WP33) over the antimeridian, a JTWC tech, and an invest."
+        },
+        "tests/fixtures/cyclone/esri-forecast.json": {
+            "licence": "synthetic",
+            "source": "Fictional GeoJSON in the field layout of the Esri Active Hurricanes forecast-position layer (NHC/JTWC points), made by hand for 129-09; no real storm, the ZZ names are invented."
+        },
         "tests/fixtures/gmgsi-tropical-histograms-2026-10-07.json": {
             "licence": "public-domain",
             "source": "NOAA nowCOAST GMGSI longwave mosaic, 2026-10-07, reduced to per-frame brightness histograms; no imagery is kept."

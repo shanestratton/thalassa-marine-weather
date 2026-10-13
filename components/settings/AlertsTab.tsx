@@ -19,7 +19,10 @@ import {
     RainIcon,
     CheckCircleIcon,
     AlertTriangleIcon,
+    ThunderstormIcon,
 } from '../Icons';
+import { fetchCycloneWatchStatus, type CycloneWatchStatus } from '../../services/cycloneWatchStatus';
+import { extractCoords, extractDisplayName } from '../../utils/savedLocations';
 import { GustIcon, WavePeriodIcon } from '../icons/GlassGlyphs';
 import type { NotificationPreferences, UnitPreferences } from '../../types';
 import {
@@ -351,6 +354,92 @@ const SignedOutNotice: React.FC<{ onOpenAccount?: () => void }> = ({ onOpenAccou
     </div>
 );
 
+/**
+ * "Cyclone warnings near the boat" (129-09): the server's cyclone-watch push.
+ * A safety alert, so on by default (unset = on) and never paywalled, here with
+ * the other pushed alerts. Hidden until the watcher has answered
+ * (services/cycloneWatchStatus.ts), so no switch is offered that nothing
+ * honours; once it has, a watcher gone quiet or a feed that is down is said,
+ * never shown as no cyclones.
+ */
+/** "14 Oct 03:10 UTC", as the storm view writes its times. */
+const utcLabel = (ms: number) => {
+    const d = new Date(ms).toUTCString();
+    return `${+d.slice(5, 7)} ${d.slice(8, 11)} ${d.slice(17, 22)} UTC`;
+};
+
+const isPosition = (p: { lat?: unknown; lon?: unknown } | null | undefined): boolean =>
+    typeof p?.lat === 'number' &&
+    typeof p?.lon === 'number' &&
+    Number.isFinite(p.lat + p.lon) &&
+    Math.abs(p.lat) <= 90 &&
+    Math.abs(p.lon) <= 180;
+
+/**
+ * Whether the account carries a position the watcher can always measure from
+ * (cyclone-watch resolveBoat): the home port as the app reads it, or the place
+ * the weather is set to. Without one, only a fix the Pi or Guardian has sent.
+ */
+function hasSavedPosition(settings: AlertsTabProps['settings']): boolean {
+    const home = settings.homePort?.trim();
+    const saved = settings.savedLocationCoords;
+    const homeAt = home && (saved?.[home] ?? saved?.[extractDisplayName(home)] ?? extractCoords(home));
+    return isPosition(homeAt || null) || isPosition(settings.defaultLocationCoords);
+}
+
+const CycloneWarningsSection: React.FC<{ on: boolean; positioned: boolean; onChange: (on: boolean) => void }> = ({
+    on,
+    positioned,
+    onChange,
+}) => {
+    const [status, setStatus] = useState<CycloneWatchStatus | null>(null);
+    useEffect(() => {
+        let live = true;
+        void fetchCycloneWatchStatus().then((answer) => {
+            if (live) setStatus(answer);
+        });
+        return () => {
+            live = false;
+        };
+    }, []);
+    if (!status) return null;
+    const ran = Date.parse(status.ranAt);
+    const down = Date.parse(status.unavailableSince ?? '');
+    const notes = [
+        Number.isFinite(down) && `Cyclone data unavailable since ${utcLabel(down)}`,
+        Date.now() - ran > 2 * 3_600_000 && `Not checked since ${utcLabel(ran)}`,
+        !positioned &&
+            "No home port position is saved. Unless the Pi or Guardian has sent the boat's position, the watch has nothing to measure from: set your home port on the map.",
+    ].filter((note): note is string => typeof note === 'string');
+    return (
+        <Section title="Cyclones">
+            <Row>
+                <div className="flex min-w-0 items-center gap-3">
+                    <div className={`${iconTileClass(on)} bg-rose-500/20 text-rose-300`}>
+                        {/* The cyclone push's own toast icon; the unused CycloneIcon would add ~400 B. */}
+                        <ThunderstormIcon className="w-6 h-6" />
+                    </div>
+                    <div className="min-w-0">
+                        <p className={`font-bold ${on ? 'text-white' : DISARMED_INK}`}>
+                            Cyclone warnings near the boat
+                        </p>
+                        <p className={`text-xs leading-snug ${on ? 'text-gray-400' : DISARMED_INK}`}>
+                            A notice within 600 NM. Urgent within 300 NM, or when the forecast track comes within 300 NM
+                            in the next 72 h. From the boat&apos;s last position, else your home port.
+                        </p>
+                        {notes.map((note) => (
+                            <p key={note} className="text-xs leading-snug text-amber-300">
+                                {note}
+                            </p>
+                        ))}
+                    </div>
+                </div>
+                <Toggle label="Cyclone warnings near the boat" checked={on} onChange={onChange} />
+            </Row>
+        </Section>
+    );
+};
+
 interface AlertsTabProps extends SettingsTabProps {
     /** Opens Settings → Account & Cloud, where the sign-in card is. */
     onOpenAccount?: () => void;
@@ -494,6 +583,11 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
                     </div>
                 </Row>
             </Section>
+            <CycloneWarningsSection
+                on={settings.cycloneWarnings !== false}
+                positioned={hasSavedPosition(settings)}
+                onChange={(on) => onSave({ cycloneWarnings: on })}
+            />
         </div>
     );
 };

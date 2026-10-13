@@ -56,6 +56,7 @@ const EXISTING_PROTECTED_FUNCTIONS = {
 const CREDENTIALLESS_ALLOWLIST = {
     'apple-server-notification': 'provider-signed Apple JWS webhook',
     'check-weather-alerts': 'pg_cron/pg_net POST with the service key; exact service-role POST checked before work',
+    'cyclone-watch': 'pg_cron/pg_net POST with the service key; exact service-role POST checked before work (129-09)',
     'deepgram-ws-proxy': 'browser WebSocket upgrade cannot carry Authorization; 60-second one-use ticket',
     'diary-comments':
         'public guest form with exact-origin CORS, HMAC per-client quota, publication-scoped RPCs and skipper approval',
@@ -184,8 +185,9 @@ describe('Supabase Edge gateway JWT policy', () => {
         // seabed-relay (2026-10-05) is telemetry-relay's shape: the Pi's relay
         // token, or a user JWT checked inside the function.
         // satellite-tile and proxy-himawari-ir (map raster proxies) were deleted
-        // on 2026-10-09, 18 → 16.
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(16);
+        // on 2026-10-09, 18 → 16. cyclone-watch (129-09) is check-weather-alerts'
+        // shape: the cron's service-key POST, 16 → 17.
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(17);
     });
 
     it('every declared function has a comment explaining its policy', () => {

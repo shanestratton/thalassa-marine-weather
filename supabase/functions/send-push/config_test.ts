@@ -141,3 +141,28 @@ Deno.test('every type that existed before is unchanged', () => {
     assertEquals(anchor.sound, { critical: 1, name: 'default', volume: 1.0 });
     assertEquals(anchor['interruption-level'], 'critical');
 });
+
+// Cyclones near the boat (129-09, cyclone-watch). Urgent (300 NM, or the
+// forecast track within 72 h) is a safety type; a notice (600 NM) is not.
+// One lock-screen notification per storm, the newest replacing the last, and
+// an urgent cyclone is still news hours later, so it is not dropped at once.
+Deno.test('cyclone urgent is a safety type, the notice is not, and both thread together', () => {
+    assertEquals(isCriticalType('cyclone_urgent'), true);
+    assertEquals(isCriticalType('cyclone_notice'), false);
+    assertEquals(getThreadId('cyclone_urgent'), 'thalassa-cyclone');
+    assertEquals(getThreadId('cyclone_notice'), 'thalassa-cyclone');
+    assertEquals(getAlertSound('cyclone_urgent'), 'default');
+});
+
+Deno.test('one notification per storm: the urgent push replaces the notice', () => {
+    assertEquals(getCollapseId('cyclone_notice', { storm_key: 'SH37' }), 'cyclone-SH37');
+    assertEquals(getCollapseId('cyclone_urgent', { storm_key: 'SH37' }), 'cyclone-SH37');
+    assertEquals(getCollapseId('cyclone_urgent', { storm_key: 'x'.repeat(80) }), null);
+    assertEquals(getCollapseId('cyclone_urgent', {}), null);
+});
+
+Deno.test('an urgent cyclone stays deliverable for 6 h; a notice for the default 6 h', () => {
+    assertEquals(getApnsExpiration('cyclone_urgent', true, NOW), String(NOW_S + 6 * 60 * 60));
+    assertEquals(getApnsExpiration('cyclone_notice', false, NOW), String(NOW_S + 6 * 60 * 60));
+    assertEquals(isStaleForDelivery('cyclone_urgent', new Date(NOW - 60 * 60_000).toISOString(), NOW), false);
+});

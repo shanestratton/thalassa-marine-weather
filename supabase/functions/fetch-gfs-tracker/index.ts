@@ -3,6 +3,8 @@ declare const Deno: { serve: (handler: (req: Request) => Promise<Response> | Res
 
 import { requireAuthenticatedOrPublicQuota, withCors } from '../_shared/auth-rate-limit.ts';
 import { fetchWithTimeout, readResponseTextLimited } from '../_shared/http-security.ts';
+import { type AdeckTrack, type ModelTrack, modelTracks, parseAdeck } from '../_shared/cyclone/adeck.ts';
+import { fetchNhcAdecks } from '../_shared/cyclone/sources.ts';
 
 /**
  * fetch-gfs-tracker — GFS ATCF Track File Proxy
@@ -14,6 +16,14 @@ import { fetchWithTimeout, readResponseTextLimited } from '../_shared/http-secur
  * Source waterfall:
  *   1. gfs.tCCz.atcfunix.all — per-forecast-hour positions (ideal)
  *   2. tcvitals — T+0 analysis position only (fallback)
+ *
+ * Every model's track (129-09): `models` carries one labelled line per model
+ * per storm, every a-deck tech it can credit, from the same atcfunix file
+ * (every basin) and NHC's public a-decks for its active storms (AL/EP/CP:
+ * ECMWF, UKMO, CMC, the hurricane models and the consensus as well as GFS).
+ * `techs` lists every tech the files held, drawn or not; `sources` says which
+ * answered, so a missing source is said, never shown as no models. `storms`
+ * is unchanged for the builds that read only it.
  */
 
 // ── CORS ──────────────────────────────────────────────────────
@@ -82,6 +92,9 @@ interface TrackerResponse {
     gfsCycle: string;
     gfsRefTime: string; // ISO string of the GRIB reference time
     source: 'atcfunix' | 'tcvitals' | 'none';
+    models: ModelTrack[];
+    techs: string[];
+    sources: { atcfunix: 'ok' | 'unavailable'; nhcAdecks: 'ok' | 'none' | 'unavailable' };
 }
 
 // ── ATCF Unix Parser (atcfunix.all) ──────────────────────────
@@ -226,7 +239,16 @@ Deno.serve(async (req: Request) => {
         const refHour = parseInt(cycle, 10);
         const gfsRefTime = new Date(Date.UTC(refYear, refMonth, refDay, refHour)).toISOString();
 
-        const result: TrackerResponse = { storms: {}, gfsCycle, gfsRefTime, source: 'none' };
+        const result: TrackerResponse = {
+            storms: {},
+            gfsCycle,
+            gfsRefTime,
+            source: 'none',
+            models: [],
+            techs: [],
+            sources: { atcfunix: 'unavailable', nhcAdecks: 'unavailable' },
+        };
+        let atcfText: string | null = null;
 
         console.info(`[fetch-gfs-tracker] GFS cycle: ${date}/${cycle}z (refTime: ${gfsRefTime})`);
 
@@ -241,6 +263,7 @@ Deno.serve(async (req: Request) => {
             if (resp.ok) {
                 const text = await readResponseTextLimited(resp, 5_000_000);
                 if (text !== null && text.trim().length > 10 && !text.includes('<!DOCTYPE')) {
+                    atcfText = text;
                     result.storms = parseAtcfunix(text, cycle);
                     const count = Object.keys(result.storms).length;
                     if (count > 0) {
@@ -304,6 +327,21 @@ Deno.serve(async (req: Request) => {
                 /* ignore */
             }
         }
+
+        // ── Every model's track (129-09) ──
+        const nowMs = Date.now();
+        const tracks: AdeckTrack[] = [];
+        if (atcfText !== null) {
+            result.sources.atcfunix = 'ok';
+            tracks.push(...parseAdeck(atcfText));
+        }
+        const nhc = await fetchNhcAdecks(nowMs);
+        if (nhc) {
+            result.sources.nhcAdecks = nhc.storms > 0 ? 'ok' : 'none';
+            tracks.push(...parseAdeck(nhc.text));
+        }
+        result.techs = [...new Set(tracks.map((t) => t.tech))].sort();
+        result.models = modelTracks(tracks, nowMs);
 
         return corsResponse(JSON.stringify(result), 200, {
             'Cache-Control': 'public, max-age=600',

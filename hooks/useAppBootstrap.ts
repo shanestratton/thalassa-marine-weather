@@ -631,6 +631,11 @@ export function useAppBootstrap() {
                     // The AIS key on the chart says what the Pi's watch is doing.
                     setPage('map');
                     break;
+                case 'cyclone_notice':
+                case 'cyclone_urgent':
+                    // The chart, where Storms names the issuer and the official centre (129-09).
+                    setPage('map');
+                    break;
                 case 'bolo_alert':
                 case 'suspicious_alert':
                 case 'drag_warning':

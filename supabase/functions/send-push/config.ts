@@ -14,12 +14,22 @@
  * and a queue row the retry drain finds more than 3 minutes old is dropped
  * here (the Pi pushes again every 2 minutes while it still alarms). A
  * distress beacon stays relevant for 10 minutes.
+ *
+ * Build 129 (129-09) adds cyclone-watch's two types:
+ *   cyclone_notice  a tropical cyclone within 600 NM of the boat: ordinary
+ *   cyclone_urgent  within 300 NM, or its forecast track within 300 NM inside
+ *                   72 h: a safety type (Time Sensitive, or Critical where
+ *                   entitled), and still deliverable for 6 h, since a cyclone
+ *                   that close is news for hours, not minutes
+ * Both collapse to one lock-screen notification per storm (the urgent push
+ * replaces the notice) in their own thread.
  */
 
 export const DIRECT_MESSAGE_TTL_SECONDS = 24 * 60 * 60;
 export const WEATHER_ALERT_TTL_SECONDS = 60 * 60;
 export const DEFAULT_ALERT_TTL_SECONDS = 6 * 60 * 60;
 export const DISTRESS_ALARM_TTL_SECONDS = 10 * 60;
+export const CYCLONE_URGENT_TTL_SECONDS = 6 * 60 * 60;
 /** The anchor alarm's bundled sound (send-anchor-alarm's ANCHOR_ALARM_SOUND, ios/App/App). */
 export const PI_ALARM_SOUND = 'thalassa-anchor-alarm.wav';
 /** Older than this when claimed, a Pi alarm is history, not news. */
@@ -38,6 +48,7 @@ export function isCriticalType(type: string): boolean {
         'severe_weather_alert', // 50kt+ wind / extreme conditions — safety critical
         'collision_alarm', // The Pi's night watch: a ship closing on the boat (126-04b)
         'distress_alarm', // The Pi's radio hears an active distress beacon (126-04b)
+        'cyclone_urgent', // A cyclone within 300 NM, or its track within 72 h (129-09)
     ].includes(type);
 }
 
@@ -61,6 +72,9 @@ export function getThreadId(type: string): string {
             return 'thalassa-collision';
         case 'distress_alarm':
             return 'thalassa-distress';
+        case 'cyclone_notice':
+        case 'cyclone_urgent':
+            return 'thalassa-cyclone';
         default:
             return 'thalassa-general';
     }
@@ -68,6 +82,8 @@ export function getThreadId(type: string): string {
 
 const isMmsi = (v: unknown): v is number =>
     typeof v === 'number' && Number.isInteger(v) && v >= 1_000_000 && v <= 999_999_999;
+
+const isStormKey = (v: unknown): v is string => typeof v === 'string' && /^[A-Z0-9]{2,12}$/.test(v);
 
 /** Get the APNs collapse-id to coalesce duplicate alerts */
 export function getCollapseId(type: string, data: Record<string, unknown>): string | null {
@@ -80,6 +96,10 @@ export function getCollapseId(type: string, data: Record<string, unknown>): stri
     // The Pi's alarms: one on the lock screen per vessel, the newest numbers (126-04b)
     if (type === 'collision_alarm' && isMmsi(data?.mmsi)) return `collision-${data.mmsi}`;
     if (type === 'distress_alarm' && isMmsi(data?.mmsi)) return `distress-${data.mmsi}`;
+    // One per storm: cyclone-watch's basin-and-number key, "SH37" (129-09).
+    if ((type === 'cyclone_notice' || type === 'cyclone_urgent') && isStormKey(data?.storm_key)) {
+        return `cyclone-${data.storm_key}`;
+    }
     return null;
 }
 
@@ -98,6 +118,7 @@ export function getApnsExpiration(type: string, isCritical: boolean, nowMs = Dat
     const nowSeconds = Math.floor(nowMs / 1000);
     // A distress beacon is still news ten minutes on; a stale CPA is not.
     if (type === 'distress_alarm') return String(nowSeconds + DISTRESS_ALARM_TTL_SECONDS);
+    if (type === 'cyclone_urgent') return String(nowSeconds + CYCLONE_URGENT_TTL_SECONDS);
     if (isCritical) return '0';
 
     switch (type) {

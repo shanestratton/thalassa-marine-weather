@@ -1213,6 +1213,10 @@ const App: React.FC = () => {
                             case 'weather_alert':
                                 setPage('dashboard');
                                 break;
+                            case 'cyclone_notice':
+                            case 'cyclone_urgent':
+                                setPage('map');
+                                break;
                             case 'anchor_alarm':
                                 // 'compass' is the anchor-watch page (swing circle,
                                 // silence control). 'map' had NO alarm UI at all —

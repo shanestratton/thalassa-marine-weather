@@ -247,6 +247,9 @@ describe('useAppBootstrap', () => {
             // closed the hold), so a bolo now routes to the page itself.
             ['bolo_alert', 'guardian'],
             ['hail', 'guardian'],
+            // A cyclone push opens the chart, where the storm card names the issuer (129-09).
+            ['cyclone_notice', 'map'],
+            ['cyclone_urgent', 'map'],
             ['unknown', 'dashboard'],
         ];
         act(() => {

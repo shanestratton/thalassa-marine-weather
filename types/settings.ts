@@ -238,6 +238,14 @@ export interface UserSettings {
      */
     obsEncOnOpen?: boolean;
     /**
+     * Settings → Alerts: "Cyclone warnings near the boat" (build 129, 129-09).
+     * The server's cyclone-watch push: a notice within 600 NM, urgent within
+     * 300 NM or when the forecast track comes within 300 NM inside 72 h. A
+     * safety alert, so unset = on; only exactly `false` turns it off. The
+     * watcher reads it from user_settings.
+     */
+    cycloneWarnings?: boolean;
+    /**
      * Settings → Preferences: "Start with The Glass beside the chart" (build
      * 128, Shane 2026-10-13). A tablet or wide window that starts in landscape
      * opens with The Glass pinned left and Obs on the right. Unset = on; only

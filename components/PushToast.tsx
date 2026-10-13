@@ -86,6 +86,8 @@ function getToastStyle(type: string): {
                 border: 'border-purple-400/30',
             };
         case 'weather_alert':
+        case 'cyclone_notice':
+        case 'cyclone_urgent':
             return {
                 icon: <ThunderstormIcon className="w-6 h-6" />,
                 gradient: 'from-sky-600/95 to-sky-700/95',

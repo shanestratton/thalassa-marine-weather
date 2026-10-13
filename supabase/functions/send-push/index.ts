@@ -30,6 +30,8 @@
  * - collision_alarm: The boat Pi's night watch, a ship closing (126-04b, safety)
  * - distress_alarm: The boat Pi hears an active distress beacon (126-04b, safety)
  * - pi_watch_notice: The Pi's watch blind / no fix, or a test (126-04b, ordinary)
+ * - cyclone_notice: A tropical cyclone within 600 NM of the boat (129-09, ordinary)
+ * - cyclone_urgent: Within 300 NM, or its forecast track within 72 h (129-09, safety)
  *
  * The per-type settings (critical, thread, collapse id, sound, expiry) are in
  * ./config.ts, tested by config_test.ts.

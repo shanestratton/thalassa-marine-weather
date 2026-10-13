@@ -20,6 +20,7 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
         // sweep-expired-escrows is gone with the Marketplace (bc065281).
         for (const name of [
             'check-weather-alerts',
+            'cyclone-watch',
             'moderate-chat-message',
             'scrape-vessel-metadata',
             'sweep-stale-vessels',
