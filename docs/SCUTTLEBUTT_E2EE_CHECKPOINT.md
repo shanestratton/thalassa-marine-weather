@@ -11,6 +11,43 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
+## Passive inbox-stage preparation and upstream reconciliation on 13 October
+
+The [preparation record](../experiments/scuttlebutt-e2ee/review/inbox-stage-preparation-2026-10-13.json)
+adds an **unwired** passive Foundation recorder and strict JS diagnostic parser.
+The recorder selects one attempt, records only six fixed 0/1 markers, and refuses
+invalid ordering without throwing into an operation. It owns no host, credential,
+ticket, message, error, timer or I/O. Later Task wiring must retain and check the
+first-selection Boolean; the recorder cannot independently identify callers.
+
+Executed preparation: **83 Foundation synthetic assertions** under Swift 6,
+including concurrent first selection; **42 Node synthetic schema/privacy/prefix
+cases**; ordinary-disabled standalone Swift typecheck; and actual synthetic Swift
+JSON inspected by the final JS parser. These are not app, crypto or OS execution.
+The final receipt SHA-256 is
+`ce79f5fa5f60995943b92e50d7b6bdecbe0aa0072750793031c2d91ff920b2ab`.
+The historical initial 79-assertion pass had only a batch process guard; the
+corrected Foundation run checked every phase. Formatting initially failed, was
+fixed on the two named MJS files, and current-source Node checks then passed.
+Total shared waiting was **75,883/120,000 ms**, with the final helper receiving
+only the remaining budget. No exhaustion/overshoot test is claimed.
+
+Normal upstream `c7d49a32b7f6ef9f3e6ce860b9d28caefc9ba8c7` was merged into
+this isolated continuation as `3d4df87f88f0d4f1105b2612adcd65822b961ee7`,
+preserving the published clean history. All 360 staged upstream paths were checked.
+The one `.vercelignore` conflict retained both the newer browser-test explanation
+and existing experimental/story/config exclusions. Nine prior triage source
+inputs and **all 61 HTTPS-prerequisite inputs** stayed byte-identical to `f61`.
+No prerequisite execution was repeated. The changed upstream App graph invalidates
+earlier combined-graph acceptance; fresh startup I/O-fence/web/Window evidence is
+required before the next native proof.
+
+Runtime selection/markers, private persistence and scene build inventory are
+**not wired yet**. The actual inbox cause remains unknown; no new native launch,
+protected exchange or real lifecycle stage occurred. Production, primary targets,
+hosted services and human devices/accounts/keys remain untouched. This is bounded
+preparation, not a diagnosed fix or merge readiness.
+
 ## Bounded first-inbox triage on 13 October
 
 The [source-bound triage](../experiments/scuttlebutt-e2ee/review/inbox-refusal-source-triage-2026-10-13.json)
@@ -35,11 +72,11 @@ then execute genuinely fresh evidence. Changing the inner
 HTTPS prerequisite, so it requires legitimate prerequisite regeneration. Do not
 silently widen that inventory or reconstruct missing execution receipts.
 
-After fetching, normal upstream master is now
+During that earlier triage, fetched normal upstream master was
 `5366f67842a50c6842d948869bafaeb91bf2260f`, a descendant of the previously
-incorporated `b8ef21d96`. It is **not yet an ancestor of this isolated checkout**.
+incorporated `b8ef21d96`. It was not then an ancestor of this isolated checkout.
 All seven retired fixtures were checked absent in both trees and histories.
-Upstream reconciliation is queued; no branch push was attempted. Earlier full-App
+Reconciliation was queued at that point; no branch push was attempted. Earlier full-App
 acceptance remains historical for the changed upstream graph. Runtime/61-source
 inputs, production, primary targets and human devices/accounts/keys were not
 modified by this read-only triage. This is preparation, not merge readiness.

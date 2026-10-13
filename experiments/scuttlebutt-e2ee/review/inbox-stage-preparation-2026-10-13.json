@@ -1,0 +1,77 @@
+{
+    "schemaVersion": 1,
+    "kind": "unwired-first-inbox-stage-preparation",
+    "recordedDate": "2026-10-13",
+    "timezone": "Australia/Brisbane",
+    "sourceBase": "3d4df87f88f0d4f1105b2612adcd65822b961ee7",
+    "status": "passive-recorder-contracts-passed-runtime-unwired-inbox-cause-still-unknown",
+    "checksStatus": "passed",
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFirstInboxStageEvidence.swift": "4ba97c4cdfeda4468ed70cffa2de4a6db54124fcdaeaa7ec01d891442f5c8893",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFirstInboxStageEvidenceSyntheticTests.swift": "6f33d8bd9aa5e42708a1970a499e86d617a9b6db68585c8e002f8957efc8b8c1",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageContract.mjs": "5253d1e5639c13b35e4db3e2666ed32ea81f46ad8a0d1f7a784847c5adf742eb",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageContract.test.mjs": "9bbb04122746ee445acfcbc18e9b458578bb44d2befa3eb027930444718dcfff"
+    },
+    "finalReceipt": {
+        "path": "/private/tmp/thalassa-inbox-stage-final.M9ZBRZ/checks-receipt.json",
+        "sha256": "ce79f5fa5f60995943b92e50d7b6bdecbe0aa0072750793031c2d91ff920b2ab"
+    },
+    "foundationReceipt": {
+        "path": "/private/tmp/thalassa-inbox-stage-verified.RbfbID/checks-receipt.json",
+        "sha256": "30706f26ad60ce3429548fa3e5f3d02aa93fd38e87dc15565e3100cebb60e881"
+    },
+    "historicalInitialReceipt": {
+        "path": "/private/tmp/thalassa-inbox-stage-preparation.AnTgei/checks-receipt.json",
+        "sha256": "c1fa426eba8dbb7b1f6b9381565cb8bcb9da236a819ed757c7c316d598282816"
+    },
+    "cumulativeSharedWaitMs": 75883,
+    "sourceHashesStable": true,
+    "swiftAssertions": 83,
+    "nodeCases": 42,
+    "validationScope": {
+        "foundation": "83 direct-call Foundation assertions under explicit TEST flag and Swift6, including concurrent first selection; no actual Auth, app, crypto or UIKit callbacks.",
+        "javascript": "42 synthetic exact-schema/privacy/bounded-prefix object cases against final formatted source.",
+        "crossLanguage": "Actual executed synthetic Swift JSON inspected by current JS parser; completed marker means producer publication sequence only, not JS message consumption or encrypted exchange.",
+        "ordinaryDisabled": "Standalone Swift source typechecked with runtime/test flags absent; not a whole ordinary App build.",
+        "internalReview": "Read-only internal source review, not independent security assessment.",
+        "formatting": "Initial check refused both MJS files; formatted only those named files, then reran current-source Node contracts. Existing compiled Swift inputs remained byte-identical.",
+        "waiting": "Actual total75883/120000ms across this run. Initial historical validation guarded its batch rather than each phase. Corrected Foundation run guarded each phase; final helper received only remaining119788ms. Initial/second helper defaults were full budgets, so no overshoot/exhaustion policy acceptance is claimed."
+    },
+    "privacy": {
+        "payload": "Six fixed0/1 stage counters, selected0/1 and integrity-refusal Boolean; no IDs, epochs, credentials, messages, errors, paths, times or caller objects.",
+        "ioInRecorder": false,
+        "permissionOrReplyChange": false
+    },
+    "prerequisite": {
+        "count": 61,
+        "byteIdenticalToF61": true,
+        "executionRepeated": false,
+        "adapterAndHttpsContractUnchanged": true
+    },
+    "upstream": {
+        "merge": "3d4df87f88f0d4f1105b2612adcd65822b961ee7",
+        "previousLocal": "ccd66ab3cc4c23361a77df05a7f3d41d641c8104",
+        "importedMaster": "c7d49a32b7f6ef9f3e6ce860b9d28caefc9ba8c7",
+        "stagedPathsChecked": 360,
+        "conflict": ".vercelignore; retained upstream browser-tests rationale and existing experiment/story/config exclusions.",
+        "publishedCleanHistoryPreserved": true,
+        "oldAppGraphAcceptanceNotTransferred": true,
+        "currentAppStartupIoFenceNeedsFreshEvidence": true
+    },
+    "runtimeWiringImplemented": false,
+    "newNativeLaunches": 0,
+    "newProtectedExchanges": 0,
+    "newOsLifecycleStages": 0,
+    "remaining": [
+        "Wire first-attempt selection Boolean and markers in simulator-only plugin Task without modifying permission/reply behavior.",
+        "Persist and inspect a separate run/process-bound private diagnostic; keep existing20-key protected report unchanged.",
+        "Add scene-only build/source inventory and privacy/static-callsite contracts.",
+        "Refresh changed full-App web/unsupportedWindow inputs then compile/launch a fresh disposable app and diagnose actual inbox boundary.",
+        "Continue actual lifecycle/navigation, current full adapterHTTPS/Auth, physical acceptance, independentreview and shipping policies."
+    ],
+    "productionTouched": false,
+    "primaryTargetsTouched": false,
+    "humanDevicesAccountsKeysChanged": false,
+    "hostedChanges": false,
+    "mergeOrReleaseReady": false
+}
