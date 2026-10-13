@@ -444,6 +444,8 @@ export function AutoroutingTrialWorkspace({
         setEncPlottingMode(map, true);
         setEncPopupSuppression(map, true); // taps select endpoints, not chart popups
         map.touchZoomRotate.disableRotation();
+        // Shift+arrows turn a Mapbox map too: lock them as the twist is (127-11a/128-11b).
+        map.keyboard?.disableRotation();
         map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right');
         map.on('load', () => {
             map.addSource('trial', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
