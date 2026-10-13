@@ -18,7 +18,8 @@ import { OverlayPortal } from '../ui/OverlayPortal';
 import { MapIcon, CompassIcon, XIcon } from '../Icons';
 import type { AutoroutingTrialWorkspaceProps } from './AutoroutingTrialWorkspace';
 
-const Workspace = lazyRetry(
+/** Auto's chart, loaded on the tap. Plan Your Day's route chart opens the same one (127-PYD-3). */
+export const Workspace = lazyRetry(
     () => import('./AutoroutingTrialWorkspace').then((module) => ({ default: module.AutoroutingTrialWorkspace })),
     'AutoroutingTrialWorkspace',
 );

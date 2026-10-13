@@ -162,6 +162,8 @@ export const RoutePlanner: React.FC<{
         isPro,
         mapboxToken,
     } = useVoyageForm(onTriggerUpgrade);
+    // Auto's chart: Auto's own door and Plan Your Day's route chart (127-PYD-3).
+    const autoMapboxToken = mapboxToken || import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || '';
 
     // Inshore departure sweep (Phase 8): button-gated, only meaningful when
     // the plan's geometry came from the inshore router (locked polyline in
@@ -732,13 +734,14 @@ export const RoutePlanner: React.FC<{
                     </button>
                 ))}
                 {/* Today on the water (build 124): the default boat works and
-                    says so; "Plot on chart" loads straight pins into the
-                    Manual plotter. */}
+                    says so; a stop's route, her saved route or two marks go
+                    to the Manual plotter, never a straight line (127-PYD-3). */}
                 <DayPlannerEntry
                     vessel={vessel}
                     usingDefaultVessel={usingDefaultVessel}
                     isPro={isPro === true}
                     onUpgrade={onTriggerUpgrade}
+                    mapboxToken={autoMapboxToken}
                     onPlot={(action) => {
                         requestTracerOpen(action);
                         setPage('map');
@@ -1454,7 +1457,7 @@ export const RoutePlanner: React.FC<{
 
             {routingModeOpen && (
                 <RoutingModeDialog
-                    mapboxToken={mapboxToken || import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || ''}
+                    mapboxToken={autoMapboxToken}
                     onClose={closeRoutingMode}
                     onManual={chooseManualRouting}
                 />

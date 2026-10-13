@@ -227,6 +227,9 @@ export interface StopRouteQueue {
     request(key: string, req: StopRouteRequest): void;
     /** Her page closed: a waiting route is dropped, a running one stopped, a no-route forgotten (the next tap tries again). A route stays. */
     cancel(key: string): void;
+    /** Auto's chart re-ran a route's satellite check (127-PYD-3): its checked copy, or Auto's words when it
+     *  found land, which make it a no-route, exactly as if the router had found it. A route only. */
+    recheck(key: string, outcome: AutoroutingTrialRoute | string): void;
     /** A new start, or the sheet closing: everything stopped and forgotten. */
     clear(): void;
 }
@@ -295,6 +298,16 @@ export function stopRouteQueue(
             if (waiting?.key === key) waiting = null;
             if (running?.key === key) running.stop.abort();
             if (states.get(key)?.kind !== 'routed') drop(key);
+        },
+        recheck(key, outcome) {
+            const was = states.get(key);
+            if (was?.kind === 'routed')
+                set(
+                    key,
+                    typeof outcome === 'string'
+                        ? { id: was.id, kind: 'no-route', words: outcome, wallMs: was.wallMs }
+                        : { ...was, proposal: outcome },
+                );
         },
         clear() {
             waiting = null;

@@ -14,14 +14,21 @@
  *     own polar since build 125: services/routingPolar);
  *   - All places, every one with a plain reason when it is not today.
  *
- * A stop's detail says how each time was worked out; "Plot on chart" sets
- * the Plan page's departure and opens the Manual plotter with straight pins
- * (both ⚡ buttons are parked). Since 127-PYD-2 the stop she opens can be
+ * A stop's detail says how each time was worked out, and its main button
+ * sets the Plan page's departure. Since 127-PYD-2 the stop she opens can be
  * routed round the land, on a tap, through Auto's own provider and behind
  * Auto route (trial): his account only in 127 (pydRouting.ts), one route at a
  * time, in this sheet's memory only (stopRoute.ts), and the owner sees how
  * long it took. It never saves, never expires and never blocks: cautions, not
  * blocks.
+ *
+ * Never a straight line (127-PYD-3; Shane, 2026-10-10: "it goes direct.
+ * straight over hills"): a routed stop's "Show route on chart" opens Auto's
+ * chart over the sheet (its overlays hidden, their state kept) with that
+ * route drawn as Auto draws it, at the leave she chose; "Use on the main
+ * chart" hands the routed line to the Manual plotter (Sail follows it, Save
+ * keeps it). With no route, "Plot by hand" gives the chart her start and the
+ * stop as two marks and says why. Her saved route still plots as drawn.
  *
  * Everything it shows is worked out by services/dayPlanner/today.ts (pure)
  * from what services/dayPlanner/todayLoader.ts fetched; times are the
@@ -38,8 +45,11 @@
  * their pins are checked against her charts and her voyage ends are read on
  * the phone, both kept in this sheet's memory only. An open stop keeps its slot.
  */
-import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { VesselProfile } from '../../types/vessel';
+import type { AutoroutingTrialRoute } from '../../types/autorouting';
+// Auto's chart, in its Plan Your Day mode (127-PYD-3), through Auto's own lazy door: one chunk, one preload list.
+import { Workspace as RouteChart } from '../autorouting/RoutingModeDialog';
 import type { PlotDayAction } from '../../services/deepLink';
 import type { BoatFix } from '../../services/boatPositionChain';
 import {
@@ -138,6 +148,8 @@ export interface TodaySheetProps {
     /** Always resolved: her profile, or the default boat. */
     vessel: VesselProfile;
     usingDefaultVessel: boolean;
+    /** For Auto's chart (127-PYD-3). */
+    mapboxToken?: string;
     onClose: () => void;
     onPlot: (action: PlotDayAction) => void;
     /** Settings → Vessel, for the default-boat notice. */
@@ -160,7 +172,15 @@ function startAge(start: PlanStart, nowMs: number): string {
     return 'typed place';
 }
 
-export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot, onOpenVessel, io }: TodaySheetProps) {
+export default function TodaySheet({
+    vessel,
+    usingDefaultVessel,
+    mapboxToken = '',
+    onClose,
+    onPlot,
+    onOpenVessel,
+    io,
+}: TodaySheetProps) {
     const [scope] = useState(getAuthIdentityScope);
     // The sources, fixed for the sheet's life.
     const [sources] = useState(() => ({
@@ -196,6 +216,14 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
     const [pickerFocus, setPickerFocus] = useState<'list' | 'type'>('list');
     const [visited, setVisited] = useState<LatLon[] | null>(null);
     const [pinDepth, setPinDepth] = useState<ReadonlyMap<string, PinResult>>(() => new Map());
+    /** Auto's chart over the sheet (127-PYD-3): her stop's routed proposal (its queue key), at the leave she
+     *  chose (null when the stop page had none: then the chart's tide hour is when it was routed, or now). */
+    const [chart, setChart] = useState<{
+        row: StopRow;
+        key: string;
+        leave: number | null;
+        proposal: AutoroutingTrialRoute;
+    } | null>(null);
     const requested = useRef(new Set<string>());
     const legsAbort = useRef<AbortController | null>(null);
     const onCloseRef = useRef(onClose);
@@ -427,10 +455,29 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
         setScreen('picker');
     };
 
-    const plot = (row: StopRow, departureMs: number | null) => {
+    // Plot by hand (two marks and why) or her saved route; never a straight line (127-PYD-3).
+    const plot = (row: StopRow, departureMs: number | null, why: string) => {
         if (!base) return;
         if (departureMs !== null) setPlanDeparture(departureMs, scope);
-        onPlot(plotDayAction(base.start, row.candidate, stay));
+        onPlot(plotDayAction(base.start, row.candidate, stay, null, why));
+    };
+    // "Use on the main chart": the route as the chart shows it into the Manual plotter. Her leave is set
+    // only if the stop page had one (a walk in no wind sets none), and a satellite check that never
+    // ran goes with it as a caution, not a gate.
+    const useOnMainChart = (route: AutoroutingTrialRoute) => {
+        if (!chart || !base) return;
+        if (chart.leave !== null) setPlanDeparture(chart.leave, scope);
+        const engine = route.engine;
+        onPlot(
+            plotDayAction(
+                base.start,
+                chart.row.candidate,
+                stay,
+                route.coordinates.map(([lon, lat]) => ({ lat, lon })),
+                '',
+                engine?.backstop === 'unavailable' ? (engine.backstopReason ?? '') : undefined,
+            ),
+        );
     };
 
     const loadLanding: LandingLoader = useCallback(
@@ -545,6 +592,7 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                 title="Plan Your Day"
                 layer="modal"
                 active={screen === null}
+                hidden={!!chart}
                 onClose={onClose}
                 className="today-main"
                 headerBody={
@@ -803,8 +851,9 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                     polar={routing}
                     leavingMarina={!!base.marina}
                     loadLanding={detailRow.candidate.reviewed?.landingTide ? loadLanding : null}
-                    onPlot={(departureMs) => plot(detailRow, departureMs)}
+                    onPlot={(departureMs, why) => plot(detailRow, departureMs, why)}
                     onBack={() => setScreen(null)}
+                    hidden={!!chart}
                     route={
                         offered && openKey
                             ? {
@@ -817,11 +866,58 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                                   owner,
                                   draftM: routeDraftM,
                                   onRoute: (departureMs) => startRoute(detailRow, departureMs),
+                                  onShow: (departureMs) => {
+                                      const state = queue.states.get(openKey);
+                                      // A clone at her leave (a leave gone by is now): changing it never re-routes.
+                                      const leave = departureMs === null ? null : Math.max(departureMs, sources.now());
+                                      if (state?.kind === 'routed')
+                                          setChart({
+                                              row: detailRow,
+                                              key: openKey,
+                                              leave,
+                                              proposal: {
+                                                  ...state.proposal,
+                                                  departureMs:
+                                                      leave ?? Math.max(state.proposal.departureMs ?? 0, sources.now()),
+                                              },
+                                          });
+                                  },
                                   onAction: onRouteAction,
                               }
                             : null
                     }
                 />
+            )}
+            {chart && (
+                <Suspense
+                    fallback={
+                        // Its way back while the chunk loads: focus on it, and Escape.
+                        <TodayModal
+                            title="Plan Your Day route"
+                            closeLabel="Back to Plan Your Day"
+                            onClose={() => setChart(null)}
+                        >
+                            <p role="status" className="today-facts">
+                                Opening chart…
+                            </p>
+                        </TodayModal>
+                    }
+                >
+                    <RouteChart
+                        mapboxToken={mapboxToken}
+                        onClose={() => setChart(null)}
+                        initialDraftM={routeDraftM}
+                        initialSpeedKts={speed.cruiseKts}
+                        initialVesselProfile={chart.proposal.vesselProfile}
+                        dayPlan={{
+                            proposal: chart.proposal,
+                            stopName: chart.row.name.split(' · ')[0],
+                            onUseOnMainChart: useOnMainChart,
+                            // A Retry's answer is the stop's too: land after all makes it a no-route there.
+                            onRechecked: (outcome) => queue.recheck(chart.key, outcome),
+                        }}
+                    />
+                </Suspense>
             )}
         </>
     );

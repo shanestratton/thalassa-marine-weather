@@ -32,6 +32,11 @@ if (!import.meta.env.DEV) throw new Error('The day-planner fixture is available 
 // refusals, whole: its charts-from-the-Pi sentence, a cloud fill that failed
 // (its 60 chars), or a pin far from water with the harbour water not downloaded.
 // ?coast=ring makes every estimate its longest (below).
+//
+// The routed line on the chart (127-PYD-3): "Show route on chart" opens Auto's chart in its day-plan
+// mode over the sheet, with a stub Auto provider (ready, never calculates) and no Mapbox network, so
+// its chart may say it could not load; "Use on the main chart" lands in `plotted` as a routed plot-day
+// action, and "Plot by hand" as a frame action with no pins.
 class FixtureStorage implements Storage {
     private entries = new Map<string, string>();
     get length() {
@@ -120,6 +125,7 @@ const [
     data,
     { routeStop },
     { DraftConfirmModal },
+    { AutoroutingProviderContext },
 ] = await Promise.all([
     import('../../services/authIdentityScope'),
     import('../../stores/settingsStore'),
@@ -128,7 +134,15 @@ const [
     import('../../tests/helpers/dayPlanFixtures'),
     import('../../services/dayPlanner/stopRoute'),
     import('../../components/vessel/DraftConfirmModal'),
+    import('../../components/autorouting/AutoroutingProviderContext'),
 ]);
+// Auto's chart reads its provider for its status and the satellite check's Retry; it never calculates here.
+const autoProvider = {
+    status: () => ({ enabled: true, ready: true }),
+    calculate: async () => {
+        throw new Error('Plan Your Day fixture: the route chart never calculates.');
+    },
+};
 if (owner) {
     // The app's auth store (the sheet's Sources screen pulls it in) settles this session-less page to
     // signed out a beat after load. The owner's synthetic identity is set after that, as a sign-in
@@ -347,17 +361,20 @@ function Fixture() {
                         Plan Your Day
                     </button>
                     {open && (
-                        <TodaySheet
-                            vessel={vessel}
-                            usingDefaultVessel={defaultBoat}
-                            onClose={() => setOpen(false)}
-                            onPlot={(action) => {
-                                fixture.plotted.push(action);
-                                setOpen(false);
-                            }}
-                            onOpenVessel={() => fixture.openedVessel++}
-                            io={io}
-                        />
+                        <AutoroutingProviderContext.Provider value={autoProvider}>
+                            <TodaySheet
+                                vessel={vessel}
+                                usingDefaultVessel={defaultBoat}
+                                mapboxToken="pk.fixture"
+                                onClose={() => setOpen(false)}
+                                onPlot={(action) => {
+                                    fixture.plotted.push(action);
+                                    setOpen(false);
+                                }}
+                                onOpenVessel={() => fixture.openedVessel++}
+                                io={io}
+                            />
+                        </AutoroutingProviderContext.Provider>
                     )}
                 </section>
             </PanePortalScope>

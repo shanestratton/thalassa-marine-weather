@@ -1483,3 +1483,84 @@ test('Real engine with no charts installed: Auto opens and Calculate stays disab
     expect(trial).toEqual([]);
     expect((await fixtureCounts(page)).calculations).toBe(0);
 });
+
+// ── Plan Your Day's route chart (127-PYD-3) ──
+// Shane, 2026-10-10: "so can we incorporate the autorouting into the plan your day thingy." Auto's
+// chart in its day-plan mode (?dayPlan=1, a synthetic routed stop: safe, needs-tide, dry and a pin
+// tail, no chart data): its header, "Use on the main chart", "Back to Plan Your Day" and the Review
+// page fit at 320 x 568, 390 x 844 and 430 x 932 as the app draws them and in the split pane, in wide
+// fonts, dark (and light and night at 390). Nothing to set up or calculate; Use on the main chart
+// hands the route on.
+const DAY_PLAN_SIZES = [
+    { width: 320, height: 561, pane: false },
+    { width: 390, height: 779, pane: false },
+    { width: 430, height: 856, pane: false },
+    { width: 1024, height: 768, pane: true },
+];
+for (const size of DAY_PLAN_SIZES)
+    for (const mode of size.width === 390 ? ['dark', 'light', 'night'] : ['dark'])
+        test(`Plan Your Day's route chart fits at ${size.width}x${size.height}${size.pane ? ' split' : ''}, ${mode}`, async ({
+            page,
+        }) => {
+            await openFixture(page, size, mode, 'ready', 'dayPlan=1');
+            await slideToChoice(page);
+            const dialog = page.getByRole('dialog', { name: 'Plan Your Day route to Fixture Cove', exact: true });
+            await expect(dialog).toBeVisible();
+            await expect(dialog.getByRole('region', { name: 'Plan Your Day route chart' })).toBeVisible();
+            // The whole frame, as Auto's chart takes it; nothing cut sideways.
+            const box = (await dialog.boundingBox())!;
+            const frame = size.pane
+                ? (await page.getByTestId('trial-pane').boundingBox())!
+                : { x: 0, y: 0, ...page.viewportSize()! };
+            expect(Math.abs(box.x - frame.x)).toBeLessThanOrEqual(1);
+            expect(Math.abs(box.width - frame.width)).toBeLessThanOrEqual(1);
+            expect(box.y + box.height).toBeLessThanOrEqual(frame.y + frame.height + 1);
+            expect(
+                await dialog.evaluate((node) =>
+                    [...node.querySelectorAll('button, p')]
+                        .filter((element) => element.scrollWidth > element.clientWidth + 1)
+                        .map((element) => element.textContent || element.getAttribute('aria-label')),
+                ),
+            ).toEqual([]);
+            await hitVisible(page.getByRole('button', { name: 'Close autorouting trial' }));
+            await hitVisible(page.getByRole('button', { name: 'Zoom trial chart in' }));
+            // Nothing to set up or calculate: the stop was chosen in Plan Your Day.
+            await expect(dialog.getByRole('button', { name: 'Calculate trial route' })).toHaveCount(0);
+            await expect(dialog.getByRole('button', { name: 'Setup', exact: true })).toHaveCount(0);
+            await setControlsExpanded(page, true);
+            for (const name of ['Use on the main chart', 'Back to Plan Your Day', 'Whole route'])
+                await wholeHitVisible(dialog.getByRole('button', { name, exact: true }));
+            // The Review page scrolls inside the panel; its proposal and Save card come into view whole.
+            for (const region of ['Trial proposal', 'Save planned proposal']) {
+                const section = dialog.getByRole('region', { name: region });
+                await section.scrollIntoViewIfNeeded();
+                await expect(section).toBeInViewport();
+            }
+            await wholeHitVisible(dialog.getByRole('button', { name: 'Use on the main chart', exact: true }));
+            expect((await dialog.boundingBox())!.y + (await dialog.boundingBox())!.height).toBeLessThanOrEqual(
+                frame.y + frame.height + 1,
+            );
+            await dialog.getByRole('button', { name: 'Use on the main chart', exact: true }).click();
+            await expect(dialog).toHaveCount(0);
+            const counts = await page.evaluate(() => {
+                const fixture = (
+                    window as unknown as { __trialFixture: { usedOnMainChart: number; calculations: number } }
+                ).__trialFixture;
+                return { used: fixture.usedOnMainChart, calculations: fixture.calculations };
+            });
+            expect(counts).toEqual({ used: 1, calculations: 0 });
+        });
+
+test("Plan Your Day's route chart: Back returns, and the folded status says what to do next", async ({ page }) => {
+    await openFixture(page, sizes[0], 'dark', 'ready', 'dayPlan=1');
+    await slideToChoice(page);
+    const dialog = page.getByRole('dialog', { name: 'Plan Your Day route to Fixture Cove', exact: true });
+    await setControlsExpanded(page, false);
+    await expect(
+        dialog.getByText('Plan Your Day route · review checks, then use it on the main chart or go back.'),
+    ).toBeVisible();
+    await setControlsExpanded(page, true);
+    await dialog.getByRole('button', { name: 'Back to Plan Your Day', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect((await fixtureCounts(page)).calculations).toBe(0);
+});

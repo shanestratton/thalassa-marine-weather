@@ -1788,39 +1788,59 @@ export function routeCoords(start: LatLon, candidate: PlaceCandidate): LatLon[] 
 }
 
 /**
- * "Plot on chart": the pins for the Manual plotter. A day trip is out and
- * home, start → stop → start; an overnight stay is one way. A saved route
- * that joins the two is used as drawn, turned round for the trip home (the
- * stop is not dropped twice). The points are copies. A route too long for
- * the chart to take there and back (over PLOT_DAY_MAX_POINTS pins) falls
- * back to straight pins rather than being refused on the chart.
+ * What Plan Your Day hands the chart (127-PYD-3), never a straight line: the
+ * routed line ("Use on the main chart"), else her saved route that joins
+ * the two, as the Manual plotter's pins; with neither, her start and the
+ * stop as two marks and why ("Plot by hand": no pins at all). A day trip is
+ * out and home, the line then the same line turned round (the stop not
+ * dropped twice); an overnight stay is one way. The points are copies. A
+ * line too long to go there and back goes one way (routed: home by Reverse
+ * route) or, a saved one, is named rather than plotted. A routed line whose
+ * satellite land check didn't run carries why (`unchecked`): a caution the
+ * chart says, never a gate.
  */
-export function plotDayAction(start: LatLon, candidate: PlaceCandidate, stay: StayOption): PlotDayAction {
-    const pins = (out: LatLon[]) =>
-        stay === 'overnight'
-            ? out
-            : [
-                  ...out,
-                  ...[...out]
-                      .reverse()
-                      .slice(1)
-                      .map((p) => ({ ...p })),
-              ];
-    let points = pins(routeCoords(start, candidate).map((p) => ({ lat: p.lat, lon: p.lon })));
-    let saved = candidate.distance.basis === 'saved' ? candidate.distance.route?.name : undefined;
-    if (points.length > PLOT_DAY_MAX_POINTS) {
-        points = pins([
-            { lat: start.lat, lon: start.lon },
-            { lat: candidate.lat, lon: candidate.lon },
-        ]);
-        saved = undefined;
-    }
-    return {
-        kind: 'plot-day',
-        points,
+export function plotDayAction(
+    start: LatLon & { name: string },
+    candidate: PlaceCandidate,
+    stay: StayOption,
+    routed?: readonly LatLon[] | null,
+    why = '',
+    unchecked?: string,
+): PlotDayAction {
+    const head = {
+        kind: 'plot-day' as const,
         name: `${stay === 'overnight' ? 'Overnight' : 'Day out'}: ${candidate.name}`,
         stop: candidate.name,
-        ...(saved ? { savedRoute: saved } : {}),
+    };
+    const saved = candidate.distance.basis === 'saved' ? candidate.distance.route : undefined;
+    const out = (routed ?? saved?.points)?.map((p) => ({ lat: p.lat, lon: p.lon }));
+    if (out && out.length > 1) {
+        const points =
+            stay === 'overnight'
+                ? out
+                : [
+                      ...out,
+                      ...out
+                          .slice(0, -1)
+                          .reverse()
+                          .map((p) => ({ ...p })),
+                  ];
+        const tag = routed
+            ? { routed: true as const, ...(unchecked === undefined ? {} : { unchecked }) }
+            : { savedRoute: saved!.name };
+        if (points.length <= PLOT_DAY_MAX_POINTS) return { ...head, points, ...tag };
+        if (routed && out.length <= PLOT_DAY_MAX_POINTS)
+            return { ...head, stop: `${candidate.name} (home: Reverse route)`, points: out, ...tag };
+        if (!routed) why = 'Your saved route is too long to plot here: open it from Saved Routes.';
+    }
+    return {
+        ...head,
+        points: [],
+        frame: {
+            from: { lat: start.lat, lon: start.lon, name: start.name },
+            to: { lat: candidate.lat, lon: candidate.lon, name: candidate.name },
+            why,
+        },
     };
 }
 
