@@ -203,48 +203,50 @@ const positionWords = ([lon, lat]: [number, number]): string =>
  * What a current Notice to Mariners says about this line, as the passage
  * planner says it (usePassagePlanner: the NtM routing banner, and the
  * standing notices within 500 m of the route). Best effort: a lookup that
- * fails or runs long says nothing, and never holds the route.
+ * fails or runs long says nothing, and never holds the route. The two
+ * lookups run together (128-ROUTE-P); the pack line still comes first.
  */
 async function noticeLines(polyline: readonly [number, number][]): Promise<string[]> {
-    const lines: string[] = [];
     let bbox: [number, number, number, number] | null = null;
     for (const [lon, lat] of polyline)
         bbox = bbox
             ? [Math.min(bbox[0], lon), Math.min(bbox[1], lat), Math.max(bbox[2], lon), Math.max(bbox[3], lat)]
             : [lon, lat, lon, lat];
-    if (!bbox) return lines;
+    if (!bbox) return [];
     const corridor = bbox;
-    try {
-        const { packsForCorridor } = await import('./ntmRouting');
-        const applied = (await withTimeout(packsForCorridor(corridor), [], NOTICE_LOOKUP_MS)).filter(
-            ({ status, optedOut }) => status.status === 'current' && !optedOut,
-        );
-        if (applied.length > 0)
-            lines.push(
-                `Routing follows a current Notice to Mariners — ${applied
+    const packLine = async (): Promise<string | null> => {
+        try {
+            const { packsForCorridor } = await import('./ntmRouting');
+            const applied = (await withTimeout(packsForCorridor(corridor), [], NOTICE_LOOKUP_MS)).filter(
+                ({ status, optedOut }) => status.status === 'current' && !optedOut,
+            );
+            if (applied.length > 0)
+                return `Routing follows a current Notice to Mariners — ${applied
                     .map(({ pack }) => `${pack.noticeKey} — ${pack.title} (surveyed ${pack.surveyed})`)
                     .join(
                         ' · ',
-                    )}. Surveyed depths and the promulgated track are applied. Read the notice before you go.`,
+                    )}. Surveyed depths and the promulgated track are applied. Read the notice before you go.`;
+        } catch (err) {
+            log.warn(`notice packs unavailable: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return null;
+    };
+    const localLine = async (): Promise<string | null> => {
+        try {
+            const { loadLocalNotices, localNoticesNearPolyline } = await import('./localNotices');
+            const hits = localNoticesNearPolyline(
+                await withTimeout(loadLocalNotices(), [], NOTICE_LOOKUP_MS),
+                polyline,
+                500,
             );
-    } catch (err) {
-        log.warn(`notice packs unavailable: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    try {
-        const { loadLocalNotices, localNoticesNearPolyline } = await import('./localNotices');
-        const hits = localNoticesNearPolyline(
-            await withTimeout(loadLocalNotices(), [], NOTICE_LOOKUP_MS),
-            polyline,
-            500,
-        );
-        if (hits.length > 0)
-            lines.push(
-                `Notice to Mariners on this route — ${hits.map((n) => n.title).join(' · ')}. Read it before you go.`,
-            );
-    } catch (err) {
-        log.warn(`standing notices unavailable: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    return lines;
+            if (hits.length > 0)
+                return `Notice to Mariners on this route — ${hits.map((n) => n.title).join(' · ')}. Read it before you go.`;
+        } catch (err) {
+            log.warn(`standing notices unavailable: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return null;
+    };
+    return (await Promise.all([packLine(), localLine()])).filter((line): line is string => line !== null);
 }
 
 function routeId(): string {
@@ -467,6 +469,9 @@ export async function calculateThalassaProposal(
     // pixels read the marina and the deep water off a headland as land), and
     // the refusal says where, and whether the charts are missing there.
     progress(CHECKING_WORDS);
+    // The notices need only the line: asked for beside the land check
+    // (128-ROUTE-P), heard after it. noticeLines never rejects.
+    const noticesLoad = noticeLines(polyline);
     const { inshoreRouteCrossesLand } = await import('./routing/landBackstop');
     assertCurrent();
     // The verdicts the route job worked out at every sample (127-ROUTE-W).
@@ -500,7 +505,7 @@ export async function calculateThalassaProposal(
             ? { surveyAmber: surveyAmberMetres(polyline, stateMask, ok.surveyRuns, ok.chartedShallowSpans) }
             : {}),
     });
-    const notices = await noticeLines(polyline);
+    const notices = await noticesLoad;
     assertCurrent();
     const extra: string[] = [];
     if (!stateMask)
