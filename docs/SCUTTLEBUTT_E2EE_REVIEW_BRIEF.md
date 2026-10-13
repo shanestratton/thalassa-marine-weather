@@ -51,6 +51,16 @@ production or server changes accompanied the update.
 
 ## Current integration candidate
 
+The [13 October diagnostic record](../experiments/scuttlebutt-e2ee/review/scene-finish-diagnostic-observation-2026-10-13.json)
+has current actual scoped Chrome acceptance and exact late native report retention.
+Two fresh native runs failed before a protected prefix; the newer 28-source app
+compiled/launched but reached the observation bound still running/pm-opened, with
+one inbox result and zero send calls. Terminal diagnostic selectors remained
+truthfully 0/0; no crypto/OS pass or precise failure cause is credited. Separate
+630 Foundation assertions, 282 Node cases and 370 source/mock cases validate the
+bounded value-only diagnostic wiring, not independent security readiness. See
+the checkpoint for exact receipt/source hashes and unchanged 61-source inputs.
+
 The [latest 13 October evidence](../experiments/scuttlebutt-e2ee/review/inbox-scene-prefix-failure-2026-10-13.json)
 has 370 source/mock cases plus 24 helper cases, a fresh scoped actual Chrome proof
 (six console errors retained), and a compiled/launched 27-source native App.

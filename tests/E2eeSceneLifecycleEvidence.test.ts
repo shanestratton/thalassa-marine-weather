@@ -1109,7 +1109,7 @@ describe('explicit scene wiring — source regression evidence, not native execu
         expect(builder).toContain('receipt.sourceHashes[source] = hash(source)');
         expect(builder).toContain('assert(hash(path) === expected)');
     });
-    it('keeps the Ruby scene whitelist at exact 27 sources and the ordinary bound at 24', () => {
+    it('keeps the Ruby scene whitelist at exact 28 sources and the ordinary bound at 24', () => {
         const ruby = nativeSource('generate_project.rb'),
             builder = nativeSource('build.mjs');
         const scene =
@@ -1118,8 +1118,8 @@ describe('explicit scene wiring — source regression evidence, not native execu
                 .trim()
                 .split(/\s+/)
                 .sort() ?? [];
-        expect(scene).toHaveLength(27);
-        expect(new Set(scene).size).toBe(27);
+        expect(scene).toHaveLength(28);
+        expect(new Set(scene).size).toBe(28);
         expect(ruby).toContain(
             "manifest['sceneUiFixture'] ? sources.sort == scene_sources : sources.length.between?(3, 24)",
         );
@@ -1170,10 +1170,10 @@ describe('explicit scene wiring — source regression evidence, not native execu
         expect(returning).toBeGreaterThan(scene);
         expect(firstPagehide).toBeGreaterThan(returning);
         const sceneBody = script.slice(scene, returning);
-        expect(sceneBody).toContain(
-            'await wait(() => sceneProtectedReady && sceneForegroundObserved && scenePresentationClosed)',
+        expect(sceneBody).toMatch(
+            /await wait\(\s*\(\) => sceneProtectedReady && sceneForegroundObserved && scenePresentationClosed,\s*'await-foreground',?\s*\)/,
         );
-        expect(sceneBody).toContain('await wait(() => sceneUiClosed)');
+        expect(sceneBody).toContain("await wait(() => sceneUiClosed, 'await-closure-ack')");
         expect(sceneBody).not.toContain('PageTransitionEvent');
         expect(sceneBody).not.toContain("post('passed'");
         expect(sceneBody).not.toContain('remountName');
@@ -1185,7 +1185,7 @@ describe('explicit scene wiring — source regression evidence, not native execu
     it('measures the actual closure DOM, including absent compose, and sends only seven script fields', () => {
         const script = readFileSync('experiments/scuttlebutt-e2ee/full-app-pilot/nativeProtectedUiFixture.js', 'utf8');
         const start = script.indexOf('const facts = domFacts();'),
-            end = script.indexOf('await wait(() => sceneUiClosed)', start);
+            end = script.indexOf("await wait(() => sceneUiClosed, 'await-closure-ack')", start);
         expect(start).toBeGreaterThan(0);
         expect(end).toBeGreaterThan(start);
         const body = script.slice(start, end);

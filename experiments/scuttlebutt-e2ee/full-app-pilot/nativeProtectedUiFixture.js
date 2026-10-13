@@ -123,6 +123,51 @@
         sceneForegroundObserved = false,
         scenePresentationClosed = false,
         sceneUiClosed = false;
+    const failurePhases = Object.freeze([
+        'cold-ready',
+        'cold-chat-closed',
+        'authenticated',
+        'unknown-admission',
+        'prepared',
+        'native-admission',
+        'inbox-entry',
+        'thread-open',
+        'send-enabled',
+        'send-accepted',
+        'reply-refresh-enabled',
+        'peer-reply',
+        'receive-refresh-enabled',
+        'receive-refresh-completion',
+        'incoming-received',
+        'dedup-refresh-enabled',
+        'dedup-refresh-completion',
+        'proof-captured',
+        'url-check',
+        'await-foreground',
+        'await-closed-window',
+        'closure-post',
+        'await-closure-ack',
+    ]);
+    let lastFailurePhase = null;
+    function enterFailurePhase(phase) {
+        if (sceneLifecycleProof && failurePhases.includes(phase)) lastFailurePhase = phase;
+    }
+    function postFailureDiagnostic() {
+        if (!sceneLifecycleProof) return;
+        try {
+            const handler = window.webkit?.messageHandlers?.researchFullAppSceneUiFixture;
+            if (handler && typeof handler.postMessage === 'function')
+                handler.postMessage({
+                    version: 1,
+                    kind: 'scene-finish-javascript-diagnostic',
+                    runID,
+                    nonce,
+                    phase: lastFailurePhase,
+                });
+        } catch {
+            /* Optional value-only diagnostic cannot change failure handling. */
+        }
+    }
     const refuse = () => {
         throw new Error('Full App native fixture refused');
     };
@@ -328,7 +373,8 @@
             /* Missing native receipt is a timeout/failure, never a local pass or live fallback. */
         }
     }
-    async function wait(predicate) {
+    async function wait(predicate, failurePhase = null) {
+        enterFailurePhase(failurePhase);
         const deadline = Math.min(until, Date.now() + 20000);
         while (Date.now() < deadline) {
             if (controlFailed) refuse();
@@ -340,7 +386,8 @@
         }
         refuse();
     }
-    async function refreshMessages() {
+    async function refreshMessages(enabledPhase, completionPhase) {
+        enterFailurePhase(enabledPhase);
         const refresh = button('Refresh native messages');
         require(enabled(refresh));
         let busyObserved = false;
@@ -353,7 +400,7 @@
         observer.observe(refresh, { attributes: true, attributeFilter: ['disabled'], attributeOldValue: true });
         try {
             refresh.click();
-            await wait(() => busyObserved && refresh.isConnected && enabled(refresh));
+            await wait(() => busyObserved && refresh.isConnected && enabled(refresh), completionPhase);
         } finally {
             observer.disconnect();
         }
@@ -620,13 +667,17 @@
                             facts.actualAppNavigation &&
                             facts.signInEnabled &&
                             !facts.privateOpenEnabled,
+                        'cold-ready',
                     );
                     common(observed, 1, 0, 1, 0);
                     require(
                         observed.authScope.currentUserPresent === false && observed.authScope.currentAnonymous === true,
                     );
                     window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'chat' } }));
-                    await wait((_value, facts) => facts.unavailablePrivateView && facts.messageLogAbsent);
+                    await wait(
+                        (_value, facts) => facts.unavailablePrivateView && facts.messageLogAbsent,
+                        'cold-chat-closed',
+                    );
                     cases.push('cold-root-closed');
                     post('progress', 'cold-ready');
                     setInput(document.getElementById('pilot-email'), email);
@@ -641,6 +692,7 @@
                             facts.authenticatedNotice &&
                             facts.privateOpenEnabled &&
                             facts.passwordEmpty,
+                        'authenticated',
                     );
                     common(observed, 1, 0, 1, 1);
                     require(
@@ -658,12 +710,13 @@
                             facts.unavailablePrivateView &&
                             facts.messageLogAbsent &&
                             facts.passwordEmpty,
+                        'unknown-admission',
                     );
                     common(observed, 1, 0, 1, 1);
                     cases.push('unknown-admission-no-private-open');
                     post('progress', 'unknown-admission');
                     post('control', 'protected-setup');
-                    await wait(() => prepared);
+                    await wait(() => prepared, 'prepared');
                     require(typeof hostInitiates === 'boolean');
                     cases.push('explicit-owned-peer-setup');
                     post('progress', 'prepared');
@@ -672,40 +725,48 @@
                         (value) =>
                             value?.privateSelection === 'native-pilot' &&
                             document.body.textContent.includes('Local private admission: protected-required'),
+                        'native-admission',
                     );
                     common(observed, 1, 0, 1, 1, 'native-pilot');
                     cases.push('native-admission-readiness');
                     post('progress', 'admission-ready');
                     window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'chat' } }));
-                    await wait(() => enabled(document.querySelector('button[aria-label="Message Paired sailor"]')));
+                    await wait(
+                        () => enabled(document.querySelector('button[aria-label="Message Paired sailor"]')),
+                        'inbox-entry',
+                    );
                     document.querySelector('button[aria-label="Message Paired sailor"]').click();
                     await wait(
                         () =>
                             document.querySelector('[role="log"]') &&
                             document.querySelector('input[aria-label="Message Paired sailor"]'),
+                        'thread-open',
                     );
                     require(rows(opener).length === (hostInitiates ? 0 : 1));
                     cases.push('actual-app-chat-pm-open');
                     post('progress', 'pm-opened');
                     setInput(document.querySelector('input[aria-label="Message Paired sailor"]'), outgoing);
-                    await wait(() => enabled(document.querySelector('button[aria-label="Send direct message"]')));
+                    await wait(
+                        () => enabled(document.querySelector('button[aria-label="Send direct message"]')),
+                        'send-enabled',
+                    );
                     document.querySelector('button[aria-label="Send direct message"]').click();
-                    await wait(() => messages().outgoingAccepted && messages().composeEmpty);
+                    await wait(() => messages().outgoingAccepted && messages().composeEmpty, 'send-accepted');
                     require(rows(outgoing).length === 1 && messages().outgoingNotDeliveredOrRead);
                     cases.push('actual-native-pm-send');
                     post('progress', 'pm-sent');
-                    await wait(() => enabled(button('Refresh native messages')));
+                    await wait(() => enabled(button('Refresh native messages')), 'reply-refresh-enabled');
                     post('control', 'protected-peer-reply');
-                    await wait(() => peerReplied);
+                    await wait(() => peerReplied, 'peer-reply');
                     post('progress', 'peer-replied');
-                    await wait(() => enabled(button('Refresh native messages')));
-                    await refreshMessages();
-                    await wait(() => messages().incomingReceived);
+                    await wait(() => enabled(button('Refresh native messages')), 'receive-refresh-enabled');
+                    await refreshMessages('receive-refresh-enabled', 'receive-refresh-completion');
+                    await wait(() => messages().incomingReceived, 'incoming-received');
                     require(messages().incomingTimeUnknown && messages().incomingReadUnknown);
                     cases.push('actual-native-pm-receive');
                     post('progress', 'pm-received');
-                    await wait(() => enabled(button('Refresh native messages')));
-                    await refreshMessages();
+                    await wait(() => enabled(button('Refresh native messages')), 'dedup-refresh-enabled');
+                    await refreshMessages('dedup-refresh-enabled', 'dedup-refresh-completion');
                     require(
                         rows(outgoing).length === 1 &&
                             rows(incoming).length === 1 &&
@@ -717,7 +778,7 @@
                     cases.push('dedup-truthful-status');
                     post('progress', 'pm-deduped');
                     post('control', 'capture-proof');
-                    await wait(() => proofCaptured);
+                    await wait(() => proofCaptured, 'proof-captured');
                     cases.push('native-exchange-proof-captured');
                     post('progress', 'native-proof-captured');
                     if (sceneLifecycleProof) {
@@ -726,6 +787,7 @@
                         // Entry already captured the run diagnostics. Remove only
                         // those two owned query values before native DOM ACK; this
                         // is same-document replacement, not a navigation or fence.
+                        enterFailurePhase('url-check');
                         const diagnosticUrl = new URL(location.href);
                         require(
                             diagnosticUrl.searchParams.size === 2 &&
@@ -735,7 +797,10 @@
                         );
                         diagnosticUrl.search = '';
                         history.replaceState(null, '', diagnosticUrl.href);
-                        await wait(() => sceneProtectedReady && sceneForegroundObserved && scenePresentationClosed);
+                        await wait(
+                            () => sceneProtectedReady && sceneForegroundObserved && scenePresentationClosed,
+                            'await-foreground',
+                        );
                         observed = await wait(
                             (value, facts) =>
                                 ['unavailable', 'signed_out'].includes(value?.auth.status) &&
@@ -746,9 +811,11 @@
                                 facts.legacyControlsAbsent &&
                                 (!document.querySelector('input[aria-label="Message Paired sailor"]') ||
                                     document.querySelector('input[aria-label="Message Paired sailor"]').value === ''),
+                            'await-closed-window',
                         );
                         const facts = domFacts();
                         const compose = document.querySelector('input[aria-label="Message Paired sailor"]');
+                        enterFailurePhase('closure-post');
                         const handler = window.webkit?.messageHandlers?.researchFullAppSceneUiFixture;
                         require(handler && typeof handler.postMessage === 'function');
                         handler.postMessage({
@@ -767,7 +834,7 @@
                             },
                             sdkCounts: { ...sdkCounts },
                         });
-                        await wait(() => sceneUiClosed);
+                        await wait(() => sceneUiClosed, 'await-closure-ack');
                         // Separate native scene receipt/driver decides acceptance.
                         // Never emit the old synthetic terminal/remount cases.
                         return;
@@ -832,12 +899,14 @@
                     } catch {
                         /* fixed failure still reported; no fallback */
                     }
+                    postFailureDiagnostic();
                     post('failed', 'fixture-failed');
                 });
             },
             { once: true },
         );
     } catch {
+        postFailureDiagnostic();
         post('failed', 'fixture-failed');
     }
 })();

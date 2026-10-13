@@ -11,7 +11,65 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
-## Current inbox completion and failed background witness on 13 October
+## Late reports and bounded finish diagnostics on 13 October
+
+The [new source-bound record](../experiments/scuttlebutt-e2ee/review/scene-finish-diagnostic-observation-2026-10-13.json)
+refreshes actual unsupported Chrome startup/chat/closure/remount/CSP with complete
+source correspondence: 1,751 module inputs, 293 outputs, two workers, zero page
+errors and six retained console errors. Original framework/61-source HTTPS/cache
+artifacts and prior failed receipts remained byte-identical; no evidence was
+reconstructed or independent-assessment claim made.
+
+Fresh 27-source run, PID 53341, failed native-final-validate before any protected
+prefix or OS action. First inbox and one send succeeded; latest failed report had
+121 UI assertions and no exchange proof. Source/copy hash
+`800dd3f7f0d9e1625cd8a3564f7d7f5c39970427338871486f441f097b824514`
+confirms exact late-report retention. Assertion 121 only narrows between the
+outgoing check and first refresh validation; role/reply completion/cause remain
+unknown. Do not transfer the earlier responder exchange counts.
+
+Added separate selected-once native finish and JS failure channels. Fixed enums
+only: no Report, error, snapshot, credential, timer or authority retention. Native
+selection follows the ORIGINAL finish guard. Pre-ready JS admission checks exact
+five-key shape, owned view/main frame/local origin and resource-established run
+bindings, never closure or permission paths. Optional private copies retain exact
+admitted bytes. Report remains 20 keys, ordinary Swift bound 24, scene whitelist
+**28 Swift inputs / 25 driver pins**, original bindings 11; all 61 prerequisite
+sources are unchanged. Source parity preserves waits, refresher, native receive/
+finish/cleanup, ordinary exclusions, original timers and failure closure.
+
+Executed **630 Foundation direct-call assertions** under Swift 6, ordinary-disabled
+typecheck and actual Swift JSON inspected by current JS; **239 parser cases**;
+final **282 Node helper/schema/source cases plus 370 cases in five affected
+suites**, with syntax, formatting, lint and narrow strict types. These are not
+native crypto/OS acceptance. Initial 367/370 failed obsolete source-string
+expectations; exact labelled wait/refresh checks were corrected without relaxing
+gates. Preserve that failed receipt. Final receipt SHA-256
+`67209aaa23b2ab0094fd515b3162b23698a26a9928dae0e2acf2dde33fb9f4ea`.
+
+The **28-source native app compiled/launched**, independent PID **63613**, but
+failed native-final-validate at the existing observation deadline. Latest report
+remained **running / pm-opened**, 118 UI assertions, one successful inbox, **zero
+send dispatches**, no exchange proof. Both terminal channels correctly remained
+0/0: no native finish/JS failure message observed before that bound, not a specific
+failure phase or success. Exact diagnostic byte hashes, simulator ID/name absence
+and source stability passed. Parent:
+`/private/tmp/thalassa-full-root-protected-k8zEyO/run-receipt.json`, SHA-256
+`57434b0465892e30ee64266aeb9f8fd0bc0475ecdb472e18d47eee4c2605f97a`.
+
+Shared waiting **101,085/120,000 ms**, native child zero, remaining budgets carried
+to helpers. No operational deadline widened. No production, primary target,
+hosted service or human device/account/key changed. Nothing is merge-ready.
+
+Next observe a separate bounded ordered **last-entered in-progress JS phase**,
+not a terminal-failure selector, and correlate send-enabled/reply/refresh state.
+Do not rerun unchanged launches or enlarge timers. Original-witness repair should
+use a native-issued owner-only credential-free stamp, not cached booleans or
+extended bearer retention; changing its facade requires legitimate 61-source
+regeneration. Actual complete OS/navigation/cold/recovery, current HTTPS/Auth,
+physical, cutover/policy, provenance/licence and independent-review gates remain.
+
+## Earlier inbox completion and failed background witness on 13 October
 
 The [source-bound current record](../experiments/scuttlebutt-e2ee/review/inbox-scene-prefix-failure-2026-10-13.json)
 records **370 synthetic/source cases in five suites and 24 Node helper cases**,

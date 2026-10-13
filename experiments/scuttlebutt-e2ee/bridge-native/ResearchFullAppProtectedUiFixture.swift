@@ -47,6 +47,11 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
     private var httpFence: ResearchFullAppProtectedHttpFenceAttachment?
     private var original: DmNativeMessageSnapshot?
     private var originalFenceCount: Int?
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+    static let sceneFinishStageEvidence = ResearchSceneFinishStageEvidence()
+    private var sceneFinishInput: (ResearchSceneFinishStageEvidence.Callsite,
+                                   ResearchSceneFinishStageEvidence.NativeValidationBoundary?)?
+#endif
 #if E2EE_FULL_APP_SCENE_UI_FIXTURE
     // Separate from attempted plugin-method counters. Never reset during a run.
     private var sceneVerifyFenceCompletions: Int? = 0
@@ -432,15 +437,47 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
               message.name == Self.handlerName, message.frameInfo.isMainFrame, message.webView === view,
               let url = message.frameInfo.request.url, url.scheme == "capacitor", url.host == "localhost", url.user == nil, url.password == nil,
               url.port == nil, url.fragment == nil || url.fragment == "", let report = try? parse(message.body) else { return }
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+        var nativeBoundary: ResearchSceneFinishStageEvidence.NativeValidationBoundary? = nil
+#endif
         do {
-            if report.status == "failed" { finish(report, passing: false); return }
-            if report.status == "control" { try common(report); try control(report); return }
+            if report.status == "failed" {
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+                sceneFinishInput = (.javascriptFailed, nil)
+#endif
+                finish(report, passing: false); return
+            }
+            if report.status == "control" {
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+                nativeBoundary = .common
+#endif
+                try common(report)
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+                nativeBoundary = .control
+#endif
+                try control(report); return
+            }
             if report.status == "passed" {
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+                nativeBoundary = .progressOrder
+#endif
                 guard progressIndex == Self.progressPhases.count else { throw ResearchFullAppProtectedUiError.unavailable }
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+                nativeBoundary = .common
+#endif
                 try common(report); finish(report, passing: true); return
             }
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+            nativeBoundary = .progressOrder
+#endif
             guard progressIndex < Self.progressPhases.count, report.phase == Self.progressPhases[progressIndex] else { throw ResearchFullAppProtectedUiError.unavailable }
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+            nativeBoundary = .http
+#endif
             _ = try httpEvidence(challenge: progressIndex >= 2)
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+            if progressIndex >= 3 { nativeBoundary = .common }
+#endif
             if progressIndex >= 3 { try common(report) }
             if ["signed-in", "unknown-admission"].contains(report.phase) { try captureOriginal() }
             if report.phase == "pm-received" {
@@ -462,14 +499,27 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
             }
             if report.phase == "terminal-closed" { guard capturedProof != nil else { throw ResearchFullAppProtectedUiError.unavailable }; lock.lock(); terminal = true; lock.unlock() }
             progressIndex += 1; Self.notePhase(report.phase)
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+            nativeBoundary = .write
+#endif
             try write(status: "running", phase: report.phase, report: report, nativeAssertions: 0,
                 state: fenced() ? ["status": "credential-fenced", "accountPresent": false, "originalSnapshotCurrent": false] : ["status": "running"], initial: false)
 #if E2EE_FULL_APP_SCENE_UI_FIXTURE
             // Persist the real protected prefix before announcing readiness to
             // the lifecycle driver/JS. No stale earlier prefix can authorize it.
-            if report.phase == "native-proof-captured" { try ResearchFullAppSceneUiFixture.protectedReady() }
+            if report.phase == "native-proof-captured" {
+#if targetEnvironment(simulator)
+                nativeBoundary = .protectedReady
 #endif
-        } catch { finish(report, passing: false) }
+                try ResearchFullAppSceneUiFixture.protectedReady()
+            }
+#endif
+        } catch {
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+            sceneFinishInput = (.nativeReceiveRefused, nativeBoundary)
+#endif
+            finish(report, passing: false)
+        }
     }
     @MainActor private func control(_ report: Report) throws {
         guard !terminal, !controlBusy, let facade, let view, let original, facade.currentMessageContext(snapshot: original) == original.context else { throw ResearchFullAppProtectedUiError.unavailable }
@@ -521,7 +571,19 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
         return result
     }
     @MainActor private func finish(_ report: Report, passing: Bool) {
-        guard !completed, !finalizing else { return }; lock.lock(); finalizing = true; terminal = true; lock.unlock()
+        guard !completed, !finalizing else { return }
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+        // Fixed admitted values only, selected after the ORIGINAL finish guard.
+        // No Report, error or credential is retained by this passive recorder.
+        let callsite = passing ? ResearchSceneFinishStageEvidence.Callsite.javascriptPassed : sceneFinishInput?.0
+        if let callsite {
+            _ = Self.sceneFinishStageEvidence.selectNativeFinish(callsiteName: callsite.rawValue,
+                lastNativeValidationBoundaryName: passing ? "final" : sceneFinishInput?.1?.rawValue,
+                admittedReportPhaseName: report.phase)
+        }
+        sceneFinishInput = nil
+#endif
+        lock.lock(); finalizing = true; terminal = true; lock.unlock()
         let active = controlTask; active?.cancel()
         Task { @MainActor in
             if let active { await active.value }
@@ -552,6 +614,7 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
     @MainActor private func write(status: String, phase: String, report: Report?, nativeAssertions: Int, state: [String: Any], initial: Bool) throws {
 #if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
         ResearchFullAppSceneUiFixture.persistFirstInboxDiagnostic()
+        ResearchFullAppSceneUiFixture.persistSceneFinishDiagnostic()
 #endif
         guard let runID, let nonce else { throw ResearchFullAppProtectedUiError.unavailable }
 #if E2EE_FULL_APP_SCENE_UI_FIXTURE

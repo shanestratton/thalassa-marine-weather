@@ -601,7 +601,9 @@ describe('v3 and existing UI semantics — read-only source preservation, not ex
         expect(fixture).toContain('pmResults["privateMessageInbox:ok"] == inbox + 1');
         expect(fixture).toContain('counters["privateMessageThread"] == thread + 1');
         const script = readFileSync('experiments/scuttlebutt-e2ee/full-app-pilot/nativeProtectedUiFixture.js', 'utf8');
-        expect(script).toContain('async function refreshMessages()');
+        expect(script).toContain('async function refreshMessages(enabledPhase, completionPhase)');
+        expect(script).toContain("refreshMessages('receive-refresh-enabled', 'receive-refresh-completion')");
+        expect(script).toContain("refreshMessages('dedup-refresh-enabled', 'dedup-refresh-completion')");
         expect(script).toContain('aria-label^="Page actions"');
         expect(script).not.toContain('Server-readable private message');
         expect(readFileSync('components/chat/ChatHeader.tsx', 'utf8')).toContain("'Page actions'");

@@ -21,6 +21,7 @@ final class ResearchFullAppSceneUiFixture: NSObject, WKScriptMessageHandler {
     private var documents: URL?
     private var observerFile: URL?
     private var firstInboxDiagnosticFile: URL?
+    private var finishDiagnosticFile: URL?
     private weak var scene: UIScene?
     private weak var delegate: ResearchSceneDelegate?
     private weak var view: WKWebView?
@@ -123,6 +124,7 @@ final class ResearchFullAppSceneUiFixture: NSObject, WKScriptMessageHandler {
         // leaves partial evidence; it cannot make this scenario pass.
         observerFile = try observer.persist(inNativeDocumentsRoot: documents)
         Self.persistFirstInboxDiagnostic()
+        Self.persistSceneFinishDiagnostic()
     }
 
     // Optional diagnostic I/O is separate from every operation, reply and scene
@@ -164,6 +166,47 @@ final class ResearchFullAppSceneUiFixture: NSObject, WKScriptMessageHandler {
               metadata.st_uid == getuid(), (UInt32(metadata.st_mode) & 0o7777) == 0o600,
               (1...4096).contains(Int(metadata.st_size)) else { throw ResearchFullAppSceneUiError.unavailable }
     }
+    static func persistSceneFinishDiagnostic() { try? shared.writeSceneFinishDiagnostic() }
+    private func writeSceneFinishDiagnostic() throws {
+        guard let observer, let documents, let observerFile,
+              try observer.persist(inNativeDocumentsRoot: documents).path == observerFile.path,
+              let slash = observerFile.path.lastIndex(of: "/") else { throw ResearchFullAppSceneUiError.unavailable }
+        let file = URL(fileURLWithPath: String(observerFile.path[..<slash]) + "/scene-finish-stage.json")
+        let bytes = try JSONSerialization.data(withJSONObject:
+            ResearchFullAppProtectedUiFixture.sceneFinishStageEvidence.snapshot().json, options: [.sortedKeys])
+        guard (1...4096).contains(bytes.count) else { throw ResearchFullAppSceneUiError.unavailable }
+        if let existing = finishDiagnosticFile {
+            guard existing.path == file.path else { throw ResearchFullAppSceneUiError.unavailable }
+            try requireFirstInboxDiagnostic(file)
+            try bytes.write(to: file, options: [.atomic, .completeFileProtection])
+        } else { try bytes.write(to: file, options: [.withoutOverwriting, .completeFileProtection]) }
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        try requireFirstInboxDiagnostic(file)
+        finishDiagnosticFile = file
+    }
+
+    // Separate diagnostic admission is available before protected-ready. It
+    // cannot enter the closure/permission path or mutate any native authority.
+    private func receiveFinishDiagnostic(_ controller: WKUserContentController, message: WKScriptMessage) {
+        guard let view, message.name == Self.handlerName,
+              controller === view.configuration.userContentController,
+              message.webView === view, message.frameInfo.isMainFrame,
+              let url = message.frameInfo.request.url, url.scheme == "capacitor", url.host == "localhost",
+              url.user == nil, url.password == nil, url.port == nil,
+              url.fragment == nil || url.fragment == "" else { return }
+        do {
+            let row = try Self.exact(message.body, ["version", "kind", "runID", "nonce", "phase"])
+            guard Self.integer(row["version"], 1...1) == 1,
+                  row["kind"] as? String == "scene-finish-javascript-diagnostic",
+                  let runID, let nonce, row["runID"] as? String == runID,
+                  row["nonce"] as? String == nonce else { return }
+            let phase: String?
+            if row["phase"] is NSNull { phase = nil }
+            else { guard let name = row["phase"] as? String else { return }; phase = name }
+            guard ResearchFullAppProtectedUiFixture.sceneFinishStageEvidence.selectJavaScriptFailurePhase(name: phase) else { return }
+            Self.persistSceneFinishDiagnostic()
+        } catch { return } // Never turn optional diagnostic refusal into app failure.
+    }
 
     private func activation(_ state: UIScene.ActivationState?) -> ResearchSceneLifecycleEvidence.ActivationState {
         guard let state else { return .unknown }
@@ -183,6 +226,9 @@ final class ResearchFullAppSceneUiFixture: NSObject, WKScriptMessageHandler {
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if let body = message.body as? [String: Any], body["kind"] as? String == "scene-finish-javascript-diagnostic" {
+            receiveFinishDiagnostic(controller, message: message); return
+        }
         guard !failed, ready, backgroundObserved, foregroundObserved, presentationClosed, !closureReported,
               let view, message.name == Self.handlerName, controller === view.configuration.userContentController,
               message.webView === view, message.frameInfo.isMainFrame,

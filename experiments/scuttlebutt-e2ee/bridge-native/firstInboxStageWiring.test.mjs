@@ -375,8 +375,8 @@ test('synthetic source retains the exact twenty-key protected report and separat
         .trim()
         .split(/\s+/)
         .sort();
-    assert.equal(inventory?.length, 27);
-    assert.equal(new Set(inventory).size, 27);
+    assert.equal(inventory?.length, 28);
+    assert.equal(new Set(inventory).size, 28);
     assert.ok(inventory.includes('ResearchFirstInboxStageEvidence.swift'));
     assert.match(
         ruby,
@@ -459,7 +459,7 @@ test('synthetic source captures admitted diagnostic/hash/binding on both failed 
     position(final, "quiet('/usr/bin/xcrun', ['simctl', 'delete', simulator])", extraction);
     position(
         final,
-        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
+        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
         extraction,
     );
     position(final, 'save()', extraction);

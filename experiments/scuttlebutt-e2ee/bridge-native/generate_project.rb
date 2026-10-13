@@ -33,7 +33,7 @@ begin
     VodozemacAuthSession.swift VodozemacAccountDirectory.swift VodozemacSessionFacade.swift
     ResearchLocalUiFixture.swift ResearchFullAppProtectedHttpFence.swift ResearchFullAppProtectedUiFixture.swift
     ResearchProtectedUiRelay.swift ResearchProtectedUiFixture.swift ResearchSceneLifecycleEvidence.swift
-    ResearchFullAppSceneUiFixture.swift ResearchFirstInboxStageEvidence.swift].sort
+    ResearchFullAppSceneUiFixture.swift ResearchFirstInboxStageEvidence.swift ResearchSceneFinishStageEvidence.swift].sort
   raise 'Bounded native sources required' unless sources.is_a?(Array) &&
     (manifest['sceneUiFixture'] ? sources.sort == scene_sources : sources.length.between?(3, 24)) &&
     sources.uniq.length == sources.length

@@ -586,6 +586,7 @@ try {
             join(HERE, 'ResearchSceneLifecycleEvidence.swift'),
             join(HERE, 'ResearchFullAppSceneUiFixture.swift'),
             join(HERE, 'ResearchFirstInboxStageEvidence.swift'),
+            join(HERE, 'ResearchSceneFinishStageEvidence.swift'),
         );
     sourcePaths.forEach((path) => regular(path, 1024 * 1024));
     scratch = mkdtempSync(join(tmpdir(), 'thalassa-messaging-build-'));

@@ -1,0 +1,208 @@
+{
+    "schemaVersion": 1,
+    "kind": "late-native-report-retention-and-finish-diagnostic-wiring",
+    "recordedDate": "2026-10-13",
+    "timezone": "Australia/Brisbane",
+    "sourceBase": "a820d34912af8250c31bee432c5fc16cbd7ebd62",
+    "branch": "codex/scuttlebutt-e2ee-integration-clean-2026-10-11",
+    "status": "diagnostics-compiled-current-ui-observation-incomplete-not-merge-ready",
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "59e8f08554eef5218202afa343065b8a2367649f7faeba6fc1ea51c51bff6461",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppSceneUiFixture.swift": "a17be352fcd63f12a7214358d8ab2df23f64cef561eef5752da098fb6cfaaf2b",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "440944c87fda2e4de76a817f8a2aaff5a25f4a84be4958f4536c95a306916cae",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFirstInboxStageEvidence.swift": "4ba97c4cdfeda4468ed70cffa2de4a6db54124fcdaeaa7ec01d891442f5c8893",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageContract.mjs": "5253d1e5639c13b35e4db3e2666ed32ea81f46ad8a0d1f7a784847c5adf742eb",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageWiring.test.mjs": "67b50ef2436a625caa3c0bf00101ad0733681792b5ad5cec96c5152090454d3e",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs": "20fa288389bd2789eb788196eb7f40b1845442413896f3f1bbf84ab9c653a241",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "6cdefd14e516d47e3893280b3731a9473278848a8074428437a51064edf196da",
+        "experiments/scuttlebutt-e2ee/bridge-native/generate_project.rb": "8c384f653ec3159c8ffd7c05e769a588207fc822c126cb4c8affaf5a5f8702ec",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/windowProofContract.mjs": "588965f4820c34ddd0990ef8b7cbdac09682b66a9fab9765f1b6a6c566029f3a",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneFinishStageEvidence.swift": "0cdf0a2b8f60eed7adb68105229817c2848905419c7b6017900ac320c66a071f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneFinishStageEvidenceSyntheticTests.swift": "95a8a1dbf470e6279aa80d6bdc085da671e03ec6c07c929f8e0a9cd23512ccb8",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneFinishStageContract.mjs": "4f5e478e1025137ac7eff1461ee2d13bea653e516b49619f35272b2d48458bf3",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneFinishStageContract.test.mjs": "d677909d210156aa7c7a88651ad4bcc1829bb914eee1ab0f3f3843f52d4693b9",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneFinishStageWiring.test.mjs": "3923093bb92e273627cfaf8dc02b2cf6d28416880d7db4e78aa699f21a0aacec",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeProtectedUiFixture.js": "f7d236e41e2a1a252d0683e1078c326014633050234a7e44c3ec455370ed7185",
+        "tests/E2eeSceneLifecycleEvidence.test.ts": "958446619867a7331f62298e423cfe180e6d368222c5570c8f036f4d0d09bdf8",
+        "tests/E2eeFullAppProtectedNativeContract.test.ts": "86f87cc4a4803db48ae1da0876e4ae61f960aa05aa72be7d6f5aabf58a4e8658",
+        "tests/E2eeFullAppNativeResume.test.ts": "db0118742145779db80f73d2f073fd6efc4566a246fdff7b5c7e1b7029c5c359",
+        "tests/E2eeProtectedUiFixture.test.ts": "483e7155f20300755555066ba6dccd59a98c89540d827414bbd3b250cb5d88fb",
+        "tests/E2eeFullAppWindowProof.test.ts": "174cc9fc34fbc454cddb6be29bda3757a0e39740236a9b0e06578805741dd930"
+    },
+    "web": {
+        "build": {
+            "path": "/private/tmp/thalassa-scene-late-current-web.q8yc1o/build-receipt.json",
+            "sha256": "49231a0be80f5396316dcc6884e3718a812c66f5e6092ff1681d71fcb1885243"
+        },
+        "window": {
+            "path": "/private/tmp/thalassa-full-app-window-IMSEQ2/window-receipt.json",
+            "sha256": "b0b376b097a683e146948b78e2defab255b9535650ef9d139766b4611be19ef6"
+        },
+        "status": "passed",
+        "moduleInputs": 1751,
+        "outputs": 293,
+        "workers": 2,
+        "completeBidirectionalInventory": true,
+        "consoleErrors": 6,
+        "pageErrors": 0,
+        "scope": "Actual owned unsupported Chrome startup/chat/closure/remount/CSP, not native/physical/production acceptance"
+    },
+    "preceding27SourceAttempt": {
+        "parent": {
+            "path": "/private/tmp/thalassa-full-root-protected-relQvN/run-receipt.json",
+            "sha256": "b7dbd3058f22b87557c55c1349ba5eb3bd88d1d63247793bae8b338f6ddf5780"
+        },
+        "launchPID": 53341,
+        "status": "failed",
+        "failedOperation": "native-final-validate",
+        "latestRawReport": {
+            "path": "/private/tmp/thalassa-full-root-protected-relQvN/latest-scene-native-diagnostic.json",
+            "sha256": "800dd3f7f0d9e1625cd8a3564f7d7f5c39970427338871486f441f097b824514",
+            "sourceSHA256": "800dd3f7f0d9e1625cd8a3564f7d7f5c39970427338871486f441f097b824514"
+        },
+        "uiAssertions": 121,
+        "inboxOk": 1,
+        "sendOk": 1,
+        "setupControls": 1,
+        "replyControls": 1,
+        "cryptoProofPresent": false,
+        "osDispatched": false,
+        "interpretation": "Report lost original callsite/phase; 121 only narrows to after outgoing check and before first refresh enabled check, not a specific timeout/role or reply completion",
+        "cleanup": {
+            "idAbsent": true,
+            "nameAbsent": true,
+            "sourcesUnchanged": true
+        }
+    },
+    "currentDiagnostics": {
+        "native": "Selected once AFTER original finish accepted guard; fixed callsite/last-entered-validation/admitted-report phase only",
+        "javascript": "Separate selected-once failure-phase channel; 23 fixed labels, no predicate/error/message/request data; admission available before protected-ready",
+        "storage": "Optional <=4096-byte exact private output in observer-owned directory with independent process/resource/source binding; raw copied bytes hash-equal to admitted originals",
+        "acceptanceEvidence": false,
+        "ordinarySourceParity": "Source token regression checks passed after stripping only diagnostic blocks",
+        "unchangedReportKeys": 20,
+        "ordinarySwiftMaximum": 24,
+        "sceneSwiftWhitelist": 28,
+        "driverPins": 25,
+        "originalSceneBindings": 11,
+        "prerequisite61Unchanged": true,
+        "noCredentialOrSnapshotRetentionAdded": true
+    },
+    "synthetic": {
+        "foundation": {
+            "path": "/private/tmp/thalassa-scene-finish-contracts.A6sTh6/checks-receipt.json",
+            "sha256": "0ddc200097aea9e5055446bfacc6c6081e71a9cc553f9270c181249d74e7d0d2",
+            "assertions": 630,
+            "swiftVersion": 6,
+            "ordinaryDisabledTypecheck": true,
+            "actualSwiftSnapshotInspectedByJs": true,
+            "scope": "Host Foundation direct calls, no UIKit/crypto"
+        },
+        "parserCases": 239,
+        "currentWiringAndSchemaNodeCases": 282,
+        "affectedSourceCases": 370,
+        "suites": 5,
+        "currentReceipt": {
+            "path": "/private/tmp/thalassa-scene-finish-wiring-final.vwrUH0/checks-receipt.json",
+            "sha256": "67209aaa23b2ab0094fd515b3162b23698a26a9928dae0e2acf2dde33fb9f4ea"
+        },
+        "formatLintSyntaxNarrowTypes": "passed",
+        "scope": "Synthetic/source/helper categories; not app/crypto/OS acceptance"
+    },
+    "current28SourceAttempt": {
+        "parent": {
+            "path": "/private/tmp/thalassa-full-root-protected-k8zEyO/run-receipt.json",
+            "sha256": "57434b0465892e30ee64266aeb9f8fd0bc0475ecdb472e18d47eee4c2605f97a"
+        },
+        "nativeReport": {
+            "path": "/private/tmp/thalassa-full-root-protected-k8zEyO/native-receipt.json",
+            "sha256": "b5e1a15796547f6fcdbdd07141a06350e20135c290235274b421a9e25588dfbb"
+        },
+        "build": {
+            "path": "/private/tmp/thalassa-messaging-build-c41r7j/build-receipt.json",
+            "sha256": "75de3422755c6bfa35033556b2760a9e97e47ae969d92de290fdc4cd956cded9"
+        },
+        "swiftInputs": 28,
+        "unsignedFiles": 342,
+        "signedFiles": 345,
+        "latest": {
+            "path": "/private/tmp/thalassa-full-root-protected-k8zEyO/latest-scene-native-diagnostic.json",
+            "sha256": "82c1c16b60df5df797fa8bc35b834659b0ec4c056d8fcdec14dbca356f4afb44",
+            "sourceSHA256": "82c1c16b60df5df797fa8bc35b834659b0ec4c056d8fcdec14dbca356f4afb44",
+            "status": "running",
+            "phase": "pm-opened",
+            "afterProtectedPrefix": true,
+            "acceptanceEvidence": false,
+            "wholeRunAccepted": false
+        },
+        "finish": {
+            "path": "/private/tmp/thalassa-full-root-protected-k8zEyO/scene-finish-stage-diagnostic.json",
+            "sha256": "9d05c9e1c2a78c8d0a13280ca03887c36ae047a11f5490771f74b5df5d7581ac",
+            "sourceSHA256": "9d05c9e1c2a78c8d0a13280ca03887c36ae047a11f5490771f74b5df5d7581ac"
+        },
+        "observer": {
+            "path": "/private/tmp/thalassa-full-root-protected-k8zEyO/failed-scene-observer.json",
+            "sha256": "61b8b26ec23369186a4acb2b31bc794f4a25d9d14992339be48dd3ea19b54a59",
+            "lastEvent": "did-become-active",
+            "independentlyMeasuredLaunchPIDAvailable": true,
+            "wholeRunAccepted": false
+        },
+        "firstInbox": {
+            "path": "/private/tmp/thalassa-full-root-protected-k8zEyO/first-inbox-stage-diagnostic.json",
+            "sha256": "f8cba45ee758e430be8ae767f1f394b675618ef68a01f0477167aa5a16410008",
+            "sourceSHA256": "f8cba45ee758e430be8ae767f1f394b675618ef68a01f0477167aa5a16410008"
+        },
+        "status": "failed",
+        "failedOperation": "native-final-validate",
+        "independentLaunchPID": 63613,
+        "nativeOperationTimedOut": false,
+        "existingObservationDeadlineReached": true,
+        "lastRetainedStatus": "running",
+        "lastRetainedPhase": "pm-opened",
+        "uiAssertions": 118,
+        "inboxOk": 1,
+        "sendDispatches": 0,
+        "successfulSendResults": 0,
+        "protectedProofPresent": false,
+        "osDispatched": false,
+        "finishSelectors": {
+            "native": 0,
+            "javascript": 0
+        },
+        "diagnosticRawRetentionVerified": true,
+        "interpretation": "No admitted native finish or JS failure message was observed before the driver's existing observation bound. Unselected channels cannot be described as a particular error/stage or a pass.",
+        "cleanup": {
+            "idAbsent": true,
+            "nameAbsent": true,
+            "sourcesUnchanged": true
+        }
+    },
+    "retainedSourceFailure": {
+        "path": "/private/tmp/thalassa-scene-finish-wiring-checks.muloog/checks-receipt.json",
+        "sha256": "7afce5dc8bd1c192a2578996e8722143eb62577c1331e2931885744d249a1c5a",
+        "result": "367/370 obsolete source-string expectations for diagnostic parameters; tightened exact labelled refresh/foreground waits while preserving deadlines, gates and source-parity assertions; original receipt remains failed"
+    },
+    "waiting": {
+        "budgetMs": 120000,
+        "cumulativeSharedWaitMs": 101085,
+        "childWaitMs": 0,
+        "exhausted": false,
+        "remainingMs": 18915,
+        "helperBudgetsCarried": true,
+        "operationalStepDeadlinesChanged": false
+    },
+    "internalReviewOnly": true,
+    "independentAssessment": false,
+    "mergeReady": false,
+    "productionTouched": false,
+    "primaryCheckoutTouched": false,
+    "humanDevicesAccountsKeysTouched": false,
+    "hostedServicesChanged": false,
+    "next": [
+        "Do not rerun unchanged UI launches or widen deadlines",
+        "Add a separate bounded monotonically ordered last-entered JS phase/progress diagnostic (not a failure selector) to observe still-running UI at a native deadline; keep terminal selectors truthful",
+        "Correlate send-enabled/peer-reply/refresh control completion and native refusal without raw errors/messages; fix only demonstrated cause",
+        "Preserve original baseline via native-issued owner-only credential-free observation stamp, never cached booleans; changing facade requires legitimate 61-source provider/HTTPS regeneration",
+        "Execute current encrypted prefix and genuine background/foreground/navigation, then cold/separate recovery and opposite role/current HTTPS/Auth; complete shipping policy, physical, provenance/licence and independent-review gates"
+    ]
+}
