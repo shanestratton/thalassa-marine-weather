@@ -8,9 +8,17 @@
 // projects, places markers and places symbols, which is what these read. The
 // wind field is a Leaflet canvas in a DOM div, so it renders for real.
 //
-// Query: scene=wind|marker|sart, bearing=<deg> (the camera at load, as a mode
-// would turn it), mode=turning|north (whether a turning mode is on;
+// Query: scene=wind|marker|sart|arrow|run, bearing=<deg> (the camera at load,
+// as a mode would turn it), mode=turning|north (whether a turning mode is on;
 // default: turning when the bearing is not 0), state=underway|stopped (marker).
+//
+// 127-11b ("the modes"): scene=arrow mounts the production north arrow beside
+// the chart in Heading up, her compass reading heading=<deg> on her bus;
+// scene=run is a simulated two-minute Track-up run (the production controller,
+// marker and wind field together at the fjord), driven by run().
+// scene=interrupt&kind=jump|fit: a camera move lands while the controller's
+// turn is still easing, in real motion (interrupted()). scene=snap&snap=<deg>:
+// a chart turned to 5°, built with that bearingSnap, for a mouse pan.
 //
 // Places, worldwide: the wind over a Tromsø-like fjord (70°N), the boat in a
 // Chesapeake-like bay, the beacon on the antimeridian by a Taveuni-like reef.
@@ -20,7 +28,15 @@ import L from 'leaflet';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { MapboxVelocityOverlay } from '../../components/map/MapboxVelocityOverlay';
-import { setChartOrientation } from '../../components/map/chartOrientation';
+import {
+    chartFitBearing,
+    isOrientationEvent,
+    orientChart,
+    setChartOrientation,
+} from '../../components/map/chartOrientation';
+import { ChartOrientationArrow } from '../../components/map/ChartOrientationControl';
+import { registerChartMap } from '../../components/map/chartMapRegistry';
+import { publishOwnshipMotion } from '../../components/map/ownshipMotion';
 import {
     createVesselElement,
     OWNSHIP_MARKER_OPTIONS,
@@ -49,6 +65,14 @@ const state = params.get('state') ?? 'underway';
 const FJORD: [number, number] = [18.96, 69.65];
 const BAY: [number, number] = [-76.4, 38.6];
 const REEF: [number, number] = [179.95, -16.8];
+/** A made-up Brittany-like headland, and a broad Atlantic view that holds it. */
+const HEADLAND: [number, number] = [-4.77, 48.38];
+const ATLANTIC: [number, number] = [-20, 45];
+/** Her in the fjord, on screen at its opening camera. */
+const FJORD_HER: [number, number] = [19.0, 69.66];
+const kind = params.get('kind') ?? 'jump';
+/** Where her marker is drawn: the bay, or the fjord for the run (under the wind field). */
+const HOME: [number, number] = scene === 'run' ? FJORD : BAY;
 
 // As 127-11b's controller will: the mode first, then the camera.
 setChartOrientation({ turning, target: turning ? bearing : null });
@@ -59,12 +83,22 @@ L.Map.addInitHook(function (this: L.Map) {
     leafletMaps.push(this);
 });
 
-const centre = scene === 'wind' ? FJORD : scene === 'marker' ? BAY : REEF;
+const centre =
+    scene === 'wind' || scene === 'run'
+        ? FJORD
+        : scene === 'sart'
+          ? REEF
+          : scene === 'interrupt'
+            ? kind === 'jump'
+                ? ATLANTIC
+                : FJORD
+            : BAY;
 const map = new mapboxgl.Map({
     container: 'map',
     center: centre,
-    zoom: scene === 'wind' ? 7 : 14,
-    bearing,
+    zoom: scene === 'wind' || scene === 'run' ? 7 : scene === 'interrupt' ? (kind === 'jump' ? 3.2 : 9) : 14,
+    bearing: scene === 'snap' ? 5 : bearing,
+    ...(scene === 'snap' && { bearingSnap: Number(params.get('snap') ?? 7) }),
     attributionControl: false,
     testMode: true,
     fadeDuration: 0,
@@ -194,7 +228,7 @@ function boat() {
         ),
         map.getBearing(),
     );
-    new mapboxgl.Marker({ element: el, ...OWNSHIP_MARKER_OPTIONS }).setLngLat(BAY).addTo(map);
+    new mapboxgl.Marker({ element: el, ...OWNSHIP_MARKER_OPTIONS }).setLngLat(HOME).addTo(map);
     // As useVesselTracker does: her arrows stay true while the chart turns.
     map.on('rotate', () => turnOwnshipArrows(el, map.getBearing()));
 }
@@ -209,10 +243,10 @@ function measureBoat() {
     const fix = { x: fixBox.left + fixBox.width / 2, y: fixBox.top + fixBox.height / 2 };
     // Where her course (135°T) runs on this screen, by the chart's own projection.
     const ahead = map.project([
-        BAY[0] + (0.001 * Math.sin((135 * Math.PI) / 180)) / Math.cos((BAY[1] * Math.PI) / 180),
-        BAY[1] + 0.001 * Math.cos((135 * Math.PI) / 180),
+        HOME[0] + (0.001 * Math.sin((135 * Math.PI) / 180)) / Math.cos((HOME[1] * Math.PI) / 180),
+        HOME[1] + 0.001 * Math.cos((135 * Math.PI) / 180),
     ]);
-    const here = map.project(BAY);
+    const here = map.project(HOME);
     const screenCourse = ((Math.atan2(ahead.x - here.x, -(ahead.y - here.y)) * 180) / Math.PI + 360) % 360;
     // The hull's own on-screen turn (the root is upright, so the arrow's is the whole of it).
     const m = new DOMMatrix(getComputedStyle(root.querySelector('.vessel-arrow')!).transform);
@@ -221,8 +255,8 @@ function measureBoat() {
     const windDeg = ((Math.atan2(w.b, w.a) * 180) / Math.PI + 360) % 360;
     // Her wind blows to 020°T: where that runs on screen.
     const down = map.project([
-        BAY[0] + (0.001 * Math.sin((20 * Math.PI) / 180)) / Math.cos((BAY[1] * Math.PI) / 180),
-        BAY[1] + 0.001 * Math.cos((20 * Math.PI) / 180),
+        HOME[0] + (0.001 * Math.sin((20 * Math.PI) / 180)) / Math.cos((HOME[1] * Math.PI) / 180),
+        HOME[1] + 0.001 * Math.cos((20 * Math.PI) / 180),
     ]);
     const screenWind = ((Math.atan2(down.x - here.x, -(down.y - here.y)) * 180) / Math.PI + 360) % 360;
     return {
@@ -321,19 +355,172 @@ async function readAis() {
     };
 }
 
+// ── 127-11b: the north arrow, and a simulated Track-up run ──
+const KN = 1.9438444924;
+/** Her bus, as the own-ship marker publishes it: a fresh true heading, stopped. */
+function busHeading(heading: number, [lon, lat]: [number, number] = HOME) {
+    const now = Date.now();
+    const metric = (value: number) => ({ value, lastUpdated: now, freshness: 'live' });
+    publishOwnshipMotion({
+        lane: 'bus',
+        lat,
+        lon,
+        at: now,
+        heading: null,
+        speed: null,
+        instruments: { headingTrue: metric(heading), sog: metric(0) },
+        maxAgeMs: 13_000,
+    });
+}
+
+/** The production arrow beside the chart, in Heading up, her compass on `heading`. */
+function arrow() {
+    localStorage.setItem('thalassa_chart_orientation_obs_v1', params.get('orient') ?? 'heading');
+    registerChartMap(map.getContainer(), map);
+    const rail = document.createElement('div');
+    rail.style.cssText = 'position:fixed;right:16px;bottom:242px;z-index:500';
+    document.body.appendChild(rail);
+    createRoot(rail).render(<ChartOrientationArrow active />);
+    const heading = Number(params.get('heading') ?? 0);
+    busHeading(heading);
+    setInterval(() => busHeading(heading), 500);
+}
+
+/** Where the arrow's needle points on screen: degrees clockwise from up. */
+function needle() {
+    const g = document.querySelector<SVGGElement>('button[aria-label^="Chart orientation"] svg g')!;
+    const m = g.getScreenCTM()!;
+    const at = (x: number, y: number) => new DOMPoint(x, y).matrixTransform(m);
+    const tip = at(12, 2);
+    const mid = at(12, 12);
+    return ((Math.atan2(tip.x - mid.x, -(tip.y - mid.y)) * 180) / Math.PI + 360) % 360;
+}
+
+/**
+ * Two simulated minutes of Track up from the phone alone: four legs of 30 s
+ * (020°, 110°, 200°, 290°: three turns after the first), one fix a second.
+ * The clock is the page's, moved a second per fix; the eases are instant
+ * (the spec asks for reduced motion). After every ease the wind field is
+ * probed, and her badge is measured after every fix.
+ */
+async function run() {
+    const turns: number[] = [];
+    map.on('rotatestart', (e: unknown) => {
+        if (isOrientationEvent(e)) turns.push(Date.now());
+    });
+    localStorage.setItem('thalassa_chart_orientation_obs_v1', 'track');
+    const ctl = orientChart(map, 'obs', () => ({}));
+    const real = Date.now.bind(Date);
+    let skew = 0;
+    Date.now = () => real() + skew;
+    let upright = true;
+    let worstProbe = 0;
+    for (let s = 0; s < 120; s++) {
+        skew += 1000;
+        const before = turns.length;
+        publishOwnshipMotion({
+            lane: 'phone',
+            lat: HOME[1],
+            lon: HOME[0],
+            at: Date.now(),
+            heading: [20, 110, 200, 290][Math.floor(s / 30)],
+            speed: 6 / KN,
+            instruments: {},
+            maxAgeMs: 30_000,
+        });
+        await settle();
+        const m = measureBoat();
+        if (!(m.badge.width > m.badge.height * 2 && m.badge.left > m.fix.x + 10)) upright = false;
+        if (turns.length > before) {
+            const { probes } = await windProbes();
+            for (const { mapbox, css } of probes)
+                worstProbe = Math.max(worstProbe, Math.abs(css.x - mapbox.x), Math.abs(css.y - mapbox.y));
+        }
+    }
+    Date.now = real;
+    const bearing = map.getBearing();
+    ctl.stop();
+    return { eases: turns.length, upright, worstProbe, bearing };
+}
+
+/**
+ * A camera move that lands while a turn is in flight, in real motion (no
+ * reduced motion here). The production controller in Heading up eases the
+ * chart to her 120°T; 10° into that ease, the Obs startup camera's jumpTo
+ * to her (kind=jump), or a duration-0 whole-route fit that keeps the mode's
+ * bearing, as usePassageRouteFrame's (kind=fit), moves the chart. Where the
+ * camera and she are right after the move, and 2 s later.
+ */
+async function interrupted() {
+    const her = kind === 'jump' ? HEADLAND : FJORD_HER;
+    localStorage.setItem('thalassa_chart_orientation_obs_v1', 'heading');
+    // Frames first: a cold software-GL first frame can swallow a whole ease.
+    if (!map.loaded()) await new Promise<void>((resolve) => map.once('idle', () => resolve()));
+    await settle();
+    let ctl: ReturnType<typeof orientChart> | null = null;
+    let feed: ReturnType<typeof setInterval> | undefined;
+    let midTurn = 0;
+    // Up to three tries to catch the ease in the air (10° in, still easing).
+    for (let attempt = 0; attempt < 3; attempt++) {
+        ctl?.stop();
+        clearInterval(feed);
+        await settle();
+        const turned = new Promise<void>((resolve) => {
+            const onRotate = () => {
+                if (Math.abs(map.getBearing()) < 10) return;
+                map.off('rotate', onRotate);
+                resolve();
+            };
+            map.on('rotate', onRotate);
+        });
+        ctl = orientChart(map, 'obs', () => ({}));
+        busHeading(120, her);
+        feed = setInterval(() => busHeading(120, her), 500);
+        await turned;
+        midTurn = map.getBearing();
+        if (map.isMoving() && midTurn < 110) break;
+    }
+    if (kind === 'jump') map.jumpTo({ center: her, zoom: 14 });
+    else
+        map.fitBounds(
+            [
+                [19.2, 69.7],
+                [19.6, 69.9],
+            ],
+            { duration: 0, padding: 40, bearing: chartFitBearing(map) },
+        );
+    const read = () => {
+        const c = map.getCenter();
+        const p = map.project(her);
+        return { centre: [c.lng, c.lat], zoom: map.getZoom(), her: { x: p.x, y: p.y }, bearing: map.getBearing() };
+    };
+    const after = read();
+    await new Promise((r) => setTimeout(r, 2000));
+    const later = read();
+    clearInterval(feed);
+    ctl?.stop();
+    return { midTurn, after, later };
+}
+
 map.on('load', () => {
-    if (scene === 'wind') {
+    if (scene === 'wind' || scene === 'run') {
         createRoot(document.createElement('div')).render(
             <MapboxVelocityOverlay mapboxMap={map} visible windGrid={southerly()} windHour={0} />,
         );
-    } else if (scene === 'marker') boat();
-    else ais();
+    }
+    if (scene === 'marker' || scene === 'run') boat();
+    else if (scene === 'arrow') arrow();
+    else if (scene === 'sart') ais();
     (window as unknown as { __orient: unknown }).__orient = {
         windProbes,
         turn,
         measureBoat,
         readAis,
+        needle,
+        run,
+        interrupted,
         bearing: () => map.getBearing(),
+        centre: () => map.getCenter().toArray(),
     };
     document.body.dataset.ready = 'true';
 });

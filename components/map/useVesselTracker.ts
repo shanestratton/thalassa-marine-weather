@@ -55,6 +55,8 @@ import type { ObsBoatNames } from './obsCentre';
 import { ownshipStatus, type OwnshipMarkerIdentity, type OwnshipStatusPresentation } from './ownshipStatus';
 import { boatWindChipFor, getBoatWindReadout, subscribeBoatWindReadout, type BoatWindChip } from './boatWindReadout';
 import { resolveOwnshipDirection, type DirectionInstruments, type OwnshipDirection } from './ownshipDirection';
+import { publishOwnshipMotion } from './ownshipMotion';
+import { NMEA_USABLE_MAX_AGE_MS } from '../../services/nmea/nmeaCadence';
 import {
     REMOTE_LANE_LIVE_MAX_AGE_MS,
     lookUpVesselMarkerFix,
@@ -1319,12 +1321,13 @@ export function useVesselTracker(
         const el = elementRef.current;
         if (!last || !el) return;
         const { lane } = last.identity;
+        const viaRow = lane === 'pi' || lane === 'cloud';
         // History has no bow; her row's readings are as old as its position;
         // the bus and the phone read their own live sources.
         const direction =
             lane === 'held'
                 ? UNKNOWN_DIRECTION
-                : lane === 'pi' || lane === 'cloud'
+                : viaRow
                   ? resolveOwnshipDirection(
                         last.position,
                         true,
@@ -1335,6 +1338,18 @@ export function useVesselTracker(
                   : resolveOwnshipDirection(last.position, last.viaVessel, NmeaStore.getState());
         spokenDirectionRef.current = presentOwnshipDirection(el, direction, mapBearing());
         nameMarker(el);
+        // The chart's orientation turns by what her bow arrow just read (127-11b):
+        // the same lane, the same readings, the same gate.
+        publishOwnshipMotion({
+            lane,
+            lat: last.position.latitude,
+            lon: last.position.longitude,
+            at: last.position.timestamp,
+            heading: last.position.heading,
+            speed: last.position.speed,
+            instruments: lane === 'bus' ? NmeaStore.getState() : (viaRow && last.instruments) || {},
+            maxAgeMs: viaRow ? REMOTE_LANE_LIVE_MAX_AGE_MS : lane === 'phone' ? 30_000 : NMEA_USABLE_MAX_AGE_MS,
+        });
     }, [nameMarker, mapBearing]);
 
     // The badge's words, its colour and the marker's grey all come from ONE
@@ -1680,6 +1695,7 @@ export function useVesselTracker(
                 elementRef.current = null;
             }
             lastMarkerPositionRef.current = null;
+            publishOwnshipMotion(null);
             lastLookKey = null;
             if (map) {
                 syncOwnshipObstacle(map, null);
@@ -2041,6 +2057,7 @@ export function useVesselTracker(
                 markerRef.current = null;
                 elementRef.current = null;
             }
+            publishOwnshipMotion(null);
             if (map) {
                 removeTrailLayers(map);
                 removeSwingLayers(map);

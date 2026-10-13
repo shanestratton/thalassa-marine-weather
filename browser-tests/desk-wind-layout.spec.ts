@@ -453,7 +453,7 @@ test.describe('wind on the desk planner', () => {
             expect(box.x + box.width).toBeLessThanOrEqual(size.width);
             expect(box.y).toBeGreaterThanOrEqual(0);
             const others = {
-                rose: page.getByRole('img', { name: /^Compass rose/ }),
+                rose: page.getByRole('button', { name: /^Compass rose/ }),
                 tracer: page.locator('.map-tracer-panel'),
                 zoom: page.getByRole('button', { name: /^Zoom / }),
                 mic: page.getByTitle('Talk to Calypso'),

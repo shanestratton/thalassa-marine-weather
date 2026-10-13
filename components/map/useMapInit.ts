@@ -531,6 +531,10 @@ export function useMapInit(opts: UseMapInitOptions) {
             dragRotate: false,
             touchPitch: false,
             pitchWithRotate: false,
+            // Mapbox snaps a chart within 7° of north to north at the end of
+            // every pan or pinch; turned by a mode to 5° (127-11b), each pan
+            // would swing it north and the mode straight back.
+            bearingSnap: 0,
             bearing: 0,
             pitch: 0,
             maxPitch: 0,

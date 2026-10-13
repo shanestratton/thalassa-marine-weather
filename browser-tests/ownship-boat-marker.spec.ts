@@ -411,7 +411,9 @@ async function measureWind(page: Page) {
         // The boat's box, unturned: a bow at any heading stays inside it.
         const half = boat.offsetWidth / 2;
         const style = getComputedStyle(wind);
-        const furniture = [...document.querySelectorAll('.thalassa-map-zoom, .thalassa-map-action-fabs')].map(rect);
+        const furniture = [
+            ...document.querySelectorAll('.thalassa-map-zoom, .thalassa-map-action-fabs, .thalassa-orient-arrow'),
+        ].map(rect);
         return {
             fix,
             shown: shown(wind),
@@ -468,9 +470,10 @@ test.describe('her own wind on her own icon, under the boat', () => {
                 expect(overlaps(m.wind, m.boat), 'the boat').toBe(false);
                 expect(overlaps(m.wind, m.badge), 'the badge').toBe(false);
                 if (m.age) expect(overlaps(m.wind, m.age), 'the age chip').toBe(false);
-                expect(m.furniture.length).toBe(2);
+                // The zoom control, the Locate row and the chart's north arrow (127-11b).
+                expect(m.furniture.length).toBe(3);
                 for (const part of m.furniture)
-                    expect(overlaps(m.wind, part!), 'the zoom control and Locate row').toBe(false);
+                    expect(overlaps(m.wind, part!), 'the zoom control, the Locate row and the north arrow').toBe(false);
                 // The arrow flies with the wind, as the streaks do; Calm has none.
                 if (scene.arrow) {
                     expect(m.arrowShown).toBe(true);
@@ -673,9 +676,10 @@ test.describe("the chosen place's pin", () => {
             await expect(locate).toHaveAccessibleDescription('Goes to Port Kittiwake');
             // 8. The pin and its chip clear of the Locate row, the zoom rail and the message.
             const furniture = await page
-                .locator('.thalassa-map-zoom, .thalassa-map-action-fabs')
+                .locator('.thalassa-map-zoom, .thalassa-map-action-fabs, .thalassa-orient-arrow')
                 .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON() as Box));
-            expect(furniture).toHaveLength(2);
+            // The zoom rail, the Locate row and the chart's north arrow (127-11b).
+            expect(furniture).toHaveLength(3);
             for (const part of furniture) {
                 expect(overlaps(m.chip, part), 'chip vs furniture').toBe(false);
                 expect(overlaps(m.svg, part), 'pin vs furniture').toBe(false);

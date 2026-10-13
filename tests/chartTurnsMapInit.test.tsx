@@ -16,6 +16,7 @@ type Handler = (event?: unknown) => void;
 const world = vi.hoisted(() => ({
     maps: [] as Array<{
         handlers: Map<string, Set<Handler>>;
+        options: Record<string, unknown>;
         keyboard: { disableRotation: ReturnType<typeof vi.fn> };
         touchZoomRotate: { disableRotation: ReturnType<typeof vi.fn> };
         bearing: number;
@@ -47,7 +48,7 @@ vi.mock('mapbox-gl', () => ({
             resize = vi.fn();
             bearing = 0;
             zoom = 3;
-            constructor() {
+            constructor(public options: Record<string, unknown>) {
                 world.maps.push(this as never);
             }
             on(event: string, callback: Handler) {
@@ -156,6 +157,15 @@ describe('the chart can turn, and only its modes turn it', () => {
         const [map] = world.maps;
         expect(map.touchZoomRotate.disableRotation).toHaveBeenCalled();
         expect(map.keyboard.disableRotation).toHaveBeenCalled();
+    });
+
+    it('never snaps a turned chart north at the end of a pan (127-11b)', () => {
+        // Mapbox's bearingSnap (7° by default) swings a chart within 7° of north
+        // to north at the end of every pan or pinch; Track up on 005° would be
+        // snapped north by each pan and turned straight back by the mode.
+        renderHook(() => useMapInit(options()));
+        const [map] = world.maps;
+        expect(map.options).toMatchObject({ bearingSnap: 0, dragRotate: false, pitchWithRotate: false });
     });
 
     it('an orientation turn does not cancel the tracer’s long press; a gesture’s rotatestart still does', () => {

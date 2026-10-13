@@ -15,11 +15,12 @@ export interface DirectionInstruments {
 export type OwnshipDirection = { degrees: number; source: 'heading' | 'course' } | { degrees: null; source: 'unknown' };
 
 const MIN_COURSE_SPEED_KN = 1;
-const freshTime = (at: number, now: number, maxAge: number) =>
+// Exported for the chart's orientation (127-11b): it turns by these same gates.
+export const freshTime = (at: number, now: number, maxAge: number) =>
     Number.isFinite(at) && at > 0 && at <= now + 5000 && now - at <= maxAge;
-const angle = (value: number | null | undefined): value is number =>
+export const angle = (value: number | null | undefined): value is number =>
     value != null && Number.isFinite(value) && value >= 0 && value < 360;
-function freshMetric(
+export function freshMetric(
     metric: DirectionMetric | undefined,
     now: number,
     maxAge: number,
