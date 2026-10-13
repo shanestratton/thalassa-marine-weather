@@ -160,6 +160,10 @@ export default defineConfig({
         // Routing off the main thread (127-ROUTE-W2): while Auto routes the archipelago's 20 NM
         // leg in the worker, no pause over 150 ms; Stop; and the no-Worker freeze, seen.
         'route-worker.spec.ts',
+        // Official warnings in the app (129-06): the Glass's official count beside the forecast
+        // pill, the Warnings page's official section and Settings → Alerts' switches fit 320 × 568
+        // and 390 × 844 in wide fonts (e2e/fixtures/official-warnings.tsx).
+        'official-warnings-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

@@ -32,6 +32,8 @@
  * - pi_watch_notice: The Pi's watch blind / no fix, or a test (126-04b, ordinary)
  * - cyclone_notice: A tropical cyclone within 600 NM of the boat (129-09, ordinary)
  * - cyclone_urgent: Within 300 NM, or its forecast track within 72 h (129-09, safety)
+ * - official_warning: An official marine or coastal warning at the boat (129-06;
+ *   Time Sensitive for Severe/Extreme, kept until it expires, updates quiet)
  *
  * The per-type settings (critical, thread, collapse id, sound, expiry) are in
  * ./config.ts, tested by config_test.ts.
@@ -53,6 +55,7 @@ import {
     buildAps,
     getApnsExpiration,
     getCollapseId,
+    getInterruptionLevel,
     getThreadId,
     isCriticalType,
     isStaleForDelivery,
@@ -144,7 +147,7 @@ async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<
 
     // Build APNs payload (./config.ts buildAps: alert, thread, badge, sound, interruption level).
     const type = typeof payload.data.notification_type === 'string' ? payload.data.notification_type : 'general';
-    const aps = buildAps({ ...payload, type }, criticalAlertsEntitled);
+    const aps = buildAps({ ...payload, type, level: getInterruptionLevel(type, payload.data) }, criticalAlertsEntitled);
 
     const apnsPayload = { aps, ...payload.data };
 
@@ -164,7 +167,7 @@ async function sendApnsPush(deviceToken: string, payload: PushPayload): Promise<
                 // still distinguished by their interruption level above, but
                 // all visible alerts should reach the device promptly.
                 'apns-priority': '10',
-                'apns-expiration': getApnsExpiration(type, !!payload.isCritical),
+                'apns-expiration': getApnsExpiration(type, !!payload.isCritical, Date.now(), payload.data),
                 'content-type': 'application/json',
             };
 
@@ -288,7 +291,7 @@ serve(async (req: Request) => {
 
         // A Pi alarm the retry drain found late is history, not news (126-04b):
         // marked done unsent, so nothing retries it.
-        if (isStaleForDelivery(notification_type, created_at)) {
+        if (isStaleForDelivery(notification_type, created_at, Date.now(), data ?? undefined)) {
             await supabase
                 .from('push_notification_queue')
                 .update({

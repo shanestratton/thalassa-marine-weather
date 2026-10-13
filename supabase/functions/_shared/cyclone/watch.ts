@@ -404,14 +404,19 @@ export interface FixRow {
     at: unknown;
 }
 
-/** The position a boat is watched from, or null: none, or "Cyclone warnings near the boat" off. */
+/**
+ * The position a boat is watched from, or null: none, or its watch's switch
+ * off. `optOut` names that switch: "Cyclone warnings near the boat" by
+ * default; official-alerts-watch (129-06) passes null and reads its own.
+ */
 export function resolveBoat(
     userId: string,
     src: { settings: Rec | null; telemetry?: FixRow | null; phone?: FixRow | null },
     nowMs: number,
+    optOut: string | null = 'cycloneWarnings',
 ): Boat | null {
     const settings = src.settings ?? {};
-    if (settings.cycloneWarnings === false) return null;
+    if (optOut !== null && settings[optOut] === false) return null;
     const read = (f: FixRow | null | undefined) => {
         const c = f ? coord(f.lat, f.lon) : null;
         const at = Date.parse(String(f?.at ?? ''));

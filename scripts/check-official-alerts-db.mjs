@@ -17,6 +17,10 @@
  *   cron jobs, as declared;
  * - in force, expired, withdrawn and outside; a polygon match versus a zone
  *   match; a shape across 180 degrees;
+ * - a berth just outside an NWS marine zone, in a land zone only, is told of
+ *   the marine warning on the water outside (matched_by 'nearby', within
+ *   3 NM), as is a point just outside a marine-only warning polygon; a land
+ *   zone or a land polygon never reaches past its shape (129-06 review);
  * - coverage live, partial (a warning in force that cannot be placed yet),
  *   unavailable (failing, stopped, never answered), off and not covered;
  * - official_alerts_apply() writes nothing for an unchanged alert (the row's
@@ -278,6 +282,62 @@ async function runSchema(schema) {
         );
         r = await at(37.0, -75.9);
         eq([r.coverage, r.alerts.length], ['live', 0], `${schema}: covered, nothing in force at the bay mouth`);
+
+        // A berth just outside the marine zone (129-06 review): NWS's marine zones end at the water, so a
+        // marina is in a land zone only. A marine zone, or a marine-only warning polygon, reaches 3 NM.
+        eq(
+            await apply(
+                'nws',
+                [
+                    alert('land-fog', {
+                        zones: ['nws:forecast:MDZ914'],
+                        infos: [info('Dense Fog Advisory')],
+                        content_hash: hash('1'),
+                    }),
+                    alert('poly-smw-marine', {
+                        geometry: box(-76.5, 38.0, -76.2, 38.2),
+                        zones: ['nws:forecast:ANZ534'],
+                        infos: [info('Special Marine Warning')],
+                        content_hash: hash('2'),
+                    }),
+                    alert('poly-land', {
+                        geometry: box(-76.9, 38.0, -76.56, 38.2),
+                        zones: ['nws:forecast:MDZ917'],
+                        infos: [info('Severe Thunderstorm Warning')],
+                        content_hash: hash('3'),
+                    }),
+                ],
+                [],
+                [
+                    {
+                        code: 'nws:forecast:MDZ914',
+                        name: 'Fictional land zone',
+                        geometry: box(-76.9, 38.7, -76.6, 38.95),
+                    },
+                ],
+            ),
+            { upserted: 3, withdrawn: 0, zones: 1 },
+            `${schema}: a land zone and two polygons by the bay`,
+        );
+        const matched = async (lat, lon) => (await at(lat, lon)).alerts.map((a) => [a.identifier, a.matched_by]).sort();
+        // 1.9 NM west of ANZ532, inside the land zone: the bay's advisory, nearby, and the land fog.
+        eq(
+            await matched(38.8, -76.64),
+            [
+                ['land-fog', 'zone'],
+                ['zone-sca', 'nearby'],
+            ],
+            `${schema}: berth 1.9 NM outside the marine zone`,
+        );
+        eq((await at(38.8, -76.64)).coverage, 'live', `${schema}: berth: live, with the bay's advisory listed`);
+        // 7 NM west: too far for the bay's advisory.
+        eq(await matched(38.8, -76.75), [['land-fog', 'zone']], `${schema}: 7 NM inland`);
+        // On the water 0.9 NM east of the land zone: the land fog never reaches past its shape.
+        eq(await matched(38.8, -76.58), [['zone-sca', 'zone']], `${schema}: a land zone matches exactly`);
+        // 1.4 NM outside a marine-only warning polygon (and 1.4 NM outside a land one): the marine one only.
+        eq(await matched(38.1, -76.53), [['poly-smw-marine', 'nearby']], `${schema}: a marine polygon reaches 3 NM`);
+        // Inside it: its exact match, not 'nearby'.
+        eq(await matched(38.1, -76.3), [['poly-smw-marine', 'polygon']], `${schema}: exact over nearby`);
         eq(
             (await at(51.5, -179.9)).alerts.map((a) => a.identifier),
             ['across-180'],

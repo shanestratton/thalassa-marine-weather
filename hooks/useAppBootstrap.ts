@@ -21,6 +21,8 @@ import { PiNightWatchStatus } from '../services/piNightWatchStatus';
 import { seabedLocallyEnabled } from '../services/seabed/seabedSink';
 import { sightingsOutboxFlagged } from '../services/sightings/outboxFlag';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
+import { pinOfficialPush } from '../services/officialPushPin';
+import type { PushTapNotice } from '../services/PushNotificationService';
 
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 const getIdentitySnapshot = (): AuthIdentityScope => getAuthIdentityScope();
@@ -607,7 +609,7 @@ export function useAppBootstrap() {
             if (data && (type === 'collision_alarm' || type === 'distress_alarm') && receivePiAlarm(data)) return;
             pushForegroundToast(notification);
         };
-        const tapHandler = (data: Readonly<Record<string, unknown>>) => {
+        const tapHandler = (data: Readonly<Record<string, unknown>>, notice?: PushTapNotice) => {
             const type = data.notification_type as string;
             switch (type) {
                 case 'dm':
@@ -635,6 +637,12 @@ export function useAppBootstrap() {
                 case 'cyclone_urgent':
                     // The chart, where Storms names the issuer and the official centre (129-09).
                     setPage('map');
+                    break;
+                case 'official_warning':
+                    // The Warnings page, which leads with it in the issuer's words, and shows the
+                    // tapped one even where the page's place is not the boat's (129-06).
+                    pinOfficialPush(data, notice);
+                    setPage('warnings');
                     break;
                 case 'bolo_alert':
                 case 'suspicious_alert':

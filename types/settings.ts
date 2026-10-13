@@ -246,6 +246,22 @@ export interface UserSettings {
      */
     cycloneWarnings?: boolean;
     /**
+     * Settings → Alerts: "Official marine warnings at the boat" (build 129,
+     * 129-06). official-alerts-watch pushes the issuers' marine and coastal
+     * warnings in force at the boat: Severe and Extreme at once, the rest as
+     * advisories. A safety alert, so unset = on; only exactly `false` turns it
+     * off. Land warnings are in the app only. The watcher reads it from
+     * user_settings.
+     */
+    officialMarineWarnings?: boolean;
+    /**
+     * Its sub-switch, "Small craft advisories" (129-06): the Moderate and Minor
+     * marine warnings (a US Small Craft Advisory, a gale watch), which wait out
+     * 22:00-07:00 at the boat unless they begin within 3 h. Unset = on; only
+     * exactly `false` mutes them. Never mutes a warning.
+     */
+    smallCraftAdvisories?: boolean;
+    /**
      * Settings → Preferences: "Start with The Glass beside the chart" (build
      * 128, Shane 2026-10-13). A tablet or wide window that starts in landscape
      * opens with The Glass pinned left and Obs on the right. Unset = on; only

@@ -17,6 +17,8 @@ import { StatusBadges } from './dashboard/StatusBadges';
 import { OffshoreBoundaryToast } from './dashboard/OffshoreBoundaryToast';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
 import { useOffshoreStatus } from '../hooks/useOffshoreStatus';
+import { useOfficialWarnings } from '../hooks/useOfficialWarnings';
+import { officialInForce } from '../services/officialWarnings';
 
 const LogPage = lazyRetry(() => import('../pages/LogPage').then((m) => ({ default: m.LogPage })), 'LogPage_Dash');
 const GlassTutorial = lazyRetry(
@@ -302,6 +304,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // tap from the refs: the rAF batch can leave activeDayData a row behind.
     const [sunMoonDay, setSunMoonDay] = useState<{ isoDate: string; isToday: boolean } | null>(null);
     const sunMoonPlaced = !!data?.coordinates && (data.coordinates.lat !== 0 || data.coordinates.lon !== 0);
+    // Official warnings in force here (129-06), counted apart on the warnings
+    // row: null, and no chip, until official_alerts_at answers.
+    const official = useOfficialWarnings(sunMoonPlaced ? data?.coordinates : null);
+    const officialCount = official ? officialInForce(official, Date.now()).length : null;
     const sunMoonZone = data?.timeZone;
     const openSunMoon = useCallback(() => {
         const day = activeDayRef.current;
@@ -1157,6 +1163,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         dashboardMode={userSettings.dashboardMode || 'full'}
                                         onToggleDashboardMode={handleToggleDashboardMode}
                                         onOpenSunMoon={sunMoonPlaced ? openSunMoon : undefined}
+                                        officialCount={officialCount}
                                     />
                                     {sunMoonDay && sunMoonPlaced && (
                                         <Suspense fallback={null}>

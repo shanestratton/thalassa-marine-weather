@@ -20,8 +20,10 @@ import {
     CheckCircleIcon,
     AlertTriangleIcon,
     ThunderstormIcon,
+    RadioTowerIcon,
 } from '../Icons';
 import { fetchCycloneWatchStatus, type CycloneWatchStatus } from '../../services/cycloneWatchStatus';
+import { fetchOfficialAlertsWatchStatus } from '../../services/officialAlertsWatchStatus';
 import { extractCoords, extractDisplayName } from '../../utils/savedLocations';
 import { GustIcon, WavePeriodIcon } from '../icons/GlassGlyphs';
 import type { NotificationPreferences, UnitPreferences } from '../../types';
@@ -440,6 +442,94 @@ const CycloneWarningsSection: React.FC<{ on: boolean; positioned: boolean; onCha
     );
 };
 
+/**
+ * "Official marine warnings at the boat" and "Small craft advisories"
+ * (129-06): official-alerts-watch's push of the issuers' own marine and
+ * coastal warnings. Safety alerts, so both on by default (unset = on) and
+ * never paywalled, beside the cyclone switch. Hidden until the watcher has
+ * answered (services/officialAlertsWatchStatus.ts), so no switch is offered
+ * that nothing honours; a watcher gone quiet is said. The sub-switch is
+ * shown but cannot be operated while the main one is off.
+ */
+const OfficialWarningsSwitches: React.FC<{
+    marine: boolean;
+    advisories: boolean;
+    positioned: boolean;
+    onChange: (patch: Partial<AlertsTabProps['settings']>) => void;
+}> = ({ marine, advisories, positioned, onChange }) => {
+    const [ranAt, setRanAt] = useState<string | null>(null);
+    useEffect(() => {
+        let live = true;
+        void fetchOfficialAlertsWatchStatus().then((answer) => {
+            if (live) setRanAt(answer?.ranAt ?? null);
+        });
+        return () => {
+            live = false;
+        };
+    }, []);
+    if (!ranAt) return null;
+    const ran = Date.parse(ranAt);
+    const notes = [
+        Date.now() - ran > 30 * 60_000 && `Not checked since ${utcLabel(ran)}`,
+        !positioned &&
+            "No home port position is saved. Unless the Pi or Guardian has sent the boat's position, there is nothing to match warnings to: set your home port on the map.",
+    ].filter((note): note is string => typeof note === 'string');
+    const smallCraftOn = marine && advisories;
+    return (
+        <Section title="Official warnings">
+            <Row>
+                <div className="flex min-w-0 items-center gap-3">
+                    <div className={`${iconTileClass(marine)} bg-sky-500/20 text-sky-300`}>
+                        <RadioTowerIcon className="w-6 h-6" />
+                    </div>
+                    <div className="min-w-0">
+                        <p className={`font-bold ${marine ? 'text-white' : DISARMED_INK}`}>
+                            Official marine warnings at the boat
+                        </p>
+                        <p className={`text-xs leading-snug ${marine ? 'text-gray-400' : DISARMED_INK}`}>
+                            Gale, storm and tsunami warnings in the issuer&apos;s words, at once, day or night.
+                        </p>
+                    </div>
+                </div>
+                <Toggle
+                    label="Official marine warnings at the boat"
+                    checked={marine}
+                    onChange={(on) => onChange({ officialMarineWarnings: on })}
+                />
+            </Row>
+            <Row>
+                <div className="flex min-w-0 items-center gap-3 pl-12">
+                    <div className="min-w-0">
+                        <p className={`font-bold ${smallCraftOn ? 'text-white' : DISARMED_INK}`}>
+                            Small craft advisories
+                        </p>
+                        <p className={`text-xs leading-snug ${smallCraftOn ? 'text-gray-400' : DISARMED_INK}`}>
+                            And watches. Overnight they wait for 07:00 at the boat, unless they begin within 3 h.
+                        </p>
+                    </div>
+                </div>
+                <Toggle
+                    label="Small craft advisories"
+                    checked={smallCraftOn}
+                    disabled={!marine}
+                    onChange={(on) => onChange({ smallCraftAdvisories: on })}
+                />
+            </Row>
+            <div className="px-4 py-3 text-xs leading-snug text-gray-400">
+                <p>
+                    Land warnings show in the app only, on the Warnings page. From the boat&apos;s last position, else
+                    your home port.
+                </p>
+                {notes.map((note) => (
+                    <p key={note} className="mt-1 text-amber-300">
+                        {note}
+                    </p>
+                ))}
+            </div>
+        </Section>
+    );
+};
+
 interface AlertsTabProps extends SettingsTabProps {
     /** Opens Settings → Account & Cloud, where the sign-in card is. */
     onOpenAccount?: () => void;
@@ -583,6 +673,12 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
                     </div>
                 </Row>
             </Section>
+            <OfficialWarningsSwitches
+                marine={settings.officialMarineWarnings !== false}
+                advisories={settings.smallCraftAdvisories !== false}
+                positioned={hasSavedPosition(settings)}
+                onChange={onSave}
+            />
             <CycloneWarningsSection
                 on={settings.cycloneWarnings !== false}
                 positioned={hasSavedPosition(settings)}

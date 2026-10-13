@@ -15,6 +15,7 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { triggerHaptic } from '../utils/system';
+import { pinOfficialPush } from '../services/officialPushPin';
 import {
     SosIcon,
     AlertTriangleIcon,
@@ -92,6 +93,14 @@ function getToastStyle(type: string): {
                 icon: <ThunderstormIcon className="w-6 h-6" />,
                 gradient: 'from-sky-600/95 to-sky-700/95',
                 border: 'border-sky-400/30',
+            };
+        // An official warning (129-06): the Warnings page's official card, a
+        // radio mast on sky-950, never the forecast weather alert's sky.
+        case 'official_warning':
+            return {
+                icon: <RadioTowerIcon className="w-6 h-6" />,
+                gradient: 'from-slate-800/95 to-sky-950/95',
+                border: 'border-sky-300/40',
             };
         case 'hail':
             return {
@@ -255,6 +264,8 @@ export const PushToast: React.FC<PushToastProps> = ({ onTap }) => {
     const handleTap = useCallback(
         (toast: ToastItem) => {
             dismiss(toast.id);
+            // An official warning's words go with the tap to the Warnings page (129-06).
+            if (toast.data) pinOfficialPush(toast.data, { title: toast.title, body: toast.body });
             if (onTap && toast.data) onTap(toast.data);
         },
         [dismiss, onTap],

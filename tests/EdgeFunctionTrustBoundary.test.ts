@@ -23,6 +23,7 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
             'cyclone-watch',
             'ingest-official-alerts',
             'moderate-chat-message',
+            'official-alerts-watch',
             'scrape-vessel-metadata',
             'sweep-stale-vessels',
         ]) {

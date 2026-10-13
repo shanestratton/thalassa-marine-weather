@@ -32,6 +32,24 @@ describe('iOS push-delivery contract', () => {
         expect(edge).toContain("'apns-expiration': getApnsExpiration(");
     });
 
+    it('hands each push’s data to the per-type level, expiry and stale check (official warnings, 129-06)', () => {
+        // config_test.ts tests the helpers; this holds the handler to passing them the queue row's
+        // data. Without it an official warning would go with the default 6 h TTL, be delivered after
+        // it expired, and sound on a quiet update.
+        const index = source('supabase/functions/send-push/index.ts').replace(/\s+/g, ' ');
+        expect(index).toContain(
+            'const aps = buildAps({ ...payload, type, level: getInterruptionLevel(type, payload.data) }, criticalAlertsEntitled);',
+        );
+        expect(index).toContain(
+            "'apns-expiration': getApnsExpiration(type, !!payload.isCritical, Date.now(), payload.data),",
+        );
+        expect(index).toContain(
+            'if (isStaleForDelivery(notification_type, created_at, Date.now(), data ?? undefined)) {',
+        );
+        // And the payload sent is that data beside aps, so a tap can read the warning it names.
+        expect(index).toContain('const apnsPayload = { aps, ...payload.data };');
+    });
+
     it('keeps anchor-alarm delivery recoverable and routes its notification tap to the chart', () => {
         const edge = source('supabase/functions/send-anchor-alarm/index.ts');
 

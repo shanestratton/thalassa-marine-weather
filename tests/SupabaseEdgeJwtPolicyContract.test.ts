@@ -61,6 +61,8 @@ const CREDENTIALLESS_ALLOWLIST = {
     'cyclone-watch': 'pg_cron/pg_net POST with the service key; exact service-role POST checked before work (129-09)',
     'ingest-official-alerts':
         'pg_cron/pg_net POST with the service key; exact service-role POST checked before work (129-05)',
+    'official-alerts-watch':
+        'pg_cron/pg_net POST with the service key; exact service-role POST checked before work (129-06)',
     'deepgram-ws-proxy': 'browser WebSocket upgrade cannot carry Authorization; 60-second one-use ticket',
     'diary-comments':
         'public guest form with exact-origin CORS, HMAC per-client quota, publication-scoped RPCs and skipper approval',
@@ -192,8 +194,9 @@ describe('Supabase Edge gateway JWT policy', () => {
         // on 2026-10-09, 18 → 16. cyclone-watch (129-09) is check-weather-alerts'
         // shape: the cron's service-key POST, 16 → 17. cyclone-feed (129-09b) is
         // fetch-gfs-tracker's shape: a bare fetch with a public quota, 17 → 18.
-        // ingest-official-alerts (129-05) is cyclone-watch's shape, 18 → 19.
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(19);
+        // ingest-official-alerts (129-05) is cyclone-watch's shape, 18 → 19, and
+        // so is official-alerts-watch (129-06), 19 → 20.
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(20);
     });
 
     it('every declared function has a comment explaining its policy', () => {

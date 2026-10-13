@@ -23,6 +23,17 @@
  *                   that close is news for hours, not minutes
  * Both collapse to one lock-screen notification per storm (the urgent push
  * replaces the notice) in their own thread.
+ *
+ * Build 129 (129-06) adds official-alerts-watch's type:
+ *   official_warning  an official marine or coastal warning in force at the
+ *                     boat, in the issuer's words. One notification per
+ *                     warning and its updates (collapse id provider:chain);
+ *                     APNs keeps it until the warning expires (TTL = expiry,
+ *                     capped at 7 days) and a queue row claimed after expiry
+ *                     is dropped; Time Sensitive for Severe and Extreme and
+ *                     never Critical (that is for the boat's own alarms); an
+ *                     update that raised nothing replaces the notification
+ *                     with no sound (passive).
  */
 
 export const DIRECT_MESSAGE_TTL_SECONDS = 24 * 60 * 60;
@@ -30,6 +41,10 @@ export const WEATHER_ALERT_TTL_SECONDS = 60 * 60;
 export const DEFAULT_ALERT_TTL_SECONDS = 6 * 60 * 60;
 export const DISTRESS_ALARM_TTL_SECONDS = 10 * 60;
 export const CYCLONE_URGENT_TTL_SECONDS = 6 * 60 * 60;
+/** An official warning with no expiry is kept this long. */
+export const OFFICIAL_WARNING_DEFAULT_TTL_SECONDS = 6 * 60 * 60;
+/** And one that runs for weeks no longer than this. */
+export const OFFICIAL_WARNING_MAX_TTL_SECONDS = 7 * 24 * 60 * 60;
 /** The anchor alarm's bundled sound (send-anchor-alarm's ANCHOR_ALARM_SOUND, ios/App/App). */
 export const PI_ALARM_SOUND = 'thalassa-anchor-alarm.wav';
 /** Older than this when claimed, a Pi alarm is history, not news. */
@@ -75,6 +90,8 @@ export function getThreadId(type: string): string {
         case 'cyclone_notice':
         case 'cyclone_urgent':
             return 'thalassa-cyclone';
+        case 'official_warning':
+            return 'thalassa-official';
         default:
             return 'thalassa-general';
     }
@@ -84,6 +101,14 @@ const isMmsi = (v: unknown): v is number =>
     typeof v === 'number' && Number.isInteger(v) && v >= 1_000_000 && v <= 999_999_999;
 
 const isStormKey = (v: unknown): v is string => typeof v === 'string' && /^[A-Z0-9]{2,12}$/.test(v);
+
+/** official-alerts-watch's provider:chain, "nws:0123456789abcdef": under APNs's 64-byte collapse id. */
+const isOfficialCollapse = (v: unknown): v is string =>
+    typeof v === 'string' && /^[a-z0-9][a-z0-9-]{1,39}:[0-9a-f]{16}$/.test(v);
+
+/** An official warning's expiry, in ms, or NaN. */
+const officialExpiry = (data: Record<string, unknown> | undefined): number =>
+    typeof data?.expires === 'string' ? Date.parse(data.expires) : NaN;
 
 /** Get the APNs collapse-id to coalesce duplicate alerts */
 export function getCollapseId(type: string, data: Record<string, unknown>): string | null {
@@ -100,6 +125,8 @@ export function getCollapseId(type: string, data: Record<string, unknown>): stri
     if ((type === 'cyclone_notice' || type === 'cyclone_urgent') && isStormKey(data?.storm_key)) {
         return `cyclone-${data.storm_key}`;
     }
+    // One per official warning and its updates (129-06).
+    if (type === 'official_warning' && isOfficialCollapse(data?.collapse)) return data.collapse;
     return null;
 }
 
@@ -114,8 +141,21 @@ export function getAlertSound(type: string): string {
  * than retain it, which is right for an immediate safety alarm but wrong for a
  * private message a sailor may receive while briefly out of coverage.
  */
-export function getApnsExpiration(type: string, isCritical: boolean, nowMs = Date.now()): string {
+export function getApnsExpiration(
+    type: string,
+    isCritical: boolean,
+    nowMs = Date.now(),
+    data?: Record<string, unknown>,
+): string {
     const nowSeconds = Math.floor(nowMs / 1000);
+    // An official warning is news until it expires (129-06).
+    if (type === 'official_warning') {
+        const expires = officialExpiry(data);
+        if (!Number.isFinite(expires)) return String(nowSeconds + OFFICIAL_WARNING_DEFAULT_TTL_SECONDS);
+        return String(
+            Math.min(Math.max(Math.floor(expires / 1000), nowSeconds), nowSeconds + OFFICIAL_WARNING_MAX_TTL_SECONDS),
+        );
+    }
     // A distress beacon is still news ten minutes on; a stale CPA is not.
     if (type === 'distress_alarm') return String(nowSeconds + DISTRESS_ALARM_TTL_SECONDS);
     if (type === 'cyclone_urgent') return String(nowSeconds + CYCLONE_URGENT_TTL_SECONDS);
@@ -139,12 +179,24 @@ export function getApnsExpiration(type: string, isCritical: boolean, nowMs = Dat
  * alarm's window) is dropped rather than delivered as news. Every other type
  * keeps the drain's own one-hour fence (20260813070000).
  */
-export function isStaleForDelivery(type: string, createdAt: unknown, nowMs = Date.now()): boolean {
+export function isStaleForDelivery(
+    type: string,
+    createdAt: unknown,
+    nowMs = Date.now(),
+    data?: Record<string, unknown>,
+): boolean {
+    // An official warning that expired before the drain reached it is not news (129-06).
+    if (type === 'official_warning') {
+        const expires = officialExpiry(data);
+        return Number.isFinite(expires) && expires <= nowMs;
+    }
     const window = PI_ALARM_DELIVERY_WINDOW_MS[type];
     if (window === undefined || typeof createdAt !== 'string') return false;
     const created = Date.parse(createdAt);
     return Number.isFinite(created) && nowMs - created > window;
 }
+
+export type InterruptionLevel = 'time-sensitive' | 'active' | 'passive';
 
 export interface ApsInput {
     title: string;
@@ -153,6 +205,20 @@ export interface ApsInput {
     isCritical?: boolean;
     threadId: string;
     badge?: number;
+    /** Set by the type's data (getInterruptionLevel): this level, never Critical; 'passive' has no sound. */
+    level?: InterruptionLevel;
+}
+
+/**
+ * A type whose data sets its own interruption level, or undefined for the
+ * isCritical rule. An official warning (129-06): Time Sensitive for Severe and
+ * Extreme, active otherwise, passive (no sound) for an update that raised
+ * nothing.
+ */
+export function getInterruptionLevel(type: string, data: Record<string, unknown>): InterruptionLevel | undefined {
+    if (type !== 'official_warning') return undefined;
+    if (data?.silent === true) return 'passive';
+    return data?.severity === 'Severe' || data?.severity === 'Extreme' ? 'time-sensitive' : 'active';
 }
 
 /** The `aps` dictionary for one alert push. */
@@ -172,7 +238,10 @@ export function buildAps(payload: ApsInput, criticalAlertsEntitled: boolean): Re
     }
 
     const sound = getAlertSound(payload.type);
-    if (payload.isCritical && criticalAlertsEntitled) {
+    if (payload.level) {
+        if (payload.level !== 'passive') aps.sound = sound;
+        aps['interruption-level'] = payload.level;
+    } else if (payload.isCritical && criticalAlertsEntitled) {
         // Critical Alert — bypasses DND and silent mode (requires Apple entitlement)
         aps.sound = { critical: 1, name: sound, volume: 1.0 };
         aps['interruption-level'] = 'critical';

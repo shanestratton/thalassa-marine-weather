@@ -31,13 +31,18 @@ const boot = vi.hoisted(() => ({
 
 const pushService = vi.hoisted(() => ({
     onForegroundPush: null as ((notification: { title?: string; data?: Record<string, unknown> }) => void) | null,
-    onNotificationTap: null as ((data: Readonly<Record<string, unknown>>) => void) | null,
+    onNotificationTap: null as
+        | ((data: Readonly<Record<string, unknown>>, notice?: { title?: string; body?: string }) => void)
+        | null,
     bindNotificationHandlers: vi.fn(
         (
             _scope: unknown,
             handlers: {
                 onForegroundPush: (notification: { title?: string; data?: Record<string, unknown> }) => void;
-                onNotificationTap: (data: Readonly<Record<string, unknown>>) => void;
+                onNotificationTap: (
+                    data: Readonly<Record<string, unknown>>,
+                    notice?: { title?: string; body?: string },
+                ) => void;
             },
         ) => {
             const foreground = handlers.onForegroundPush;
@@ -115,6 +120,7 @@ import { useAppBootstrap } from '../hooks/useAppBootstrap';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { AisGuardAlertStore } from '../services/aisGuardAlertStore';
 import { PiNightWatchStatus } from '../services/piNightWatchStatus';
+import { peekOfficialPushPin, takeOfficialPushPin } from '../services/officialPushPin';
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -250,6 +256,8 @@ describe('useAppBootstrap', () => {
             // A cyclone push opens the chart, where the storm card names the issuer (129-09).
             ['cyclone_notice', 'map'],
             ['cyclone_urgent', 'map'],
+            // An official warning opens the Warnings page, in the issuer's words (129-06).
+            ['official_warning', 'warnings'],
             ['unknown', 'dashboard'],
         ];
         act(() => {
@@ -260,6 +268,35 @@ describe('useAppBootstrap', () => {
         const routedPages = boot.setPage.mock.calls.slice(-destinations.length).map(([page]) => page);
         expect(routedPages).toEqual(destinations.map(([, page]) => page));
         expect(routedPages.slice(3, 5)).toEqual(['guardian', 'guardian']);
+
+        // A lock-screen tap on an official warning pins it, with the notification's own words and
+        // the position it was sent for, so the Warnings page shows it even set to another place.
+        takeOfficialPushPin();
+        act(() => {
+            pushService.onNotificationTap?.(
+                {
+                    notification_type: 'official_warning',
+                    provider: 'nws',
+                    identifier: 'urn:oid:2.49.0.1.840.0.zz0199.001.1',
+                    basis: 'home',
+                    event: 'Gale Warning',
+                    expires: '2026-10-15T04:00:00Z',
+                },
+                { title: 'Gale Warning', body: 'Gale Warning issued by NWS Zzharbor (fictional)' },
+            );
+        });
+        expect(boot.setPage).toHaveBeenLastCalledWith('warnings');
+        expect(takeOfficialPushPin()).toEqual({
+            provider: 'nws',
+            identifier: 'urn:oid:2.49.0.1.840.0.zz0199.001.1',
+            title: 'Gale Warning',
+            body: 'Gale Warning issued by NWS Zzharbor (fictional)',
+            basis: 'home',
+            expires: '2026-10-15T04:00:00Z',
+        });
+        // Any other tap pins nothing.
+        act(() => pushService.onNotificationTap?.({ notification_type: 'weather_alert' }));
+        expect(peekOfficialPushPin()).toBeNull();
 
         boot.clearBadge.mockClear();
         act(() => {

@@ -241,7 +241,7 @@ describe('official alerts migration', () => {
     it('official_alerts_at: in force means not withdrawn and not expired; a polygon matches, else a zone', () => {
         const inForce =
             /a\.withdrawn_at IS NULL\s+(AND a\.geom IS NULL\s+)?AND \(a\.expires_at IS NULL OR a\.expires_at > now\(\)\)/g;
-        expect(rpc.match(inForce)).toHaveLength(3);
+        expect(rpc.match(inForce)).toHaveLength(4);
         expect(rpc).toMatch(/AND \(%1\$I\.ST_Intersects\(a\.geom, pt\) OR %1\$I\.ST_Intersects\(a\.geom, pt_east\)\)/);
         // A zone match only for a warning with no polygon of its own, and only the provider's own zones.
         expect(rpc).toMatch(
@@ -249,6 +249,21 @@ describe('official alerts migration', () => {
         );
         expect(rpc).toContain('WHERE zh.provider_id = a.provider_id AND zh.code = ANY (a.zones)');
         expect(rpc).toContain("'matched_by', h.matched_by");
+        // A marine warning reaches 3 NM past its shape (129-06 review): a berth outside NWS's marine
+        // zone is told of the gale on the water outside, and the answer says it is 'nearby'.
+        expect(rpc).toContain(
+            "marine_zone CONSTANT text := '^nws:[a-z]+:(AM|AN|GM|PZ|PK|PH|PM|PS|LM|LS|LH|LO|LE|LC|SL)Z[0-9]{3}$';",
+        );
+        expect(rpc).toContain('reach_m CONSTANT double precision := 5556;');
+        expect(rpc).toMatch(
+            /OR \(z\.code ~ marine_zone\s+AND \(z\.geom && near_box OR z\.geom && near_box_east\)\s+AND %1\$I\.ST_DWithin\(z\.geom::%1\$I\.geography, pt::%1\$I\.geography, reach_m\)\)/,
+        );
+        expect(rpc).toMatch(
+            /WHERE zc\.code !~ marine_zone\)\s+AND %1\$I\.ST_DWithin\(a\.geom::%1\$I\.geography, pt::%1\$I\.geography, reach_m\)/,
+        );
+        expect(rpc).toContain("THEN 'zone'::text ELSE 'nearby'::text END");
+        // An exact match wins over 'nearby' for the same warning.
+        expect(rpc).toContain("ORDER BY hits.id, hits.matched_by = 'nearby', hits.matched_by");
         expect(rpc).toContain('pt_east := %1$I.ST_SetSRID(%1$I.ST_MakePoint(p_lon + 360, p_lat), 4326);');
         // Only providers whose flag is on are answered from, and every info block goes back verbatim.
         expect(rpc).toContain('JOIN public.official_alert_providers AS p ON p.id = a.provider_id AND p.enabled');

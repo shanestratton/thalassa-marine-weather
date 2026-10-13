@@ -12,9 +12,12 @@ import {
     getAlertSound,
     getApnsExpiration,
     getCollapseId,
+    getInterruptionLevel,
     getThreadId,
     isCriticalType,
     isStaleForDelivery,
+    OFFICIAL_WARNING_DEFAULT_TTL_SECONDS,
+    OFFICIAL_WARNING_MAX_TTL_SECONDS,
     PI_ALARM_SOUND,
 } from './config.ts';
 
@@ -165,4 +168,65 @@ Deno.test('an urgent cyclone stays deliverable for 6 h; a notice for the default
     assertEquals(getApnsExpiration('cyclone_urgent', true, NOW), String(NOW_S + 6 * 60 * 60));
     assertEquals(getApnsExpiration('cyclone_notice', false, NOW), String(NOW_S + 6 * 60 * 60));
     assertEquals(isStaleForDelivery('cyclone_urgent', new Date(NOW - 60 * 60_000).toISOString(), NOW), false);
+});
+
+// Official warnings at the boat (129-06, official-alerts-watch). One
+// lock-screen notification per warning and its updates (collapse id
+// provider:chain); kept by APNs until the warning expires and dropped after
+// it; Time Sensitive for Severe and Extreme, never Critical (that is for the
+// boat's own alarms); an update that does not raise the severity replaces the
+// notification without a sound.
+Deno.test('an official warning has its own thread and collapses to one per warning', () => {
+    assertEquals(getThreadId('official_warning'), 'thalassa-official');
+    assertEquals(isCriticalType('official_warning'), false);
+    assertEquals(getCollapseId('official_warning', { collapse: 'nws:0123456789abcdef' }), 'nws:0123456789abcdef');
+    assertEquals(
+        getCollapseId('official_warning', { collapse: 'meteoalarm-gr:0123456789abcdef' }),
+        'meteoalarm-gr:0123456789abcdef',
+    );
+    assertEquals(getCollapseId('official_warning', { collapse: 'nws:urn:oid:2.49.0.1.840.0.zz' }), null);
+    assertEquals(getCollapseId('official_warning', { collapse: 'NWS:0123456789abcdef' }), null);
+    assertEquals(getCollapseId('official_warning', {}), null);
+});
+
+Deno.test('TTL is the warning’s own expiry, capped, and a default without one', () => {
+    const in3h = new Date(NOW + 3 * 3_600_000).toISOString();
+    assertEquals(getApnsExpiration('official_warning', false, NOW, { expires: in3h }), String(NOW_S + 3 * 3600));
+    const in30d = new Date(NOW + 30 * 86_400_000).toISOString();
+    assertEquals(
+        getApnsExpiration('official_warning', false, NOW, { expires: in30d }),
+        String(NOW_S + OFFICIAL_WARNING_MAX_TTL_SECONDS),
+    );
+    assertEquals(OFFICIAL_WARNING_MAX_TTL_SECONDS, 7 * 86400);
+    assertEquals(
+        getApnsExpiration('official_warning', false, NOW, {}),
+        String(NOW_S + OFFICIAL_WARNING_DEFAULT_TTL_SECONDS),
+    );
+    assertEquals(getApnsExpiration('official_warning', false, NOW, { expires: 'soon' }), String(NOW_S + 6 * 3600));
+    // Expired before the drain reached it: not delivered at all.
+    const past = new Date(NOW - 60_000).toISOString();
+    assertEquals(isStaleForDelivery('official_warning', new Date(NOW).toISOString(), NOW, { expires: past }), true);
+    assertEquals(isStaleForDelivery('official_warning', new Date(NOW).toISOString(), NOW, { expires: in3h }), false);
+    assertEquals(isStaleForDelivery('official_warning', new Date(NOW).toISOString(), NOW, {}), false);
+});
+
+Deno.test('Time Sensitive for Severe and Extreme, never Critical; an update without a rise is silent', () => {
+    assertEquals(getInterruptionLevel('official_warning', { severity: 'Severe' }), 'time-sensitive');
+    assertEquals(getInterruptionLevel('official_warning', { severity: 'Extreme' }), 'time-sensitive');
+    assertEquals(getInterruptionLevel('official_warning', { severity: 'Moderate' }), 'active');
+    assertEquals(getInterruptionLevel('official_warning', { severity: 'Minor' }), 'active');
+    assertEquals(getInterruptionLevel('official_warning', { severity: 'Extreme', silent: true }), 'passive');
+    assertEquals(getInterruptionLevel('cyclone_urgent', { severity: 'Extreme' }), undefined);
+
+    const base = { title: 'Gale Warning', body: 'Gale Warning issued … (fictional)', type: 'official_warning' };
+    // Even where Apple granted Critical Alerts, an official warning stays Time Sensitive.
+    const severe = buildAps({ ...base, threadId: 'thalassa-official', level: 'time-sensitive' }, true);
+    assertEquals(severe['interruption-level'], 'time-sensitive');
+    assertEquals(severe.sound, 'default');
+    const quiet = buildAps({ ...base, threadId: 'thalassa-official', level: 'passive' }, true);
+    assertEquals(quiet['interruption-level'], 'passive');
+    assertEquals('sound' in quiet, false);
+    const advisory = buildAps({ ...base, threadId: 'thalassa-official', level: 'active' }, false);
+    assertEquals(advisory['interruption-level'], 'active');
+    assertEquals(advisory.sound, 'default');
 });

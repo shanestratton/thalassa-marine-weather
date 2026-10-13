@@ -391,6 +391,18 @@ $fn$;
     -- any of its zones whose shape holds the point. Only providers whose
     -- licence flag is on are answered from.
     --
+    -- A marine warning also matches within 3 NM of its shape (129-06 review,
+    -- 14 Oct): NWS's marine zones end at the open water, so a boat at its
+    -- berth, or placed by its home port, is in a land zone only (an
+    -- Annapolis marina is 0.13 NM outside ANZ532, Baltimore's Inner Harbor
+    -- 0.02 NM outside ANZ538) and an exact match answered "live, nothing in
+    -- force" under a gale warning for the water outside. A zone with NWS's
+    -- marine letters, or the polygon of an NWS warning naming marine zones
+    -- only, matches within 3 NM (5556 m on the sphere, after a box the GiST
+    -- index answers), and says so: matched_by 'nearby'. Land zones and land
+    -- polygons match exactly. official_alerts_watch_match (20261014160000)
+    -- matches the same way.
+    --
     -- Each provider whose coverage holds the point is listed with its state:
     --   live         answered within the last 30 min and not failing;
     --   unavailable  failing (since unavailable_since), stopped (since its
@@ -418,6 +430,11 @@ AS $fn$
 DECLARE
     pt %1$I.geometry;
     pt_east %1$I.geometry;
+    -- NWS marine zones (classify.ts NWS_MARINE_ZONE_AREAS) and their reach.
+    marine_zone CONSTANT text := '^nws:[a-z]+:(AM|AN|GM|PZ|PK|PH|PM|PS|LM|LS|LH|LO|LE|LC|SL)Z[0-9]{3}$';
+    reach_m CONSTANT double precision := 5556;
+    near_box %1$I.geometry;
+    near_box_east %1$I.geometry;
     result jsonb;
 BEGIN
     IF p_lat IS NULL OR p_lon IS NULL OR NOT (p_lat BETWEEN -90 AND 90) OR NOT (p_lon BETWEEN -180 AND 180) THEN
@@ -426,6 +443,9 @@ BEGIN
     pt := %1$I.ST_SetSRID(%1$I.ST_MakePoint(p_lon, p_lat), 4326);
     -- The same point one turn east: a shape that crosses 180 degrees is stored continuous (lon 179..181).
     pt_east := %1$I.ST_SetSRID(%1$I.ST_MakePoint(p_lon + 360, p_lat), 4326);
+    -- 3 NM as a box in degrees, for the index (a nautical mile is a minute of latitude).
+    near_box := %1$I.ST_Expand(pt, 3.0 / 60 / greatest(cos(radians(p_lat)), 0.02), 3.0 / 60);
+    near_box_east := %1$I.ST_Expand(pt_east, 3.0 / 60 / greatest(cos(radians(p_lat)), 0.02), 3.0 / 60);
 
     WITH prov AS (
         SELECT p.id, p.issuer, p.enabled, p.attribution, p.attribution_url, p.last_success_at,
@@ -444,9 +464,14 @@ BEGIN
           FROM public.official_alert_providers AS p
          WHERE %1$I.ST_Intersects(p.coverage, pt)
     ), zone_hits AS (
-        SELECT z.provider_id, z.code
+        -- The zones holding the point (inside), and NWS marine zones within 3 NM of it.
+        SELECT z.provider_id, z.code,
+               (%1$I.ST_Intersects(z.geom, pt) OR %1$I.ST_Intersects(z.geom, pt_east)) AS inside
           FROM public.official_alert_zones AS z
          WHERE %1$I.ST_Intersects(z.geom, pt) OR %1$I.ST_Intersects(z.geom, pt_east)
+            OR (z.code ~ marine_zone
+                AND (z.geom && near_box OR z.geom && near_box_east)
+                AND %1$I.ST_DWithin(z.geom::%1$I.geography, pt::%1$I.geography, reach_m))
     ), hits AS (
         SELECT a.id, 'polygon'::text AS matched_by
           FROM public.official_alerts AS a
@@ -454,7 +479,23 @@ BEGIN
            AND (a.expires_at IS NULL OR a.expires_at > now())
            AND (%1$I.ST_Intersects(a.geom, pt) OR %1$I.ST_Intersects(a.geom, pt_east))
         UNION
-        SELECT a.id, 'zone'::text
+        -- An NWS marine warning's polygon (one naming marine zones only) within 3 NM.
+        SELECT a.id, 'nearby'::text
+          FROM public.official_alerts AS a
+         WHERE a.withdrawn_at IS NULL
+           AND (a.expires_at IS NULL OR a.expires_at > now())
+           AND (a.geom && near_box OR a.geom && near_box_east)
+           AND a.provider_id = 'nws'
+           AND cardinality(a.zones) > 0
+           AND NOT EXISTS (SELECT 1 FROM unnest(a.zones) AS zc(code) WHERE zc.code !~ marine_zone)
+           AND %1$I.ST_DWithin(a.geom::%1$I.geography, pt::%1$I.geography, reach_m)
+        UNION
+        -- 'zone' when a zone it names holds the point, 'nearby' when only a marine zone within 3 NM does.
+        SELECT a.id,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM zone_hits AS zh
+                    WHERE zh.inside AND zh.provider_id = a.provider_id AND zh.code = ANY (a.zones)
+               ) THEN 'zone'::text ELSE 'nearby'::text END
           FROM public.official_alerts AS a
          WHERE a.withdrawn_at IS NULL
            AND (a.expires_at IS NULL OR a.expires_at > now())
@@ -534,7 +575,9 @@ BEGIN
                        'attribution', p.attribution,
                        'attribution_url', p.attribution_url
                    ) ORDER BY a.sent_at DESC, a.identifier)
-              FROM (SELECT DISTINCT ON (hits.id) hits.id, hits.matched_by FROM hits ORDER BY hits.id, hits.matched_by) AS h
+              -- One row per warning: its exact match (polygon, zone) over 'nearby'.
+              FROM (SELECT DISTINCT ON (hits.id) hits.id, hits.matched_by
+                      FROM hits ORDER BY hits.id, hits.matched_by = 'nearby', hits.matched_by) AS h
               JOIN public.official_alerts AS a ON a.id = h.id
               JOIN public.official_alert_providers AS p ON p.id = a.provider_id AND p.enabled
         ), '[]'::jsonb)

@@ -3,7 +3,7 @@ import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('CompactHeaderRow');
 import { t } from '../../theme';
-import { CheckIcon, AlertTriangleIcon, SunIcon, SunriseIcon, SunsetIcon } from '../Icons';
+import { CheckIcon, AlertTriangleIcon, RadioTowerIcon, SunIcon, SunriseIcon, SunsetIcon } from '../Icons';
 import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
 import { isGoldenHour } from '../../utils/goldenHour';
@@ -69,6 +69,7 @@ export const CompactHeaderRow = ({
     dashboardMode: _dashboardMode,
     onToggleDashboardMode: _onToggleDashboardMode,
     onOpenSunMoon,
+    officialCount,
 }: {
     alerts?: string[];
     sunrise?: string;
@@ -81,6 +82,12 @@ export const CompactHeaderRow = ({
     onToggleDashboardMode?: () => void;
     /** Opens the sun & moon sheet (W1-09); the chip is then a button. */
     onOpenSunMoon?: () => void;
+    /**
+     * Official warnings in force here (129-06), counted apart from the
+     * forecast alerts: null until official_alerts_at answers, and the chip
+     * only shows while one is in force.
+     */
+    officialCount?: number | null;
 }) => {
     const { setPage } = useUI();
     const sunMoonHintId = useId();
@@ -99,6 +106,7 @@ export const CompactHeaderRow = ({
     const dismissed = getDismissed();
     const activeAlerts = (alerts || []).filter((a) => isCritical(a) || !dismissed.has(a));
     const hasWarnings = activeAlerts.length > 0;
+    const official = officialCount != null && officialCount > 0;
 
     // Polar day or night (W1-06): the sun neither rises nor sets that day,
     // so the chip says which instead of two '--:--' that never clear.
@@ -146,51 +154,82 @@ export const CompactHeaderRow = ({
                 pill is drawn 40 pt, the sun chip's height, where 44 beside 40
                 read as two unrelated pills (run 10); the ::before of
                 hit-target-44 keeps the 44 pt hit area. */}
-            <div className="flex-1 min-w-0 flex" aria-live="polite" aria-atomic="true">
-                <button
-                    onClick={() => {
-                        void triggerHaptic('light');
-                        setPage('warnings');
-                    }}
-                    aria-label={
-                        hasWarnings
-                            ? `${activeAlerts.length} active forecast ${activeAlerts.length === 1 ? 'alert' : 'alerts'}`
-                            : 'No forecast alerts'
-                    }
-                    className={`${
-                        hasWarnings
-                            ? 'glass-warning-status bg-red-700 hover:bg-red-800 border-red-400/50'
-                            : 'bg-emerald-500/10 border-emerald-500/20'
-                    } transition-all active:scale-[0.97] border rounded-xl px-2.5 h-[40px] in-data-[glass-rhythm]:h-8 hit-target-44 flex items-center gap-1.5 shadow-lg cursor-pointer group flex-1 min-w-0`}
-                >
-                    {hasWarnings ? (
-                        <>
-                            <AlertTriangleIcon className="w-4 h-4 glass-warning-label animate-pulse" />
-                            {/* 'Alerts', not 'Warnings': these are Thalassa's own
+            <div className="flex-1 min-w-0 flex gap-2" aria-live="polite" aria-atomic="true">
+                {/* OFFICIAL WARNINGS (129-06): the issuers' own, counted apart
+                    and first, in the official style (pale sky, a radio mast),
+                    never the forecast pill's red. Alone it takes the pill's
+                    place, "Official" and the count: a green "No forecast
+                    alerts" beside an official gale warning would read as an
+                    all-clear. Beside forecast alerts it is the mast and the
+                    count, and the forecast pill drops its word where the row
+                    is too narrow for it (320 pt, wide fonts). */}
+                {official && (
+                    <button
+                        type="button"
+                        data-alert-style="official"
+                        onClick={() => {
+                            void triggerHaptic('light');
+                            setPage('warnings');
+                        }}
+                        aria-label={`${officialCount} official ${officialCount === 1 ? 'warning' : 'warnings'} in force`}
+                        className={`${hasWarnings ? 'shrink-0 min-w-[44px] justify-center' : 'flex-1 min-w-0'} bg-sky-200 hover:bg-sky-100 border border-sky-100 text-sky-950 transition-all active:scale-[0.97] rounded-xl px-2.5 h-[40px] in-data-[glass-rhythm]:h-8 hit-target-44 flex items-center gap-1.5 shadow-lg cursor-pointer`}
+                    >
+                        <RadioTowerIcon className="w-4 h-4 shrink-0" />
+                        {!hasWarnings && <span className="font-bold text-sm">Official</span>}
+                        <span
+                            className={`font-bold text-sm tabular-nums${hasWarnings ? '' : ' ml-auto bg-sky-950 text-sky-100 w-5 h-5 rounded-full flex items-center justify-center'}`}
+                        >
+                            {officialCount}
+                        </span>
+                    </button>
+                )}
+                {(!official || hasWarnings) && (
+                    <button
+                        data-alert-style="forecast"
+                        onClick={() => {
+                            void triggerHaptic('light');
+                            setPage('warnings');
+                        }}
+                        aria-label={
+                            hasWarnings
+                                ? `${activeAlerts.length} active forecast ${activeAlerts.length === 1 ? 'alert' : 'alerts'}`
+                                : 'No forecast alerts'
+                        }
+                        className={`${
+                            hasWarnings
+                                ? 'glass-warning-status bg-red-700 hover:bg-red-800 border-red-400/50'
+                                : 'bg-emerald-500/10 border-emerald-500/20'
+                        } @container transition-all active:scale-[0.97] border rounded-xl px-2.5 h-[40px] in-data-[glass-rhythm]:h-8 hit-target-44 flex items-center gap-1.5 shadow-lg cursor-pointer group flex-1 min-w-0`}
+                    >
+                        {hasWarnings ? (
+                            <>
+                                <AlertTriangleIcon className="w-4 h-4 glass-warning-label animate-pulse" />
+                                {/* 'Alerts', not 'Warnings': these are Thalassa's own
                                 forecast checks, and the page it opens is Forecast
                                 alerts. 'WARNINGS' read as official ones (W1-02). */}
-                            <span className="glass-warning-label font-bold uppercase tracking-wider text-sm">
-                                Alerts
-                            </span>
-                            <div className="bg-white text-red-700 font-bold text-sm w-5 h-5 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform ml-auto">
-                                {activeAlerts.length}
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            <CheckIcon className="w-4 h-4 text-emerald-400" />
-                            {/* It opens Forecast alerts, which checks forecast
+                                <span className="glass-warning-label font-bold uppercase tracking-wider text-sm @max-[8.5rem]:hidden">
+                                    Alerts
+                                </span>
+                                <div className="bg-white text-red-700 font-bold text-sm w-5 h-5 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform ml-auto">
+                                    {activeAlerts.length}
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <CheckIcon className="w-4 h-4 text-emerald-400" />
+                                {/* It opens Forecast alerts, which checks forecast
                                 thresholds only. 'NO WARNINGS' read as 'no
                                 official warnings' (UX scorecard run 9). The
                                 pill's padding and gap, and the sun chip's gap,
                                 are trimmed so the words stay on one line at
                                 375 pt. */}
-                            <span className="glass-clear-status text-emerald-100 font-bold text-xs leading-4 text-balance">
-                                No forecast alerts
-                            </span>
-                        </>
-                    )}
-                </button>
+                                <span className="glass-clear-status text-emerald-100 font-bold text-xs leading-4 text-balance">
+                                    No forecast alerts
+                                </span>
+                            </>
+                        )}
+                    </button>
+                )}
             </div>
 
             {/* CELESTIAL CARD - Sunrise, Sunset, Moon, Golden Hour.

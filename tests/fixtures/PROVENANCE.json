@@ -277,6 +277,10 @@
         "tests/fixtures/official-alerts/nws-zone-anz531.json": {
             "licence": "synthetic",
             "source": "Fictional GeoJSON Feature in the layout of an api.weather.gov zone (a simple box, not the real zone outline), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
+        },
+        "tests/fixtures/official-alerts/rpc-answers.json": {
+            "licence": "synthetic",
+            "source": "Fictional official_alerts_at(lat, lon) answers in the shape of 129-05's RPC (coverage live, partial, unavailable, off and none, a marine warning matched within 3 NM of a berth, and one outside every listed issuer's coverage; NWS, ECCC, MeteoAlarm, BOM and a made-up issuer), made by hand for 129-06; no real warning, and every name with \"Zz\", \"架空\", \"fictional\", \"fictif\", \"test\", \"وهمي\", \"בדיוני\" or \"φανταστικό\" in it is invented."
         }
     }
 }
