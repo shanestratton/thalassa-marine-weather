@@ -179,6 +179,21 @@ export class Cache {
 
     // ── Maintenance ──
 
+    /** Delete every kv row whose key starts with `prefix` (a literal, not a pattern). Returns how many. */
+    deleteKvPrefix(prefix: string): number {
+        const rows = this.db
+            .prepare('SELECT key FROM kv_cache WHERE substr(key, 1, ?) = ?')
+            .all(prefix.length, prefix) as {
+            key: string;
+        }[];
+        const remove = this.db.prepare('DELETE FROM kv_cache WHERE key = ?');
+        const all = this.db.transaction((keys: string[]) => {
+            for (const key of keys) remove.run(key);
+        });
+        all(rows.map((r) => r.key));
+        return rows.length;
+    }
+
     purgeExpired(): { kvDeleted: number; tileDeleted: number } {
         const now = Date.now();
         const kv = this.db.prepare('DELETE FROM kv_cache WHERE expires_at < ?').run(now);

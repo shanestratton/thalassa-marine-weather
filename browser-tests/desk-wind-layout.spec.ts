@@ -14,8 +14,9 @@
  *    off; at 390 px there is no row;
  *  - the panel stands bottom right, clear of every control on the planner;
  *  - strip slot 2 names the model and its licence, UKMO as CC BY-SA;
- *  - Light: the streaks are dark ink reaching 3:1 on the chart beside them,
- *    slate on the sea (land masked out), red in the 26 kt half; Relief + Sat,
+ *  - Light: the streaks are dark ink, drawn normally (128-LIGHT), reaching 3:1
+ *    on the sea beside them (land masked out): slate at 12 kt, red at 26 kt,
+ *    to the streaks' soft edges; Relief + Sat,
  *    switched to with the wind running: white, as on Obs, reaching 3:1 on a
  *    genuinely dark sea (the fixture's deep west of Lisbon, seen darker than
  *    Relief's plain water), land masked out;
@@ -44,6 +45,7 @@ import {
 } from '../e2e/helpers/syntheticChartTiles';
 import { ONBOARDED_STORAGE } from '../e2e/helpers/storageState';
 import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
+import { tapPlanTab } from './helpers/planTab';
 import { captureWindPair, cropPixelPair, measurePixelPair, saveCapturedPair } from './helpers/windPixelCapture';
 
 const SHOTS = process.env.DESK_WIND_SHOTS_DIR?.trim() || '';
@@ -80,6 +82,8 @@ interface Net {
     /** The seven-model comparison: 'split' (one model 28 kt), 'agree' (within 2 kt) or an HTTP status. */
     spread: 'split' | 'agree' | number;
     spreadAsks: number;
+    /** The wind grid's rows (latitudes) the chart asked for, when a test wants to know where they fell. */
+    rows?: Set<number>;
 }
 
 async function serve(page: Page, origin: string, net: Net) {
@@ -173,6 +177,7 @@ function proxy(body: string | null, net: Net, route: Parameters<Parameters<Page[
     }
     // The chart's wind grid: one answer per point, km/h as the fetcher reads it.
     const lats = String(params.latitude).split(',').map(Number);
+    for (const lat of lats) net.rows?.add(lat);
     const hours = Number(params.forecast_hours) || 48;
     const time = Array.from({ length: hours }, (_, i) => new Date(start + i * hourMs).toISOString().slice(0, 16));
     return json(
@@ -243,12 +248,9 @@ async function openPlanner(page: Page) {
     }));
     expect({ phone, touch }, 'a desk browser, not a phone').toEqual({ phone: false, touch: 0 });
     expect(dpr, 'a desk screen: 1x or Retina, not a phone’s 3x').toBeLessThanOrEqual(2);
-    const nav = page.getByRole('navigation', { name: 'Main', exact: true });
-    const show = page.getByRole('button', { name: /show navigation$/i });
-    if (await show.isVisible().catch(() => false)) await show.click();
-    await nav.getByRole('button', { name: 'Plan', exact: true }).click();
+    // One tap; a second only if a cold dev server reloaded the page under it.
+    await tapPlanTab(page);
     const start = page.getByRole('button', { name: 'Start plotting', exact: true });
-    await expect(start).toBeVisible({ timeout: 25_000 });
     await start.scrollIntoViewIfNeeded();
     await start.click();
     await page
@@ -453,7 +455,7 @@ test.describe('wind on the desk planner', () => {
             expect(box.x + box.width).toBeLessThanOrEqual(size.width);
             expect(box.y).toBeGreaterThanOrEqual(0);
             const others = {
-                rose: page.getByRole('img', { name: /^Compass rose/ }),
+                rose: page.getByRole('button', { name: /^Compass rose/ }),
                 tracer: page.locator('.map-tracer-panel'),
                 zoom: page.getByRole('button', { name: /^Zoom / }),
                 mic: page.getByTitle('Talk to Calypso'),
@@ -541,7 +543,8 @@ test.describe('wind on the desk planner', () => {
             const context = await deskContext(browser, browserName, baseURL!);
             const page = await context.newPage();
             await page.setViewportSize(size);
-            await serve(page, new URL(baseURL!).origin, { bandLat: SOLENT.lat, spread: 'split', spreadAsks: 0 });
+            const net: Net = { bandLat: SOLENT.lat, spread: 'split', spreadAsks: 0, rows: new Set() };
+            await serve(page, new URL(baseURL!).origin, net);
             await page.goto('/');
             await openPlanner(page);
             await jump(page, SOLENT.lon, SOLENT.lat, 9);
@@ -552,42 +555,89 @@ test.describe('wind on the desk planner', () => {
             await page.waitForTimeout(2_500);
             const x = 340;
             const width = size.width - 16 - 400 - x;
-            const north = { x, y: Math.round(size.height * 0.25), width, height: Math.round(size.height * 0.13) };
             const south = { x, y: Math.round(size.height * 0.62), width, height: Math.round(size.height * 0.13) };
+            // The 26 kt half, on the sea alone (128-LIGHT; Shane 2026-10-13 "yes
+            // to all of your questions for 128"): until 128 this band ran from
+            // x 340 across the fixture's Hampshire, four fifths of it buff
+            // land, so "red" was mostly a claim about streaks on fields. It is
+            // now the water east of Hampshire's coast (lon 0.95° W and east at
+            // z9), from the coast's shallows out, clear of the hidden panel's
+            // pill and the top-right controls, and north of the grid's first
+            // 26 kt row: between that row and the last 12 kt one the field
+            // blends 12 into 26 kt and draws the 20-25 kt band's own ink.
+            const north = {
+                x: 1056,
+                y: Math.round(size.height * 0.215),
+                width: size.width - 16 - 1056,
+                height: Math.round(size.height * 0.13),
+            };
 
             // The 12 kt claim is about the pale sea, and a third of this band is
             // the Isle of Wight: slate ink over its warm fields comes out olive
             // (b < r), which failed "slate" at 0.78 in WebKit (2026-10-12) with
-            // every land core still dark. So that band reads the sea alone, by
-            // the fixture's own isLand; the 26 kt half is the whole chart.
-            const { lons, lats } = await clipLonLat(page, south);
-            const sea = (cx: number, cy: number) => !isLand(lons[cx], lats[cy]);
-            let seaPixels = 0;
-            for (let cy = 0; cy < south.height; cy++)
-                for (let cx = 0; cx < south.width; cx++) if (sea(cx, cy)) seaPixels++;
-            expect(seaPixels / (south.width * south.height), 'the 12 kt band is mostly sea').toBeGreaterThan(0.5);
+            // every land core still dark. So both bands read the sea alone, by
+            // the fixture's own isLand.
+            const seaOf = async (band: Box) => {
+                const { lons, lats } = await clipLonLat(page, band);
+                const sea = (cx: number, cy: number) => !isLand(lons[cx], lats[cy]);
+                let pixels = 0;
+                for (let cy = 0; cy < band.height; cy++)
+                    for (let cx = 0; cx < band.width; cx++) if (sea(cx, cy)) pixels++;
+                return { sea, pixels, share: pixels / (band.width * band.height), lats };
+            };
+            const calmSea = await seaOf(south);
+            const reefSea = await seaOf(north);
+            expect(calmSea.share, 'the 12 kt band is mostly sea').toBeGreaterThan(0.5);
+            expect(reefSea.share, 'the 26 kt band is sea').toBeGreaterThan(0.95);
+            // The premise, from the fixture's own grid: the 26 kt band lies wholly
+            // north of the first row that answered 26 kt, and the 12 kt band where
+            // the blend from the last 12 kt row stays under 20 kt (slate).
+            const rows = [...net.rows!].sort((a, b) => a - b);
+            const reefRow = rows.find((lat) => lat >= net.bandLat)!;
+            const calmRow = rows.filter((lat) => lat < net.bandLat).at(-1)!;
+            const blendAt = (lat: number) => 12 + (14 * (lat - calmRow)) / (reefRow - calmRow);
+            expect(
+                Math.min(...reefSea.lats),
+                `the 26 kt band is north of the grid's 26 kt row (${reefRow}°)`,
+            ).toBeGreaterThan(reefRow);
+            expect(blendAt(Math.max(...calmSea.lats)), 'the 12 kt band draws under 20 kt').toBeLessThan(19.5);
 
             const lightPair = await captureWindPair(page);
             saveCapturedPair(lightPair, info, 'desk-wind-light-streaks', SHOTS);
-            const calm = measurePixelPair(cropPixelPair(lightPair.pair, south), sea);
-            const reef = measurePixelPair(cropPixelPair(lightPair.pair, north));
-            const red = reef.cores.filter((p) => {
+            const calm = measurePixelPair(cropPixelPair(lightPair.pair, south), calmSea.sea);
+            const reef = measurePixelPair(cropPixelPair(lightPair.pair, north), reefSea.sea);
+            const isRed = (p: { ink: string }) => {
                 const [r, g, b] = rgb(p.ink);
                 return r > g + 40 && r > b + 40;
-            });
+            };
+            const red = reef.cores.filter(isRed);
+            // The streaks' body, out to their soft edges: the most contrasting
+            // fifth of what the 26 kt wind changed, where a Retina screen's
+            // upscale of the CSS-pixel canvas leaves about half the ink.
+            const body = [...reef.all]
+                .sort((a, b) => b.contrast - a.contrast)
+                .slice(0, Math.max(1, Math.floor(reef.all.length / 5)));
+            const redBody = body.filter(isRed);
             const slate = calm.cores.filter((p) => {
                 const [r, g, b] = rgb(p.ink);
                 return b >= r && Math.max(r, g, b) < 140;
             });
             info.annotations.push({
                 type: 'streak contrast (cores, the most contrasting 5%: their weakest)',
-                description: `12 kt ${calm.edge.toFixed(2)}:1 over ${calm.all.length} px on ${seaPixels} sea CSS px of ${south.width * south.height}, slate ${(slate.length / Math.max(1, calm.cores.length)).toFixed(3)}; 26 kt ${reef.edge.toFixed(2)}:1 over ${reef.all.length} px, red ${(red.length / Math.max(1, reef.cores.length)).toFixed(3)}; DPR ${lightPair.pair.scale}`,
+                description: `12 kt ${calm.edge.toFixed(2)}:1 over ${calm.all.length} px on ${calmSea.pixels} sea CSS px of ${south.width * south.height}, slate ${(slate.length / Math.max(1, calm.cores.length)).toFixed(3)}; 26 kt ${reef.edge.toFixed(2)}:1 over ${reef.all.length} px on ${reefSea.pixels} sea CSS px of ${north.width * north.height}, red ${(red.length / Math.max(1, reef.cores.length)).toFixed(3)}, red to the soft edges ${(redBody.length / Math.max(1, body.length)).toFixed(3)} (the fifth's weakest ${body.at(-1)!.contrast.toFixed(2)}:1); DPR ${lightPair.pair.scale}`,
             });
             expect(calm.all.length, 'the 12 kt streaks draw').toBeGreaterThan(300);
             expect(calm.edge, '12 kt cores on the sea beside them').toBeGreaterThanOrEqual(3);
-            expect(reef.all.length, 'the 26 kt streaks draw').toBeGreaterThan(300);
-            expect(reef.edge, '26 kt cores on the chart beside them').toBeGreaterThanOrEqual(3);
-            expect(red.length / reef.cores.length, 'the 26 kt band is in the red family').toBeGreaterThan(0.8);
+            expect(reef.all.length, 'the 26 kt streaks draw on the sea').toBeGreaterThan(300);
+            expect(reef.edge, '26 kt cores on the sea beside them').toBeGreaterThanOrEqual(3);
+            // Red with margin, on the sea alone: nine in ten of the cores (127
+            // asked four in five, over the whole chart, land and all), and nine
+            // in ten of the streaks' body too. 127's maroon, added up under
+            // leaflet-velocity's 'lighter', went mauve there: 0.22-0.23 of the
+            // body red in WebKit, 0.82 in Chromium (2026-10-13); the pure red
+            // drawn normally, 0.99-1.00.
+            expect(red.length / reef.cores.length, 'the 26 kt cores read red on the sea').toBeGreaterThan(0.9);
+            expect(redBody.length / body.length, 'the 26 kt streaks read red to their soft edges').toBeGreaterThan(0.9);
             expect(slate.length / calm.cores.length, 'the 12 kt streaks are slate ink, not white').toBeGreaterThan(0.8);
             await context.close();
         },

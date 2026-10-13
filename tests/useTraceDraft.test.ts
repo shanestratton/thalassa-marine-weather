@@ -13,6 +13,8 @@ const keys = {
     destination: 'thalassa_trace_wip_dest',
     returnPlan: 'thalassa_trace_wip_return_plan',
     reversedFrom: 'thalassa_trace_wip_reversed_from',
+    frameKind: 'thalassa_trace_wip_frame_kind',
+    source: 'thalassa_trace_wip_source',
 };
 
 const BAY_POINT = { lat: -29.9, lon: 160.1 };
@@ -278,5 +280,140 @@ describe('useTraceDraft', () => {
         act(() => result.current.setReturnPlan(PLAN));
         act(() => result.current.clearReturnContext());
         expect(result.current.returnPlan).toBeNull();
+    });
+});
+
+// 127-PYD-3: a Plan Your Day frame (her start and the stop, "Plot by hand") must never bring back the
+// straight bearing hint, not after a reload or a WebContent jetsam either, so its kind is kept beside
+// the frame in sessionStorage; and a routed line from Plan Your Day says where it came from (127-C-b reads
+// it). Fictional places on the Brittany coast.
+describe('useTraceDraft: the frame kind and where the line came from (127-PYD-3)', () => {
+    beforeEach(() => {
+        sessionStorage.clear();
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('account-a');
+    });
+    const key = (base: string) => authScopedStorageKey(base, getAuthIdentityScope());
+    const PORT = { lat: 47.7408, lon: -3.3627, name: 'Fixture Port' };
+    const ANSE = { lat: 47.6512, lon: -3.4968, name: 'Fixture Anse' };
+
+    function framed(kind: 'course' | 'day-plan') {
+        const hook = renderHook(() => useTraceDraft());
+        act(() => {
+            hook.result.current.setTraceOrigin(PORT);
+            hook.result.current.setTraceDest(ANSE);
+            hook.result.current.setTraceFrameKind(kind);
+        });
+        return hook;
+    }
+
+    it('a day-plan frame round-trips through sessionStorage with its kind: after a reload the hint stays off', () => {
+        const first = framed('day-plan');
+        expect(first.result.current.traceFrameKind).toBe('day-plan');
+        expect(sessionStorage.getItem(key(keys.frameKind))).toBe('day-plan');
+        first.unmount();
+        // A fresh mount reads the draft again, as a reload or a jetsam does.
+        const { result } = renderHook(() => useTraceDraft());
+        expect(result.current.traceDest).toEqual(ANSE);
+        expect(result.current.traceFrameKind).toBe('day-plan');
+    });
+
+    it('a stored frame with no kind reads as day-plan (fail closed); no frame, no kind', () => {
+        sessionStorage.setItem(key(keys.origin), JSON.stringify(PORT));
+        sessionStorage.setItem(key(keys.destination), JSON.stringify(ANSE));
+        expect(renderHook(() => useTraceDraft()).result.current.traceFrameKind).toBe('day-plan');
+        sessionStorage.setItem(key(keys.frameKind), 'something else');
+        expect(renderHook(() => useTraceDraft()).result.current.traceFrameKind).toBe('day-plan');
+        sessionStorage.clear();
+        sessionStorage.setItem(key(keys.frameKind), 'course');
+        expect(renderHook(() => useTraceDraft()).result.current.traceFrameKind).toBeNull();
+    });
+
+    it("the course frame reads back 'course', and reversing keeps the kind", () => {
+        const first = framed('course');
+        act(() => first.result.current.setCapturedCoords([PORT, ANSE]));
+        act(() => first.result.current.reverseDirection());
+        expect(first.result.current.traceDest).toEqual(PORT);
+        expect(first.result.current.traceFrameKind).toBe('course');
+        first.unmount();
+        expect(renderHook(() => useTraceDraft()).result.current.traceFrameKind).toBe('course');
+    });
+
+    it('every path that clears the frame clears its kind, setTraceDest(null) from MapHub included', () => {
+        const a = framed('day-plan');
+        act(() => {
+            a.result.current.setTraceOrigin(null);
+            a.result.current.setTraceDest(null);
+        });
+        expect(a.result.current.traceFrameKind).toBeNull();
+        expect(sessionStorage.getItem(key(keys.frameKind))).toBe('');
+        a.unmount();
+
+        const anchor = {
+            tripId: 'trip-b',
+            ordinal: 2,
+            fromName: 'Fixture Port',
+            anchor: { lat: PORT.lat, lon: PORT.lon },
+        };
+        const b = framed('day-plan');
+        act(() => b.result.current.setLegAnchor(anchor));
+        const leg = {
+            id: 'saved-leg',
+            name: 'Fixture Anse - Fixture Port',
+            createdAt: '2026-10-01T00:00:00.000Z',
+            points: [ANSE, { lat: PORT.lat, lon: PORT.lon }],
+        };
+        let filled = false;
+        act(() => {
+            filled = b.result.current.fillSlotWithReversed(leg);
+        });
+        expect(filled).toBe(true);
+        expect(b.result.current.traceDest).toBeNull();
+        expect(b.result.current.traceFrameKind).toBeNull();
+        b.unmount();
+
+        const c = framed('day-plan');
+        act(
+            () =>
+                void c.result.current.openReversedLeg({
+                    points: [ANSE, PORT],
+                    name: 'Fixture Anse - Fixture Port',
+                    legAnchor: null,
+                    reversedFrom: null,
+                    returnPlan: null,
+                }),
+        );
+        expect(c.result.current.traceFrameKind).toBeNull();
+    });
+
+    it('a routed line from Plan Your Day keeps saying so through a reload and a pin move; a new route or a clear ends it', () => {
+        const first = renderHook(() => useTraceDraft());
+        act(() => {
+            first.result.current.setLegAnchor(null);
+            first.result.current.setCapturedCoords([PORT, { lat: 47.7, lon: -3.42 }, ANSE]);
+            first.result.current.setDraftSource('day-plan-route');
+        });
+        expect(sessionStorage.getItem(key(keys.source))).toBe('day-plan-route');
+        first.unmount();
+        const { result } = renderHook(() => useTraceDraft());
+        expect(result.current.draftSource).toBe('day-plan-route');
+        // Moving a pin: the line still came from the router.
+        act(() =>
+            result.current.setCapturedCoords((pins) => pins.map((p, i) => (i === 1 ? { lat: 47.69, lon: -3.43 } : p))),
+        );
+        expect(result.current.draftSource).toBe('day-plan-route');
+        act(() => result.current.reverseDirection());
+        expect(result.current.draftSource).toBe('day-plan-route');
+        // Another route declared (every door calls setLegAnchor).
+        act(() => result.current.setLegAnchor(null));
+        expect(result.current.draftSource).toBeNull();
+        expect(sessionStorage.getItem(key(keys.source))).toBe('');
+        // Clear (no locked start) ends it too.
+        act(() => result.current.setDraftSource('day-plan-route'));
+        act(() => result.current.clearReturnContext());
+        expect(result.current.draftSource).toBeNull();
+        // A damaged value reads as nothing.
+        sessionStorage.setItem(key(keys.source), 'elsewhere');
+        expect(renderHook(() => useTraceDraft()).result.current.draftSource).toBeNull();
     });
 });

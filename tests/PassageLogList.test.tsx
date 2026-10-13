@@ -53,7 +53,9 @@ describe('passage log surround', () => {
             />,
         );
         const group = screen.getByRole('region', { name: 'Passage · 3 legs' });
-        expect(group.className).toContain('border-purple');
+        // The one card hue, in the passage's purple (styles/card-hue.css, 128-HUES).
+        expect(group.classList).toContain('card-hue');
+        expect(group.classList).toContain('card-hue-passage');
         expect(within(group).getByRole('heading', { name: 'PASSAGE' }).className).toContain('text-yellow');
         expect(within(group).getAllByRole('button')).toHaveLength(3);
         fireEvent.click(screen.getByRole('button', { name: 'Map second' }));

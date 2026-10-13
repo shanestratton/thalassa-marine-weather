@@ -15,7 +15,7 @@ describe('VesselHub passage-planning placement', () => {
      * it is the first row of the one menu box.
      * The full running order is asserted in tests/VesselHubLayoutOrder.test.ts.
      */
-    it('keeps Passage Planning below Skipper Device, after the Diary tiles, in the menu box', () => {
+    it('keeps Passage Planning below Skipper Device, after the Diary tiles, in its card above the menu box', () => {
         const diary = source.indexOf('aria-label="Open Diary"');
         const scuttlebutt = source.indexOf('aria-label="Open Scuttlebutt"', diary);
         const skipperDevice = source.indexOf('<SkipperDeviceControl\n');
@@ -25,13 +25,17 @@ describe('VesselHub passage-planning placement', () => {
         expect(scuttlebutt).toBeGreaterThan(diary);
         expect(skipperDevice).toBeGreaterThan(scuttlebutt);
         expect(passagePlanning).toBeGreaterThan(skipperDevice);
-        // Since 2026-10-04 it is the first row of the one menu box, ahead of
-        // the Boat Binder (Shane: "one box around crew and float plan, boat
-        // binder, settings, nmea gateway, boat network, and music").
+        // Since 2026-10-04 it leads the menu, ahead of the Boat Binder (Shane:
+        // "one box around crew and float plan, boat binder, settings, nmea
+        // gateway, boat network, and music"); since 2026-10-13 in a card of
+        // its own just above the box ("the crew and float plan, really needs
+        // its own card").
+        const crewCard = source.indexOf('data-testid="vessel-hub-crew"');
         const menu = source.indexOf('data-testid="vessel-hub-menu"');
-        expect(menu).toBeGreaterThan(skipperDevice);
-        expect(passagePlanning).toBeGreaterThan(menu);
-        expect(source.indexOf('label="Boat Binder"')).toBeGreaterThan(passagePlanning);
+        expect(crewCard).toBeGreaterThan(skipperDevice);
+        expect(passagePlanning).toBeGreaterThan(crewCard);
+        expect(menu).toBeGreaterThan(passagePlanning);
+        expect(source.indexOf('label="Boat Binder"')).toBeGreaterThan(menu);
         expect(source).not.toContain('label="Sharing"');
         expect(source).not.toContain('id="sharing"');
         expect(source.match(/label="Crew & Float Plan"/g)).toHaveLength(1);
@@ -47,8 +51,9 @@ describe('VesselHub passage-planning placement', () => {
         // above, indexOf returned -1 and slice(start, -1) quietly ran to the
         // end of the file — the assertions still passed, on the whole
         // component. A test that cannot fail is worse than no test.
-        // The row ends at the next row in the menu box, the Boat Binder (most
-        // used first since 2026-10-04: Crew & Float Plan, Boat Binder, ...).
+        // The row ends at the next row of the menu, the Boat Binder, first in
+        // the box (most used first since 2026-10-04: Crew & Float Plan, Boat
+        // Binder, ...).
         const passagePlanning = source.indexOf('label="Crew & Float Plan"');
         const nextRow = source.indexOf('label="Boat Binder"');
         const passageRow = source.slice(passagePlanning, nextRow);

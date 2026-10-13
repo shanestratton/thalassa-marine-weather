@@ -108,6 +108,11 @@ jobs:
             - name: Pi collision rule mirror in sync
               run: node pi-cache/scripts/sync-collision-rule.mjs --check
 
+            # The chart vault (Pi update 3, 127-C-d) runs a copy of the o-charts
+            # SENC parser (pi-cache/src/sencEngine) from tools/senc-extractor.
+            - name: Pi senc engine mirror in sync
+              run: node pi-cache/scripts/sync-senc-engine.mjs --check
+
             - name: TypeScript type check
               run: npx tsc --noEmit
 

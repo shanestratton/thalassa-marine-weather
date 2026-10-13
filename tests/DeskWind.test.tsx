@@ -99,8 +99,10 @@ describe('the desk menu’s Wind row', () => {
         };
         expect([at(1440), at(1024), at(768), at(767), at(390)]).toEqual(['helm', 'helm', 'helm', 'deck', 'deck']);
         expect(hub).toMatch(/const deskWindOffered = deskSurface && deviceMode === 'helm';/);
-        // deskSurface already excludes picker, embedded and pin maps (127-DESKMAP).
-        expect(hub).toMatch(/const deskSurface\s*=\s*deskPlanner && !pickerMode && !embedded && !isPinView;/);
+        // deskSurface already excludes picker, embedded and pin maps (127-DESKMAP),
+        // through the planner surface it shares with the phone (128-LIGHT).
+        expect(hub).toMatch(/const deskSurface\s*=\s*deskPlanner && plannerSurface;/);
+        expect(hub).toMatch(/const plannerSurface = plannerMap && !pickerMode && !embedded && !isPinView;/);
     });
 
     it('is session-only state, OFF at every mount, and Obs’s own wind never turns it on', () => {

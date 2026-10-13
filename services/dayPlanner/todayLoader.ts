@@ -47,7 +47,7 @@ import { FORECAST_TTL_MS, loadRouteForecast, type RouteForecast } from '../route
 import { loadRouteSpread, type RouteSpread } from '../routeForecastSpread';
 import { loadRouteSea, type RouteSea } from '../routeSeaSampler';
 import { loadSavedTraces } from '../routeTracer';
-import { fetchTideCurve, type TideCurve } from '../TideHeightService';
+import { TIDE_CURVE_MAX_DAYS, fetchTideCurve, type TideCurve } from '../TideHeightService';
 import { fetchActiveCyclones, type ActiveCyclone } from '../weather/CycloneTrackingService';
 import {
     queryModelSpread,
@@ -59,7 +59,7 @@ import { fetchTidesForPosition, type TidesForPosition } from '../weather/api/tid
 import { fetchCoastlineSegments } from '../weather/shelter/coastlineSource';
 import type { Segment } from '../weather/shelter/shelterGeometry';
 import type { Tide } from '../../types/weather';
-import { withDeadline } from '../../utils/deadline';
+import { withDeadline, withTimeout } from '../../utils/deadline';
 import { calculateBearing, calculateDistance } from '../../utils/navigationCalculations';
 import { officialWarningsSource } from '../../utils/officialWarningsSource';
 import { resolveTimeZone } from '../../utils/timezone';
@@ -113,6 +113,9 @@ export interface TodayLoaderDeps {
     loadRouteForecast(coords: readonly LatLon[], model: string): Promise<RouteForecast | null>;
     loadRouteSea(coords: readonly LatLon[]): Promise<RouteSea | null>;
     loadTideCurve(lat: number, lon: number, fromMs: number, toMs: number): Promise<TideCurve | null>;
+    /** A routed stop's tide (127-PYD-11): the router's own 14-day curve for the place, so normally the one
+     *  its routing just loaded; null after 12 s, as Auto's tide chips give up. */
+    loadRouteTideCurve(lat: number, lon: number, fromMs: number, toMs: number): Promise<TideCurve | null>;
 }
 
 export const TODAY_LOADER_DEPS: TodayLoaderDeps = {
@@ -132,6 +135,8 @@ export const TODAY_LOADER_DEPS: TodayLoaderDeps = {
     loadRouteForecast: (coords, model) => loadRouteForecast(coords, model),
     loadRouteSea: (coords) => loadRouteSea(coords),
     loadTideCurve: (lat, lon, fromMs, toMs) => fetchTideCurve(lat, lon, fromMs, toMs, { days: 3 }),
+    loadRouteTideCurve: (lat, lon, fromMs, toMs) =>
+        withTimeout(fetchTideCurve(lat, lon, fromMs, toMs, { days: TIDE_CURVE_MAX_DAYS }), null, 12_000),
 };
 
 // ── Fences ─────────────────────────────────────────────────────
@@ -608,6 +613,7 @@ export function todayInput(
                 | 'windModel'
                 | 'visited'
                 | 'pinned'
+                | 'opened'
                 | 'pinDepth'
                 | 'draftM'
                 | 'routes'

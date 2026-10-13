@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Voyage } from '../services/VoyageService';
 
@@ -156,7 +156,9 @@ describe('passage and vessel dialog accessibility', () => {
 
         const trips = await screen.findByRole('dialog', { name: 'Your trips' });
         const close = within(trips).getByRole('button', { name: 'Close' });
-        expect(close).toHaveFocus();
+        // The trap focuses in a passive effect, which can land after the sheet
+        // is in the DOM (release run 38372218963 caught the gap).
+        await waitFor(() => expect(close).toHaveFocus());
         fireEvent.click(within(trips).getByRole('button', { name: /^Brisbane → Cairns/ }));
         const trip = screen.getByRole('dialog', { name: 'Brisbane → Cairns' });
         // Focus follows the pane, so the keyboard stays inside the sheet.
@@ -166,7 +168,7 @@ describe('passage and vessel dialog accessibility', () => {
         expect(screen.getByRole('dialog', { name: 'Your trips' })).toBeInTheDocument();
         fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-        expect(tile).toHaveFocus();
+        await waitFor(() => expect(tile).toHaveFocus());
     });
 
     it('contains the trip overview and restores its opener', () => {

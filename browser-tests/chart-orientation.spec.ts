@@ -165,3 +165,145 @@ test('a distress beacon on a chart turned to 45°: on its own upright layer, sti
     }
     expect(errors).toEqual([]);
 });
+
+// ── 127-11b: the modes ──────────────────────────────────────────────────
+type Orient = {
+    bearing: () => number;
+    needle: () => number;
+    run: () => Promise<{ eases: number; upright: boolean; worstProbe: number; bearing: number }>;
+};
+const orient = (page: Page) => page.evaluate(() => (window as unknown as { __orient: Orient }).__orient.bearing());
+const kept = (deg: number) => ((deg % 360) + 360) % 360;
+
+test.describe('the north arrow (Heading up from her compass)', () => {
+    for (const heading of [0, 37, 90, 200]) {
+        test(`her compass on ${heading}°: the chart turns to it and the needle points at north on screen within 1°`, async ({
+            page,
+        }) => {
+            await page.emulateMedia({ reducedMotion: 'reduce' });
+            const errors = await open(page, { scene: 'arrow', heading: String(heading) });
+            await expect
+                .poll(async () => angleOff(kept(await orient(page)), heading), { timeout: 10_000 })
+                .toBeLessThan(0.5);
+            // Polled: the needle repaints on the frame after the bearing settles.
+            await expect
+                .poll(async () => {
+                    const needle = await page.evaluate(() =>
+                        (window as unknown as { __orient: Orient }).__orient.needle(),
+                    );
+                    return angleOff(needle, kept(-(await orient(page))));
+                })
+                .toBeLessThan(1);
+            expect(errors).toEqual([]);
+        });
+    }
+
+    test('one tap at 90° puts the chart North up, at once, with no menu', async ({ page }) => {
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        await open(page, { scene: 'arrow', heading: '90' });
+        await expect.poll(async () => angleOff(kept(await orient(page)), 90), { timeout: 10_000 }).toBeLessThan(0.5);
+        const arrow = page.getByRole('button', { name: /^Chart orientation:/ });
+        await expect(arrow).toHaveAccessibleName(
+            'Chart orientation: Heading up, turned to 090 degrees. Tap for North up',
+        );
+        await arrow.click();
+        await expect.poll(async () => angleOff(kept(await orient(page)), 0)).toBeLessThan(0.5);
+        await expect(page.getByRole('dialog')).toHaveCount(0);
+        await expect(arrow).toHaveAccessibleName('Chart orientation: North up. Tap to choose');
+        // The needle repaints on the next animation frame; Linux WebKit in CI can
+        // be a few frames behind the bearing (release run 38366466523, both attempts).
+        await expect
+            .poll(async () =>
+                angleOff(await page.evaluate(() => (window as unknown as { __orient: Orient }).__orient.needle()), 0),
+            )
+            .toBeLessThan(1);
+    });
+});
+
+test('a simulated Track-up run: three turns, her words upright, the wind field true after each settle', async ({
+    page,
+}) => {
+    test.setTimeout(120_000);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const errors = await open(page, { scene: 'run' });
+    const result = await page.evaluate(() => (window as unknown as { __orient: Orient }).__orient.run());
+    expect(result.upright, 'her badge stays level, beside her').toBe(true);
+    expect(result.eases, 'at most 12 eases for three turns').toBeLessThanOrEqual(12);
+    expect(result.eases).toBeGreaterThanOrEqual(4);
+    expect(result.worstProbe, 'the wind field lands within 2 px after every settle').toBeLessThan(2);
+    // She ends on her last leg, 290°, within the deadband.
+    expect(angleOff(kept(result.bearing), 290)).toBeLessThanOrEqual(6);
+    expect(errors).toEqual([]);
+});
+
+// ── 127-11b review: a camera move while a turn is still easing (real motion) ──
+type Read = { centre: [number, number]; zoom: number; her: Pt; bearing: number };
+const interrupted = (page: Page) =>
+    page.evaluate(() =>
+        (
+            window as unknown as {
+                __orient: { interrupted: () => Promise<{ midTurn: number; after: Read; later: Read }> };
+            }
+        ).__orient.interrupted(),
+    );
+
+test.describe('a camera move that lands mid-turn sticks', () => {
+    test('the startup camera’s jump to her (a Brittany-like headland) 10° into a turn to 120°', async ({ page }) => {
+        const errors = await open(page, { scene: 'interrupt', kind: 'jump' });
+        const { midTurn, after, later } = await interrupted(page);
+        // It really was mid-turn.
+        expect(kept(midTurn)).toBeGreaterThanOrEqual(10);
+        expect(kept(midTurn)).toBeLessThan(110);
+        // Right after the jump she is in the middle, at zoom 14; 2 s later she still is.
+        expect(Math.abs(after.her.x - 195) + Math.abs(after.her.y - 422)).toBeLessThan(2);
+        expect(Math.abs(later.her.x - 195), `she stays where the jump put her: ${JSON.stringify(later)}`).toBeLessThan(
+            2,
+        );
+        expect(Math.abs(later.her.y - 422)).toBeLessThan(2);
+        expect(later.zoom).toBeCloseTo(14, 3);
+        // And the turn went on from there.
+        expect(angleOff(kept(later.bearing), 120)).toBeLessThan(0.5);
+        expect(errors).toEqual([]);
+    });
+
+    test('a duration-0 whole-route fit (a Tromsø-like fjord) 10° into a turn to 120°', async ({ page }) => {
+        const errors = await open(page, { scene: 'interrupt', kind: 'fit' });
+        const { after, later } = await interrupted(page);
+        expect(angleOff(kept(after.bearing), 120)).toBeLessThan(0.5);
+        expect(Math.abs(later.centre[0] - after.centre[0]), `the fit stays: ${JSON.stringify(later)}`).toBeLessThan(
+            1e-4,
+        );
+        expect(Math.abs(later.centre[1] - after.centre[1])).toBeLessThan(1e-4);
+        expect(later.zoom).toBeCloseTo(after.zoom, 3);
+        expect(errors).toEqual([]);
+    });
+});
+
+// Mapbox snaps a chart within bearingSnap (7° by default) of north to north at the end
+// of a pan. The chart's map is built with bearingSnap 0 (tests/chartTurnsMapInit.test.tsx);
+// here, real Mapbox shows what each value does to a chart turned to 5°.
+for (const [snap, stays] of [
+    ['7', false],
+    ['0', true],
+] as const) {
+    test(`a pan on a chart turned to 5°, bearingSnap ${snap}: ${stays ? 'it stays at 5°' : 'Mapbox snaps it north'}`, async ({
+        page,
+        browserName,
+    }) => {
+        // A mouse pan: the desk chart's. Mobile WebKit pans by touch, which Playwright cannot drag.
+        test.skip(browserName === 'webkit', 'a mouse pan is the desk chart’s');
+        await open(page, { scene: 'snap', snap });
+        expect(angleOff(kept(await orient(page)), 5)).toBeLessThan(0.1);
+        const centre = () =>
+            page.evaluate(() => (window as unknown as { __orient: { centre: () => number[] } }).__orient.centre());
+        const before = await centre();
+        await page.mouse.move(195, 422);
+        await page.mouse.down();
+        for (let i = 1; i <= 10; i++) await page.mouse.move(195 + 6 * i, 422 - 12 * i);
+        await page.mouse.up();
+        await page.waitForTimeout(1500);
+        // It really panned.
+        expect(Math.abs((await centre())[1] - before[1])).toBeGreaterThan(1e-4);
+        expect(angleOff(kept(await orient(page)), stays ? 5 : 0)).toBeLessThan(0.1);
+    });
+}

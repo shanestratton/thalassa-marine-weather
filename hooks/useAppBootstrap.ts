@@ -410,6 +410,15 @@ export function useAppBootstrap() {
         } catch {
             /* no storage, no flag */
         }
+        // 127-C-c decision 5: the launch sweep of the chart files older builds
+        // left on the device (licensed cells deleted, open ones moved out of
+        // Documents). Every store call waits for it too; this runs it for a
+        // phone that never opens a chart. Out of the boot window.
+        const sweep = window.setTimeout(
+            () => void import('../services/enc/EncCellStore').then((store) => store.storeReady()).catch(() => {}),
+            10_000,
+        );
+        return () => window.clearTimeout(sweep);
     }, []);
 
     // ── Sightings logged offline go out after a relaunch ─────────────
@@ -443,7 +452,7 @@ export function useAppBootstrap() {
         let cancelled = false;
         void (async () => {
             try {
-                const [{ armSessionWatch }, { readLastView }, census] = await Promise.all([
+                const [{ armSessionWatch }, { readLastView, sessionCrumbConsumed }, census] = await Promise.all([
                     import('../services/webContentKill'),
                     import('../stores/uiStore'),
                     import('../services/memoryCensus'),
@@ -454,6 +463,8 @@ export function useAppBootstrap() {
                 census.startCensus();
                 const crumb = readLastView();
                 const died = armSessionWatch(crumb?.view ?? null);
+                // Read: the tablet start's page may take the crumb now.
+                sessionCrumbConsumed();
                 if (cancelled || !died) return;
 
                 console.warn(

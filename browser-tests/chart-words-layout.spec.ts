@@ -143,3 +143,125 @@ for (const mode of ['light', 'night'] as const) {
         }
     });
 }
+
+/**
+ * 127-C-c decision 7a: the Route tracer card while her licensed charts open
+ * from the Pi ('opening'), are not here ('away'), or are slow to come
+ * ('slow'), and the phone's no-chart notice. The longest fictional boat,
+ * L'Étoile du Pacifique. The line under the card's header is at most two lines
+ * ('slow', a short-lived state, says two sentences and may take four on a 320
+ * phone in wide fonts); the Save refusal stays whole inside
+ * the card; nothing runs under the tab bar or sideways.
+ */
+const WAIT_STATES = ['opening', 'away', 'slow'] as const;
+function waitIssues(page: Page, state: (typeof WAIT_STATES)[number]) {
+    return page.evaluate((s) => {
+        const issues: string[] = [];
+        const W = window.innerWidth;
+        const nav = document.querySelector('nav[aria-label="Main"]')!.getBoundingClientRect();
+        if (document.documentElement.scrollWidth > W + 1) issues.push('page overflows sideways');
+        const card = document.querySelector<HTMLElement>('[data-fixture-card]')!;
+        const box = card.getBoundingClientRect();
+        if (box.bottom > nav.top + 0.5) issues.push(`card runs under the tab bar (${box.bottom} > ${nav.top})`);
+        if (box.right > W + 0.5 || box.left < -0.5) issues.push('card leaves the screen');
+        const parts = [
+            ['boat line', card.querySelector<HTMLElement>('[data-boat-line]'), s === 'slow' ? 4 : 2],
+            ['refusal', card.querySelector<HTMLElement>('[data-boat-refusal]'), Infinity],
+        ] as const;
+        for (const [name, element, maxLines] of parts) {
+            if (!element) {
+                if (name === 'boat line' || s !== 'opening') issues.push(`no ${name}`);
+                continue;
+            }
+            const rect = element.getBoundingClientRect();
+            if (rect.left < box.left - 1 || rect.right > box.right + 1) issues.push(`${name} escapes the card`);
+            if (rect.bottom > box.bottom + 1) issues.push(`${name} is cut off at the card's foot`);
+            if (rect.bottom > nav.top + 0.5) issues.push(`${name} runs under the tab bar`);
+            if (element.scrollWidth > element.clientWidth + 1) issues.push(`${name} overflows sideways`);
+            // Lines as drawn: one client rect top per line of text.
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            const lines = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)))
+                .size;
+            if (lines > maxLines) issues.push(`${name} takes ${lines} lines`);
+        }
+        return issues;
+    }, state);
+}
+
+for (const fonts of ['system', 'wide'] as const) {
+    for (const size of [...phones, ...others]) {
+        test(`the tracer's wait for her charts fits ${size.name} (${fonts} face)`, async ({ page }) => {
+            for (const state of WAIT_STATES) {
+                const errors = await open(
+                    page,
+                    size,
+                    `view=tracer-wait&state=${state}&place=noumea${size.extra}${fonts === 'wide' ? '&fonts=wide' : ''}`,
+                );
+                if (state === 'opening')
+                    await expect(page.getByText("Opening L'Étoile du Pacifique's charts from the Pi…")).toBeVisible();
+                else
+                    await expect(page.locator('[data-boat-refusal]')).toContainText(
+                        state === 'away'
+                            ? "L'Étoile du Pacifique's licensed charts open on the boat's Wi-Fi. Check it on the boat's Wi-Fi."
+                            : "L'Étoile du Pacifique's charts are still opening from the Pi. Check it once they open.",
+                    );
+                await expect.poll(() => waitIssues(page, state), { timeout: 3_000 }).toEqual([]);
+                expect(errors).toEqual([]);
+            }
+        });
+    }
+}
+
+/** The phone's no-chart notice (ChartDepthControls, the real CSS): whole, on screen, clear of the tab bar. */
+function noticeIssues(page: Page) {
+    return page.evaluate(() => {
+        const issues: string[] = [];
+        const W = window.innerWidth;
+        const nav = document.querySelector('nav[aria-label="Main"]')!.getBoundingClientRect();
+        const notice = document.querySelector<HTMLElement>('[aria-label="ENC coverage"]');
+        if (!notice) return ['no notice'];
+        const rect = notice.getBoundingClientRect();
+        if (document.documentElement.scrollWidth > W + 1) issues.push('page overflows sideways');
+        if (rect.left < -0.5 || rect.right > W + 0.5) issues.push('notice leaves the screen');
+        if (rect.bottom > nav.top + 0.5) issues.push('notice runs under the tab bar');
+        const words = notice.querySelector('span')!;
+        if (words.scrollWidth > words.clientWidth + 1 || notice.scrollHeight > notice.clientHeight + 1)
+            issues.push('notice text is clipped');
+        if (notice.querySelector('button')) issues.push('a button in the notice (the ENC Library is retired)');
+        return issues;
+    });
+}
+
+const noticeSizes = [
+    { name: '320x568', width: 320, height: 568, extra: '&root=app' },
+    { name: '390x844', width: 390, height: 844, extra: '&root=app' },
+    { name: '568x320', width: 568, height: 320, extra: '&root=app' },
+    { name: '1024x768', width: 1024, height: 768, extra: '' },
+    { name: '1024x520 split', width: 1024, height: 520, extra: '&pane=true' },
+];
+for (const fonts of ['system', 'wide'] as const) {
+    for (const size of noticeSizes) {
+        test(`the phone's no-chart notice names where her charts are at ${size.name} (${fonts} face)`, async ({
+            page,
+        }) => {
+            for (const state of ['away', 'tailnet', 'opening'] as const) {
+                const errors = await open(
+                    page,
+                    size,
+                    `view=notice&state=${state}${size.extra}${fonts === 'wide' ? '&fonts=wide' : ''}`,
+                );
+                const notice = page.getByRole('status', { name: 'ENC coverage' });
+                await expect(notice).toContainText(
+                    state === 'away'
+                        ? "L'Étoile du Pacifique's licensed charts open on the boat's Wi-Fi. Open charts only here."
+                        : state === 'tailnet'
+                          ? 'not over remote access'
+                          : "Opening L'Étoile du Pacifique's charts from the Pi…",
+                );
+                await expect.poll(() => noticeIssues(page), { timeout: 3_000 }).toEqual([]);
+                expect(errors).toEqual([]);
+            }
+        });
+    }
+}

@@ -9,7 +9,8 @@
  *                     crewing, the boat they crew on first, then their own
  *                     (2026-10-05), each row showing her own GPS state;
  *   ✛ Current Location — jump back to live GPS-follow;
- *   📍 saved spots — each tappable, with set-as-home + remove;
+ *   📍 saved spots — each tappable, with Set home, and a swipe left to
+ *                     delete (Delete, then Confirm; 2026-10-13);
  *   ★ Save this spot as “…” — footer that saves the current location.
  *
  * Why a separate home-port concept: useAppController effect 1b keeps
@@ -31,9 +32,9 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { panePopoverStyle, usePanePortalTarget } from '../context/PanePortalContext';
-import { ConfirmDialog } from './ui/ConfirmDialog';
+import { SwipeableSavedPlaceRow } from './SwipeableSavedPlaceRow';
 
-import { CheckIcon, CrosshairIcon, MapPinIcon, StarIcon, TrashIcon } from './Icons';
+import { CheckIcon, CrosshairIcon, MapPinIcon, StarIcon } from './Icons';
 import { HomeIcon } from './icons/GlassGlyphs';
 import { calculateDistanceKm } from '../utils/math';
 import { useSettings } from '../context/SettingsContext';
@@ -249,16 +250,23 @@ export const LocationStarMenu: React.FC = () => {
     const homePortLoc = homePort ? saved.find((s) => s.name === homePort) : undefined;
     const otherSaved = saved.filter((s) => s.name !== homePort);
 
-    // Removing a hand-saved place asks first (Shane 2026-09-26: the small state items were my call).
-    const [pendingRemove, setPendingRemove] = useState<string | null>(null);
-    const pendingRemoveRef = useRef<string | null>(null);
-    pendingRemoveRef.current = pendingRemove;
+    // A saved place deletes with a swipe left, then Delete, then Confirm (Shane
+    // 2026-10-13: "i would prefer them to be a swipe delete, like almost all of
+    // the rest of the app"). The Remove button it replaces never deleted: its
+    // 'Remove saved place?' confirm opened in a portal of its own at z 1100,
+    // under this flyout's dim and panel, and the outside-tap listener below
+    // counted the finger landing on it as a tap outside the menu, so the
+    // flyout closed and took the confirm with it before its click. One row is
+    // armed at a time; closing the flyout disarms it.
+    const [deleteArmed, setDeleteArmed] = useState<string | null>(null);
+    useEffect(() => {
+        if (!open) setDeleteArmed(null);
+    }, [open]);
 
     // Anchor the popover to the button's viewport rect; re-measure on open
     // and resize. Any scroll outside the flyout closes it instead: a day or
     // hour swipe re-measured it and left it open over a different day's grid
-    // (UX scorecard run 7). Scrolling its own list, or the remove confirm,
-    // keeps it open.
+    // (UX scorecard run 7). Scrolling its own list keeps it open.
     useLayoutEffect(() => {
         if (!open || !portalTarget) return;
         const measure = () => {
@@ -268,7 +276,6 @@ export const LocationStarMenu: React.FC = () => {
         const onScroll = (event: Event) => {
             const target = event.target;
             if (target instanceof Node && popoverRef.current?.contains(target)) return;
-            if (pendingRemoveRef.current !== null) return;
             setOpen(false);
         };
         measure();
@@ -354,12 +361,22 @@ export const LocationStarMenu: React.FC = () => {
         updateSettings({ homePort: name });
     };
 
-    const removeSaved = (name: string) => {
+    /** Delete, then Confirm: the first tap arms the row, the second deletes it. */
+    const deleteSaved = (name: string) => {
+        if (deleteArmed !== name) {
+            setDeleteArmed(name);
+            return;
+        }
         triggerHaptic('light');
+        setDeleteArmed(null);
         const patch = buildRemoveLocationPatch(settings.savedLocations, settings.savedLocationCoords, name);
-        // Removing the home port clears the designation too.
-        updateSettings(settings.homePort === name ? { ...patch, homePort: undefined } : patch);
-        closeAndRestore();
+        // Home is only valid while it exists: deleting it, by any capitals
+        // (the patch matches so), clears the designation too.
+        const wasHome = settings.homePort?.toLowerCase() === name.toLowerCase();
+        updateSettings(wasHome ? { ...patch, homePort: undefined } : patch);
+        // The flyout stays open for the next one, and keeps the focus its
+        // keys need now that the Confirm under it has gone.
+        popoverRef.current?.focus({ preventScroll: true });
     };
 
     const saveCurrent = () => {
@@ -558,26 +575,31 @@ export const LocationStarMenu: React.FC = () => {
 
                                 {/* Saved spots */}
                                 {/* The row the Glass is showing carries a tick and a
-                                    faint wash (UX scorecard run 7). The home and
-                                    remove icons have one-word captions, since a
-                                    bare house read as decoration. */}
+                                    faint wash (UX scorecard run 7). Set home has a
+                                    one-word caption, since a bare house read as
+                                    decoration; delete hides behind a swipe left. */}
                                 {otherSaved.map((loc) => (
-                                    <div
+                                    <SwipeableSavedPlaceRow
                                         key={loc.name}
-                                        role="none"
-                                        // pr-2: 'Remove' ended 2 pt from the flyout's edge (UX scorecard run 8).
-                                        className={`flex items-center pr-2 ${isShownRow(loc.name) ? 'bg-sky-500/10' : ''}`}
+                                        name={loc.name}
+                                        armed={deleteArmed === loc.name}
+                                        onDelete={() => deleteSaved(loc.name)}
+                                        className={isShownRow(loc.name) ? 'bg-sky-500/10' : ''}
                                     >
                                         <button
                                             type="button"
                                             role="menuitem"
-                                            onClick={() => goTo(loc)}
+                                            onClick={() => {
+                                                setDeleteArmed(null);
+                                                goTo(loc);
+                                            }}
                                             aria-current={isShownRow(loc.name) ? 'location' : undefined}
                                             className={`${rowBase} flex-1 min-w-0`}
                                         >
                                             <MapPinIcon className="w-4 h-4 text-gray-400 shrink-0" />
                                             {/* Two lines before an ellipsis: cut at one, 'Gladstone, QLD'
-                                                read 'Gladstone, …' beside the captioned actions (run 9). */}
+                                                read 'Gladstone, …' beside the captioned actions (run 9).
+                                                Remove's width is the name's now (2026-10-13). */}
                                             <span className="flex-1 min-w-0 text-white leading-snug line-clamp-2 wrap-break-word">
                                                 {loc.name}
                                             </span>
@@ -604,41 +626,9 @@ export const LocationStarMenu: React.FC = () => {
                                                 Set home
                                             </span>
                                         </button>
-                                        {/* 4 pt and a hairline each side: butted together, the two
-                                            captions read 'Set home Remove' (UX scorecard run 9). */}
-                                        <span
-                                            aria-hidden="true"
-                                            className="mx-1 h-6 w-px shrink-0 bg-white/15 [.display-light_&]:bg-slate-300!"
-                                        />
-                                        <button
-                                            type="button"
-                                            role="menuitem"
-                                            onClick={() => setPendingRemove(loc.name)}
-                                            aria-label={`Remove ${loc.name}`}
-                                            title="Remove"
-                                            className="min-w-[48px] min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-red-400 transition-colors shrink-0"
-                                        >
-                                            <TrashIcon className="w-4 h-4" />
-                                            <span aria-hidden="true" className="text-[12px] leading-none">
-                                                Remove
-                                            </span>
-                                        </button>
-                                    </div>
+                                    </SwipeableSavedPlaceRow>
                                 ))}
 
-                                <ConfirmDialog
-                                    isOpen={pendingRemove !== null}
-                                    title="Remove saved place?"
-                                    message={`${pendingRemove ?? ''} will be removed from your saved places.`}
-                                    confirmLabel="Remove"
-                                    cancelLabel="Keep"
-                                    destructive
-                                    onConfirm={() => {
-                                        if (pendingRemove) removeSaved(pendingRemove);
-                                        setPendingRemove(null);
-                                    }}
-                                    onCancel={() => setPendingRemove(null)}
-                                />
                                 {!homePortLoc && otherSaved.length === 0 && (
                                     <div className="px-3 py-3 text-xs text-gray-500">
                                         No saved locations yet — save one below, then set it as your home port.

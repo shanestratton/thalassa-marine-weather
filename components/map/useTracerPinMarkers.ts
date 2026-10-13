@@ -255,10 +255,12 @@ export function useTracerPinMarkers({
             if (isStart && !rec.tag) {
                 // Label overflows the fixed 40 px hit-box (absolute, no
                 // layout part) so the marker's centre anchor — and drag
-                // grab point — stays exactly on the coordinate.
+                // grab point — stays exactly on the coordinate. A tight dark
+                // outline under the soft shadow: on Light's pale sea the soft
+                // shadow alone left the green 9 px word at 2.6:1 (128-LIGHT).
                 const tag = document.createElement('div');
                 tag.style.cssText =
-                    'position:absolute;top:33px;left:50%;transform:translateX(-50%);font:800 9px/1 system-ui;letter-spacing:0.04em;color:#34d399;text-shadow:0 1px 3px #000;pointer-events:none;white-space:nowrap;';
+                    'position:absolute;top:33px;left:50%;transform:translateX(-50%);font:800 9px/1 system-ui;letter-spacing:0.04em;color:#34d399;text-shadow:0 0 1px #000,0 0 2px #000,0 1px 3px #000;pointer-events:none;white-space:nowrap;';
                 rec.el.appendChild(tag);
                 rec.tag = tag;
             } else if (!isStart && rec.tag) {

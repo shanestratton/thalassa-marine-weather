@@ -434,4 +434,38 @@ describe('CloseInWindLayer on a light base', () => {
         expect(new Set(ctx.strokes)).toEqual(new Set([WIND_PARTICLE_COLORS_LIGHT[26]]));
         layer.destroy();
     });
+
+    // 128-LIGHT (Shane 2026-10-13: "yes to all of your questions for 128"): an
+    // additive blend pales dark ink where trails meet, so on Light the streaks
+    // are drawn normally. The fade is the same recipe; dark bases stay additive.
+    it('draws its ink normally (source-over) after the same fade, through a pan too; a dark base stays additive', () => {
+        const { map, camera } = harness();
+        const light = new CloseInWindLayer(map, options({ palette: 'light' }));
+        light.show();
+        light.setWind({ kt: 26, fromDeg: 135 });
+        ctx.ops = [];
+        light.stepFrame();
+        expect(ctx.ops[0]).toBe('fill:destination-in:rgba(0, 0, 0, 0.98):0.882');
+        expect(ctx.ops.at(-1)).toBe('stroke:source-over');
+        // A pan carries the trails ('copy'), then hands back to the ink's own blend.
+        camera.x += 12;
+        map.emit('move');
+        expect(ctx.ops.at(-1)).toBe('drawImage:copy');
+        expect(ctx.globalCompositeOperation).toBe('source-over');
+        light.stepFrame();
+        expect(ctx.ops.filter((op) => op.startsWith('stroke:'))).toEqual(['stroke:source-over', 'stroke:source-over']);
+        light.destroy();
+
+        const dark = new CloseInWindLayer(map, options());
+        dark.show();
+        dark.setWind({ kt: 26, fromDeg: 135 });
+        ctx.ops = [];
+        dark.stepFrame();
+        camera.x += 12;
+        map.emit('move');
+        expect(ctx.globalCompositeOperation).toBe('lighter');
+        dark.stepFrame();
+        expect(ctx.ops.filter((op) => op.startsWith('stroke:'))).toEqual(['stroke:lighter', 'stroke:lighter']);
+        dark.destroy();
+    });
 });

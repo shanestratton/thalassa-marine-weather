@@ -342,12 +342,15 @@ async function decodePng(buf: ArrayBuffer): Promise<{ rgba: Uint8ClampedArray; w
  * then falls back to chart-only, never throwing).
  *
  * @param cellPx  routing-cell size in satellite pixels (≈ fine-grid 12 m / res).
+ * @param signal  a stopped route's crop decodes and classifies nothing on the
+ *                main thread (128-ROUTE-P); its tiles in flight are dropped.
  */
 export async function fetchSatelliteWater(
     bbox: readonly [number, number, number, number],
     token: string,
     zoom: number = SAT_WATER_ZOOM,
     classify: ClassifyParams = DEFAULT_CLASSIFY,
+    signal?: AbortSignal,
 ): Promise<FeatureCollection> {
     const empty: FeatureCollection = { type: 'FeatureCollection', features: [] };
     if (!token) return empty;
@@ -376,7 +379,7 @@ export async function fetchSatelliteWater(
                     null as ArrayBuffer | null,
                     8000,
                 );
-                if (!buf) return;
+                if (!buf || signal?.aborted) return;
                 const dec = await decodePng(buf);
                 if (!dec || dec.w !== TILE_PX || dec.h !== TILE_PX) return;
                 const ox = (t.x - minX) * TILE_PX;
@@ -396,7 +399,7 @@ export async function fetchSatelliteWater(
     // Require the crop to be (near-)fully covered: a partial mosaic leaves the
     // canal disconnected at the holes AND risks the false-water blob above, so
     // fall back to the vector water instead (caller's behaviour today).
-    if (got < tiles.length) return empty;
+    if (got < tiles.length || signal?.aborted) return empty;
     const mask = classifyWaterMask(rgba, W, H, classify);
     for (let i = 0; i < mask.length; i++) if (!covered[i]) mask[i] = 0;
     const groundResM = (156_543.03 / 2 ** zoom) * Math.cos((((bbox[1] + bbox[3]) / 2) * Math.PI) / 180);

@@ -1,7 +1,10 @@
 /**
  * Vessel Hub surface constants — the glass card/list treatments and the
  * bathymetric background. (The Crew & Float Plan row's sky bezel went when the
- * hub's six menu rows became one box, Shane 2026-10-04.)
+ * hub's six menu rows became one box, Shane 2026-10-04. Its own card came back
+ * on 2026-10-13 in the app's one card hue, styles/card-hue.css, in the hub's
+ * sky again, with this glass under it from styles/menu-page-fit.css, not a
+ * bezel of its own here.)
  *
  * SAFETY_CONTROL_GROUP / SAFETY_CONTROL_CARD / ALERT_SAFETY_CONTROL_CARD
  * deliberately stay in components/VesselHub.tsx: tests/VesselHubSafetyControls

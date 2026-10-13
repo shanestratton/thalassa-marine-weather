@@ -101,6 +101,22 @@
             "licence": "public-domain",
             "source": "Route-job golden (a sha256 and a short summary of the router's answer), captured on the unchanged 127 code over NOAA ENC US5GA22M (public domain; the public/enc-samples copy) in tests/helpers/routeJobScenes.ts. 127-ROUTE-W1."
         },
+        "tests/fixtures/routeJob/prep-orders-archipelago-12nm.json": {
+            "licence": "synthetic",
+            "source": "Route golden (a sha256 and a short summary of the router's answer), captured on the unchanged 127 code (5366f6784) with the prep's answers held and landed by tests/helpers/prepWaits.ts: the synthetic archipelago in tests/helpers/routeJobScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids), plus a made-up bridge, satellite and vector water squares and an NtM survey zone defined in tests/inshoreRouter.prepParity.test.ts. 128-ROUTE-P."
+        },
+        "tests/fixtures/routeJob/prep-orders-archipelago-12nm-job.json": {
+            "licence": "synthetic",
+            "source": "Route-job golden (a sha256 of each route job the prep posted, so every merged layer in its order, and each job's cells and layer counts), captured on the unchanged 127 code (5366f6784) with the prep's answers held and landed by tests/helpers/prepWaits.ts: the synthetic archipelago in tests/helpers/routeJobScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids), plus a made-up bridge, satellite and vector water squares and an NtM survey zone defined in tests/inshoreRouter.prepParity.test.ts. 128-ROUTE-P."
+        },
+        "tests/fixtures/routeJob/prep-orders-provider-5nm.json": {
+            "licence": "synthetic",
+            "source": "Auto proposal golden (a sha256 of the line, warnings and disclosure, and a short summary), captured on the unchanged 127 code (5366f6784) with the prep's and the checks' answers held and landed by tests/helpers/prepWaits.ts: the synthetic archipelago in tests/helpers/routeJobScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids), plus a made-up notice pack, local notice, bridge, water squares and NtM zone defined in tests/inshoreRouter.prepParity.test.ts. 128-ROUTE-P."
+        },
+        "tests/fixtures/routeJob/prep-orders-provider-5nm-job.json": {
+            "licence": "synthetic",
+            "source": "Route-job golden (a sha256 of each route job Auto's provider posted, so every merged layer in its order, and each job's cells and layer counts), captured on the unchanged 127 code (5366f6784) with the prep's and the checks' answers held and landed by tests/helpers/prepWaits.ts: the synthetic archipelago in tests/helpers/routeJobScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids), plus a made-up notice pack, local notice, bridge, water squares and NtM zone defined in tests/inshoreRouter.prepParity.test.ts. 128-ROUTE-P."
+        },
         "tests/fixtures/routeJob/provider-archipelago-5nm-verified.json": {
             "licence": "synthetic",
             "source": "Route-job golden (a sha256 and a short summary of the router's answer), captured on the unchanged 127 code from the synthetic archipelago in tests/helpers/routeJobScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids). 127-ROUTE-W1."

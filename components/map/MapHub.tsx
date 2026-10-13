@@ -16,7 +16,7 @@
  *   - MapWeatherControls.tsx (weather timeline, legend, model picker)
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  */
-import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { CREDITS_SLOT_PX, CREDITS_STRIP_POSITION_CLASS, creditsStripTop, creditStackPx } from './creditsStrip';
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
@@ -42,7 +42,7 @@ import { RELIEF_TILE_BASE, seaBaseLayers, setReliefPalette } from './reliefBase'
 import { deskSlot0Line, useDeskMap } from './deskMap';
 import { DeskMapStrip } from './DeskMapStrip';
 import { deskWindToggle, useStillCentre, windCreditLine } from './deskWind';
-import { traceHintPaint } from './traceLegInk';
+import { LINE_EDGE_LAYERS, lineEdges, traceHintPaint } from './traceLegInk';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
 import {
@@ -227,7 +227,10 @@ import { useTracerPinMarkers } from './useTracerPinMarkers';
 import { useTracerTraceLayer } from './useTracerTraceLayer';
 import { usePassageRouterEvents } from './usePassageRouterEvents';
 import { usePiTileAutoCache } from './usePiTileAutoCache';
-import { useTracerGrading, type TracerStatus } from './useTracerGrading';
+import { useTracerGrading, type TracerChartsWait, type TracerStatus } from './useTracerGrading';
+// 127-C-c: where the boat's licensed charts are (memory only, from her Pi).
+import { boatChartsNow as readBoatChartsNow, boatName, subscribeBoatRegistry } from '../../services/enc/piCellSync';
+import { boatChartsLine, boatChartsRefusal } from '../../services/enc/boatChartsWords';
 import {
     AUTO_ROUTE_BUTTON_VISIBLE,
     CHARTS_FAB_CATEGORY_VISIBLE,
@@ -433,6 +436,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         setTraceOrigin,
         traceDest,
         setTraceDest,
+        traceFrameKind,
+        setTraceFrameKind,
+        setDraftSource,
         reverseDirection,
         returnPlan,
         setReturnPlan,
@@ -516,6 +522,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     // actually writes it. Restating the union here would be a second
     // hand-maintained copy of the same list.
     const [tracerStatus, setTracerStatus] = useState<TracerStatus>('idle');
+    // The tracer's wait for her licensed charts (127-C-c decision 7a).
+    const [tracerChartsWait, setTracerChartsWait] = useState<TracerChartsWait | null>(null);
     const tracerCtxRef = useRef<TracerContext | null>(null);
     /** Small LRU of recent GRID-BEARING contexts (jank audit #6): the single
      *  slot rebuilt the whole window on every ping-pong edit (nudge pin 3,
@@ -613,13 +621,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     // One timer at a time: a second message within 1.8 s used to be dismissed
     // by the FIRST message's timer (audit 2026-09-02).
     const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const flashTraceFeedback = useCallback((msg: string) => {
+    // `ms`: a longer message is held longer (127-PYD-3's Plan Your Day words).
+    const flashTraceFeedback = useCallback((msg: string, ms = 1800) => {
         setTraceFeedback(msg);
         if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
         feedbackTimerRef.current = setTimeout(() => {
             feedbackTimerRef.current = null;
             setTraceFeedback(null);
-        }, 1800);
+        }, ms);
     }, []);
     useEffect(
         () => () => {
@@ -843,28 +852,35 @@ export const MapHub: React.FC<MapHubProps> = ({
                     );
                 }
             } else if (action?.kind === 'plot-day') {
-                // Plan Your Day's "Plot on chart" (build 124): straight pins
-                // start → stop (→ start for a day trip), or the skipper's own
-                // saved route, as an UNSAVED draft in the Manual plotter. Both
-                // ⚡ buttons are parked, so the skipper drags the pins round
-                // the land and the Route report checks them against the
-                // charts. The departure was set before the request
-                // (services/planDeparture), so the tide windows follow it.
+                // Plan Your Day's hand-over (build 124; 127-PYD-3), never a
+                // straight line: the line Thalassa routed for her stop ("Use
+                // on the main chart") or her own saved route, as an UNSAVED
+                // draft in the Manual plotter; with neither ("Plot by hand"),
+                // no pins, only her start and the stop as a Plan Your Day
+                // frame: two marks, and never the course frame's straight
+                // bearing hint (useTracerTraceLayer destHint). The Route report
+                // checks whatever she plots; the departure was set before the
+                // request (services/planDeparture), so the tide windows follow it.
                 const plot = plotDayPins(action);
                 if (plot) {
                     setLegAnchor(null); // a new route, edited standalone
                     clearReturnContext(); // …and not part of a trip home
                     setSelectedPin(null);
                     setOverwriteArm(null);
-                    setTraceOrigin(null);
-                    setTraceDest(null);
+                    setTraceOrigin(plot.frame?.from ?? null);
+                    setTraceDest(plot.frame?.to ?? null);
+                    setTraceFrameKind(plot.frame ? 'day-plan' : null);
+                    // The router's line says so for the draft's life (127-C-b reads it); a pin move keeps it.
+                    setDraftSource(plot.routed ? 'day-plan-route' : null);
                     rebaseHistoryRef.current = true; // a different route → Undo floor
                     setCapturedCoords(plot.points);
                     // Our name, kept as the skipper's: moving a pin does not retitle it.
                     setTraceName(plot.name);
                     lastAutoNameRef.current = '';
                     setSavedTraces(loadSavedTraces());
-                    const fly = () => mapRef.current && fitTraceBounds(mapRef.current, plot.points);
+                    const fly = () =>
+                        mapRef.current &&
+                        fitTraceBounds(mapRef.current, plot.frame ? [plot.frame.from, plot.frame.to] : plot.points);
                     if (mapRef.current) {
                         if (isAuthIdentityScopeCurrent(requestScope)) fly();
                     } else {
@@ -874,11 +890,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }, 1_200);
                         tracerHandoffTimersRef.current.add(timer);
                     }
-                    flashTraceFeedback(
-                        plot.savedRoute
-                            ? `Your saved route to ${plot.stop}: Route report checks it against your charts`
-                            : `Straight lines to ${plot.stop}: drag pins round the land, then Route report checks your charts`,
-                    );
+                    const said = plot.frame
+                        ? `${plot.frame.why} Drop pins round the land; Route report checks them.`.trim()
+                        : plot.savedRoute
+                          ? `Your saved route to ${plot.stop}: Route report checks it against your charts`
+                          : `Plan Your Day's route to ${plot.stop}: Route report is checking it; Sail follows it, Save keeps it.${
+                                plot.unchecked === null
+                                    ? ''
+                                    : ` Satellite land check not done${plot.unchecked && ` (${plot.unchecked})`}: Route report checks your charts only.`
+                            }`;
+                    // Long enough to read (a why runs to a few lines): about 60 ms a character.
+                    flashTraceFeedback(said, Math.max(1800, said.length * 60));
                 } else {
                     // Never a silent dead end: the plotter is open, so say why it is empty.
                     log.warn('Plan Your Day asked to plot a day with unusable pins; nothing was loaded');
@@ -1086,6 +1108,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         ghostLanes,
         traceOrigin,
         traceDest,
+        destHint: traceFrameKind === 'course',
     });
     // START / 🏁 ghost rings for the course frame —
     // components/map/useTracerFrameMarkers.ts. Called BEFORE the pin markers
@@ -1276,8 +1299,22 @@ export const MapHub: React.FC<MapHubProps> = ({
                 encRegistryFingerprint: getEncRegistryFingerprint(traceRegistryScope(capturedCoords)),
                 departureMs: departureMs ?? Date.now(),
                 tideWindowLabel: departureLabel,
+                // Graded while her licensed charts were not open: never released.
+                boatChartsMissing:
+                    tracerChartsWait && tracerChartsWait !== 'opening'
+                        ? boatChartsRefusal(tracerChartsWait, boatName())
+                        : null,
             }),
-        [capturedCoords, tracerStatus, legVerdicts, ackedLegs, settings.vessel, departureMs, departureLabel],
+        [
+            capturedCoords,
+            tracerStatus,
+            legVerdicts,
+            ackedLegs,
+            settings.vessel,
+            departureMs,
+            departureLabel,
+            tracerChartsWait,
+        ],
     );
     /* Memoised on the same inputs the callback already closes over. This gate
        builds the whole ENC registry fingerprint (every cell in scope, sorted
@@ -1789,6 +1826,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 }
                 if (pins.length >= 2) {
                     triggerHaptic('medium');
+                    setDraftSource(null); // her pins now, not Plan Your Day's line (127-PYD-3)
                     setCapturedCoords(pins);
                     const mid = pins[Math.floor(pins.length / 2)];
                     if (mapRef.current) tracerFlyTo(mapRef.current, mid, 12.5, 1000);
@@ -1802,7 +1840,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 }
             }
         },
-        [flashTraceFeedback, setCapturedCoords],
+        [flashTraceFeedback, setCapturedCoords, setDraftSource],
     );
     // Share sheet (Phase 4 lite): the same coord payload Copy produces, out
     // through the native share sheet — "follow my line in" over Messages.
@@ -2067,6 +2105,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         setAckedLegs,
         setSailArmed,
         setShareArmed,
+        setTracerChartsWait,
     });
     // Grade stubs (127-C-b) are checked again on her charts when she opens the
     // Route report; her tap on a stub row and a refused Save do the same.
@@ -2226,11 +2265,18 @@ export const MapHub: React.FC<MapHubProps> = ({
     // and very hard to see what is water and what isnt"). The web planner's
     // tracer and Route Planner maps (full-screen, picker and inline) show this
     // computer's own base, Light unless picked, never the account's Obs pick.
-    // A passage shown on the Obs chart, and every native surface, keep today's
-    // rule. Its menu and strip skip picker, embedded and pin maps.
+    // A passage shown on the Obs chart keeps today's rule. Its menu and strip
+    // skip picker, embedded and pin maps.
+    // ...AND THE PHONE (128-LIGHT; Shane 2026-10-13: "yes to all of your
+    // questions for 128", on "The phone planner on the Light chart too?"): its
+    // planner maps open on Light too, this phone's own pick, with the same
+    // menu of bases (Relief + Sat and Hybrid a tap away) and none of the desk's
+    // switches or strip. Obs keeps the account's base.
     const { deskBase, setDeskBase, deskSeamarks, toggleDeskSeamarks } = useDeskMap();
-    const deskPlanner = !Capacitor.isNativePlatform() && (cleanPlanningMap || coordCaptureMode);
-    const deskSurface = deskPlanner && !pickerMode && !embedded && !isPinView;
+    const plannerMap = cleanPlanningMap || coordCaptureMode;
+    const deskPlanner = !Capacitor.isNativePlatform() && plannerMap;
+    const plannerSurface = plannerMap && !pickerMode && !embedded && !isPinView;
+    const deskSurface = deskPlanner && plannerSurface;
     // WIND ON THE DESK (127-DESKMAP-b; Shane 2026-10-10: "can we include the
     // wind layer on the desktop.?? as an option??"): a Wind row in the desk
     // menu on a window 768 px wide or more, OFF at every mount and kept nowhere
@@ -2249,12 +2295,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [declutter, setDeclutter] = useState(0);
     // PER-SURFACE base (Shane 2026-07-17: "changing the layer on the chart page
     // also changed the planning page"). The browsing chart and the plotting
-    // surface are the SAME map. Plotting keeps Hybrid, the layer Shane asked
-    // for there (2026-07-15), until the skipper has picked a base in the menu;
-    // a pick wins everywhere, or it would be silently overridden the moment
-    // the tracer opened. DERIVED, not a state-setting effect, so the base-apply
+    // surface are the SAME map. The planner maps show the planner's own pick
+    // (Light unless picked, above); a computed passage on the Obs chart keeps
+    // Hybrid, the layer Shane asked for on 2026-07-15, until the skipper has
+    // picked a base. DERIVED, not a state-setting effect, so the base-apply
     // pass can never race it.
-    const shownBase: MapBaseKind = deskPlanner ? deskBase : planningSurface && !baseExplicit ? 'hybrid' : mapBase;
+    const shownBase: MapBaseKind = plannerMap ? deskBase : planningSurface && !baseExplicit ? 'hybrid' : mapBase;
     const baseVisibility = mapBaseVisibility(shownBase);
     const satelliteVisible = baseVisibility.satellite;
     const hybridVisible = baseVisibility.hybrid;
@@ -2385,6 +2431,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                         map.setPaintProperty(id, prop, value);
                         changed = true;
                     }
+                }
+                // The lines' dark edges: on every base on the web; on the phone
+                // only on Light, its other bases keeping 127's lines (128-LIGHT).
+                const edges = lineEdges(Capacitor.isNativePlatform(), shownBase === 'light');
+                for (const id of LINE_EDGE_LAYERS) if (setVis(id, edges.visibility)) changed = true;
+                if (
+                    map.getLayer('trace-line-casing') &&
+                    JSON.stringify(map.getFilter('trace-line-casing') ?? null) !== JSON.stringify(edges.traceFilter)
+                ) {
+                    map.setFilter('trace-line-casing', edges.traceFilter);
+                    changed = true;
                 }
 
                 // PLACE NAMES OVER THE IMAGERY (Shane 2026-07-22: "we just
@@ -2823,6 +2880,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             const d = await parseLocation(to, { lat: o.lat, lon: o.lon });
             setTraceOrigin({ lat: o.lat, lon: o.lon, name: o.name });
             setTraceDest({ lat: d.lat, lon: d.lon, name: d.name });
+            setTraceFrameKind('course');
             if (mapRef.current) tracerFlyTo(mapRef.current, o, 14.5, 1400);
             // Geocoder sanity flash — "Mooloolaba Marina" once matched
             // Marina del Rey, California (proximity bias lost to the word
@@ -2841,7 +2899,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         } finally {
             setFrameBusy(false);
         }
-    }, [fromQuery, toQuery, frameBusy, flashTraceFeedback, setTraceDest, setTraceOrigin]);
+    }, [fromQuery, toQuery, frameBusy, flashTraceFeedback, setTraceDest, setTraceOrigin, setTraceFrameKind]);
 
     const clearCourseFrame = useCallback(() => {
         setTraceOrigin(null);
@@ -3192,6 +3250,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Read only: the phone aboard writes it (127-C-c). True means this
     // account's paired Pi holds licensed charts (127-DESKMAP C1).
     const boatChartsLicensed = settings.boatCharts?.licensed === true;
+    // The phone: where her licensed charts are (127-C-c); null when not paired.
+    const boatChartsNow = useSyncExternalStore(subscribeBoatRegistry, readBoatChartsNow);
+    const chartsBoatName = boatChartsNow ? boatName() : ownBoatName;
     const crewingBoat = useCrewingBoat();
     const crewingOwnerId = crewingBoat?.ownerId ?? null;
     const crewingName = crewingBoat?.name ?? null;
@@ -3817,6 +3878,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity'));
     // The streaks' palette: dark ink on the desk's Light by day, white everywhere else.
     const windPalette = shownBase === 'light' && !nightMode ? 'light' : 'dark';
+    // The desk menu's Wind row (127-DESKMAP-b); the phone's planner menu has the bases alone.
+    const deskWindRow = deskWindOffered
+        ? [deskWindToggle(deskWindOn, weather.windModel, () => setDeskWindOn((on) => !on))]
+        : [];
     const obsKeyProps: ObsLayerKeyProps = {
         enc: encVisible
             ? {
@@ -3853,7 +3918,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             data-testid="map-hub"
             // The tracer's compass rose holds a narrow window's top centre, so
             // the desk menu and strip make room there (index.css, 127-DESKMAP).
-            className={`isolate w-full h-full ${isHelmSplit ? 'flex' : 'relative'}${deskSurface && coordCaptureMode && !hideTracer ? ' thalassa-desk-tracing' : ''}`}
+            className={`isolate w-full h-full ${isHelmSplit ? 'flex' : 'relative'}${plannerSurface && coordCaptureMode && !hideTracer ? ' thalassa-desk-tracing' : ''}`}
         >
             {/* Floating route-enhancement chip — visible while the */}
             {/* passage planner's bathymetric/weather/depth pipeline runs */}
@@ -3931,29 +3996,32 @@ export const MapHub: React.FC<MapHubProps> = ({
                     encVisible={encVisible}
                     onToggleEnc={toggleEnc}
                 />
-                {/* The desk's own menu, the same pill (127-DESKMAP A2/B1):
-                    Light, Relief + Sat or Hybrid, then OpenSeaMap's seamarks
-                    on top. No ENC row: the tracer raises its own chart floors.
-                    Picks stay on this computer (deskMap.ts). */}
+                {/* The planner's own menu, the same pill (127-DESKMAP A2/B1):
+                    Light, Relief + Sat or Hybrid, then on the desk OpenSeaMap's
+                    seamarks on top; the phone's has the bases alone (128-LIGHT).
+                    No ENC row: the tracer raises its own chart floors. Picks
+                    stay on this computer or phone (deskMap.ts). */}
                 <MapBaseSelector
-                    visible={deskSurface}
+                    visible={plannerSurface}
                     className="thalassa-desk-menu"
                     value={deskBase}
                     onChange={setDeskBase}
                     options={DESK_MAP_BASE_OPTIONS}
                     encRow={false}
-                    toggles={[
-                        {
-                            id: 'seamarks',
-                            label: 'Seamarks',
-                            detail: 'OpenSeaMap community data, not verified',
-                            on: deskSeamarks,
-                            onToggle: toggleDeskSeamarks,
-                        },
-                        ...(deskWindOffered
-                            ? [deskWindToggle(deskWindOn, weather.windModel, () => setDeskWindOn((on) => !on))]
-                            : []),
-                    ]}
+                    toggles={
+                        deskSurface
+                            ? [
+                                  {
+                                      id: 'seamarks',
+                                      label: 'Seamarks',
+                                      detail: 'OpenSeaMap community data, not verified',
+                                      on: deskSeamarks,
+                                      onToggle: toggleDeskSeamarks,
+                                  },
+                                  ...deskWindRow,
+                              ]
+                            : []
+                    }
                     encCellCount={encCellCount}
                     encVisible={encVisible}
                     onToggleEnc={toggleEnc}
@@ -4238,7 +4306,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                     "we don't need to hide the compass" — the header toggle is
                     gone). */}
                 {!embedded && !isPinView && !pickerMode && !hideTracer && coordCaptureMode && (
-                    <CompassRoseOverlay mapRef={mapRef} mapReady={mapReady} />
+                    <CompassRoseOverlay
+                        mapRef={mapRef}
+                        mapReady={mapReady}
+                        pins={capturedCoords}
+                        selected={selectedPin}
+                    />
                 )}
 
                 {/* ═══ DETAIL SCRUBBER ═══
@@ -4571,12 +4644,23 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 </button>
                                             </div>
                                         )}
-                                        {tracerStatus === 'loading' && (
+                                        {tracerStatus === 'loading' && !tracerChartsWait && (
                                             <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-sky-300">
                                                 Reading charts for this area…
                                             </div>
                                         )}
-                                        {tracerStatus === 'nochart' && (
+                                        {/* Her licensed charts, opening or not here (127-C-c 7a): the
+                                            one line, in place of the loading and no-chart lines. */}
+                                        {tracerChartsWait && (
+                                            <div
+                                                className={`border-b border-white/10 px-3 py-1.5 text-[10px] font-bold ${
+                                                    tracerChartsWait === 'opening' ? 'text-sky-300' : 'text-slate-300'
+                                                }`}
+                                            >
+                                                {boatChartsLine(tracerChartsWait, boatName(), 'strip')}
+                                            </div>
+                                        )}
+                                        {tracerStatus === 'nochart' && !tracerChartsWait && (
                                             // Grey like the sketch legs, never the needs-tide amber (127-DESKMAP C3).
                                             <div className="border-b border-white/10 px-3 py-1.5 text-sm font-bold text-slate-300">
                                                 No chart for here on this device: these legs are a sketch, not checked.
@@ -4669,6 +4753,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                             draftM?: number | null;
                                                         };
                                                         rebaseHistoryRef.current = true; // wholesale load → Undo floor
+                                                        setDraftSource(null);
                                                         setCapturedCoords(lane.points);
                                                         // Draft-relative honesty: a shared lane was proven
                                                         // by SOMEONE'S keel — the re-grade against YOURS
@@ -5066,6 +5151,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                 onClick={() => {
                                                                     triggerHaptic('light');
                                                                     rebaseHistoryRef.current = true; // load → Undo floor
+                                                                    setDraftSource(null);
                                                                     setCapturedCoords(r.points);
                                                                     const mid =
                                                                         r.points[Math.floor(r.points.length / 2)];
@@ -5113,6 +5199,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                             onClick={() => {
                                                                 triggerHaptic('light');
                                                                 rebaseHistoryRef.current = true; // opened a saved route → Undo floor
+                                                                setDraftSource(null);
                                                                 setCapturedCoords(t.points);
                                                                 setTraceName(t.name);
                                                                 setShowSavedTraces(false);
@@ -5235,9 +5322,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                     nightDim={nightDim}
                     onNightDimChange={setNightDim}
                     onToggleChartKey={() => setChartKeyOpen((open) => !open)}
-                    onOpenEncLibrary={() => setPage('encLibrary')}
                     boatChartsLicensed={boatChartsLicensed}
-                    boatName={ownBoatName}
+                    boatName={chartsBoatName}
+                    boatChartsState={boatChartsNow}
                 />
                 <Suspense fallback={null}>
                     <ChartKeyPanel
@@ -5819,6 +5906,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         recenterDisabled={!weatherCoords}
                         target={locateNext.kind}
                         placeName={locateNext.kind === 'place' ? locateNext.name : undefined}
+                        orientActive={obsShowing}
                     />
                 )}
 

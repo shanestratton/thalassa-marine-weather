@@ -80,7 +80,8 @@ export function useTracerFrameMarkers({
             const ring = document.createElement('div');
             ring.style.cssText = `width:16px;height:16px;border-radius:50%;border:3px solid ${colour};background:rgba(15,23,42,0.5);box-shadow:0 0 6px rgba(0,0,0,0.7);`;
             const label = document.createElement('div');
-            label.style.cssText = `margin-top:2px;max-width:96px;font:800 9px/1.15 system-ui;letter-spacing:0.04em;text-align:center;color:${colour};text-shadow:0 1px 3px #000;`;
+            // The tight dark outline reads on Light's pale sea too (128-LIGHT).
+            label.style.cssText = `margin-top:2px;max-width:96px;font:800 9px/1.15 system-ui;letter-spacing:0.04em;text-align:center;color:${colour};text-shadow:0 0 1px #000,0 0 2px #000,0 1px 3px #000;`;
             label.textContent = kind === 'start' ? 'START' : `🏁 ${p.name}`;
             el.append(ring, label);
             return new mapboxgl.Marker({ element: el, anchor: 'top' }).setLngLat([p.lon, p.lat]).addTo(map);

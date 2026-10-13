@@ -16,6 +16,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import { ONBOARDED_STORAGE } from '../e2e/helpers/storageState';
+import { expectPalette } from './helpers/palette';
 
 test.use({
     serviceWorkers: 'block',
@@ -38,7 +39,7 @@ async function open(
     split = width >= 1024,
     /** A route library of the test's own (the Trip sheet), and a keyboard the
      *  test can raise ('test:keyboard', as keyboard-layout.spec.ts does). */
-    extra: { traces?: unknown[]; keyboard?: boolean } = {},
+    extra: { traces?: unknown[]; keyboard?: boolean; mode?: 'dark' | 'light' | 'night' } = {},
 ) {
     await page.setViewportSize({ width, height });
     const origin = new URL(baseURL!).origin;
@@ -47,8 +48,25 @@ async function open(
     );
     await page.routeWebSocket('**/*', (socket) => socket.close());
     await page.addInitScript(
-        ({ split, state, traces, keyboard }) => {
+        ({ split, state, traces, keyboard, mode }) => {
             localStorage.setItem('thalassa_split_view', split ? '1' : '0');
+            if (mode) {
+                for (const key of [
+                    'thalassa_settings_mirror::anonymous',
+                    'CapacitorStorage.thalassa_settings::anonymous',
+                ]) {
+                    const raw = localStorage.getItem(key);
+                    if (!raw) {
+                        // Reported after the load (open, below), not thrown:
+                        // a throw here would skip the wide fonts too.
+                        (window as unknown as { __paletteSeedMissing?: string }).__paletteSeedMissing = key;
+                        continue;
+                    }
+                    const saved = JSON.parse(raw);
+                    saved.settings.displayMode = mode;
+                    localStorage.setItem(key, JSON.stringify(saved));
+                }
+            }
             if (keyboard) {
                 // No browser shows a mobile keyboard under automation. Model
                 // the visual viewport the app's keyboard guard reads, and paint
@@ -110,10 +128,17 @@ async function open(
                 document.head.append(wide);
             });
         },
-        { split, state, traces: extra.traces ?? null, keyboard: !!extra.keyboard },
+        { split, state, traces: extra.traces ?? null, keyboard: !!extra.keyboard, mode: extra.mode ?? null },
     );
     await page.goto('/?view=voyage');
     await expect(page.getByRole('button', { name: 'Start plotting', exact: true })).toBeVisible({ timeout: 25_000 });
+    if (extra.mode) {
+        const missing = await page.evaluate(
+            () => (window as unknown as { __paletteSeedMissing?: string }).__paletteSeedMissing ?? null,
+        );
+        expect(missing, 'the settings the palette is seeded into').toBeNull();
+        await expectPalette(page, extra.mode);
+    }
     if (state === 'full') {
         // A stored settings blob always hydrates a vessel object, so the
         // default-vessel state (no profile, "Personalise →") is set in the
@@ -335,6 +360,57 @@ test.describe('Plan front door on a tall iPad and in phone landscape', () => {
                     expect(tile.height, `${tile.name} is a 44 pt target`).toBeGreaterThanOrEqual(44 - 0.5);
                     expect(tile.bottom, `${tile.name} clears the CTA`).toBeLessThanOrEqual(m.cta.top + 0.5);
                     expect(tile.hits, `${tile.name} is not covered`).toBe(true);
+                }
+            });
+        }
+    }
+});
+
+/*
+ * The four ways in wear one calm hue (128-HUES, Shane 2026-10-13: "ok the four
+ * big cards in the route plan page, can they have a nice hue around them also,
+ * just for consistency"): the one card hue (styles/card-hue.css) in the page's
+ * own sky, the same on every tile, in every palette. It is an edge and a
+ * shadow, so the page's fit (measured above) is untouched.
+ */
+test.describe('Plan front door wears one calm hue', () => {
+    const SIZES = [
+        { name: '390x844', width: 390, height: 844, mode: 'dark' as const },
+        { name: '390x844 daylight', width: 390, height: 844, mode: 'light' as const },
+        { name: '390x844 night', width: 390, height: 844, mode: 'night' as const },
+        { name: '320x568', width: 320, height: 568, mode: 'dark' as const },
+        { name: '1080x810 split +insets', width: 1080, height: 782, mode: 'dark' as const },
+        { name: 'SE landscape', width: 667, height: 375, mode: 'dark' as const },
+    ];
+    for (const size of SIZES) {
+        for (const state of ['empty', 'planning'] as const) {
+            test(`${state} at ${size.name}`, async ({ page, baseURL }) => {
+                await open(page, baseURL, size.width, size.height, state, size.width >= 1024, { mode: size.mode });
+                const tiles = await page.locator('.plan-tile').evaluateAll((tiles) =>
+                    tiles.map((tile) => {
+                        const style = getComputedStyle(tile);
+                        const slash = style.borderTopColor.match(/\/\s*([\d.]+)\s*\)$/);
+                        const rgba = style.borderTopColor.match(/^rgba\([^)]*,\s*([\d.]+)\s*\)$/);
+                        return {
+                            name: tile.textContent?.trim().slice(0, 20),
+                            classes: [...tile.classList],
+                            edge: style.borderTopColor,
+                            edgeAlpha: Number(slash?.[1] ?? rgba?.[1] ?? 1),
+                            edgeWidth: style.borderTopWidth,
+                            halo: style.boxShadow,
+                        };
+                    }),
+                );
+                expect(tiles).toHaveLength(state === 'empty' ? 3 : 4);
+                for (const tile of tiles) {
+                    expect(tile.classes, tile.name).toEqual(expect.arrayContaining(['card-hue', 'card-hue-plan']));
+                    // One family: every tile's edge and halo are the first's.
+                    expect(tile.edge, `${tile.name}'s edge`).toBe(tiles[0].edge);
+                    expect(tile.halo, `${tile.name}'s halo`).toBe(tiles[0].halo);
+                    expect(tile.edgeAlpha, `${tile.name}'s edge is drawn`).toBeGreaterThan(0.3);
+                    // The 1 px border it always had: no tile moves.
+                    expect(tile.edgeWidth).toBe('1px');
+                    expect(tile.halo, `${tile.name} has a halo`).toMatch(/0px 0px 22px -8px/);
                 }
             });
         }

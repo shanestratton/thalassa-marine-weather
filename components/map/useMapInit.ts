@@ -531,6 +531,10 @@ export function useMapInit(opts: UseMapInitOptions) {
             dragRotate: false,
             touchPitch: false,
             pitchWithRotate: false,
+            // Mapbox snaps a chart within 7° of north to north at the end of
+            // every pan or pinch; turned by a mode to 5° (127-11b), each pan
+            // would swing it north and the mode straight back.
+            bearingSnap: 0,
             bearing: 0,
             pitch: 0,
             maxPitch: 0,
@@ -985,16 +989,20 @@ export function useMapInit(opts: UseMapInitOptions) {
 
             // ── Confidence Braid: Multi-Model Route Comparison ──
             // The route line's dark edge under each model line, so it reads on
-            // Light's pale sea as well as the dark bases (127-DESKMAP A4). Web
-            // only: the phone's Obs and planner are unchanged in 127.
-            const cased = !Capacitor.isNativePlatform();
+            // Light's pale sea as well as the dark bases (127-DESKMAP A4). On
+            // the phone the edges are born hidden and show only on Light, its
+            // other bases keeping 127's lines (MapHub's base pass, lineEdges).
+            const edgeLayout = {
+                'line-join': 'round',
+                'line-cap': 'round',
+                visibility: Capacitor.isNativePlatform() ? 'none' : 'visible',
+            } as const;
             const braidCasing = (model: string) =>
-                cased &&
                 map.addLayer({
                     id: `confidence-${model}-casing`,
                     type: 'line',
                     source: `confidence-route-${model}`,
-                    layout: { 'line-join': 'round', 'line-cap': 'round' },
+                    layout: edgeLayout,
                     paint: { 'line-color': TRACE_CASING, 'line-width': 4, 'line-opacity': 0.8 },
                 });
             // GFS route (cyan) — visible only when models diverge
@@ -1044,16 +1052,16 @@ export function useMapInit(opts: UseMapInitOptions) {
             // the bright red and white dashes on a dark edge just above
             // (2026-10-03; they were this layer's amber dash, which read as a
             // lead).
-            // Its dashes ride the route line's dark edge on the web (127-DESKMAP A4).
-            if (cased)
-                map.addLayer({
-                    id: 'route-harbour-casing',
-                    type: 'line',
-                    source: 'route-line',
-                    filter: ['all', ['==', ['get', 'dashed'], true], ['!=', ['get', 'safety'], 'unverified']],
-                    layout: { 'line-join': 'round', 'line-cap': 'round' },
-                    paint: { 'line-color': TRACE_CASING, 'line-width': 5, 'line-opacity': 0.8 },
-                });
+            // Its dashes ride the route line's dark edge (127-DESKMAP A4; on
+            // the phone, on Light only, as the braid's).
+            map.addLayer({
+                id: 'route-harbour-casing',
+                type: 'line',
+                source: 'route-line',
+                filter: ['all', ['==', ['get', 'dashed'], true], ['!=', ['get', 'safety'], 'unverified']],
+                layout: edgeLayout,
+                paint: { 'line-color': TRACE_CASING, 'line-width': 5, 'line-opacity': 0.8 },
+            });
             map.addLayer({
                 id: 'route-harbour-dash',
                 type: 'line',

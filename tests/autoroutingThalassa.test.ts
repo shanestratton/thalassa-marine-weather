@@ -21,6 +21,11 @@ const m = vi.hoisted(() => ({
     packs: vi.fn(async () => [] as unknown[]),
     notices: vi.fn(async () => [] as unknown[]),
     trialOn: true,
+    // The boat's Pi (127-C-c): not paired unless a test says otherwise.
+    ensureBoatCells: vi.fn(async () => ({ state: 'none', pulled: 0, ms: 0, missing: 0 }) as Record<string, unknown>),
+    boatState: 'none' as string,
+    boatWhy: null as string | null,
+    order: [] as string[],
 }));
 
 vi.mock('../services/InshoreRouter', () => ({
@@ -33,6 +38,12 @@ vi.mock('../services/routing/landBackstop', async (original) => ({
     inshoreRouteCrossesLand: m.crossesLand,
 }));
 vi.mock('../services/enc/cloudCellSync', () => ({ downloadCloudCellsForBBox: m.fill }));
+vi.mock('../services/enc/piCellSync', () => ({
+    ensureBoatCells: m.ensureBoatCells,
+    boatRegistryState: () => m.boatState,
+    boatRegistryWhy: () => m.boatWhy,
+    boatName: () => "L'Étoile du Pacifique",
+}));
 vi.mock('../services/enc/EncCellMetadata', async (original) => ({
     ...(await original<Record<string, unknown>>()),
     listCells: m.listCells,
@@ -53,7 +64,9 @@ vi.mock('../stores/settingsStore', () => ({
     useSettingsStore: { getState: () => ({ settings: { autorouteTrialEnabled: m.trialOn } }) },
 }));
 
+import { Capacitor } from '@capacitor/core';
 import {
+    AUTO_NEEDS_BOAT_CHARTS_DESK,
     calculateThalassaProposal,
     getThalassaAutorouteStatus,
     THALASSA_PLANNED_ONLY_WARNING,
@@ -131,8 +144,15 @@ beforeEach(() => {
     m.invoke.mockReset();
     m.packs.mockReset().mockResolvedValue([]);
     m.notices.mockReset().mockResolvedValue([]);
+    m.ensureBoatCells.mockReset().mockResolvedValue({ state: 'none', pulled: 0, ms: 0, missing: 0 });
+    m.boatState = 'none';
+    m.boatWhy = null;
+    m.order = [];
 });
-afterEach(() => setAuthIdentityScope(null));
+afterEach(() => {
+    setAuthIdentityScope(null);
+    vi.mocked(Capacitor.isNativePlatform).mockRestore?.();
+});
 
 describe('Auto status, computed on the phone', () => {
     it('is enabled for a signed-in identity and ready with an installed navigation chart — no network call', () => {
@@ -142,6 +162,7 @@ describe('Auto status, computed on the phone', () => {
 
     it('says to install charts when none are installed, and is disabled signed out', () => {
         m.listCells.mockReturnValue([]);
+        vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
         expect(getThalassaAutorouteStatus()).toEqual({
             enabled: true,
             ready: false,
@@ -149,6 +170,24 @@ describe('Auto status, computed on the phone', () => {
         });
         setAuthIdentityScope(null);
         expect(getThalassaAutorouteStatus().enabled).toBe(false);
+    });
+
+    // The desk can't install licensed charts (they stay on the boat), so it
+    // never says "install charts": it says where Auto works and how the route
+    // gets here (2026-10-13, Shane: "it is not working for the autorouting.
+    // just the manual routing??").
+    it('on the desk with no chart, says Auto works aboard and a route saved on the phone shows here', () => {
+        m.listCells.mockReturnValue([]);
+        vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(false);
+        expect(getThalassaAutorouteStatus()).toEqual({
+            enabled: true,
+            ready: false,
+            message: AUTO_NEEDS_BOAT_CHARTS_DESK,
+        });
+        expect(AUTO_NEEDS_BOAT_CHARTS_DESK).not.toMatch(/install/i);
+        expect(AUTO_NEEDS_BOAT_CHARTS_DESK).toMatch(/Manual is ready\.$/);
+        m.listCells.mockReturnValue([{ id: 'US5GA22M' }]);
+        expect(getThalassaAutorouteStatus()).toEqual({ enabled: true, ready: true });
     });
 
     // Opt-in (2026-10-01): Pro is every account while the public beta is on,
@@ -405,7 +444,7 @@ describe('calculateThalassaProposal', () => {
         // the cloud cannot fill points there, not at sign-in or the connection.
         m.fill.mockReset().mockResolvedValue({ downloaded: 0, needed: 2, bucketAvailable: false });
         await expect(calculateThalassaProposal(request())).rejects.toThrow(
-            "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: sync them aboard, then try again. Nothing changed.",
+            "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: open them aboard, then try again. Nothing changed.",
         );
         // The shared shelf holds public NOAA charts only: no "licensed" bucket.
         m.fill.mockReset().mockResolvedValue({ downloaded: 0, needed: 2, bucketAvailable: true });
@@ -704,6 +743,49 @@ describe('calculateThalassaProposal', () => {
         expect(quiet.warnings.join(' ')).not.toMatch(/Notice to Mariners/);
     });
 
+    it('asks for the notices beside the satellite land check, and says them in the same order (128-ROUTE-P)', async () => {
+        m.tryInshoreRoute.mockResolvedValue(engineResult());
+        // ETOPO and the notice packs answer only when the test lets them; the
+        // local notices answer at once, so they land first.
+        let landCheck!: (v: unknown) => void;
+        m.crossesLand.mockImplementation(() => new Promise((r) => (landCheck = r)));
+        let packsAnswer!: (v: unknown[]) => void;
+        m.packs.mockImplementation(() => new Promise<unknown[]>((r) => (packsAnswer = r)));
+        m.notices.mockResolvedValue([
+            { id: 'syn-bar', title: 'Synthetic Bar — shoaling', lat: -31.01, lon: 161.02, radiusM: 300 },
+        ]);
+        const pending = calculateThalassaProposal(request());
+        await vi.waitFor(() => expect(m.crossesLand).toHaveBeenCalled());
+        // Both lookups are asked while ETOPO still runs: they need only the line.
+        await vi.waitFor(() => {
+            expect(m.packs).toHaveBeenCalled();
+            expect(m.notices).toHaveBeenCalled();
+        });
+        landCheck({ status: 'verified', crossesLand: false, runs: [] });
+        packsAnswer([
+            {
+                pack: { noticeKey: 'NtM 99/2026', title: 'Synthetic Bar — surveyed depths', surveyed: '2026-09-01' },
+                status: { status: 'current' },
+                optedOut: false,
+            },
+        ]);
+        const route = await pending;
+        const pack = route.warnings.findIndex((w) => w.startsWith('Routing follows a current Notice to Mariners'));
+        const local = route.warnings.findIndex((w) => w.startsWith('Notice to Mariners on this route'));
+        expect(pack).toBeGreaterThan(-1);
+        expect(local, 'the pack line first, then the local notice, as before').toBe(pack + 1);
+    });
+
+    it('a land refusal still refuses with its own words while failing notice lookups run beside it', async () => {
+        m.tryInshoreRoute.mockResolvedValue(engineResult());
+        m.crossesLand.mockResolvedValue({ status: 'verified', crossesLand: true, runs: [{}] });
+        m.packs.mockRejectedValue(new Error('feed down'));
+        m.notices.mockRejectedValue(new Error('offline'));
+        await expect(calculateThalassaProposal(request())).rejects.toThrow(
+            'Satellite relief shows land on this route. The route is not shown. Check that stretch on a detailed chart, or plot this passage in Manual. Nothing changed.',
+        );
+    });
+
     it('cancels without a proposal', async () => {
         const controller = new AbortController();
         m.tryInshoreRoute.mockImplementation(async () => {
@@ -849,6 +931,81 @@ describe('the offline water pack', () => {
         m.tryInshoreRoute.mockResolvedValue(engineResult({ waterPack: { source: 'online', missing: [] } }));
         const after = await calculateThalassaProposal(request());
         expect(after.warnings).toEqual(before.warnings);
+    });
+});
+
+describe("the boat's licensed charts open from the Pi before the gates (127-C-c decision 8)", () => {
+    const COORD = /-?\d{1,3}\.\d{2,}/;
+    const NAME = "L'Étoile du Pacifique";
+
+    it('paired with nothing registered yet reads ready; away it says where the charts are', () => {
+        m.listCells.mockReturnValue([]);
+        m.boatState = 'pending';
+        expect(getThalassaAutorouteStatus()).toEqual({ enabled: true, ready: true });
+        m.boatState = 'away';
+        m.boatWhy = 'away';
+        expect(getThalassaAutorouteStatus()).toEqual({
+            enabled: true,
+            ready: false,
+            message: `${NAME}'s charts open on the boat's Wi-Fi. Manual is ready.`,
+        });
+    });
+
+    it('registers and pulls the endpoint cells before the endpoint gate, then routes', async () => {
+        let registered = false;
+        m.ensureBoatCells.mockImplementation(async () => {
+            m.order.push('ensure');
+            registered = true;
+            return { state: 'loaded', pulled: 6, ms: 1234, missing: 0 };
+        });
+        m.hasEncCoverageForRoute.mockImplementation((() => {
+            m.order.push('gate');
+            return registered;
+        }) as never);
+        m.tryInshoreRoute.mockResolvedValue(engineResult());
+        const route = await calculateThalassaProposal(request());
+        expect(m.order[0]).toBe('ensure');
+        expect(m.order).toContain('gate');
+        const [bbox, opts] = m.ensureBoatCells.mock.calls[0] as unknown as [number[], { maxCells: number }];
+        expect(bbox[0]).toBeCloseTo(161.0 - 0.03, 9);
+        expect(bbox[1]).toBeCloseTo(-31.05 - 0.03, 9);
+        expect(opts).toEqual({ maxCells: 24 });
+        expect(route.chartsMs).toBe(1234);
+        expect(route.coordinates).toEqual(polyline);
+    });
+
+    it('opens more of her charts in the coverage-gap fill before asking the cloud', async () => {
+        m.ensureBoatCells
+            .mockResolvedValueOnce({ state: 'loaded', pulled: 2, ms: 400, missing: 3 })
+            .mockResolvedValueOnce({ state: 'loaded', pulled: 3, ms: 500, missing: 0 });
+        m.tryInshoreRoute
+            .mockResolvedValueOnce({ error: 'Trusted inshore ENC coverage is incomplete', code: 'coverage-gap' })
+            .mockResolvedValueOnce(engineResult());
+        const route = await calculateThalassaProposal(request());
+        expect(m.ensureBoatCells).toHaveBeenCalledTimes(2);
+        expect(m.fill).not.toHaveBeenCalled();
+        expect(route.chartsMs).toBe(900);
+    });
+
+    it.each([
+        ['away', `${NAME}'s licensed charts open on the boat's Wi-Fi.`],
+        ['tailnet', `Licensed charts open only on ${NAME}'s own Wi-Fi, not over remote access.`],
+        ['off', `Licensed charts stay on ${NAME}'s Pi in this build.`],
+    ])('an uncovered end with the Pi %s says where her charts are, and names no position', async (why, words) => {
+        m.ensureBoatCells.mockResolvedValue({
+            state: why === 'off' ? 'none' : 'away',
+            why,
+            pulled: 0,
+            ms: 3000,
+            missing: 0,
+        });
+        m.hasEncCoverageForRoute.mockReturnValue(false);
+        const err = await calculateThalassaProposal(request()).catch((e: Error) => e);
+        expect(err).toBeInstanceOf(Error);
+        expect((err as Error).message).toContain('No installed chart covers the departure or the destination.');
+        expect((err as Error).message).toContain(words);
+        expect((err as Error).message).not.toMatch(COORD);
+        expect(m.tryInshoreRoute).not.toHaveBeenCalled();
     });
 });
 

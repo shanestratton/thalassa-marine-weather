@@ -120,7 +120,8 @@ interface MapboxVelocityOverlayProps {
  * spanning the whole map (see the container style below), so it draws over
  * LAND as well as water — and it sits above the Mapbox canvas that renders
  * place names. The library also composites additively ('lighter'), so trails
- * accumulate toward white where they cross.
+ * accumulate toward white where they cross (on the dark bases; Light's dark
+ * ink is drawn normally, drawInkOver below).
  *
  * The option key is `particlelineWidth` — lowercase 'l' in "line":
  *   leaflet-velocity.js → `this.particleLineWidth = t.particlelineWidth || 1`
@@ -283,12 +284,39 @@ type MutableVelocityLayer = L.Layer & {
  * one pending RAF handle without cancelling it.
  */
 type VelocityWindyInternals = {
-    animationBucket?: { clear?: () => void };
+    animationBucket?: VelocityBucket;
     animationLoop?: number | null;
     start?: (...args: unknown[]) => unknown;
     stop?: () => void;
     __thalassaSafeStop?: boolean;
 };
+
+type VelocityBucket = {
+    clear?: () => void;
+    draw?: (ctx: CanvasRenderingContext2D) => void;
+    __inkOver?: boolean;
+};
+
+/**
+ * Light's ink, drawn normally (128-LIGHT; Shane 2026-10-13: "yes to all of
+ * your questions for 128"). leaflet-velocity strokes each frame's particles
+ * straight after setting globalCompositeOperation 'lighter' (Windy.draw: per
+ * call, not an option), and the additive blend pales a dark ink wherever
+ * trails meet: the 26 kt red came out 0.62-0.92 red in WebKit. So on Light
+ * the particle bucket's own draw, the one call that strokes the ink, runs
+ * under 'source-over'; the fade before it ('destination-in') stays the
+ * library's. start() makes a new bucket, so each start wraps it again. A dark
+ * base never comes here: its strokes are the library's, call for call.
+ */
+function drawInkOver(bucket: VelocityBucket | undefined): void {
+    const draw = bucket?.draw;
+    if (!bucket || typeof draw !== 'function' || bucket.__inkOver) return;
+    bucket.__inkOver = true;
+    bucket.draw = (ctx) => {
+        ctx.globalCompositeOperation = 'source-over';
+        draw.call(bucket, ctx);
+    };
+}
 
 type VelocityLayerInternals = MutableVelocityLayer & {
     _windy?: VelocityWindyInternals;
@@ -322,12 +350,15 @@ export function guardVelocityLayerStartup(layer: L.Layer): void {
             }
         };
         const originalStart = windy.start;
+        const inkOver = internalLayer.__palette === 'light';
         if (typeof originalStart === 'function') {
             windy.start = (...startArgs: unknown[]) => {
                 // clearAndRestart can start this same Windy again without a
                 // stop. Keep one frame chain rather than losing its old handle.
                 cancelOwnedFrame();
-                return originalStart.apply(windy, startArgs);
+                const started = originalStart.apply(windy, startArgs);
+                if (inkOver) drawInkOver(windy.animationBucket);
+                return started;
             };
         }
         windy.stop = () => {

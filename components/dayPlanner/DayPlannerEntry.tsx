@@ -12,16 +12,16 @@ const TodaySheet = lazyRetry(() => import('./TodaySheet'));
 
 /**
  * The Plan page's Plan Your Day tile (build 124, "Today on the water"). A tap
- * opens the planner at once: no form, no switch and no draft check, because
- * it never routes and reads no depth. Pro only (owner decision 2026-10-01;
- * free during the public beta). Auto route (trial) still gates the Auto
- * workspace, not this.
+ * opens the planner at once: no form, no switch and no draft check. Pro only
+ * (owner decision 2026-10-01; free during the public beta). Routing a stop
+ * (127-PYD-2) asks for Auto route (trial) and a confirmed draft on its own tap.
  */
 export function DayPlannerEntry({
     vessel,
     usingDefaultVessel,
     isPro,
     onUpgrade,
+    mapboxToken,
     onPlot,
     onOpenVessel,
 }: {
@@ -30,7 +30,9 @@ export function DayPlannerEntry({
     usingDefaultVessel: boolean;
     isPro: boolean;
     onUpgrade: () => void;
-    /** "Plot on chart": straight pins into the Manual plotter. */
+    /** For Auto's chart, which shows a stop's route (127-PYD-3). */
+    mapboxToken?: string;
+    /** The routed line, her saved route, or two marks into the Manual plotter: never a straight line. */
     onPlot: (action: TracerOpenAction) => void;
     /** Settings → Vessel, from the default-boat notice. */
     onOpenVessel?: () => void;
@@ -86,6 +88,7 @@ export function DayPlannerEntry({
                         key={`${scope.key}:${scope.generation}`}
                         vessel={vessel}
                         usingDefaultVessel={usingDefaultVessel}
+                        mapboxToken={mapboxToken}
                         onClose={close}
                         onPlot={plot}
                         onOpenVessel={onOpenVessel ? openVessel : undefined}

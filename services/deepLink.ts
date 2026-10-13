@@ -91,12 +91,13 @@ export type TracerOpenAction =
     | PlotDayAction;
 
 /**
- * Plan Your Day's "Plot on chart" (build 124). Both ⚡ buttons in the chart's
- * route plotter are parked, so this loads straight pins into the MANUAL
- * plotter as an unsaved draft: start → stop (→ start for a day trip), or the
- * skipper's own saved route when one joins the two. The skipper drags the
- * pins round the land and the Route report checks them against the charts.
- * It carries the boat's position, so it is identity-fenced like the rest.
+ * Plan Your Day's hand-over to the chart (build 124; 127-PYD-3). Never a
+ * straight line: the routed line (her stop routed by Auto's provider, "Use on
+ * the main chart"), or her own saved route that joins the two, as an UNSAVED
+ * draft in the MANUAL plotter; with neither, `frame` and no points: her start
+ * and the stop as two marks and why ("Plot by hand"). The Route report checks
+ * whatever she plots. It carries the boat's position, so it is
+ * identity-fenced like the rest.
  */
 export interface PlotDayAction {
     kind: 'plot-day';
@@ -105,9 +106,16 @@ export interface PlotDayAction {
     name: string;
     /** The stop's name, for the chart's one-line note. */
     stop: string;
-    /** Set when the pins are the skipper's saved route, not straight lines. */
+    /** Set when the pins are the skipper's saved route. */
     savedRoute?: string;
+    /** The pins are the line Thalassa routed for this stop (127-PYD-3). */
+    routed?: true;
+    /** A routed line whose satellite land check didn't run: why (may be empty). A caution, not a gate. */
+    unchecked?: string;
+    /** No line to plot: her start and the stop, and why; `points` is empty. */
+    frame?: { from: PlotDayMark; to: PlotDayMark; why: string };
 }
+export type PlotDayMark = { lat: number; lon: number; name: string };
 
 /** The most points a saved route may hold (saved_routes and
  *  AUTOROUTING_PROPOSAL_MAX_POINTS): an Auto route runs to hundreds. */
@@ -116,32 +124,50 @@ export const SAVED_ROUTE_MAX_POINTS = 10_000;
  *  a plot-day request can honestly need. Over this it is refused. */
 export const PLOT_DAY_MAX_POINTS = 2 * SAVED_ROUTE_MAX_POINTS - 1;
 
+const realPoint = (p: { lat: number; lon: number } | null | undefined): p is { lat: number; lon: number } =>
+    !!p &&
+    typeof p.lat === 'number' &&
+    typeof p.lon === 'number' &&
+    Number.isFinite(p.lat) &&
+    Number.isFinite(p.lon) &&
+    Math.abs(p.lat) <= 90 &&
+    Math.abs(p.lon) <= 180;
+
 /** What the chart accepts from a plot-day request: two to
- *  PLOT_DAY_MAX_POINTS real positions, and a name. Null when the pins are
- *  not usable. */
-export function plotDayPins(
-    action: PlotDayAction,
-): { points: { lat: number; lon: number }[]; name: string; stop: string; savedRoute: string | null } | null {
+ *  PLOT_DAY_MAX_POINTS real positions and a name, or no positions and a
+ *  frame of two real marks. Null when it is not usable. */
+export function plotDayPins(action: PlotDayAction): {
+    points: { lat: number; lon: number }[];
+    name: string;
+    stop: string;
+    savedRoute: string | null;
+    routed: boolean;
+    frame: { from: PlotDayMark; to: PlotDayMark; why: string } | null;
+    unchecked: string | null;
+} | null {
     const points = Array.isArray(action?.points) ? action.points : [];
-    if (points.length < 2 || points.length > PLOT_DAY_MAX_POINTS) return null;
-    const valid = points.every(
-        (p) =>
-            !!p &&
-            typeof p.lat === 'number' &&
-            typeof p.lon === 'number' &&
-            Number.isFinite(p.lat) &&
-            Number.isFinite(p.lon) &&
-            Math.abs(p.lat) <= 90 &&
-            Math.abs(p.lon) <= 180,
-    );
-    if (!valid) return null;
-    const text = (value: unknown, fallback: string) =>
-        (typeof value === 'string' && value.trim() ? value.trim() : fallback).slice(0, 120);
+    const frame = action?.frame;
+    if (
+        frame
+            ? points.length || !realPoint(frame.from) || !realPoint(frame.to)
+            : points.length < 2 || points.length > PLOT_DAY_MAX_POINTS || !points.every(realPoint)
+    )
+        return null;
+    const text = (value: unknown, fallback: string, max = 120) =>
+        (typeof value === 'string' && value.trim() ? value.trim() : fallback).slice(0, max);
+    const stop = text(action.stop, 'the stop');
+    const mark = (p: PlotDayMark, fallback: string) => ({ lat: p.lat, lon: p.lon, name: text(p.name, fallback) });
     return {
         points: points.map((p) => ({ lat: p.lat, lon: p.lon })),
         name: text(action.name, 'Day out'),
-        stop: text(action.stop, 'the stop'),
+        stop,
         savedRoute: typeof action.savedRoute === 'string' && action.savedRoute.trim() ? action.savedRoute.trim() : null,
+        routed: action.routed === true,
+        frame: frame
+            ? { from: mark(frame.from, 'Start'), to: mark(frame.to, stop), why: text(frame.why, '', 400) }
+            : null,
+        unchecked:
+            action.routed === true && typeof action.unchecked === 'string' ? text(action.unchecked, '', 300) : null,
     };
 }
 

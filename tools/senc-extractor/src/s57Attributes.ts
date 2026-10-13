@@ -13,10 +13,26 @@ export interface S57Attribute {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let cache: Map<number, S57Attribute> | null = null;
+/** Where the S-57 catalogue CSVs are; null = ../reference beside this module (the extractor's own layout). */
+let referenceDir: string | null = null;
+
+/**
+ * Read the catalogue from `dir` from now on (dir/s57attributes.csv). The Pi's
+ * chart vault runs a mirror of this module from /opt/thalassa-pi-cache/dist,
+ * where no reference/ sits beside it: it passes the copy its install made.
+ */
+export function setS57AttributeReferenceDir(dir: string | null): void {
+    referenceDir = dir;
+    cache = null;
+}
 
 export function loadS57Attributes(csvPath?: string): Map<number, S57Attribute> {
     if (cache) return cache;
-    const path = csvPath ?? resolve(__dirname, '../reference/s57attributes.csv');
+    const path =
+        csvPath ??
+        (referenceDir
+            ? resolve(referenceDir, 's57attributes.csv')
+            : resolve(__dirname, '../reference/s57attributes.csv'));
     const csv = readFileSync(path, 'utf8');
     const lines = csv.split('\n').slice(1);
     const map = new Map<number, S57Attribute>();

@@ -133,6 +133,32 @@ async function readCappedBody(res: { body: unknown }, maxBytes = MAX_BINARY_BYTE
 
 /** Perform the blocking upstream fetch and write to cache. Used both for
  *  cold loads (no cache) and for background revalidation of stale entries. */
+/**
+ * One upstream JSON fetch, capped at 16 MB, through the pinned outbound
+ * policy, cached nowhere. For answers that must not be stored (reverse
+ * geocodes: Mapbox Product Terms §2.7.2, 127-C-d decision 13).
+ */
+export async function uncachedJsonFetch(
+    url: string,
+    headers: Record<string, string> = {},
+    timeoutMs = 15000,
+): Promise<unknown> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const res = await outboundFetch(url, { headers, signal: controller.signal });
+        if (!res.ok) throw new Error(`Upstream ${res.status}: ${res.statusText}`);
+        const declaredLength = Number(res.headers.get('content-length') || '0');
+        if (Number.isFinite(declaredLength) && declaredLength > 16_000_000) {
+            throw new Error('Upstream JSON response is too large');
+        }
+        const body = await readCappedBody(res, 16_000_000);
+        return JSON.parse(body.toString('utf8')) as unknown;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function fetchAndCache(cache: Cache, opts: JsonProxyOptions): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), opts.timeout || 15000);

@@ -52,6 +52,7 @@ import { annotateTideWindows } from '../map/tideWindowChips';
 import { routeRedStretches } from '../map/routeRedReasons';
 import { isBackstopLandRefusal } from '../../services/routing/landBackstopWords';
 import { AutoroutingProposalSaveCard } from './AutoroutingProposalSaveCard';
+import { CHART_FACTS_STAY_ABOARD } from '../../services/chartFacts';
 import { TrialTracerShell } from './TrialTracerShell';
 import { TrialWaypointEditor } from './TrialWaypointEditor';
 import { PlannerVesselLocator } from '../map/PlannerVesselLocator';
@@ -59,15 +60,29 @@ import { PlannerVesselLocator } from '../map/PlannerVesselLocator';
 export interface AutoroutingTrialWorkspaceProps {
     onClose: () => void;
     mapboxToken: string;
-    /** Read-only opening snapshots, never selected endpoints or a live vessel position. */
+    /** Read-only opening snapshots, never selected endpoints or a live vessel position
+     * (except in `dayPlan`, below). */
     initialCenter?: { lat: number; lon: number };
     initialDraftM?: number;
     initialSpeedKts?: number;
     initialVesselProfile?: AutoroutingVesselProfile;
-    /** Read-only itinerary review. No edits, standalone saves or setup changes;
-     * the owning planner must retain the exact route/schedule relationship. */
-    reviewProposal?: AutoroutingTrialRoute;
-    onReviewChange?: (review: import('../../services/autoroutingReview').TrialRouteReview | null) => void;
+    /** Plan Your Day's route chart (127-PYD-3; Shane, 2026-10-10: "so can we
+     * incorporate the autorouting into the plan your day thingy"): the route
+     * Thalassa worked out for the stop she tapped, drawn as Auto draws it, with
+     * its review checks, its tide chips at her leave (`proposal.departureMs`)
+     * and the satellite check's Retry. Its endpoints arrive inside the proposal
+     * from her explicit tap on a stop; the boat fix is the plan's start and
+     * appears only as its first coordinate. No setup, calculation or edits.
+     * onClose goes back to Plan Your Day; "Use on the main chart" hands the
+     * route as shown to the Manual plotter, the path to Follow. A Retry's
+     * answer goes back to Plan Your Day (`onRechecked`): the checked copy, or
+     * Auto's words when it found land, which take the route away there too. */
+    dayPlan?: {
+        proposal: AutoroutingTrialRoute;
+        stopName: string;
+        onUseOnMainChart: (route: AutoroutingTrialRoute) => void;
+        onRechecked: (outcome: AutoroutingTrialRoute | string) => void;
+    };
 }
 type Endpoint = 'departure' | 'destination';
 type PositionInput = { lat: string; lon: string };
@@ -108,9 +123,9 @@ export function AutoroutingTrialWorkspace({
     initialDraftM,
     initialSpeedKts,
     initialVesselProfile,
-    reviewProposal,
-    onReviewChange,
+    dayPlan,
 }: AutoroutingTrialWorkspaceProps) {
+    const dayRoute = dayPlan?.proposal;
     const pane = usePaneScope();
     const provider = useAutoroutingProvider();
     const keyboardHeight = useKeyboardOffset(!pane);
@@ -132,7 +147,7 @@ export function AutoroutingTrialWorkspace({
     const [status, setStatus] = useState<AutoroutingTrialStatus | null>(null);
     const panelId = useId();
     const [panelExpanded, setPanelExpanded] = useState(true);
-    const [panelPage, setPanelPage] = useState<'setup' | 'review'>(reviewProposal ? 'review' : 'setup');
+    const [panelPage, setPanelPage] = useState<'setup' | 'review'>(dayRoute ? 'review' : 'setup');
     const [fitRevision, setFitRevision] = useState(0);
     const [focusRevision, setFocusRevision] = useState(0);
     const pendingSpot = useRef<[number, number] | null>(null);
@@ -163,13 +178,13 @@ export function AutoroutingTrialWorkspace({
         };
     }, [dialogRef]);
     const [departure, setDeparture] = useState(() =>
-        reviewProposal
-            ? { lat: String(reviewProposal.coordinates[0][1]), lon: String(reviewProposal.coordinates[0][0]) }
+        dayRoute
+            ? { lat: String(dayRoute.coordinates[0][1]), lon: String(dayRoute.coordinates[0][0]) }
             : emptyPosition(),
     );
     const [destination, setDestination] = useState(() =>
-        reviewProposal
-            ? { lat: String(reviewProposal.coordinates.at(-1)![1]), lon: String(reviewProposal.coordinates.at(-1)![0]) }
+        dayRoute
+            ? { lat: String(dayRoute.coordinates.at(-1)![1]), lon: String(dayRoute.coordinates.at(-1)![0]) }
             : emptyPosition(),
     );
     // Thalassa's router routes from the berth with its own canal tier, so
@@ -217,7 +232,7 @@ export function AutoroutingTrialWorkspace({
         speed <= AUTOROUTING_TRIAL_MAX_SPEED_KTS &&
         vesselProfile?.draftStatus !== 'missing';
     const [proposal, setProposal] = useState<AutoroutingTrialRoute | null>(() =>
-        reviewProposal ? structuredClone(reviewProposal) : null,
+        dayRoute ? structuredClone(dayRoute) : null,
     );
     // One immutable checkpoint only: bounded memory and no implicit route history.
     const [undoProposal, setUndoProposal] = useState<AutoroutingTrialRoute | null>(null);
@@ -260,11 +275,9 @@ export function AutoroutingTrialWorkspace({
     const shownProposal = proposal && backstopRetry?.base === proposal ? backstopRetry.route : proposal;
     // What this route found — not the lines every Auto route carries (125-06).
     const notesToReview = shownProposal ? routeNotesToReview(shownProposal.warnings).length : 0;
+    // Plan Your Day's route keeps its Retry too (127-PYD-3).
     const backstopUnavailable =
-        !!shownProposal &&
-        !reviewProposal &&
-        !shownProposal.localEdit &&
-        shownProposal.engine?.backstop === 'unavailable';
+        !!shownProposal && !shownProposal.localEdit && shownProposal.engine?.backstop === 'unavailable';
     // Retry needs the charts' verdict at every satellite sample, which the
     // proposal keeps only when the router could build its chart probe
     // (calculateThalassaProposal: one per sample of this very line).
@@ -276,9 +289,6 @@ export function AutoroutingTrialWorkspace({
         !!provider.recheckBackstop;
     const backstopRetryingNow = !!proposal && backstopRetrying === proposal;
     const backstopRetryMessage = proposal && backstopRetryError?.base === proposal ? backstopRetryError.message : '';
-    useEffect(() => {
-        if (reviewProposal) onReviewChange?.(review);
-    }, [reviewProposal, review, onReviewChange]);
     const [selectedWaypoint, setSelectedWaypoint] = useState(0);
     const [inspectingWaypoint, setInspectingWaypoint] = useState(false);
     const [movingWaypoint, setMovingWaypoint] = useState(false);
@@ -287,7 +297,7 @@ export function AutoroutingTrialWorkspace({
     const movingWaypointRef = useRef(false);
     const moveBasisRef = useRef<{ route: AutoroutingTrialRoute; pathIndex: number } | null>(null);
     movingWaypointRef.current = movingWaypoint;
-    const [editingEndpoints, setEditingEndpoints] = useState(!reviewProposal);
+    const [editingEndpoints, setEditingEndpoints] = useState(!dayRoute);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const collapsePanel = () => {
@@ -337,7 +347,8 @@ export function AutoroutingTrialWorkspace({
             setMoveError('');
             return;
         }
-        if (proposal && !editingEndpoints) return;
+        // Plan Your Day's ends are the stop she chose: a tap never moves them.
+        if (dayRoute || (proposal && !editingEndpoints)) return;
         updateEndpoint(target, { lat: lat.toFixed(6), lon: lon.toFixed(6) });
         setTarget('destination');
     };
@@ -433,6 +444,8 @@ export function AutoroutingTrialWorkspace({
         setEncPlottingMode(map, true);
         setEncPopupSuppression(map, true); // taps select endpoints, not chart popups
         map.touchZoomRotate.disableRotation();
+        // Shift+arrows turn a Mapbox map too: lock them as the twist is (127-11a/128-11b).
+        map.keyboard?.disableRotation();
         map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right');
         map.on('load', () => {
             map.addSource('trial', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -752,7 +765,8 @@ export function AutoroutingTrialWorkspace({
         );
         if (!engine.shallowRuns?.length && !engine.surveyRuns?.length && liftable.length === 0) return clearChips;
         const stale = () => revision !== chipRevision.current || mapRef.current !== map;
-        const departureMs = Date.parse(proposal.createdAt);
+        // Her leave from Plan Your Day, else when it was routed.
+        const departureMs = proposal.departureMs ?? Date.parse(proposal.createdAt);
         void annotateTideWindows({
             map,
             runs: engine.shallowRuns ?? [],
@@ -794,8 +808,8 @@ export function AutoroutingTrialWorkspace({
         collapsePanel();
     };
     const inspectedWaypoint = inspectingWaypoint ? displayWaypoints[selectedWaypoint] : undefined;
-    const moveLockedReason = reviewProposal
-        ? 'Itinerary preview only. Save the plan, then edit it in Plan and reassess timings and weather.'
+    const moveLockedReason = dayRoute
+        ? 'Change the stop in Plan Your Day; edit the route on the main chart.'
         : !inspectedWaypoint
           ? undefined
           : inspectedWaypoint.pathIndex === 0 || inspectedWaypoint.pathIndex === (proposal?.coordinates.length ?? 0) - 1
@@ -1043,15 +1057,20 @@ export function AutoroutingTrialWorkspace({
         setBackstopRetryError(null);
         try {
             const next = await provider.recheckBackstop(route);
-            if (current()) setBackstopRetry({ base, route: next });
+            if (current()) {
+                setBackstopRetry({ base, route: next });
+                dayPlan?.onRechecked(next);
+            }
         } catch (failure) {
             if (!current() || failure instanceof DOMException) return;
             if (isBackstopLandRefusal(failure)) {
                 // Land after all: the route must not be shown (Auto's
-                // refusal), exactly as if the router had found it.
+                // refusal), exactly as if the router had found it; in Plan
+                // Your Day too, whose stop is then not routed.
                 invalidate();
                 setError(failure.message);
                 setPanelExpanded(true);
+                dayPlan?.onRechecked(failure.message);
                 return;
             }
             // Anything else is not land: the route stays, Save stays off.
@@ -1087,7 +1106,7 @@ export function AutoroutingTrialWorkspace({
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
-            aria-label="Autorouting trial"
+            aria-label={dayPlan ? `Plan Your Day route to ${dayPlan.stopName}` : 'Autorouting trial'}
             className="autoroute-full-chart overflow-hidden bg-slate-950 text-white"
             style={
                 {
@@ -1115,9 +1134,7 @@ export function AutoroutingTrialWorkspace({
                 <div
                     ref={container}
                     role="region"
-                    aria-label={
-                        reviewProposal ? 'Day plan route review chart' : 'Trial chart — tap to set selected endpoint'
-                    }
+                    aria-label={dayRoute ? 'Plan Your Day route chart' : 'Trial chart — tap to set selected endpoint'}
                     className="absolute inset-0"
                     style={{ position: 'absolute', inset: 0 }}
                 />
@@ -1202,7 +1219,9 @@ export function AutoroutingTrialWorkspace({
                             <span className="block font-bold">
                                 {proposal
                                     ? `${passageNm.toFixed(1)} NM · ${displayWaypoints.length} waypoints`
-                                    : 'Set up route'}
+                                    : dayRoute
+                                      ? 'No route to show'
+                                      : 'Set up route'}
                             </span>
                             <span className="block">
                                 {busy ? (
@@ -1224,6 +1243,9 @@ export function AutoroutingTrialWorkspace({
                                     ) : (
                                         `Chart checks ${review?.phase ?? 'pending'}`
                                     )
+                                ) : dayRoute ? (
+                                    // A Retry found land: no setup here, only the way back.
+                                    'Back to Plan Your Day.'
                                 ) : stopped ? (
                                     'Stopped. Nothing changed.'
                                 ) : missingPosition ? (
@@ -1257,7 +1279,7 @@ export function AutoroutingTrialWorkspace({
                     }
                     navigation={
                         proposal &&
-                        !reviewProposal && (
+                        !dayRoute && (
                             <>
                                 {(['setup', 'review'] as const).map((page) => (
                                     <button
@@ -1278,17 +1300,22 @@ export function AutoroutingTrialWorkspace({
                         )
                     }
                     footer={
-                        reviewProposal ? (
+                        dayPlan ? (
                             <div className="grid grid-cols-2 gap-2">
+                                {/* Off once the route is gone (a satellite Retry found land after all). */}
+                                <button
+                                    type="button"
+                                    onClick={() => shownProposal && dayPlan.onUseOnMainChart(shownProposal)}
+                                    disabled={!proposal}
+                                    className={`${buttonClass} col-span-2 bg-teal-600 text-white`}
+                                >
+                                    Use on the main chart
+                                </button>
                                 <button type="button" onClick={fitRoute} className={buttonClass}>
                                     Whole route
                                 </button>
-                                <button
-                                    type="button"
-                                    onClick={onClose}
-                                    className={`${buttonClass} bg-teal-600 text-white`}
-                                >
-                                    Back to day plan
+                                <button type="button" onClick={onClose} className={buttonClass}>
+                                    Back to Plan Your Day
                                 </button>
                             </div>
                         ) : !proposal || panelPage === 'setup' ? (
@@ -1320,7 +1347,7 @@ export function AutoroutingTrialWorkspace({
                     }
                 >
                     <div className="p-3 space-y-3">
-                        {(!proposal || panelPage === 'setup') && (
+                        {!dayRoute && (!proposal || panelPage === 'setup') && (
                             <div className="space-y-3">
                                 <p className="text-micro text-gray-400">
                                     {proposal && !editingEndpoints
@@ -1522,7 +1549,7 @@ export function AutoroutingTrialWorkspace({
                                 </section>
                             </div>
                         )}
-                        {proposal && typeof draft === 'number' && !reviewProposal && (
+                        {proposal && typeof draft === 'number' && (
                             <div hidden={panelPage !== 'review'}>
                                 {backstopUnavailable && (
                                     <section
@@ -1557,14 +1584,19 @@ export function AutoroutingTrialWorkspace({
                                         )}
                                     </section>
                                 )}
-                                <AutoroutingProposalSaveCard
-                                    key={proposal.id}
-                                    route={shownProposal ?? proposal}
-                                    review={review}
-                                    draftM={draft}
-                                    draftAssumed={draftAssumed}
-                                    onSaved={() => setSavedProposal(proposal)}
-                                />
+                                {/* Plan Your Day's route saves here only while chart facts stay aboard (127-C-b). */}
+                                {!dayRoute || CHART_FACTS_STAY_ABOARD ? (
+                                    <AutoroutingProposalSaveCard
+                                        key={proposal.id}
+                                        route={shownProposal ?? proposal}
+                                        review={review}
+                                        draftM={draft}
+                                        draftAssumed={draftAssumed}
+                                        onSaved={() => setSavedProposal(proposal)}
+                                    />
+                                ) : (
+                                    <p className="text-micro">Save it from the main chart: Use on the main chart.</p>
+                                )}
                             </div>
                         )}
                     </div>
@@ -1611,10 +1643,12 @@ export function AutoroutingTrialWorkspace({
                     {proposal
                         ? dangerReported
                             ? 'Danger reported · open Route review before proceeding.'
-                            : reviewProposal
-                              ? 'Day plan preview · review checks, then return to the itinerary.'
+                            : dayRoute
+                              ? 'Plan Your Day route · review checks, then use it on the main chart or go back.'
                               : 'Trial proposal only · open Route review to inspect checks and save.'
-                        : `Tap the chart to set ${target}.`}
+                        : dayRoute
+                          ? 'No route to show: back to Plan Your Day.'
+                          : `Tap the chart to set ${target}.`}
                 </div>
             )}
         </OverlayPortal>

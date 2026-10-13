@@ -43,7 +43,13 @@ import { gradeLegs } from '../services/traceGrading';
 import { mergeSubLegVerdicts, traceHealth } from '../services/routeTracer';
 import { useTracerTraceLayer } from '../components/map/useTracerTraceLayer';
 import { NAV_LAYER_IDS, TRACE_LAYER_IDS } from '../components/map/isobarLayerSetup';
-import { SKETCH_LEG_DASH, TRACE_CASING, traceHintPaint } from '../components/map/traceLegInk';
+import {
+    LINE_EDGE_LAYERS,
+    SKETCH_LEG_DASH,
+    TRACE_CASING,
+    lineEdges,
+    traceHintPaint,
+} from '../components/map/traceLegInk';
 import { LIGHT_PALETTE } from '../components/map/reliefBase';
 import { ChartKeyPanel } from '../components/map/ChartKeyPanel';
 import { TracerWaypointList } from '../components/map/tracer/TracerWaypointList';
@@ -160,6 +166,8 @@ function drawn(legVerdicts: Array<TraceLegVerdict | null>) {
             ghostLanes: [],
             traceOrigin: null,
             traceDest: { lat: 38.99, lon: -76.42, name: 'Fictional Creek' },
+            // The course frame's hint (127-PYD-3: never Plan Your Day's).
+            destHint: true,
         }),
     );
     return map;
@@ -283,14 +291,16 @@ describe('lines that read on the pale sea (127-DESKMAP A4)', () => {
         }
     });
 
-    // The phone's Obs and planner are unchanged in 127: the casings are the
-    // web's, and on the phone only a sketch leg sits on its dark edge.
-    it('on the phone: no harbour or braid casings, and the trace casing carries only sketch legs', () => {
+    // The phone (128-LIGHT; Shane 2026-10-13, the phone planner on the Light
+    // chart): the edges are there, born hidden; MapHub's base pass shows them,
+    // and puts every leg on the trace edge, only where the phone shows Light.
+    // Its other bases keep 127's lines; the web keeps every edge on every base.
+    it('on the phone: the edges born hidden and the trace edge on sketch legs, until Light is under them', () => {
         const harbour = added('route-harbour-casing');
-        expect(init.slice(harbour - 120, harbour)).toMatch(/if \(cased\)\s*map\.addLayer\(\{\s*$/);
-        expect(init).toMatch(/const cased = !Capacitor\.isNativePlatform\(\);/);
+        expect(init.slice(harbour, harbour + 400)).toMatch(/layout: edgeLayout/);
+        expect(init).toMatch(/visibility: Capacitor\.isNativePlatform\(\) \? 'none' : 'visible'/);
         const helper = init.indexOf('const braidCasing = ');
-        expect(init.slice(helper, helper + 140)).toMatch(/=>\s*cased &&\s*map\.addLayer\(/);
+        expect(init.slice(helper, helper + 260)).toMatch(/layout: edgeLayout/);
 
         vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
         try {
@@ -301,6 +311,29 @@ describe('lines that read on the pale sea (127-DESKMAP A4)', () => {
             vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
         }
         expect(drawn([sketchVerdict]).getLayer('trace-line-casing')!.filter).toBeUndefined();
+
+        expect([...LINE_EDGE_LAYERS]).toEqual([
+            'route-harbour-casing',
+            'confidence-gfs-casing',
+            'confidence-ecmwf-casing',
+        ]);
+        // The web: every edge, every base, every leg (so the desk's pass writes nothing).
+        for (const pale of [true, false])
+            expect(lineEdges(false, pale)).toEqual({ visibility: 'visible', traceFilter: null });
+        // The phone on Light: the same as the web.
+        expect(lineEdges(true, true)).toEqual({ visibility: 'visible', traceFilter: null });
+        // The phone's other bases: 127's lines.
+        expect(lineEdges(true, false)).toEqual({ visibility: 'none', traceFilter: ['==', ['get', 'sketch'], true] });
+
+        // MapHub's base pass writes them, each only where the chart differs.
+        const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
+        expect(hub).toMatch(/const edges = lineEdges\(Capacitor\.isNativePlatform\(\), shownBase === 'light'\);/);
+        expect(hub).toMatch(
+            /for \(const id of LINE_EDGE_LAYERS\) if \(setVis\(id, edges\.visibility\)\) changed = true;/,
+        );
+        expect(hub).toMatch(
+            /JSON\.stringify\(map\.getFilter\('trace-line-casing'\) \?\? null\) !== JSON\.stringify\(edges\.traceFilter\)[\s\S]{0,120}map\.setFilter\('trace-line-casing', edges\.traceFilter\)/,
+        );
     });
 
     it('keeps the bearing hint and the proven-lane ghost at hint weight: no casing, thin, dotted, slate on Light', () => {

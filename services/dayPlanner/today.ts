@@ -60,6 +60,11 @@
  * the routed line (DayPlanInput.routes, factor 1, the wind along that line)
  * once that wind is in. Only its rows read it: the ranking, the pick and the
  * card's selection never do, so nothing reshuffles while she looks.
+ *
+ * EVERY PLACE OPENS (build 128, 127-PYD-5): every place in reach has a row,
+ * on the area wind until its own weather along the way is in. A place she
+ * opens (DayPlanInput.opened) is asked for after the five, once; opening is
+ * the only trigger, so the list is never swept.
  */
 import {
     scoreAnchorage,
@@ -1788,39 +1793,59 @@ export function routeCoords(start: LatLon, candidate: PlaceCandidate): LatLon[] 
 }
 
 /**
- * "Plot on chart": the pins for the Manual plotter. A day trip is out and
- * home, start → stop → start; an overnight stay is one way. A saved route
- * that joins the two is used as drawn, turned round for the trip home (the
- * stop is not dropped twice). The points are copies. A route too long for
- * the chart to take there and back (over PLOT_DAY_MAX_POINTS pins) falls
- * back to straight pins rather than being refused on the chart.
+ * What Plan Your Day hands the chart (127-PYD-3), never a straight line: the
+ * routed line ("Use on the main chart"), else her saved route that joins
+ * the two, as the Manual plotter's pins; with neither, her start and the
+ * stop as two marks and why ("Plot by hand": no pins at all). A day trip is
+ * out and home, the line then the same line turned round (the stop not
+ * dropped twice); an overnight stay is one way. The points are copies. A
+ * line too long to go there and back goes one way (routed: home by Reverse
+ * route) or, a saved one, is named rather than plotted. A routed line whose
+ * satellite land check didn't run carries why (`unchecked`): a caution the
+ * chart says, never a gate.
  */
-export function plotDayAction(start: LatLon, candidate: PlaceCandidate, stay: StayOption): PlotDayAction {
-    const pins = (out: LatLon[]) =>
-        stay === 'overnight'
-            ? out
-            : [
-                  ...out,
-                  ...[...out]
-                      .reverse()
-                      .slice(1)
-                      .map((p) => ({ ...p })),
-              ];
-    let points = pins(routeCoords(start, candidate).map((p) => ({ lat: p.lat, lon: p.lon })));
-    let saved = candidate.distance.basis === 'saved' ? candidate.distance.route?.name : undefined;
-    if (points.length > PLOT_DAY_MAX_POINTS) {
-        points = pins([
-            { lat: start.lat, lon: start.lon },
-            { lat: candidate.lat, lon: candidate.lon },
-        ]);
-        saved = undefined;
-    }
-    return {
-        kind: 'plot-day',
-        points,
+export function plotDayAction(
+    start: LatLon & { name: string },
+    candidate: PlaceCandidate,
+    stay: StayOption,
+    routed?: readonly LatLon[] | null,
+    why = '',
+    unchecked?: string,
+): PlotDayAction {
+    const head = {
+        kind: 'plot-day' as const,
         name: `${stay === 'overnight' ? 'Overnight' : 'Day out'}: ${candidate.name}`,
         stop: candidate.name,
-        ...(saved ? { savedRoute: saved } : {}),
+    };
+    const saved = candidate.distance.basis === 'saved' ? candidate.distance.route : undefined;
+    const out = (routed ?? saved?.points)?.map((p) => ({ lat: p.lat, lon: p.lon }));
+    if (out && out.length > 1) {
+        const points =
+            stay === 'overnight'
+                ? out
+                : [
+                      ...out,
+                      ...out
+                          .slice(0, -1)
+                          .reverse()
+                          .map((p) => ({ ...p })),
+                  ];
+        const tag = routed
+            ? { routed: true as const, ...(unchecked === undefined ? {} : { unchecked }) }
+            : { savedRoute: saved!.name };
+        if (points.length <= PLOT_DAY_MAX_POINTS) return { ...head, points, ...tag };
+        if (routed && out.length <= PLOT_DAY_MAX_POINTS)
+            return { ...head, stop: `${candidate.name} (home: Reverse route)`, points: out, ...tag };
+        if (!routed) why = 'Your saved route is too long to plot here: open it from Saved Routes.';
+    }
+    return {
+        ...head,
+        points: [],
+        frame: {
+            from: { lat: start.lat, lon: start.lon, name: start.name },
+            to: { lat: candidate.lat, lon: candidate.lon, name: candidate.name },
+            why,
+        },
     };
 }
 
@@ -1920,7 +1945,7 @@ export interface StopRow {
     /** Over or Unknown only, without "over your limits: ". */
     reason: string | null;
     plan: StopPlan | null;
-    /** Its route forecasts are still loading. */
+    /** Its route forecasts are still loading (beyond the five, on the area wind meanwhile: 127-PYD-5). */
     pending: boolean;
     /** "mapped 12 Sep" for an OpenStreetMap place over 24 h old. */
     mapped: string | null;
@@ -1938,6 +1963,8 @@ export interface StopRow {
      * ('updating'), or stay the estimate's as that wind did not load ('estimate').
      */
     route?: 'routed' | 'updating' | 'estimate' | null;
+    /** On the area wind once she opened it (127-PYD-5): its weather along the way, loading or failed. */
+    along?: string | null;
 }
 
 /** What a place is, when no local notes say: an atlas bay, or a charted anchorage (worldwide). */
@@ -1951,8 +1978,8 @@ function stopRow(
     plan: StopPlan | null,
     stay: StayOption,
     zone: string,
-    mode: 'swept' | 'pending' | 'unswept' | 'no-weather',
-    extra: Partial<Pick<StopRow, 'tag' | 'why' | 'place' | 'route'>> = {},
+    pending: boolean,
+    extra: Partial<Pick<StopRow, 'tag' | 'why' | 'place' | 'route' | 'along'>> = {},
 ): StopRow {
     const c = pre.candidate;
     const best = plan?.best ?? null;
@@ -1971,18 +1998,15 @@ function stopRow(
             zone,
             stay === 'overnight' ? (plan.routed ?? c.distance) : null,
         );
-    else {
-        const nm = capital(aboutNm(plan?.routed ?? c.distance));
-        line2 =
-            mode === 'pending'
-                ? `${nm} · checking the route`
-                : `${nm} · ${mode === 'unswept' ? 'route ' : ''}weather not checked`;
-    }
+    else
+        line2 = `${capital(aboutNm(plan?.routed ?? c.distance))} · ${pending ? 'checking the route' : 'weather not checked'}`;
     // Without times, the line is said as it reads.
     spoken ??= line2;
     const line1 = `${c.name} · ${shelter}`;
     const reason = best && (best.level === 'over' || best.level === 'unknown') ? best.reason : null;
     const line2Reason = reason && (best?.short ?? capital(reason));
+    // On the area wind (127-PYD-5): said here and once in All places' heading, never on the row.
+    const area = plan?.area ? ' (area wind)' : '';
     return {
         id: c.id,
         name: c.name,
@@ -1997,17 +2021,22 @@ function stopRow(
         line2Reason,
         reason,
         plan,
-        pending: mode === 'pending',
+        pending,
         mapped: c.mappedAtMs !== undefined ? `mapped ${dayMonth(c.mappedAtMs, zone)}` : null,
         // Each thing once (127-PYD-1): a reason row's times are not on it, and a row with no plan already says why.
         ariaLabel: `${line1}. ${
-            level && reason ? `${STOP_ARIA[level]}: ${reason}` : level ? `${spoken}. ${STOP_ARIA[level]}` : spoken
+            level && reason
+                ? `${STOP_ARIA[level]}: ${reason}${reason.endsWith(' in the area') ? '' : area}`
+                : level
+                  ? `${spoken}${area}. ${STOP_ARIA[level]}`
+                  : spoken
         }`,
         tag: extra.tag ?? null,
         why: extra.why ?? null,
         kind: kindOf(c),
         place: extra.place ?? null,
         route: extra.route ?? null,
+        along: extra.along ?? null,
     };
 }
 
@@ -2049,7 +2078,7 @@ function whyLine(
     depth: string | null,
     overnight: boolean,
 ): string | null {
-    const d = plan?.weatherLoaded ? plan.best : null;
+    const d = plan?.weatherLoaded && !plan.area ? plan.best : null;
     const lead =
         tag === 'new'
             ? 'none of your voyages ended here'
@@ -2165,6 +2194,8 @@ export interface DayPlanInput {
     visited?: readonly LatLon[] | null;
     /** The stop whose page is open: it keeps its slot on the card. */
     pinned?: string | null;
+    /** The places she opened this start (127-PYD-5): each asks its weather along the way after the five. */
+    opened?: ReadonlySet<string>;
     /** Her charts at the route-checked pins (EncHazardService.queryHazards), in memory only. */
     pinDepth?: ReadonlyMap<string, PinResult>;
     /** Her draft in metres; null for the default boat (no pin is checked). */
@@ -2202,17 +2233,17 @@ export interface DayPlanView {
     /** The card: the best fit, the best the other way, somewhere different; Over ones
      *  included when nothing checked fits (nothing is hidden on a rough day). */
     top: StopRow[];
-    /** Every route-checked stop's row (and the open one's), by id. */
+    /** Every ranked place's row, by id (127-PYD-5): on the area wind until its weather along the way is in. */
     rows: ReadonlyMap<string, StopRow>;
     /** All places: "Fits {today}": stops whose route weather was checked and is not over her limits. */
     fits: StopRow[];
-    /** All places: "Weather not checked": the area wind leaves room, but the
-     *  route was not checked (beyond the five, offline, still loading, or past
-     *  the end of the forecast). Never listed as fitting. */
+    /** All places: the area wind leaves room, but the route was not checked: "On the area wind" (beyond
+     *  the five, or its weather along the way failed), else "Weather not checked" (offline, still loading,
+     *  or past the end of the forecast). Never listed as fitting; on a stay-put day, never a gap. */
     unchecked: StopRow[];
-    /** All places: "Not {today}", one line each with its reason. */
+    /** All places: "Not {today}", one line each with its reason. Each section by distance. */
     notToday: NotTodayRow[];
-    /** The stops that want route forecasts: the one-way leg each. */
+    /** The stops that want route forecasts, the one-way leg each: the five, then any she opened. */
     needsLegs: { id: string; coords: LatLon[] }[];
     notices: { top: Notice | null; rest: Notice[] };
     state: DayPlanState;
@@ -2329,25 +2360,29 @@ export function planDay(input: DayPlanInput): DayPlanView {
         ? pickStops(eligible.map(pickPlace), ROUTE_CHECK_STOPS - SWEEP_STOPS)
         : { picks: eligible.slice(0, SWEEP_STOPS).map(pickPlace), backups: [] };
     const checks = [...picks, ...backups].map((p) => p.id);
-    const needsLegs = weatherOk
-        ? checks.map((id) => ({ id, coords: routeCoords(start, byId.get(id)!.candidate) }))
-        : [];
-    const rowIds =
-        input.pinned && byId.has(input.pinned) && !checks.includes(input.pinned) ? [...checks, input.pinned] : checks;
+    // The five, then the place whose page is open and any she opened (127-PYD-5): opening is the only trigger.
+    const asked = [...new Set([...checks, input.pinned ?? '', ...(input.opened ?? [])])].filter((id) => byId.has(id));
+    const needsLegs = weatherOk ? asked.map((id) => ({ id, coords: routeCoords(start, byId.get(id)!.candidate) })) : [];
     const draftM = input.draftM ?? null;
     const depthOf = (id: string) => pinDepth(input.pinDepth?.get(id), draftM);
-    // A routed stop's rows (127-PYD-2): on its routed line once the wind along it is in. Shown only:
-    // `checked`, which the pick and the card read, stays the straight line's.
-    const shown = new Map<string, StopPlan>();
-    for (const id of rowIds) {
+    const capped = (id: string, plan: StopPlan) => {
         const depth = depthOf(id);
-        const cap = (plan: StopPlan) => (depth.cap ? capAtNear(plan, depth.words) : plan);
+        return depth.cap ? capAtNear(plan, depth.words) : plan;
+    };
+    // A routed stop's rows (127-PYD-2): on its routed line once the wind along it is in. Shown only:
+    // `checked`, which the pick and the card read, stays the straight line's. Any place whose legs are in
+    // this start (127-PYD-5) is planned on them: they cost nothing more.
+    const shown = new Map<string, StopPlan>();
+    for (const pre of ranked) {
+        const id = pre.candidate.id;
         const legs = weatherOk ? input.legs?.get(id) : undefined;
-        if (legs) checked.set(id, cap(planStop(planArgs(byId.get(id)!, legs))));
+        const plan = legs && capped(id, planStop(planArgs(pre, legs)));
+        // Beyond the five, a failed one never replaces the area wind's times that did load (127-PYD-5).
+        if (plan && (plan.weatherLoaded || checks.includes(id))) checked.set(id, plan);
         const routed = input.routes?.get(id);
         const along = routed && weatherOk ? input.legs?.get(`${id}#routed`) : undefined;
         // Only a wind that loaded: a failed one never replaces the estimate's times that did.
-        if (along?.headline) shown.set(id, cap(planStop({ ...planArgs(byId.get(id)!, along), routed })));
+        if (along?.headline) shown.set(id, capped(id, planStop({ ...planArgs(pre, along), routed })));
     }
     const status = (id: string) => {
         const plan = checked.get(id);
@@ -2361,13 +2396,23 @@ export function planDay(input: DayPlanInput): DayPlanView {
     const rowOf = (id: string, tag: PickTag | null = null) => {
         const pre = byId.get(id)!;
         const c = pre.candidate;
-        const plan = shown.get(id) ?? checked.get(id) ?? null;
+        // Beyond the five, the area wind's plan until its own weather along the way is in (127-PYD-5).
+        const area = checks.includes(id) ? undefined : areaOf.get(id);
+        const plan = shown.get(id) ?? checked.get(id) ?? (area ? capped(id, area) : null);
         const depth = depthOf(id);
         const kind = kindOf(c);
         // Left out only where her charts' words are the verdict on every leave chip (capAtNear on an
         // Inside stop); a stop Near or Over for its wind still says what her charts say at the pin.
         const said = !!plan?.best && [plan.best, ...plan.window].every((d) => d.reason === depth.words);
-        return stopRow(pre, plan, stay, zone, plan ? 'swept' : weatherOk ? 'pending' : 'no-weather', {
+        const waiting = needsLegs.some((n) => n.id === id) && !input.legs?.has(id);
+        return stopRow(pre, plan, stay, zone, waiting, {
+            // Opened, on the area wind until its own weather is in; failed, it stays on it, said so.
+            along:
+                plan?.area && asked.includes(id)
+                    ? waiting
+                        ? 'Checking the weather along the way…'
+                        : "Weather along the way didn't load: times on the area wind."
+                    : null,
             tag: tag && TAG_WORDS[tag],
             why: whyLine(
                 tag,
@@ -2389,12 +2434,12 @@ export function planDay(input: DayPlanInput): DayPlanView {
         });
     };
     card.forEach((p, i) => rows.set(p.id, rowOf(p.id, tags[i])));
-    for (const id of rowIds) if (!rows.has(id)) rows.set(id, rowOf(id));
+    for (const pre of ranked) if (!rows.has(pre.candidate.id)) rows.set(pre.candidate.id, rowOf(pre.candidate.id));
     const topRows = card.map((p) => rows.get(p.id)!);
 
     // All places. Only a stop whose own route weather was checked FITS; the
-    // rest are judged on their area-wind plans and listed as not checked, or
-    // not today with the reason. Nothing unknown reads as fitting.
+    // rest are judged on their area-wind plans and listed as on the area wind,
+    // or not today with the reason. Nothing unknown reads as fitting.
     const notToday: NotTodayRow[] = [];
     const fits: StopRow[] = [];
     const unchecked: StopRow[] = [];
@@ -2405,18 +2450,13 @@ export function planDay(input: DayPlanInput): DayPlanView {
         straightNm: pre.candidate.straightNm,
     });
     for (const pre of ranked) {
-        const row = rows.get(pre.candidate.id);
-        const plan = row?.plan;
-        if (row && (plan || row.pending)) {
-            if (row.level === 'over' || (plan && !plan.weatherLoaded))
-                notToday.push(notRow(pre, row.level === 'over' ? overWords(row.reason!) : "weather didn't load"));
-            else if (row.level === 'inside' || row.level === 'near') fits.push(row);
-            else unchecked.push(row);
-            continue;
-        }
-        const reason = areaOf.get(pre.candidate.id)?.level === 'over' && areaOf.get(pre.candidate.id)?.best?.reason;
-        if (reason) notToday.push(notRow(pre, overWords(reason)));
-        else unchecked.push(row ?? stopRow(pre, null, stay, zone, weatherOk ? 'unswept' : 'no-weather'));
+        const id = pre.candidate.id;
+        const row = rows.get(id)!;
+        const along = checked.has(id) || shown.has(id);
+        if (row.level === 'over' || (along && !row.plan!.weatherLoaded))
+            notToday.push(notRow(pre, row.level === 'over' ? overWords(row.reason!) : "weather didn't load"));
+        else if (along && (row.level === 'inside' || row.level === 'near')) fits.push(row);
+        else unchecked.push(row);
     }
     notToday.push(...missedLight, ...closed, ...(places?.excluded ?? []));
 
@@ -2476,9 +2516,13 @@ export function planDay(input: DayPlanInput): DayPlanView {
     }
 
     // A day over her limits fits nothing: a stop that found a gap in it is
-    // listed with that, never under "Fits" beneath "Stay put".
-    if (state === 'stay-put')
-        for (const row of fits.splice(0)) {
+    // listed with that, never under "Fits" beneath "Stay put", nor a ✓ on the
+    // area wind beside it (127-PYD-5).
+    if (state === 'stay-put') {
+        const gap = (row: StopRow) => row.level === 'inside' || row.level === 'near';
+        const gaps = [...fits.splice(0), ...unchecked.filter(gap)];
+        unchecked.splice(0, unchecked.length, ...unchecked.filter((row) => !gap(row)));
+        for (const row of gaps) {
             const best = row.plan?.best;
             notToday.push(
                 notRow(
@@ -2489,7 +2533,11 @@ export function planDay(input: DayPlanInput): DayPlanView {
                 ),
             );
         }
+    }
     notToday.sort((a, b) => a.straightNm - b.straightNm || a.name.localeCompare(b.name));
+    // Each section by distance (127-PYD-5): the nearest first, whatever the rank.
+    for (const list of [fits, unchecked])
+        list.sort((a, b) => a.candidate.straightNm - b.candidate.straightNm || a.name.localeCompare(b.name));
 
     return {
         date,

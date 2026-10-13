@@ -17,9 +17,12 @@
  * Always the 'safest' profile (Shane 2026-07-02, as the passage planner): the
  * tide changes whether and when, never which way.
  */
+import { Capacitor } from '@capacitor/core';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
 import { AUTO_ROUTE_TRIAL_OFF, isAutorouteTrialOn } from './autorouteTrialSwitch';
 import { listCells } from './enc/EncCellMetadata';
+import { boatName, boatRegistryState, boatRegistryWhy, ensureBoatCells } from './enc/piCellSync';
+import { boatChartsLine } from './enc/boatChartsWords';
 import { validateAutoroutingVesselProfile } from '../supabase/functions/_shared/autorouting-vessel';
 import { thalassaVesselWarnings } from './autoroutingVesselProfile';
 import { THALASSA_PLANNED_ONLY_WARNING, THALASSA_ROUTED_ON_PHONE } from './autoroutingNotes';
@@ -96,9 +99,12 @@ const NO_ROUTE = 'Thalassa could not route this passage. Nothing changed.';
 const WATCHDOG = 'Routing took longer than this phone allows (85 s). Try a shorter passage. Nothing changed.';
 // Licensed charts never come from the cloud since 126-20: a gap the cloud
 // can't fill is one only the boat's Pi can, and the shared shelf is NOAA only.
-/** Exported so Plan Your Day says it in global words with no Pi paired (127-PYD-2). */
+/**
+ * Exported so Plan Your Day says it in global words with no Pi paired (127-PYD-2).
+ * They open in memory on the boat's Wi-Fi since 127-C-c.
+ */
 export const THALASSA_BUCKET_UNREACHABLE =
-    "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: sync them aboard, then try again. Nothing changed.";
+    "This passage needs charts this device doesn't hold. Licensed charts come only from your boat's Pi: open them aboard, then try again. Nothing changed.";
 const NOT_SIGNED_IN_FILL =
     "The missing charts wouldn't download. You're probably not signed in: sign in and try again. Nothing changed.";
 
@@ -122,10 +128,31 @@ export function getThalassaAutorouteStatus(): AutoroutingTrialStatus {
     } catch {
         cells = 0;
     }
-    return cells > 0
-        ? { enabled: true, ready: true }
-        : { enabled: true, ready: false, message: 'Install charts for your area to use Auto. Manual is ready.' };
+    // Paired with her charts not yet registered: ready, and the route itself
+    // opens them from the Pi or says where they are (127-C-c).
+    if (cells > 0 || boatRegistryState() === 'pending') return { enabled: true, ready: true };
+    const why = boatRegistryWhy();
+    return {
+        enabled: true,
+        ready: false,
+        message: why
+            ? `${boatChartsLine(why, boatName(), 'strip')} Manual is ready.`
+            : Capacitor.isNativePlatform()
+              ? AUTO_NEEDS_CHARTS
+              : AUTO_NEEDS_BOAT_CHARTS_DESK,
+    };
 }
+
+/** No chart on this phone: charts come from the boat's Pi, or open NOAA charts by area. */
+export const AUTO_NEEDS_CHARTS = 'Install charts for your area to use Auto. Manual is ready.';
+/**
+ * No chart on the desk (2026-10-13). Licensed charts never leave the boat
+ * (o-charts, 2026-10-10), so a computer can't install them: route on the
+ * phone aboard and Save, and the saved route syncs here (savedRoutesSync).
+ * Open NOAA charts still make Auto ready on the desk in US waters.
+ */
+export const AUTO_NEEDS_BOAT_CHARTS_DESK =
+    "Auto routes on your boat's charts, aboard. Route it on your phone and Save: it shows here. Manual is ready.";
 
 const record = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -203,48 +230,50 @@ const positionWords = ([lon, lat]: [number, number]): string =>
  * What a current Notice to Mariners says about this line, as the passage
  * planner says it (usePassagePlanner: the NtM routing banner, and the
  * standing notices within 500 m of the route). Best effort: a lookup that
- * fails or runs long says nothing, and never holds the route.
+ * fails or runs long says nothing, and never holds the route. The two
+ * lookups run together (128-ROUTE-P); the pack line still comes first.
  */
 async function noticeLines(polyline: readonly [number, number][]): Promise<string[]> {
-    const lines: string[] = [];
     let bbox: [number, number, number, number] | null = null;
     for (const [lon, lat] of polyline)
         bbox = bbox
             ? [Math.min(bbox[0], lon), Math.min(bbox[1], lat), Math.max(bbox[2], lon), Math.max(bbox[3], lat)]
             : [lon, lat, lon, lat];
-    if (!bbox) return lines;
+    if (!bbox) return [];
     const corridor = bbox;
-    try {
-        const { packsForCorridor } = await import('./ntmRouting');
-        const applied = (await withTimeout(packsForCorridor(corridor), [], NOTICE_LOOKUP_MS)).filter(
-            ({ status, optedOut }) => status.status === 'current' && !optedOut,
-        );
-        if (applied.length > 0)
-            lines.push(
-                `Routing follows a current Notice to Mariners — ${applied
+    const packLine = async (): Promise<string | null> => {
+        try {
+            const { packsForCorridor } = await import('./ntmRouting');
+            const applied = (await withTimeout(packsForCorridor(corridor), [], NOTICE_LOOKUP_MS)).filter(
+                ({ status, optedOut }) => status.status === 'current' && !optedOut,
+            );
+            if (applied.length > 0)
+                return `Routing follows a current Notice to Mariners — ${applied
                     .map(({ pack }) => `${pack.noticeKey} — ${pack.title} (surveyed ${pack.surveyed})`)
                     .join(
                         ' · ',
-                    )}. Surveyed depths and the promulgated track are applied. Read the notice before you go.`,
+                    )}. Surveyed depths and the promulgated track are applied. Read the notice before you go.`;
+        } catch (err) {
+            log.warn(`notice packs unavailable: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return null;
+    };
+    const localLine = async (): Promise<string | null> => {
+        try {
+            const { loadLocalNotices, localNoticesNearPolyline } = await import('./localNotices');
+            const hits = localNoticesNearPolyline(
+                await withTimeout(loadLocalNotices(), [], NOTICE_LOOKUP_MS),
+                polyline,
+                500,
             );
-    } catch (err) {
-        log.warn(`notice packs unavailable: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    try {
-        const { loadLocalNotices, localNoticesNearPolyline } = await import('./localNotices');
-        const hits = localNoticesNearPolyline(
-            await withTimeout(loadLocalNotices(), [], NOTICE_LOOKUP_MS),
-            polyline,
-            500,
-        );
-        if (hits.length > 0)
-            lines.push(
-                `Notice to Mariners on this route — ${hits.map((n) => n.title).join(' · ')}. Read it before you go.`,
-            );
-    } catch (err) {
-        log.warn(`standing notices unavailable: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    return lines;
+            if (hits.length > 0)
+                return `Notice to Mariners on this route — ${hits.map((n) => n.title).join(' · ')}. Read it before you go.`;
+        } catch (err) {
+            log.warn(`standing notices unavailable: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return null;
+    };
+    return (await Promise.all([packLine(), localLine()])).filter((line): line is string => line !== null);
 }
 
 function routeId(): string {
@@ -297,11 +326,23 @@ export async function calculateThalassaProposal(
         throw new Error(
             `Auto routes inshore passages up to ${MAX_INSHORE_NM} NM; this one is ${directNM.toFixed(1)} NM. Split it, or plot it in Manual.`,
         );
+    // Her licensed charts open from the boat's Pi first (127-C-c decision 8c):
+    // in memory only, so after a launch the gates below would otherwise see
+    // only the open charts. Counts in the log, never a position.
+    const box: [number, number, number, number] = [
+        Math.min(departure.lon, destination.lon) - FILL_PAD_DEG,
+        Math.min(departure.lat, destination.lat) - FILL_PAD_DEG,
+        Math.max(departure.lon, destination.lon) + FILL_PAD_DEG,
+        Math.max(departure.lat, destination.lat) + FILL_PAD_DEG,
+    ];
+    const charts = await ensureBoatCells(box, { maxCells: 24 });
+    assertCurrent();
+    let chartsMs = charts.ms;
     const startCovered = hasEncCoverageForRoute(departure, departure);
     const endCovered = hasEncCoverageForRoute(destination, destination);
     if (!startCovered || !endCovered)
         throw new Error(
-            `No installed chart covers the ${!startCovered && !endCovered ? 'departure or the destination' : !startCovered ? 'departure' : 'destination'}.`,
+            `No installed chart covers the ${!startCovered && !endCovered ? 'departure or the destination' : !startCovered ? 'departure' : 'destination'}.${charts.why ? ` ${boatChartsLine(charts.why, boatName())}` : ''}`,
         );
 
     // Air draft not set → null: every charted and curated structure blocks
@@ -341,19 +382,22 @@ export async function calculateThalassaProposal(
     };
 
     let res = await run();
-    // A corridor gap: fetch the missing charts from the cloud once, then route
-    // once more — exactly as the ⚡ Auto route does (useAutoRouteLeg).
+    // A corridor gap: more of her charts from the Pi first, then the missing
+    // open charts from the cloud once, then route once more — exactly as the
+    // ⚡ Auto route does (useAutoRouteLeg).
+    if (res && 'error' in res && res.code === 'coverage-gap') {
+        progress('Fetching the missing charts…');
+        const more = await ensureBoatCells(box, { maxCells: 24 });
+        assertCurrent();
+        chartsMs += more.ms;
+        if (more.pulled > 0) res = await run();
+    }
     if (res && 'error' in res && res.code === 'coverage-gap') {
         progress('Fetching the missing charts…');
         let fill: { downloaded: number; needed: number; bucketAvailable: boolean };
         try {
             const { downloadCloudCellsForBBox } = await import('./enc/cloudCellSync');
-            fill = await downloadCloudCellsForBBox([
-                Math.min(departure.lon, destination.lon) - FILL_PAD_DEG,
-                Math.min(departure.lat, destination.lat) - FILL_PAD_DEG,
-                Math.max(departure.lon, destination.lon) + FILL_PAD_DEG,
-                Math.max(departure.lat, destination.lat) + FILL_PAD_DEG,
-            ]);
+            fill = await downloadCloudCellsForBBox(box);
         } catch (error) {
             assertCurrent();
             throw new Error(
@@ -467,6 +511,9 @@ export async function calculateThalassaProposal(
     // pixels read the marina and the deep water off a headland as land), and
     // the refusal says where, and whether the charts are missing there.
     progress(CHECKING_WORDS);
+    // The notices need only the line: asked for beside the land check
+    // (128-ROUTE-P), heard after it. noticeLines never rejects.
+    const noticesLoad = noticeLines(polyline);
     const { inshoreRouteCrossesLand } = await import('./routing/landBackstop');
     assertCurrent();
     // The verdicts the route job worked out at every sample (127-ROUTE-W).
@@ -500,7 +547,7 @@ export async function calculateThalassaProposal(
             ? { surveyAmber: surveyAmberMetres(polyline, stateMask, ok.surveyRuns, ok.chartedShallowSpans) }
             : {}),
     });
-    const notices = await noticeLines(polyline);
+    const notices = await noticesLoad;
     assertCurrent();
     const extra: string[] = [];
     if (!stateMask)
@@ -573,6 +620,8 @@ export async function calculateThalassaProposal(
         ...(vesselProfile ? { vesselProfile } : {}),
         ...(input.departureMs !== undefined ? { departureMs } : {}),
         engine,
+        // What opening her charts from the Pi cost (PYD-2's readout, decision 2).
+        ...(charts.state !== 'none' ? { chartsMs } : {}),
     };
 }
 

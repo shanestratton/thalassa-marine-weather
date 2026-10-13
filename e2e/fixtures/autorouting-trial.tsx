@@ -2,6 +2,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import mapboxgl from 'mapbox-gl';
 import { RoutingModeDialog } from '../../components/autorouting/RoutingModeDialog';
+import { AutoroutingTrialWorkspace } from '../../components/autorouting/AutoroutingTrialWorkspace';
 import {
     AutoroutingProviderContext,
     thalassaAutoroutingProvider,
@@ -59,6 +60,10 @@ if (archipelago && typeof Worker === 'function') {
     });
 }
 const mode = params.get('mode') || 'dark';
+/** ?dayPlan=1 (127-PYD-3): the slider opens Plan Your Day's route chart (Auto's chart in its day-plan
+ * mode) over a synthetic proposal for a stop she tapped: safe, needs-tide, dry and pin-tail pieces, no
+ * chart data. `mode` stays the theme, so the day-plan chart is drawn dark, light and night. */
+const dayPlan = params.get('dayPlan') === '1';
 document.documentElement.classList.toggle('display-light', mode === 'light');
 // ?fonts=wide (2026-10-02): the Linux CI runner draws DejaVu Sans, far wider
 // than a Mac's system font, and its wraps squeezed the tracer panel (CI
@@ -324,6 +329,8 @@ const control = {
     lastRequest: null as AutoroutingTrialRequest | null,
     routeCoordinates: [] as [number, number][],
     backstopRetries: 0,
+    /** ?dayPlan=1: how often "Use on the main chart" handed the route on. */
+    usedOnMainChart: 0,
     /** ?engine=real: the last route the real provider returned (coordinates and engine disclosure). */
     lastRoute: null as AutoroutingTrialRoute | null,
     workers,
@@ -529,6 +536,48 @@ const provider: AutoroutingProvider = realEngine
       }
     : stubProvider;
 
+// Plan Your Day's routed stop (127-PYD-3), inside the fixture's synthetic chart: four stretches, green,
+// two shallow (one the tide may lift, one that dries), and the last run to the pin shallow (its tail).
+const DAY_PLAN_ROUTE: AutoroutingTrialRoute = {
+    id: 'day-plan-fixture',
+    provider: 'Thalassa',
+    createdAt: '2026-09-12T00:00:00Z',
+    departureMs: Date.now() + 2 * 3_600_000,
+    coordinates: [
+        [153.16, -26.68],
+        [153.2, -26.66],
+        [153.23, -26.64],
+        [153.26, -26.63],
+        [153.29, -26.62],
+    ],
+    warnings: ['Synthetic fixture: part of the way dries at low water. Check the tide before you go.'],
+    engine: {
+        stateMask: ['green', 'danger', 'danger', 'green'],
+        cautionMask: [false, true, true, false],
+        canalMask: [false, false, false, false],
+        channelMask: [false, false, false, false],
+        offshoreMask: [false, false, false, false],
+        tideDepthM: [null, 1.1, -0.4, null],
+        shallowRuns: [
+            { startSeg: 1, endSeg: 1, lengthM: 3400, minDepthM: 1.1, midLat: -26.65, midLon: 153.215 },
+            { startSeg: 2, endSeg: 2, lengthM: 3200, minDepthM: -0.4, midLat: -26.635, midLon: 153.245 },
+            {
+                startSeg: 3,
+                endSeg: 3,
+                lengthM: 3100,
+                minDepthM: 1.4,
+                midLat: -26.625,
+                midLon: 153.275,
+                endpointTail: 'destination',
+            },
+        ],
+        cellsUsed: ['ZZ5TEST1'],
+        distanceNM: 8.1,
+        elapsedMs: 900,
+        backstop: 'verified',
+    },
+};
+
 // Same visual-viewport keyboard model used by the existing keyboard suite.
 const viewport = new EventTarget();
 Object.assign(viewport, { height: innerHeight, offsetTop: 0, scale: 1 });
@@ -586,7 +635,27 @@ function Fixture() {
                                 />
                             </div>
                         )}
-                        {open && (
+                        {open && dayPlan && (
+                            <AutoroutingProviderContext.Provider value={provider}>
+                                <AutoroutingTrialWorkspace
+                                    mapboxToken="pk.fixture"
+                                    onClose={close}
+                                    initialDraftM={1.5}
+                                    initialSpeedKts={6}
+                                    dayPlan={{
+                                        proposal: DAY_PLAN_ROUTE,
+                                        stopName: 'Fixture Cove',
+                                        onUseOnMainChart: () => {
+                                            control.usedOnMainChart += 1;
+                                            setOpen(false);
+                                        },
+                                        // Its check is verified: no Retry to answer.
+                                        onRechecked: () => {},
+                                    }}
+                                />
+                            </AutoroutingProviderContext.Provider>
+                        )}
+                        {open && !dayPlan && (
                             <AutoroutingProviderContext.Provider value={provider}>
                                 <RoutingModeDialog mapboxToken="pk.fixture" onClose={close} onManual={selectManual} />
                             </AutoroutingProviderContext.Provider>

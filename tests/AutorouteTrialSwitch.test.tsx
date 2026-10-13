@@ -62,7 +62,11 @@ vi.mock('../components/autorouting/AutoroutingTrialWorkspace', () => ({
 import { RoutingModeDialog } from '../components/autorouting/RoutingModeDialog';
 import { DayPlannerEntry } from '../components/dayPlanner/DayPlannerEntry';
 import { GeneralTab } from '../components/settings/GeneralTab';
-import { calculateThalassaProposal, getThalassaAutorouteStatus } from '../services/autoroutingThalassa';
+import {
+    AUTO_NEEDS_BOAT_CHARTS_DESK,
+    calculateThalassaProposal,
+    getThalassaAutorouteStatus,
+} from '../services/autoroutingThalassa';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 import { awaitSettingsLoaded, DEFAULT_SETTINGS, useSettingsStore } from '../stores/settingsStore';
@@ -118,12 +122,13 @@ describe('Auto route (trial): off by default, even for a beta Pro account', () =
         setSwitch(true);
         expect(getThalassaAutorouteStatus()).toEqual({ enabled: true, ready: true });
 
-        // The other conditions still apply on top of the switch.
+        // The other conditions still apply on top of the switch. (This runs as
+        // the web desk, where no chart means the desk's words, 2026-10-13.)
         mocks.cells = [];
         expect(getThalassaAutorouteStatus()).toEqual({
             enabled: true,
             ready: false,
-            message: 'Install charts for your area to use Auto. Manual is ready.',
+            message: AUTO_NEEDS_BOAT_CHARTS_DESK,
         });
         mocks.cells = [{ id: 'OC-99-SYN001' }];
         setAuthIdentityScope(null);

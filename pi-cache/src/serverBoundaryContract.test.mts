@@ -161,28 +161,14 @@ test('all user-directed upstream requests cross the pinned outbound policy', () 
     assert.doesNotMatch(osmServiceSource, /\bfetch\s*\(/, 'Overpass retained a direct fetch sink');
 });
 
-test('both ENC routing surfaces reject over-budget work before loading or routing', () => {
-    const routeStart = encRouteSource.indexOf("router.post('/route'");
-    const routePreppedStart = encRouteSource.indexOf("router.post('/route-prepped'");
-    const installPublicStart = encRouteSource.indexOf("router.post('/install-public'", routePreppedStart);
-    const routeBlock = encRouteSource.slice(routeStart, routePreppedStart);
-    const routePreppedBlock = encRouteSource.slice(routePreppedStart, installPublicStart);
-
-    assert.ok(routeStart >= 0 && routePreppedStart > routeStart && installPublicStart > routePreppedStart);
-    assert.match(routeBlock, /validateInshoreRouteBoundary\(body, \{ validateCellIds: true \}\)/);
-    assert.ok(
-        routeBlock.indexOf('validateInshoreRouteBoundary') < routeBlock.indexOf('loadInstalledIndex'),
-        'disk-backed route must reject its allocation budget before reading the chart index',
-    );
-    assert.match(routePreppedBlock, /validateInshoreRouteBoundary\(body, \{ validatePreparedLayers: true \}\)/);
-    assert.ok(
-        routePreppedBlock.indexOf('validateInshoreRouteBoundary') < routePreppedBlock.indexOf('routeInshore'),
-        'prepared route must reject feature/coordinate budgets before routing',
-    );
-    for (const block of [routeBlock, routePreppedBlock]) {
-        assert.match(block, /res\.status\(boundaryIssue\.status\)\.json\(boundaryIssue\)/);
-        assert.match(block, /acquireRequestWorkload\(req, res, 'route'\)/);
-    }
+test('both ENC routing surfaces answer routing-on-phone and the watch process loads no router (127-C-d)', () => {
+    // Routing runs on the phone in this build (decision 9). The engine mirror
+    // stays in the tree for the vault's brain (128), but routes/enc.ts no longer
+    // imports it, so nothing CPU-bound about charts runs in the watch's thread.
+    assert.match(encRouteSource, /router\.post\('\/route', routingOnPhone\)/);
+    assert.match(encRouteSource, /router\.post\('\/route-prepped', routingOnPhone\)/);
+    assert.match(encRouteSource, /res\.status\(503\)\.json\(\{ code: 'routing-on-phone'/);
+    assert.doesNotMatch(encRouteSource, /routeInshore|inshoreRouter|validateInshoreRouteBoundary/);
 });
 
 test('all Pi chart conversion, installation, download and routing entry points share bounded lanes', () => {
@@ -209,14 +195,19 @@ test('all Pi chart conversion, installation, download and routing entry points s
         /acquireRequestWorkload\(req, res, 'conversion'\)/,
     );
     assert.match(chartRouteSource.slice(chartRouteSource.indexOf("router.post('/download'")), /submit\('conversion'/);
-    // One spawn site since 127: the .oesu decrypt. The S-63 extract and the
-    // ChartWorld poller are gone (S-63 opens in OpenCPN only).
-    assert.equal(watcherSource.match(/admit\('conversion'\)/g)?.length, 1);
+    // No spawn site at all since Pi update 3 (127-C-d decision 11): the
+    // watcher and the re-conversion decrypt nothing; the chart vault opens
+    // o-charts sets in its own memory. The S-63 extract and the ChartWorld
+    // poller went in 127 (S-63 opens in OpenCPN only).
+    for (const [name, text] of [
+        ['encWatcher', watcherSource],
+        ['encSourceReconvert', reconvertSource],
+        ['oChartsInstaller', installerSource],
+    ] as const) {
+        assert.doesNotMatch(text, /child_process|spawn\(|decryptBatch\.ts/, `${name} starts no converter`);
+        assert.doesNotMatch(text, /admit\('conversion'\)/, `${name} takes no conversion lane`);
+    }
     assert.equal(existsSync(new URL('./chartworldSync.ts', import.meta.url)), false);
-    // The re-conversion of installer-retained sources takes the same lane,
-    // and only after the watcher's own startup reconcile.
-    assert.match(reconvertSource, /governor\.admit\('conversion'\)/);
-    assert.match(reconvertSource, /whenInitialReconcileSettled/);
     assert.ok(source.indexOf('startSourceReconvert()') > source.indexOf('startEncWatcher();'));
 });
 
@@ -232,21 +223,24 @@ test('a service stop never cuts a chart re-conversion off inside a publication',
     assert.ok(bound > 0 && bound <= 60_000, 'well inside systemd’s 90 s TimeoutStopSec');
 });
 
-test('the re-conversion survives a partial Pi deploy instead of failing module linking', () => {
-    // Pi files are copied into /opt one by one. A named import of an export an
-    // older file lacks is a link error that takes the whole service down.
-    assert.doesNotMatch(reconvertSource, /import \{[^}]*\} from '\.\/(encWatcher|oChartsInstaller)\.js'/);
-    assert.match(reconvertSource, /import \* as watcher from '\.\/encWatcher\.js'/);
-    assert.match(reconvertSource, /import \* as installer from '\.\/oChartsInstaller\.js'/);
-    // The store's refresh marker is read through a namespace, never named.
-    assert.match(installerSource, /import \* as chartStore from '\.\/encChartStore\.js'/);
-    const named = /import \{([^}]*)\} from '\.\/encChartStore\.js'/.exec(installerSource)?.[1] ?? '';
-    assert.doesNotMatch(named, /CHART_REFRESH_SUPPORTED/);
+test('the retired watcher and re-conversion import nothing that could decrypt (127-C-d)', () => {
+    // Pi update 3 ships every file in one stage (no mixed deploy), and these
+    // two modules keep their exports for server.ts but import nothing at all
+    // from the installer or the chart store: they cannot reach a converter.
+    assert.doesNotMatch(reconvertSource, /^import /m);
+    assert.doesNotMatch(watcherSource, /from '\.\/(oChartsInstaller|encChartStore|workloadGovernor)\.js'/);
+    assert.doesNotMatch(installerSource, /publishChartDelivery|converted-ocharts|runOChartsExtractor/);
+    assert.match(installerSource, /rescan: \(cellIds: string\[\]\) => Promise<VaultRescanWire>/);
 });
 
 test('downloads and ZIP extraction cross centralized streaming resource boundaries', () => {
     assert.match(encRouteSource, /streamResponseToFile\(response, downloadPath, ENC_DOWNLOAD_POLICY/);
-    assert.match(encRouteSource, /extractZipArchive\(inputPath, unzipDir, ENC_ARCHIVE_POLICY\)/);
+    // Its central directory is read first, so a protected S-57 cell is never unpacked (127-C-d decision 6).
+    assert.match(encRouteSource, /inspectZipArchive\(inputPath, ENC_ARCHIVE_POLICY\)/);
+    assert.match(
+        encRouteSource,
+        /extractZipArchive\(inputPath, unzipDir, ENC_ARCHIVE_POLICY, \{ select: plan\.select \}\)/,
+    );
     assert.match(chartRouteSource, /streamResponseToFile\(response, filePath, CHART_DOWNLOAD_POLICY/);
     assert.match(chartRouteSource, /extractZipArchive\(filePath, CHART_DIR, CHART_ARCHIVE_POLICY/);
     assert.doesNotMatch(encRouteSource, /AdmZip|extractAllTo/);

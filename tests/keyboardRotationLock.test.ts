@@ -20,12 +20,7 @@ import { describe, expect, it } from 'vitest';
 
 const ROOTS = ['components', 'hooks', 'src', 'pages'];
 /** Not yet, and why. */
-const LATER = new Map<string, string>([
-    [
-        'components/autorouting/AutoroutingTrialWorkspace.tsx',
-        '127-11b: its one line lands after 127-PYD-3 rewrites the day-plan mode (schedule, lane 3)',
-    ],
-]);
+const LATER = new Map<string, string>([]);
 
 function walk(dir: string, out: string[] = []): string[] {
     if (!fs.existsSync(dir)) return out;
@@ -57,6 +52,7 @@ describe('every map that locks the twist locks Shift+arrows too', () => {
             'components/map/logMap.ts',
             'src/ocean/OceanMap.tsx',
             'components/chat/PinMapViewer.tsx',
+            'components/autorouting/AutoroutingTrialWorkspace.tsx',
         ]) {
             expect(files).toContain(file);
         }

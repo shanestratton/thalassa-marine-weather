@@ -89,7 +89,10 @@ export class FakeMapboxMap {
      */
     rendered: Array<{ layer: { id: string }; properties: Record<string, unknown>; geometry: unknown }> = [];
     fitBounds = vi.fn();
-    jumpTo = vi.fn();
+    jumpTo = vi.fn((options: { bearing?: number } = {}) => {
+        if (options.bearing !== undefined) this.bearing = options.bearing;
+        return this;
+    });
     resize = vi.fn();
     remove = vi.fn(() => {
         this.removed = true;
@@ -210,6 +213,52 @@ export class FakeMapboxMap {
     getBearing() {
         return this.bearing;
     }
+
+    zoom = 8;
+    getZoom() {
+        return this.zoom;
+    }
+    getMinZoom() {
+        return 0;
+    }
+    getMaxZoom() {
+        return 22;
+    }
+
+    /** A camera move in flight (a fit, Locate's flight): set it to hold the orientation controller off. */
+    moving = false;
+    isMoving() {
+        return this.moving;
+    }
+
+    /** Style and tiles settled (Mapbox's loaded()); false holds the orientation controller until 'idle'. */
+    settled = true;
+    loaded() {
+        return this.settled;
+    }
+
+    /** Where a place lands on screen; a test points it on or off the view. */
+    projectTo: (lngLat: [number, number]) => { x: number; y: number } = () => ({ x: 0, y: 0 });
+    project = vi.fn((lngLat: [number, number]) => this.projectTo(lngLat));
+
+    /**
+     * Mapbox's easeTo, at once: movestart, then rotatestart and rotate when
+     * the bearing changes (kept in (-180, 180] as Mapbox keeps it), then
+     * moveend, each carrying the eventData.
+     */
+    easeTo = vi.fn((options: { bearing?: number; center?: unknown }, eventData: Record<string, unknown> = {}) => {
+        this.moving = true;
+        this.fire('movestart', eventData);
+        if (options.bearing !== undefined && options.bearing !== this.bearing) {
+            this.fire('rotatestart', eventData);
+            const b = ((((options.bearing + 180) % 360) + 360) % 360) - 180;
+            this.bearing = b === -180 ? 180 : b;
+            this.fire('rotate', eventData);
+        }
+        this.moving = false;
+        this.fire('moveend', eventData);
+        return this;
+    });
 
     getCanvasContainer() {
         return this.canvasContainer;

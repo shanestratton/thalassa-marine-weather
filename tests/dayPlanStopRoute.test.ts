@@ -445,6 +445,30 @@ describe('one route at a time, memory only, nothing stale', () => {
         expect(started).toHaveLength(1);
     });
 
+    it("the chart's satellite Retry: a checked copy replaces the route; land makes it a no-route in Auto's words", async () => {
+        // Stage-3 review (127-PYD-3): a Retry that found land left the stop 'routed' for the sheet's life.
+        const { started, queue, onChange } = setup();
+        const leg = { basis: 'routed', factor: 1, straightNm: 4, nm: 5.4 } as never;
+        queue.request('a', request({ id: 'a' }));
+        started[0].settle({ kind: 'routed', proposal: proposal(), leg, wallMs: 6400 });
+        await flush();
+        const checked = { ...proposal(), id: 'checked' };
+        onChange.mockClear();
+        queue.recheck('a', checked);
+        expect(onChange).toHaveBeenCalledOnce();
+        // The same leg (the plan is not worked out again), the checked copy.
+        expect(queue.states.get('a')).toEqual({ id: 'a', kind: 'routed', proposal: checked, leg, wallMs: 6400 });
+        const land = 'Satellite relief shows land near 38.540° N, 28.650° W. The route is not shown. Nothing changed.';
+        queue.recheck('a', land);
+        expect(queue.states.get('a')).toEqual({ id: 'a', kind: 'no-route', words: land, wallMs: 6400 });
+        // Like any no-route: closing her page forgets it, and the next tap tries again.
+        queue.cancel('a');
+        expect(queue.states.get('a')).toBeUndefined();
+        // Only a route is rechecked: nothing is made up for a stop with none.
+        queue.recheck('b', land);
+        expect(queue.states.has('b')).toBe(false);
+    });
+
     it('a no-route can be tried again: a tap replaces it, and closing its page forgets it', async () => {
         // Review 2026-10-11: a dropped link's "try again" stuck for the sheet's life.
         const { started, queue } = setup();

@@ -132,12 +132,15 @@ describe('MapActionFabs zoom', () => {
         const group = screen.getByRole('group', { name: 'Map zoom' });
         // Up the right rail above the credits in portrait; the middle-left rail
         // in short landscape, which the ENC notice reserves (UX scorecard run 7).
-        expect(group.className).toContain('right-[max(16px,env(safe-area-inset-right))]');
-        expect(group.className).toContain('bottom-[calc(242px+env(safe-area-inset-bottom))]');
-        expect(group.className).toContain(
+        // The placement is the wrapper's, which the chart's north arrow shares (127-11b).
+        const rail = group.parentElement!;
+        expect(rail.className).toContain('thalassa-map-zoom');
+        expect(rail.className).toContain('right-[max(16px,env(safe-area-inset-right))]');
+        expect(rail.className).toContain('bottom-[calc(242px+env(safe-area-inset-bottom))]');
+        expect(rail.className).toContain(
             '[@media(orientation:landscape)_and_(max-height:600px)]:left-[max(16px,env(safe-area-inset-left))]',
         );
-        expect(group.className).toContain('[@media(orientation:landscape)_and_(max-height:600px)]:top-1/2');
+        expect(rail.className).toContain('[@media(orientation:landscape)_and_(max-height:600px)]:top-1/2');
         // 3rem is 48 px at the usual root font but 39 px on a 320 pt phone
         // (13 px root), so each button is floored at 44 px.
         for (const button of within(group).getAllByRole('button'))

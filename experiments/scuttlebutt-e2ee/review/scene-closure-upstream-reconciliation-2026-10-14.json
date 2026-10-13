@@ -1,0 +1,49 @@
+{
+    "schemaVersion": 1,
+    "dateBrisbane": "2026-10-14",
+    "category": "source-bound-upstream-reconciliation-not-combined-app-acceptance",
+    "testedSlice": "1d477da1ed429e9d50197e0c44f3d69a65719dc9",
+    "upstream": "5b3187afc146f618126ca0658e0aa142aff40196",
+    "previousCommonUpstream": "c7d49a32b7f6ef9f3e6ce860b9d28caefc9ba8c7",
+    "upstreamAdvanceNormal": true,
+    "automaticMergeConflicts": 0,
+    "upstreamPaths": 264,
+    "upstreamRawDeltaSHA256": "03aa002536b00d96bf2b1eacb272430739f605a5e504e83972ecf35f2e824b16",
+    "stagedRawDeltaSHA256": "62b4161edd2964693941e08d7c5605db81001df46ec334eaef4cd73983d9bf42",
+    "allStagedPathsExactUpstreamNames": true,
+    "currentE2eeSourceHashEntriesMatched": 87,
+    "retiredChartPathsAbsentFromBothAncestriesAndFilesystem": 7,
+    "mergedOverlappingPaths": ["App.tsx", "hooks/useAppBootstrap.ts", "viewRegistry.tsx"],
+    "mergedOverlapHashes": {
+        "App.tsx": "be3fa4748553042438c3ece4d2f29f04d550ec7b90158240023a36a33c15b653",
+        "hooks/useAppBootstrap.ts": "d3655926a04c7642e342aca1fe172da61b9cc9481e173ad70a4fc44a2129c95b",
+        "viewRegistry.tsx": "f20f4631c86d442dab4e9cfe34c5a23628f8019607a7785c41437ddc2d87beec"
+    },
+    "acceptedNativeEvidenceFrozenToTestedSlice": true,
+    "currentCombinedAppEvidence": "queued-source-refresh-build-and-execution-after-upstream-graph-changes",
+    "unchangedE2eeValidatorAndSwiftHashes": true,
+    "earlierFailedReceiptsStillFailed": true,
+    "independentAssessment": false,
+    "mergeReady": false,
+    "primaryCheckoutEdited": false,
+    "primaryIosEditedOrSynced": false,
+    "isolatedIosChangesFromUpstreamOnly": true,
+    "productionOrHostedChangesDispatched": false,
+    "masterPushed": false,
+    "sharedWaitingMs": 10491,
+    "sharedWaitingBudgetMs": 120000,
+    "firstReadOnlyPacketGenerationFailed": {
+        "error": "ENOBUFS",
+        "operation": "Hash complete upstream textual diff in default execFileSync buffer",
+        "noAcceptanceRecorded": true,
+        "correction": "Use bounded raw metadata deltas for hash pins; all original path/source/ancestry assertions retained."
+    },
+    "sourceReview": {
+        "category": "internal-read-only-source-review-not-build-or-security-acceptance",
+        "isolatedE2eeAdditionsPreserved": true,
+        "upstreamAdditionsPreserved": true,
+        "risk": "Upstream EncCellStore imports prepareChartStore and purgeWebDiskCache from nativeStorage; the unchanged isolated graph projection does not export these names. Fresh full-App named-export compatibility is unverified, not an observed build failure.",
+        "newStartupRoute": "Wide-landscape boot may now select map; fresh protected navigation/startup proof is required.",
+        "nextUnblockedStep": "Keep the new chart-control exports strictly unavailable behind the isolated projection, test their refusal/no-I-O behavior, and legitimately refresh the combined-source build and actual Window/native proof."
+    }
+}

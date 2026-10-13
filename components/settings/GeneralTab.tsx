@@ -37,6 +37,7 @@ import {
 import { underKeelClearanceM } from '../../services/underway/underKeelClearance';
 import { vesselDraftIsAssumed, vesselDraftMetres } from '../../services/units';
 import { DebugAisInjectorSection } from './debugAisInjectorGate';
+import { screenHoldsTwoPages } from '../../utils/glassBesideChartStart';
 
 /** The Settings menu row's icon tile (SettingsModal's MENU_ICON_TILE): the soft
  *  surface with the one sky accent on the glyph, in both display modes. */
@@ -255,6 +256,29 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
             </Section>
 
             <VisualPreferencesSection settings={settings} onSave={onSave} />
+
+            {/* Tablets and wide windows (Shane 2026-10-13, build 128): the app
+                starts with The Glass beside Obs when it opens in landscape. On
+                unless switched off (our call, recorded); offered only on a
+                screen that can hold two pages on its side. */}
+            {screenHoldsTwoPages() && (
+                <Section title="Split screen">
+                    <Row>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm text-white font-medium">Start with The Glass beside the chart</p>
+                            <p className="text-xs text-gray-400">
+                                On a tablet or wide window held in landscape, the app opens with The Glass on the left
+                                and Obs on the right. Hold The Glass to close or reopen the split at any time.
+                            </p>
+                        </div>
+                        <Toggle
+                            label="Start with The Glass beside the chart"
+                            checked={settings.glassBesideChartAtStart !== false}
+                            onChange={(on) => onSave({ glassBesideChartAtStart: on })}
+                        />
+                    </Row>
+                </Section>
+            )}
 
             {/* The home the Glass opens on. Its label is the one Settings form
                 label (FIELD_LABEL_CLASS) over a full-width field, and it is

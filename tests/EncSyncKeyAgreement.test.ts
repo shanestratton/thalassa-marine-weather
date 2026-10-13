@@ -68,7 +68,10 @@ describe('ENC sync-key agreement', () => {
     it('keeps the service using the shared plan too', () => {
         const service = codeOf('services/EncImportService.ts');
         const sync = service.slice(service.indexOf('export async function syncEncFromPi'));
-        expect(sync).toContain('planPiCellSync(installed, localCells)');
+        // Open rows only since 127-C-c: licensed rows register in memory and
+        // never sync to the phone's disk, but read the same plan for refusals.
+        expect(sync).toContain('planPiCellSync(openRows, localCells)');
+        expect(sync).toContain('planPiCellSync(protectedRows, [])');
         // The plan keys both sides with the one key.
         const plan = codeOf('services/enc/piSyncPlan.ts');
         expect(plan).toContain('encCellSyncKey(cell.cellId, cell.edition ?? 0, cell.sizeBytes, cell.contentSha256)');

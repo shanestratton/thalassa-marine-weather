@@ -11,6 +11,12 @@
  * maintenance, documents), NMEA Gateway (opened on most visits aboard, and its
  * live Connected / Aboard / Away state is worth a glance), Music, Settings,
  * then Boat Network, which is set up once.
+ *
+ * Crew & Float Plan has lifted out into a card of its own, above the box, with
+ * a hue on its back (Shane 2026-10-13, 128-HUES: "ok the crew and float plan,
+ * really needs its own card, can we make a nice card for it without having to
+ * scroll up and down on the page, maybe a nice hue as well on the back of
+ * it"). The other five stay in the one box, in their order.
  */
 import React from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
@@ -92,16 +98,48 @@ afterEach(() => {
 });
 
 const ORDER = ['Crew & Float Plan', 'Boat Binder', 'NMEA Gateway', 'Music', 'Settings', 'Boat Network'];
+const BOX = ORDER.slice(1);
 
 describe('Vessel page menu box', () => {
-    it('holds the six rows in one box, most used first', () => {
+    it('holds the other five rows in one box, most used first', () => {
         renderHub();
         const boxes = screen.getAllByTestId('vessel-hub-menu');
         expect(boxes).toHaveLength(1);
         const names = within(boxes[0])
             .getAllByRole('button')
             .map((button) => button.getAttribute('aria-label'));
-        expect(names).toEqual(ORDER);
+        expect(names).toEqual(BOX);
+    });
+
+    it('gives Crew & Float Plan its own card above the box, with the crew hue on its back', () => {
+        renderHub();
+        const crew = screen.getByTestId('vessel-hub-crew');
+        const box = screen.getByTestId('vessel-hub-menu');
+        expect(
+            within(crew)
+                .getAllByRole('button')
+                .map((button) => button.getAttribute('aria-label')),
+        ).toEqual(['Crew & Float Plan']);
+        // The one card hue (styles/card-hue.css) in the crew token, and the
+        // menu rows' own typography: it is a one-row menu card.
+        for (const name of ['card-hue', 'card-hue-crew', 'vessel-hub-menu', 'vessel-hub-crew']) {
+            expect(crew.classList).toContain(name);
+        }
+        expect(box.classList).not.toContain('card-hue');
+        // Above the box, the two side by side in one menu group.
+        expect(crew.nextElementSibling).toBe(box);
+        expect(crew.parentElement).toBe(screen.getByTestId('vessel-hub-menus'));
+        expect(crew.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('names the two cards as one menu for VoiceOver', () => {
+        renderHub();
+        const menus = screen.getByTestId('vessel-hub-menus');
+        const heading = within(menus).getByRole('heading', { level: 2, name: 'Vessel menu' });
+        // The heading comes before both cards, so the rotor lands on it first.
+        expect(
+            heading.compareDocumentPosition(screen.getByTestId('vessel-hub-crew')) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
     });
 
     it('folds nothing away: every row is reachable without expanding a group', () => {
@@ -145,6 +183,9 @@ describe('Vessel page menu box', () => {
         renderHub();
         const box = screen.getByTestId('vessel-hub-menu');
         const rows = within(box).getAllByRole('button');
+        expect(rows[0].getAttribute('aria-label')).toBe('Boat Binder');
+        // The box opens on its first row: no divider left over from the crew row.
+        expect(rows[0].previousElementSibling?.tagName ?? 'none').not.toBe('DIV');
         // Every row but the first follows a divider inside the same box.
         for (const row of rows.slice(1)) {
             expect(row.previousElementSibling?.tagName).toBe('DIV');

@@ -46,6 +46,7 @@ import {
 import { SKIPPER_BOAT_FALLBACK } from '../vessel/skipperBoatFallback';
 import { clearCameraPadding } from './cameraPadding';
 import { claimObsCamera, onObsCameraClaim } from './obsCameraClaims';
+import { chartTurning, keepHerOnScreen } from './chartOrientation';
 
 /** Whose position Obs is after: the phone, or a boat (null = the account's own, else her skipper's id). */
 export type ObsSubject = { kind: 'phone' } | { kind: 'boat'; crewOwnerId: string | null };
@@ -77,7 +78,10 @@ export { onObsCameraClaim };
  */
 export function obsFlyTo(map: mapboxgl.Map, to: { lat: number; lon: number }, zoom: number): void {
     clearCameraPadding(map);
-    map.flyTo({ center: [to.lon, to.lat], zoom, duration: 1200 });
+    const center: [number, number] = [to.lon, to.lat];
+    // In Course, Track and Heading up she goes to the lower third, the water ahead above her (127-11b).
+    if (chartTurning()) map.flyTo({ center, zoom, duration: 1200, offset: [0, map.getContainer().clientHeight / 6] });
+    else map.flyTo({ center, zoom, duration: 1200 });
 }
 
 /** The broad view's centre: useMapInit's Aus + NZ box, [145, -28]. */
@@ -572,6 +576,8 @@ function showForTap(next: Parameters<typeof showObsCentreNotice>[0], names: ObsB
 
 function flyFor(map: mapboxgl.Map, to: { lat: number; lon: number }, zoom: number): boolean {
     claimObsCamera(map);
+    // Locate went to her: the turning modes keep her on screen again (a pan stood that down).
+    keepHerOnScreen(map);
     try {
         obsFlyTo(map, to, zoom);
         return true;

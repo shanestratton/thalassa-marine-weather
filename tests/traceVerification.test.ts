@@ -104,6 +104,53 @@ describe('Route Tracer durable verification', () => {
         ).toContain('Tide data is unavailable');
     });
 
+    // 127-C-c decision 11: a route checked on her licensed charts, which open
+    // only on the boat's Wi-Fi, says so — not "your chart library has changed".
+    it('Cast Off ashore after a check on her licensed charts says where to recheck', () => {
+        const aboard = 'OC-99-ZZ0001@4@2026-01-01@2000|US5ZZ01M@2@2026-01-01@1000';
+        const ashore = 'US5ZZ01M@2@2026-01-01@1000';
+        const verification = evaluateTraceRelease(points, 'ready', [verdict('clear')], new Set(), {
+            ...context,
+            encRegistryFingerprint: aboard,
+        }).verification!;
+        const at = { draftM: context.draftM, draftAssumed: false, voyageDepartureMs: context.departureMs };
+        const nowMs = Date.parse(verification.checkedAt) + 60_000;
+        expect(
+            traceCastOffBlockReason(verification, points, {
+                ...at,
+                nowMs,
+                encRegistryFingerprint: ashore,
+                boatChartsAway: { boatName: 'Nordlys av Tromsø' },
+            }),
+        ).toBe("Checked on Nordlys av Tromsø's charts. They open on the boat's Wi-Fi; recheck there before Cast Off.");
+        // Aboard (or not paired) the old sentence still names the chart.
+        expect(
+            traceCastOffBlockReason(verification, points, { ...at, nowMs, encRegistryFingerprint: ashore }),
+        ).toContain('chart library has changed under this route since it was checked (OC-99-ZZ0001)');
+        // An open chart that changed is a real change, wherever she is.
+        expect(
+            traceCastOffBlockReason(verification, points, {
+                ...at,
+                nowMs,
+                encRegistryFingerprint: 'OC-99-ZZ0001@4@2026-01-01@2000|US5ZZ01M@3@2026-02-01@1100',
+                boatChartsAway: { boatName: null },
+            }),
+        ).toContain('chart library has changed');
+    });
+
+    it('a provisional pass (her licensed charts not open here) never releases', () => {
+        const gate = evaluateTraceRelease(points, 'ready', [verdict('clear')], new Set(), {
+            ...context,
+            boatChartsMissing:
+                "Serene Summer's licensed charts open on the boat's Wi-Fi. Check it on the boat's Wi-Fi.",
+        });
+        expect(gate.allowed).toBe(false);
+        expect(gate.verification).toBeNull();
+        expect(gate.reason).toBe(
+            "Serene Summer's licensed charts open on the boat's Wi-Fi. Check it on the boat's Wi-Fi.",
+        );
+    });
+
     it('round-trips the namespaced voyage note and rejects stale Cast Off context', () => {
         const verification = evaluateTraceRelease(
             points,

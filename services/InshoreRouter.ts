@@ -42,7 +42,7 @@ import { DeadlineExceeded, withDeadline } from '../utils/deadline';
 import { cellsForBBox, listCells } from './enc/EncCellMetadata';
 import type { EncCell } from './enc/types';
 import { readS57 } from './enc/types';
-import { loadCellGeoJSON } from './enc/EncCellStore';
+import { hasCellGeoJSON, loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import type { SurveyUncheckedCell, TideCeiling } from './engine/types';
 import { tideCeilingLookup } from './engine/tideCeiling';
@@ -330,6 +330,12 @@ interface InshoreRunTiming {
 /** The run's hold on its own stop signal, stage listener and timings (tryInshoreRouteInner). */
 interface InshoreRunControl {
     signal: AbortSignal;
+    /**
+     * What the prep's asks listen to (128-ROUTE-P): the run's stop, or the
+     * run's end. A run that ends without them (a gated null, a throw) leaves
+     * no satellite crop decoding and no cell climbing the ladder behind it.
+     */
+    asks: AbortSignal;
     onStage: (stage: RouteStage) => void;
     timing: InshoreRunTiming;
 }
@@ -338,6 +344,102 @@ const exitDurations = (t: InshoreRunTiming): string =>
     t.where
         ? ` · prep ${t.prepMs} ms · wait ${t.waitMs} ms · handoff ${t.handoffMs} ms · engine ${t.engineMs} ms · shadow ${t.shadowMs} ms · back ${t.backMs} ms · ${t.where}`
         : '';
+
+/**
+ * Cell reads the prep keeps going at once (128-ROUTE-P). On iOS every plugin
+ * call shares one serial bridge queue, and the Filesystem plugin reads a whole
+ * file there: a second read keeps that queue busy while the cell before it
+ * parses and merges, and a third would only make other plugins (a GPS fix,
+ * Preferences) wait one more read behind the router.
+ */
+const CELL_READS = 2;
+
+/** A wait asked for now and awaited later: a run that ends first never leaves it rejecting unhandled. */
+function askedNow<T>(wait: Promise<T>): Promise<T> {
+    wait.catch(() => {});
+    return wait;
+}
+
+/**
+ * The run's answer, or its stop the moment its last caller has gone
+ * (128-ROUTE-P): the EXIT line and the clean-up no longer wait out a prep's
+ * network calls (up to 20-45 s), which can't be cancelled. The prep itself
+ * drops out at its next stillWanted().
+ */
+function untilStopped<T>(run: Promise<T>, signal: AbortSignal): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const stop = (): void => reject(routeStopped(signal));
+        signal.addEventListener('abort', stop, { once: true });
+        run.then(resolve, reject).finally(() => signal.removeEventListener('abort', stop));
+    });
+}
+
+/**
+ * The water at the route's two ends (2026-06-18, asked for with the cells
+ * since 128-ROUTE-P): satellite-classified water per endpoint crop, else
+ * Mapbox's vector water for that crop. A route that has stopped, or ended
+ * without them, reads no satellite crop on the main thread and asks for no
+ * vector water.
+ */
+function fetchEndpointWater(
+    origin: InshoreOrigin,
+    destination: InshoreOrigin,
+    mapboxToken: string,
+    signal: AbortSignal,
+): Promise<FeatureCollection[]> {
+    // Nearshore corridor crop: a marina/canal exit follows the route OUT,
+    // not a tight disc — so extend each endpoint's crop ~4 km TOWARD the
+    // other endpoint (covering the winding channel), padded ~1.2 km
+    // perpendicular. This reaches the canal without the tile count a big
+    // square crop would cost, and the deep open bay in the middle is still
+    // never fetched.
+    const REACH_M = 4000;
+    const PERP_DEG = 0.011; // ~1.2 km perpendicular margin
+    const corridorCrop = (
+        a: { lat: number; lon: number },
+        b: { lat: number; lon: number },
+    ): [number, number, number, number] => {
+        const cosLat = Math.cos((a.lat * Math.PI) / 180) || 1;
+        const dLat = b.lat - a.lat;
+        const dLon = (b.lon - a.lon) * cosLat;
+        const len = Math.hypot(dLat, dLon) || 1;
+        const reachDeg = REACH_M / 111_320;
+        const far = {
+            lat: a.lat + (dLat / len) * reachDeg,
+            lon: a.lon + ((dLon / len) * reachDeg) / cosLat,
+        };
+        return [
+            Math.min(a.lon, far.lon) - PERP_DEG,
+            Math.min(a.lat, far.lat) - PERP_DEG,
+            Math.max(a.lon, far.lon) + PERP_DEG,
+            Math.max(a.lat, far.lat) + PERP_DEG,
+        ];
+    };
+    const endpointCrops: [number, number, number, number][] = [
+        corridorCrop(origin, destination),
+        corridorCrop(destination, origin),
+    ];
+    // Prefer SATELLITE-classified water (the TRUE canal shape) over the
+    // coarse OSM vector `water` layer — the vector outline is what threw
+    // routeMarina's centreline off. Satellite is tier-1 only (these
+    // endpoint crops); the open bay is never fetched. Fall back to the
+    // vector water per-crop on any satellite failure, so the canal is never
+    // LESS routable than today.
+    return Promise.all(
+        endpointCrops.map(async (b): Promise<FeatureCollection> => {
+            try {
+                const sat = await fetchSatelliteWater(b, mapboxToken, undefined, undefined, signal);
+                if (sat.features.length > 0) {
+                    log.warn(`SAT WATER: ${sat.features.length} water polygons from satellite (crop)`);
+                    return sat;
+                }
+            } catch (e) {
+                log.warn(`SAT WATER failed, falling back to vector: ${e instanceof Error ? e.message : e}`);
+            }
+            return signal.aborted ? { type: 'FeatureCollection', features: [] } : fetchMapboxWater(b, mapboxToken);
+        }),
+    );
+}
 
 export async function tryInshoreRoute(
     origin: InshoreOrigin,
@@ -466,16 +568,31 @@ function startInshoreRun(
         stop: new AbortController(),
         listeners: new Set(),
     };
+    const asks = new AbortController();
+    const endAsks = (): void => asks.abort(entry.stop.signal.reason);
+    entry.stop.signal.addEventListener('abort', endAsks, { once: true });
     const control: InshoreRunControl = {
         signal: entry.stop.signal,
+        asks: asks.signal,
         onStage: (stage) => {
             entry.stage = stage;
             for (const listener of [...entry.listeners]) listener(stage);
         },
         timing: { t0: Date.now(), prepMs: 0, waitMs: 0, handoffMs: 0, engineMs: 0, shadowMs: 0, backMs: 0 },
     };
+    // The prep's asks end with the run, whichever way it ends (128-ROUTE-P).
+    const routed = tryInshoreRouteInner(
+        origin,
+        destination,
+        draftM,
+        airDraftM,
+        routeProfile,
+        opts,
+        overlayUse,
+        control,
+    );
     entry.run = withDeadline(
-        tryInshoreRouteInner(origin, destination, draftM, airDraftM, routeProfile, opts, overlayUse, control),
+        untilStopped(routed.finally(endAsks), entry.stop.signal),
         INSHORE_WATCHDOG_MS,
         'inshore route',
     )
@@ -542,8 +659,8 @@ async function tryInshoreRouteInner(
     run: InshoreRunControl,
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     // A run every caller has stopped drops out at its next wait (review
-    // 2026-10-11): it starts no more fetches and no satellite reads beside a
-    // re-tap's fresh run. The waits themselves can't be cancelled.
+    // 2026-10-11): it starts no more fetches, cell reads or satellite reads
+    // beside a re-tap's fresh run. The waits themselves can't be cancelled.
     const stillWanted = (): void => run.signal.throwIfAborted();
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {
@@ -616,6 +733,65 @@ async function tryInshoreRouteInner(
             `STAGE: computing inshore route across ${candidateCells.length} cell(s): ${candidateCells.map((c) => c.id).join(',')}`,
         );
 
+    // ── The prep's waits, asked for together (128-ROUTE-P) ──
+    // Shane: Auto takes "more like a minute :)", and most of that minute was
+    // this prep waiting on one answer after another. The OSM water, the
+    // satellite water, the curated bridges and the Notice to Mariners zones
+    // need only the route's ends, so they are asked for now, beside the tides
+    // above and the cells below. Each answer is still merged where it always
+    // was, in the same order and with the same words, so the route is the same
+    // whatever order they land in (tests/inshoreRouter.prepParity.test.ts).
+    //
+    // OSM fetch bbox — matches the engine's wider grid padding (commit
+    // a42a2762 + the floor bump that goes with it). The engine pads by
+    // max(maxSpan * 0.5, 0.08°); we use a slightly more generous flat
+    // 0.10° (≈11 km) here so the OSM water/coastline/aeroway coverage
+    // never undershoots the grid's lateral margin. Empty cells in
+    // open-bay corridors fall back to chart-DEPARE cleanly anyway, but
+    // matching the bbox keeps the diagnostic counts honest.
+    const routeBbox = inshoreOverlayBbox(origin, destination);
+    const osmLoad = askedNow(getOsmRouteOverlay(routeBbox));
+    // A cell the phone doesn't hold yet is fetched before the satellite crops
+    // are asked for, as in 127: from the cloud it can be 16 MB on the same
+    // link as their tiles, each held to 8 s, and a crop short of a tile falls
+    // back to the vector water (another marina exit). Either way the crops
+    // still overlap the OSM wait.
+    const mapboxToken = (import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined) ?? '';
+    let cellsIn = (): void => {};
+    const cellsLoaded = new Promise<void>((resolve) => {
+        cellsIn = resolve;
+        if (run.asks.aborted) resolve();
+        else run.asks.addEventListener('abort', () => resolve(), { once: true });
+    });
+    const waterLoad = mapboxToken
+        ? askedNow(
+              Promise.all(candidateCells.map((c) => hasCellGeoJSON(c.id).catch(() => false))).then(async (held) => {
+                  if (!held.every(Boolean)) await cellsLoaded;
+                  run.asks.throwIfAborted();
+                  return fetchEndpointWater(origin, destination, mapboxToken, run.asks);
+              }),
+          )
+        : null;
+    // (Their modules load first: a run stopped meanwhile asks for nothing.)
+    const bridgesLoad = askedNow(
+        import('./lowBridges').then((m) => {
+            run.asks.throwIfAborted();
+            return m.loadLowBridges();
+        }),
+    );
+    // NtM packs: pad with the ENGINE's OWN grid formula (inshoreRouterEngine
+    // bbox: max(span·0.5, 0.08°)) — a fixed 0.02° pad silently dropped packs
+    // that sat inside the grid but outside the endpoint envelope (an
+    // upriver start whose only exit crosses the bar), while the popup
+    // still claimed "applied". Adversarial-review finding #0.
+    const ntmPad = Math.max(Math.max(maxLat - minLat, maxLon - minLon) * 0.5, 0.08);
+    const ntmLoad = askedNow(
+        import('./ntmRouting').then((m) => {
+            run.asks.throwIfAborted();
+            return m.activeNtmZonesFor([minLon - ntmPad, minLat - ntmPad, maxLon + ntmPad, maxLat + ntmPad]);
+        }),
+    );
+
     // Merge candidate cells' layers. Pi-cache used to do this server-side;
     // we now do it on the device since iPhone CPU outpaces a Pi 5 several-
     // fold and the cell GeoJSON is already cached in the local Filesystem.
@@ -681,8 +857,25 @@ async function tryInshoreRouteInner(
     // a much-finer cell's bbox are dropped — the finer cell owns that ground —
     // so the router never ingests fake land / coarse depth where detail exists.
     const cellExtents = candidateCells.map((c) => ({ id: c.id, bbox: c.bbox }));
-    for (const cell of candidateCells) {
-        const blob = await loadCellGeoJSON(cell.id);
+    // The cells are read CELL_READS at a time and merged one by one in their
+    // listed order, the order the engine sees their features (128-ROUTE-P).
+    // A cell not on the phone climbs the Pi → cloud ladder one at a time, as
+    // it did when the cells loaded one by one, and a stopped run climbs no
+    // more of it (a cell read ahead must not pull from the Pi after a stop).
+    let ladder: Promise<unknown> = Promise.resolve();
+    const oneAtATime = <T>(climb: () => Promise<T>): Promise<T> => {
+        const next = ladder.then(() => {
+            run.asks.throwIfAborted();
+            return climb();
+        });
+        ladder = next.catch(() => {});
+        return next;
+    };
+    const cellReads: ReturnType<typeof loadCellGeoJSON>[] = [];
+    for (const [i, cell] of candidateCells.entries()) {
+        while (cellReads.length < Math.min(i + CELL_READS, candidateCells.length))
+            cellReads.push(askedNow(loadCellGeoJSON(candidateCells[cellReads.length].id, true, oneAtATime)));
+        const blob = await cellReads[i];
         stillWanted();
         if (!blob) {
             log.warn(`cell ${cell.id} listed but GeoJSON not on device — sync via Pi Cache first`);
@@ -788,6 +981,7 @@ async function tryInshoreRouteInner(
         log.warn('No cells could be loaded from device storage — sync first via the Pi Cache button');
         return null;
     }
+    cellsIn();
 
     // ── OSM route overlay (fetched BEFORE regional markers) ──
     // Order matters: the regional-marker pair-rejection step (Step 3 of
@@ -812,18 +1006,11 @@ async function tryInshoreRouteInner(
     //
     // Pi caches Overpass responses for 7 days per 0.01° bbox tile so most
     // route runs are sub-second. Pi unreachable / no OSM data → empty
-    // overlay, router falls back to chart-only behaviour.
-    // OSM fetch bbox — matches the engine's wider grid padding (commit
-    // a42a2762 + the floor bump that goes with it). The engine pads by
-    // max(maxSpan * 0.5, 0.08°); we use a slightly more generous flat
-    // 0.10° (≈11 km) here so the OSM water/coastline/aeroway coverage
-    // never undershoots the grid's lateral margin. Empty cells in
-    // open-bay corridors fall back to chart-DEPARE cleanly anyway, but
-    // matching the bbox keeps the diagnostic counts honest.
-    const routeBbox = inshoreOverlayBbox(origin, destination);
+    // overlay, router falls back to chart-only behaviour. Asked for with the
+    // cells (osmLoad, above), merged here after them.
     let osmOverlay: OsmRouteOverlay | null = null;
     try {
-        osmOverlay = await getOsmRouteOverlay(routeBbox);
+        osmOverlay = await osmLoad;
         overlayUse.overlay = osmOverlay?.provenance;
         // OSM water polygons → DEPARE with synthetic deep DRVAL1 so the
         // router treats them as authoritative navigable (the existing
@@ -1287,61 +1474,11 @@ async function tryInshoreRouteInner(
     // Navionics sells, that we already load. Scoped to ~1.3 km crops around
     // origin+dest (marinas live at the route endpoints) to bound the z16 tile
     // count; the deep open bay in the route middle is never touched.
+    // Asked for with the cells (waterLoad, fetchEndpointWater), merged here
+    // after the OSM water.
     try {
-        const mapboxToken = (import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined) ?? '';
-        if (mapboxToken) {
-            // Nearshore corridor crop: a marina/canal exit follows the route OUT,
-            // not a tight disc — so extend each endpoint's crop ~4 km TOWARD the
-            // other endpoint (covering the winding channel), padded ~1.2 km
-            // perpendicular. This reaches the canal without the tile count a big
-            // square crop would cost, and the deep open bay in the middle is still
-            // never fetched.
-            const REACH_M = 4000;
-            const PERP_DEG = 0.011; // ~1.2 km perpendicular margin
-            const corridorCrop = (
-                a: { lat: number; lon: number },
-                b: { lat: number; lon: number },
-            ): [number, number, number, number] => {
-                const cosLat = Math.cos((a.lat * Math.PI) / 180) || 1;
-                const dLat = b.lat - a.lat;
-                const dLon = (b.lon - a.lon) * cosLat;
-                const len = Math.hypot(dLat, dLon) || 1;
-                const reachDeg = REACH_M / 111_320;
-                const far = {
-                    lat: a.lat + (dLat / len) * reachDeg,
-                    lon: a.lon + ((dLon / len) * reachDeg) / cosLat,
-                };
-                return [
-                    Math.min(a.lon, far.lon) - PERP_DEG,
-                    Math.min(a.lat, far.lat) - PERP_DEG,
-                    Math.max(a.lon, far.lon) + PERP_DEG,
-                    Math.max(a.lat, far.lat) + PERP_DEG,
-                ];
-            };
-            const endpointCrops: [number, number, number, number][] = [
-                corridorCrop(origin, destination),
-                corridorCrop(destination, origin),
-            ];
-            // Prefer SATELLITE-classified water (the TRUE canal shape) over the
-            // coarse OSM vector `water` layer — the vector outline is what threw
-            // routeMarina's centreline off. Satellite is tier-1 only (these
-            // endpoint crops); the open bay is never fetched. Fall back to the
-            // vector water per-crop on any satellite failure, so the canal is never
-            // LESS routable than today.
-            const waterFCs = await Promise.all(
-                endpointCrops.map(async (b) => {
-                    try {
-                        const sat = await fetchSatelliteWater(b, mapboxToken);
-                        if (sat.features.length > 0) {
-                            log.warn(`SAT WATER: ${sat.features.length} water polygons from satellite (crop)`);
-                            return sat;
-                        }
-                    } catch (e) {
-                        log.warn(`SAT WATER failed, falling back to vector: ${e instanceof Error ? e.message : e}`);
-                    }
-                    return fetchMapboxWater(b, mapboxToken);
-                }),
-            );
+        if (waterLoad) {
+            const waterFCs = await waterLoad;
             const mapboxWater = waterFCs.flatMap((fc) => fc.features);
             if (mapboxWater.length > 0) {
                 const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
@@ -1386,8 +1523,7 @@ async function tryInshoreRouteInner(
     {
         const bars: GeoJSON.Feature[] = [...chartClearanceBars(chartStructures, airDraftM)];
         try {
-            const { loadLowBridges } = await import('./lowBridges');
-            bars.push(...curatedClearanceBars(await loadLowBridges(), airDraftM));
+            bars.push(...curatedClearanceBars(await bridgesLoad, airDraftM));
         } catch (err) {
             log.warn(
                 `[airDraft] curated bridge data unavailable (chart structures still gate): ${err instanceof Error ? err.message : String(err)}`,
@@ -1561,14 +1697,8 @@ async function tryInshoreRouteInner(
     // zone sitting just outside the endpoint lat/lon envelope in scope (the
     // Mooloolah entrance lies EAST of both the wharf and Newport).
     try {
-        const { activeNtmZonesFor } = await import('./ntmRouting');
-        // Pad with the ENGINE's OWN grid formula (inshoreRouterEngine bbox:
-        // max(span·0.5, 0.08°)) — a fixed 0.02° pad silently dropped packs
-        // that sat inside the grid but outside the endpoint envelope (an
-        // upriver start whose only exit crosses the bar), while the popup
-        // still claimed "applied". Adversarial-review finding #0.
-        const ntmPad = Math.max(Math.max(maxLat - minLat, maxLon - minLon) * 0.5, 0.08);
-        const ntm = await activeNtmZonesFor([minLon - ntmPad, minLat - ntmPad, maxLon + ntmPad, maxLat + ntmPad]);
+        // Asked for with the cells (ntmLoad, padded to the engine's grid).
+        const ntm = await ntmLoad;
         if (ntm.features.length > 0) {
             merged.NTMZONE = { type: 'FeatureCollection', features: ntm.features };
         }

@@ -15,10 +15,16 @@
  * indicator off the viewport (the header pads max(1rem, top inset), the tab
  * bar adds the bottom inset), so 393x775 is a 6.1-inch Pro's page and 375x662
  * an SE's. No account, no backend: every request off this origin is refused.
+ *
+ * Crew & Float Plan is a card of its own above the box since 128-HUES (Shane
+ * 2026-10-13: "ok the crew and float plan, really needs its own card, can we
+ * make a nice card for it without having to scroll up and down on the page,
+ * maybe a nice hue as well on the back of it"): the page still fits.
  */
 import { expect, test, type Page } from '@playwright/test';
 import { ONBOARDED_STORAGE } from '../e2e/helpers/storageState';
 import { SETTINGS_STATE_WORDS } from '../components/settings/menuStatusWords';
+import { expectPalette } from './helpers/palette';
 
 test.use({
     serviceWorkers: 'block',
@@ -181,8 +187,68 @@ async function filled(page: Page, limit: number) {
     expect(gap, `the menu box ends ${gap}px above the floor`).toBeLessThanOrEqual(17);
 }
 
-const MENU_ROWS = '[data-testid="vessel-hub-menu"] > button';
+/** The menu box's rows, and with the crew card's every row of the menu. */
+const BOX_ROWS = '[data-testid="vessel-hub-menu"] > button';
+const MENU_ROWS = `[data-testid="vessel-hub-crew"] > button, ${BOX_ROWS}`;
 const ORDER = ['Crew & Float Plan', 'Boat Binder', 'NMEA Gateway', 'Music', 'Settings', 'Boat Network'];
+
+/** Crew & Float Plan's own card (128-HUES): one, its one row, just above the
+ *  box and as wide, a gap between them, its row the height of the box's, and
+ *  its hue drawn: an edge that is not the box's, a wash and a halo. */
+async function crewCard(page: Page) {
+    await expect(page.getByTestId('vessel-hub-crew')).toHaveCount(1);
+    const m = await page.evaluate(() => {
+        const crew = document.querySelector<HTMLElement>('[data-testid="vessel-hub-crew"]')!;
+        const box = document.querySelector<HTMLElement>('[data-testid="vessel-hub-menu"]')!;
+        const a = crew.getBoundingClientRect();
+        const b = box.getBoundingClientRect();
+        const style = getComputedStyle(crew);
+        const height = (name: string) =>
+            document.querySelector(`[aria-label="${name}"]`)!.getBoundingClientRect().height;
+        // A computed colour's alpha, 0-255: rgba(), or a mix's oklab() / color() with "/ a".
+        const alpha = (colour: string) => {
+            const slash = colour.match(/\/\s*([\d.]+)\s*\)$/);
+            const rgba = colour.match(/^rgba\([^)]*,\s*([\d.]+)\s*\)$/);
+            return Math.round(255 * Number(slash?.[1] ?? rgba?.[1] ?? 1));
+        };
+        return {
+            rows: [...crew.querySelectorAll('button')].map((button) => button.getAttribute('aria-label')),
+            gap: b.top - a.bottom,
+            left: a.left - b.left,
+            width: a.width - b.width,
+            crewRow: height('Crew & Float Plan'),
+            binderRow: height('Boat Binder'),
+            edge: style.borderTopColor,
+            boxEdge: getComputedStyle(box).borderTopColor,
+            edgeAlpha: alpha(style.borderTopColor),
+            wash: style.backgroundImage,
+            halo: style.boxShadow,
+        };
+    });
+    expect(m.rows).toEqual(['Crew & Float Plan']);
+    expect(m.gap, 'a gap between the crew card and the box').toBeGreaterThanOrEqual(1.5);
+    expect(Math.abs(m.left), 'the crew card lines up with the box').toBeLessThanOrEqual(0.5);
+    expect(Math.abs(m.width), 'the crew card is as wide as the box').toBeLessThanOrEqual(0.5);
+    expect(Math.abs(m.crewRow - m.binderRow), `crew row ${m.crewRow} vs ${m.binderRow}`).toBeLessThanOrEqual(1.5);
+    expect(m.edge, 'its own edge, not the box').not.toBe(m.boxEdge);
+    expect(m.edgeAlpha, 'its edge is drawn').toBeGreaterThan(40);
+    expect(m.wash, 'a hue on its back').toContain('gradient');
+    expect(m.halo, 'a halo around it').not.toBe('none');
+    return m;
+}
+
+/** The 6.1-inch iPhones' Diary pair stacks with room to spare: the crew
+ *  card's room comes out of the gaps, never the pair (128-HUES review), so a
+ *  real phone a pixel shorter than these models still stacks it. */
+const STACKED_PAIR = ['390x844', '6.1in Pro +insets'];
+async function stackedPair(page: Page) {
+    const pair = await page.locator('.vessel-hub-home .vessel-hub-journal').evaluate((journal) => ({
+        height: journal.getBoundingClientRect().height,
+        tiles: [...journal.querySelectorAll('.vessel-hub-tile')].map((tile) => getComputedStyle(tile).flexDirection),
+    }));
+    expect(pair.tiles, 'the Diary and Scuttlebutt cards stack').toEqual(['column', 'column']);
+    expect(pair.height, 'the pair clears the 86 px it stacks at by 1.5 px').toBeGreaterThanOrEqual(87.5);
+}
 
 const PHONES = [
     { name: 'SE', width: 375, height: 667 },
@@ -227,9 +293,12 @@ test.describe('Vessel page', () => {
             expect(await page.locator(MENU_ROWS).evaluateAll((rows) => rows.map((row) => row.ariaLabel))).toEqual(
                 ORDER,
             );
+            expect(await page.locator(BOX_ROWS).count(), 'the box keeps the other five').toBe(5);
             await noScroll(page, '.vessel-hub-port');
             const limit = await floor(page);
             await wholeRows(page, MENU_ROWS, limit);
+            await crewCard(page);
+            if (STACKED_PAIR.includes(size.name)) await stackedPair(page);
             await wholeRows(
                 page,
                 '[data-testid="vessel-safety-controls"] > button, .vessel-hub-tile, .skipper-device-action',
@@ -256,6 +325,7 @@ test.describe('Vessel page', () => {
             const limit = await floor(page);
             await wholeRows(page, MENU_ROWS, limit);
             await filled(page, limit);
+            await crewCard(page);
         });
     }
 
@@ -265,11 +335,27 @@ test.describe('Vessel page', () => {
             await expect(page.getByRole('button', { name: 'Open Diary', exact: true })).toBeVisible({
                 timeout: 25_000,
             });
+            await expectPalette(page, mode);
             await settle(page);
             await noScroll(page, '.vessel-hub-port');
             const limit = await floor(page);
             await wholeRows(page, MENU_ROWS, limit);
             await filled(page, limit);
+            await crewCard(page);
+            await stackedPair(page);
+        });
+
+        // The tightest phone that fits, in this palette too.
+        test(`fits in ${mode} at SE +insets`, async ({ page, baseURL }) => {
+            await open(page, baseURL, { width: 375, height: 662, view: 'vessel', mode });
+            await expect(page.getByRole('button', { name: 'Open Diary', exact: true })).toBeVisible({
+                timeout: 25_000,
+            });
+            await expectPalette(page, mode);
+            await settle(page);
+            await noScroll(page, '.vessel-hub-port');
+            await wholeRows(page, MENU_ROWS, await floor(page));
+            await crewCard(page);
         });
     }
 
@@ -506,6 +592,11 @@ test.describe('menu pages fill their screen with bigger words', () => {
                     stacked: getComputedStyle(document.querySelector('.vessel-hub-tile-go')!).visibility === 'visible',
                 };
             });
+            // The crew card's row is a menu row: the same grown title.
+            const crewTitle = await page
+                .locator('[aria-label="Crew & Float Plan"] .hub-row-label')
+                .evaluate((label) => parseFloat(getComputedStyle(label).fontSize));
+            expect(crewTitle).toBeCloseTo(vessel.title, 2);
             expect(vessel.title).toBeGreaterThanOrEqual(13);
             expect(vessel.title).toBeLessThanOrEqual(19 + 0.01);
             expect(vessel.nmeaLines, '"NMEA Gateway" keeps one line').toBe(1);

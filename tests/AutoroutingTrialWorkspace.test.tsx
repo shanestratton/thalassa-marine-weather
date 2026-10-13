@@ -34,6 +34,8 @@ const mocks = vi.hoisted(() => ({
         vessel?: { draft: number; draftConfirmedFt?: number; cruisingSpeed: number };
     },
     location: { lat: -27.47, lon: 153.02, source: 'initial' },
+    /** 127-C-b's CHART_FACTS_STAY_ABOARD, as Plan Your Day's route chart reads it (127-PYD-3). */
+    factsAboard: true,
     maps: [] as Array<{
         options: Record<string, unknown>;
         handlers: Map<string, Handler>;
@@ -67,6 +69,15 @@ vi.mock('../services/autoroutingThalassa', async (original) => ({
     recheckThalassaBackstop: mocks.recheck,
 }));
 vi.mock('../components/map/tideWindowChips', () => ({ annotateTideWindows: mocks.annotate }));
+vi.mock('../services/chartFacts', async (original) => {
+    const real = await original<typeof import('../services/chartFacts')>();
+    return {
+        ...real,
+        get CHART_FACTS_STAY_ABOARD() {
+            return mocks.factsAboard;
+        },
+    };
+});
 vi.mock('../services/autoroutingReview', async (original) => ({
     ...(await original<typeof import('../services/autoroutingReview')>()),
     reviewAutoroutingProposal: mocks.review,
@@ -294,6 +305,7 @@ beforeEach(() => {
         encNoCoverage: false,
     };
     mocks.location = { lat: -27.47, lon: 153.02, source: 'initial' };
+    mocks.factsAboard = true;
     setAuthIdentityScope('trial-fixture-account');
     mocks.status.mockReturnValue({ enabled: true, ready: true });
     mocks.calculate.mockResolvedValue(route);
@@ -319,75 +331,216 @@ afterEach(() => {
     document.documentElement.classList.remove('display-light');
 });
 
-describe('read-only day-plan proposal review', () => {
-    async function openDayPlanReview(onReviewChange = vi.fn(), onClose = vi.fn()) {
+// Plan Your Day's route chart (127-PYD-3): the day-plan mode unused since
+// build 124 (`reviewProposal`), now fed the proposal Thalassa routed for the
+// stop she tapped. Shane, 2026-10-10: "so can we incorporate the autorouting
+// into the plan your day thingy." Drawn as Auto draws it, endpoints and moves
+// locked, review checks; plus the satellite check's Retry, "Use on the main
+// chart" (the path to Follow), and Auto's Save card only while 127-C-b keeps
+// chart facts aboard. The old reviewProposal cases are migrated here: the
+// owning planner no longer takes the review back (onReviewChange had no
+// caller), so its two delivery cases now read the chart's own status.
+describe("Plan Your Day's route chart (dayPlan)", () => {
+    const LEAVE = Date.parse('2026-09-12T03:30:00Z');
+    /** Her stop's routed proposal, at the leave she chose; a shallow run so the tide chips are asked. */
+    const dayRoute: AutoroutingTrialRoute = {
+        ...route,
+        departureMs: LEAVE,
+        engine: {
+            ...route.engine!,
+            shallowRuns: [{ startSeg: 1, endSeg: 1, lengthM: 300, minDepthM: 1.2, midLat: -27.05, midLon: 153.35 }],
+        },
+    };
+    async function openDayPlan(
+        proposal = dayRoute,
+        onClose = vi.fn(),
+        onUseOnMainChart = vi.fn(),
+        onRechecked = vi.fn(),
+    ) {
         const view = render(
             <AutoroutingTrialWorkspace
                 mapboxToken="fixture-token"
                 initialDraftM={1.6}
                 initialSpeedKts={6}
-                reviewProposal={route}
-                onReviewChange={onReviewChange}
+                dayPlan={{ proposal, stopName: 'Fixture Cove', onUseOnMainChart, onRechecked }}
                 onClose={onClose}
             />,
         );
         await waitFor(() => expect(mocks.maps).toHaveLength(1));
         act(() => mocks.maps[0].handlers.get('load')!());
         await screen.findByRole('region', { name: 'Trial proposal' });
-        return { ...view, onReviewChange, onClose };
+        return { ...view, onClose, onUseOnMainChart, onRechecked };
     }
+    const statusLine = () => document.querySelector('.trial-tracer-status') as HTMLElement;
 
     const expectNoRouteMutationControls = () => {
-        for (const name of ['Setup', 'Calculate trial route', 'Clear', 'Save as planned route'])
+        for (const name of ['Setup', 'Calculate trial route', 'Clear'])
             expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
-        expect(screen.queryByRole('region', { name: 'Save planned proposal' })).not.toBeInTheDocument();
         expect(screen.queryByLabelText('departure latitude')).not.toBeInTheDocument();
         expect(screen.queryByLabelText('destination longitude')).not.toBeInTheDocument();
     };
 
-    it('opens the supplied geometry directly with no setup, calculation or standalone save path', async () => {
-        const original = JSON.stringify(route);
-        const { onClose } = await openDayPlanReview();
+    it("opens her stop's route drawn as Auto draws it, with no setup or calculation; Back returns", async () => {
+        const original = JSON.stringify(dayRoute);
+        const { onClose } = await openDayPlan();
         await waitFor(() => expect(mocks.review).toHaveBeenCalledTimes(1));
         const reviewedProposal = mocks.review.mock.calls[0][0] as AutoroutingTrialRoute;
-        expect(reviewedProposal).not.toBe(route);
-        expect(reviewedProposal).toEqual(route);
-        expect(routeLine()).toEqual(route.coordinates);
+        expect(reviewedProposal).not.toBe(dayRoute);
+        expect(reviewedProposal).toEqual(dayRoute);
+        expect(routeLine()).toEqual(dayRoute.coordinates);
+        // The router's own pieces, in the planner's colours (owner decisions 9 and 10).
+        expect(sourceFeatures('thalassa-route').length).toBeGreaterThan(0);
+        expect(screen.getByRole('dialog', { name: 'Plan Your Day route to Fixture Cove' })).toBeTruthy();
+        expect(screen.getByRole('region', { name: 'Plan Your Day route chart' })).toBeTruthy();
         expectNoRouteMutationControls();
         expect(mocks.calculate).not.toHaveBeenCalled();
         fireEvent.click(screen.getByRole('button', { name: 'Whole route' }));
         expect(mocks.maps[0].fitBounds).toHaveBeenCalled();
+        expect(
+            screen.getByText('Plan Your Day route · review checks, then use it on the main chart or go back.'),
+        ).toBeTruthy();
         fireEvent.click(screen.getByRole('button', { name: 'Expand tracer panel' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Back to day plan' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Back to Plan Your Day' }));
         expect(onClose).toHaveBeenCalledOnce();
-        expect(JSON.stringify(route)).toBe(original);
+        expect(JSON.stringify(dayRoute)).toBe(original);
     });
 
-    it('locks even an interior waypoint and ignores chart taps that would otherwise edit geometry', async () => {
-        await openDayPlanReview();
+    it('"Use on the main chart" hands the route on, as shown', async () => {
+        const { onUseOnMainChart, onClose } = await openDayPlan();
+        const use = screen.getByRole('button', { name: 'Use on the main chart' });
+        expect(use).toBeEnabled();
+        fireEvent.click(use);
+        expect(onUseOnMainChart).toHaveBeenCalledOnce();
+        expect(onUseOnMainChart.mock.calls[0][0]).toEqual(dayRoute);
+        expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('locks even an interior waypoint with the day-plan reason, and ignores chart taps that would edit it', async () => {
+        await openDayPlan();
         await waitFor(() => expect(mocks.review).toHaveBeenCalledTimes(1));
         tapWaypoint(2);
         const editor = screen.getByRole('region', { name: 'Waypoint 2' });
         const move = within(editor).getByRole('button', { name: 'Move' });
         expect(move).toBeDisabled();
-        expect(within(editor).getByText(/Itinerary preview only/)).toBeVisible();
+        expect(
+            within(editor).getByText('Change the stop in Plan Your Day; edit the route on the main chart.'),
+        ).toBeVisible();
         fireEvent.click(move);
         tapChart(154, -28);
         expect(screen.queryByRole('button', { name: 'Confirm move' })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Undo last move/ })).not.toBeInTheDocument();
-        expect(routeLine()).toEqual(route.coordinates);
+        expect(routeLine()).toEqual(dayRoute.coordinates);
         expect(mocks.review).toHaveBeenCalledTimes(1);
         expect(mocks.calculate).not.toHaveBeenCalled();
         expectNoRouteMutationControls();
     });
 
-    it('delivers checking and complete review evidence back to the owning planner', async () => {
+    it('the tide chips are worked out at her leave, else when it was routed', async () => {
+        const first = await openDayPlan();
+        await waitFor(() => expect(mocks.annotate).toHaveBeenCalled());
+        expect(mocks.annotate.mock.calls.at(-1)![0].departureMs).toBe(LEAVE);
+        first.unmount();
+        mocks.annotate.mockClear();
+        mocks.maps.length = 0;
+        const { departureMs: _leave, ...routedNow } = dayRoute;
+        await openDayPlan(routedNow);
+        await waitFor(() => expect(mocks.annotate).toHaveBeenCalled());
+        expect(mocks.annotate.mock.calls.at(-1)![0].departureMs).toBe(Date.parse(route.createdAt));
+    });
+
+    it("keeps the satellite check's Retry when the check could not be done", async () => {
+        const unavailable: AutoroutingTrialRoute = {
+            ...dayRoute,
+            engine: {
+                ...dayRoute.engine!,
+                backstop: 'unavailable',
+                backstopReason: "the satellite relief service didn't answer within 12 s",
+                backstopCharts: ['water', 'water'],
+            },
+        };
+        const checked: AutoroutingTrialRoute = {
+            ...unavailable,
+            engine: { ...dayRoute.engine!, backstop: 'verified' },
+        };
+        mocks.recheck.mockResolvedValue(checked);
+        const { onRechecked, onUseOnMainChart } = await openDayPlan(unavailable);
+        const check = screen.getByRole('region', { name: 'Satellite land check' });
+        expect(check).toHaveTextContent(/didn't answer within 12 s/);
+        fireEvent.click(within(check).getByRole('button', { name: 'Retry satellite check' }));
+        await waitFor(() => expect(mocks.recheck).toHaveBeenCalledOnce());
+        expect(mocks.calculate).not.toHaveBeenCalled();
+        // Plan Your Day keeps the checked copy (a reopened chart is checked), and it is the one handed on.
+        await waitFor(() => expect(onRechecked).toHaveBeenCalledWith(checked));
+        await waitFor(() =>
+            expect(screen.queryByRole('region', { name: 'Satellite land check' })).not.toBeInTheDocument(),
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Use on the main chart' }));
+        expect(onUseOnMainChart).toHaveBeenCalledWith(checked);
+    });
+
+    it('a Retry that finds land takes the route away: nothing to hand on, no setup, and a tap moves no end', async () => {
+        const unavailable: AutoroutingTrialRoute = {
+            ...dayRoute,
+            engine: {
+                ...dayRoute.engine!,
+                backstop: 'unavailable',
+                backstopReason: "the request didn't get through (network error)",
+                backstopCharts: ['land', 'land'],
+            },
+        };
+        const land = 'Satellite relief shows land near 27.100° S, 153.300° E. The route is not shown. Nothing changed.';
+        mocks.recheck.mockRejectedValue(new BackstopLandRefusal(land));
+        const { onUseOnMainChart, onRechecked } = await openDayPlan(unavailable);
+        fireEvent.click(screen.getByRole('button', { name: 'Retry satellite check' }));
+        expect(await screen.findByText(land)).toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Trial proposal' })).not.toBeInTheDocument();
+        // Plan Your Day is told, in Auto's words: its stop is no longer routed (exactly as if the router had found it).
+        expect(onRechecked).toHaveBeenCalledOnce();
+        expect(onRechecked).toHaveBeenCalledWith(land);
+        // No setup words where there is no setup: the header and the folded prompt say there is no route.
+        expect(statusLine()).toHaveTextContent(/^No route to showBack to Plan Your Day\.$/);
+        fireEvent.click(screen.getByRole('button', { name: 'Collapse tracer panel' }));
+        expect(screen.getByText('No route to show: back to Plan Your Day.')).toBeVisible();
+        expect(document.body).not.toHaveTextContent(/Tap the chart to set|Ready to calculate|Set up route/);
+        fireEvent.click(screen.getByRole('button', { name: 'Expand tracer panel' }));
+        const use = screen.getByRole('button', { name: 'Use on the main chart' });
+        expect(use).toBeDisabled();
+        fireEvent.click(use);
+        expect(onUseOnMainChart).not.toHaveBeenCalled();
+        expectNoRouteMutationControls();
+        // Her start and the stop stay where Plan Your Day put them.
+        const ends = () =>
+            sourceFeatures('trial').flatMap((f) => (f.geometry.type === 'Point' ? [f.geometry.coordinates] : []));
+        expect(ends()).toEqual([dayRoute.coordinates[0], dayRoute.coordinates.at(-1)]);
+        tapChart(153.9, -27.9);
+        expect(ends()).toEqual([dayRoute.coordinates[0], dayRoute.coordinates.at(-1)]);
+        expect(screen.getByRole('button', { name: 'Back to Plan Your Day' })).toBeEnabled();
+    });
+
+    it("shows Auto's Save card while 127-C-b keeps chart facts aboard; without it, says where to save it", async () => {
+        const first = await openDayPlan();
+        expect(screen.getByRole('region', { name: 'Save planned proposal' })).toBeTruthy();
+        first.unmount();
+        mocks.maps.length = 0;
+        mocks.factsAboard = false;
+        await openDayPlan();
+        expect(screen.queryByRole('region', { name: 'Save planned proposal' })).not.toBeInTheDocument();
+        expect(screen.getByText('Save it from the main chart: Use on the main chart.')).toBeTruthy();
+    });
+
+    it('closes when the account changes', async () => {
+        const { onClose, onUseOnMainChart } = await openDayPlan();
+        act(() => {
+            setAuthIdentityScope('another-fixture-account');
+        });
+        expect(onClose).toHaveBeenCalled();
+        expect(onUseOnMainChart).not.toHaveBeenCalled();
+    });
+
+    it('a danger the checks find is said on the chart, and the route can still go on to the main chart', async () => {
         const pending = deferred<TrialRouteReview>();
         mocks.review.mockImplementation(() => pending.promise);
-        const { onReviewChange } = await openDayPlanReview();
-        await waitFor(() =>
-            expect(onReviewChange).toHaveBeenCalledWith(expect.objectContaining({ phase: 'checking' })),
-        );
+        await openDayPlan();
         const verdict = {
             grade: 'danger' as const,
             issues: [{ severity: 'danger' as const, message: 'Charted obstruction' }],
@@ -400,46 +553,31 @@ describe('read-only day-plan proposal review', () => {
         await act(async () =>
             pending.resolve({
                 phase: 'complete',
-                legs: route.coordinates.slice(1).map(() => ({ incomplete: false, verdict })),
+                legs: dayRoute.coordinates.slice(1).map(() => ({ incomplete: false, verdict })),
             }),
         );
-        await waitFor(() =>
-            expect(onReviewChange).toHaveBeenLastCalledWith(
-                expect.objectContaining({
-                    phase: 'complete',
-                    basis: expect.objectContaining({ proposalId: route.id, draftM: 1.6 }),
-                    legs: expect.arrayContaining([expect.objectContaining({ verdict })]),
-                }),
-            ),
-        );
-        expect(screen.getAllByText(/Danger reported/).length).toBeGreaterThan(0);
+        await waitFor(() => expect(screen.getAllByText(/Danger reported/).length).toBeGreaterThan(0));
         expectNoRouteMutationControls();
+        expect(screen.getByRole('button', { name: 'Use on the main chart' })).toBeEnabled();
     });
 
-    it('aborts pending checks and prevents late review delivery after unmount', async () => {
+    it('aborts pending checks after unmount', async () => {
         const pending = deferred<TrialRouteReview>();
         mocks.review.mockReturnValue(pending.promise);
-        const { onReviewChange, unmount } = await openDayPlanReview();
+        const { unmount } = await openDayPlan();
         const reviewSignal = mocks.review.mock.calls[0][2] as AbortSignal;
-        await waitFor(() =>
-            expect(onReviewChange).toHaveBeenCalledWith(expect.objectContaining({ phase: 'checking' })),
-        );
-        const count = onReviewChange.mock.calls.length;
         unmount();
         expect(reviewSignal.aborted).toBe(true);
         await act(async () => pending.resolve({ phase: 'complete', legs: [] }));
-        expect(onReviewChange).toHaveBeenCalledTimes(count);
         expect(mocks.maps[0].remove).toHaveBeenCalledOnce();
     });
 
-    it('reports an unsuccessful local review without offering calculation or save', async () => {
+    it('an unsuccessful local review offers no calculation, and Back still works', async () => {
         mocks.review.mockRejectedValue(new Error('Chart checks unavailable'));
-        const { onReviewChange } = await openDayPlanReview();
-        await waitFor(() =>
-            expect(onReviewChange).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'error' })),
-        );
+        await openDayPlan();
+        await waitFor(() => expect(screen.getByText(/Chart checks error/)).toBeTruthy());
         expectNoRouteMutationControls();
-        expect(screen.getByRole('button', { name: 'Back to day plan' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Back to Plan Your Day' })).toBeEnabled();
     });
 
     it('preserves setup, calculation, planned-save and interior waypoint edits in normal mode', async () => {
@@ -453,7 +591,9 @@ describe('read-only day-plan proposal review', () => {
         expect(screen.getByRole('region', { name: 'Save planned proposal' })).toBeVisible();
         tapWaypoint(2);
         expect(screen.getByRole('button', { name: 'Move' })).toBeEnabled();
-        expect(screen.queryByRole('button', { name: 'Back to day plan' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Back to Plan Your Day' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Use on the main chart' })).not.toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: 'Autorouting trial' })).toBeTruthy();
         expect(mocks.calculate).toHaveBeenCalledOnce();
     });
 });

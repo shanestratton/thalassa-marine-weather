@@ -238,6 +238,15 @@ export interface UserSettings {
      */
     obsEncOnOpen?: boolean;
     /**
+     * Settings → Preferences: "Start with The Glass beside the chart" (build
+     * 128, Shane 2026-10-13). A tablet or wide window that starts in landscape
+     * opens with The Glass pinned left and Obs on the right. Unset = on; only
+     * exactly `false` turns it off. Read once at start
+     * (utils/glassBesideChartStart.ts, App.tsx); rotating afterwards keeps the
+     * split's own rules.
+     */
+    glassBesideChartAtStart?: boolean;
+    /**
      * Whether this account's paired Pi holds licensed (protected) charts
      * (127-DESKMAP C1). One boolean: no count, no ids, no positions. Written by
      * the phone aboard when it registers the Pi's chart index (127-C-c) and

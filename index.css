@@ -9,6 +9,7 @@
 @import './styles/plan-page.css';
 @import './styles/diary-compose.css';
 @import './styles/crew-page.css';
+@import './styles/card-hue.css';
 
 /*
   The default border color has changed to `currentcolor` in Tailwind CSS v4,
@@ -4182,6 +4183,112 @@ body,
     }
 }
 
+/* ── The chart's north arrow (127-11b) ─────────────────────────────────
+   It rides in the zoom pair's wrapper (MapActionFabs), placed beside the pair
+   without moving it: above "+" on a chart 740px tall or more; on a shorter
+   one left of "-" (above "+" the ENC notice's band under the layer helm leaves
+   no room, and level with "+" it met the boat's speed badge at the chart's
+   centre, where Obs opens on her); right of "+" on the middle-left rail in
+   short landscape. On a 360px-wide portrait chart the boat's badge and wind
+   chip and a place's name reach the rail, so it stands higher, up and left of
+   "+", between the tide scrubber and MOB. In CSS, not utility classes: none
+   of it rides in the JS bundle. */
+.thalassa-orient-arrow {
+    position: absolute;
+    bottom: 0;
+    right: calc(100% + 8px);
+}
+@media (orientation: portrait) and (max-width: 360px) and (max-height: 739px) {
+    .thalassa-orient-arrow {
+        bottom: calc(100% + 51px);
+    }
+}
+@media (min-height: 740px) {
+    .thalassa-orient-arrow {
+        right: 0;
+        bottom: calc(100% + 8px);
+    }
+}
+@media (orientation: landscape) and (max-height: 600px) {
+    .thalassa-orient-arrow {
+        top: 0;
+        bottom: auto;
+        right: auto;
+        left: calc(100% + 8px);
+    }
+    /* The ENC notice starts one arrow further right (it reserved the zoom rail at 72px). */
+    .thalassa-enc-coverage-notice:not(.thalassa-enc-coverage-notice--with-tide) {
+        left: calc(128px + env(safe-area-inset-left));
+        width: min(390px, calc(100% - 280px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+    }
+}
+/* Its look: the rail's 48px glass button (never under 44px), its needle and
+   N UP / C UP / T UP / H UP under it, and an amber dot while its mode waits.
+   Colours stay utility classes, so the day and onshore themes still remap them. */
+.thalassa-orient-arrow > button {
+    position: relative;
+    display: flex;
+    width: max(44px, 3rem);
+    height: max(44px, 3rem);
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 1rem;
+    font-size: 9px;
+    font-weight: 900;
+    line-height: 1;
+}
+.thalassa-orient-arrow > button:active {
+    transform: scale(0.95);
+}
+.thalassa-orient-arrow svg {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+.thalassa-orient-arrow i {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+}
+/* The chooser card's rows: 56px targets, the mode over what it uses. */
+.thalassa-orient-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.thalassa-orient-row {
+    display: flex;
+    min-height: 3.5rem;
+    flex-direction: column;
+    justify-content: center;
+    border-radius: 0.75rem;
+    padding: 0.5rem 1rem;
+    text-align: left;
+    font-size: 13px;
+    line-height: 1.375;
+}
+.thalassa-orient-row > span {
+    font-size: 15px;
+    font-weight: 700;
+}
+/* Beside the pair (under 740px tall, short landscape aside), the ENC notice keeps
+   off the arrow's column as it keeps off the rail: still the centred 390px card
+   wherever that clears the column (a desk window 1366x657), else from the left
+   edge, as narrow as it must be. */
+@media (orientation: portrait) and (max-height: 739px), (min-height: 601px) and (max-height: 739px) {
+    .thalassa-enc-coverage-notice {
+        left: max(12px, min(50% - 195px, 100% - 518px - env(safe-area-inset-right)));
+        width: min(390px, calc(100% - 136px - env(safe-area-inset-right)));
+        transform: none;
+    }
+    [data-split-pane='chart'] .thalassa-enc-coverage-notice {
+        width: min(390px, calc(100% - 208px));
+    }
+}
+
 /* ── Chart layer controls: beside the credits, never on them ──────────
    MapWeatherControls' collapsed pill and expanded panel. Since the panel took
    every chart layer's key (not only weather) it shows whenever ANY layer is
@@ -4494,6 +4601,19 @@ main:has(.thalassa-chart-controls-panel)
     main:has(.thalassa-enc-coverage-notice--with-tide) .thalassa-chart-controls-pill {
         left: calc(76px + env(safe-area-inset-left));
         bottom: calc(4rem + 70px + env(safe-area-inset-bottom));
+    }
+}
+/* With live tide the layer pill above took the gap right of the zoom rail.
+   The chart's north arrow has the top of that gap now (127-11b), so the pill
+   steps one place right of it, and the tide scrubber narrows and steps right
+   to keep clear of the pill and of MOB. */
+@media (orientation: landscape) and (max-height: 500px) {
+    main:has(.thalassa-enc-coverage-notice--with-tide) .thalassa-chart-controls-pill {
+        left: calc(132px + env(safe-area-inset-left));
+    }
+    main:has(.thalassa-enc-coverage-notice--with-tide) .thalassa-enc-tide-scrubber {
+        left: calc(50% + 28px);
+        width: 12rem;
     }
 }
 

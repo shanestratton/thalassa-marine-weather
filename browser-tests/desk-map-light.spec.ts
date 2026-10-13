@@ -13,7 +13,11 @@
  *  - the real app's web planner (the tracer): the desk menu and its strip,
  *    clear of every control at 1440, 1024, 390 and 320 px in wide fonts, the
  *    words for an account with and without licensed charts aboard, and the
- *    picks kept on this computer.
+ *    picks kept on this computer;
+ *  - the phone's planner (128-LIGHT), the app run as iOS: Light with every
+ *    line on its dark edge, the bases a tap away under the mic at 390 and 320
+ *    px in wide fonts, Hybrid back to 127's lines, night's dim palette, and
+ *    Obs unchanged.
  *
  * DESK_MAP_SHOTS_DIR also saves the screenshots there (before/after evidence).
  */
@@ -24,6 +28,7 @@ import { compositeTile, fixtureStyle, imageryTile, reliefTile, seamarkTile } fro
 import { ONBOARDED_STORAGE } from '../e2e/helpers/storageState';
 import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
 import { contrast, deltaE } from '../tests/helpers/colourScience';
+import { tapPlanTab } from './helpers/planTab';
 
 const SHOTS = process.env.DESK_MAP_SHOTS_DIR?.trim() || '';
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
@@ -460,12 +465,9 @@ async function openPlanner(page: Page, baseURL: string, size: { width: number; h
     await applyWideFonts(page);
     await serveDesk(page, new URL(baseURL).origin, { seamarkRequests: 0 });
     await page.goto('/');
-    const nav = page.getByRole('navigation', { name: 'Main', exact: true });
-    const show = page.getByRole('button', { name: /show navigation$/i });
-    if (await show.isVisible().catch(() => false)) await show.click();
-    await nav.getByRole('button', { name: 'Plan', exact: true }).click();
+    // One tap; a second only if a cold dev server reloaded the page under it.
+    await tapPlanTab(page);
     const start = page.getByRole('button', { name: 'Start plotting', exact: true });
-    await expect(start).toBeVisible({ timeout: 25_000 });
     await start.scrollIntoViewIfNeeded();
     await start.click();
     await page
@@ -598,7 +600,7 @@ test.describe('the real web planner', () => {
                 mine.push(['slot 0', strip[0]], ['slot 1', strip[1]]);
             }
             const others = {
-                rose: page.getByRole('img', { name: /^Compass rose/ }),
+                rose: page.getByRole('button', { name: /^Compass rose/ }),
                 tracer: page.locator('.map-tracer-panel'),
                 zoom: page.getByRole('button', { name: /^Zoom / }),
                 mic: page.getByTitle('Talk to Calypso'),
@@ -701,6 +703,226 @@ test.describe('the real web planner', () => {
         await expect(first.getByRole('button', { name: /^Map base: / })).toHaveAccessibleName('Map base: Light');
         await expect(first.getByTestId('desk-strip-slot-1')).toBeVisible();
         await fresh.close();
+    });
+});
+
+// ── The phone's planner (128-LIGHT) ──────────────────────────────────────
+// Shane, 2026-10-13: "yes to all of your questions for 128", on "The phone
+// planner on the Light chart too? Recommend yes". The phone's tracer opens on
+// Light, its own pick on this phone (thalassa_desk_map_v1, never the account),
+// with Relief + Sat and Hybrid still offered; Obs keeps its own base. The app
+// is the phone here: Capacitor's custom-platform hook names it iOS before it
+// loads, so MapHub takes its native branch and every plugin its web stand-in.
+// This phone has already ticked "don't show again" on the Plan page's
+// plot-on-the-web hint (PlanOnWebHint, native only), which would cover the
+// Start plotting button.
+const asPhone = (page: Page) =>
+    page.addInitScript(() => {
+        (window as unknown as { CapacitorCustomPlatform: unknown }).CapacitorCustomPlatform = {
+            name: 'ios',
+            plugins: {},
+        };
+        localStorage.setItem('thalassa_plan_web_hint_dismissed', '1');
+    });
+/** Style writes over 2 s of a still chart: the base pass's edge writes must settle (the styledata-loop rule). */
+const quietWrites = (page: Page) =>
+    page.evaluate(
+        () =>
+            new Promise<number>((resolve) => {
+                const map = window.__thalassaMap as unknown as {
+                    on(t: string, f: () => void): void;
+                    off(t: string, f: () => void): void;
+                };
+                let writes = 0;
+                const count = () => (writes += 1);
+                map.on('styledata', count);
+                setTimeout(() => {
+                    map.off('styledata', count);
+                    resolve(writes);
+                }, 2_000);
+            }),
+    );
+/** The planner's line edges and the reliefBase palette, as the chart has them. */
+const phoneChart = (page: Page) =>
+    page.evaluate(() => {
+        const map = window.__thalassaMap as unknown as {
+            getLayer(id: string): unknown;
+            getLayoutProperty(id: string, p: string): unknown;
+            getPaintProperty(id: string, p: string): unknown;
+            getFilter(id: string): unknown;
+        };
+        const vis = (id: string) =>
+            map.getLayer(id) ? String(map.getLayoutProperty(id, 'visibility') ?? 'visible') : 'absent';
+        const style = (
+            window.__thalassaMap as unknown as { getStyle(): { layers?: Array<{ id: string }> } }
+        ).getStyle();
+        return {
+            // AIS, isobars, pressure, wind, rain, SST and the other weather
+            // rasters: none of Obs's layers draws on the planner (useWeatherLayers'
+            // planMode, useMapHubLayerVisibility's browse gates).
+            overlays: (style.layers ?? [])
+                .map(({ id }) => id)
+                .filter((id) => /^(ais-|isobar-|pressure-|wind|tiles-|cmems|sst|rain|radar|lightning)/.test(id))
+                .filter((id) => vis(id) !== 'none'),
+            native: (
+                window as unknown as { Capacitor?: { isNativePlatform(): boolean } }
+            ).Capacitor?.isNativePlatform(),
+            water: map.getPaintProperty('water', 'fill-color'),
+            hybrid: vis('hybrid-base-layer'),
+            seamarks: vis('openseamap-permanent'),
+            edges: ['route-harbour-casing', 'confidence-gfs-casing', 'confidence-ecmwf-casing'].map(vis),
+            traceEdge: map.getLayer('trace-line-casing')
+                ? JSON.stringify(map.getFilter('trace-line-casing') ?? null)
+                : 'absent',
+        };
+    });
+
+test.describe('the phone’s planner on Light (128-LIGHT)', () => {
+    test.use({ serviceWorkers: 'block' });
+
+    for (const size of [SIZES[2], SIZES[3]]) {
+        test(`${size.width} × ${size.height}, wide fonts: the phone's tracer opens on Light under the mic, Relief + Sat and Hybrid a tap away; Obs keeps its own`, async ({
+            browser,
+            baseURL,
+        }, info) => {
+            test.setTimeout(150_000);
+            const context = await browser.newContext({ storageState: storage(baseURL!), serviceWorkers: 'block' });
+            const page = await context.newPage();
+            await asPhone(page);
+            await openPlanner(page, baseURL!, size);
+            await plannerJump(page, -1.4, 50.76, 12);
+            const trigger = page.getByRole('button', { name: /^Map base: / });
+            await expect(trigger).toHaveAccessibleName('Map base: Light');
+            await expect
+                .poll(() => phoneChart(page), {
+                    message: 'the phone draws Light, every line on its dark edge',
+                    timeout: 30_000,
+                })
+                .toMatchObject({
+                    native: true,
+                    water: '#c9d0d6',
+                    hybrid: 'none',
+                    overlays: [],
+                    edges: ['visible', 'visible', 'visible'],
+                    traceEdge: 'null',
+                });
+            await page.waitForTimeout(1_000);
+            expect(await quietWrites(page), 'a still chart on Light writes no style').toBe(0);
+            // The phone has no desk strip and draws no OpenSeaMap on its planner.
+            await expect(page.getByTestId(/^desk-strip-/)).toHaveCount(0);
+            expect((await phoneChart(page)).seamarks).not.toBe('visible');
+
+            // The icon pill under the top-right control, clear of everything on the planner.
+            const menuBox = (await trigger.boundingBox())!;
+            const corner = (await page
+                .getByRole('button', { name: /^System status/ })
+                .first()
+                .boundingBox())!;
+            expect(menuBox.y, 'the menu sits under the top-right control').toBeGreaterThanOrEqual(
+                corner.y + corner.height,
+            );
+            expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(size.width);
+            const others = {
+                rose: page.getByRole('button', { name: /^Compass rose/ }),
+                tracer: page.locator('.map-tracer-panel'),
+                zoom: page.getByRole('button', { name: /^Zoom / }),
+                mic: page.getByTitle('Talk to Calypso'),
+                status: page.getByRole('button', { name: /^System status/ }),
+                chartKey: page.getByRole('button', { name: 'What the chart colours and numbers mean' }),
+                scrubber: page.getByLabel('Chart detail — full at left, minimal at right'),
+                locator: page.getByRole('button', { name: /^(Locate yacht|Finding yacht…)$/ }),
+                scale: page.locator('.mapboxgl-ctrl-scale'),
+                credits: page.locator('.mapboxgl-ctrl-attrib'),
+                logo: page.locator('.mapboxgl-ctrl-logo'),
+            };
+            for (const [name, locator] of Object.entries(others)) {
+                for (let i = 0; i < (await locator.count()); i++) {
+                    const item = locator.nth(i);
+                    if (!(await item.isVisible())) continue;
+                    expect(overlaps(menuBox, (await item.boundingBox())!), `the menu lies on the ${name}`).toBe(false);
+                }
+            }
+            await shot(page, info, `phone-planner-${size.width}x${size.height}-light`);
+
+            // The bases only: no ENC, Seamarks or Wind row on the phone.
+            await trigger.click();
+            const menu = page.getByRole('menu', { name: 'Map base' });
+            await expect(menu.getByRole('menuitemradio')).toHaveText([/^Light/, /^Relief \+ Sat/, /^Hybrid/]);
+            await expect(menu.getByRole('menuitemcheckbox')).toHaveCount(0);
+            await expectWideFaceDrawn(menu.getByRole('menuitemradio').first());
+            const open = (await menu.boundingBox())!;
+            expect(open.x).toBeGreaterThanOrEqual(0);
+            expect(open.x + open.width).toBeLessThanOrEqual(size.width);
+            const tabs = await page.getByRole('navigation', { name: 'Main', exact: true }).boundingBox();
+            if (tabs) expect(open.y + open.height, 'the open menu clears the tab bar').toBeLessThanOrEqual(tabs.y);
+            await shot(page, info, `phone-planner-${size.width}x${size.height}-menu`);
+
+            // Hybrid, as Shane picked for the planner on 2026-07-15, is still a tap
+            // away: kept on this phone only, and the dark edges step back to 127's.
+            await menu.getByRole('menuitemradio', { name: /^Hybrid/ }).click();
+            await expect(trigger).toHaveAccessibleName('Map base: Hybrid');
+            await expect
+                .poll(() => phoneChart(page), { message: 'Hybrid: 127’s phone lines', timeout: 30_000 })
+                .toMatchObject({
+                    hybrid: 'visible',
+                    edges: ['none', 'none', 'none'],
+                    traceEdge: JSON.stringify(['==', ['get', 'sketch'], true]),
+                });
+            await page.waitForTimeout(1_000);
+            expect(await quietWrites(page), 'a still chart on Hybrid writes no style').toBe(0);
+            expect(
+                await page.evaluate(() => JSON.parse(localStorage.getItem('thalassa_desk_map_v1') ?? 'null')),
+            ).toEqual({
+                base: 'hybrid',
+            });
+            const obsBase = await page.evaluate(
+                () =>
+                    JSON.parse(localStorage.getItem('thalassa_settings_mirror::anonymous') ?? '{}').settings
+                        ?.obsChartBase,
+            );
+            expect(obsBase, 'the account’s Obs base is untouched').toBe('relief');
+            await context.close();
+        });
+    }
+
+    test('Obs on the phone is unchanged: its own base, its four bases and the ENC row, never Light', async ({
+        browser,
+        baseURL,
+    }) => {
+        test.setTimeout(120_000);
+        const context = await browser.newContext({ storageState: storage(baseURL!), serviceWorkers: 'block' });
+        const page = await context.newPage();
+        await asPhone(page);
+        await page.setViewportSize(SIZES[2]);
+        await serveDesk(page, new URL(baseURL!).origin, { seamarkRequests: 0 });
+        await page.goto('/');
+        const nav = page.getByRole('navigation', { name: 'Main', exact: true });
+        await nav.getByRole('button', { name: 'Obs', exact: true }).click();
+        const trigger = page.getByRole('button', { name: /^Map base: / });
+        await expect(trigger).toHaveAccessibleName(/^Map base: Relief/, { timeout: 45_000 });
+        await expect(trigger).not.toHaveAccessibleName(/Light/);
+        await trigger.click();
+        const menu = page.getByRole('menu', { name: 'Map base' });
+        await expect(menu.getByRole('menuitemradio')).toHaveText([/^Relief/, /^Relief \+ Sat/, /^Ocean/, /^Hybrid/]);
+        await expect(menu.getByRole('menuitemcheckbox', { name: /^ENC charts/ })).toHaveCount(1);
+        await context.close();
+    });
+
+    test('at night the phone’s planner keeps the dim night palette on Light', async ({ browser, baseURL }, info) => {
+        test.setTimeout(120_000);
+        const context = await browser.newContext({
+            storageState: storage(baseURL!, { displayMode: 'night' }),
+            serviceWorkers: 'block',
+        });
+        const page = await context.newPage();
+        await asPhone(page);
+        await openPlanner(page, baseURL!, SIZES[2]);
+        await plannerJump(page, -1.4, 50.76, 12);
+        await expect(page.getByRole('button', { name: /^Map base: / })).toHaveAccessibleName('Map base: Light');
+        // reliefBase's NIGHT water, not Light's pale sea.
+        await expect.poll(async () => (await phoneChart(page)).water, { timeout: 30_000 }).toBe('#0c1822');
+        await shot(page, info, 'phone-planner-390x844-night');
+        await context.close();
     });
 });
 

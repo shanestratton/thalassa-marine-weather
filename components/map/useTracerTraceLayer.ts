@@ -81,6 +81,43 @@ export interface TracerTraceLayerDeps {
     ghostLanes: GhostLane[];
     traceOrigin: { lat: number; lon: number; name: string } | null;
     traceDest: { lat: number; lon: number; name: string } | null;
+    /** The frame's straight bearing hint: the course frame's only, never Plan Your Day's (127-PYD-3). */
+    destHint: boolean;
+}
+
+/**
+ * The course frame's bearing hint: ONE straight segment from the trace's
+ * live end (or the origin, pre-first-pin) to the destination. Nothing for a
+ * Plan Your Day frame (127-PYD-3; Shane 2026-10-10: "it goes direct. straight
+ * over hills"): a straight line from the boat to the stop crosses whatever is
+ * between them, however it is styled. Pure.
+ */
+export function destHintFeatures({
+    coordCaptureMode,
+    destHint,
+    hintFrom,
+    traceDest,
+}: {
+    coordCaptureMode: boolean;
+    destHint: boolean;
+    hintFrom: { lat: number; lon: number } | null | undefined;
+    traceDest: { lat: number; lon: number } | null;
+}): GeoJSON.Feature<GeoJSON.LineString>[] {
+    return coordCaptureMode && destHint && traceDest && hintFrom
+        ? [
+              {
+                  type: 'Feature',
+                  properties: {},
+                  geometry: {
+                      type: 'LineString',
+                      coordinates: [
+                          [hintFrom.lon, hintFrom.lat],
+                          [traceDest.lon, traceDest.lat],
+                      ],
+                  },
+              },
+          ]
+        : [];
 }
 
 export function useTracerTraceLayer({
@@ -91,6 +128,7 @@ export function useTracerTraceLayer({
     ghostLanes,
     traceOrigin,
     traceDest,
+    destHint,
 }: TracerTraceLayerDeps): void {
     /**
      * Re-entry ticket for the trace-layer sync effect when it ran before the
@@ -159,8 +197,8 @@ export function useTracerTraceLayer({
                 // line-dasharray is not reliably data-driven; the coloured
                 // layers leave sketch legs out, so one is never green or amber.
                 // On the web every leg rides the casing, so it reads on Light's
-                // pale sea; the phone's planner is unchanged in 127, so there
-                // only the sketch dashes sit on it.
+                // pale sea; on the phone only the sketch dashes sit on it until
+                // MapHub's base pass finds Light under them (lineEdges, 128).
                 const sketch = ['==', ['get', 'sketch'], true];
                 const notSketch = ['!=', ['get', 'sketch'], true];
                 const grade = [
@@ -364,6 +402,8 @@ export function useTracerTraceLayer({
                 // trace's live end (or the origin, pre-first-pin) to the 🏁
                 // destination ghost. Pure orientation ("which way is
                 // Mooloolaba"), never a route: it re-anchors as pins land.
+                // The course frame's only: never for Plan Your Day's two
+                // marks (destHintFeatures, 127-PYD-3).
                 if (!map.getSource('trace-dest-hint')) {
                     map.addSource('trace-dest-hint', {
                         type: 'geojson',
@@ -387,21 +427,7 @@ export function useTracerTraceLayer({
                 const hintFrom = capturedCoords[capturedCoords.length - 1] ?? traceOrigin;
                 (map.getSource('trace-dest-hint') as mapboxgl.GeoJSONSource).setData({
                     type: 'FeatureCollection',
-                    features: (coordCaptureMode && traceDest && hintFrom
-                        ? [
-                              {
-                                  type: 'Feature' as const,
-                                  properties: {},
-                                  geometry: {
-                                      type: 'LineString' as const,
-                                      coordinates: [
-                                          [hintFrom.lon, hintFrom.lat],
-                                          [traceDest.lon, traceDest.lat],
-                                      ],
-                                  },
-                              },
-                          ]
-                        : []) as never,
+                    features: destHintFeatures({ coordCaptureMode, destHint, hintFrom, traceDest }) as never,
                 });
                 // ── Lift the trace to the top, EVERY sync ──
                 // The line was never buried by one specific layer; it was
@@ -532,7 +558,17 @@ export function useTracerTraceLayer({
         // longer see it is a stable ref object now that it arrives as a
         // parameter instead of a useRef in the same component. It never
         // changes identity, so this is runtime-inert — the effect still runs
-        // exactly when the seven real deps change. This dep array carries no
+        // exactly when the eight real deps change. This dep array carries no
         // suppression and must not gain one.
-    }, [capturedCoords, legVerdicts, coordCaptureMode, ghostLanes, traceOrigin, traceDest, traceLayerNudge, mapRef]);
+    }, [
+        capturedCoords,
+        legVerdicts,
+        coordCaptureMode,
+        ghostLanes,
+        traceOrigin,
+        traceDest,
+        destHint,
+        traceLayerNudge,
+        mapRef,
+    ]);
 }

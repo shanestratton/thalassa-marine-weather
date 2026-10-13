@@ -24,6 +24,12 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  * row anywhere. Nouméa and Tromsø say why there is no route in global words,
  * never a blank row, never "Pi". The routing cases of 127-PYD-2, 3 and 11 live
  * here, apart from screen 1's spec (127-PYD-common, "the serial file").
+ *
+ * 127-PYD-3: routed, the main button is "Show route on chart": Auto's chart
+ * opens over Plan Your Day (its sheet hidden behind it, the tab bar under it),
+ * Back returns to the same stop page, and "Use on the main chart" hands the
+ * chart the routed line, never a straight one. With no route, or for a
+ * tester, "Plot by hand" hands it two marks and no pins.
  */
 
 test.use({ timezoneId: 'Europe/London' });
@@ -42,7 +48,8 @@ const OTHER: Size[] = [
     { name: 'large text 390x844', width: 390, height: 844, query: '&largeText' },
 ];
 const TIMING = 'Routed in 6.4 s · router 4.1 s';
-const ROUTED = /^Routed on your charts · 16\.5 NM each way · 0\.3 NM shallow$/;
+// With the leave row under it (127-PYD-11), his timing joins the route row: the page still fits.
+const ROUTED = /^Routed on your charts · 16\.5 NM each way · 0\.3 NM shallow · Routed in 6\.4 s · router 4\.1 s$/;
 
 async function open(page: Page, size: { width: number; height: number }, query: string) {
     const errors: string[] = [];
@@ -234,7 +241,7 @@ for (const size of OTHER)
 test('a tester sees no route row anywhere: the stop page is today’s', async ({ page }) => {
     const errors = await open(page, AS_DRAWN.mid, `&mode=routed${AS_DRAWN.mid.query}`);
     const detail = await openStop(page);
-    await expect(detail.getByRole('button', { name: 'Plot on chart', exact: true })).toBeVisible();
+    await expect(detail.getByRole('button', { name: 'Plot by hand', exact: true })).toBeVisible();
     await expect(detail.locator('li[data-route]')).toHaveCount(0);
     await expect(detail.getByRole('button', { name: 'Route round the land' })).toHaveCount(0);
     expect(await page.locator('body').textContent()).not.toMatch(/round the land|Routed in/);
@@ -276,7 +283,7 @@ for (const [mode, words] of [
         await expect(row.getByText(/^About \d+ NM each way/)).toBeVisible();
         await expect(detail.getByText(/NM each way \(/)).toHaveCount(1);
         await expect(detail.getByText(/^No route after 6\.4 s$/)).toBeVisible();
-        await expect(detail.getByRole('button', { name: 'Plot on chart', exact: true })).toBeVisible();
+        await expect(detail.getByRole('button', { name: 'Plot by hand', exact: true })).toBeVisible();
         expect(await layoutIssues(page, false)).toEqual([]);
         expect(errors).toEqual([]);
     });
@@ -308,3 +315,278 @@ for (const [refuse, estimate] of [
         await expect(row.getByText(estimate)).toBeVisible();
         expect(errors).toEqual([]);
     });
+
+// ── 127-PYD-3: the routed line on the chart, never a straight one ──
+
+type Plotted = { kind: string; points: unknown[]; routed?: boolean; frame?: { why: string; to: { name: string } } };
+const plotted = (page: Page) =>
+    page.evaluate(
+        () => (window as unknown as { __dayPlannerFixture: { plotted: Plotted[] } }).__dayPlannerFixture.plotted,
+    );
+
+for (const size of [AS_DRAWN.se, AS_DRAWN.mid, OTHER[1]])
+    test(`routed: Show route on chart opens Auto's chart over the sheet and Back returns to the stop, at ${size.name}`, async ({
+        page,
+    }) => {
+        const errors = await open(page, size, `&mode=routed&owner=1${size.query}`);
+        await openStop(page);
+        const detail = await routeIt(page);
+        await expect(detail.locator('li[data-route]')).toHaveText(ROUTED, { timeout: 10_000 });
+        const show = detail.getByRole('button', { name: 'Show route on chart', exact: true });
+        await show.click();
+        const chart = page.getByRole('dialog', { name: /^Plan Your Day route to / });
+        await expect(chart).toBeVisible({ timeout: 15_000 });
+        // Plan Your Day's own screens are hidden behind it, not just covered.
+        await expect(page.locator('.today-overlay:visible')).toHaveCount(0);
+        await expect(page.getByRole('dialog', { name: 'Plan Your Day', exact: true })).toBeHidden();
+        // Its buttons are on top: never under the tab bar.
+        for (const name of ['Use on the main chart', 'Back to Plan Your Day']) {
+            const button = chart.getByRole('button', { name, exact: true });
+            await button.scrollIntoViewIfNeeded();
+            const onTop = await button.evaluate((node) => {
+                const r = node.getBoundingClientRect();
+                const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                return !!hit && node.contains(hit) && r.bottom <= innerHeight + 0.5;
+            });
+            expect(onTop, name).toBe(true);
+        }
+        await chart.getByRole('button', { name: 'Back to Plan Your Day', exact: true }).click();
+        await expect(chart).toHaveCount(0);
+        // The same stop page, its route still in, focus on its main button.
+        await expect(detail.locator('li[data-route]')).toHaveText(ROUTED);
+        await expect(show).toBeFocused();
+        expect(await layoutIssues(page, size.height < 640 || size.query.includes('largeText'))).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+
+test('Use on the main chart hands the chart the routed line out and back: more than two points, never straight', async ({
+    page,
+}) => {
+    const errors = await open(page, AS_DRAWN.se2, `&mode=routed&owner=1${AS_DRAWN.se2.query}`);
+    await openStop(page);
+    const detail = await routeIt(page);
+    await expect(detail.locator('li[data-route]')).toHaveText(ROUTED, { timeout: 10_000 });
+    await detail.getByRole('button', { name: 'Show route on chart', exact: true }).click();
+    const chart = page.getByRole('dialog', { name: /^Plan Your Day route to / });
+    await chart.getByRole('button', { name: 'Use on the main chart', exact: true }).click();
+    await expect(chart).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Plan Your Day', exact: true })).toHaveCount(0);
+    const sent = await plotted(page);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ kind: 'plot-day', routed: true });
+    // The fixture's three-point line, there and back.
+    expect(sent[0].points).toHaveLength(5);
+    expect(sent[0].frame).toBeUndefined();
+    expect(errors).toEqual([]);
+});
+
+for (const [who, query, why] of [
+    // Nouméa, the owner: no chart at the stop, said in global words.
+    ['the owner with no chart (Nouméa)', '&mode=no-chart&owner=1', /^No chart for Fixture .+ on this phone/],
+    // The owner with Auto route (trial) off: what routing needs, and still never a line.
+    [
+        'the owner with Auto route off',
+        '&mode=no-route&owner=1',
+        /^Turn on Auto route \(trial\) to route round the land\.$/,
+    ],
+    // A tester: nothing about routing.
+    ['a tester', '&mode=routed', /^$/],
+] as const)
+    test(`Plot by hand for ${who} hands the chart two marks and no pins`, async ({ page }) => {
+        const errors = await open(page, AS_DRAWN.se2, `${query}${AS_DRAWN.se2.query}`);
+        const detail = await openStop(page);
+        if (query.includes('no-chart')) {
+            await routeIt(page);
+            await expect(detail.locator('li[data-route="no-route"]')).toBeVisible({ timeout: 10_000 });
+        }
+        await detail.getByRole('button', { name: 'Plot by hand', exact: true }).click();
+        const sent = await plotted(page);
+        expect(sent).toHaveLength(1);
+        expect(sent[0].kind).toBe('plot-day');
+        expect(sent[0].points).toHaveLength(0);
+        expect(sent[0].routed).toBeUndefined();
+        expect(sent[0].frame!.why).toMatch(why);
+        expect(sent[0].frame!.to.name).toMatch(/\S/);
+        expect(errors).toEqual([]);
+    });
+
+// ── 127-PYD-11: the leave window, one row under the route row ──
+
+const LEAVE_ROW = '.today-detail li[data-leave]';
+const RED = 'Red on the route that no tide clears: see it on the chart.';
+const CREDIT = 'Tide from WorldTides (Fixture Gauge); check the official tide table.';
+/** Her day trip in routed-tide: the window, there and back, approx, and the pin that dries. */
+const DAY_TRIP = new RegExp(
+    `^Leave \\d\\d:\\d\\d(?:–\\d\\d:\\d\\d)?(?: or \\d\\d:\\d\\d(?:–\\d\\d:\\d\\d)?)? \\(tide approx\\) to carry the tide over the shallow bit \\d+\\.\\d NM out, there and back; your (\\d\\d:\\d\\d) (works|is too early for it|is too late for it)\\. ${RED.replace(/\./g, '\\.')}$`,
+);
+/** Overnight, the longest row: two openings, approx, the red sentence and the morning's tide. */
+const LONGEST = new RegExp(
+    `^Leave \\d\\d:\\d\\d(–\\d\\d:\\d\\d)? or \\d\\d:\\d\\d(–\\d\\d:\\d\\d)? \\(tide approx\\) to carry the tide over the shallow bit \\d+\\.\\d NM out; your (\\d\\d:\\d\\d) (works|is too early for it|is too late for it)\\. ${RED.replace(/\./g, '\\.')} Home tomorrow: check its tide in the morning\\.$`,
+);
+const ROUTED_DRIES =
+    /^Routed on your charts · 16\.5 NM each way · 0\.3 NM shallow · the pin dries · Routed in 6\.4 s · router 4\.1 s$/;
+
+/** Routes the open stop in a tide mode and waits for its leave row's words. */
+async function routeForLeave(page: Page, words: RegExp) {
+    const detail = await routeIt(page);
+    await expect(detail.locator('li[data-route]')).toHaveText(ROUTED_DRIES, { timeout: 10_000 });
+    await expect(page.locator(LEAVE_ROW)).toHaveText(words, { timeout: 10_000 });
+    return detail;
+}
+
+/** Overnight on screen 1, so her morning has leave chips to choose from (and the longest row). */
+async function stayOvernight(page: Page) {
+    await page
+        .getByRole('dialog', { name: 'Plan Your Day', exact: true })
+        .getByRole('combobox', { name: 'Stay' })
+        .selectOption('overnight');
+}
+
+for (const size of [AS_DRAWN.se2, AS_DRAWN.mid, AS_DRAWN.shane])
+    test(`the leave row with the route row and its timing fits without a scroll at ${size.name}`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=routed-tide&owner=1${size.query}`);
+        await openStop(page);
+        const detail = await routeForLeave(page, DAY_TRIP);
+        // Under the route row; the marina line gone (the route says when the tide allows the way out).
+        expect(
+            await page.evaluate(
+                (sel) => document.querySelector('.today-detail li[data-route]')?.nextElementSibling?.matches(sel),
+                LEAVE_ROW,
+            ),
+        ).toBe(true);
+        await expect(detail.getByText(/^Leaving a marina/)).toHaveCount(0);
+        await expect(detail.getByText(TIMING, { exact: true })).toBeVisible();
+        await expect(detail.locator('.today-footnote')).toContainText(CREDIT);
+        await expect(page.locator(LEAVE_ROW)).toBeInViewport({ ratio: 1 });
+        expect(await layoutIssues(page, false)).toEqual([]);
+        // Where the closing sentence alone stood in the way it folds under the first, a tap away; never with room.
+        const row = page.locator(LEAVE_ROW);
+        const folded = await row.locator('details').count();
+        if (size !== AS_DRAWN.se2) expect(folded).toBe(0);
+        if (folded) {
+            expect(await row.innerText()).not.toContain('Red on the route');
+            await row.locator('summary').click();
+            await expect(row.locator('details')).toHaveAttribute('open', '');
+        }
+        expect(await row.innerText()).toContain(RED);
+        expect(errors).toEqual([]);
+    });
+
+for (const size of [AS_DRAWN.se2, AS_DRAWN.mid])
+    test(`overnight, the longest leave row (two openings, approx, red) fits without a scroll at ${size.name}`, async ({
+        page,
+    }) => {
+        const errors = await open(page, size, `&mode=routed-tide&owner=1${size.query}`);
+        await stayOvernight(page);
+        const detail = await openStop(page);
+        await routeForLeave(page, LONGEST);
+        // A chip re-says only its last clause, at once.
+        const before = (await page.locator(LEAVE_ROW).textContent())!;
+        const chip = detail.getByRole('group', { name: 'Leave at' }).locator('button[aria-pressed="false"]').first();
+        const label = (await chip.textContent())!.slice(0, 5);
+        await chip.click();
+        await expect(page.locator(LEAVE_ROW)).toContainText(`; your ${label} `);
+        const after = (await page.locator(LEAVE_ROW).textContent())!;
+        expect(after.split('; your ')[0]).toBe(before.split('; your ')[0]);
+        expect(await layoutIssues(page, false)).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+
+// Review 2026-10-13: the fold was decided only when the words changed, so a page opened with room and then given
+// less (turned to portrait, a smaller split) kept scrolling. It is measured again whenever the screen changes.
+test('the screen growing shorter folds the closing sentences when that makes it fit, and opens them with room again', async ({
+    page,
+}) => {
+    // About 34 resizes of 4 px: Linux WebKit in CI took 24.5 s (release run 38361371829)
+    // and ran past the 30 s limit in 38366466523; 6 s in Chromium, under 2 s for the loop on a Mac.
+    test.slow();
+    const size = AS_DRAWN.mid;
+    const errors = await open(page, size, `&mode=routed-tide&owner=1${size.query}`);
+    await stayOvernight(page);
+    await openStop(page);
+    await routeForLeave(page, LONGEST);
+    const row = page.locator(LEAVE_ROW);
+    await expect(row.locator('details')).toHaveCount(0);
+    const settle = () =>
+        page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    // Less room, 4 px at a time, with no tap: the first height the closing sentences no longer fit, they fold.
+    let height = size.height;
+    while (!(await row.locator('details').count()) && height > 450) {
+        height -= 4;
+        await page.setViewportSize({ width: size.width, height });
+        await settle();
+    }
+    await expect(row.locator('details')).toHaveCount(1);
+    expect(height).toBeLessThan(size.height);
+    expect(await row.innerText()).not.toContain('Red on the route');
+    await expect(row).toHaveText(LONGEST);
+    expect(await layoutIssues(page, false)).toEqual([]);
+    // Room again: whole.
+    await page.setViewportSize({ width: size.width, height: size.height });
+    await expect(row.locator('details')).toHaveCount(0);
+    expect(await row.innerText()).toContain(RED);
+    expect(errors).toEqual([]);
+});
+
+test('at 320 x 568 as drawn the routed stop may scroll inside its card, the route and leave rows whole once in view', async ({
+    page,
+}) => {
+    const errors = await open(page, AS_DRAWN.se, `&mode=routed-tide&owner=1${AS_DRAWN.se.query}`);
+    await openStop(page);
+    await routeForLeave(page, DAY_TRIP);
+    expect(await layoutIssues(page, true)).toEqual([]);
+    for (const sel of ['.today-detail li[data-route]', LEAVE_ROW]) {
+        await page.locator(sel).scrollIntoViewIfNeeded();
+        await expect(page.locator(sel)).toBeInViewport({ ratio: 1 });
+    }
+    expect(errors).toEqual([]);
+});
+
+for (const size of OTHER)
+    test(`the leave row clips nothing at ${size.name}`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=routed-tide&owner=1${size.query}`);
+        await stayOvernight(page);
+        await openStop(page);
+        await routeForLeave(page, LONGEST);
+        await page.locator(LEAVE_ROW).scrollIntoViewIfNeeded();
+        await expect(page.locator(LEAVE_ROW)).toBeInViewport({ ratio: 1 });
+        expect(await layoutIssues(page, true)).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+
+test('no tide: "Tide not known" with what it needs, and no time in the row', async ({ page }) => {
+    const errors = await open(page, AS_DRAWN.se2, `&mode=routed-notide&owner=1${AS_DRAWN.se2.query}`);
+    const detail = await openStop(page);
+    await routeForLeave(
+        page,
+        new RegExp(
+            `^Tide not known for the shallow bit \\d+\\.\\d NM out \\(it needs 1\\.0 m of tide\\): check the tide table before you go\\. ${RED.replace(/\./g, '\\.')}$`,
+        ),
+    );
+    expect(await page.locator(LEAVE_ROW).textContent()).not.toMatch(/\d\d:\d\d/);
+    await expect(detail.locator('.today-footnote')).not.toContainText('WorldTides');
+    expect(await layoutIssues(page, false)).toEqual([]);
+    expect(errors).toEqual([]);
+});
+
+test("Nouméa: the leave window's times are on the place's clock, not the phone's (London here)", async ({ page }) => {
+    const errors = await open(page, AS_DRAWN.mid, `&mode=routed-tide&owner=1&place=noumea${AS_DRAWN.mid.query}`);
+    const detail = await openStop(page);
+    await routeForLeave(page, DAY_TRIP);
+    // Her chosen leave in the row is the stop page's own "Leave HH:MM →", which is on Nouméa's clock.
+    const leaveAt = (await detail.getByText(/^Leave \d\d:\d\d → there /).textContent())!.slice(6, 11);
+    const said = (await page.locator(LEAVE_ROW).textContent())!.match(DAY_TRIP)!;
+    expect(said[1]).toBe(leaveAt);
+    // Nouméa's morning (UTC+11), never London's evening before.
+    const from = (await page.locator(LEAVE_ROW).textContent())!.slice(6, 11);
+    expect(from >= '05:00' && from <= '20:00').toBe(true);
+    expect(errors).toEqual([]);
+});
+
+test('a tester sees no leave row: nothing is asked of the tide', async ({ page }) => {
+    const errors = await open(page, AS_DRAWN.mid, `&mode=routed-tide${AS_DRAWN.mid.query}`);
+    const detail = await openStop(page);
+    await expect(detail.locator('li[data-leave]')).toHaveCount(0);
+    expect(await page.locator('body').textContent()).not.toMatch(/carry the tide|Tide not known/);
+    expect(errors).toEqual([]);
+});

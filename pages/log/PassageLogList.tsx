@@ -57,7 +57,9 @@ export function PassageLogList({
                     <section
                         key={group.key}
                         aria-label={`Passage · ${group.voyages.length} ${group.voyages.length === 1 ? 'leg' : 'legs'}`}
-                        className="mb-4 rounded-[1.75rem] border border-purple-400/40 bg-linear-to-b from-purple-500/15 via-purple-500/5 to-purple-500/10 p-2 shadow-[0_0_22px_-8px_rgba(192,132,252,0.45)]"
+                        // The one card hue in the passage's purple (styles/card-hue.css),
+                        // the values these classes used to draw.
+                        className="mb-4 rounded-[1.75rem] card-hue card-hue-passage p-2"
                     >
                         <div className="flex items-center justify-between gap-2 px-2 py-2.5">
                             <h3 className="text-xs font-extrabold tracking-[0.2em] text-yellow-300">PASSAGE</h3>

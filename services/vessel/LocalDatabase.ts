@@ -87,11 +87,11 @@ interface AtomicTransactionJournal {
 /**
  * Directory.Library — NOT Directory.Documents, and NOT Directory.Data.
  *
- * Info.plist turns on UIFileSharingEnabled and LSSupportsOpeningDocumentsInPlace.
- * That was first so the S-63 chart fingerprint could be found in the Files app;
- * the export went with the S-63 Licensing card in 127, and SatLinkClient and
- * nativeStorage still write to Documents. The setting makes the WHOLE Documents
- * folder browsable, and this database was writing inventory, maintenance
+ * Until 127, Info.plist turned on UIFileSharingEnabled and
+ * LSSupportsOpeningDocumentsInPlace, first so the S-63 chart fingerprint could
+ * be found in the Files app; both went with the S-63 card in 127 (127-C-c).
+ * The setting made the WHOLE Documents folder browsable, and this database
+ * was writing inventory, maintenance
  * history, ship documents, crew profiles and the sync queue there as plaintext
  * JSON: "On My iPhone > Thalassa" listed a skipper's private vessel records
  * beside the fingerprint file (external audit, 2026-09-05, item 10).

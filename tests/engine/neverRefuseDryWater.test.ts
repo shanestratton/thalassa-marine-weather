@@ -532,7 +532,11 @@ describe('125-05 — the land and air-draft refusals stay', () => {
                 expect(r.code).not.toBe('no-tide-clears');
             }
         }
-    });
+        // Two full routes with no way round: 19.3-20.2 s under coverage on the
+        // hosted Linux runner (release runs 38189055150, 38211487962,
+        // 38218927002) against the 20 s default. The same budget as the other
+        // full-route engine cases (chartBridgeClearance).
+    }, 60_000);
 });
 
 describe('125-05 — a global app: a drying harbour in the Wadden Sea with no tide data (fictional)', () => {

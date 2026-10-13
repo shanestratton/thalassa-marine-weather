@@ -119,12 +119,13 @@ describe('Pi pinned-transport boundary', () => {
         expect(service).toContain('return PI_DISABLED_BASE_URL');
     });
 
-    it('keeps the production ENC Library independent from every Pi module', () => {
-        const page = read('components/vessel/EncLibraryPage.tsx');
-        const importer = read('services/enc/localEncPackImport.ts');
-        expect(page).not.toMatch(/EncCellManager|EncImportService|PiCacheService/);
-        expect(importer).not.toMatch(/EncImportService|PiCacheService|piCache|CapacitorHttp/);
-        expect(importer).toContain("url.protocol !== 'https:'");
-        expect(importer).toContain("{ usage: 'reference' }");
+    // The ENC Library is retired (127-C-c, Shane's Q1 "yes"); the validator it
+    // left behind stays free of every Pi module.
+    it('keeps the chart pack validator independent from every Pi module, and the Library gone', () => {
+        const validator = read('services/enc/localEncPackImport.ts');
+        expect(validator).not.toMatch(/EncImportService|PiCacheService|piCache|CapacitorHttp|fetch\(/);
+        expect(validator).not.toContain("usage: 'reference'");
+        expect(fs.existsSync(path.join(process.cwd(), 'components/vessel/EncLibraryPage.tsx'))).toBe(false);
+        expect(read('viewRegistry.tsx')).not.toMatch(/EncLibrary|encLibrary:/);
     });
 });

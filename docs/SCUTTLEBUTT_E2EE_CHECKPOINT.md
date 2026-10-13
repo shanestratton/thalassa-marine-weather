@@ -11,7 +11,40 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
-## Current same-process OS roundtrip and exact closure capture on 14 October
+## Current clean-upstream reconciliation after the 14 October OS proof
+
+The final pre-push ancestry check correctly refused dispatch: master had normally
+advanced from `c7d49a32b7f6ef9f3e6ce860b9d28caefc9ba8c7` to
+`5b3187afc146f618126ca0658e0aa142aff40196`. The
+[reconciliation record](../experiments/scuttlebutt-e2ee/review/scene-closure-upstream-reconciliation-2026-10-14.json)
+binds the automatic conflict-free isolated merge of 264 upstream paths, including
+the upstream build-128 metadata. No primary checkout/iOS sync, release upload,
+DB migration or yacht change was dispatched. This is repository reconciliation,
+not authorization or acceptance of a TestFlight release. All seven retired chart
+fixtures remain absent from both ancestries/tree/filesystem; no published E2EE
+history is rewritten. All 87 recorded E2EE source-hash entries still match.
+
+**Freeze today's accepted full-App proof to**
+`1d477da1ed429e9d50197e0c44f3d69a65719dc9`. Upstream changes the compiled App graph,
+so web/Window/native combined-graph acceptance is now historical for the newly
+merged sources. No proof counts are transferred. Internal read-only source review
+found both branches' additions retained in the three overlapping App/bootstrap/
+registry files; that is not execution or independent assessment.
+
+Next resolve a source-supported compatibility risk: new upstream `EncCellStore`
+imports `prepareChartStore` and `purgeWebDiskCache`, absent from the unchanged
+isolated native-storage projection. A fresh bundle has not been executed, so
+this is not a recorded build failure. Keep those chart controls strictly
+unavailable with no actual storage/native I/O; test the projection/refusal and
+refresh legitimate current combined-source build/Window/native proof. New
+wide/landscape boot-to-map selection also needs current protected navigation
+coverage. Initial read-only packet generation failed on the default buffer while
+hashing a large textual diff; bounded raw metadata hashing corrected the packet
+check without dropping its path/source/ancestry assertions. No App acceptance
+was recorded by either packet generation. All shipping gates remain open;
+shared waiting stays 10,491/120,000 ms. **Not merge-ready.**
+
+## Accepted pre-reconciliation same-process OS roundtrip on 14 October
 
 The [current source-bound record](../experiments/scuttlebutt-e2ee/review/scene-closure-os-roundtrip-2026-10-14.json)
 records a **passed owned-simulator same-process protected/background/foreground
@@ -4775,12 +4808,13 @@ attachments or uploads.
 
 ## Safe cutover and acceptance gates
 
-Latest bounded evidence is [the 14 October same-process record](../experiments/scuttlebutt-e2ee/review/scene-closure-os-roundtrip-2026-10-14.json):
-current initiator protected exchange, genuine background fencing and complete
+Latest bounded evidence is [the 14 October same-process record](../experiments/scuttlebutt-e2ee/review/scene-closure-os-roundtrip-2026-10-14.json),
+frozen to `1d477da1ed429e9d50197e0c44f3d69a65719dc9` before the newer master merge:
+initiator protected exchange, genuine background fencing and complete
 foreground/closed-UI correlation passed in one owned simulator process. The
 earlier foreground failure remains failed and unexplained. Cold/recovery,
 protected-away navigation, current opposite role, physical and live full-App
-Auth/HTTPS acceptance are not credited. None of the five shipping gates below
+Auth/HTTPS acceptance and the newly merged App graph are not credited. None of the five shipping gates below
 is closed by this bounded simulator, diagnostic or source/mock evidence.
 
 1. **Provider spike:** license decision, pinned dependency, two real iPhones
@@ -4804,7 +4838,9 @@ is closed by this bounded simulator, diagnostic or source/mock evidence.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: extend current same-process evidence with a separately source-bound
+Next: repair/test the strictly closed chart-control graph projections and refresh
+the changed combined-source build and actual Window/native acceptance. Then
+extend same-process evidence with a separately source-bound
 opposite role and actual protected-away/back navigation; preserve distinct
 cold-start refusal and same-store recovery contracts and receipts. Extend the
 bounded native-to-hosted acceptance above into actual current App Auth/HTTPS,

@@ -1,11 +1,15 @@
 // @vitest-environment node
 /**
- * The Pi runs copies of two things the phone owns (build 126, package 126-05):
+ * The Pi runs copies of three things it does not own (build 126, package
+ * 126-05; the third from Pi update 3, 127-C-d):
  *   - the inshore routing engine (services/inshoreRouterEngine.ts and the ~36
  *     modules it imports), mirrored to pi-cache/src/routerEngine by
  *     pi-cache/scripts/sync-router-engine.mjs;
  *   - the collision rule (utils/collisionRule.ts), mirrored to
- *     pi-cache/src/collisionRule by pi-cache/scripts/sync-collision-rule.mjs.
+ *     pi-cache/src/collisionRule by pi-cache/scripts/sync-collision-rule.mjs;
+ *   - the o-charts SENC parser the chart vault opens cells with
+ *     (tools/senc-extractor/src, 11 modules), mirrored to
+ *     pi-cache/src/sencEngine by pi-cache/scripts/sync-senc-engine.mjs.
  *
  * Each script has a --check that fails when its copy has drifted. The router's
  * ran nowhere: CI's pi-cache lane has no root prettier, and no test called it.
@@ -23,6 +27,8 @@ import { describe, expect, it } from 'vitest';
 const REPO = process.cwd();
 const ROUTER_SCRIPT = 'pi-cache/scripts/sync-router-engine.mjs';
 const RULE_SCRIPT = 'pi-cache/scripts/sync-collision-rule.mjs';
+const SENC_SCRIPT = 'pi-cache/scripts/sync-senc-engine.mjs';
+const SENC_UPSTREAM = 'tools/senc-extractor/src';
 const ENGINE_ENTRY = 'services/inshoreRouterEngine.ts';
 // Prettier formats the mirror (and its --check output) across ~36 files.
 const CHECK_TIMEOUT_MS = 120_000;
@@ -70,6 +76,24 @@ function scratchRepo(): string {
     return root;
 }
 
+/** A scratch repo for the senc check: the script, the extractor's modules, the mirror, prettier. */
+function sencScratchRepo(): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'thalassa-senc-mirror-'));
+    const copy = (rel: string) => {
+        fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+        fs.copyFileSync(path.join(REPO, rel), path.join(root, rel));
+    };
+    copy(SENC_SCRIPT);
+    copy('.prettierrc');
+    copy('.prettierignore');
+    for (const rel of filesUnder(path.join(REPO, 'pi-cache/src/sencEngine'))) {
+        copy(`pi-cache/src/sencEngine/${rel}`);
+        if (rel !== 'syncedFrom.ts') copy(`${SENC_UPSTREAM}/${rel}`);
+    }
+    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(root, 'node_modules'), 'dir');
+    return root;
+}
+
 describe("the Pi's copies of the phone's code are in sync", () => {
     it(
         'the router engine copy matches the phone engine (sync-router-engine --check)',
@@ -88,6 +112,40 @@ describe("the Pi's copies of the phone's code are in sync", () => {
         // A clean commit, never '-dirty': the Pi must run a commit (the stamp ships to the boat).
         expect(output).toMatch(/in sync \(sha256 [0-9a-f]{12}, copied from [0-9a-f]{8}\)/);
     });
+
+    it(
+        'the chart vault’s parser copy matches the extractor (sync-senc-engine --check)',
+        () => {
+            const { status, output } = check(REPO, SENC_SCRIPT);
+            expect(status, output).toBe(0);
+            // A clean commit, never '-dirty': the Pi must run a commit.
+            expect(output).toMatch(/in sync \(11 modules, copied from [0-9a-f]{8}\)/);
+        },
+        CHECK_TIMEOUT_MS,
+    );
+
+    it(
+        'a one-character edit to the upstream featureParser makes the senc check fail',
+        () => {
+            const root = sencScratchRepo();
+            try {
+                const clean = check(root, SENC_SCRIPT);
+                expect(clean.status, clean.output).toBe(0);
+                const parser = path.join(root, SENC_UPSTREAM, 'featureParser.ts');
+                const source = fs.readFileSync(parser, 'utf8');
+                const at = source.indexOf('e');
+                fs.writeFileSync(parser, `${source.slice(0, at)}E${source.slice(at + 1)}`);
+                const drifted = check(root, SENC_SCRIPT);
+                expect(drifted.status).toBe(1);
+                expect(drifted.output).toContain('differs: featureParser.ts');
+                expect(drifted.output).toContain('stale digest: syncedFrom.ts');
+                expect(drifted.output).toContain('Run: node pi-cache/scripts/sync-senc-engine.mjs');
+            } finally {
+                fs.rmSync(root, { recursive: true, force: true });
+            }
+        },
+        CHECK_TIMEOUT_MS * 2,
+    );
 
     it(
         'a one-character edit to the phone engine makes the router check fail',
@@ -117,7 +175,7 @@ describe("the Pi's copies of the phone's code are in sync", () => {
     );
 });
 
-describe('CI runs both checks on every push', () => {
+describe('CI runs all three checks on every push', () => {
     const ci = fs.readFileSync(path.join(REPO, '.github/workflows/ci.yml'), 'utf8');
     // The root `check` job: the only one with the root prettier the router check needs
     // (and, since the 2026-10 split, the only job in ci.yml).
@@ -128,7 +186,9 @@ describe('CI runs both checks on every push', () => {
         const install = checkJob.indexOf('run: npm ci');
         const router = checkJob.indexOf(`run: node ${ROUTER_SCRIPT} --check`);
         const rule = checkJob.indexOf(`run: node ${RULE_SCRIPT} --check`);
+        const senc = checkJob.indexOf(`run: node ${SENC_SCRIPT} --check`);
         expect(install).toBeGreaterThan(-1);
+        expect(senc, 'the senc engine mirror check is a step of the check job').toBeGreaterThan(install);
         expect(router, 'the router mirror check is a step of the check job').toBeGreaterThan(install);
         expect(rule, 'the collision rule mirror check is a step of the check job').toBeGreaterThan(install);
     });

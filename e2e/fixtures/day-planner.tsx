@@ -32,6 +32,16 @@ if (!import.meta.env.DEV) throw new Error('The day-planner fixture is available 
 // refusals, whole: its charts-from-the-Pi sentence, a cloud fill that failed
 // (its 60 chars), or a pin far from water with the harbour water not downloaded.
 // ?coast=ring makes every estimate its longest (below).
+//
+// The routed line on the chart (127-PYD-3): "Show route on chart" opens Auto's chart in its day-plan
+// mode over the sheet, with a stub Auto provider (ready, never calculates) and no Mapbox network, so
+// its chart may say it could not load; "Use on the main chart" lands in `plotted` as a routed plot-day
+// action, and "Plot by hand" as a frame action with no pins.
+//
+// The leave window (127-PYD-11): routed-tide routes a line of 20 vertices a leg with a shallow bit on its
+// bend and a pin that dries at the stop, over an interpolated (approx) synthetic tide whose low water is
+// 4 h 45 after the page opens (10 h at Nouméa): its longest row, red sentence and all. routed-notide is the same line with
+// no tide at all ("Tide not known"). routed reads an ordinary curve. ?place=noumea starts either at Nouméa.
 class FixtureStorage implements Storage {
     private entries = new Map<string, string>();
     get length() {
@@ -78,7 +88,9 @@ type Mode =
     | 'thunder'
     | 'routed'
     | 'no-route'
-    | 'no-chart';
+    | 'no-chart'
+    | 'routed-tide'
+    | 'routed-notide';
 const MODES: Mode[] = [
     'normal',
     'split',
@@ -93,6 +105,8 @@ const MODES: Mode[] = [
     'routed',
     'no-route',
     'no-chart',
+    'routed-tide',
+    'routed-notide',
 ];
 const mode: Mode = MODES.find((m) => m === params.get('mode')) ?? 'normal';
 const owner = params.get('owner') === '1';
@@ -120,6 +134,7 @@ const [
     data,
     { routeStop },
     { DraftConfirmModal },
+    { AutoroutingProviderContext },
 ] = await Promise.all([
     import('../../services/authIdentityScope'),
     import('../../stores/settingsStore'),
@@ -128,7 +143,15 @@ const [
     import('../../tests/helpers/dayPlanFixtures'),
     import('../../services/dayPlanner/stopRoute'),
     import('../../components/vessel/DraftConfirmModal'),
+    import('../../components/autorouting/AutoroutingProviderContext'),
 ]);
+// Auto's chart reads its provider for its status and the satellite check's Retry; it never calculates here.
+const autoProvider = {
+    status: () => ({ enabled: true, ready: true }),
+    calculate: async () => {
+        throw new Error('Plan Your Day fixture: the route chart never calculates.');
+    },
+};
 if (owner) {
     // The app's auth store (the sheet's Sources screen pulls it in) settles this session-less page to
     // signed out a beat after load. The owner's synthetic identity is set after that, as a sign-in
@@ -159,7 +182,7 @@ const atlas = await realFetch('/anchorages/qld/t-22e148.geojson')
 const TROMSO = { lat: 69.6496, lon: 18.956 };
 const nowMs = mode === 'too-late' ? Date.UTC(2026, 9, 8, 6) : mode === 'tromso' ? Date.UTC(2026, 5, 21, 6) : data.NOW;
 // no-chart is Nouméa's day, routed by the owner.
-const at = mode === 'no-chart' ? 'noumea' : mode;
+const at = mode === 'no-chart' || params.get('place') === 'noumea' ? 'noumea' : mode;
 const start = at === 'noumea' ? data.NOUMEA : at === 'tromso' ? TROMSO : data.MARINA;
 const worldwide = at === 'noumea' || at === 'tromso';
 // Tromsø's OpenStreetMap cells were cached three days ago: used, with their date.
@@ -209,6 +232,21 @@ if (params.get('coast') === 'ring')
             ];
             return [at(i), at(i + 1)];
         });
+// The tide along a routed line (127-PYD-11): a synthetic semidiurnal curve, low water 4 h 45 after the page
+// opens (0.5 m) between 3.5 m highs, on whatever clock the start keeps (at Nouméa's shorter hops, 10 h after,
+// so her morning clears); none in routed-notide.
+const lowWaterMs = nowMs + (at === 'noumea' ? 10 : 4.75) * data.H;
+const tidal = mode === 'routed-tide' || mode === 'routed-notide';
+loader.loadRouteTideCurve = async () =>
+    mode === 'routed-notide'
+        ? null
+        : {
+              heights: [],
+              provenance: mode === 'routed-tide' ? 'EXTREMES_INTERP' : 'STATION_HEIGHTS',
+              heightAt: (t: number) => 2 - 1.5 * Math.cos((2 * Math.PI * (t - lowWaterMs)) / (12.42 * data.H)),
+              rangeMs: [nowMs - 48 * data.H, nowMs + 96 * data.H],
+              stationName: 'Fixture Gauge',
+          };
 // A day the models split, for a skipper whose own limits are high enough that
 // the split, not the gusts, is the story (her Comfort settings: 30 kn, gusts 40).
 if (mode === 'split') {
@@ -288,20 +326,51 @@ const io = {
                 onProgress?.('Checking the route…');
                 await wait(300, signal);
                 const { departure: a, destination: b } = request;
+                const bend: [number, number] = [(a.lon + b.lon) / 2 + 0.03, (a.lat + b.lat) / 2 - 0.04];
+                // A synthetic line bent between her pins; no chart behind it. The tide modes have 20 vertices a
+                // leg, as a real route has many: the sweep times each shallow bit at its own leg's end.
+                const corners: [number, number][] = [[a.lon, a.lat], bend, [b.lon, b.lat]];
+                const coordinates = tidal
+                    ? corners.flatMap(([lon, lat], i) =>
+                          i === 2
+                              ? [[lon, lat] as [number, number]]
+                              : Array.from(
+                                    { length: 20 },
+                                    (_, k) =>
+                                        [
+                                            lon + ((corners[i + 1][0] - lon) * k) / 20,
+                                            lat + ((corners[i + 1][1] - lat) * k) / 20,
+                                        ] as [number, number],
+                                ),
+                      )
+                    : corners;
+                const last = coordinates.length - 2;
+                // Its shallow bit on the bend: 1.9 m charted, so her 2.40 m draft + 0.5 m needs 1.0 m of tide.
+                const onBend = { lengthM: 556, minDepthM: 1.9, midLat: bend[1], midLon: bend[0] };
                 return {
                     id: 'thalassa-fixture',
-                    // A synthetic line bent between her pins; no chart behind it.
-                    coordinates: [
-                        [a.lon, a.lat],
-                        [(a.lon + b.lon) / 2 + 0.03, (a.lat + b.lat) / 2 - 0.04],
-                        [b.lon, b.lat],
-                    ],
+                    coordinates,
                     warnings: [],
                     createdAt: new Date(nowMs).toISOString(),
                     provider: 'Thalassa',
                     engine: {
-                        stateMask: ['green', 'green'],
-                        shallowRuns: [{ startSeg: 1, endSeg: 1, lengthM: 556, minDepthM: 1.9, midLat: 0, midLon: 0 }],
+                        stateMask: coordinates.slice(1).map(() => 'green' as const),
+                        shallowRuns: tidal
+                            ? [
+                                  { ...onBend, startSeg: 18, endSeg: 21, minAtLat: bend[1], minAtLon: bend[0] },
+                                  // And red no tide clears: the stop's pin dries.
+                                  {
+                                      startSeg: last,
+                                      endSeg: last,
+                                      lengthM: 120,
+                                      minDepthM: -0.4,
+                                      midLat: b.lat,
+                                      midLon: b.lon,
+                                      endpointTail: 'destination' as const,
+                                      dryTail: true as const,
+                                  },
+                              ]
+                            : [{ ...onBend, startSeg: 1, endSeg: 1 }],
                         cellsUsed: ['OC-99-SYN001'],
                         distanceNM: 16.5,
                         elapsedMs: 4100,
@@ -347,17 +416,20 @@ function Fixture() {
                         Plan Your Day
                     </button>
                     {open && (
-                        <TodaySheet
-                            vessel={vessel}
-                            usingDefaultVessel={defaultBoat}
-                            onClose={() => setOpen(false)}
-                            onPlot={(action) => {
-                                fixture.plotted.push(action);
-                                setOpen(false);
-                            }}
-                            onOpenVessel={() => fixture.openedVessel++}
-                            io={io}
-                        />
+                        <AutoroutingProviderContext.Provider value={autoProvider}>
+                            <TodaySheet
+                                vessel={vessel}
+                                usingDefaultVessel={defaultBoat}
+                                mapboxToken="pk.fixture"
+                                onClose={() => setOpen(false)}
+                                onPlot={(action) => {
+                                    fixture.plotted.push(action);
+                                    setOpen(false);
+                                }}
+                                onOpenVessel={() => fixture.openedVessel++}
+                                io={io}
+                            />
+                        </AutoroutingProviderContext.Provider>
                     )}
                 </section>
             </PanePortalScope>

@@ -10,7 +10,8 @@
  * CSS-pixel canvas, the same 1 px stroke, the same streak palette, and the
  * same frame recipe — keep `fade` of what is drawn ('destination-in' at the
  * 0.9 x fade alpha the library carries over from the previous frame), then
- * draw additively. Same 30 fps cadence, same 60-frame particle life.
+ * draw additively (normally on Light, as the leaflet field does there). Same
+ * 30 fps cadence, same 60-frame particle life.
  *
  * Panning carries the streaks with the water; a pinch rescales them about the
  * camera; a turn of the chart re-aims the flow from the same wind (127-11a),
@@ -82,6 +83,8 @@ export class CloseInWindLayer {
     private readonly frameTime: number;
     private readonly random: () => number;
     readonly palette: WindPalette;
+    /** The ink's blend: additive like leaflet-velocity's, but normal on Light (128-LIGHT, MapboxVelocityOverlay's drawInkOver). */
+    private readonly inkOp: GlobalCompositeOperation;
     private readonly requestFrame: (callback: FrameRequestCallback) => number;
     private readonly cancelFrame: (id: number) => void;
 
@@ -115,6 +118,7 @@ export class CloseInWindLayer {
         this.frameTime = 1000 / (options.frameRate ?? 30);
         this.random = options.random ?? Math.random;
         this.palette = options.palette ?? 'dark';
+        this.inkOp = this.palette === 'light' ? 'source-over' : 'lighter';
         const raf = typeof requestAnimationFrame === 'function';
         this.requestFrame =
             options.requestFrame ??
@@ -262,7 +266,7 @@ export class CloseInWindLayer {
         if (ctx) {
             ctx.globalCompositeOperation = 'destination-in';
             ctx.fillRect(0, 0, this.width, this.height);
-            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalCompositeOperation = this.inkOp;
             ctx.globalAlpha = 0.9 * this.fade;
             ctx.strokeStyle = this.colour;
             // Calm streaks barely move: round caps keep them as soft dots
@@ -397,7 +401,7 @@ export class CloseInWindLayer {
                 ctx.clearRect(0, 0, this.width, this.height);
             }
             ctx.globalAlpha = 0.9 * this.fade;
-            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalCompositeOperation = this.inkOp;
         }
         this.anchorPx = p;
         this.anchorZoom = zoom;

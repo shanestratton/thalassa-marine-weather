@@ -104,6 +104,9 @@ export interface AutoroutingTrialRoute {
     /** A local edit invalidates the router's checks for the whole line. Fresh
      * local chart checks do not constitute a fresh route. Memory only. */
     localEdit?: AutoroutingLocalEdit;
+    /** Thalassa only (127-C-c): ms spent opening the boat's licensed charts
+     *  from her Pi for this route, when paired. Never inside `engine`. */
+    chartsMs?: number;
 }
 
 export interface AutoroutingLocalEdit {

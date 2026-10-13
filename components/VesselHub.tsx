@@ -7,10 +7,12 @@
  *   ── the scrolling area starts here (Shane 2026-08-30) ──
  *   Diary + Scuttlebutt: the two read-most screens, so they lead
  *   Skipper device:      publishing authority · which GPS speaks for the boat
- *   The menu, ONE box (Shane 2026-10-04), most used first: Crew & Float Plan ·
- *                        Boat Binder (its own screen: stores, equipment,
- *                        repairs, documents, reference, GPX import) · NMEA
- *                        Gateway · Music · Settings · Boat Network
+ *   The menu, most used first: Crew & Float Plan in a card of its own with a
+ *                        hue on its back (Shane 2026-10-13), then ONE box
+ *                        (Shane 2026-10-04): Boat Binder (its own screen:
+ *                        stores, equipment, repairs, documents, reference,
+ *                        GPX import) · NMEA Gateway · Music · Settings · Boat
+ *                        Network
  *
  * The whole page fits one screen, nothing folded (Shane 2026-10-04: "i prefer
  * that all of the menu itemed pages fit into one screen"): short screens and
@@ -112,6 +114,9 @@ const HUB_ICON = 'h-4 w-4 [stroke-width:1.5]';
 // pink Music label on one screen. The Crew & Float Plan card's sky bezel went
 // when the menu became one box (Shane 2026-10-04); the Diary and Scuttlebutt
 // cards wear the same sky as a wash and an icon tile (vesselHub/JournalCard).
+// Crew & Float Plan came back out as a card of its own at Shane's ask
+// (2026-10-13), in the app's one card hue (styles/card-hue.css) in this same
+// sky: the hue sets it apart from the box, and no new colour joins the page.
 const HUB_ACCENT = 'var(--day-ui-accent, #7dd3fc)';
 /** The NMEA Gateway row's value colour, by the boat link's tone (the same palette it always used). */
 const HUB_TONE_COLOUR: Record<Tone, string> = {
@@ -1399,7 +1404,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 />
 
                 {/* ═══════════════════════════════════════════ */}
-                {/* THE MENU — ONE BOX, most used first          */}
+                {/* THE MENU — Crew & Float Plan, then ONE BOX   */}
                 {/* ═══════════════════════════════════════════ */}
                 {/* Shane 2026-10-04: "the vessel page needs to have one box
                     around crew and float plan, boat binder, settings, nmea
@@ -1426,154 +1431,172 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     room to scroll (portRoomy) — a fresh install's "Set up your
                     vessel" card can still push the box past a short screen, and
                     with home as the only snap target a part-way scroll pulled
-                    straight back. When it fits, there is nothing to snap. */}
-                <div
-                    data-testid="vessel-hub-menu"
-                    className="vessel-hub-menu"
-                    style={{ ...GLASS.listContainer, scrollSnapAlign: portRoomy ? 'end' : 'none' }}
-                >
+                    straight back. When it fits, there is nothing to snap.
+
+                    Shane 2026-10-13: "ok the crew and float plan, really needs
+                    its own card, can we make a nice card for it without having
+                    to scroll up and down on the page, maybe a nice hue as well
+                    on the back of it". So Crew & Float Plan lifts out of the
+                    box into a one-row card just above it, in the app's one card
+                    hue (styles/card-hue.css); the other five stay in the box,
+                    in their order. The two share the box's old height, a row's
+                    share each (styles/menu-page-fit.css), so the page still
+                    fits one screen; one heading names them both. */}
+                <div data-testid="vessel-hub-menus" className="vessel-hub-menus">
                     <h2 className="sr-only">Vessel menu</h2>
                     {/* CREW & FLOAT PLAN — the voyage workflow (readiness, crew,
                         watches, float plan, Cast Off). Named from the app
                         glossary (UX scorecard run 6): "Passage Planning"
                         collided with the Plan tab's route planner. Amber stays
-                        for pending invites, a state. */}
-                    <OfficeRow
-                        icon={<CrewIcon color={HUB_ACCENT} />}
-                        label="Crew & Float Plan"
-                        status={
-                            pendingCrewInvites > 0
-                                ? `${pendingCrewInvites} crew ${pendingCrewInvites === 1 ? 'invite' : 'invites'} pending`
-                                : crewingBoatName
-                                  ? `Crewing on ${crewingBoatName}`
-                                  : 'Readiness checks & cast off'
-                        }
-                        statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
-                        value={passageCrewCountShown > 0 ? `${passageCrewCountShown} crew` : undefined}
-                        valueColor="#e2e8f0"
-                        onClick={() => {
-                            triggerHaptic('light');
-                            onNavigate('crew');
-                        }}
-                        badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
-                    />
-                    <ListDivider />
-                    {/* BOAT BINDER — its OWN SCREEN (Shane 2026-07-19: "can boat
-                        binder be its own screen when you click on it"). The row
-                        opens it in place; stores, equipment, maintenance,
-                        documents and reference live there. */}
-                    <OfficeRow
-                        icon={<BinderIcon color={HUB_ACCENT} />}
-                        label="Boat Binder"
-                        status="Inventory & reference"
-                        statusColor="#94a3b8"
-                        onClick={() => {
-                            triggerHaptic('light');
-                            // The hub port remounts at the top on the way back.
-                            setPortScrolled(false);
-                            setBinderOpen(true);
-                        }}
-                    />
-                    <ListDivider />
-                    <OfficeRow
-                        icon={<PlugIcon color={HUB_ACCENT} />}
-                        label="NMEA Gateway"
-                        status={gatewayStatus}
-                        statusColor="#94a3b8"
-                        value={gatewayState}
-                        valueColor={gatewayStatusColor}
-                        onClick={() => {
-                            triggerHaptic('light');
-                            onNavigate('nmea');
-                        }}
-                    />
-                    {/* ENC Library is not on this menu (Shane 2026-08-07: "less
-                        is more"); the map's no-coverage affordance opens it. */}
-                    <ListDivider />
-                    {/* MUSIC — removed 2026-07-19, RESTORED 2026-08-08 at Shane's
-                        ask: the mic and the now-playing bar do not help when you
-                        want to go and choose something. */}
-                    <OfficeRow
-                        icon={
-                            <span className="flex" style={{ color: HUB_ACCENT }}>
-                                <SpeakerWaveIcon className={HUB_ICON} />
-                            </span>
-                        }
-                        label="Music"
-                        status="Apple Music & speakers"
-                        statusColor="#94a3b8"
-                        onClick={() => {
-                            triggerHaptic('light');
-                            onNavigate('music');
-                        }}
-                    />
-                    <ListDivider />
-                    <OfficeRow
-                        // "Settings", with what is in it, not "Account &
-                        // Settings" over a sign-in status alone (UX scorecard
-                        // run 6).
-                        icon={
-                            <span className="flex" style={{ color: HUB_ACCENT }}>
-                                <GearIcon className={HUB_ICON} />
-                            </span>
-                        }
-                        label="Settings"
-                        // The account state in the right-hand slot, as the
-                        // Settings rows show theirs; the subtitle says what is
-                        // inside (UX scorecard run 10, vessel-row-status-slot).
-                        status="Units, alerts, vessel"
-                        statusColor="#94a3b8"
-                        value={(() => {
-                            // During the free public beta there is no
-                            // plan to name, so say what is true of this
-                            // account instead of "Free public beta"
-                            // (UX referee W-developer-speak).
-                            if (PUBLIC_BETA_ACCESS.enabled) return authenticatedUserId ? 'Signed in' : 'Not signed in';
-                            // One source of truth for plan names —
-                            // the hub used to invent its own ("Vessel
-                            // Owner"/"Crew Plan") and disagree with
-                            // Settings and the paywall.
-                            const tier = (settings as Record<string, unknown>).subscriptionTier as string;
-                            return (
-                                (TIER_INFO[tier as SubscriptionTier] as { label: string } | undefined) ?? TIER_INFO.free
-                            ).label;
-                        })()}
-                        valueColor={(() => {
-                            if (PUBLIC_BETA_ACCESS.enabled) return authenticatedUserId ? '#7dd3fc' : '#94a3b8';
-                            // Tier badge stays its own colour —
-                            // owner=amber (premium), crew=the hub
-                            // accent, free=grey. This is a deliberate
-                            // status signal, not chromatic noise.
-                            const tier = (settings as Record<string, unknown>).subscriptionTier as string;
-                            if (tier === 'owner') return '#f59e0b';
-                            if (tier === 'crew') return '#7dd3fc';
-                            return '#94a3b8';
-                        })()}
-                        onClick={() => {
-                            triggerHaptic('light');
-                            onNavigate('settings');
-                        }}
-                    />
-                    <ListDivider />
-                    <OfficeRow
-                        // A server, not the folded map the OBS tab uses:
-                        // this row is the boat computer (UX scorecard run 6).
-                        icon={
-                            <span className="flex" style={{ color: HUB_ACCENT }}>
-                                <ServerIcon className={HUB_ICON} />
-                            </span>
-                        }
-                        label="Boat Network"
-                        // Plain words, and not "instruments": the gateway row
-                        // is the instruments one (UX scorecard run 7). "Boat
-                        // computer", not "The Pi" (UX scorecard run 9).
-                        status="Boat computer, charts & devices"
-                        statusColor="#94a3b8"
-                        onClick={() => {
-                            triggerHaptic('light');
-                            onNavigate('avnav');
-                        }}
-                    />
+                        for pending invites, a state. A menu card of one row: the
+                        box's rows' type, and the crew hue on its back. */}
+                    <div
+                        data-testid="vessel-hub-crew"
+                        className="vessel-hub-menu vessel-hub-crew card-hue card-hue-crew"
+                    >
+                        <OfficeRow
+                            icon={<CrewIcon color={HUB_ACCENT} />}
+                            label="Crew & Float Plan"
+                            status={
+                                pendingCrewInvites > 0
+                                    ? `${pendingCrewInvites} crew ${pendingCrewInvites === 1 ? 'invite' : 'invites'} pending`
+                                    : crewingBoatName
+                                      ? `Crewing on ${crewingBoatName}`
+                                      : 'Readiness checks & cast off'
+                            }
+                            statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
+                            value={passageCrewCountShown > 0 ? `${passageCrewCountShown} crew` : undefined}
+                            valueColor="#e2e8f0"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('crew');
+                            }}
+                            badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
+                        />
+                    </div>
+                    <div
+                        data-testid="vessel-hub-menu"
+                        className="vessel-hub-menu"
+                        style={{ ...GLASS.listContainer, scrollSnapAlign: portRoomy ? 'end' : 'none' }}
+                    >
+                        {/* BOAT BINDER — its OWN SCREEN (Shane 2026-07-19: "can boat
+                            binder be its own screen when you click on it"). The row
+                            opens it in place; stores, equipment, maintenance,
+                            documents and reference live there. */}
+                        <OfficeRow
+                            icon={<BinderIcon color={HUB_ACCENT} />}
+                            label="Boat Binder"
+                            status="Inventory & reference"
+                            statusColor="#94a3b8"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                // The hub port remounts at the top on the way back.
+                                setPortScrolled(false);
+                                setBinderOpen(true);
+                            }}
+                        />
+                        <ListDivider />
+                        <OfficeRow
+                            icon={<PlugIcon color={HUB_ACCENT} />}
+                            label="NMEA Gateway"
+                            status={gatewayStatus}
+                            statusColor="#94a3b8"
+                            value={gatewayState}
+                            valueColor={gatewayStatusColor}
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('nmea');
+                            }}
+                        />
+                        {/* No ENC Library on this menu: it is retired (127-C-c). */}
+                        <ListDivider />
+                        {/* MUSIC — removed 2026-07-19, RESTORED 2026-08-08 at Shane's
+                            ask: the mic and the now-playing bar do not help when you
+                            want to go and choose something. */}
+                        <OfficeRow
+                            icon={
+                                <span className="flex" style={{ color: HUB_ACCENT }}>
+                                    <SpeakerWaveIcon className={HUB_ICON} />
+                                </span>
+                            }
+                            label="Music"
+                            status="Apple Music & speakers"
+                            statusColor="#94a3b8"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('music');
+                            }}
+                        />
+                        <ListDivider />
+                        <OfficeRow
+                            // "Settings", with what is in it, not "Account &
+                            // Settings" over a sign-in status alone (UX scorecard
+                            // run 6).
+                            icon={
+                                <span className="flex" style={{ color: HUB_ACCENT }}>
+                                    <GearIcon className={HUB_ICON} />
+                                </span>
+                            }
+                            label="Settings"
+                            // The account state in the right-hand slot, as the
+                            // Settings rows show theirs; the subtitle says what is
+                            // inside (UX scorecard run 10, vessel-row-status-slot).
+                            status="Units, alerts, vessel"
+                            statusColor="#94a3b8"
+                            value={(() => {
+                                // During the free public beta there is no
+                                // plan to name, so say what is true of this
+                                // account instead of "Free public beta"
+                                // (UX referee W-developer-speak).
+                                if (PUBLIC_BETA_ACCESS.enabled)
+                                    return authenticatedUserId ? 'Signed in' : 'Not signed in';
+                                // One source of truth for plan names —
+                                // the hub used to invent its own ("Vessel
+                                // Owner"/"Crew Plan") and disagree with
+                                // Settings and the paywall.
+                                const tier = (settings as Record<string, unknown>).subscriptionTier as string;
+                                return (
+                                    (TIER_INFO[tier as SubscriptionTier] as { label: string } | undefined) ??
+                                    TIER_INFO.free
+                                ).label;
+                            })()}
+                            valueColor={(() => {
+                                if (PUBLIC_BETA_ACCESS.enabled) return authenticatedUserId ? '#7dd3fc' : '#94a3b8';
+                                // Tier badge stays its own colour —
+                                // owner=amber (premium), crew=the hub
+                                // accent, free=grey. This is a deliberate
+                                // status signal, not chromatic noise.
+                                const tier = (settings as Record<string, unknown>).subscriptionTier as string;
+                                if (tier === 'owner') return '#f59e0b';
+                                if (tier === 'crew') return '#7dd3fc';
+                                return '#94a3b8';
+                            })()}
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('settings');
+                            }}
+                        />
+                        <ListDivider />
+                        <OfficeRow
+                            // A server, not the folded map the OBS tab uses:
+                            // this row is the boat computer (UX scorecard run 6).
+                            icon={
+                                <span className="flex" style={{ color: HUB_ACCENT }}>
+                                    <ServerIcon className={HUB_ICON} />
+                                </span>
+                            }
+                            label="Boat Network"
+                            // Plain words, and not "instruments": the gateway row
+                            // is the instruments one (UX scorecard run 7). "Boat
+                            // computer", not "The Pi" (UX scorecard run 9).
+                            status="Boat computer, charts & devices"
+                            statusColor="#94a3b8"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('avnav');
+                            }}
+                        />
+                    </div>
                 </div>
             </div>
         </div>

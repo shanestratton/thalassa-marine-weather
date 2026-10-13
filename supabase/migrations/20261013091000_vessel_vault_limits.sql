@@ -3,17 +3,17 @@
 -- (126-B3a, binder audit 2026-10-09, DOC-2)
 -- ═══════════════════════════════════════════════════════════════════
 --
--- HELD OUT of supabase/migrations on purpose: `supabase db push` applies every
--- pending file there, and the 126 release push must not carry this one. To
--- release it, move it into supabase/migrations under a stamp newer than the
--- newest applied migration, and update tests/VesselVaultLimitsMigration.test.ts.
+-- RELEASED 2026-10-13 on Shane's yes ("yes to all of your questions for 128
+-- claude", the 128 ask: "The Documents upload size and file-type limit ...
+-- Recommend yes: 126 or later is on your phone and iPad."). Written with 126
+-- (stamp 20261010160000) and held out of supabase/migrations until then, so
+-- the 126 release push could not carry it.
 --
--- Not pushed: Shane says yes first, and only AFTER build 126 is on his phone
--- and iPad. 126 drains every attachment an older build kept inline (base64 in
--- the binder table and its outbox) to a file on the phone; one over 25 MiB is
--- kept on that phone only and its queued upload is dropped. Pushed earlier,
--- an old build's queued 30 MB upload would be refused at this limit on every
--- sync, forever.
+-- Why it waited: 126 drains every attachment an older build kept inline
+-- (base64 in the binder table and its outbox) to a file on the phone; one over
+-- 25 MiB is kept on that phone only and its queued upload is dropped. Pushed
+-- earlier, an old build's queued 30 MB upload would be refused at this limit
+-- on every sync, forever. 126 and 127 are now on his phone and iPad.
 --
 -- The cap: file_size_limit 26214400 bytes (25 MiB), the app's own
 -- (services/vessel/vaultFiles.ts MAX_ATTACHMENT_BYTES). Every upload crosses
