@@ -203,9 +203,14 @@ export function TodayStopDetail({
               chips: [] as { ms: number; label: string; best: boolean }[],
           };
 
+    // A place beyond the five opens on the area wind's times, under them its weather along the way, loading
+    // or failed; one in Not today with times (a gap in a day over her limits) opens on why (127-PYD-5).
+    if (row.along) detail.rows.splice(detail.rows.findIndex((t) => t.startsWith('Leave ')) + 1, 0, row.along);
+    const gap = row.line2Reason ? undefined : view.notToday.find((r) => r.id === row.id)?.reason;
+    if (gap) detail.rows.unshift(`✕ ${gap[0].toUpperCase()}${gap.slice(1)}`);
     // A reviewed stop's own Parks notes stand out from the times around them, and the verdict in its level's colour.
     const notes = new Set(parksNotes(candidate));
-    const level = (plan?.weatherLoaded ? chosen?.level : row.level) ?? 'unknown';
+    const level = gap ? 'over' : ((plan?.weatherLoaded ? chosen?.level : row.level) ?? 'unknown');
     const departure = plan?.weatherLoaded ? (chosen?.departureMs ?? null) : null;
     // Blocked (other than a draft to confirm), she can still plot by hand: the row says what routing needs.
     const toRoute = !!route && (busy || (!state && (!route.blocked || route.blocked.action === 'confirm-draft')));

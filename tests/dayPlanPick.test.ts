@@ -489,8 +489,13 @@ describe('backfill: a ✕ on the card is replaced by a checked backup that fits'
                         const who = `${name} ${date} ${stay}, ${short(row)} blown`;
                         expect(spacingIssues(view), who).toEqual([]);
                         expect(tagIssues(view, VISITED), who).toEqual([]);
+                        // A route-checked backup that fits (127-PYD-5: the other rows are on the area wind).
+                        const checked = new Set(view.needsLegs.map((n) => n.id));
                         const fits = [...view.rows.values()].some(
-                            (r) => !view.top.includes(r) && (r.level === 'inside' || r.level === 'near'),
+                            (r) =>
+                                checked.has(r.id) &&
+                                !view.top.includes(r) &&
+                                (r.level === 'inside' || r.level === 'near'),
                         );
                         if (fits)
                             expect(

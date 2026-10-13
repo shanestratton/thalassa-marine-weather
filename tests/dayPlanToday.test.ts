@@ -364,9 +364,10 @@ describe("Shane's case: Coral Sea Marina, Thursday 8 October, a south-east trade
             expect(row.plan?.weatherLoaded).toBe(true);
             expect(['inside', 'near']).toContain(row.level);
         }
-        // The rest of the ranked stops: "route weather not checked", never "Fits".
+        // The rest of the ranked stops: on the area wind (127-PYD-5: its times, the basis said once in the
+        // list's heading), never "Fits".
         expect(view.unchecked.length).toBeGreaterThan(0);
-        for (const row of view.unchecked) expect(row.line2).toMatch(/route weather not checked$/);
+        for (const row of view.unchecked) expect(row.plan?.area).toBe(true);
     });
 
     it('Cid Harbour keeps its Parks shark warning, under the stay, in its detail', () => {
@@ -1941,7 +1942,9 @@ describe('a free plan for every place: the area wind (127-PYD-4)', () => {
             const view = planWithLegs({ pinDepth: pin, draftM: 2.4 }, trade16);
             let forWind = 0;
             let reviewed = 0;
-            for (const row of view.rows.values()) {
+            // The five whose pins were asked (127-PYD-5: every other place has a row too, on the area wind).
+            for (const { id } of view.needsLegs) {
+                const row = view.rows.get(id)!;
                 const plan = row.plan!;
                 expect(plan, row.name).toBeTruthy();
                 const shown = stopDetail({
@@ -2266,5 +2269,218 @@ describe('a routed stop (127-PYD-2): its times walk the routed line, and the pic
         expect(detail.rows.find((r) => r.startsWith('Leave '))).toMatch(
             /^Leave \d\d:\d\d → there \d\d:\d\d \(estimate: route weather didn't load\)$/,
         );
+    });
+});
+
+// ── 18. Every place opens (build 128, 127-PYD-5) ───────────────
+
+/**
+ * Shane, 2026-10-10: "why does it only ever show the same 3 destinations." The
+ * card holds three; All places holds the rest, and every one of them opens:
+ * planned on the area wind at once (zero requests), and, once she has opened
+ * it, on the weather along the way (`opened`: two requests, once per place per
+ * start). Opening is the only trigger: nothing sweeps the list.
+ */
+describe('every place opens (127-PYD-5): any place she opens is planned, the area wind first', () => {
+    const first = planDay(input({}));
+    const checks = first.needsLegs.map((n) => n.id);
+    const beyond = first.ranked.map((p) => p.candidate.id).filter((id) => !checks.includes(id));
+    /** A place beyond the five that the area wind does not rule out. */
+    const open = beyond.filter((id) => first.rows.get(id)?.level !== 'over');
+    const ids = (rows: readonly { id: string }[]) => rows.map((r) => r.id);
+    const TIMES_BACK = /^\d\d:\d\d → \d\d:\d\d · back \d\d:\d\d$/;
+
+    it('rows holds every planned place: beyond the five, its times on the area wind, said so only to VoiceOver', () => {
+        expect(checks).toHaveLength(5);
+        expect(open.length).toBeGreaterThan(5);
+        for (const pre of first.ranked) expect(first.rows.has(pre.candidate.id), pre.candidate.name).toBe(true);
+        for (const id of beyond) {
+            const row = first.rows.get(id)!;
+            expect(row.plan?.area, row.name).toBe(true);
+            expect(row.pending).toBe(false);
+            // Decision 6: the basis is in the list's heading and the aria label, never on the row.
+            expect(row.line2).not.toMatch(/area|not checked/);
+            if (row.line2Reason === null) {
+                expect(row.line2).toMatch(TIMES_BACK);
+                expect(row.ariaLabel.match(/\(area wind\)/g), row.ariaLabel).toHaveLength(1);
+            }
+        }
+        // Each in exactly one section.
+        const listed = [...ids(first.fits), ...ids(first.unchecked), ...ids(first.notToday)];
+        for (const id of beyond) expect(listed.filter((x) => x === id)).toHaveLength(1);
+        for (const id of open) expect(ids(first.unchecked)).toContain(id);
+    });
+
+    it('her why line never takes its sail or its time from the area wind', () => {
+        for (const id of beyond)
+            expect(first.rows.get(id)!.why ?? '').not.toMatch(/under way|both ways|sailing|beating|motoring/);
+    });
+
+    it('the places she opened join needsLegs once, after the five; opening is the only trigger', () => {
+        const [a, b] = open;
+        const view = planDay(input({ opened: new Set([a, checks[0], b, 'osm-node-not-a-place']) }));
+        expect(view.needsLegs.map((n) => n.id)).toEqual([...checks, a, b]);
+        expect(view.needsLegs.find((n) => n.id === a)?.coords).toHaveLength(2);
+        // Nothing else asks: not the list, not a chip.
+        expect(planDay(input({})).needsLegs.map((n) => n.id)).toEqual(checks);
+        // Offline nothing is asked at all.
+        expect(planDay(input({ atmos: null, weather: 'offline', opened: new Set([a]) })).needsLegs).toEqual([]);
+    });
+
+    it('an opened place waits on the area wind, then moves to Fits or Not today when its legs arrive; the card never moves', () => {
+        const id = open[0];
+        const opened = new Set([id]);
+        const asked = planDay(input({ opened }));
+        const waiting = asked.rows.get(id)!;
+        expect(waiting.pending).toBe(true);
+        expect(waiting.plan?.area).toBe(true);
+        expect(waiting.line2).toMatch(TIMES_BACK);
+        expect(ids(asked.unchecked)).toContain(id);
+        const legs = legsFor(asked, SE_TRADE);
+        const view = planDay(input({ opened, legs }));
+        const row = view.rows.get(id)!;
+        expect(row.pending).toBe(false);
+        expect(row.plan?.area).toBe(false);
+        expect(row.plan?.weatherLoaded).toBe(true);
+        expect(ids(view.unchecked)).not.toContain(id);
+        expect([...ids(view.fits), ...ids(view.notToday)]).toContain(id);
+        // Its weather along the way changes its own row only.
+        expect(ids(view.top)).toEqual(ids(planDay(input({ legs: legsFor(first, SE_TRADE) })).top));
+    });
+
+    it('All places is sorted by distance within each section', () => {
+        const view = planWithLegs({}, SE_TRADE);
+        const sorted = (nm: number[]) => expect([...nm].sort((x, y) => x - y)).toEqual(nm);
+        sorted(view.fits.map((r) => r.candidate.straightNm));
+        sorted(view.unchecked.map((r) => r.candidate.straightNm));
+        sorted(view.notToday.map((r) => r.straightNm));
+        expect(view.unchecked.length).toBeGreaterThan(3);
+    });
+
+    it('a place the area wind rules out has its row too: ✕ with the reason, and its page opens on it', () => {
+        const gale = atmos(Math.floor(NOW / H) * H, (m) => ({ kts: 26 + (m % 5), dir: 135, gust: 35 }));
+        const view = planWithLegs({ atmos: gale }, () => ({ kts: 28, dir: 135, gust: 35 }));
+        const checked = new Set(view.needsLegs.map((n) => n.id));
+        const ruledOut = view.notToday.filter((r) => view.rows.has(r.id) && !checked.has(r.id));
+        expect(ruledOut.length).toBeGreaterThan(3);
+        for (const r of ruledOut) {
+            const row = view.rows.get(r.id)!;
+            expect(row.level).toBe('over');
+            expect(row.line2Reason).toMatch(/^(SE \d+ kn|Gusts \d+ kn) in the area$/);
+            // Said once: "in the area" already is the basis.
+            expect(row.ariaLabel).not.toMatch(/area wind/);
+            const page = stopDetail({
+                plan: row.plan!,
+                stay: '2h',
+                window: view.window,
+                speed: SAIL,
+                polarIsOwn: false,
+                leavingMarina: false,
+            });
+            expect(page.rows[0]).toBe(`✕ Over your limits: ${row.reason}`);
+            expect(page.rows.some((t) => /^Leave \d\d:\d\d → there \d\d:\d\d/.test(t))).toBe(true);
+            expect(page.footnote).toMatch(/ on the area wind \(.+\)\. No current\./);
+        }
+        // Light misses, closures and no-anchoring places have nothing to plan: no row.
+        for (const r of view.notToday.filter((x) => !view.ranked.some((p) => p.candidate.id === x.id)))
+            expect(view.rows.has(r.id)).toBe(false);
+    });
+
+    it('Horta (Azores): a place beyond the five opens on its own clock, and is asked for once she opens it', () => {
+        const HORTA = { lat: 38.533, lon: -28.627, name: 'Marina da Horta' };
+        const now = Date.UTC(2026, 9, 8, 8);
+        const zone = 'Atlantic/Azores';
+        const points = [
+            [9501, 'Baía Fictícia Um', 38.47, -28.53],
+            [9502, 'Enseada Fictícia Dois', 38.56, -28.52],
+            [9503, 'Baía Fictícia Três', 38.42, -28.45],
+            [9504, 'Calheta Fictícia Quatro', 38.6, -28.72],
+            [9505, 'Baía Fictícia Cinco', 38.5, -28.4],
+            [9506, 'Enseada Fictícia Seis', 38.45, -28.62],
+            [9507, 'Porto Fictício Sete', 38.65, -28.55],
+            [9508, 'Baía Fictícia Oito', 38.38, -28.7],
+        ] as const;
+        const horta = (over: Partial<DayPlanInput> = {}) =>
+            input({
+                nowMs: now,
+                zone,
+                start: HORTA,
+                atmos: trade(Math.floor(now / H) * H),
+                tides: null,
+                places: gatherPlaces({
+                    start: HORTA,
+                    nowMs: now,
+                    radiusNm: 30,
+                    atlas: [],
+                    osm: [{ points: points.map(([n, name, lat, lon]) => osmPoint(n, name, lat, lon)), stale: false }],
+                    coastline: null,
+                }),
+                ...over,
+            });
+        const view = planDay(horta());
+        const asked = view.needsLegs.map((n) => n.id);
+        const rest = view.ranked.map((p) => p.candidate.id).filter((id) => !asked.includes(id));
+        expect(rest.length).toBeGreaterThanOrEqual(2);
+        const id = rest[0];
+        const row = view.rows.get(id)!;
+        expect(row.plan?.area).toBe(true);
+        expect(row.kind).toBe('Mapped anchorage · not reviewed');
+        // The place's clock: 09:00 AZOST at the earliest (opened 08:00), never the phone's.
+        const leave = row.plan!.best!.departureMs;
+        expect(hhmm(leave, zone) >= '09:00').toBe(true);
+        const opened = planDay(horta({ opened: new Set([id]) }));
+        expect(opened.needsLegs.map((n) => n.id)).toEqual([...asked, id]);
+        const legs = legsFor(opened, SE_TRADE, { from: Math.floor(now / H) * H });
+        const after = planDay(horta({ opened: new Set([id]), legs }));
+        expect(after.rows.get(id)!.plan?.area).toBe(false);
+        expect([...ids(after.fits), ...ids(after.notToday)]).toContain(id);
+    });
+
+    it('an opened place whose weather along the way fails keeps its area-wind times, says so, and stays on the area wind', () => {
+        const id = open[0];
+        const opened = new Set([id]);
+        const asked = planDay(input({ opened }));
+        expect(asked.rows.get(id)!.along).toBe('Checking the weather along the way…');
+        // A proxy 5xx at anchor: her place's two requests fail, the five's answered.
+        const legs = legsFor(asked, SE_TRADE);
+        legs.set(id, { headline: null, headlineModel: 'ECMWF', spread: null, sea: null, failed: true });
+        const view = planDay(input({ opened, legs }));
+        const row = view.rows.get(id)!;
+        expect(row.pending).toBe(false);
+        expect(row.plan?.area).toBe(true);
+        expect(row.line2).toBe(first.rows.get(id)!.line2);
+        expect(row.line2).toMatch(TIMES_BACK);
+        expect(row.along).toBe("Weather along the way didn't load: times on the area wind.");
+        expect(ids(view.unchecked)).toContain(id);
+        expect(ids(view.notToday)).not.toContain(id);
+        // Not opened, nothing is said; one of the five whose weather failed is still "weather didn't load".
+        expect(first.rows.get(id)!.along).toBeNull();
+        legs.set(checks[0], { headline: null, headlineModel: 'ECMWF', spread: null, sea: null, failed: true });
+        const five = planDay(input({ opened, legs }));
+        expect(five.notToday.find((r) => r.id === checks[0])?.reason).toBe("weather didn't load");
+        expect(five.rows.get(checks[0])!.along).toBeNull();
+    });
+
+    it('a day over her limits with a gap leaves no ✓ or ≈ on the area wind: every gap is in Not today', () => {
+        // The gap day above (a blow all day but 07:00-13:00 local), on every place at Airlie.
+        const gapFrom = Date.UTC(2026, 9, 7, 21);
+        const gapTo = Date.UTC(2026, 9, 8, 3);
+        const inGap = (t: number) => t >= gapFrom && t < gapTo;
+        const blow = atmos(Math.floor(NOW / H) * H, (m, t) =>
+            inGap(t) ? { kts: 9 + (m % 3), dir: 135 } : { kts: 27 + (m % 3), dir: 135, gust: 36 },
+        );
+        const view = planWithLegs({ atmos: blow, stay: '1h' }, (_, t) =>
+            inGap(t) ? { kts: 10, dir: 135, gust: 14 } : { kts: 28, dir: 135, gust: 36 },
+        );
+        expect(view.state).toBe('stay-put');
+        expect(view.fits).toEqual([]);
+        for (const row of view.unchecked) expect(['inside', 'near'], row.name).not.toContain(row.level);
+        const checked = new Set(view.needsLegs.map((n) => n.id));
+        const gaps = [...view.rows.values()].filter((r) => r.level === 'inside' || r.level === 'near');
+        expect(gaps.filter((r) => !checked.has(r.id)).length).toBeGreaterThan(3);
+        for (const row of gaps)
+            expect(view.notToday.find((r) => r.id === row.id)?.reason, row.name).toMatch(
+                /^over your limits most of the day \(a gap: leave \d\d:\d\d\)$/,
+            );
     });
 });

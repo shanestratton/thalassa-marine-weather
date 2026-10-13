@@ -39,7 +39,17 @@ import { awaitSettingsLoaded, useSettingsStore } from '../stores/settingsStore';
 import type { VesselProfile } from '../types/vessel';
 import { DEFAULT_VESSEL } from '../utils/defaultVessel';
 import { resolveDayPlanLimits } from '../services/dayPlanner/today';
-import { H, MARINA, NOUMEA, NOW, fakeTodayDeps, type DayPlanScenario } from './helpers/dayPlanFixtures';
+import {
+    H,
+    MARINA,
+    NOUMEA,
+    NOW,
+    fakeTodayDeps,
+    osmAnchorage,
+    pointBlock,
+    routeSpread,
+    type DayPlanScenario,
+} from './helpers/dayPlanFixtures';
 import { routeStop, type StopRouteDeps, type StopRouteRequest } from '../services/dayPlanner/stopRoute';
 import type { AutoroutingTrialRequest, AutoroutingTrialRoute } from '../types/autorouting';
 import { DraftConfirmModal } from '../components/vessel/DraftConfirmModal';
@@ -151,6 +161,27 @@ async function stopRows(dialog: HTMLElement, count = 3) {
     });
     return within(list).getAllByRole('button');
 }
+
+/** A stop page's title, from the name its row shows (a reviewed stop's page has it whole). */
+const titled = (name: string) => new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+
+/** All places, once it can open (127-PYD-5: every planned place in it is a button). */
+async function toPlaces(dialog: HTMLElement) {
+    const link = await within(dialog).findByRole('button', { name: /^All places/ });
+    await waitFor(() => expect(link).toBeEnabled());
+    fireEvent.click(link);
+    return screen.findByRole('dialog', { name: /^Places near / });
+}
+
+/** The list under one of All places' headings. */
+const placesUnder = (places: HTMLElement, heading: string) =>
+    within(places).getByRole('heading', { name: heading }).nextElementSibling as HTMLElement;
+
+/** A place's row in All places, by the name it shows, whichever heading it is under. */
+const placeRow = (places: HTMLElement, name: string) =>
+    within(places)
+        .getAllByRole('button')
+        .find((b) => b.querySelector('.today-stop-name')?.textContent === name);
 
 beforeEach(async () => {
     setAuthIdentityScope(null);
@@ -670,13 +701,388 @@ describe('All places', () => {
         const places = await screen.findByRole('dialog', { name: /^Places near / });
         expect(within(places).getByRole('heading', { name: 'Fits today' })).toBeTruthy();
         expect(within(places).getByRole('heading', { name: 'Not today' })).toBeTruthy();
-        // Beyond the best three the route weather was not checked: never listed as fitting.
-        expect(within(places).getByRole('heading', { name: 'Weather not checked' })).toBeTruthy();
-        expect(within(places).getAllByText(/ · about \d+ NM · route weather not checked$/).length).toBeGreaterThan(0);
+        // Beyond the five the weather along the way was not checked: on the area wind (127-PYD-5), its times,
+        // the basis said once in the heading, and never listed as fitting.
+        expect(within(places).getByRole('heading', { name: 'On the area wind' })).toBeTruthy();
+        expect(within(places).queryByText(/route weather not checked/)).toBeNull();
         // Nara Inlet is closed for the week (Queensland Parks), whatever the weather.
         expect(within(places).getByText(/^Nara Inlet( · .+)? · closed 6–15 Oct \(Queensland Parks\)$/)).toBeTruthy();
         fireEvent.click(within(places).getByRole('button', { name: 'Close' }));
         await waitFor(() => expect(screen.queryByRole('dialog', { name: /^Places near / })).toBeNull());
+    });
+});
+
+// ── 127-PYD-5: every place opens ──────────────────────────────
+//
+// Shane, 2026-10-10: "why does it only ever show the same 3 destinations." The
+// card holds three; every other place in All places opens too: at once on the
+// area wind, then on the weather along the way (two requests, once per place).
+
+describe('Every place opens (127-PYD-5)', () => {
+    it('every planned place is a compact button under its heading; a closed place stays a plain line', async () => {
+        const { dialog } = open();
+        await stopRows(dialog);
+        const places = await toPlaces(dialog);
+        for (const heading of ['Fits today', 'On the area wind', 'Not today'])
+            expect(within(places).getByRole('heading', { name: heading })).toBeTruthy();
+        const fits = within(placesUnder(places, 'Fits today')).getAllByRole('button');
+        const area = within(placesUnder(places, 'On the area wind')).getAllByRole('button');
+        expect(fits.length).toBeGreaterThan(0);
+        expect(area.length).toBeGreaterThan(5);
+        for (const row of [...fits, ...area]) {
+            expect(row).toHaveAttribute('aria-haspopup', 'dialog');
+            // Compact (decision 3): no tag, and line 2 is its times (or a ✕ row's reason), the basis never on it.
+            expect(row.querySelector('.today-tag')).toBeNull();
+            expect(row.querySelector('.today-stop-l2')!.textContent).not.toMatch(/not checked|area wind/);
+        }
+        for (const row of area.filter((r) => /→/.test(r.querySelector('.today-stop-l2')!.textContent!)))
+            expect(row.getAttribute('aria-label')!.match(/\(area wind\)/g)).toHaveLength(1);
+        for (const row of fits) expect(row.getAttribute('aria-label')).not.toMatch(/area wind/);
+        // Nara Inlet is closed this week: nothing to plan, its reason on a plain line.
+        const nara = within(places).getByText(/^Nara Inlet( · .+)? · closed 6–15 Oct \(Queensland Parks\)$/);
+        expect(nara.closest('button')).toBeNull();
+        // Every ranked place opens: what stays a plain line is what has nothing to plan (closed, no anchoring,
+        // not ranked, or out of the day's light at her speed).
+        for (const line of places.querySelectorAll('li.today-place-line'))
+            expect(line.textContent).toMatch(
+                /closed |no anchoring here|not ranked|at your speed|too far|in the last of the light|no daylight/,
+            );
+    });
+
+    it('a place beyond the five opens at once on the area wind, asks its weather along the way once, and Back returns to the list', async () => {
+        // The five answer at once; a later ask waits until it is let go.
+        const fake = fakeTodayDeps({ atlas: QLD_TILE.features });
+        let release!: () => void;
+        const held = new Promise<void>((done) => (release = done));
+        let asks = 0;
+        const sheetIo = io({
+            loader: {
+                loadRouteSpread: async (coords, ids) => {
+                    if (++asks > 5) await held;
+                    return fake.loadRouteSpread(coords, ids);
+                },
+            },
+        });
+        const { dialog } = open({ sheetIo });
+        await stopRows(dialog);
+        expect(sheetIo.loader.loadRouteSpread).toHaveBeenCalledTimes(5);
+        let places = await toPlaces(dialog);
+        const row = within(placesUnder(places, 'On the area wind')).getAllByRole('button')[0];
+        const name = row.querySelector('.today-stop-name')!.textContent!;
+        fireEvent.click(row);
+        const detail = await screen.findByRole('dialog', { name: titled(name) });
+        // At once: its times on the area wind, said so, while the weather along the way loads (2 requests).
+        expect(within(detail).getByText('Checking the weather along the way…')).toBeTruthy();
+        expect(within(detail).getByText(/^Leave \d\d:\d\d → there \d\d:\d\d \(/)).toBeTruthy();
+        expect(within(detail).getByText('Sea: not checked on the area wind')).toBeTruthy();
+        expect(within(detail).getByText(/ on the area wind \(.+\)\. No current\./)).toBeTruthy();
+        await waitFor(() => expect(sheetIo.loader.loadRouteSpread).toHaveBeenCalledTimes(6));
+        expect(sheetIo.loader.loadRouteSea).toHaveBeenCalledTimes(6);
+        await act(async () => release());
+        await waitFor(() => expect(within(detail).queryByText('Checking the weather along the way…')).toBeNull());
+        expect(within(detail).queryByText(/on the area wind/)).toBeNull();
+        expect(within(detail).getByText(/ in .+ wind\. No current\./)).toBeTruthy();
+        // Back is the list she came from, focus on her place, now checked along the way.
+        fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
+        places = await screen.findByRole('dialog', { name: /^Places near / });
+        const back = placeRow(places, name)!;
+        await waitFor(() => expect(document.activeElement).toBe(back));
+        expect(placesUnder(places, 'On the area wind').contains(back)).toBe(false);
+        // A second tap asks nothing more.
+        fireEvent.click(back);
+        await screen.findByRole('dialog', { name: titled(name) });
+        expect(sheetIo.loader.loadRouteSpread).toHaveBeenCalledTimes(6);
+        expect(sheetIo.loader.loadRouteSea).toHaveBeenCalledTimes(6);
+    });
+
+    it('on a day over her limits, a place in Not today opens on its reason, then its times', async () => {
+        const { dialog } = open({ sheetIo: io({ scenario: 'over' }) });
+        await waitFor(() =>
+            expect(within(dialog).getByTestId('day-plan-headline')).toHaveTextContent(/^Stay put today/),
+        );
+        const places = await toPlaces(dialog);
+        const rows = within(placesUnder(places, 'Not today')).getAllByRole('button');
+        expect(rows.length).toBeGreaterThan(5);
+        const row = rows.find((b) => /in the area$/.test(b.querySelector('.today-stop-l2')!.textContent!))!;
+        const why = row.querySelector('.today-stop-l2')!.textContent!;
+        expect(row.querySelector('.today-stop-glyph')).toHaveTextContent('✕');
+        fireEvent.click(row);
+        const detail = await screen.findByRole('dialog', {
+            name: titled(row.querySelector('.today-stop-name')!.textContent!),
+        });
+        const items = within(within(detail).getByRole('list', { name: 'How the day goes' })).getAllByRole('listitem');
+        // Its reason first: the area wind's, or by now the weather along the way's (asked as it opened).
+        expect(why).toMatch(/^SE \d+ kn in the area$/);
+        expect(items[0]).toHaveTextContent(/^✕ Over your limits: SE \d+ kn (in the area|on the way)$/);
+        expect(items[0]).toHaveAttribute('data-level', 'over');
+        expect(within(detail).getByText(/^Leave \d\d:\d\d → there \d\d:\d\d \(/)).toBeTruthy();
+        // Nara Inlet, closed whatever the weather, is still a plain line.
+        fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
+        const list = await screen.findByRole('dialog', { name: /^Places near / });
+        expect(
+            within(list)
+                .getByText(/^Nara Inlet( · .+)? · closed /)
+                .closest('button'),
+        ).toBeNull();
+    });
+
+    it('a thunder afternoon still has places to open, each with its reason first', async () => {
+        const { dialog } = open({ sheetIo: io({ scenario: 'thunder' }) });
+        await within(dialog).findByRole('list', { name: 'Stops' });
+        fireEvent.change(within(dialog).getByRole('combobox', { name: 'Stay' }), { target: { value: '4h' } });
+        const places = await toPlaces(dialog);
+        const rows = [...places.querySelectorAll<HTMLElement>('button.today-stop')];
+        expect(rows.length).toBeGreaterThan(3);
+        const bolt = rows.find((b) => b.querySelector('.today-stop-l2')!.textContent === '⚡ Thunder on the way home');
+        expect(bolt).toBeTruthy();
+        fireEvent.click(bolt!);
+        const detail = await screen.findByRole('dialog', {
+            name: titled(bolt!.querySelector('.today-stop-name')!.textContent!),
+        });
+        expect(
+            within(within(detail).getByRole('list', { name: 'How the day goes' })).getAllByRole('listitem')[0],
+        ).toHaveTextContent(/^✕ Over your limits: thunder in \d of 7 models on the way home$/);
+    });
+
+    it('a place opened from the list stays open while the card changes behind it', async () => {
+        // Everything waits; the card's first pick then meets 30 kn on the way, and a checked backup takes its slot.
+        const fake = fakeTodayDeps({ atlas: QLD_TILE.features });
+        let release!: () => void;
+        const held = new Promise<void>((done) => (release = done));
+        let asks = 0;
+        const sheetIo = io({
+            loader: {
+                loadRouteSpread: async (coords, ids) => {
+                    const first = ++asks === 1;
+                    await held;
+                    return first
+                        ? routeSpread(coords, 30, Math.floor(NOW / H) * H, NOW)
+                        : fake.loadRouteSpread(coords, ids);
+                },
+            },
+        });
+        const { dialog } = open({ sheetIo });
+        const card = () =>
+            [...dialog.querySelectorAll('.today-col-b .today-stops .today-stop-name')].map((n) => n.textContent);
+        await waitFor(() => expect(card()).toHaveLength(3));
+        const before = card();
+        const places = await toPlaces(dialog);
+        const row = within(placesUnder(places, 'On the area wind'))
+            .getAllByRole('button')
+            .find((b) => /→/.test(b.querySelector('.today-stop-l2')!.textContent!))!;
+        const name = row.querySelector('.today-stop-name')!.textContent!;
+        fireEvent.click(row);
+        const detail = await screen.findByRole('dialog', { name: titled(name) });
+        await act(async () => release());
+        await waitFor(() => expect(card()).not.toEqual(before));
+        expect(card()[0]).not.toBe(before[0]);
+        expect(detail.isConnected).toBe(true);
+        expect(screen.getByRole('dialog', { name: titled(name) })).toBe(detail);
+        await waitFor(() => expect(within(detail).queryByText('Checking the weather along the way…')).toBeNull());
+    });
+
+    it('"On the area wind" heads only rows on the area wind: the five still checking sit under "Weather not checked"', async () => {
+        let release!: () => void;
+        const held = new Promise<void>((done) => (release = done));
+        const fake = fakeTodayDeps({ atlas: QLD_TILE.features });
+        const sheetIo = io({
+            loader: {
+                loadRouteSpread: async (coords, ids) => {
+                    await held;
+                    return fake.loadRouteSpread(coords, ids);
+                },
+            },
+        });
+        const { dialog } = open({ sheetIo });
+        await waitFor(() => expect(sheetIo.loader.loadRouteSpread).toHaveBeenCalledTimes(5));
+        const places = await toPlaces(dialog);
+        const l2 = (heading: string) =>
+            within(placesUnder(places, heading))
+                .getAllByRole('button')
+                .map((b) => b.querySelector('.today-stop-l2')!.textContent!);
+        const checking = l2('Weather not checked');
+        expect(checking.length).toBeGreaterThanOrEqual(3);
+        for (const text of checking) expect(text).toMatch(/^About \d+ NM · checking the route$/);
+        for (const text of l2('On the area wind')) expect(text).not.toMatch(/checking the route|weather not checked/);
+        await act(async () => release());
+        await waitFor(() => expect(within(places).queryByRole('heading', { name: 'Weather not checked' })).toBeNull());
+    });
+
+    it('a place beyond the five whose weather along the way fails keeps its area-wind times, and says so', async () => {
+        // The five answer; every later ask fails (a proxy 5xx at anchor, on a flaky link).
+        const fake = fakeTodayDeps({ atlas: QLD_TILE.features });
+        let asks = 0;
+        const sheetIo = io({
+            loader: {
+                loadRouteSpread: async (coords, ids) => {
+                    if (++asks > 5) throw new Error('proxy 503');
+                    return fake.loadRouteSpread(coords, ids);
+                },
+                loadRouteForecast: async () => {
+                    throw new Error('proxy 503');
+                },
+            },
+        });
+        const { dialog } = open({ sheetIo });
+        await stopRows(dialog);
+        let places = await toPlaces(dialog);
+        const row = within(placesUnder(places, 'On the area wind')).getAllByRole('button')[0];
+        const name = row.querySelector('.today-stop-name')!.textContent!;
+        const times = row.querySelector('.today-stop-l2')!.textContent!;
+        expect(times).toMatch(TIMES_BACK);
+        fireEvent.click(row);
+        const detail = await screen.findByRole('dialog', { name: titled(name) });
+        await waitFor(() => expect(sheetIo.loader.loadRouteForecast).toHaveBeenCalledOnce());
+        // Its times stay, on the area wind, and the page says the weather along the way did not load.
+        expect(
+            await within(detail).findByText("Weather along the way didn't load: times on the area wind."),
+        ).toBeTruthy();
+        expect(within(detail).queryByText('Checking the weather along the way…')).toBeNull();
+        expect(within(detail).getByText(/^Leave \d\d:\d\d → there \d\d:\d\d \(/)).toBeTruthy();
+        expect(within(detail).queryByText(/No times without a forecast/)).toBeNull();
+        // Back in the list it is where it was, with the same times: not "Not today" for a network failure.
+        fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
+        places = await screen.findByRole('dialog', { name: /^Places near / });
+        const back = placeRow(places, name)!;
+        expect(placesUnder(places, 'On the area wind').contains(back)).toBe(true);
+        expect(back.querySelector('.today-stop-l2')).toHaveTextContent(times);
+    });
+
+    it('on a day over her limits with a gap, no place in All places wears a ✓ or ≈; each gap opens on why', async () => {
+        // A blow all day but 07:00-13:00 at Airlie (the engine's gap day), a 1 h stay.
+        const gapFrom = Date.UTC(2026, 9, 7, 21);
+        const gapTo = Date.UTC(2026, 9, 8, 3);
+        const blow = pointBlock(Math.floor(NOW / H) * H, (m, t) =>
+            t >= gapFrom && t < gapTo ? { kts: 9 + (m % 3), dir: 135 } : { kts: 27 + (m % 3), dir: 135, gust: 36 },
+        );
+        const sheetIo = io({ loader: { querySpread: async () => ({ atmos: blow, marine: null }) } });
+        const { dialog } = open({ sheetIo });
+        fireEvent.change(await within(dialog).findByRole('combobox', { name: 'Stay' }), { target: { value: '1h' } });
+        await waitFor(() =>
+            expect(within(dialog).getByTestId('day-plan-headline')).toHaveTextContent(/^Stay put today/),
+        );
+        const places = await toPlaces(dialog);
+        // The five's weather along the way in (theirs are gaps too).
+        await waitFor(() => expect(within(places).queryByText(/checking the route/)).toBeNull());
+        const rows = [...places.querySelectorAll<HTMLElement>('button.today-stop')];
+        expect(rows.length).toBeGreaterThan(5);
+        for (const r of rows)
+            expect(['inside', 'near'], r.getAttribute('aria-label')!).not.toContain(r.getAttribute('data-level'));
+        const gaps = rows.filter((r) =>
+            /^Over your limits most of the day \(a gap: leave \d\d:\d\d\)$/.test(
+                r.querySelector('.today-stop-l2')!.textContent!,
+            ),
+        );
+        // The five's and the places on the area wind alike.
+        expect(gaps.length).toBeGreaterThan(5);
+        for (const r of gaps) {
+            expect(placesUnder(places, 'Not today').contains(r)).toBe(true);
+            expect(r.querySelector('.today-stop-glyph')).toHaveTextContent('✕');
+            expect(r).toHaveAttribute('data-level', 'over');
+        }
+        // A card stop that found the gap (checked along the way, so its row stays a gap as it opens).
+        const card = [...dialog.querySelectorAll<HTMLElement>('.today-col-b button.today-stop')].find((b) =>
+            ['inside', 'near'].includes(b.getAttribute('data-level')!),
+        )!;
+        const name = card.querySelector('.today-stop-name')!.textContent!;
+        expect(gaps).toContain(placeRow(places, name));
+        fireEvent.click(placeRow(places, name)!);
+        const detail = await screen.findByRole('dialog', { name: titled(name) });
+        // Decision 4: its page leads with why it is not today, then the gap's times.
+        const items = within(within(detail).getByRole('list', { name: 'How the day goes' })).getAllByRole('listitem');
+        expect(items[0]).toHaveTextContent(/^✕ Over your limits most of the day \(a gap: leave \d\d:\d\d\)$/);
+        expect(items[0]).toHaveAttribute('data-level', 'over');
+        expect(within(detail).getByText(/^Leave \d\d:\d\d → there \d\d:\d\d \(/)).toBeTruthy();
+    });
+
+    it('a page whose place leaves the list as OpenStreetMap answers goes back to All places', async () => {
+        // Five fictional atlas bays with no land table, then forty nearer OpenStreetMap points: past the 40,
+        // the bays are "not ranked".
+        const bays = [0, 1, 2, 3, 4].map(
+            (i): AtlasFeature => ({
+                type: 'Feature',
+                properties: {
+                    id: `atlas-fictional-${i}`,
+                    name: `Fictional Bay ${i}`,
+                    kind: 'anchorage',
+                    likelyAnchorage: true,
+                } as AtlasFeature['properties'],
+                geometry: { type: 'Point', coordinates: [MARINA.lon + 0.1 + i * 0.02, MARINA.lat - 0.05] },
+            }),
+        );
+        const osm = Array.from({ length: 40 }, (_, i) =>
+            osmAnchorage(9600 + i, `Fictional Node ${i}`, {
+                lat: MARINA.lat - 0.02 - (i % 8) * 0.004,
+                lon: MARINA.lon + 0.03 + Math.floor(i / 8) * 0.004,
+            }),
+        );
+        let release!: () => void;
+        const held = new Promise<void>((done) => (release = done));
+        const sheetIo = io({
+            loader: {
+                loadAtlas: async () => bays,
+                loadReferenceTile: async () => {
+                    await held;
+                    return { points: osm, stale: false };
+                },
+            },
+        });
+        const { dialog } = open({ sheetIo });
+        const places = await toPlaces(dialog);
+        fireEvent.click(placeRow(places, 'Fictional Bay 4')!);
+        const detail = await screen.findByRole('dialog', { name: /^Fictional Bay 4/ });
+        await act(async () => release());
+        await waitFor(() => expect(detail.isConnected).toBe(false));
+        // Back on the list she came from, where it now says why it is not there.
+        const list = await screen.findByRole('dialog', { name: /^Places near / });
+        expect(within(list).getByText(/^Fictional Bay 4 · not ranked/)).toBeTruthy();
+    });
+
+    it('a new start forgets the places she opened at the old one: only its own five are asked', async () => {
+        const was = useSettingsStore.getState().settings;
+        useSettingsStore.setState({
+            settings: {
+                ...was,
+                homePort: 'Fixture Harbour',
+                savedLocations: ['Fixture Harbour'],
+                savedLocationCoords: { 'Fixture Harbour': { lat: -20.3, lon: 148.75 } },
+            },
+        });
+        try {
+            const sheetIo = io();
+            const { dialog } = open({ sheetIo });
+            await stopRows(dialog);
+            let places = await toPlaces(dialog);
+            // Three places beyond the five, opened and closed: two requests each.
+            const names = within(placesUnder(places, 'On the area wind'))
+                .getAllByRole('button')
+                .slice(0, 3)
+                .map((b) => b.querySelector('.today-stop-name')!.textContent!);
+            for (const name of names) {
+                fireEvent.click(placeRow(places, name)!);
+                const detail = await screen.findByRole('dialog', { name: titled(name) });
+                fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
+                places = await screen.findByRole('dialog', { name: /^Places near / });
+            }
+            await waitFor(() => expect(sheetIo.loader.loadRouteSpread).toHaveBeenCalledTimes(8));
+            fireEvent.click(within(places).getByRole('button', { name: 'Close' }));
+            fireEvent.click(within(dialog).getByRole('button', { name: /^Plan from: / }));
+            const picker = await screen.findByRole('dialog', { name: 'Plan from' });
+            fireEvent.click(within(picker).getByRole('button', { name: /Fixture Harbour/ }));
+            await waitFor(() =>
+                expect(within(dialog).getByRole('button', { name: /^Plan from: Fixture Harbour/ })).toBeTruthy(),
+            );
+            await stopRows(dialog);
+            await waitFor(() => expect(sheetIo.loader.loadRouteSpread).toHaveBeenCalledTimes(13));
+            await act(async () => {
+                await new Promise((done) => setTimeout(done, 50));
+            });
+            // The new start's five, and nothing she opened at the old one.
+            expect(sheetIo.loader.loadRouteSpread).toHaveBeenCalledTimes(13);
+            expect(sheetIo.loader.loadRouteSea).toHaveBeenCalledTimes(13);
+        } finally {
+            useSettingsStore.setState({ settings: was });
+        }
     });
 });
 
@@ -1557,5 +1963,85 @@ describe('Route round the land (127-PYD-2)', () => {
         const { detail } = await openStop({ route, routeOnOpen: true });
         await waitFor(() => expect(route.fn).toHaveBeenCalledOnce());
         await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Routed on your charts/));
+    });
+
+    // ── 127-PYD-5: every place opens, and browsing them never routes ──
+
+    /** The sheet on her confirmed boat, All places open, three places beyond the five named. */
+    async function browse(owner: boolean, route = routes()) {
+        const sheetIo = io({
+            voyageEnds: async () => null,
+            pinDepths: async (points) => points.map(() => ({ covered: false, hazard: false, minDepthM: null })),
+            ownerAccount: async () => owner,
+            routeStop: route.fn,
+        });
+        render(
+            <TodaySheet
+                vessel={CONFIRMED}
+                usingDefaultVessel={false}
+                onClose={vi.fn()}
+                onPlot={vi.fn()}
+                io={sheetIo}
+            />,
+        );
+        const dialog = screen.getByRole('dialog', { name: 'Plan Your Day' });
+        await stopRows(dialog);
+        const places = await toPlaces(dialog);
+        const names = within(placesUnder(places, 'On the area wind'))
+            .getAllByRole('button')
+            .slice(0, 3)
+            .map((b) => b.querySelector('.today-stop-name')!.textContent!);
+        /** Opens a place from the list, by name. */
+        const visit = async (name: string) => {
+            const list = await screen.findByRole('dialog', { name: /^Places near / });
+            fireEvent.click(placeRow(list, name)!);
+            return screen.findByRole('dialog', { name: titled(name) });
+        };
+        const leave = async (detail: HTMLElement) => {
+            fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
+            await waitFor(() => expect(detail.isConnected).toBe(false));
+        };
+        return { names, visit, leave, route };
+    }
+
+    for (const owner of [true, false])
+        it(`opening and closing three places in a row starts no route at all (${owner ? 'owner' : 'tester'})`, async () => {
+            const { names, visit, leave, route } = await browse(owner);
+            expect(names).toHaveLength(3);
+            for (const name of names) {
+                const detail = await visit(name);
+                // His page offers the tap (decision 2: a tap, never on open); a tester's offers no routing.
+                if (owner) expect(within(detail).getByRole('button', { name: 'Route round the land' })).toBeTruthy();
+                else expect(within(detail).queryByRole('button', { name: 'Route round the land' })).toBeNull();
+                expect(
+                    within(detail).getByRole('button', { name: owner ? 'Route round the land' : 'Plot by hand' }),
+                ).toHaveClass('today-primary');
+                await leave(detail);
+            }
+            expect(route.fn).not.toHaveBeenCalled();
+        });
+
+    it("an owner who taps Route on place A, closes it and opens B finds A's route cancelled", async () => {
+        const route = routes(
+            (_req, signal) =>
+                new Promise((_resolve, reject) =>
+                    signal!.addEventListener('abort', () => reject(new DOMException('stopped', 'AbortError'))),
+                ),
+        );
+        const { names, visit, leave } = await browse(true, route);
+        const [a, b] = names;
+        const pageA = await visit(a);
+        fireEvent.click(within(pageA).getByRole('button', { name: 'Route round the land' }));
+        await waitFor(() => expect(route.calls).toHaveLength(1));
+        expect(route.calls[0].req.stopName).toBe(a);
+        await leave(pageA);
+        expect(route.calls[0].signal.aborted).toBe(true);
+        const pageB = await visit(b);
+        expect(routeRow(pageB)).toHaveTextContent('Not routed yet: takes a few seconds.');
+        await leave(pageB);
+        // A's page, opened again, has its tap back: the route she left was dropped, not kept running.
+        const again = await visit(a);
+        expect(routeRow(again)).toHaveTextContent('Not routed yet: takes a few seconds.');
+        expect(route.fn).toHaveBeenCalledOnce();
     });
 });

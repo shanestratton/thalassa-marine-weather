@@ -608,6 +608,7 @@ export function todayInput(
                 | 'windModel'
                 | 'visited'
                 | 'pinned'
+                | 'opened'
                 | 'pinDepth'
                 | 'draftM'
                 | 'routes'

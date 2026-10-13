@@ -44,6 +44,10 @@
  * "New to you" …) where "Local notes" sat. Five get the weather along the way;
  * their pins are checked against her charts and her voyage ends are read on
  * the phone, both kept in this sheet's memory only. An open stop keeps its slot.
+ *
+ * Every place opens (128, 127-PYD-5): each row in All places with a plan is a
+ * stop button; its page opens at once on the area wind, and asks its weather
+ * along the way once (two requests). Back from it is the list.
  */
 import React, { Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { VesselProfile } from '../../types/vessel';
@@ -157,10 +161,11 @@ export interface TodaySheetProps {
     io?: TodaySheetIO;
 }
 
-type Screen = null | 'picker' | 'places' | 'sources' | { stop: string };
+/** A stop page opened from All places goes back to it (127-PYD-5). */
+type Screen = null | 'picker' | 'places' | 'sources' | { stop: string; from?: 'places' };
 
 const PART_LABELS = ['Morning', 'Afternoon', 'Evening'] as const;
-const lowerFirst = (text: string) => (text ? text[0].toLowerCase() + text.slice(1) : text);
+const upperFirst = (text: string) => text[0].toUpperCase() + text.slice(1);
 
 const startLabel = (start: PlanStart): string | null =>
     start.kind === 'saved' || start.kind === 'typed' ? start.name : null;
@@ -216,6 +221,10 @@ export default function TodaySheet({
     const [pickerFocus, setPickerFocus] = useState<'list' | 'type'>('list');
     const [visited, setVisited] = useState<LatLon[] | null>(null);
     const [pinDepth, setPinDepth] = useState<ReadonlyMap<string, PinResult>>(() => new Map());
+    /** The places she opened this start (127-PYD-5), each asked its weather along the way once; and the
+     *  one she came back to All places from, focused there. */
+    const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+    const [backTo, setBackTo] = useState<string | null>(null);
     /** Auto's chart over the sheet (127-PYD-3): her stop's routed proposal (its queue key), at the leave she
      *  chose (null when the stop page had none: then the chart's tide hour is when it was routed, or now). */
     const [chart, setChart] = useState<{
@@ -303,6 +312,7 @@ export default function TodaySheet({
         setBase(null);
         setLegs(new Map());
         setPinDepth(new Map());
+        setOpened(new Set());
         setLoadError(null);
         setDate(null);
         loadToday(
@@ -362,6 +372,7 @@ export default function TodaySheet({
                           windModel: wind.preferred,
                           visited,
                           pinned,
+                          opened,
                           pinDepth,
                           draftM,
                           routes,
@@ -380,6 +391,7 @@ export default function TodaySheet({
             wind,
             visited,
             pinned,
+            opened,
             pinDepth,
             draftM,
             routes,
@@ -454,6 +466,11 @@ export default function TodaySheet({
         setPickerFocus(focus);
         setScreen('picker');
     };
+    // Any place opens (127-PYD-5): its page at once, and its weather along the way asked once (needsLegs).
+    const openStop = (id: string, from?: 'places') => {
+        setOpened((was) => (was.has(id) ? was : new Set(was).add(id)));
+        setScreen({ stop: id, from });
+    };
 
     // Plot by hand (two marks and why) or her saved route; never a straight line (127-PYD-3).
     const plot = (row: StopRow, departureMs: number | null, why: string) => {
@@ -500,6 +517,13 @@ export default function TodaySheet({
 
     // Found by id among every checked row, so a stop whose page is open never closes under her.
     const detailRow = pinned && view ? (view.rows.get(pinned) ?? null) : null;
+    // Unless its place leaves the list (OpenStreetMap answering late): then back where she came from (127-PYD-5).
+    const lost = !!view && !!pinned && !detailRow;
+    useEffect(() => {
+        if (!lost) return;
+        setBackTo(null);
+        setScreen((was) => (typeof was === 'object' && was?.from === 'places' ? 'places' : null));
+    }, [lost]);
 
     // ── Route round the land (127-PYD-2): her saved route still wins; a tester is offered nothing ──
     const gate = stopRouteGate({
@@ -798,7 +822,7 @@ export default function TodaySheet({
                             <ul aria-label="Stops" className="today-stops">
                                 {view.top.map((row) => (
                                     <li key={row.id}>
-                                        <StopButton row={row} card onOpen={() => setScreen({ stop: row.id })} />
+                                        <StopButton row={row} card onOpen={() => openStop(row.id)} />
                                     </li>
                                 ))}
                             </ul>
@@ -836,8 +860,12 @@ export default function TodaySheet({
                 <AllPlaces
                     view={view}
                     base={base}
-                    onOpen={(id) => setScreen({ stop: id })}
-                    onClose={() => setScreen(null)}
+                    back={backTo}
+                    onOpen={(id) => openStop(id, 'places')}
+                    onClose={() => {
+                        setBackTo(null);
+                        setScreen(null);
+                    }}
                 />
             )}
             {detailRow && view && base && (
@@ -852,7 +880,12 @@ export default function TodaySheet({
                     leavingMarina={!!base.marina}
                     loadLanding={detailRow.candidate.reviewed?.landingTide ? loadLanding : null}
                     onPlot={(departureMs, why) => plot(detailRow, departureMs, why)}
-                    onBack={() => setScreen(null)}
+                    onBack={() => {
+                        // Opened from All places, Back is the list, on her row (127-PYD-5).
+                        const list = typeof screen === 'object' && screen?.from === 'places';
+                        setBackTo(list ? detailRow.id : null);
+                        setScreen(list ? 'places' : null);
+                    }}
                     hidden={!!chart}
                     route={
                         offered && openKey
@@ -938,18 +971,35 @@ function NoticeLine({ notice, onAct }: { notice: Notice; onAct: (notice: Notice)
     );
 }
 
-function StopButton({ row, card, onOpen }: { row: StopRow; card?: boolean; onOpen: () => void }) {
+function StopButton({
+    row,
+    card,
+    compact,
+    reason,
+    buttonRef,
+    onOpen,
+}: {
+    row: StopRow;
+    card?: boolean;
+    /** All places (127-PYD-5): no tag, and line 2 its times and when it was mapped, or why it is not today. */
+    compact?: boolean;
+    /** Not today with times on its row (a gap in a day over her limits): why, in place of them, drawn Over. */
+    reason?: string;
+    buttonRef?: React.Ref<HTMLButtonElement>;
+    onOpen: () => void;
+}) {
     return (
         <button
+            ref={buttonRef}
             type="button"
-            className="today-stop"
-            data-level={row.level ?? 'unknown'}
+            className={compact ? 'today-stop today-stop-compact' : 'today-stop'}
+            data-level={reason ? 'over' : (row.level ?? 'unknown')}
             aria-haspopup="dialog"
-            aria-label={row.ariaLabel}
+            aria-label={reason ? `${row.line1}. ${reason}` : row.ariaLabel}
             onClick={onOpen}
         >
             <span aria-hidden="true" className="today-stop-glyph">
-                {row.glyph}
+                {reason ? '✕' : row.glyph}
             </span>
             <span className="today-stop-text">
                 <span className="today-stop-l1">
@@ -961,17 +1011,18 @@ function StopButton({ row, card, onOpen }: { row: StopRow; card?: boolean; onOpe
                     {card && row.tag ? (
                         <span className="today-tag today-pick">{row.tag}</span>
                     ) : (
-                        row.parks && <span className="today-tag">Local notes</span>
+                        row.parks && !compact && <span className="today-tag">Local notes</span>
                     )}
                 </span>
                 {/* A ✕ or ? row says why where its times were (127-PYD-1); a routed stop's times wear the route mark. */}
                 <span className="today-stop-l2">
-                    {row.route === 'routed' && !row.line2Reason && (
+                    {row.route === 'routed' && !row.line2Reason && !reason && (
                         <span aria-hidden="true" className="today-route-mark">
                             ↝{' '}
                         </span>
                     )}
-                    {row.line2Reason ?? row.line2}
+                    {reason ?? row.line2Reason ?? row.line2}
+                    {compact && row.mapped ? ` · ${row.mapped}` : ''}
                 </span>
             </span>
             <span aria-hidden="true" className="today-chevron">
@@ -1007,33 +1058,37 @@ function PhoneButton({ io, onStart }: { io: PlacePickerIO; onStart: (start: Plan
 function AllPlaces({
     view,
     base,
+    back,
     onOpen,
     onClose,
 }: {
     view: DayPlanView;
     base: TodayBase;
+    /** The place she came back from: focus (and so the list's scroll) returns to its row. */
+    back: string | null;
     onOpen: (id: string) => void;
     onClose: () => void;
 }) {
     const day = view.isToday ? 'today' : view.dayName;
-    const swept = view.rows;
+    const backRef = useRef<HTMLButtonElement>(null);
+    useEffect(() => backRef.current?.focus(), []);
     // An OpenStreetMap place over a day old carries the date it was mapped.
     const mapped = (id: string) => {
         const at = base.places?.candidates.find((x) => x.id === id)?.mappedAtMs;
         return at === undefined ? null : `mapped ${dayMonth(at, base.zone)}`;
     };
-    const row = (r: StopRow) =>
-        swept.has(r.id) ? (
-            <li key={r.id}>
-                <StopButton row={r} onOpen={() => onOpen(r.id)} />
-            </li>
-        ) : (
-            <li key={r.id} className="today-place-line">
-                {r.name} · {r.shelter} · {lowerFirst(r.line2)}
-                {r.kind ? ` · ${lowerFirst(r.kind)}` : ''}
-                {r.mapped ? ` · ${r.mapped}` : ''}
-            </li>
-        );
+    // Every place with a plan opens (127-PYD-5); one with nothing to plan is a plain line with its reason.
+    const row = (r: StopRow, reason?: string) => (
+        <li key={r.id}>
+            <StopButton
+                row={r}
+                compact
+                reason={reason}
+                buttonRef={r.id === back ? backRef : undefined}
+                onOpen={() => onOpen(r.id)}
+            />
+        </li>
+    );
     return (
         <TodayModal title={`Places near ${base.start.name}`} onClose={onClose} className="today-list-card">
             {base.placesStatus === 'loading' && (
@@ -1046,27 +1101,38 @@ function AllPlaces({
             )}
             <h3 className="today-h3">Fits {day}</h3>
             {view.fits.length ? (
-                <ul className="today-stops">{view.fits.map(row)}</ul>
+                <ul className="today-stops">{view.fits.map((r) => row(r))}</ul>
             ) : (
                 <p className="today-place-line">
                     Nothing {view.unchecked.length ? 'checked so far ' : ''}fits {day}.
                 </p>
             )}
-            {view.unchecked.length > 0 && (
-                <>
-                    <h3 className="today-h3">Weather not checked</h3>
-                    <ul className="today-stops">{view.unchecked.map(row)}</ul>
-                </>
-            )}
+            {/* The basis, said once (decision 6): the area wind, or none yet (still checking, offline, past
+                the forecast's end). */}
+            {[true, false].map((area) => {
+                const rows = view.unchecked.filter((r) => !!r.plan?.area === area);
+                return (
+                    rows.length > 0 && (
+                        <React.Fragment key={String(area)}>
+                            <h3 className="today-h3">{area ? 'On the area wind' : 'Weather not checked'}</h3>
+                            <ul className="today-stops">{rows.map((r) => row(r))}</ul>
+                        </React.Fragment>
+                    )
+                );
+            })}
             <h3 className="today-h3">Not {day}</h3>
             {view.notToday.length ? (
-                <ul>
-                    {view.notToday.map((r) => (
-                        <li key={r.id} className="today-place-line">
-                            {r.name} · {r.reason}
-                            {mapped(r.id) ? ` · ${mapped(r.id)}` : ''}
-                        </li>
-                    ))}
+                <ul className="today-stops">
+                    {view.notToday.map((r) => {
+                        const planned = view.rows.get(r.id);
+                        if (planned) return row(planned, planned.line2Reason ? undefined : upperFirst(r.reason));
+                        return (
+                            <li key={r.id} className="today-place-line">
+                                {r.name} · {r.reason}
+                                {mapped(r.id) ? ` · ${mapped(r.id)}` : ''}
+                            </li>
+                        );
+                    })}
                 </ul>
             ) : (
                 <p className="today-place-line">Nothing ruled out.</p>
