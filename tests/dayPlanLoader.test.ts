@@ -227,6 +227,7 @@ function fakes(over: Partial<TodayLoaderDeps> = {}): Fakes {
         loadRouteForecast: async (coords, model) => routeForecast(model, coords, 15),
         loadRouteSea: async (coords) => routeSea(coords),
         loadTideCurve: async () => null,
+        loadRouteTideCurve: async () => null,
     };
     const merged = { ...base, ...over };
     return Object.fromEntries(Object.entries(merged).map(([k, f]) => [k, vi.fn(f as never)])) as unknown as Fakes;
@@ -563,6 +564,23 @@ describe('the real sources it is wired to', () => {
     it('asks the tide curve for three days, as the landing window wants', async () => {
         await TODAY_LOADER_DEPS.loadTideCurve(-20.3, 149, 1, 2);
         expect(fetchTideCurve).toHaveBeenCalledWith(-20.3, 149, 1, 2, { days: 3 });
+    });
+
+    it("asks a routed stop's tide for the router's own 14 days, so it is the curve the routing loaded (127-PYD-11)", async () => {
+        await TODAY_LOADER_DEPS.loadRouteTideCurve(38.53, -28.62, 1, 2);
+        expect(fetchTideCurve).toHaveBeenCalledWith(38.53, -28.62, 1, 2, { days: 14 });
+    });
+
+    it("gives up on a routed stop's tide after 12 s, as Auto's tide chips do: not known, never a wait", async () => {
+        vi.useFakeTimers();
+        try {
+            vi.mocked(fetchTideCurve).mockImplementationOnce(() => new Promise(() => {}));
+            const curve = TODAY_LOADER_DEPS.loadRouteTideCurve(38.53, -28.62, 1, 2);
+            await vi.advanceTimersByTimeAsync(12_000);
+            await expect(curve).resolves.toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('asks the route spread for the same five models as the passage HUD, so their caches are shared', () => {

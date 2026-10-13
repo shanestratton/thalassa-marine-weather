@@ -79,6 +79,18 @@ vi.mock('../components/autorouting/AutoroutingTrialWorkspace', () => ({
                 >
                     Retry clears it
                 </button>
+                {/* A recalculated line under the same stop (127-PYD-11's leave window keys on the line). */}
+                <button
+                    type="button"
+                    onClick={() =>
+                        day.onRechecked({
+                            ...day.proposal,
+                            coordinates: day.proposal.coordinates.map(([lon, lat]) => [lon + 0.3, lat]),
+                        })
+                    }
+                >
+                    Recalculate finds another line
+                </button>
                 <button type="button" onClick={props.onClose}>
                     Back to Plan Your Day
                 </button>
@@ -941,8 +953,8 @@ describe('Route round the land (127-PYD-2)', () => {
             routeOnOpen?: boolean;
             extra?: React.ReactNode;
             loader?: Partial<TodayLoaderDeps>;
-            /** False when the route weather fails: the rows have no times to wait for. */
-            timed?: boolean;
+            /** False when the route weather fails: the rows have no times to wait for (a string: what they say). */
+            timed?: boolean | string;
         } = {},
     ) {
         const route = options.route ?? routes();
@@ -968,10 +980,12 @@ describe('Route round the land (127-PYD-2)', () => {
         );
         const dialog = screen.getByRole('dialog', { name: 'Plan Your Day' });
         const [first] =
-            options.timed === false
+            options.timed === false || typeof options.timed === 'string'
                 ? await waitFor(() => {
                       const rows = within(within(dialog).getByRole('list', { name: 'Stops' })).getAllByRole('button');
-                      expect(rows[0].querySelector('.today-stop-l2')).toHaveTextContent("Weather didn't load");
+                      expect(rows[0].querySelector('.today-stop-l2')).toHaveTextContent(
+                          typeof options.timed === 'string' ? options.timed : "Weather didn't load",
+                      );
                       return rows;
                   })
                 : await stopRows(dialog);
@@ -1557,5 +1571,228 @@ describe('Route round the land (127-PYD-2)', () => {
         const { detail } = await openStop({ route, routeOnOpen: true });
         await waitFor(() => expect(route.fn).toHaveBeenCalledOnce());
         await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Routed on your charts/));
+    });
+
+    // ── 127-PYD-11: the leave window, under the route row, in memory only ──
+    describe('the leave window (127-PYD-11)', () => {
+        /** The routed line, 20 vertices a leg as a real route has them, its shallow bits where `at` puts them
+         *  (on the bend by default): real places, real tide buckets. */
+        const tidal = (at: (bend: [number, number]) => [number, number][] = (bend) => [bend]) =>
+            routes(async (r) => {
+                const p = routedProposal(r);
+                const coordinates = p.coordinates.flatMap(([lon, lat], i, all) =>
+                    i === all.length - 1
+                        ? [[lon, lat] as [number, number]]
+                        : Array.from(
+                              { length: 20 },
+                              (_, k) =>
+                                  [lon + ((all[i + 1][0] - lon) * k) / 20, lat + ((all[i + 1][1] - lat) * k) / 20] as [
+                                      number,
+                                      number,
+                                  ],
+                          ),
+                );
+                return {
+                    ...p,
+                    coordinates,
+                    engine: {
+                        ...p.engine!,
+                        stateMask: coordinates.slice(1).map(() => 'green' as const),
+                        // 1.9 m charted: her 2.40 m draft + 0.5 m needs 1.0 m of tide.
+                        shallowRuns: at(p.coordinates[1]).map(([lon, lat]) => ({
+                            startSeg: 18,
+                            endSeg: 21,
+                            lengthM: 556,
+                            minDepthM: 1.9,
+                            midLat: lat,
+                            midLon: lon,
+                            minAtLat: lat,
+                            minAtLon: lon,
+                        })),
+                    },
+                };
+            });
+        /** A semidiurnal curve, high water 12:30 on the fixture's day (AEST), above 1.0 m for 10 h of each tide. */
+        const sine = async () => ({
+            heights: [],
+            provenance: 'STATION_HEIGHTS' as const,
+            heightAt: (t: number) =>
+                2.2 + 1.5 * Math.cos((2 * Math.PI * (t - Date.UTC(2026, 9, 8, 2, 30))) / (12.42 * H)),
+            rangeMs: [NOW - 48 * H, NOW + 96 * H] as [number, number],
+            stationName: 'Fixture Gauge',
+        });
+        const BIT = 'the shallow bit \\d+\\.\\d NM out';
+        const CHOSE = '; your (\\d\\d:\\d\\d) (works|is too early for it|is too late for it)\\.';
+        const LEAVE = new RegExp(
+            `^Leave \\d\\d:\\d\\d(–\\d\\d:\\d\\d)? to carry the tide over ${BIT}, there and back${CHOSE}$`,
+        );
+        const OVERNIGHT = new RegExp(
+            `^Leave \\d\\d:\\d\\d(–\\d\\d:\\d\\d)? to carry the tide over ${BIT}${CHOSE} Home tomorrow: check its tide in the morning\\.$`,
+        );
+        const leaveRow = (detail: HTMLElement) => detail.querySelector<HTMLElement>('li[data-leave]');
+        const MARINA_ROW = 'Leaving a marina: check its approach depth against the tide before you go.';
+
+        it('after a routed result the row says when to leave, a chip changes only its last clause, and nothing more is fetched', async () => {
+            const {
+                detail,
+                dialog,
+                io: sources,
+            } = await openStop({
+                route: tidal(),
+                loader: { loadRouteTideCurve: sine },
+            });
+            // Overnight: a morning of leave chips to choose from.
+            fireEvent.change(within(dialog).getByRole('combobox', { name: 'Stay' }), {
+                target: { value: 'overnight' },
+            });
+            await waitFor(() =>
+                expect(
+                    within(within(detail).getByRole('group', { name: 'Leave at' })).getAllByRole('button').length,
+                ).toBeGreaterThan(1),
+            );
+            // Before the route: the marina line, and no leave row.
+            expect(within(detail).getByText(MARINA_ROW)).toBeTruthy();
+            expect(leaveRow(detail)).toBeNull();
+            fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+            await waitFor(() => expect(leaveRow(detail)).toHaveTextContent(OVERNIGHT));
+            // It sits under the route row, and the marina line is gone: the routed line went through the approach.
+            expect(routeRow(detail)!.nextElementSibling).toBe(leaveRow(detail));
+            expect(within(detail).queryByText(MARINA_ROW)).toBeNull();
+            expect(detail.querySelector('.today-footnote')).toHaveTextContent(
+                /Tide from WorldTides \(Fixture Gauge\); check the official tide table\.$/,
+            );
+            const load = vi.mocked(sources.loader.loadRouteTideCurve);
+            expect(load).toHaveBeenCalledOnce();
+            const before = leaveRow(detail)!.textContent!;
+            const chips = within(within(detail).getByRole('group', { name: 'Leave at' })).getAllByRole('button');
+            const other = chips.find((c) => c.getAttribute('aria-pressed') !== 'true')!;
+            fireEvent.click(other);
+            await waitFor(() => expect(leaveRow(detail)!.textContent).not.toBe(before));
+            const after = leaveRow(detail)!.textContent!;
+            expect(after.split('; your ')[0]).toBe(before.split('; your ')[0]);
+            expect(after.match(OVERNIGHT)![2]).toBe(other.textContent!.slice(0, 5));
+            expect(load).toHaveBeenCalledOnce();
+        });
+
+        it('a day trip says "there and back"; Sources credits the tide it read', async () => {
+            const { detail, dialog } = await openStop({ route: tidal(), loader: { loadRouteTideCurve: sine } });
+            fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+            await waitFor(() => expect(leaveRow(detail)).toHaveTextContent(LEAVE));
+            fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
+            fireEvent.click(within(dialog).getByRole('button', { name: 'Sources and limits' }));
+            const sourcesScreen = await screen.findByRole('dialog', { name: 'Sources and limits' });
+            expect(
+                within(sourcesScreen).getByText(
+                    'Leave windows: WorldTides, Fixture Gauge, metres above LAT; check the official tide table',
+                ),
+            ).toBeTruthy();
+        });
+
+        it('one curve per tide place, at most four, each where the shallow bit is', async () => {
+            const { detail, io: sources } = await openStop({
+                // Five shallow bits, a third of a degree apart: five tide places.
+                route: tidal(([lon, lat]) => [0, 1, 2, 3, 4].map((k) => [lon + k / 3, lat] as [number, number])),
+                loader: { loadRouteTideCurve: sine },
+            });
+            fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+            await waitFor(() => expect(leaveRow(detail)).toHaveAttribute('data-leave', ''));
+            const calls = vi.mocked(sources.loader.loadRouteTideCurve).mock.calls;
+            expect(calls).toHaveLength(4);
+            const buckets = calls.map(([lat, lon]) => `${Math.round(lat * 4)},${Math.round(lon * 4)}`);
+            expect(new Set(buckets).size).toBe(4);
+            // The fifth place's tide is not known: no time is said.
+            expect(leaveRow(detail)).toHaveTextContent(/^Tide not known for the shallow bit /);
+            expect(leaveRow(detail)!.textContent).not.toMatch(/\d\d:\d\d/);
+        });
+
+        it('no tide: "Tide not known", what it needs, never a time', async () => {
+            const { detail } = await openStop({ route: tidal(), loader: { loadRouteTideCurve: async () => null } });
+            fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+            await waitFor(() =>
+                expect(leaveRow(detail)).toHaveTextContent(
+                    /^Tide not known for the shallow bit .+ \(it needs 1\.0 m of tide\): check the tide table before you go\.$/,
+                ),
+            );
+            expect(leaveRow(detail)!.textContent).not.toMatch(/\d\d:\d\d/);
+            expect(detail.querySelector('.today-footnote')!.textContent).not.toMatch(/WorldTides/);
+        });
+
+        it('a tester never sees it, and nothing is fetched', async () => {
+            const { detail, io: sources } = await openStop({
+                owner: false,
+                route: tidal(),
+                loader: { loadRouteTideCurve: sine },
+            });
+            expect(leaveRow(detail)).toBeNull();
+            expect(within(detail).getByText(MARINA_ROW)).toBeTruthy();
+            expect(sources.loader.loadRouteTideCurve).not.toHaveBeenCalled();
+        });
+
+        // Review 2026-10-13: with no times to judge the window returned early, so the row checked for ever and
+        // the marina line it replaced was gone with nothing in its place; with a failed route forecast it gave
+        // times from walks in no wind under a footnote saying there are none.
+        const NO_TIMES =
+            /^No leave time without a forecast for the shallow bit \d+\.\d NM out \(it needs 1\.0 m of tide\): check the tide table before you go\.$/;
+        const fail = async () => {
+            throw new Error('proxy 503');
+        };
+        it('with the route forecast failed: what the tide must give, never a time', async () => {
+            const { detail } = await openStop({
+                route: tidal(),
+                loader: { loadRouteTideCurve: sine, loadRouteSpread: fail, loadRouteForecast: fail },
+                timed: false,
+            });
+            fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+            await waitFor(() => expect(leaveRow(detail)).toHaveTextContent(NO_TIMES));
+            expect(leaveRow(detail)).toHaveAttribute('data-leave', '');
+            expect(detail.querySelector('.today-footnote')).toHaveTextContent(/^No times without a forecast\./);
+        });
+
+        it('with no forecast at all it never checks for ever', async () => {
+            const { detail } = await openStop({
+                route: tidal(),
+                loader: { loadRouteTideCurve: sine, querySpread: fail },
+                timed: 'weather not checked',
+            });
+            expect(within(detail).getByText('Weather not checked: no forecast loaded.')).toBeTruthy();
+            fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+            await waitFor(() => expect(leaveRow(detail)).toHaveTextContent(NO_TIMES));
+        });
+
+        it("a line recalculated on Auto's chart checks its own tide, never shows the old line's window", async () => {
+            let hold = false;
+            const { detail } = await openStop({
+                route: tidal(),
+                loader: { loadRouteTideCurve: (() => (hold ? new Promise(() => {}) : sine())) as typeof sine },
+            });
+            const routeChart = await showChart(detail);
+            await waitFor(() => expect(leaveRow(detail)).toHaveTextContent(LEAVE));
+            hold = true;
+            fireEvent.click(within(routeChart).getByRole('button', { name: 'Recalculate finds another line' }));
+            await backFromChart(routeChart);
+            await waitFor(() => expect(leaveRow(detail)).toHaveAttribute('data-leave', 'checking'));
+            expect(leaveRow(detail)).toHaveTextContent(/^Checking the tide on the way…$/);
+        });
+
+        it('closing the page drops it; re-opened, it is worked out again from the curves it kept', async () => {
+            const {
+                detail,
+                dialog,
+                name,
+                io: sources,
+            } = await openStop({
+                route: tidal(),
+                loader: { loadRouteTideCurve: sine },
+            });
+            fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+            await waitFor(() => expect(leaveRow(detail)).toHaveTextContent(LEAVE));
+            const said = leaveRow(detail)!.textContent!;
+            fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
+            await waitFor(() => expect(document.querySelector('li[data-leave]')).toBeNull());
+            fireEvent.click(within(within(dialog).getByRole('list', { name: 'Stops' })).getAllByRole('button')[0]);
+            const again = await screen.findByRole('dialog', { name: new RegExp(`^${name}`) });
+            await waitFor(() => expect(leaveRow(again)?.textContent).toBe(said));
+            expect(sources.loader.loadRouteTideCurve).toHaveBeenCalledOnce();
+        });
     });
 });

@@ -110,11 +110,14 @@ import {
     loadToday,
     routeWindModels,
     todayInput,
+    TODAY_LOADER_DEPS,
     type TodayBase,
     type TodayLoaderDeps,
 } from '../../services/dayPlanner/todayLoader';
+import type { TideCurve } from '../../services/TideHeightService';
+import type { LeaveSpots } from '../../services/dayPlanner/leaveWindow';
 import { TodayModal } from './TodayModal';
-import { TodayStopDetail, type LandingLoader, type StopRouteView } from './TodayStopDetail';
+import { TodayStopDetail, type LandingLoader, type LeaveSay, type StopRouteView } from './TodayStopDetail';
 import {
     TodayPlacePicker,
     readPhonePosition,
@@ -158,6 +161,15 @@ export interface TodaySheetProps {
 }
 
 type Screen = null | 'picker' | 'places' | 'sources' | { stop: string };
+/** A routed stop's tide for its leave window (127-PYD-11): checking (undefined), its curves, or none (null). */
+type LeaveTides = {
+    coords: AutoroutingTrialRoute['coordinates'];
+    ready?: {
+        mod: typeof import('../../services/dayPlanner/leaveWindow');
+        spots: LeaveSpots | null;
+        curves: (TideCurve | null)[];
+    } | null;
+};
 
 const PART_LABELS = ['Morning', 'Afternoon', 'Evening'] as const;
 const lowerFirst = (text: string) => (text ? text[0].toLowerCase() + text.slice(1) : text);
@@ -561,6 +573,82 @@ export default function TodaySheet({
         // detailRow is read at open only.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [openKey, autoStart, queue]);
+    // ── The leave window (127-PYD-11): when the tide carries her routed stop over its shallow bits. Its curves
+    //    are asked once per route (the router's own, normally in memory) and kept beside it; the window is
+    //    worked out after the paint, and again only when her departures change. In memory only, never stored. ──
+    const [tides, setTides] = useState<ReadonlyMap<string, LeaveTides>>(() => new Map());
+    const [leave, setLeave] = useState<{
+        key: string;
+        coords: AutoroutingTrialRoute['coordinates'];
+        say: LeaveSay | null;
+    } | null>(null);
+    const openState = openKey ? queue.states.get(openKey) : undefined;
+    const openLine = openState?.kind === 'routed' ? openState.proposal : null;
+    const openTides =
+        openKey && openLine && tides.get(openKey)?.coords === openLine.coordinates ? tides.get(openKey)! : null;
+    useEffect(() => {
+        if (!openKey || !openLine || openTides) return;
+        const key = openKey;
+        const coords = openLine.coordinates;
+        setTides((prev) =>
+            new Map([...prev].filter(([k]) => queue.states.get(k)?.kind === 'routed')).set(key, { coords }),
+        );
+        const from = sources.now();
+        import('../../services/dayPlanner/leaveWindow')
+            .then(async (mod) => {
+                const spots = mod.leaveSpots(coords, openLine.engine, routeDraftM);
+                const load = sources.loader?.loadRouteTideCurve ?? TODAY_LOADER_DEPS.loadRouteTideCurve;
+                return {
+                    mod,
+                    spots,
+                    curves: spots ? await mod.leaveCurves(spots, load, from, from + 48 * 3_600_000) : [],
+                };
+            })
+            // A chunk that would not load: no row, never one that checks for ever.
+            .catch(() => null)
+            .then((ready) => {
+                if (mounted.current && isAuthIdentityScopeCurrent(scope))
+                    setTides((prev) =>
+                        prev.get(key)?.coords === coords ? new Map(prev).set(key, { coords, ready }) : prev,
+                    );
+            });
+    }, [openKey, openLine, openTides, queue, routeDraftM, scope, sources]);
+    const ready = openTides?.ready;
+    // Times only from a route forecast that loaded, as her page's own: with none, the row says what the tide must
+    // give and never a time (no forecast at all, or one that failed: it never checks for ever).
+    const openPlan = detailRow?.plan;
+    const departures = (openPlan?.weatherLoaded && openPlan.departures) || [];
+    const departuresKey = departures
+        .map((d) => `${d.departureMs},${d.stayEndMs},${d.out.durationMs},${d.home?.durationMs}`)
+        .join('|');
+    useEffect(() => {
+        if (!openKey || !openLine || !ready || !view || !base || !detailRow) return;
+        const result = ready.spots
+            ? ready.mod.leaveWindow({
+                  spots: ready.spots,
+                  curves: ready.curves,
+                  departures,
+                  earliestMs: view.window.earliestLeaveMs,
+                  dayTrip: stay !== 'overnight',
+                  cruiseKts: speed.cruiseKts,
+              })
+            : null;
+        const names = {
+            zone: view.window.zone,
+            start: base.start.name,
+            stop: detailRow.name.split(' · ')[0],
+            day: view.isToday ? 'today' : `on ${view.dayName}`,
+        };
+        setLeave({
+            key: openKey,
+            coords: openLine.coordinates,
+            say: result && ((chosenMs) => ready.mod.leaveWords(result, chosenMs, names)),
+        });
+        // departuresKey stands for her departures; the rest follow them.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [openKey, openLine, ready, departuresKey, stay]);
+    // Her page closed (or another opened): its window goes; the curves stay with the route.
+    useEffect(() => () => setLeave(null), [openKey]);
     const onRouteAction = (action: StopRouteAction) => {
         if (action === 'vessel') onOpenVessel?.();
         // The same Preferences switch, turned on in place: her page stays open.
@@ -829,6 +917,10 @@ export default function TodaySheet({
                     legs={legs}
                     wind={wind}
                     warnings={warnings}
+                    // The tides her routed stops' leave windows read, for this start (a new one forgets its routes).
+                    routeTides={[...tides].flatMap(([k, t]) =>
+                        queue.states.get(k)?.kind === 'routed' ? (t.ready?.curves ?? []) : [],
+                    )}
                     onClose={() => setScreen(null)}
                 />
             )}
@@ -883,6 +975,13 @@ export default function TodaySheet({
                                           });
                                   },
                                   onAction: onRouteAction,
+                                  leave:
+                                      !openLine || openTides?.ready === null
+                                          ? null
+                                          : // Her line's own: a recalculated line checks again, never shows the old one's.
+                                            leave?.key === openKey && leave.coords === openLine.coordinates
+                                            ? leave.say
+                                            : 'checking',
                               }
                             : null
                     }

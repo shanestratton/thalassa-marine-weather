@@ -210,6 +210,10 @@
 .today-rows li[data-parks] { color: #fcd34d; }
 /* 127-PYD-2: the owner's routing time under the route row (on a no-route's estimate line), and the route mark on a routed stop's times. */
 .today-rows .today-route-time { color: #94a3b8; font-size: 0.6875rem; }
+/* The leave window's closing sentences folded under its first (127-PYD-11), on a page with no room left. */
+.today-leave-more summary { cursor: pointer; list-style: none; }
+.today-leave-more summary::-webkit-details-marker { display: none; }
+.today-leave-more summary::after { content: ' More'; color: #67e8f9; font-weight: 700; text-decoration: underline; }
 .today-route-mark { color: #67e8f9; }
 /* The stop page's verdict, first, in its level's colour (127-PYD-1). */
 .today-rows li[data-level] { color: var(--level); font-weight: 700; }
@@ -467,6 +471,7 @@
 .display-light .today-chip[aria-pressed='true'] { border-color: #0e7490; background: #cffafe; }
 .display-light :is(.today-notice, .today-rows li[data-parks]) { color: #92400e; }
 .display-light .today-rows .today-route-time { color: #475569; }
+.display-light .today-leave-more summary::after { color: #0e7490; }
 .display-light .today-route-mark { color: #0e7490; }
 .display-light .today-primary { background: #0e7490; color: #fff; }
 .display-light .today-main .today-col-b > .today-stops::after { background: linear-gradient(#fff0, #fff); }
