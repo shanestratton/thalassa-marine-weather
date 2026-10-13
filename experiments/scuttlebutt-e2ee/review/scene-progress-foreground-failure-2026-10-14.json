@@ -1,0 +1,329 @@
+{
+    "schemaVersion": 1,
+    "category": "source-bound-scene-progress-and-failed-foreground-integration",
+    "dateBrisbane": "2026-10-14",
+    "sourceBase": "eff913833b454c58edaf155d356d2105f8aac94e",
+    "branch": "codex/scuttlebutt-e2ee-integration-clean-2026-10-11",
+    "mergeReady": false,
+    "independentlyReviewed": false,
+    "productionEncryptionEnabled": false,
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "59e8f08554eef5218202afa343065b8a2367649f7faeba6fc1ea51c51bff6461",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppSceneUiFixture.swift": "682bcd8272fc300be8028d29dde0f6b36d6c42b2d71e7c778642c94e97674d3a",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "440944c87fda2e4de76a817f8a2aaff5a25f4a84be4958f4536c95a306916cae",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFirstInboxStageEvidence.swift": "4ba97c4cdfeda4468ed70cffa2de4a6db54124fcdaeaa7ec01d891442f5c8893",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageContract.mjs": "5253d1e5639c13b35e4db3e2666ed32ea81f46ad8a0d1f7a784847c5adf742eb",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageWiring.test.mjs": "38c90cb9ba823f28fd6674d75b1bcc708281e71c1931752ce34417d7448f0279",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs": "89862aa69641a410f333ffc2190590f173740f2d4de5b2340c4c587cdca89156",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "0ff9314baebe9526585f796ddf4ed9312bc463efba882fa8ebadf142c89a3609",
+        "experiments/scuttlebutt-e2ee/bridge-native/generate_project.rb": "f7c280d539758b9f28972f65844da3628dc08f3810b83e468f8d8d28db7cb854",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/windowProofContract.mjs": "588965f4820c34ddd0990ef8b7cbdac09682b66a9fab9765f1b6a6c566029f3a",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneFinishStageEvidence.swift": "0cdf0a2b8f60eed7adb68105229817c2848905419c7b6017900ac320c66a071f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneFinishStageEvidenceSyntheticTests.swift": "95a8a1dbf470e6279aa80d6bdc085da671e03ec6c07c929f8e0a9cd23512ccb8",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneFinishStageContract.mjs": "4f5e478e1025137ac7eff1461ee2d13bea653e516b49619f35272b2d48458bf3",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneFinishStageContract.test.mjs": "d677909d210156aa7c7a88651ad4bcc1829bb914eee1ab0f3f3843f52d4693b9",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneFinishStageWiring.test.mjs": "ad3c0b0a392e3f37a4bcfaeb45ea175b122b60f127a5f7c7f9494b873ae35a92",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeProtectedUiFixture.js": "9bba7e51dc829fa9e10d9b9a34e27ed8886fcbd3deaf9995f115725908808a49",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneProgressStageEvidence.swift": "5cb9d2bac9c3df7202c112faddcb01098907f02bee9f8132154f486bf0f1928e",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneProgressStageEvidenceSyntheticTests.swift": "102e24c7ee4d3290e61aa27c5dba6541089b6021b86efe8d705e30a0ec579ad7",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneProgressStageContract.mjs": "e8b55a37cfd944e7092a8c24546951da1b5ee42c0c6152ec1eb82dd8c15dde57",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneProgressStageContract.test.mjs": "cd2d2616a7ece6d0e43d17da54dcf85d740b57554b6f1a8e60c43e45d24939e5",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneProgressStageWiring.test.mjs": "277c86dc3230d8553324142e589286f3abeafa480422a942720ce48c1d303655",
+        "tests/E2eeSceneLifecycleEvidence.test.ts": "28938f6985452f40d4b2b7dc95f3eaaffc9d3df25718ba1e7ca4c78104b4706f",
+        "tests/E2eeFullAppProtectedNativeContract.test.ts": "86f87cc4a4803db48ae1da0876e4ae61f960aa05aa72be7d6f5aabf58a4e8658",
+        "tests/E2eeFullAppNativeResume.test.ts": "db0118742145779db80f73d2f073fd6efc4566a246fdff7b5c7e1b7029c5c359",
+        "tests/E2eeProtectedUiFixture.test.ts": "483e7155f20300755555066ba6dccd59a98c89540d827414bbd3b250cb5d88fb",
+        "tests/E2eeFullAppWindowProof.test.ts": "174cc9fc34fbc454cddb6be29bda3757a0e39740236a9b0e06578805741dd930"
+    },
+    "nativeDriverSourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs": "89862aa69641a410f333ffc2190590f173740f2d4de5b2340c4c587cdca89156",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiContract.mjs": "61afb5bd58a16ce4001a27f8596f5447f213938ed15d3c7b613976bde88524e0",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppUiContract.mjs": "45686e1a466369bc41e36497f1e4858a7724bdb9fd34909508a7e3b90822b383",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppUiResumeContract.mjs": "1cc1039feeea9836b9a69d4410b7c9b78cfabf13179ada54dd2bbedcd2cb426b",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "0ff9314baebe9526585f796ddf4ed9312bc463efba882fa8ebadf142c89a3609",
+        "experiments/scuttlebutt-e2ee/bridge-native/generate_project.rb": "f7c280d539758b9f28972f65844da3628dc08f3810b83e468f8d8d28db7cb854",
+        "experiments/scuttlebutt-e2ee/bridge-native/machOEntitlementEvidence.mjs": "5c84c1f38049420b0a3137d31834bffbe084b61e6d331105cc7cb0efc5df3040",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchApp.swift": "e4f158994fbe1c4852dd34354a2d4621bb00a5f5a381cffaf42e1a1cbeacca1f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "59e8f08554eef5218202afa343065b8a2367649f7faeba6fc1ea51c51bff6461",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneAuthority.swift": "3e0d463ed8d598b5fcc6b57036317f4b4ed7b71da92c1df295306a55f32ba71f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchAuthHost.swift": "3a56713041ba5fd77aa488ee105bcaaacf2803cc5f243b52682cb3b31bc83bf2",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchLocalUiFixture.swift": "6e8c5bcc52ccbd4e8d5e8754955a111b594f05bff1f56a4101c1bda698aedbe6",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "440944c87fda2e4de76a817f8a2aaff5a25f4a84be4958f4536c95a306916cae",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedHttpFence.swift": "18516b408ae2a1e38d0c014a744d2101cdba8c84f0fa6c06b1ae1c8ab21924a4",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiFixture.swift": "da48c8d6951685581d6c8cf25e126a7f9b32e76cef827a9aca2d4fb92dfc8651",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiRelay.swift": "479663fb9b843c7f563c024f2e32c52ef51facb4ddde7288782090ea2c1312ec",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeProtectedUiFixture.js": "9bba7e51dc829fa9e10d9b9a34e27ed8886fcbd3deaf9995f115725908808a49",
+        "experiments/scuttlebutt-e2ee/bridge-native/researchSceneLifecycleContract.mjs": "8002624e1c946b0bcaafe2509ead14d38bef12af7b33c722dc696c92bec59d97",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneLifecycleEvidence.swift": "aad7f9851d8ae12de3a8eb2e972cb1c1c1dbb71068d7332e14a90e1f211d67fd",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppSceneUiFixture.swift": "682bcd8272fc300be8028d29dde0f6b36d6c42b2d71e7c778642c94e97674d3a",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFirstInboxStageEvidence.swift": "4ba97c4cdfeda4468ed70cffa2de4a6db54124fcdaeaa7ec01d891442f5c8893",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageContract.mjs": "5253d1e5639c13b35e4db3e2666ed32ea81f46ad8a0d1f7a784847c5adf742eb",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneFinishStageEvidence.swift": "0cdf0a2b8f60eed7adb68105229817c2848905419c7b6017900ac320c66a071f",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneFinishStageContract.mjs": "4f5e478e1025137ac7eff1461ee2d13bea653e516b49619f35272b2d48458bf3",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneProgressStageEvidence.swift": "5cb9d2bac9c3df7202c112faddcb01098907f02bee9f8132154f486bf0f1928e",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneProgressStageContract.mjs": "e8b55a37cfd944e7092a8c24546951da1b5ee42c0c6152ec1eb82dd8c15dde57",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/windowProofContract.mjs": "588965f4820c34ddd0990ef8b7cbdac09682b66a9fab9765f1b6a6c566029f3a"
+    },
+    "nativeSwiftSourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchApp.swift": "e4f158994fbe1c4852dd34354a2d4621bb00a5f5a381cffaf42e1a1cbeacca1f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "59e8f08554eef5218202afa343065b8a2367649f7faeba6fc1ea51c51bff6461",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchAuthHost.swift": "3a56713041ba5fd77aa488ee105bcaaacf2803cc5f243b52682cb3b31bc83bf2",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneAuthority.swift": "3e0d463ed8d598b5fcc6b57036317f4b4ed7b71da92c1df295306a55f32ba71f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift": "cb3bd8fb92e8f922462007e12f228ee9fc7f10875bb32cd134d3646dd93ae4d1",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchPrivateMessageAdapter.swift": "ec0597684d323ed061e40cf81d3f8238adb78afdd100ef663133be0753d88c36",
+        "experiments/scuttlebutt-e2ee/VodozemacSealedStore.swift": "08a8c821035eca23e5730006c6c8989221eeb292e8637c14960d5444945e352f",
+        "experiments/scuttlebutt-e2ee/VodozemacDmFrame.swift": "f584998cd8e0cdc0ae6e22557b6d01e20a3081596f7198996a2a12c6699d7887",
+        "experiments/scuttlebutt-e2ee/VodozemacDmCoordinator.swift": "690d8ee170f9aed212317eb76d8d51cd930c3e18832012c11a7164062464b489",
+        "experiments/scuttlebutt-e2ee/VodozemacMessageOperations.swift": "bb6101fcc468ccee3c52c5d23c70e9ebf51785e9771610a9d7ba07c1caab56d9",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayCodec.swift": "b1ff7f6df1988bcde00dbd21ba571f1060d683d60624778c9e55bf7b19f340ec",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayTransport.swift": "32522d35d2b009a6ab4ffa63b1ee8a099f6cd8253efb46aa2f11eff7e13c02fe",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayResult.swift": "5603d96eee328194c8bd73990027cacc5f68d474a9b49ae0d90501d21e287e26",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayPolicy.swift": "1ff34288ffe3f92733effd1540858e50048d313ee36248ab1f4c7abe4cd1db5e",
+        "experiments/scuttlebutt-e2ee/VodozemacScopedRelayClient.swift": "28408a37cb00f98a194c27b2fcebc18b0528f5c8dc6d30c667d9331c09b340e8",
+        "experiments/scuttlebutt-e2ee/VodozemacSupabaseAuth.swift": "103cfe325fcd57342e8c5b0fe9601acfa6441977f860a8d499af193f195adc10",
+        "experiments/scuttlebutt-e2ee/VodozemacAuthSession.swift": "1db48cad76d4d4b1bc6c958fab675a8b9cafcc8ea771a2d2aaccadf2ecb243fe",
+        "experiments/scuttlebutt-e2ee/VodozemacAccountDirectory.swift": "8d229dd4e68b61e72c071440b2f70eb3a0c60cb25465e4e2daa30a4bbd49181b",
+        "experiments/scuttlebutt-e2ee/VodozemacSessionFacade.swift": "d53cbd065d4b3ba5cae11ded3284d5f3703fc8c9aa1522e7c0c2772d5dbc2dcc",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchLocalUiFixture.swift": "6e8c5bcc52ccbd4e8d5e8754955a111b594f05bff1f56a4101c1bda698aedbe6",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedHttpFence.swift": "18516b408ae2a1e38d0c014a744d2101cdba8c84f0fa6c06b1ae1c8ab21924a4",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "440944c87fda2e4de76a817f8a2aaff5a25f4a84be4958f4536c95a306916cae",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiRelay.swift": "479663fb9b843c7f563c024f2e32c52ef51facb4ddde7288782090ea2c1312ec",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiFixture.swift": "da48c8d6951685581d6c8cf25e126a7f9b32e76cef827a9aca2d4fb92dfc8651",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneLifecycleEvidence.swift": "aad7f9851d8ae12de3a8eb2e972cb1c1c1dbb71068d7332e14a90e1f211d67fd",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppSceneUiFixture.swift": "682bcd8272fc300be8028d29dde0f6b36d6c42b2d71e7c778642c94e97674d3a",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFirstInboxStageEvidence.swift": "4ba97c4cdfeda4468ed70cffa2de4a6db54124fcdaeaa7ec01d891442f5c8893",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneFinishStageEvidence.swift": "0cdf0a2b8f60eed7adb68105229817c2848905419c7b6017900ac320c66a071f",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneProgressStageEvidence.swift": "5cb9d2bac9c3df7202c112faddcb01098907f02bee9f8132154f486bf0f1928e"
+    },
+    "sourceChecks": {
+        "receipt": {
+            "path": "/private/tmp/thalassa-scene-progress-verified-checks.JNQwII/checks-receipt.json",
+            "sha256": "a08db7edfe6b512d57f9491ea45c2b41fd269aa8bbcf8cbdd3193e42c9745c3b"
+        },
+        "status": "passed",
+        "nodeCases": 377,
+        "affectedContractCases": {
+            "total": 370,
+            "passed": 370,
+            "failed": 0
+        },
+        "syntaxFormattingLintNarrowTypesPassed": true,
+        "foundation": {
+            "assertions": 27072,
+            "maximumJSONBytes": 11796,
+            "sourceBoundPriorStages": {
+                "receipt": {
+                    "path": "/private/tmp/thalassa-scene-progress-contracts.UsYJp9/checks-receipt.json",
+                    "sha256": "48edd7ce80631755dac6463324a8aca996299ae95bf6e9937919a29877ee22cc"
+                },
+                "wholePriorReceiptFailed": true,
+                "stdout": {
+                    "path": "/private/tmp/thalassa-scene-progress-contracts.UsYJp9/swift6-progress-synthetic.stdout",
+                    "sha256": "3b507abfe5b92d8dfb0cea042078d57cdbb34da299e5c82a98c760af5864ac3e"
+                }
+            },
+            "wholePriorReceiptRemainsFailed": true
+        },
+        "failedChecks": [
+            {
+                "path": "/private/tmp/thalassa-scene-progress-contracts.UsYJp9/checks-receipt.json",
+                "sha256": "48edd7ce80631755dac6463324a8aca996299ae95bf6e9937919a29877ee22cc"
+            },
+            {
+                "path": "/private/tmp/thalassa-scene-progress-current-checks.tK7e1X/checks-receipt.json",
+                "sha256": "93c1e80fe0bd9e28c77762d17f4aaa312436fc90cc9d975c8bd6bddc29be1d74"
+            },
+            {
+                "path": "/private/tmp/thalassa-scene-progress-final-checks.zUAb68/checks-receipt.json",
+                "sha256": "a874da9a874f24c78d33c9c6ecc15e5b71fccb91a0d49d8592177f5362095d6d"
+            }
+        ],
+        "corrections": [
+            "Explicit Buffer import, no lint suppression.",
+            "Invalid test inputs are assigned directly so undefined is not replaced by factory defaults.",
+            "Comment-free token checks inspect code, not privacy comments.",
+            "Exact scene whitelist increased by the one named recorder to 29; ordinary maximum remains 24.",
+            "Existing acceptance conjunction retains every prior gate and adds progress-capture completeness."
+        ]
+    },
+    "diagnosticSemantics": {
+        "maximumEntries": 64,
+        "phaseNames": 23,
+        "domNullableBooleanFields": 6,
+        "orderedValueSnapshotsOnly": true,
+        "enteredDoesNotMeanCompletedOrFailed": true,
+        "noDraftTextLengthTokensErrorsOrAuthorityStored": true,
+        "noNewTimers": true,
+        "originalWaitBoundsMs": {
+            "overall": 180000,
+            "perWait": 20000,
+            "poll": 25
+        },
+        "terminalChannelsUnchanged": true,
+        "ordinarySceneLaneDisabled": true
+    },
+    "unchangedPrerequisites": {
+        "sourceCount": 61,
+        "byteIdenticalToF61": true,
+        "httpsReceipt": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/review/fresh-native-https-2026-10-11.json",
+            "sha256": "19e7c0b7208d890365c0bddaab4c9e309d5cd2d6be4bb0ec3502004d0ec56016"
+        },
+        "frameworkReceipt": {
+            "path": "/private/tmp/thalassa-local-ui-frameworks-44i7uE/frameworks-receipt.json",
+            "sha256": "54ede12d286d6ba89660529a0c0d4403c4ee28f3391d1b7809781fafc564b667"
+        },
+        "webReceipt": {
+            "path": "/private/tmp/thalassa-scene-late-current-web.q8yc1o/build-receipt.json",
+            "sha256": "49231a0be80f5396316dcc6884e3718a812c66f5e6092ff1681d71fcb1885243"
+        },
+        "windowReceipt": {
+            "path": "/private/tmp/thalassa-full-app-window-IMSEQ2/window-receipt.json",
+            "sha256": "b0b376b097a683e146948b78e2defab255b9535650ef9d139766b4611be19ef6"
+        },
+        "currentWebCorrespondence": {
+            "moduleInputs": 1751,
+            "proofInputs": 6,
+            "outputs": 293,
+            "byteIdentical": true
+        },
+        "unchangedWebProofNotRerun": true,
+        "consoleErrorsRetained": 6,
+        "sourceBinaryProvenanceNotIndependentlyEstablished": true
+    },
+    "nativeRun": {
+        "parentReceipt": {
+            "path": "/private/tmp/thalassa-full-root-protected-05faMD/run-receipt.json",
+            "sha256": "178e7668ba647d05a79b41cb958a44d28e1f7f7a951cecb009530da2a456110c"
+        },
+        "controllerReceipt": {
+            "path": "/private/tmp/thalassa-scene-progress-native-controller.i1XHTk/controller-receipt.json",
+            "sha256": "52a4c96a99b60f82736f6f623f50978f5293b66b836e61b7603bb3ee282ed49e"
+        },
+        "status": "failed",
+        "failedOperation": "scene-foreground-validate",
+        "launchPID": 92656,
+        "swiftSources": 29,
+        "driverPins": 27,
+        "buildReceipt": {
+            "path": "/private/tmp/thalassa-messaging-build-BY20AM/build-receipt.json",
+            "sha256": "b83cd01d0916bd8ca24d94431012dcd1d30c545a6a43a8f5e018ce9dd3bcf486"
+        },
+        "unsignedFiles": 342,
+        "signedFiles": 345,
+        "protectedPrefixReceipt": {
+            "path": "/private/tmp/thalassa-full-root-protected-05faMD/native-receipt.json",
+            "sha256": "3612feb0209834527abdeb8342519d9214a16733a1a0f0926d32b93f922e3c27"
+        },
+        "prefix": {
+            "cases": 11,
+            "uiAssertions": 126,
+            "protectedExchangeAssertions": 47,
+            "hostInitiates": true,
+            "syntheticRelayAcceptedSends": 2,
+            "realProviderKeychainSealedStoreAdmissionAdapter": true,
+            "sdkAuthAndUrlProtocolRelaySynthetic": true,
+            "terminalAssertions": 0
+        },
+        "matchedStages": [
+            {
+                "stage": "protected-ready",
+                "receipt": {
+                    "path": "/private/tmp/thalassa-full-root-protected-05faMD/scene-protected-ready.json",
+                    "sha256": "4e0fb363feab91ebbf2d5f3feeb8f334b7577af74ddc61f4945cbe5173a4c384"
+                },
+                "wholeRunAccepted": false
+            },
+            {
+                "stage": "background-fenced",
+                "receipt": {
+                    "path": "/private/tmp/thalassa-full-root-protected-05faMD/scene-background-fenced.json",
+                    "sha256": "c4a711659ad42648344359c55c8bf114a79ec8b0bba8961c427cfb1112d1cf24"
+                },
+                "wholeRunAccepted": false
+            }
+        ],
+        "foreground": {
+            "observerPureContractReceipt": {
+                "path": "/private/tmp/thalassa-scene-progress-native-controller.i1XHTk/observer-check-receipt.json",
+                "sha256": "7456631b93caa783ffe5398978996d2255f52937b97b4052f31c81ff80726418"
+            },
+            "observationsMatched": true,
+            "completeDriverStageFailed": true,
+            "uiClosureCorrelationUnproved": true,
+            "exactClosureBytesNotRetainedBeforeStageRefusal": true,
+            "preciseRefusedClosurePredicateUnknown": true,
+            "coldActionsDispatched": false,
+            "nativeStatusDeadlineReached": false
+        },
+        "progressDiagnostic": {
+            "path": "/private/tmp/thalassa-full-root-protected-05faMD/scene-progress-stage-diagnostic.json",
+            "sha256": "a8fd4cc55bd228f6b9f6c8e954e506ca22a289caf026642e11af1b5086bb681f",
+            "sourceSHA256": "a8fd4cc55bd228f6b9f6c8e954e506ca22a289caf026642e11af1b5086bb681f",
+            "entries": 27,
+            "lastEnteredPhase": "await-closure-ack",
+            "acceptanceEvidence": false
+        },
+        "finishDiagnostic": {
+            "path": "/private/tmp/thalassa-full-root-protected-05faMD/scene-finish-stage-diagnostic.json",
+            "sha256": "9d05c9e1c2a78c8d0a13280ca03887c36ae047a11f5490771f74b5df5d7581ac",
+            "nativeSelectedFinishes": 0,
+            "javascriptSelectedFailures": 0,
+            "acceptanceEvidence": false
+        },
+        "latestNativeDiagnostic": {
+            "path": "/private/tmp/thalassa-full-root-protected-05faMD/latest-scene-native-diagnostic.json",
+            "sha256": "53079f2c3fb2b11a0b8aed9a95267d5e8df8d1c20da228bbfd005cf9d550c934",
+            "sourceSHA256": "53079f2c3fb2b11a0b8aed9a95267d5e8df8d1c20da228bbfd005cf9d550c934",
+            "status": "running",
+            "phase": "native-proof-captured",
+            "afterProtectedPrefix": true,
+            "acceptanceEvidence": false,
+            "wholeRunAccepted": false
+        },
+        "exactObserverDiagnostic": {
+            "path": "/private/tmp/thalassa-full-root-protected-05faMD/scene-progress-scene-observer.json",
+            "sha256": "bd10100d5717b3cdebf77e3c4c81361fe0c060fcb1cf387e17204b5ced4f31f7",
+            "sourceSHA256": "bd10100d5717b3cdebf77e3c4c81361fe0c060fcb1cf387e17204b5ced4f31f7"
+        },
+        "cleanup": {
+            "idAbsent": true,
+            "nameAbsent": true,
+            "sourcesUnchanged": true
+        },
+        "nativeProtectedExchangeAccepted": false,
+        "realOsLifecycleProved": false
+    },
+    "evidenceCorrection": {
+        "prior28SourceRunRemainsFailed": true,
+        "pmOpenedCountersWereSampledWhenThatReportWasWritten": true,
+        "priorZeroSendCounterDoesNotExcludeLaterUnreportedWork": true,
+        "earlierStoppedSendCauseUnproved": true,
+        "noOldExchangeCountsTransferred": true
+    },
+    "sharedWaiting": {
+        "budgetMs": 120000,
+        "sourceChecksCumulativeMs": 601,
+        "parentMs": 54,
+        "nativeChildMs": 0,
+        "wholeRunMs": 655,
+        "remainingPassedToChildMs": 119345,
+        "deadlineWidened": false
+    },
+    "remainingGates": [
+        "Capture strictly admitted exact foreground closure bytes before correlation refusal and diagnose the current failed predicate without loosening it.",
+        "Current complete same-process OS/navigation driver acceptance; distinct cold refusal and same-store recovery evidence.",
+        "Credential-free owner-only original witness design; any changed61-source facade requires legitimate provider/HTTPS regeneration.",
+        "Full adapter HTTPS/current Auth and adversarial integration.",
+        "Fail-closed old-client/private queue/push cutover and rollback.",
+        "Shipping device/prekey lifecycle, retention/scalable sync and recovery.",
+        "Current physical acceptance, reproducible dependency/binary provenance/licence and independent assessment."
+    ],
+    "scope": {
+        "primaryEditedOrSynced": false,
+        "masterPushed": false,
+        "humanDevicesAccountsKeysChanged": false,
+        "productionOrHostedServicesChanged": false,
+        "ordinaryBuildEncryptionDisabled": true
+    }
+}

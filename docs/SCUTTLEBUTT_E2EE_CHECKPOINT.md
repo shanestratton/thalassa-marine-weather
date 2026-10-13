@@ -1,6 +1,6 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 13 October 2026, Australia/Brisbane. Active branch:
+Updated: 14 October 2026, Australia/Brisbane. Active branch:
 `codex/scuttlebutt-e2ee-integration-clean-2026-10-11`, starting at
 `9e24986f1b1646a7112ab0433811cdf265fdab40` on cleaned master
 `b4cb321167e27c4cf592786bd576abd841e57821`.
@@ -10,6 +10,74 @@ historical evidence, not current ancestry or acceptance of the rebased sources.
 Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
+
+## Bounded progress and failed foreground correlation on 14 October
+
+The [current source-bound record](../experiments/scuttlebutt-e2ee/review/scene-progress-foreground-failure-2026-10-14.json)
+adds a separate ordered simulator-only in-progress channel: maximum 64 immutable
+entries, 23 fixed phases and six nullable DOM booleans. A phase names the current
+step, never success or failure. No draft text/length, credential, error or native
+authority is retained. Same view/main frame/local origin and resource bindings,
+strict replay/gap/overflow refusal, private exclusive/atomic 16,384-byte capture
+and exact source/copy hashes bind it. Existing terminal channels and all wait
+bounds are unchanged. Ordinary sources remain excluded; exact scene inventory
+is **29 Swift inputs / 27 driver pins**, ordinary maximum 24, report 20 keys and
+original source bindings 11. No permission or provider operation was added.
+
+**Evidence correction:** the previous 28-source `pm-opened` report was written
+before composer injection. Its zero-send counters and empty composer were sampled
+at that report, not at the driver's deadline. They cannot exclude subsequent
+unreported work. The stopped-run cause remains unproved; its failed receipt stays
+failed. Source review found possible async readiness suspension, not a confirmed
+React loop or native deadlock. No old exchange counts are transferred.
+
+Executed **377 Node schema/source/helper cases and 370 affected contract cases**,
+with syntax, formatting, lint and narrow strict types. Direct Swift 6 recorder
+execution passed **27,072 synthetic assertions**, ordinary-disabled typecheck,
+and maximum JSON 11,796 bytes; current JS parsed its actual output. The original
+whole check receipt still failed lint; only its explicitly verified unchanged
+Foundation stages are reused. Subsequent failed 371/377 and 369/370 receipts remain
+failed. Corrections preserve invalid `undefined` inputs instead of factory defaults,
+inspect code tokens rather than privacy comments, and retain every old acceptance
+gate alongside the new capture requirement. Final checker SHA-256
+`a08db7edfe6b512d57f9491ea45c2b41fd269aa8bbcf8cbdd3193e42c9745c3b`.
+
+The **29-source native app compiled/launched**, independent PID **92656**, with
+342 unsigned / 345 signed files. Current **initiator** prefix passed 11 cases,
+126 UI assertions and 47 protected-exchange assertions with two synthetic relay
+accepts. Provider/Keychain/sealed store/admission/adapter are real; SDK Auth and
+URLProtocol relay are synthetic. Protected-ready and **background-fenced** driver
+stages matched: genuine will-resign-active and did-enter-background had all six
+cover facts true, original snapshot/account stale, and successful verify count
+grew from baseline 1 to 2. This is bounded current background evidence, not full
+OS or physical acceptance and not a diagnosis of the earlier stopped run.
+
+**Whole run failed `scene-foreground-validate`.** Exact retained observer bytes
+include actual foreground callbacks and foreground-ui-closed with cover absent,
+authority still stale and verify count 2. A separate source-bound pure observer
+check matched those observations, but the complete driver's UI-closure correlation
+did not pass. That stricter gate remains intact. The driver copied foreground
+closure only after full validation, so its exact rejected closure bytes were not
+retained before disposable cleanup. Precise refusal boundary/cause is unknown;
+never reconstruct that receipt or infer a whole roundtrip pass. Cold actions were
+not dispatched. The 27-entry progress trace reached `await-closure-ack`; both
+terminal selectors stayed 0/0. Exact simulator ID/name absence and source stability
+passed. Parent `/private/tmp/thalassa-full-root-protected-05faMD/run-receipt.json`,
+SHA-256 `178e7668ba647d05a79b41cb958a44d28e1f7f7a951cecb009530da2a456110c`.
+
+All 61 provider/HTTPS prerequisites and cached frameworks remain unchanged.
+Preserved actual web/Window receipts were byte-verified against all 1,751 module
+inputs, six proof inputs and 293 outputs; no unchanged web launch was repeated.
+Six console errors remain. Shared waiting **655/120,000 ms** (native child zero;
+only 119,345 ms remaining passed to it), no deadline widened. Primary targets,
+human devices/accounts/keys, production and hosted services are untouched.
+
+Next retain strictly admitted exact foreground closure bytes before correlation
+refusal and diagnose the current boundary without loosening its predicates.
+Credential-free original-witness design remains separate; any changed 61-source
+facade needs legitimate provider/HTTPS regeneration. Complete OS/navigation,
+cold/separate recovery, current HTTPS/Auth, physical, cutover/policies,
+provenance/licence and independent assessment remain open. **Not merge-ready.**
 
 ## Late reports and bounded finish diagnostics on 13 October
 
@@ -50,7 +118,8 @@ gates. Preserve that failed receipt. Final receipt SHA-256
 The **28-source native app compiled/launched**, independent PID **63613**, but
 failed native-final-validate at the existing observation deadline. Latest report
 remained **running / pm-opened**, 118 UI assertions, one successful inbox, **zero
-send dispatches**, no exchange proof. Both terminal channels correctly remained
+send calls sampled at that report**, no exchange proof. These were not fresh
+deadline-time counters and do not exclude later unreported work. Both terminal channels correctly remained
 0/0: no native finish/JS failure message observed before that bound, not a specific
 failure phase or success. Exact diagnostic byte hashes, simulator ID/name absence
 and source stability passed. Parent:
@@ -4634,6 +4703,11 @@ attachments or uploads.
   explicit user disclosure of selected content, not automatic server scanning.
 
 ## Safe cutover and acceptance gates
+
+Latest bounded evidence is [the 14 October record](../experiments/scuttlebutt-e2ee/review/scene-progress-foreground-failure-2026-10-14.json):
+current initiator protected prefix and background fencing matched, but complete
+foreground correlation failed. None of the five shipping gates below is closed
+by diagnostic, source/mock or partial simulator evidence.
 
 1. **Provider spike:** license decision, pinned dependency, two real iPhones
    exchange messages with confirmed negotiated suite; native store design and

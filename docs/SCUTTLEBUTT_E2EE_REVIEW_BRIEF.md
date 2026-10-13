@@ -1,6 +1,6 @@
 # Scuttlebutt private message E2EE review brief
 
-Updated 13 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work. Commit IDs in the historical evidence below predate the 10 October licensed-chart history cleanup and must not be used as push bases or relabelled as current acceptance.
+Updated 14 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work. Commit IDs in the historical evidence below predate the 10 October licensed-chart history cleanup and must not be used as push bases or relabelled as current acceptance.
 
 The installed isolated Research candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c` on `codex/scuttlebutt-e2ee-foundation`. It passed 1,069 tests across 15 isolated suites, focused strict TypeScript, named lint, formatting and separate web/unsigned physical-iOS builds before local signing and in-place installation on both devices. Research entitlements match the previous candidate, and identical 11-file metadata inventories were retained across each update. Normal Thalassa's compared bundle/version/build metadata is unchanged. Launch requests succeeded; the owner subsequently reported signing into both. These are fixture/build/update checks and an owner report; the later bounded new-candidate message observations below are separate, not a full acceptance pass or an audit.
 
@@ -51,11 +51,27 @@ production or server changes accompanied the update.
 
 ## Current integration candidate
 
+The [14 October record](../experiments/scuttlebutt-e2ee/review/scene-progress-foreground-failure-2026-10-14.json)
+adds bounded value-only in-progress diagnostics, with 377 Node cases, 370 affected
+contract cases and 27,072 direct synthetic recorder assertions in distinct groups.
+The 29-source native app compiled/launched and its current initiator prefix
+passed 11 cases, 126 UI assertions and 47 protected-exchange assertions over
+synthetic SDK Auth/URLProtocol relay with real provider/native state/adapter.
+Genuine immediate background fencing matched. **Whole run failed foreground
+validation** despite matching retained foreground observer values; exact rejected
+closure bytes were not retained, so the full correlation cause is unproved.
+No cold, physical, live Auth/HTTPS or independent acceptance is credited. Ordinary
+builds remain disabled, with all shipping gates open. The earlier `pm-opened`
+zero-send count was a report-time sample, not a fresh deadline-time observation;
+it does not establish that no subsequent send was attempted. Preserve every
+earlier failed receipt and never infer a roundtrip pass from the new passive trace.
+
 The [13 October diagnostic record](../experiments/scuttlebutt-e2ee/review/scene-finish-diagnostic-observation-2026-10-13.json)
 has current actual scoped Chrome acceptance and exact late native report retention.
 Two fresh native runs failed before a protected prefix; the newer 28-source app
 compiled/launched but reached the observation bound still running/pm-opened, with
-one inbox result and zero send calls. Terminal diagnostic selectors remained
+one inbox result and zero send calls sampled at that report, not a deadline-time
+counter sample. Terminal diagnostic selectors remained
 truthfully 0/0; no crypto/OS pass or precise failure cause is credited. Separate
 630 Foundation assertions, 282 Node cases and 370 source/mock cases validate the
 bounded value-only diagnostic wiring, not independent security readiness. See

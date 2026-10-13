@@ -355,13 +355,14 @@ test('synthetic source binds the fixed private file to the validated observer pa
         after,
     );
     const validation = tokens(swiftBody(scene, 'requireFirstInboxDiagnostic'));
+    assert.match(scene, /private func requireFirstInboxDiagnostic\(_ file: URL, maximumBytes: Int = 4096\)/);
     for (const check of [
         'realpath($0, nil)',
         'lstat($0, &metadata)',
         'UInt32(S_IFREG)',
         'metadata.st_uid == getuid()',
         '(UInt32(metadata.st_mode) & 0o7777) == 0o600',
-        '(1...4096).contains(Int(metadata.st_size))',
+        '(1...maximumBytes).contains(Int(metadata.st_size))',
     ])
         position(validation, check);
 });
@@ -375,8 +376,8 @@ test('synthetic source retains the exact twenty-key protected report and separat
         .trim()
         .split(/\s+/)
         .sort();
-    assert.equal(inventory?.length, 28);
-    assert.equal(new Set(inventory).size, 28);
+    assert.equal(inventory?.length, 29);
+    assert.equal(new Set(inventory).size, 29);
     assert.ok(inventory.includes('ResearchFirstInboxStageEvidence.swift'));
     assert.match(
         ruby,
@@ -459,7 +460,7 @@ test('synthetic source captures admitted diagnostic/hash/binding on both failed 
     position(final, "quiet('/usr/bin/xcrun', ['simctl', 'delete', simulator])", extraction);
     position(
         final,
-        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
+        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
         extraction,
     );
     position(final, 'save()', extraction);

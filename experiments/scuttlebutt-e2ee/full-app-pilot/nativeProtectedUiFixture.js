@@ -149,8 +149,47 @@
         'await-closure-ack',
     ]);
     let lastFailurePhase = null;
+    let progressSequence = 0,
+        lastProgressFacts = null;
+    function observeProgressStage() {
+        if (!sceneLifecycleProof || !failurePhases.includes(lastFailurePhase) || progressSequence >= 64) return;
+        try {
+            const send = document.querySelector('button[aria-label="Send direct message"]');
+            const compose = document.querySelector('input[aria-label="Message Paired sailor"]');
+            const facts = {
+                phase: lastFailurePhase,
+                sendPresent: !!send,
+                sendEnabled: send ? enabled(send) : null,
+                composePresent: !!compose,
+                composeEmpty: compose ? compose.value === '' : null,
+                composeDisabled: compose ? compose.disabled : null,
+                composeReadOnly: compose ? compose.readOnly : null,
+            };
+            const signature = JSON.stringify(facts);
+            if (signature === lastProgressFacts) return;
+            const handler = window.webkit?.messageHandlers?.researchFullAppSceneUiFixture;
+            if (!handler || typeof handler.postMessage !== 'function') return;
+            // Fixed phase/Boolean values only. Entering a phase is neither a
+            // completion nor a failure. No input text, length or message retained.
+            handler.postMessage({
+                version: 1,
+                kind: 'scene-progress-javascript-diagnostic',
+                runID,
+                nonce,
+                sequence: progressSequence + 1,
+                ...facts,
+            });
+            progressSequence++;
+            lastProgressFacts = signature;
+        } catch {
+            /* Optional bounded progress cannot change the original work. */
+        }
+    }
     function enterFailurePhase(phase) {
-        if (sceneLifecycleProof && failurePhases.includes(phase)) lastFailurePhase = phase;
+        if (sceneLifecycleProof && failurePhases.includes(phase)) {
+            lastFailurePhase = phase;
+            observeProgressStage();
+        }
     }
     function postFailureDiagnostic() {
         if (!sceneLifecycleProof) return;
@@ -377,6 +416,7 @@
         enterFailurePhase(failurePhase);
         const deadline = Math.min(until, Date.now() + 20000);
         while (Date.now() < deadline) {
+            observeProgressStage();
             if (controlFailed) refuse();
             if (sdkCounts.unexpected !== 0) refuse();
             const observed = safeEvidence();

@@ -53,6 +53,7 @@ import {
 import { inspectSimulatorEntitlementSections } from './machOEntitlementEvidence.mjs';
 import { inspectFirstInboxStageEvidence } from './firstInboxStageContract.mjs';
 import { inspectSceneFinishStageEvidence } from './sceneFinishStageContract.mjs';
+import { inspectSceneProgressStageEvidence } from './sceneProgressStageContract.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const checkout = resolve(here, '../../..');
@@ -103,7 +104,8 @@ let prerequisiteInputs = [],
     builtInputs = [],
     nativeObservationPassed = false,
     firstInboxDiagnosticCaptureComplete = false,
-    sceneFinishDiagnosticCaptureComplete = false;
+    sceneFinishDiagnosticCaptureComplete = false,
+    sceneProgressDiagnosticCaptureComplete = false;
 function regular(path, limit = 16 * 1024 * 1024) {
     assert(isAbsolute(path));
     for (let p = path; p !== dirname(p); p = dirname(p)) assert(!lstatSync(p).isSymbolicLink());
@@ -288,6 +290,7 @@ function sceneFiles() {
         closure: join(directory, 'scene-ui-closure.json'),
         firstInboxDiagnostic: join(directory, 'scene-first-inbox-stage.json'),
         finishDiagnostic: join(directory, 'scene-finish-stage.json'),
+        progressDiagnostic: join(directory, 'scene-progress-stage.json'),
     };
 }
 function inspectSceneObservation(raw, diagnostic = false) {
@@ -481,6 +484,75 @@ function captureSceneFinishStageDiagnostic() {
     receipt.sceneFinishDiagnosticCaptureComplete = sceneFinishDiagnosticCaptureComplete;
     save();
 }
+function captureSceneProgressStageDiagnostic() {
+    if (!sceneProof) return;
+    sceneProgressDiagnosticCaptureComplete = false;
+    receipt.sceneProgressStageDiagnosticStatus = 'no-file';
+    receipt.sceneProgressDiagnosticCaptureComplete = false;
+    try {
+        const files = sceneFiles();
+        if (!files || !existsSync(files.progressDiagnostic)) return;
+        assert(Number.isSafeInteger(receipt.ownedLaunchPID) && receipt.ownedLaunchPID > 0);
+        const observerSource = regular(files.observer, 65536);
+        const directory = lstatSync(dirname(observerSource));
+        assert(directory.uid === process.getuid() && (directory.mode & 0o7777) === 0o700);
+        assert((lstatSync(observerSource).mode & 0o7777) === 0o600);
+        const observerBytes = readFileSync(observerSource);
+        assert(observerBytes.length > 0 && observerBytes.length <= 65536);
+        const observerSourceSHA256 = createHash('sha256').update(observerBytes).digest('hex');
+        const observer = inspectSceneObservation(JSON.parse(observerBytes.toString('utf8')));
+        assert(observer.process.pid === receipt.ownedLaunchPID && observer.process.epoch === files.epoch);
+        assert(hash(regular(sceneFixtureFile, 65536)) === receipt.sceneFixtureResource.sha256);
+        assert(hash(regular(protectedFixtureFile, 128 * 1024)) === receipt.fixtureResource.sha256);
+        for (const [name, expected] of Object.entries(receipt.sourceHashes))
+            assert(hash(regular(join(checkout, name))) === expected);
+        const source = regular(files.progressDiagnostic, 16384);
+        assert((lstatSync(source).mode & 0o7777) === 0o600);
+        const diagnosticBytes = readFileSync(source);
+        assert(diagnosticBytes.length > 0 && diagnosticBytes.length <= 16384);
+        const sourceSHA256 = createHash('sha256').update(diagnosticBytes).digest('hex');
+        const inspection = inspectSceneProgressStageEvidence(JSON.parse(diagnosticBytes.toString('utf8')));
+        const privateDirectory = lstatSync(scratch);
+        assert(privateDirectory.uid === process.getuid() && (privateDirectory.mode & 0o7777) === 0o700);
+        const path = join(scratch, 'scene-progress-stage-diagnostic.json');
+        const observerPath = join(scratch, 'scene-progress-scene-observer.json');
+        // Exact admitted bounded bytes only. Current entered phase is not a
+        // terminal status, a fresh native counter sample or acceptance proof.
+        writeFileSync(path, diagnosticBytes, { mode: 0o600, flag: 'wx' });
+        writeFileSync(observerPath, observerBytes, { mode: 0o600, flag: 'wx' });
+        assert((lstatSync(path).mode & 0o7777) === 0o600);
+        assert((lstatSync(observerPath).mode & 0o7777) === 0o600);
+        assert(hash(regular(source, 16384)) === sourceSHA256 && hash(regular(path, 16384)) === sourceSHA256);
+        assert(hash(regular(observerSource, 65536)) === observerSourceSHA256);
+        assert(hash(regular(observerPath, 65536)) === observerSourceSHA256);
+        receipt.sceneProgressStageDiagnostic = {
+            path,
+            sha256: sourceSHA256,
+            sourceSHA256,
+            inspection,
+            binding: {
+                runID,
+                resourceSHA256: receipt.sceneFixtureResource.sha256,
+                protectedResourceSHA256: receipt.fixtureResource.sha256,
+                pid: observer.process.pid,
+                epoch: observer.process.epoch,
+                observerReceipt: {
+                    path: observerPath,
+                    sha256: observerSourceSHA256,
+                    sourceSHA256: observerSourceSHA256,
+                },
+            },
+            acceptanceEvidence: false,
+            wholeRunAccepted: false,
+        };
+        receipt.sceneProgressStageDiagnosticStatus = 'observed-unaccepted';
+        sceneProgressDiagnosticCaptureComplete = inspection.entries.length > 0;
+    } catch {
+        receipt.sceneProgressStageDiagnosticStatus = 'refused';
+    }
+    receipt.sceneProgressDiagnosticCaptureComplete = sceneProgressDiagnosticCaptureComplete;
+    save();
+}
 function sceneSourceBindings() {
     const names = {
         driver: 'bridge-native/fullAppProtectedUiProof.mjs',
@@ -630,6 +702,8 @@ try {
             'bridge-native/firstInboxStageContract.mjs',
             'bridge-native/ResearchSceneFinishStageEvidence.swift',
             'bridge-native/sceneFinishStageContract.mjs',
+            'bridge-native/ResearchSceneProgressStageEvidence.swift',
+            'bridge-native/sceneProgressStageContract.mjs',
             'full-app-pilot/windowProofContract.mjs',
         );
     receipt.sourceHashes = Object.fromEntries(
@@ -902,6 +976,7 @@ try {
     captureLatestSceneNativeDiagnostic();
     captureFirstInboxStageDiagnostic();
     captureSceneFinishStageDiagnostic();
+    captureSceneProgressStageDiagnostic();
     if (sceneProof && nativeObservationPassed && !firstInboxDiagnosticCaptureComplete) {
         receipt.status = 'failed';
         receipt.failedOrQueuedPhase = receipt.phase;
@@ -924,6 +999,21 @@ try {
         receipt.failedOperationTimedOut = false;
         process.exitCode = 1;
         console.error('Protected scene fixture incomplete; bounded finish diagnostic refused or absent.');
+    }
+    if (
+        sceneProof &&
+        nativeObservationPassed &&
+        firstInboxDiagnosticCaptureComplete &&
+        sceneFinishDiagnosticCaptureComplete &&
+        !sceneProgressDiagnosticCaptureComplete
+    ) {
+        receipt.status = 'failed';
+        receipt.failedOrQueuedPhase = receipt.phase;
+        receipt.failedOperation = 'scene-progress-diagnostic-validate';
+        receipt.failedOperationExitStatus = null;
+        receipt.failedOperationTimedOut = false;
+        process.exitCode = 1;
+        console.error('Protected scene fixture incomplete; bounded progress diagnostic refused or absent.');
     }
     if (simulator) {
         try {
@@ -949,6 +1039,7 @@ try {
         nativeObservationPassed &&
         (!sceneProof || firstInboxDiagnosticCaptureComplete) &&
         (!sceneProof || sceneFinishDiagnosticCaptureComplete) &&
+        (!sceneProof || sceneProgressDiagnosticCaptureComplete) &&
         receipt.ownedSimulatorRemoved === true
     ) {
         receipt.status = 'passed';

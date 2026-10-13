@@ -207,7 +207,9 @@ test('fixed JS diagnostic phases are exactly the 23 exported parser names', () =
 });
 
 test('wait body preserves the original 20 second bound, 25 ms polling and refusal checks', () => {
-    const body = jsBody(javascript, 'wait').replace(/\benterFailurePhase\(failurePhase\);/, '');
+    const body = jsBody(javascript, 'wait')
+        .replace(/\benterFailurePhase\(failurePhase\);/, '')
+        .replace(/\bobserveProgressStage\(\);/, '');
     assert.deepEqual(tokens(body), tokens(jsBody(oldJavascript, 'wait')));
     assert.match(javascript, /const until\s*=\s*Date\.now\(\)\s*\+\s*180000\s*;/);
     assert.match(body, /Math\.min\(until,\s*Date\.now\(\)\s*\+\s*20000\)/);
@@ -251,7 +253,12 @@ test('synthetic refresh refusal records its fixed phase before any observer or c
 
 test('scene phase entry retains only an allowlisted value and ordinary entry is disabled', () => {
     for (const sceneEnabled of [false, true]) {
-        const context = { sceneLifecycleProof: sceneEnabled, failurePhases: phaseNames, lastFailurePhase: null };
+        const context = {
+            sceneLifecycleProof: sceneEnabled,
+            failurePhases: phaseNames,
+            lastFailurePhase: null,
+            observeProgressStage: () => {},
+        };
         runInNewContext(
             'function enterFailurePhase(phase) {' +
                 jsBody(javascript, 'enterFailurePhase') +
@@ -558,7 +565,7 @@ test('driver diagnostic capture and refusal gates precede owned cleanup and cann
     const cleanup = position(list, 'if (simulator)', gate);
     position(
         list,
-        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
+        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
         cleanup,
     );
     const latestBody = jsBody(driver, 'captureLatestSceneNativeDiagnostic');
