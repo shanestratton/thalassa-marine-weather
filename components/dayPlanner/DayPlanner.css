@@ -205,6 +205,8 @@
 .today-place-line { margin: 0; font-size: 0.8125rem; line-height: 1.308; }
 .today-credits { padding-left: 16px; list-style: disc; }
 .today-place-line { padding: clamp(3px, 3px + 0.017 * var(--today-room), 6px) 0; border-bottom: 1px solid #ffffff0d; list-style: none; }
+/* All places (127-PYD-5): every place with a plan is a stop button, compact: a 44 pt target, no tag. */
+.today-stop-compact { min-height: 44px; padding-top: 2px; padding-bottom: 2px; }
 .today-rows { margin: 0; padding: 0 4px; list-style: none; }
 .today-rows li { padding: clamp(2px, 2px + 0.017 * var(--today-room), 5px) 0; border-bottom: 1px solid #ffffff0d; font-size: 0.75rem; line-height: 1.25; }
 .today-rows li[data-parks] { color: #fcd34d; }

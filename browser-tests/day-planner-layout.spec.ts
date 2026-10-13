@@ -1728,3 +1728,159 @@ for (const size of [AS_DRAWN.se, sizes[1], AS_DRAWN.shane])
             expect(await layoutIssues(page, size.height < 640)).toEqual([]);
             expect(errors).toEqual([]);
         });
+
+/**
+ * Every place opens (build 128, 127-PYD-5). Shane, 2026-10-10: "why does it
+ * only ever show the same 3 destinations." All places is a real list: every
+ * place with a plan is a compact stop button, a 44 pt target, by distance
+ * under "Fits today", "On the area wind" and "Not today"; the list scrolls
+ * inside its card (as it did), no row is cut, and a row opens its page, Back
+ * returning to the list with focus on that row. A thunder afternoon still has
+ * places to open; Nouméa's and Tromsø's short lists are what they are.
+ */
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** All places' rows, measured in its card: what is too small, cut or out of the card (a name may be cut only at
+ *  large text, as on screen 1). */
+function placesIssues(page: Page, largeText = false) {
+    return page.evaluate((largeText) => {
+        const card = [...document.querySelectorAll<HTMLElement>('.today-list-card')].at(-1)!;
+        const box = card.getBoundingClientRect();
+        const body = card.querySelector<HTMLElement>('.today-body')!;
+        const rows = [...card.querySelectorAll<HTMLElement>('button.today-stop')];
+        const issues: string[] = [];
+        for (const row of rows) {
+            const r = row.getBoundingClientRect();
+            const label = row.querySelector('.today-stop-name')?.textContent ?? '?';
+            if (r.height < 44 - 0.5 || r.width < 44 - 0.5) issues.push(`${label} is ${r.width}×${r.height}`);
+            if (r.left < box.left - 0.5 || r.right > box.right + 0.5) issues.push(`${label} leaves the card`);
+            if (row.scrollWidth > row.clientWidth + 1) issues.push(`${label} overflows its row`);
+            const name = row.querySelector<HTMLElement>('.today-stop-name')!;
+            const text = document.createRange();
+            text.selectNodeContents(name);
+            if (!largeText && text.getBoundingClientRect().width > name.getBoundingClientRect().width + 0.02)
+                issues.push(`the name "${label}" is cut`);
+            const l2 = row.querySelector<HTMLElement>('.today-stop-l2')!;
+            if (l2.scrollWidth > l2.clientWidth + 1) issues.push(`${label}'s line 2 is cut`);
+        }
+        if (document.documentElement.scrollHeight > innerHeight + 1) issues.push('the page scrolls');
+        if (document.documentElement.scrollWidth > innerWidth) issues.push('the page scrolls sideways');
+        return {
+            issues,
+            rows: rows.length,
+            scrolls: body.scrollHeight > body.clientHeight + 1 && getComputedStyle(body).overflowY !== 'visible',
+            headings: [...card.querySelectorAll('h3')].map((h) => h.textContent),
+        };
+    }, largeText);
+}
+
+/**
+ * The house rules for a nested card, as layoutIssues measures them, less one: drawn on the app's fluid root
+ * (13-15 px on an SE), the overlay keeps a list that fills the room its 1rem over the tab bar, as All places
+ * always sat there and the tall narrow windows' lists do (above). That 1rem is measured instead.
+ */
+async function nestedIssues(page: Page, size: Size) {
+    const issues = await layoutIssues(page, true);
+    if (!size.query.includes('root=app')) return issues;
+    const gap = await page.evaluate(() => {
+        const card = [...document.querySelectorAll<HTMLElement>('.today-card')].at(-1)!.getBoundingClientRect();
+        const nav = document.querySelector('nav[aria-label="Main"]')!.getBoundingClientRect();
+        return {
+            clear: nav.top + 1 - card.bottom,
+            rem: parseFloat(getComputedStyle(document.documentElement).fontSize),
+        };
+    });
+    return [
+        ...issues.filter((issue) => !/within 16 px of the tab bar/.test(issue)),
+        ...(gap.clear < gap.rem - 0.5 ? [`card ${gap.clear} px over the tab bar, under its 1rem (${gap.rem} px)`] : []),
+    ];
+}
+
+for (const size of [AS_DRAWN.se, AS_DRAWN.se2, AS_DRAWN.mid, AS_DRAWN.shane, sizes[4], sizes[7], sizes[8]])
+    test(`All places: every place with a plan is a whole 44 pt row that opens, at ${size.name}`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=normal${size.query}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        await expect(
+            dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
+        ).toHaveText(TIMES);
+        await settled(page);
+        await dialog.getByRole('button', { name: /^All places/ }).click();
+        const places = page.getByRole('dialog', { name: /^Places near / });
+        await expect(places).toBeVisible();
+        const measured = await placesIssues(page, size.mayScroll);
+        expect(measured.issues).toEqual([]);
+        expect(measured.headings).toEqual(['Fits today', 'On the area wind', 'Not today']);
+        // Seventy-odd places never fit one card: the list scrolls inside it, the heading in view as it opens.
+        expect(measured.rows).toBeGreaterThan(20);
+        expect(measured.scrolls).toBe(true);
+        await expect(places.getByRole('heading', { name: 'Fits today' })).toBeInViewport();
+        expect(await nestedIssues(page, size)).toEqual([]);
+
+        // A place well down the list opens its page; Back is the list, on that row.
+        const area = places.locator('h3:text-is("On the area wind") + ul button.today-stop');
+        const row = area.nth(4);
+        const name = (await row.locator('.today-stop-name').textContent())!;
+        await row.click();
+        const detail = page.getByRole('dialog', { name: new RegExp(`^${escaped(name)}`) });
+        await expect(detail.getByRole('list', { name: 'How the day goes' })).toBeVisible();
+        expect(await layoutIssues(page, size.mayScroll || size.height < 640)).toEqual([]);
+        await detail.getByRole('button', { name: 'Back', exact: true }).click();
+        await expect(places).toBeVisible();
+        const back = places.locator('button.today-stop', { has: page.locator(`.today-stop-name:text-is("${name}")`) });
+        await expect(back).toBeFocused();
+        await expect(back).toBeInViewport();
+        expect(errors).toEqual([]);
+    });
+
+test('All places on a thunder afternoon still has places to open, each on its reason', async ({ page }) => {
+    const errors = await open(page, AS_DRAWN.se2, `&mode=thunder${AS_DRAWN.se2.query}`);
+    const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+    await dialog.getByRole('combobox', { name: 'Stay' }).selectOption('4h');
+    await expect(
+        dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
+    ).toHaveText(/^⚡ Thunder on the way home$/);
+    await dialog.getByRole('button', { name: /^All places/ }).click();
+    const places = page.getByRole('dialog', { name: /^Places near / });
+    const bolts = places.locator('button.today-stop', {
+        has: page.locator('.today-stop-l2:text-is("⚡ Thunder on the way home")'),
+    });
+    expect(await bolts.count()).toBeGreaterThanOrEqual(1);
+    expect((await placesIssues(page)).issues).toEqual([]);
+    const name = (await bolts.first().locator('.today-stop-name').textContent())!;
+    await bolts.first().click();
+    const detail = page.getByRole('dialog', { name: new RegExp(`^${escaped(name)}`) });
+    await expect(detail.getByRole('list', { name: 'How the day goes' }).getByRole('listitem').first()).toHaveText(
+        /^✕ Over your limits: thunder in \d of 7 models on the way home$/,
+    );
+    expect(errors).toEqual([]);
+});
+
+for (const mode of ['noumea', 'tromso'] as const)
+    test(`All places at ${mode}: a short list, said as it is, every place in it opens`, async ({ page }) => {
+        const errors = await open(page, AS_DRAWN.se2, `&mode=${mode}${AS_DRAWN.se2.query}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        await expect(
+            dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first().locator('.today-stop-l2'),
+        ).toHaveText(TIMES);
+        await settled(page);
+        await dialog.getByRole('button', { name: /^All places/ }).click();
+        const places = page.getByRole('dialog', { name: /^Places near / });
+        await expect(places).toBeVisible();
+        const measured = await placesIssues(page);
+        expect(measured.issues).toEqual([]);
+        // Three mapped places, all checked along the way (five are): no area-wind section, nothing said as fitting
+        // that was not checked, and no scroll for a list this short.
+        expect(measured.rows).toBe(3);
+        expect(measured.headings).toEqual(['Fits today', 'Not today']);
+        expect(measured.scrolls).toBe(false);
+        if (mode === 'tromso')
+            // Mapped three days ago: each row says so.
+            for (const row of await places.locator('button.today-stop .today-stop-l2').all())
+                await expect(row).toHaveText(/ · mapped 18 Jun$/);
+        await places.locator('button.today-stop').first().click();
+        await expect(
+            page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Plot by hand' }) }),
+        ).toBeVisible();
+        expect(await layoutIssues(page, false)).toEqual([]);
+        expect(errors).toEqual([]);
+    });
