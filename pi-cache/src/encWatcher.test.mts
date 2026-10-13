@@ -1,84 +1,53 @@
+/**
+ * The ~/Charts watcher after Pi update 3 (127-C-d decision 11): o-charts sets
+ * open in the chart vault's memory, so the watcher decrypts nothing and spawns
+ * nothing, even switched on (calypso has ENC_WATCHER_ENABLED=false; nothing in
+ * this update reads it to start anything new). It still recognises o-charts
+ * inputs, and still settles its startup reconcile at once.
+ */
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
-import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import { test, mock } from 'node:test';
 import chokidar from 'chokidar';
 
-test('watcher reconciles startup, rewritten charts and key-only updates without assuming AU', async (t) => {
-    const directory = await mkdtemp(join(tmpdir(), 'enc-watcher-test-'));
-    const before = { ...process.env };
-    process.env.ENC_WATCH_DIR = directory;
-    process.env.ENC_EXTRACTOR_DIR = directory;
-    process.env.ENC_CHART_DIR = join(directory, 'store');
-    process.env.ENC_WATCHER_DEBOUNCE_MS = '5';
+test('switched on, the watcher watches nothing and spawns nothing: the vault opens o-charts sets', async (t) => {
     process.env.ENC_WATCHER_ENABLED = 'true';
-    process.env.ENC_DEFAULT_SOURCE_HO = 'AU'; // legacy environment must no longer stamp all packages AU
-    const fakeWatcher = new EventEmitter() as EventEmitter & { close: () => Promise<void> };
-    fakeWatcher.close = async () => {};
-    let options: Parameters<typeof chokidar.watch>[1];
     const watched: unknown[] = [];
-    mock.method(chokidar, 'watch', (path: unknown, opts: typeof options) => {
-        watched.push(path);
-        options = opts;
-        return fakeWatcher;
+    mock.method(chokidar, 'watch', (p: unknown) => {
+        watched.push(p);
+        throw new Error('the watcher must not start chokidar');
     });
-    const calls: string[][] = [];
-    let exitCode = 0;
-    mock.method(childProcess, 'spawn', (_command: string, args: string[]) => {
-        calls.push(args);
-        const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
-        child.stdout = new EventEmitter();
-        child.stderr = new EventEmitter();
-        setImmediate(() => child.emit('exit', exitCode));
-        return child;
+    const spawned: unknown[] = [];
+    mock.method(childProcess, 'spawn', (command: unknown) => {
+        spawned.push(command);
+        throw new Error('the watcher must not spawn');
     });
     syncBuiltinESMExports();
-    const watcher = await import('./encWatcher.js');
-    t.after(async () => {
-        await watcher.stopEncWatcher();
+    t.after(() => {
         mock.restoreAll();
         syncBuiltinESMExports();
-        for (const key of Object.keys(process.env)) if (!(key in before)) delete process.env[key];
-        Object.assign(process.env, before);
-        await rm(directory, { recursive: true, force: true });
     });
+    const watcher = await import('./encWatcher.js');
     watcher.startEncWatcher();
-    // One watch, on the o-charts tree. Since 127 there is no S-63 (.es57)
-    // watcher and no ChartWorld poller: S-63 opens in OpenCPN only.
-    assert.deepEqual(watched, [directory]);
-    assert.equal('s63' in watcher.getWatcherStatus(), false);
-    let reconciled = false;
-    void watcher.whenInitialReconcileSettled().then(() => {
-        reconciled = true;
-    });
-    assert.equal(options?.ignoreInitial, false);
-    fakeWatcher.emit('add', join(directory, 'set', 'AU530150.oesu'));
-    await delay(20);
-    assert.equal(calls.length, 0, 'initial files are coalesced until the initial scan completes');
-    assert.equal(reconciled, false);
-    fakeWatcher.emit('ready');
-    await delay(30);
-    assert.equal(calls.length, 1);
-    assert.equal(reconciled, true, 'the startup reconcile is over once its drain finishes');
-    assert.ok(!calls[0].includes('--source-ho'));
-    assert.ok(calls[0].includes('--skip-existing'));
-    fakeWatcher.emit('change', join(directory, 'set', 'AU530150.oesu'));
-    await delay(30);
-    assert.equal(calls.length, 2);
-    fakeWatcher.emit('change', join(directory, 'set', 'oeuSENC-test-sglABC.XML'));
-    await delay(30);
-    assert.equal(calls.length, 3);
-    exitCode = 1;
-    fakeWatcher.emit('change', join(directory, 'set', 'thalassa-chart-source.json'));
-    await delay(30);
-    assert.equal(calls.length, 4);
-    assert.equal(watcher.getWatcherStatus().lastDecryptResult?.success, false);
-    assert.match(watcher.getWatcherStatus().lastDecryptResult?.error ?? '', /exit 1/);
-    assert.equal(watcher.isOChartsInput('/charts/readme.txt'), false);
-    assert.equal(watcher.isOChartsInput('/charts/oeuSENC-set-sgl123.xml'), true);
+    await watcher.whenInitialReconcileSettled();
+    assert.deepEqual(watched, []);
+    assert.deepEqual(spawned, []);
+    const status = watcher.getWatcherStatus();
+    assert.equal(status.watching, false);
+    assert.equal(status.currentDecrypt, null);
+    assert.equal(status.mode, 'vault');
+    await watcher.stopEncWatcher();
+});
+
+test('o-charts inputs are still recognised (cells, key XML, provenance), nothing else', async () => {
+    const { isOChartsInput } = await import('./encWatcher.js');
+    for (const yes of [
+        'set/OC-99-ZZ0001.oesu',
+        'set/oeuSENC-ZZ-2026-1-0-sgl00ABCD.XML',
+        'set/thalassa-chart-source.json',
+    ])
+        assert.equal(isOChartsInput(yes), true, yes);
+    for (const no of ['set/ZZ5KESTR.000', 'set/readme.txt', 'set/oeuSENC-ZZ.XML.bak'])
+        assert.equal(isOChartsInput(no), false, no);
 });

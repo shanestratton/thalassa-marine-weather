@@ -1,211 +1,147 @@
+/**
+ * o-charts installs keep the set encrypted (127-C-d decision 11). The installer
+ * checks the delivery's shape, keeps the encrypted set in enc-charts/sources/,
+ * and asks the chart vault to rescan; the vault opens the cells in memory.
+ * Nothing spawns decryptBatch and nothing is converted to disk, whatever the
+ * ENC switches say. Fictional sets only.
+ */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test, type TestContext } from 'node:test';
-import { chartBlobPath, publishChartDelivery, readChartIndex } from './encChartStore.js';
-import {
-    inspectOChartsSets,
-    installOChartsDelivery,
-    verifyArchiveSha256,
-    type OChartsExtractorRequest,
-} from './oChartsInstaller.js';
+import { inspectOChartsSets, installOChartsDelivery, verifyArchiveSha256 } from './oChartsInstaller.js';
+import type { VaultRescanWire } from './vault/protocol.js';
+
+const require = createRequire(import.meta.url);
+
+/** Count every child process this process starts. */
+function spySpawns(t: TestContext): string[] {
+    const cp = require('node:child_process') as Record<string, unknown>;
+    const started: string[] = [];
+    for (const name of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) {
+        const original = cp[name] as (...args: unknown[]) => unknown;
+        cp[name] = (...args: unknown[]) => {
+            started.push(`${name} ${String(args[0])}`);
+            return original(...args);
+        };
+        t.after(() => {
+            cp[name] = original;
+            syncBuiltinESMExports();
+        });
+    }
+    syncBuiltinESMExports();
+    return started;
+}
 
 async function fixture(t: TestContext) {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ocharts-install-test-'));
     t.after(() => fs.rm(root, { recursive: true, force: true }));
-    const extractedDir = path.join(root, 'unpacked');
+    const extractedDir = path.join(root, 'work', 'unzipped');
     const chartStoreDir = path.join(root, 'store');
-    const workDir = path.join(root, 'work');
-    await fs.mkdir(extractedDir);
-    await fs.mkdir(workDir);
-    const source = async (name: string, ids: string[], missingKey = false, nativeIds: Record<string, string> = {}) => {
+    await fs.mkdir(extractedDir, { recursive: true });
+    const source = async (name: string, ids: string[], missingKey = false) => {
         const directory = path.join(extractedDir, name);
         await fs.mkdir(directory, { recursive: true });
-        for (const id of ids) await fs.writeFile(path.join(directory, `${id}.oesu`), 'encrypted test data');
+        for (const id of ids) await fs.writeFile(path.join(directory, `${id}.oesu`), `encrypted fixture ${id}`);
         const keyed = missingKey ? ids.slice(1) : ids;
         await fs.writeFile(
-            path.join(directory, 'oeuSENC-test-sgl1234.XML'),
-            `<keyList>${keyed.map((id) => `<Chart><FileName>${id}</FileName>${nativeIds[id] ? `<ID>${nativeIds[id]}</ID>` : ''}<RInstallKey>AABB</RInstallKey></Chart>`).join('')}</keyList>`,
+            path.join(directory, 'oeuSENC-ZZ-2026-1-0-sgl00ABCD.XML'),
+            `<keyList>${keyed.map((id) => `<Chart><FileName>${id}</FileName><RInstallKey>AABB</RInstallKey></Chart>`).join('')}</keyList>`,
         );
         return directory;
     };
-    const runExtractor = async (request: OChartsExtractorRequest) => {
-        await fs.mkdir(request.storeDir, { recursive: true });
-        const staged = [];
-        for (const id of request.chartSet.cellIds) {
-            const cell = {
-                cellId: id,
-                sourceHO: (request.chartSet.sourceCellIds[id] ?? id).slice(0, 2),
-                sourceCellId: request.chartSet.sourceCellIds[id],
-                edition: 2,
-                updateNumber: 1,
-                issued: '2026-09-01',
-                bbox: [165, -23, 167, -21] as [number, number, number, number],
-                layers: {
-                    LIGHTS: {
-                        type: 'FeatureCollection',
-                        features: [
-                            { type: 'Feature', geometry: { type: 'Point', coordinates: [166, -22] }, properties: {} },
-                        ],
-                    },
-                },
-            };
-            const filename = path.join(workDir, `${id}.json`);
-            const bytes = JSON.stringify({ cells: [cell] });
-            await fs.writeFile(filename, bytes);
-            staged.push({
-                filename,
-                meta: {
-                    cellId: id,
-                    sourceHO: cell.sourceHO,
-                    sourceCellId: cell.sourceCellId,
-                    edition: 2,
-                    updateNumber: 1,
-                    issued: cell.issued,
-                    bbox: cell.bbox,
-                    featureCount: 1,
-                    sizeBytes: Buffer.byteLength(bytes),
-                    installedAt: '2026-09-27T00:00:00.000Z',
-                    source: 'pi-decrypt' as const,
-                },
-            });
-        }
-        await publishChartDelivery(request.storeDir, staged);
-        await fs.writeFile(
-            request.reportPath,
-            JSON.stringify({
-                version: 1,
-                expectedCellIds: request.chartSet.cellIds,
-                processedCellIds: request.chartSet.cellIds,
-                skippedCellIds: [],
-                failedCells: [],
-            }),
-        );
+    const rescans: (string[] | undefined)[] = [];
+    let answer: VaultRescanWire = { queued: false, summary: { new: 2, updated: 0, unchanged: 0, total: 2 } };
+    const rescan = async (cellIds?: string[]) => {
+        rescans.push(cellIds);
+        return answer;
     };
-    const options = {
+    const options = { extractedDir, chartStoreDir, archiveHash: 'a'.repeat(64), rescan };
+    return {
+        root,
         extractedDir,
         chartStoreDir,
-        workDir,
-        extractorDir: path.join(root, 'fake-extractor'),
-        archiveHash: 'a'.repeat(64),
-        runExtractor,
+        options,
+        source,
+        rescans,
+        answer: (next: VaultRescanWire) => {
+            answer = next;
+        },
     };
-    return { ...options, options, source, root };
 }
 
-test('multi-set delivery converts in isolation and becomes ready only after every set validates', async (t) => {
+async function allPaths(dir: string): Promise<string[]> {
+    const entries = await fs.readdir(dir, { withFileTypes: true, recursive: true });
+    return entries.map((e) => path.join(e.parentPath ?? (e as unknown as { path: string }).path, e.name));
+}
+
+test('an .oesu delivery is kept encrypted: no decryptBatch, nothing converted, the set retained and rescanned', async (t) => {
     const f = await fixture(t);
-    await f.source('one', ['FR466870']);
-    await f.source('nested/two', ['GB501494']);
-    let conversions = 0;
-    const result = await installOChartsDelivery({
-        ...f.options,
-        runExtractor: async (request) => {
-            assert.equal((await readChartIndex(f.chartStoreDir)).cells.length, 0);
-            await f.runExtractor(request);
-            conversions++;
-        },
-    });
-    assert.equal(conversions, 2);
-    assert.deepEqual(result.persistedCellIds.sort(), ['FR466870', 'GB501494']);
+    await f.source('one', ['OC-99-ZZ0001']);
+    await f.source('two', ['OC-99-ZZ0002']);
+    const spawned = spySpawns(t);
+    const result = await installOChartsDelivery(f.options);
+    assert.deepEqual(spawned, [], 'pi-cache never spawns decryptBatch (or anything) for o-charts');
+    assert.deepEqual(result.persistedCellIds, ['OC-99-ZZ0001', 'OC-99-ZZ0002']);
     assert.deepEqual(result.packageSummary, { new: 2, updated: 0, unchanged: 0, total: 2 });
-    const installed = await readChartIndex(f.chartStoreDir);
-    for (const cell of installed.cells) {
-        assert.equal(cell.packageId, 'a'.repeat(64));
-        assert.equal(
-            createHash('sha256')
-                .update(await fs.readFile(chartBlobPath(f.chartStoreDir, cell)))
-                .digest('hex'),
-            cell.contentSha256,
-        );
+    assert.equal(result.queued, undefined);
+    assert.deepEqual(f.rescans, [['OC-99-ZZ0001', 'OC-99-ZZ0002']]);
+    const everything = await allPaths(f.root);
+    assert.deepEqual(
+        everything.filter((p) => /converted-ocharts|ocharts-report/.test(p)),
+        [],
+        'nothing is ever converted under the work dir',
+    );
+    // The store holds the encrypted delivery and nothing else.
+    assert.deepEqual(await fs.readdir(f.chartStoreDir), ['sources']);
+    const [retained] = await fs.readdir(path.join(f.chartStoreDir, 'sources'));
+    assert.match(retained, /^a{64}-[0-9a-f-]{36}$/);
+    const kept = path.join(f.chartStoreDir, 'sources', retained);
+    assert.equal((await fs.stat(kept)).mode & 0o777, 0o700);
+    for (const [set, id] of [
+        ['one', 'OC-99-ZZ0001'],
+        ['two', 'OC-99-ZZ0002'],
+    ]) {
+        const original = await fs.readFile(path.join(f.extractedDir, set, `${id}.oesu`));
+        assert.deepEqual(await fs.readFile(path.join(kept, set, `${id}.oesu`)), original, 'byte-identical, encrypted');
     }
-    assert.ok((await fs.readdir(path.join(f.chartStoreDir, 'sources'))).includes(result.sourceArchiveId));
 });
 
-test('failed second set keeps every previous installed cell and index byte intact', async (t) => {
+test('during a watch the set is kept and its charts open in memory after the watch', async (t) => {
     const f = await fixture(t);
-    await f.source('one', ['FR466870']);
+    await f.source('one', ['OC-99-ZZ0001']);
+    f.answer({ queued: true, reason: 'watch' });
+    const result = await installOChartsDelivery(f.options);
+    assert.equal(result.queued, 'watch');
+    assert.deepEqual(result.packageSummary, { new: 0, updated: 0, unchanged: 0, total: 1 });
+    assert.equal((await fs.readdir(path.join(f.chartStoreDir, 'sources'))).length, 1);
+});
+
+test('the same archive twice is kept once, and rescanned each time', async (t) => {
+    const f = await fixture(t);
+    await f.source('one', ['OC-99-ZZ0001']);
     await installOChartsDelivery(f.options);
-    const indexBefore = await fs.readFile(path.join(f.chartStoreDir, 'index.json'), 'utf8');
-    const previous = (await readChartIndex(f.chartStoreDir)).cells[0];
-    const blobBefore = await fs.readFile(chartBlobPath(f.chartStoreDir, previous), 'utf8');
-    await f.source('two', ['GB501494']);
-    let conversions = 0;
-    await assert.rejects(
-        installOChartsDelivery({
-            ...f.options,
-            workDir: await fs.mkdtemp(path.join(f.root, 'retry-')),
-            runExtractor: async (request) => {
-                if (++conversions === 2) throw new Error('licensed decrypt failed');
-                await f.runExtractor(request);
-            },
-        }),
-        /licensed decrypt failed/,
-    );
-    assert.equal(await fs.readFile(path.join(f.chartStoreDir, 'index.json'), 'utf8'), indexBefore);
-    assert.equal(await fs.readFile(chartBlobPath(f.chartStoreDir, previous), 'utf8'), blobBefore);
+    await installOChartsDelivery(f.options);
+    assert.equal((await fs.readdir(path.join(f.chartStoreDir, 'sources'))).length, 1);
+    assert.equal(f.rescans.length, 2);
 });
 
-test('zero-exit incomplete converter reports cannot produce a successful install', async (t) => {
+test('duplicate cells, missing keys and ambiguous key files fail before anything is kept', async (t) => {
     const f = await fixture(t);
-    await f.source('one', ['FR466870']);
-    await assert.rejects(
-        installOChartsDelivery({
-            ...f.options,
-            runExtractor: async (request) => {
-                await f.runExtractor(request);
-                await fs.writeFile(
-                    request.reportPath,
-                    JSON.stringify({
-                        version: 1,
-                        expectedCellIds: ['FR466870'],
-                        processedCellIds: [],
-                        skippedCellIds: [],
-                        failedCells: [{ cellId: 'FR466870', error: 'no key' }],
-                    }),
-                );
-            },
-        }),
-        { code: 'ocharts-incomplete-conversion' },
-    );
-    assert.equal((await readChartIndex(f.chartStoreDir)).cells.length, 0);
-});
-
-test('duplicate cells, missing keys and ambiguous key files fail before converter invocation', async (t) => {
-    const f = await fixture(t);
-    await f.source('one', ['FR466870']);
-    const two = await f.source('two', ['FR466870']);
+    await f.source('one', ['OC-99-ZZ0001']);
+    const two = await f.source('two', ['OC-99-ZZ0001']);
     await assert.rejects(inspectOChartsSets(f.extractedDir), { code: 'duplicate-chart-cell' });
+    await assert.rejects(installOChartsDelivery(f.options), { code: 'duplicate-chart-cell' });
     await fs.rm(two, { recursive: true });
-    const three = await f.source('three', ['GB501494'], true);
+    const three = await f.source('three', ['OC-99-ZZ0003'], true);
     await assert.rejects(inspectOChartsSets(f.extractedDir), { code: 'ocharts-missing-key' });
-    await fs.writeFile(path.join(three, 'oeuSENC-other-sglFFFF.XML'), '<keyList/>');
-    await assert.rejects(inspectOChartsSets(f.extractedDir), { code: 'ocharts-key-file' });
-});
-
-test('same archive is idempotent and converted corruption cannot replace working charts', async (t) => {
-    const f = await fixture(t);
-    await f.source('one', ['FR466870']);
-    await installOChartsDelivery(f.options);
-    const nextOptions = { ...f.options, workDir: await fs.mkdtemp(path.join(f.root, 'again-')) };
-    const result = await installOChartsDelivery(nextOptions);
-    assert.deepEqual(result.packageSummary, { new: 0, updated: 0, unchanged: 1, total: 1 });
-    const before = await fs.readFile(path.join(f.chartStoreDir, 'index.json'), 'utf8');
-    await assert.rejects(
-        installOChartsDelivery({
-            ...f.options,
-            workDir: await fs.mkdtemp(path.join(f.root, 'bad-')),
-            runExtractor: async (request) => {
-                await f.runExtractor(request);
-                const meta = (await readChartIndex(request.storeDir)).cells[0];
-                await fs.appendFile(chartBlobPath(request.storeDir, meta), 'tampered');
-            },
-        }),
-        { code: 'chart-checksum-mismatch' },
-    );
-    assert.equal(await fs.readFile(path.join(f.chartStoreDir, 'index.json'), 'utf8'), before);
+    await fs.writeFile(path.join(three, 'oeuSENC-ZZ-other-sglFFFF.XML'), '<keyList/>');
+    await assert.rejects(installOChartsDelivery(f.options), { code: 'ocharts-key-file' });
+    assert.deepEqual(f.rescans, []);
+    await assert.rejects(fs.readdir(f.chartStoreDir), { code: 'ENOENT' });
 });
 
 test('archive SHA-256 is checked without exposing the filename or source URL', async (t) => {
@@ -221,50 +157,29 @@ test('archive SHA-256 is checked without exposing the filename or source URL', a
     });
 });
 
-test('synthetic o-charts filenames retain the real producer identity verified from their licensed XML', async (t) => {
+test('encWatcher and startSourceReconvert spawn nothing for o-charts sets, with the switches false or true', async (t) => {
     const f = await fixture(t);
-    await f.source('australia', ['OC-61-001001', 'OC-61-001002'], false, {
-        'OC-61-001001': 'AU530150',
-        'OC-61-001002': 'PG300001',
-    });
-    await installOChartsDelivery(f.options);
-    const installed = (await readChartIndex(f.chartStoreDir)).cells;
-    assert.deepEqual(
-        installed.map((cell) => [cell.cellId, cell.sourceHO, cell.sourceCellId]),
-        [
-            ['OC-61-001001', 'AU', 'AU530150'],
-            ['OC-61-001002', 'PG', 'PG300001'],
-        ],
-    );
-});
-
-test('converter provenance must agree with the licensed key XML before any publication', async (t) => {
-    const f = await fixture(t);
-    await f.source('set', ['OC-61-001001'], false, { 'OC-61-001001': 'PG300001' });
-    await assert.rejects(
-        installOChartsDelivery({
-            ...f.options,
-            runExtractor: async (request) => {
-                await f.runExtractor(request);
-                const index = await readChartIndex(request.storeDir);
-                index.cells[0].sourceCellId = 'AU530150';
-                await fs.writeFile(path.join(request.storeDir, 'index.json'), JSON.stringify(index));
-            },
-        }),
-        { code: 'invalid-converted-chart' },
-    );
-    assert.equal((await readChartIndex(f.chartStoreDir)).cells.length, 0);
-});
-
-test('o-charts installs record every cell as protected in the index, whatever its id looks like (127-C-b)', async (t) => {
-    const f = await fixture(t);
-    await f.source('set', ['ZZ5TEST1', 'US5XX01M']);
-    await installOChartsDelivery(f.options);
-    const written = JSON.parse(await fs.readFile(path.join(f.chartStoreDir, 'index.json'), 'utf8')) as {
-        cells: Array<{ cellId: string; source: string; licence?: string }>;
-    };
-    assert.deepEqual(written.cells.map((cell) => [cell.cellId, cell.source, cell.licence]).sort(), [
-        ['US5XX01M', 'pi-decrypt', 'protected'],
-        ['ZZ5TEST1', 'pi-decrypt', 'protected'],
-    ]);
+    const charts = path.join(f.root, 'Charts');
+    await fs.mkdir(path.join(charts, 'oeuSENC-ZZ-base'), { recursive: true });
+    await fs.writeFile(path.join(charts, 'oeuSENC-ZZ-base', 'OC-99-ZZ0001.oesu'), 'encrypted fixture');
+    await fs.writeFile(path.join(charts, 'oeuSENC-ZZ-base', 'oeuSENC-ZZ-sgl00ABCD.XML'), '<keyList/>');
+    process.env.ENC_WATCH_DIR = charts;
+    process.env.ENC_CHART_DIR = f.chartStoreDir;
+    process.env.ENC_WATCHER_DEBOUNCE_MS = '1';
+    const spawned = spySpawns(t);
+    const watcher = await import('./encWatcher.js');
+    const reconvert = await import('./encSourceReconvert.js');
+    for (const value of ['false', 'true']) {
+        process.env.ENC_WATCHER_ENABLED = value;
+        process.env.ENC_SOURCE_RECONVERT_ENABLED = value;
+        watcher.startEncWatcher();
+        await watcher.whenInitialReconcileSettled();
+        await reconvert.startSourceReconvert();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.equal(watcher.getWatcherStatus().watching, false, `watcher ${value}`);
+        assert.equal(reconvert.getSourceReconvertStatus().state, 'disabled', `reconvert ${value}`);
+        await watcher.stopEncWatcher();
+    }
+    assert.deepEqual(spawned, []);
+    await assert.rejects(fs.readdir(f.chartStoreDir), { code: 'ENOENT' }, 'nothing written to the store');
 });

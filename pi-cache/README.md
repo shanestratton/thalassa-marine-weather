@@ -82,11 +82,32 @@ ENC_WATCHER_ENABLED=true
   appear in `THALASSA_UNSAFE_PRIVATE_UPSTREAM_ORIGINS`. `/api/configure` may confirm but cannot change that authority.
   The diary relay accepts only the exact `/functions/v1/diary-relay` endpoint derived from this startup origin; legacy
   off-origin relay credentials are scrubbed and their pending rows require repair before any startup retry.
-- `ENC_WATCHER_ENABLED=true` starts the watcher only when the unsafe-admin flag is also enabled.
+- `ENC_WATCHER_ENABLED` and `ENC_SOURCE_RECONVERT_ENABLED` no longer start anything for o-charts sets (Pi update 3):
+  the chart vault opens them in memory, whatever these say.
 
 To exercise the complete flow from another device, both the LAN-bind and unsafe-admin switches are required, plus the
 exact browser origin when applicable. Do not bypass certificate pinning, expose the service to an untrusted network,
 or add a plaintext fallback.
+
+## Licensed charts: the chart vault (Pi update 3, 127-C-d)
+
+o-charts (2026-10-10): "Storing unencrypted data on any medium, and especially in the cloud, is strictly prohibited by
+the terms of the licenses signed with the chart providers." So licensed cells are never files here:
+
+- **`thalassa-chart-vault`** (`dist/vault/main.js`, `systemd/thalassa-chart-vault.service`) is the only process that
+  turns a delivered `.oesu` into chart data, in its own RAM, on demand, through oexserverd's FIFOs. Nice 10 and
+  `CPUWeight=10` (its `CPUQuota` turns the cgroup cpu controller on, so thalassa-cache's drop-in sets `CPUWeight=300`),
+  two cores at most, never swapped, killed first, no core dump, no network (a unix socket to thalassa-cache only). It
+  writes a catalogue only (`enc-charts/vault/vault-index.json`, `removed.json`). Every limit is in
+  `src/vault/limits.ts` (provisional until the calypso measurement). thalassa-cache asks it for its status every 5 s
+  and tells it the watch state every 30 s (`startVaultLink`), so `/api/admin/status` answers from memory and never
+  waits on the vault's loop.
+- **thalassa-cache is the front door** for `/api/enc/*`: `Cache-Control: no-store`, the boat's own Wi-Fi only (never
+  the router's address, the tailnet, loopback or the Pi itself), and an enrolled device's
+  `X-Thalassa-Chart-Device` token (codes from `node dist/vault/enrolCode.js`, at most five devices). It streams the
+  vault's bytes, signed over the hash the vault checked, and never parses a licensed cell.
+- Only open charts (NOAA, `src/chartLicence.ts`) are kept as files, in `enc-charts/open/`. The parser is a mirror of
+  `tools/senc-extractor` (`src/sencEngine`, `scripts/sync-senc-engine.mjs --check` in CI); never edit it here.
 
 ## Internet gate across restarts (`THALASSA_PI_WAN_UPLINK`)
 

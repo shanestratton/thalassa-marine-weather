@@ -220,8 +220,9 @@ export const CHART_REFRESH_SUPPORTED = true;
 
 /**
  * Publish a complete validated delivery with one atomic index replacement.
- * Existing blobs are immutable and retained: readers holding the old index
- * continue seeing exactly that edition, even across updates and deletions.
+ * Existing blobs are immutable and retained across updates: readers holding
+ * the old index continue seeing exactly that edition (a deletion, since
+ * 127-C-d, unlinks them: removeChartCell).
  *
  * `refreshPackageId` makes this a REFRESH of an installed package (the
  * re-conversion of a retained o-charts source when the converter schema
@@ -425,12 +426,27 @@ export async function publishChartDelivery(
     });
 }
 
+/**
+ * Remove a cell: its index line, then every blob of exactly that id (127-C-d
+ * decision 10). Until 2026-10-10 this rewrote index.json and unlinked nothing,
+ * so every deleted chart stayed on disk. Under the index lock, every file
+ * named `cells/<safeId>-<64 hex>.json` (each edition ever published) or
+ * `cells/<safeId>.json` (a legacy copy) is unlinked; a longer id that shares
+ * the prefix (ZZ5KESTRA beside ZZ5KESTR) never matches. A reader holding the
+ * old index then finds the blob gone and answers 404.
+ */
 export async function removeChartCell(storeDir: string, cellId: string): Promise<boolean> {
     return withChartIndexLock(storeDir, async () => {
         const index = await readChartIndex(storeDir);
         const cells = index.cells.filter((cell) => cell.cellId !== cellId);
         if (cells.length === index.cells.length) return false;
         await writeChartFileAtomic(path.join(storeDir, 'index.json'), JSON.stringify({ version: 1, cells }, null, 2));
+        const safe = cellId.replace(/[^A-Za-z0-9_-]/g, '_');
+        const blob = new RegExp(`^${safe.replace(/[-]/g, '\\-')}(?:-[0-9a-f]{64})?\\.json$`);
+        const dir = path.join(storeDir, 'cells');
+        for (const name of await fs.readdir(dir).catch(() => [] as string[])) {
+            if (blob.test(name)) await fs.unlink(path.join(dir, name)).catch(() => {});
+        }
         return true;
     });
 }

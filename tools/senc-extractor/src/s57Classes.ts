@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setS57AttributeReferenceDir } from './s57Attributes.js';
 
 export interface S57Class {
     code: number;
@@ -12,10 +13,29 @@ export interface S57Class {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let cache: Map<number, S57Class> | null = null;
+/** Where the S-57 catalogue CSVs are; null = ../reference beside this module (the extractor's own layout). */
+let referenceDir: string | null = null;
+
+/**
+ * Read both S-57 catalogue CSVs (s57objectclasses.csv, s57attributes.csv) from
+ * `dir` from now on, instead of ../reference beside the module. The CSVs are
+ * gitignored (GPL upstream material); the Pi's chart vault runs a mirror of
+ * this module from /opt/thalassa-pi-cache/dist and passes the copy its install
+ * made in /opt/thalassa-pi-cache/reference (127-C-d decision 8).
+ */
+export function setS57ReferenceDir(dir: string | null): void {
+    referenceDir = dir;
+    cache = null;
+    setS57AttributeReferenceDir(dir);
+}
 
 export function loadS57Classes(csvPath?: string): Map<number, S57Class> {
     if (cache) return cache;
-    const path = csvPath ?? resolve(__dirname, '../reference/s57objectclasses.csv');
+    const path =
+        csvPath ??
+        (referenceDir
+            ? resolve(referenceDir, 's57objectclasses.csv')
+            : resolve(__dirname, '../reference/s57objectclasses.csv'));
     const csv = readFileSync(path, 'utf8');
     const lines = csv.split('\n').slice(1);
     const map = new Map<number, S57Class>();

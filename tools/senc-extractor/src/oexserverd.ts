@@ -10,7 +10,8 @@ import { join } from 'node:path';
  *
  * Protocol (ported from hornang/oesenc-export.py, MIT/GPL-licensed reference):
  *
- *   1. oexserverd creates `/tmp/OCPN_PIPEX` (command FIFO) on startup.
+ *   1. oexserverd creates `/tmp/OCPN_PIPEX` (command FIFO) on startup
+ *      (a test daemon's can be elsewhere: OexserverdOptions.commandPipe).
  *   2. Client mkfifo's a return FIFO at a random path.
  *   3. For each chart: write a 1025-byte command struct to the command pipe,
  *      then read decrypted SENC bytes from the return pipe until EOF.
@@ -20,11 +21,19 @@ import { join } from 'node:path';
  * Bosun Pi setup notes for the o-charts dongle pairing flow.
  */
 
-const COMMAND_PIPE = '/tmp/OCPN_PIPEX';
+/**
+ * The daemon's command FIFO. The real oexserverd makes it at this fixed path;
+ * under the chart vault's PrivateTmp that /tmp is the vault's own. Tests and
+ * the Mac dry run point a fake daemon elsewhere (VAULT_OEX_COMMAND_PIPE, or the
+ * `commandPipe` option).
+ */
+const DEFAULT_COMMAND_PIPE = '/tmp/OCPN_PIPEX';
 
 const CMD_READ_ESENC = 0; // legacy .oesenc format
 const CMD_EXIT = 2;
 const CMD_READ_OESU = 8; // current .oesu format
+/** How long a command may wait for the daemon to be reading its FIFO. */
+const COMMAND_WRITE_WINDOW_MS = 2000;
 
 export interface OexserverdOptions {
     /** Absolute path to the `oexserverd` binary. Default: `$HOME/.local/bin/oexserverd`. */
@@ -33,19 +42,29 @@ export interface OexserverdOptions {
     startupTimeoutMs?: number;
     /** Per-chart decryption timeout in ms. Default 30000. */
     readTimeoutMs?: number;
+    /** The daemon's command FIFO. Default: $VAULT_OEX_COMMAND_PIPE, else /tmp/OCPN_PIPEX. */
+    commandPipe?: string;
 }
 
 export class OexserverdClient {
     private process: ChildProcess | null = null;
     private returnPipe: string;
+    private readonly commandPipe: string;
     private returnPipeCreated = false;
     private spawnedBinary = false;
     /** Why the last command-pipe probe failed; surfaced if startup times out. */
     private lastPipeError: string | null = null;
+    /**
+     * Set when a decryption timed out: the daemon may still answer that
+     * command later, into the return FIFO the next command reads, so this
+     * client refuses further work. Start a new one (and a new daemon).
+     */
+    private poisoned = false;
 
     constructor(private readonly opts: OexserverdOptions = {}) {
         const randomSuffix = randomBytes(4).toString('hex');
         this.returnPipe = join(tmpdir(), `senc-extract-${process.pid}-${randomSuffix}`);
+        this.commandPipe = opts.commandPipe || process.env.VAULT_OEX_COMMAND_PIPE || DEFAULT_COMMAND_PIPE;
     }
 
     /** Start the daemon if not already running and create the return FIFO. */
@@ -64,7 +83,7 @@ export class OexserverdClient {
             throw new Error(`oexserverd binary not found at ${binary}`);
         }
 
-        // oexserverd creates COMMAND_PIPE itself, at mode 0666 & ~umask. Under the
+        // oexserverd creates the command FIFO itself, at mode 0666 & ~umask. Under the
         // usual Debian umask of 0002 that is a group-writable FIFO, which
         // assertTrustedCommandPipe() rightly refuses. Give the daemon a private
         // umask so the FIFO it makes is 0600, and clear a stale group-writable one
@@ -101,19 +120,27 @@ export class OexserverdClient {
               : null;
         if (!ext) throw new Error(`unsupported chart extension: ${chartPath}`);
         const cmd = ext === '.oesu' ? CMD_READ_OESU : CMD_READ_ESENC;
+        if (this.poisoned) throw new Error('oexserverd client timed out earlier; start a new one');
+        if (this.daemonAlive() === false) throw new Error('oexserverd exited');
 
         // 1) Write command to oexserverd. Open → write → close marks EOF for the daemon.
-        this.writeCommand(cmd, this.returnPipe, chartPath, installKey);
+        await this.writeCommand(cmd, this.returnPipe, chartPath, installKey);
 
         // 2) Read decrypted bytes from the return pipe until EOF.
         return this.readReturnPipe();
+    }
+
+    /** True while the daemon this client started is running; null when it did not start one. */
+    daemonAlive(): boolean | null {
+        if (!this.spawnedBinary || !this.process) return null;
+        return this.process.exitCode === null && this.process.signalCode === null;
     }
 
     /** Send CMD_EXIT to the daemon and clean up the return pipe. */
     async stop(): Promise<void> {
         if (await this.commandPipeWritable()) {
             try {
-                this.writeCommand(CMD_EXIT, '', '', '');
+                await this.writeCommand(CMD_EXIT, '', '', '');
             } catch {
                 // Daemon may have already exited.
             }
@@ -142,12 +169,12 @@ export class OexserverdClient {
      */
     private clearUntrustedCommandPipe(): void {
         try {
-            const stat = lstatSync(COMMAND_PIPE);
+            const stat = lstatSync(this.commandPipe);
             if (!stat.isFIFO()) return;
             const uid = typeof process.getuid === 'function' ? process.getuid() : null;
             if (uid !== null && stat.uid !== uid) return;
             if ((stat.mode & 0o022) === 0) return;
-            unlinkSync(COMMAND_PIPE);
+            unlinkSync(this.commandPipe);
         } catch {
             // Absent, or not ours to remove: let the trust check report it.
         }
@@ -155,8 +182,8 @@ export class OexserverdClient {
 
     private async commandPipeWritable(): Promise<boolean> {
         try {
-            assertTrustedCommandPipe();
-            const fd = openSync(COMMAND_PIPE, constants.O_RDWR | constants.O_NONBLOCK | constants.O_NOFOLLOW);
+            assertTrustedCommandPipe(this.commandPipe);
+            const fd = openSync(this.commandPipe, constants.O_RDWR | constants.O_NONBLOCK | constants.O_NOFOLLOW);
             closeSync(fd);
             this.lastPipeError = null;
             return true;
@@ -171,19 +198,48 @@ export class OexserverdClient {
      *   uint8 cmd, char[256] fifo_name, char[256] senc_name, char[512] senc_key
      * — total 1025 bytes, all null-padded ASCII (per hornang).
      */
-    private writeCommand(cmd: number, fifoName: string, sencName: string, sencKey: string): void {
+    private async writeCommand(cmd: number, fifoName: string, sencName: string, sencKey: string): Promise<void> {
         const buf = Buffer.alloc(1 + 256 + 256 + 512);
         buf.writeUInt8(cmd, 0);
-        Buffer.from(fifoName, 'utf8').copy(buf, 1, 0, Math.min(255, fifoName.length));
-        Buffer.from(sencName, 'utf8').copy(buf, 1 + 256, 0, Math.min(255, sencName.length));
-        Buffer.from(sencKey, 'utf8').copy(buf, 1 + 256 + 256, 0, Math.min(511, sencKey.length));
+        // Each field is null-terminated in a fixed width. A longer value used to
+        // be cut short silently, so the daemon opened another path (or none)
+        // and answered with nothing: refuse it instead.
+        const fields: [string, Buffer, number, number][] = [
+            ['return FIFO path', Buffer.from(fifoName, 'utf8'), 1, 255],
+            ['chart path', Buffer.from(sencName, 'utf8'), 1 + 256, 255],
+            ['install key', Buffer.from(sencKey, 'utf8'), 1 + 256 + 256, 511],
+        ];
+        for (const [name, bytes, offset, max] of fields) {
+            if (bytes.length > max)
+                throw new Error(`${name} is longer than the oexserverd protocol allows (${max} bytes)`);
+            bytes.copy(buf, offset);
+        }
 
-        // Open command pipe write-only, write, close.
-        assertTrustedCommandPipe();
-        const fd = openSync(COMMAND_PIPE, constants.O_WRONLY | constants.O_NOFOLLOW);
+        // Open command pipe write-only, write, close. Never a blocking open: a
+        // FIFO whose daemon has died has no reader, and a blocking open would
+        // then wait forever in this thread. Non-blocking, it fails with ENXIO
+        // and is retried for a short while (the daemon may be between reads).
+        assertTrustedCommandPipe(this.commandPipe);
+        const deadline = Date.now() + COMMAND_WRITE_WINDOW_MS;
+        let fd: number | null = null;
+        while (fd === null) {
+            try {
+                fd = openSync(this.commandPipe, constants.O_WRONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
+            } catch (err) {
+                if ((err as NodeJS.ErrnoException).code !== 'ENXIO' || Date.now() > deadline) throw err;
+                await sleep(50);
+            }
+        }
         try {
             let written = 0;
-            while (written < buf.length) written += writeSync(fd, buf, written, buf.length - written);
+            while (written < buf.length) {
+                try {
+                    written += writeSync(fd, buf, written, buf.length - written);
+                } catch (err) {
+                    if ((err as NodeJS.ErrnoException).code !== 'EAGAIN' || Date.now() > deadline) throw err;
+                    await sleep(10);
+                }
+            }
         } finally {
             closeSync(fd);
         }
@@ -192,15 +248,39 @@ export class OexserverdClient {
     private async readReturnPipe(): Promise<Buffer> {
         // Opening the read end of the FIFO unblocks oexserverd's matching write.
         // We accumulate bytes until the daemon closes its write end (EOF).
-        const handle = await fsOpen(this.returnPipe, 'r');
+        // That open itself waits for the daemon; if it never answers, the
+        // deadline opens the write end here, without blocking, so the open
+        // returns, and the decryption fails instead of hanging for good.
+        const timeoutMs = this.opts.readTimeoutMs ?? 30000;
+        const deadline = Date.now() + timeoutMs;
+        let unanswered = false;
+        const unblock = setTimeout(() => {
+            unanswered = true;
+            this.poisoned = true;
+            try {
+                closeSync(openSync(this.returnPipe, constants.O_WRONLY | constants.O_NONBLOCK));
+            } catch {
+                // The daemon opened it after all, or the FIFO is gone.
+            }
+        }, timeoutMs);
+        let handle;
+        try {
+            handle = await fsOpen(this.returnPipe, 'r');
+        } finally {
+            clearTimeout(unblock);
+        }
+        if (unanswered) {
+            await handle.close().catch(() => undefined);
+            throw new Error('readReturnPipe timeout');
+        }
         try {
             const stream = handle.createReadStream({ highWaterMark: 64 * 1024 });
             const chunks: Buffer[] = [];
-            const deadline = Date.now() + (this.opts.readTimeoutMs ?? 30000);
 
             await new Promise<void>((resolve, reject) => {
                 const timer = setInterval(() => {
                     if (Date.now() > deadline) {
+                        this.poisoned = true;
                         stream.destroy(new Error('readReturnPipe timeout'));
                     }
                 }, 500);
@@ -224,8 +304,8 @@ export class OexserverdClient {
     }
 }
 
-function assertTrustedCommandPipe(): void {
-    const stat = lstatSync(COMMAND_PIPE);
+function assertTrustedCommandPipe(commandPipe: string): void {
+    const stat = lstatSync(commandPipe);
     if (!stat.isFIFO()) throw new Error('oexserverd command endpoint is not a FIFO');
     const uid = typeof process.getuid === 'function' ? process.getuid() : null;
     if (uid !== null && stat.uid !== uid) throw new Error('oexserverd command FIFO has an unexpected owner');

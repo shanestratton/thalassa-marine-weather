@@ -21,11 +21,31 @@ import {
     normalizeSupabaseProxyQuery,
     supabaseEdgeUrl,
     supabaseHeaders,
+    uncachedJsonFetch,
 } from '../proxy.js';
 import { TTL } from '../scheduler.js';
 
-export function createMiscRoutes(cache: Cache, config: ProxyConfig): Router {
+/** The kv rows earlier builds kept for reverse geocodes. */
+const GEOCODE_KEY_PREFIX = 'geocode:';
+
+/**
+ * The one-time start-up delete of cached reverse geocodes (127-C-d decision
+ * 13): Mapbox's terms (§2.7.2) allow no storing or caching of temporary
+ * geocodes, and until Pi update 3 this Pi kept every answer for 7 days, shared
+ * by every device. Removes those rows and nothing else; returns how many.
+ */
+export function purgeGeocodeCache(cache: Cache): number {
+    return cache.deleteKvPrefix(GEOCODE_KEY_PREFIX);
+}
+
+export function createMiscRoutes(
+    cache: Cache,
+    config: ProxyConfig,
+    deps: { fetchJson?: (url: string, headers: Record<string, string>) => Promise<unknown> } = {},
+): Router {
     const router = Router();
+    const fetchJson =
+        deps.fetchJson ?? ((url: string, headers: Record<string, string>) => uncachedJsonFetch(url, headers));
 
     // ── Tropical Cyclones ──
 
@@ -178,29 +198,21 @@ export function createMiscRoutes(cache: Cache, config: ProxyConfig): Router {
      * GET /api/misc/geocode?lat=X&lon=Y
      * Reverse geocode — get place name for a coordinate.
      * Used for "Current location: Hauraki Gulf" display.
+     *
+     * Passed straight through, never cached (127-C-d decision 13, Mapbox
+     * Product Terms §2.7.2: no storing or caching of temporary geocodes).
+     * Offline, the app shows the position instead of a place name.
      */
     router.get('/geocode', async (req: Request, res: Response) => {
         try {
             const { lat, lon } = req.query;
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
-            // Round to 2 decimal places for cache grouping (nearby lookups share a cache entry)
+            // Rounded to 2 decimals (about 1 km): what the edge function is asked, never a stored key.
             const rLat = Math.round(parseFloat(String(lat)) * 100) / 100;
             const rLon = Math.round(parseFloat(String(lon)) * 100) / 100;
-
-            const key = `geocode:${rLat}:${rLon}`;
             const url = supabaseEdgeUrl(config, 'geocode', { lat: rLat, lon: rLon });
-
-            const result = await cachedJsonFetch(cache, {
-                cacheKey: key,
-                url,
-                ttlMs: 7 * 24 * 60 * 60 * 1000, // 7 days — place names don't change
-                source: 'mapbox-geocode',
-                headers: supabaseHeaders(config),
-            });
-
-            res.set('X-Cache', result.fromCache ? (result.stale ? 'STALE' : 'HIT') : 'MISS');
-            res.json(result.data);
+            res.json(await fetchJson(url, supabaseHeaders(config)));
         } catch (err) {
             res.status(502).json({ error: 'Geocode failed', message: (err as Error).message });
         }
