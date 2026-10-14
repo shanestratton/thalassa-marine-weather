@@ -11,7 +11,19 @@ import { setAuthIdentityScope } from '../services/authIdentityScope';
 const vessel = vi.hoisted(() => ({ name: 'Kestrel', type: 'sail', crewCount: 2 }));
 const hub = vi.hoisted(() => ({
     pending: 0,
-    getMyCrew: vi.fn(async () => [{ id: 'own-1' }, { id: 'own-2' }, { id: 'own-3' }, { id: 'own-4' }, { id: 'own-5' }]),
+    // The account's own crew register: the skipper and five accepted crew (129-14 counts it the float plan's way).
+    loadCrew: vi.fn(async () => ({
+        aboard: [
+            { name: 'Kai Nakamura', role: 'Skipper', source: 'skipper', crewUserId: 'crew-user' },
+            ...['Ama Mensah', 'Bo Lindqvist', 'Chen Wei', 'Dara Quinn', 'Eli Moreau'].map((name, index) => ({
+                name,
+                role: 'Deckhand',
+                source: 'crew',
+                crewUserId: `own-${index + 1}`,
+            })),
+        ],
+        invited: [],
+    })),
     crewing: null as null | { ownerId: string; vesselName: string | null; role: string; lastAcceptedAt: string },
     view: null as unknown,
 }));
@@ -49,7 +61,10 @@ vi.mock('../services/AnchorWatchService', () => ({
 vi.mock('../services/AnchorWatchSyncService', () => ({
     AnchorWatchSyncService: { onStateChange: () => () => undefined },
 }));
-vi.mock('../services/CrewService', () => ({ getMyCrew: hub.getMyCrew }));
+vi.mock('../services/floatPlanCrew', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../services/floatPlanCrew')>()),
+    loadFloatPlanCrew: hub.loadCrew,
+}));
 vi.mock('../hooks/useRealtimeSync', () => ({ useRealtimeSync: vi.fn() }));
 vi.mock('../hooks/useVesselReadinessCounts', () => ({
     useVesselReadinessCounts: () => ({ overdueCount: 0, expiringDocsCount: 0, expiringEquipCount: 0 }),
@@ -95,7 +110,7 @@ beforeEach(() => {
     hub.pending = 0;
     hub.crewing = null;
     hub.view = null;
-    hub.getMyCrew.mockClear();
+    hub.loadCrew.mockClear();
 });
 
 afterEach(() => {
@@ -123,7 +138,7 @@ describe('Vessel hub Crew & Float Plan row while crewing', () => {
         expect(crewRow()).toHaveTextContent('4 crew');
         // The crew member's own crew list is not what this row counts.
         expect(crewRow()).not.toHaveTextContent('6 crew');
-        expect(hub.getMyCrew).not.toHaveBeenCalled();
+        expect(hub.loadCrew).not.toHaveBeenCalled();
     });
 
     it('pending invites still take the status line', () => {

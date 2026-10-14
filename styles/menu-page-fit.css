@@ -28,21 +28,38 @@
 }
 
 /*
+ * The page's one card gap (129-14, Shane 2026-10-14: "the new crew and float
+ * plan card does not have the standard spacing between it and the primary
+ * device card above it or the menu card below it. Can you rectify that").
+ * Every stacked card on the page sits this far from the next: the Diary pair
+ * from the skipper card, the skipper card from the crew card, the crew card
+ * from the box. One token, set per height tier below, so the three gaps are
+ * equal by construction: 0.5rem (mb-2, every hub card's), 0.375rem under
+ * 720 px, 0.25rem under 540, 0.125rem on a 320 pt phone under 720.
+ */
+.vessel-hub-port {
+    --hub-card-gap: 0.5rem;
+}
+.vessel-hub-journal,
+[data-testid='skipper-device-card'] {
+    margin-bottom: var(--hub-card-gap, 0.5rem);
+}
+
+/*
  * The menu: Crew & Float Plan's own card, then the one box (Shane 2026-10-13:
  * "ok the crew and float plan, really needs its own card, can we make a nice
  * card for it without having to scroll up and down on the page, maybe a nice
- * hue as well on the back of it"). A flex column: the card, a gap, the box.
- * The card is a menu card of one row (it carries .vessel-hub-menu, so its row
- * takes the box's type at every height), the app's one card hue over the
- * hub's glass (styles/card-hue.css). It costs its own two edges and the gap,
- * less the divider it had, ~9 px; the short tiers close the gap and the
- * skipper card's (below), so there it costs nothing and a 375x662 SE still
- * fits as it did.
+ * hue as well on the back of it"). A flex column: the card, the page's card
+ * gap, the box. The card is a menu card of one row (it carries
+ * .vessel-hub-menu, so its row takes the box's type at every height), the
+ * app's one card hue over the hub's glass (styles/card-hue.css). It costs its
+ * own two edges and two gaps, less the divider it had. The room for the gaps
+ * comes out of the menu's rows on a short page, never the Diary pair (below).
  */
 .vessel-hub-menus {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--hub-card-gap, 0.5rem);
 }
 .vessel-hub-menus > * {
     flex-shrink: 0;
@@ -332,17 +349,20 @@
         width: 20px;
         height: 20px;
     }
-    .vessel-hub-journal {
-        margin-bottom: 0.375rem;
+    .vessel-hub-port {
+        --hub-card-gap: 0.375rem;
+        padding-bottom: 0.25rem;
     }
-    /* The crew card and the box sit closer, the room the crew card costs:
-       2.5 px, as the skipper card's (below). */
-    .vessel-hub-menus {
-        gap: 0.15625rem;
-    }
-    /* The pair's floor is a 44 pt card; it still grows into what is left. */
+    /* The pair's floor is a 44 pt card; it still grows into what is left.
+       Its basis carries the crew card's two gaps (above and below it), so
+       the menu's rows give up that room and the pair keeps the height it
+       stacks at: a 6.1-inch iPhone's pair is ~90 px, over the 86 it stacks at
+       (pinned in browser-tests/menu-pages-fit.spec.ts). Where a page has no
+       room for it the pair gives the gaps back down to its 44 pt floor, and
+       only a page with no room for the gaps themselves scrolls, as before. */
     .vessel-hub-home .vessel-hub-journal {
-        flex-basis: 44px;
+        flex-basis: calc(44px + 2 * var(--hub-card-gap));
+        flex-shrink: 1;
         min-height: 44px;
     }
     .vessel-hub-tile {
@@ -354,16 +374,10 @@
         padding: 0.375rem;
     }
     /* py-1 + the 1.25rem title row + the 1rem GPS row + a 44 px button. Its
-       gap to the menu is the menu's own (above), so the skipper card, the crew
-       card and the box keep one rhythm. The 6 px this card's gap was becomes
-       the two 2.5 px gaps, and with the crew card's two edges, less the
-       divider its row had in the box, the menu takes no more height than the
-       one box did, so nothing above it moves: a 6.1-inch iPhone's Diary pair
-       stays ~88 px, 2 px over the 86 it stacks at (pinned in
-       browser-tests/menu-pages-fit.spec.ts). */
+       gap to the crew card is the page's card gap (above), so the Diary pair,
+       the skipper card, the crew card and the box keep one rhythm. */
     [data-testid='skipper-device-card'] {
         height: calc(3.125rem + 46px);
-        margin-bottom: 0.15625rem;
         padding-top: 0.25rem;
         padding-bottom: 0.25rem;
     }
@@ -386,9 +400,6 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-    }
-    .vessel-hub-port {
-        padding-bottom: 0.25rem;
     }
     /* The Boat Binder screen is the same page container: its nine rows take
        the same 44 pt rhythm and its two sub-labels close up. */
@@ -427,12 +438,9 @@
         background: none !important;
     }
     .vessel-hub-port {
+        --hub-card-gap: 0.25rem;
         padding-top: 0.25rem;
         scroll-padding-top: 0.25rem !important;
-    }
-    .vessel-hub-journal,
-    [data-testid='skipper-device-card'] {
-        margin-bottom: 0.25rem;
     }
     .vessel-binder-header {
         padding-top: 0.125rem;
@@ -449,16 +457,10 @@
    halve; on the Boat Binder the two sub-labels close to their own line. */
 @container vessel-hub (max-width: 340px) and (max-height: 719.98px) {
     .vessel-hub-port {
+        --hub-card-gap: 0.125rem;
         padding-top: 0;
         padding-bottom: 0;
         scroll-padding-top: 0 !important;
-    }
-    .vessel-hub-journal,
-    [data-testid='skipper-device-card'] {
-        margin-bottom: 0.125rem;
-    }
-    .vessel-hub-menus {
-        gap: 0.125rem;
     }
     .vessel-binder-label {
         line-height: 1;

@@ -149,22 +149,43 @@ describe('Vessel page fills its screen', () => {
         expect(value(css, '.vessel-hub-crew', 'border-radius')).toBe('16px');
     });
 
-    it("opens the gap between the two cards the page's own rhythm, closing it on short screens", () => {
-        // The cards above space by mb-2; the short tiers close the gap, which
-        // is the room the crew card costs (its own edges, less the divider).
-        expect(value(css, '.vessel-hub-menus', 'gap')).toBe('0.5rem');
-        // 2.5 px each: the skipper card's 6 px gap to the box, split in two
-        // less half a pixel, so the room comes out of the gaps and the Diary
-        // pair keeps the height it stacks at (measured in menu-pages-fit.spec).
-        expect(value(block(COMPACT), '.vessel-hub-menus', 'gap')).toBe('0.15625rem');
-        expect(value(block(COMPACT), "[data-testid='skipper-device-card']", 'margin-bottom')).toBe('0.15625rem');
-        expect(
-            value(
-                block('@container vessel-hub (max-width: 340px) and (max-height: 719.98px)'),
-                '.vessel-hub-menus',
-                'gap',
-            ),
-        ).toBe('0.125rem');
+    it("spaces every stacked card by the page's one gap, at every height (129-14)", () => {
+        // Shane 2026-10-14: "the new crew and float plan card does not have the
+        // standard spacing between it and the primary device card above it or
+        // the menu card below it". One token for the Diary pair's gap, the
+        // skipper card's and the crew card's, set per tier, so the three are
+        // equal by construction (measured in menu-pages-fit.spec).
+        const GAP = 'var(--hub-card-gap, 0.5rem)';
+        expect(value(css, '.vessel-hub-menus', 'gap')).toBe(GAP);
+        expect(value(css, ".vessel-hub-journal,\n[data-testid='skipper-device-card']", 'margin-bottom')).toBe(GAP);
+        const tiers: Array<[string, string]> = [
+            ['', '0.5rem'],
+            [COMPACT, '0.375rem'],
+            [
+                '@container vessel-hub (max-height: 539.98px) or ((max-width: 340px) and (max-height: 719.98px))',
+                '0.25rem',
+            ],
+            ['@container vessel-hub (max-width: 340px) and (max-height: 719.98px)', '0.125rem'],
+        ];
+        for (const [tier, gap] of tiers) {
+            expect(value(tier ? block(tier) : css, '.vessel-hub-port', '--hub-card-gap'), tier || 'default').toBe(gap);
+        }
+        // No tier sets a gap of its own on one of the three any more.
+        for (const tier of tiers.slice(1).map(([prelude]) => block(prelude))) {
+            expect(tier).not.toMatch(/\.vessel-hub-menus \{[^}]*gap:/);
+            expect(tier).not.toMatch(/(?:\.vessel-hub-journal|skipper-device-card'\])[^{]*\{[^}]*margin-bottom:/);
+        }
+    });
+
+    it("pays for the crew card's gaps from the menu's rows, never the Diary pair, on a short page", () => {
+        // The pair's basis carries the crew card's two gaps and may give them
+        // back, down to its 44 pt floor, where a page has no room for them.
+        const compact = block(COMPACT);
+        expect(value(compact, '.vessel-hub-home .vessel-hub-journal', 'flex-basis')).toBe(
+            'calc(44px + 2 * var(--hub-card-gap))',
+        );
+        expect(value(compact, '.vessel-hub-home .vessel-hub-journal', 'flex-shrink')).toBe('1');
+        expect(value(compact, '.vessel-hub-home .vessel-hub-journal', 'min-height')).toBe('44px');
     });
 
     it('keeps the Diary pair a 44 pt card at its floor, and stacks it only when it is tall', () => {
@@ -172,7 +193,7 @@ describe('Vessel page fills its screen', () => {
         expect(value(css, '.vessel-hub-home .vessel-hub-journal', 'container')).toBe('vessel-journal / size');
         const compact = block(COMPACT);
         expect(value(compact, '.vessel-hub-home .vessel-hub-journal', 'min-height')).toBe('44px');
-        expect(value(compact, '.vessel-hub-home .vessel-hub-journal', 'flex-basis')).toBe('44px');
+        expect(value(compact, '.vessel-hub-home .vessel-hub-journal', 'flex-basis')).toMatch(/^calc\(44px \+/);
         const stacked = block('@container vessel-journal (min-height: 86px)');
         expect(value(stacked, '.vessel-hub-journal .vessel-hub-tile', 'flex-direction')).toBe('column');
         // The arrow and the faint glyph are hidden, never removed, on a short card.

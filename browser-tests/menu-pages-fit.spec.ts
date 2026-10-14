@@ -25,6 +25,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { ONBOARDED_STORAGE } from '../e2e/helpers/storageState';
 import { SETTINGS_STATE_WORDS } from '../components/settings/menuStatusWords';
 import { expectPalette } from './helpers/palette';
+import { crewCountWords, crewInvitedWords } from '../components/vesselHub/crewCardWords';
 
 test.use({
     serviceWorkers: 'block',
@@ -48,12 +49,27 @@ interface Open {
     home?: string;
     /** A fresh install: no vessel name, so the skipper card asks to set one up. */
     fresh?: boolean;
+    /** Large text: the 24 px root the other layout specs use (129-14). */
+    largeText?: boolean;
+    /** Three people on the vessel profile, so the crew card shows a count (129-14). */
+    roster?: boolean;
 }
 
 async function open(
     page: Page,
     baseURL: string | undefined,
-    { width, height, view, split = false, mode = 'dark', trip = false, home, fresh = false }: Open,
+    {
+        width,
+        height,
+        view,
+        split = false,
+        mode = 'dark',
+        trip = false,
+        home,
+        fresh = false,
+        largeText = false,
+        roster = false,
+    }: Open,
 ) {
     await page.setViewportSize({ width, height });
     const origin = new URL(baseURL!).origin;
@@ -62,7 +78,7 @@ async function open(
     );
     await page.routeWebSocket('**/*', (socket) => socket.close());
     await page.addInitScript(
-        ({ split, mode, trip, home, fresh }) => {
+        ({ split, mode, trip, home, fresh, largeText, roster }) => {
             localStorage.setItem('thalassa_split_view', split ? '1' : '0');
             for (const key of [
                 'thalassa_settings_mirror::anonymous',
@@ -72,6 +88,17 @@ async function open(
                 saved.settings.displayMode = mode;
                 if (home) saved.settings.defaultLocation = home;
                 if (fresh) saved.settings.vessel = { ...saved.settings.vessel, name: '' };
+                // Fictional people (the repository is public).
+                if (roster)
+                    saved.settings.vessel = {
+                        ...saved.settings.vessel,
+                        crewCount: 3,
+                        crewRoster: [
+                            { name: 'Ingrid Solberg', rank: 'Skipper', dateOfBirth: '1979-10-15' },
+                            { name: 'Kenji Watanabe', rank: 'First mate', age: 52 },
+                            { name: 'Amara Okafor', rank: 'Crew' },
+                        ],
+                    };
                 localStorage.setItem(key, JSON.stringify(saved));
             }
             if (trip) {
@@ -97,11 +124,13 @@ async function open(
             }
             document.addEventListener('DOMContentLoaded', () => {
                 const wide = document.createElement('style');
-                wide.textContent = ":root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; }";
+                wide.textContent =
+                    ":root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; }" +
+                    (largeText ? ' html { font-size: 24px !important; }' : '');
                 document.head.append(wide);
             });
         },
-        { split, mode, trip, home, fresh },
+        { split, mode, trip, home, fresh, largeText, roster },
     );
     await page.goto(view ? `/?view=${view}` : '/');
 }
@@ -211,9 +240,16 @@ async function crewCard(page: Page) {
             const rgba = colour.match(/^rgba\([^)]*,\s*([\d.]+)\s*\)$/);
             return Math.round(255 * Number(slash?.[1] ?? rgba?.[1] ?? 1));
         };
+        const journal = document.querySelector('.vessel-hub-journal')!.getBoundingClientRect();
+        const skipper = document.querySelector('[data-testid="skipper-device-card"]')!.getBoundingClientRect();
         return {
             rows: [...crew.querySelectorAll('button')].map((button) => button.getAttribute('aria-label')),
             gap: b.top - a.bottom,
+            // The page's own card gap, the Diary pair's to the skipper card;
+            // and the crew card's to the skipper card above it (in phone
+            // landscape the menu is a column of its own, with nothing above).
+            standardGap: skipper.top - journal.bottom,
+            gapAbove: a.top >= skipper.bottom - 0.5 ? a.top - skipper.bottom : null,
             left: a.left - b.left,
             width: a.width - b.width,
             crewRow: height('Crew & Float Plan'),
@@ -227,6 +263,15 @@ async function crewCard(page: Page) {
     });
     expect(m.rows).toEqual(['Crew & Float Plan']);
     expect(m.gap, 'a gap between the crew card and the box').toBeGreaterThanOrEqual(1.5);
+    // Shane 2026-10-14 (129-14): "the new crew and float plan card does not
+    // have the standard spacing between it and the primary device card above
+    // it or the menu card below it". The page's one gap, above and below.
+    expect(Math.abs(m.gap - m.standardGap), `below ${m.gap} vs the page's ${m.standardGap}`).toBeLessThanOrEqual(1);
+    if (m.gapAbove !== null)
+        expect(
+            Math.abs(m.gapAbove - m.standardGap),
+            `above ${m.gapAbove} vs the page's ${m.standardGap}`,
+        ).toBeLessThanOrEqual(1);
     expect(Math.abs(m.left), 'the crew card lines up with the box').toBeLessThanOrEqual(0.5);
     expect(Math.abs(m.width), 'the crew card is as wide as the box').toBeLessThanOrEqual(0.5);
     expect(Math.abs(m.crewRow - m.binderRow), `crew row ${m.crewRow} vs ${m.binderRow}`).toBeLessThanOrEqual(1.5);
@@ -358,6 +403,220 @@ test.describe('Vessel page', () => {
             await crewCard(page);
         });
     }
+
+    // Shane 2026-10-14 (129-14): the crew card sits the page's own gap from the
+    // skipper card above it and the box below it, as the Diary pair sits from
+    // the skipper card, at every size: a short phone and large text (where
+    // the page is known to scroll), a tall phone, the iPad's pane and its
+    // whole screen.
+    const CARD_GAP_SIZES = [
+        { name: '320x568', width: 320, height: 568 },
+        { name: '390x844', width: 390, height: 844 },
+        { name: 'Pro Max +insets', width: 430, height: 856 },
+        { name: '1080x810 split +insets', width: 1080, height: 782, split: true },
+        { name: '1366x1024 iPad', width: 1366, height: 1024 },
+        { name: 'large text 390x844', width: 390, height: 844, largeText: true },
+        { name: 'large text 320x568', width: 320, height: 568, largeText: true },
+    ];
+    for (const size of CARD_GAP_SIZES) {
+        test(`spaces the crew card like every other card at ${size.name}`, async ({ page, baseURL }) => {
+            // With a count on the card, as a skipper sees it. In large text a
+            // row with a value is taller than one without (its rem-sized value
+            // outgrows the 13 px title), so there the card shows none and its
+            // row still matches the box's, as crewCard() checks.
+            await open(page, baseURL, { ...size, view: 'vessel', roster: !size.largeText });
+            await expect(page.getByRole('button', { name: 'Open Diary', exact: true })).toBeVisible({
+                timeout: 25_000,
+            });
+            await settle(page);
+            const m = await crewCard(page);
+            expect(m.gapAbove, 'the skipper card is above the crew card').not.toBeNull();
+            expect(m.standardGap, 'a gap, not cards touching').toBeGreaterThanOrEqual(1.5);
+        });
+    }
+
+    // The card's words at their longest (129-14): the count and how many are
+    // still invited, in the app's own words (components/vesselHub/
+    // crewCardWords.ts), set on the real row and measured, at 320 pt in large
+    // text and in the system size. Signed out, the row shows the profile's
+    // count only; the words a signed-in skipper sees are set in place, a
+    // layout probe as the Settings state words are below.
+    for (const size of [
+        { name: '320x568', width: 320, height: 568 },
+        { name: 'large text 320x568', width: 320, height: 568, largeText: true },
+        { name: 'large text 390x844', width: 390, height: 844, largeText: true },
+    ]) {
+        test(`the crew card's count and invite words fit at ${size.name}`, async ({ page, baseURL }) => {
+            await open(page, baseURL, { ...size, view: 'vessel', roster: true });
+            const row = page.getByRole('button', { name: 'Crew & Float Plan', exact: true });
+            await expect(row).toContainText(crewCountWords(3), { timeout: 25_000 });
+            await settle(page);
+            const before = await row.evaluate((element) => element.getBoundingClientRect().height);
+            const probe = await row.evaluate(
+                (element, words) => {
+                    const value = [...element.querySelectorAll<HTMLElement>('span[id$="-value"]')][0];
+                    const status = element.querySelector<HTMLElement>('.hub-row-status')!;
+                    value.textContent = words.value;
+                    status.textContent = words.status;
+                    const box = element.getBoundingClientRect();
+                    const v = value.getBoundingClientRect();
+                    const s = status.getBoundingClientRect();
+                    const lineHeight = parseFloat(getComputedStyle(status).lineHeight);
+                    return {
+                        height: box.height,
+                        valueWhole: value.scrollWidth <= value.clientWidth + 1 && v.right <= box.right + 0.5,
+                        // The subtitle is one nowrap line with an ellipsis in the
+                        // compact tiers: its own box always fits, so whole words
+                        // are measured by what it holds against what it shows.
+                        statusWhole: status.scrollWidth <= status.clientWidth + 1,
+                        statusShown: `${status.scrollWidth} px in ${status.clientWidth}`,
+                        statusInside: s.left >= box.left - 0.5 && s.right <= box.right + 0.5,
+                        statusLines: Math.round(s.height / lineHeight),
+                        overflow: element.scrollWidth - element.clientWidth,
+                        pageOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                    };
+                },
+                { value: crewCountWords(99), status: crewInvitedWords(99) },
+            );
+            expect(probe.valueWhole, `"${crewCountWords(99)}" is whole`).toBe(true);
+            expect(probe.statusWhole, `"${crewInvitedWords(99)}" is whole: ${probe.statusShown}`).toBe(true);
+            expect(probe.statusInside, `"${crewInvitedWords(99)}" stays inside the row`).toBe(true);
+            expect(probe.statusLines, 'one line, as every menu row on a short page').toBe(1);
+            expect(Math.abs(probe.height - before), 'the row keeps its height').toBeLessThanOrEqual(0.5);
+            expect(probe.overflow, 'nothing spills sideways out of the row').toBeLessThanOrEqual(1);
+            expect(probe.pageOverflowX, 'no sideways page scroll').toBeLessThanOrEqual(0);
+        });
+    }
+
+    // The vessel profile's crew rows ask a date of birth, not an age (129-14):
+    // the platform's own date picker, whole inside its row, its age line under
+    // it, on a 320 pt phone, a 390 pt one and in large text. A row with an age
+    // typed before 129 says so. Kenji has only an age; Ingrid a date of birth.
+    for (const size of [
+        { name: '320x568', width: 320, height: 568 },
+        { name: '390x844', width: 390, height: 844 },
+        { name: 'large text 320x568', width: 320, height: 568, largeText: true },
+    ]) {
+        test(`the vessel profile's date of birth fields fit at ${size.name}`, async ({ page, baseURL }) => {
+            await open(page, baseURL, { ...size, view: 'vessel', roster: true });
+            await page.getByRole('button', { name: 'Settings', exact: true }).click({ timeout: 25_000 });
+            await page.getByRole('button', { name: /^Open Vessel Profile settings/ }).click();
+            const roster = page.getByTestId('vessel-crew-roster');
+            await expect(roster).toBeVisible();
+            await expect(page.getByLabel('Skipper date of birth', { exact: true })).toHaveValue('1979-10-15');
+            await expect(roster).toContainText(/Age \d+ today/);
+            await expect(roster).toContainText('Age 52 from before. Add date of birth so this stays right.');
+            const issues = await roster.evaluate((element) => {
+                const found: string[] = [];
+                if (document.documentElement.scrollWidth > window.innerWidth + 1) found.push('page overflows sideways');
+                for (const person of element.querySelectorAll<HTMLElement>('[data-testid^="vessel-crew-person-"]')) {
+                    const block = person.getBoundingClientRect();
+                    for (const field of person.querySelectorAll<HTMLElement>('input, select, p')) {
+                        const box = field.getBoundingClientRect();
+                        const name = field.getAttribute('aria-label') ?? field.textContent?.slice(0, 24);
+                        if (box.left < block.left - 0.5 || box.right > block.right + 0.5)
+                            found.push(`${name} runs out of its row`);
+                        if (field.matches('input, select') && box.height < 43.5)
+                            found.push(`${name} is ${box.height}px`);
+                        if (field.matches('p') && field.scrollWidth > field.clientWidth + 1)
+                            found.push(`${name} is cut`);
+                    }
+                }
+                return found;
+            });
+            expect(issues).toEqual([]);
+        });
+    }
+
+    // Typed on a keyboard, the web build's way (129-14 review): Chromium's date
+    // field reports each digit of the year as it lands (0001-…, 0019-…, then
+    // 1979-…) and an empty value while a part is being retyped. A field that
+    // threw those away emptied itself on the first digit, and retyping the day
+    // wiped the saved date. Each part goes in digit by digit, in the order this
+    // Chromium asks for them: its own locale's, not the page's (day first on a
+    // Mac set to Australia; others ask month or year first), so the order is
+    // read from a field of the test's own. Amara has no date yet; Ingrid's is
+    // 15 October 1979. Fictional people.
+    test('a date of birth typed digit by digit is kept', async ({ page, baseURL, browserName }) => {
+        test.skip(browserName !== 'chromium', "Chromium's typed date field; iOS hands over whole dates");
+        const saved = () =>
+            page.evaluate(() => {
+                const raw = localStorage.getItem('thalassa_settings_mirror::anonymous');
+                const roster = raw ? JSON.parse(raw).settings?.vessel?.crewRoster : undefined;
+                return (roster ?? []).map((row: { dateOfBirth?: string; age?: number }) => ({
+                    dateOfBirth: row.dateOfBirth ?? null,
+                    age: row.age ?? null,
+                }));
+            });
+        await open(page, baseURL, { width: 390, height: 844, view: 'vessel', roster: true });
+        await page.getByRole('button', { name: 'Settings', exact: true }).click({ timeout: 25_000 });
+        await page.getByRole('button', { name: /^Open Vessel Profile settings/ }).click();
+
+        // The order of the parts, from a field of the test's own, typed the same way.
+        await page.evaluate(() => {
+            const probe = Object.assign(document.createElement('input'), { type: 'date', id: 'date-order-probe' });
+            document.body.append(probe);
+        });
+        const probe = page.locator('#date-order-probe');
+        await probe.focus();
+        await probe.pressSequentially('02032001', { delay: 20 });
+        type Order = 'dmy' | 'mdy' | 'ymd';
+        const orders: Record<string, Order> = { '2001-03-02': 'dmy', '2001-02-03': 'mdy' };
+        const order: Order = orders[await probe.inputValue()] ?? 'ymd';
+        await probe.evaluate((element) => element.remove());
+        const type = async (parts: string[]) => {
+            for (const part of parts) {
+                await page.keyboard.type(part, { delay: 30 });
+                // A year waits for more digits; the day and month move on by themselves.
+                if (part.length === 4 && part !== parts[parts.length - 1]) await page.keyboard.press('Tab');
+            }
+        };
+        const inOrder = (day: string, month: string, year: string) =>
+            order === 'dmy' ? [day, month, year] : order === 'mdy' ? [month, day, year] : [year, month, day];
+
+        // A new date, every digit typed.
+        const amara = page.getByLabel('Crew 3 date of birth', { exact: true });
+        await amara.focus();
+        await type(inOrder('15', '10', '1979'));
+        await expect(amara).toHaveValue('1979-10-15');
+        await expect.poll(async () => (await saved())[2]?.dateOfBirth).toBe('1979-10-15');
+
+        // Its first part retyped: blank for a moment, and the saved date stays.
+        const ingrid = page.getByLabel('Skipper date of birth', { exact: true });
+        await ingrid.focus();
+        await page.keyboard.press('Backspace');
+        await expect(ingrid).toHaveValue('');
+        await page.waitForTimeout(250);
+        expect((await saved())[0]?.dateOfBirth, 'a part being retyped is not a cleared date').toBe('1979-10-15');
+        const retypes: Record<Order, [string, string]> = {
+            dmy: ['20', '1979-10-20'],
+            mdy: ['11', '1979-11-15'],
+            ymd: ['1980', '1980-10-15'],
+        };
+        const [first, retyped] = retypes[order];
+        await page.keyboard.type(first, { delay: 30 });
+        await expect(ingrid).toHaveValue(retyped);
+        await expect.poll(async () => (await saved())[0]?.dateOfBirth).toBe(retyped);
+
+        // Every part emptied and the field left: cleared, with the age it gave.
+        // (Left and come back to, so typing starts at the first part again.)
+        await ingrid.blur();
+        await expect.poll(async () => (await saved())[0]?.dateOfBirth).toBe(retyped);
+        await ingrid.focus();
+        for (let part = 0; part < 3; part++) {
+            await page.keyboard.press('Backspace');
+            await page.keyboard.press('Tab');
+        }
+        // Emptying the last part fires nothing, and the third Tab only reaches
+        // the field's own calendar button: leaving the field is the word.
+        await expect(ingrid).toBeFocused();
+        expect((await saved())[0]?.dateOfBirth, 'still saved until the field is left').toBe(retyped);
+        await page.keyboard.press('Tab');
+        await expect(ingrid).not.toBeFocused();
+        await expect(ingrid).toHaveValue('');
+        await expect.poll(async () => (await saved())[0]).toEqual({ dateOfBirth: null, age: null });
+        expect((await saved())[2]?.dateOfBirth, "Amara's date is untouched").toBe('1979-10-15');
+    });
 
     test('320x568 (an SE at Display Zoom) still reaches every row by scrolling', async ({ page, baseURL }) => {
         // Known short: four 44 pt-minimum blocks, six 44 pt rows and the app

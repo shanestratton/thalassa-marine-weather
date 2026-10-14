@@ -636,7 +636,8 @@ describe('loadFloatPlanCrew', () => {
 
             const result = await loadFloatPlanCrew();
 
-            expect(details.select).toHaveBeenCalledWith('user_id, full_name, phone, age');
+            // Their date of birth too since 129-14 (tests/FloatPlanCrewDateOfBirth.test.ts).
+            expect(details.select).toHaveBeenCalledWith('user_id, full_name, phone, age, date_of_birth');
             expect(details.in).toHaveBeenCalledWith('user_id', ['u-tom', 'u-lee']);
             expect(result!.aboard[1]).toEqual({
                 name: 'Thomas Okafor',

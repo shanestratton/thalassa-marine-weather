@@ -21,7 +21,7 @@
  * Recipe Library has moved to the Galley; keeping it in two places
  * confused users and the Galley is the natural home for it.
  */
-import React, { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
 import { ShoreWatchAlarmService } from '../services/ShoreWatchAlarmService';
 import { AnchorPiWatchKeeper } from '../services/anchorPiWatchKeeper';
@@ -47,7 +47,6 @@ import { triggerHaptic } from '../utils/system';
 import { daylightUiColor } from '../utils/daylightUiColor';
 import { convertLength } from '../utils/units';
 import { calculateDistance } from '../utils/navigationCalculations';
-import { getMyCrew } from '../services/CrewService';
 import { useRealtimeSync } from '../hooks/useRealtimeSync';
 import { useVesselReadinessCounts } from '../hooks/useVesselReadinessCounts';
 import { GpsService, type GpsPosition } from '../services/GpsService';
@@ -79,7 +78,6 @@ import { BackButton } from './ui/BackButton';
 import { PUBLIC_BETA_ACCESS, TIER_INFO } from '../services/SubscriptionService';
 import type { SubscriptionTier } from '../types/settings';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
-import { vesselCrewAboard } from '../services/units';
 
 import { CONTOUR_BG, GLASS } from './vesselHub/glass';
 import { formatCoord, formatDuration, formatTimeSince, pressureTrendIndicator } from './vesselHub/format';
@@ -157,7 +155,9 @@ import { usePendingCrewInvites } from './vesselHub/usePendingCrewInvites';
 import { useCrewingVessel } from '../hooks/useCrewingVessel';
 import { useCrewVesselView } from '../hooks/useCrewVesselView';
 import { crewVesselAboard, crewVesselName } from '../services/crew/crewVesselView';
-import { floatPlanSelfDetails } from '../services/crew/floatPlanPeople';
+import { crewRegisterCount, floatPlanSelfDetails } from '../services/crew/floatPlanPeople';
+import type { FloatPlanCrew } from '../services/floatPlanCrew';
+import { crewCountWords, crewInvitedWords } from './vesselHub/crewCardWords';
 import { SKIPPER_BOAT_FALLBACK } from './vessel/SharedBinderLine';
 import { useTripLogActive } from './vesselHub/useTripLogActive';
 
@@ -527,8 +527,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // "1 Overdue still showing" bug — is independently testable.
     const { overdueCount, expiringDocsCount, expiringEquipCount } = useVesselReadinessCounts();
 
-    // ── Draft passage plans ──
-    const [passageCrewCount, setPassageCrewCount] = useState(0);
+    // ── The crew register's count ──
     // Refresh the crew count whenever vessel_crew changes (invite
     // accepted / crew removed) — not just on mount. Added 2026-05-20
     // in the staleness-hardening sweep: this tile was the one
@@ -536,12 +535,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // trigger, so the "{n} crew" planning hint could go stale while
     // the Nav Station stayed open. useRealtimeSync mirrors the
     // pattern the Documents / Equipment tiles already use.
-    // Only a count the skipper actually set, or real registered crew, may show.
-    // vesselCrewAboard() answers 2 for an unset field, and "2 crew" on a fresh
-    // or signed-out install read as a count (UX scorecard run 6).
-    const passageVessel = (ctx as { vessel?: { crewCount?: number } }).vessel;
-    const crewCountSet = typeof passageVessel?.crewCount === 'number' && Number.isFinite(passageVessel.crewCount);
-    const configuredPassageCrewCount = crewCountSet ? vesselCrewAboard(passageVessel) : 0;
+    // Everyone on the crew register, once, the float plan's way (129-14,
+    // Shane 2026-10-14: "the crew and float plan card says two crew. But
+    // there is actually three. 2+1 invitee"). It read the larger of the
+    // profile's "Crew aboard" and the account's vessel_crew rows plus the
+    // skipper, so two people on the profile and one accepted invitee read 2.
+    // Now the profile's people, the skipper and accepted crew merged as the
+    // float plan merges them, then pending invitees, never fewer than "Crew
+    // aboard" (crewRegisterCount); the subtitle says how many are still
+    // invited. Only a count the skipper actually set, his profile's people or
+    // real registered crew may show: "2 crew" on a fresh or signed-out
+    // install read as a count (UX scorecard run 6).
+    const [crewRegister, setCrewRegister] = useState<FloatPlanCrew | null>(null);
     // Crewing on a skipper's boat (2026-10-03): the row names that boat and
     // counts its people, from the cached crew view, not the account's own crew.
     const { vessel: crewingVessel } = useCrewingVessel();
@@ -549,25 +554,25 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const { view: crewingBoatView } = useCrewVesselView(crewingOwnerId, 0, { live: false });
     const loadPassageCrew = useCallback(async () => {
         const scope = getAuthIdentityScope();
-        if (scope.userId !== authenticatedUserId || crewingOwnerId) return;
+        if (!authenticatedUserId || scope.userId !== authenticatedUserId || crewingOwnerId) return;
         try {
-            const c = await getMyCrew();
-            if (!isAuthIdentityScopeCurrent(scope)) return;
-            // max(settings count, actual crew + captain) — the captain is only
-            // counted alongside registered crew, never on his own as a default.
-            const actualWithCaptain = c.length > 0 ? c.length + 1 : 0;
-            setPassageCrewCount(Math.max(configuredPassageCrewCount, actualWithCaptain));
+            // Names only, every passage's invites (services/floatPlanCrew.ts).
+            const { loadFloatPlanCrew } = await import('../services/floatPlanCrew');
+            const crew = await loadFloatPlanCrew(null, { forCount: true });
+            // Null is "could not ask" (offline, a failure): keep the last answer.
+            if (crew && isAuthIdentityScopeCurrent(scope)) setCrewRegister(crew);
         } catch {
             /* offline — keep previous count */
         }
-    }, [authenticatedUserId, configuredPassageCrewCount, crewingOwnerId]);
+    }, [authenticatedUserId, crewingOwnerId]);
     useEffect(() => {
-        setPassageCrewCount(0);
+        setCrewRegister(null);
         void loadPassageCrew();
     }, [loadPassageCrew]);
-    const passageCrewCountShown = crewingOwnerId
-        ? (crewVesselAboard(crewingBoatView, floatPlanSelfDetails(ctx.vessel)) ?? 0)
-        : passageCrewCount;
+    const ownCrewCount = useMemo(() => crewRegisterCount(ctx.vessel, crewRegister), [ctx.vessel, crewRegister]);
+    const crewCountShown = crewingOwnerId
+        ? { crew: crewVesselAboard(crewingBoatView, floatPlanSelfDetails(ctx.vessel)) ?? 0, invited: 0 }
+        : (ownCrewCount ?? { crew: 0, invited: 0 });
     const crewingBoatName = crewingOwnerId
         ? crewVesselName(crewingVessel?.vesselName, crewingBoatView) || SKIPPER_BOAT_FALLBACK
         : null;
@@ -1462,10 +1467,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     ? `${pendingCrewInvites} crew ${pendingCrewInvites === 1 ? 'invite' : 'invites'} pending`
                                     : crewingBoatName
                                       ? `Crewing on ${crewingBoatName}`
-                                      : 'Readiness checks & cast off'
+                                      : crewCountShown.invited > 0
+                                        ? crewInvitedWords(crewCountShown.invited)
+                                        : 'Readiness checks & cast off'
                             }
                             statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
-                            value={passageCrewCountShown > 0 ? `${passageCrewCountShown} crew` : undefined}
+                            value={crewCountShown.crew > 0 ? crewCountWords(crewCountShown.crew) : undefined}
                             valueColor="#e2e8f0"
                             onClick={() => {
                                 triggerHaptic('light');
