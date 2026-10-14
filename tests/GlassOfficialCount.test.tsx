@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({ setPage: vi.fn() }));
 vi.mock('../context/UIContext', () => ({ useUI: () => ({ setPage: mocks.setPage }) }));
 
 import { supabase } from '../services/supabase';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { CompactHeaderRow } from '../components/dashboard/CompactHeaderRow';
 import { useOfficialWarnings } from '../hooks/useOfficialWarnings';
 import { clearOfficialWarningsCache, officialInForce } from '../services/officialWarnings';
@@ -24,6 +25,8 @@ const FIXTURES = JSON.parse(readFileSync('tests/fixtures/official-alerts/rpc-ans
 const rpc = vi.mocked(supabase!.rpc);
 
 beforeEach(() => {
+    // official_alerts_at is for signed-in users; the app never asks signed out.
+    setAuthIdentityScope('fixture-skipper');
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(FIXTURES.anchor));
     clearOfficialWarningsCache();
@@ -32,6 +35,7 @@ beforeEach(() => {
     sessionStorage.clear();
 });
 afterEach(() => {
+    setAuthIdentityScope(null);
     cleanup();
     vi.useRealTimers();
 });

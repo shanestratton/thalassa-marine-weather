@@ -9,6 +9,7 @@
  * is null: not answered.
  */
 import { supabase } from './supabase';
+import { getAuthIdentityScope } from './authIdentityScope';
 
 export interface CycloneWatchStatus {
     ranAt: string;
@@ -16,6 +17,8 @@ export interface CycloneWatchStatus {
 }
 
 export async function fetchCycloneWatchStatus(): Promise<CycloneWatchStatus | null> {
+    // Signed out there is no account to report on, and the RPC is for signed-in users.
+    if (!getAuthIdentityScope().userId) return null;
     try {
         const { data, error } = (await supabase?.rpc('cyclone_watch_status')) ?? {};
         const row = (Array.isArray(data) ? data[0] : data) as

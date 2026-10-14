@@ -217,9 +217,14 @@ export function fetchOfficialWarnings(lat: number, lon: number): Promise<Officia
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
         return Promise.resolve(null);
     }
+    // Signed out, nobody may call it (the RPC is for signed-in users), so don't ask:
+    // the page keeps today's links. Asking anyway logged a 404 before the migration and
+    // a 401 after it (release run 38517476280).
+    const scope = getAuthIdentityScope();
+    if (!scope.userId) return Promise.resolve(null);
     const p_lat = round3(lat);
     const p_lon = round3(lon);
-    const key = `${getAuthIdentityScope().key}|${p_lat}|${p_lon}`;
+    const key = `${scope.key}|${p_lat}|${p_lon}`;
     const hit = cache.get(key);
     if (hit && Date.now() - hit.at < hit.ttl) return hit.value;
     const entry: { at: number; ttl: number; value: Promise<OfficialAnswer | null> } = {

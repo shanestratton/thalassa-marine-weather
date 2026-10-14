@@ -20,9 +20,19 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import '../../index.css';
+import { setAuthIdentityScope, subscribeAuthIdentityScope } from '../../services/authIdentityScope';
 
 if (!import.meta.env.DEV)
     throw new Error('The official-warnings fixture is available only through the development server.');
+
+// Official warnings and their status are for signed-in users; the app never asks
+// signed out (release run 38517476280). The fixture is a signed-in skipper.
+setAuthIdentityScope('fixture-skipper');
+// The app's auth start-up finds no session here and fences to anonymous; this page
+// models a signed-in skipper, so it signs the fixture user straight back in.
+subscribeAuthIdentityScope((scope) => {
+    if (!scope.userId) queueMicrotask(() => setAuthIdentityScope('fixture-skipper'));
+});
 
 const params = new URLSearchParams(location.search);
 const view = params.get('view') ?? 'page';

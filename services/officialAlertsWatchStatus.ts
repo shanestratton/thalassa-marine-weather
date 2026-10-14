@@ -9,8 +9,11 @@
  * there yet, no run yet) is null: not answered.
  */
 import { supabase } from './supabase';
+import { getAuthIdentityScope } from './authIdentityScope';
 
 export async function fetchOfficialAlertsWatchStatus(): Promise<{ ranAt: string } | null> {
+    // Signed out there is no account to report on, and the RPC is for signed-in users.
+    if (!getAuthIdentityScope().userId) return null;
     try {
         const { data, error } = (await supabase?.rpc('official_alerts_watch_status')) ?? {};
         const row = (Array.isArray(data) ? data[0] : data) as { ran_at?: unknown } | null | undefined;
