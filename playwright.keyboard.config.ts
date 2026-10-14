@@ -160,6 +160,11 @@ export default defineConfig({
         // Routing off the main thread (127-ROUTE-W2): while Auto routes the archipelago's 20 NM
         // leg in the worker, no pause over 150 ms; Stop; and the no-Worker freeze, seen.
         'route-worker.spec.ts',
+        // A storm open on Obs (129-13): one card with the storm stepper inside it, clear of the
+        // chip, MOB and the top row at 320 x 568 in large text to the iPad, with the basin
+        // named in words; and the clear view, which keeps MOB, the credits and the scrubber
+        // (e2e/fixtures/storm-overlay.tsx).
+        'storm-overlay-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

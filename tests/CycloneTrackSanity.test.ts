@@ -307,7 +307,8 @@ describe('the probability sleeve follows the SELECTION', () => {
         expect(srcNow).not.toMatch(/for \(const c of cyclones\) \{\s*\n\s*addProbabilitySleeve/);
         expect(srcNow).toContain('const sleeveStorm = selectedStormRef.current');
         // ...and stepping storms re-draws it with the card.
-        const sel = srcNow.slice(srcNow.indexOf('hud.appendChild(createStormBadgeStatic(selectedStorm));'));
-        expect(sel.slice(0, 400)).toContain('addProbabilitySleeve(map, selectedStorm);');
+        // The card and its stepper are built together since 129-13 (createStormHud).
+        const sel = srcNow.slice(srcNow.indexOf('const hud = createStormHud('));
+        expect(sel.slice(0, 600)).toContain('addProbabilitySleeve(map, selectedStorm);');
     });
 });

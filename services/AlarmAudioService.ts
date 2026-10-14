@@ -30,6 +30,20 @@ class AlarmAudioServiceClass {
     private readonly detachedReleaseRetries = new Map<string, ReturnType<typeof setTimeout> | null>();
     private leaseSequence = 0;
     private operationTail: Promise<void> = Promise.resolve();
+    private readonly alarmListeners = new Set<(ownerId: string) => void>();
+
+    /**
+     * Told each time an owner asks for the alarm, before its audio starts and
+     * whether or not it then starts. Every alarm comes through acquire, so
+     * this is the one place to hear "an alarm is going off": Obs's clear view
+     * gives the skipper the controls back on it (129-13).
+     */
+    onAlarm(listener: (ownerId: string) => void): () => void {
+        this.alarmListeners.add(listener);
+        return () => {
+            this.alarmListeners.delete(listener);
+        };
+    }
 
     /**
      * Acquire shared ownership of the audible alarm.
@@ -41,6 +55,13 @@ class AlarmAudioServiceClass {
     async acquire(ownerId: string): Promise<string> {
         const owner = ownerId.trim();
         if (!owner || owner.length > 80) throw new Error('A valid alarm-audio owner is required.');
+        for (const listener of [...this.alarmListeners]) {
+            try {
+                listener(owner);
+            } catch (error) {
+                log.warn('[AlarmAudioService] alarm listener failed', error);
+            }
+        }
 
         return this.runExclusive(async () => {
             if (this.leases.size === 0) await this.startUnderlyingAlarm();

@@ -1106,6 +1106,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             {tacticalState?.onOpenMob && (
                 <button
                     type="button"
+                    // MOB stays in Obs's clear view (129-13): a safety control is always one tap away.
+                    data-clear-view-keep=""
                     aria-label={
                         tacticalState.mobActive
                             ? 'MOB active, open Man Overboard emergency'

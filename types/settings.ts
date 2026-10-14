@@ -238,6 +238,14 @@ export interface UserSettings {
      */
     obsEncOnOpen?: boolean;
     /**
+     * Settings → Preferences → Chart: "Two-finger hold clears the chart"
+     * (build 129, 129-13). Two fingers held still on Obs hide its controls;
+     * on unless set to exactly false. The scrubber pill's press and hold, a
+     * tap to come back, H and Escape are not switched by it.
+     * components/map/mapHub/useObsClearView.ts reads it.
+     */
+    obsClearViewHold?: boolean;
+    /**
      * Settings → Alerts: "Cyclone warnings near the boat" (build 129, 129-09).
      * The server's cyclone-watch push: a notice within 600 NM, urgent within
      * 300 NM or when the forecast track comes within 300 NM inside 72 h. A

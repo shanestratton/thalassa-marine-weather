@@ -9,10 +9,8 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 const src = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
-const hud = src.slice(
-    src.indexOf('const hud = document.createElement'),
-    src.indexOf('map.getContainer().appendChild(hud)'),
-);
+// The HUD is built by createStormHud since 129-13 (the card with its stepper inside).
+const hud = src.slice(src.indexOf('export function createStormHud('), src.indexOf('export function badgeSignature('));
 const card = src.slice(src.indexOf('function buildStormBadgeDOM'), src.indexOf('// ── Header: Storm name'));
 
 describe('storm badge placement', () => {
@@ -30,18 +28,36 @@ describe('storm badge placement', () => {
 
         const css = readFileSync('index.css', 'utf8');
         const mob = /\.radial-helm-mob\s*\{[^}]*top:\s*([^;]+);/.exec(css)?.[1];
-        const badge = /\.storm-hud-badges\s*\{[^}]*top:\s*([^;]+);/.exec(css)?.[1];
+        const badge = /\.storm-hud-badges\s*\{[^}]*?top:\s*([^;]+);/.exec(css)?.[1];
         expect(mob).toBe('calc(env(safe-area-inset-top) / 2 - 95px)');
-        // 192 (menu anchor) - 95 = 97, plus the same half-inset MOB uses.
-        expect(badge).toBe('calc(97px + env(safe-area-inset-top) / 2)');
+        // 192 (menu anchor) - 95 = 97, plus the same half-inset MOB uses; and
+        // under a threat chip that is showing, one measured stack (129-13).
+        expect(badge).toBe(
+            'max(calc(97px + env(safe-area-inset-top) / 2), calc(var(--thalassa-threat-chip-bottom, 0px) + 8px))',
+        );
 
         // …and the same in short landscape, where MOB re-anchors to the
         // menu's own top instead of sitting above it.
         const landscape = css.slice(css.indexOf('@media (orientation: landscape) and (max-height: 500px)'));
         const lMob = /\.radial-helm-mob\s*\{[^}]*top:\s*([^;]+);/.exec(landscape)?.[1];
-        const lBadge = /\.storm-hud-badges\s*\{[^}]*top:\s*([^;]+);/.exec(landscape)?.[1];
+        const lBadge = /\.storm-hud-badges\s*\{[^}]*?top:\s*([^;]+);/.exec(landscape)?.[1];
         expect(lMob).toBe('0 !important');
-        expect(lBadge).toBe('max(64px, calc(env(safe-area-inset-top) + 52px)) !important');
+        expect(lBadge?.replace(/\s+/g, ' ')).toBe(
+            'max( max(64px, calc(env(safe-area-inset-top) + 52px)), calc(var(--thalassa-threat-chip-bottom, 0px) + 8px) ) !important',
+        );
+    });
+
+    it('stops short of MOB and the layers button, which grows with large text (129-13)', () => {
+        // Shane 2026-10-14: the card ran under MOB. Its right edge is the
+        // helm rail's: the rail's own edge, the wider of MOB (52px) and the
+        // layers button (3rem), and 8px between. In short landscape MOB
+        // stands 80px in from the rail's edge.
+        const css = readFileSync('index.css', 'utf8');
+        const right = /\.storm-hud-badges\s*\{[^}]*?right:\s*([^;]+);/.exec(css)?.[1];
+        expect(right).toBe('calc(max(16px, env(safe-area-inset-right)) + max(52px, 3rem) + 8px)');
+        const landscape = css.slice(css.indexOf('@media (orientation: landscape) and (max-height: 500px)'));
+        const lRight = /\.storm-hud-badges\s*\{[^}]*?right:\s*([^;]+);/.exec(landscape)?.[1];
+        expect(lRight).toBe('calc(max(16px, env(safe-area-inset-right)) + 140px) !important');
     });
 
     it('stacks above the FAB rail and the route banner', () => {

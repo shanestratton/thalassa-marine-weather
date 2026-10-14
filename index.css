@@ -3899,7 +3899,83 @@ body,
    above, and deliberately next to it: these two must move together, and a
    constant in the TS file could not track the safe-area inset at all. */
 .storm-hud-badges {
-    top: calc(97px + env(safe-area-inset-top) / 2);
+    /* Under a threat chip that is showing (ThreatBanner sets the variable on
+       the chart's box): one measured stack, never overlapping (129-13). */
+    top: max(calc(97px + env(safe-area-inset-top) / 2), calc(var(--thalassa-threat-chip-bottom, 0px) + 8px));
+    /* Clear of the helm rail: its right edge, the wider of MOB (52px) and
+       the layers button (3rem, which grows with large text), 8px between.
+       The card runs no further (Shane 2026-10-14: it ran under MOB). */
+    right: calc(max(16px, env(safe-area-inset-right)) + max(52px, 3rem) + 8px);
+}
+
+/* ── Clear view on Obs (129-13) ────────────────────────────────────
+   Shane 2026-10-14: "We need a way to clear everything off the screen so we
+   can actually see the screen." useObsClearView sets data-obs-clear-view on
+   the chart's frame (MapHub) and, outside split view, a class on <html> for
+   the tab bar.
+
+   Hidden: every control over the chart, i.e. the frame's children but the
+   chart itself, inside the chart the storm card and the scale bar, and the
+   chart page's own corner controls App.tsx draws beside the frame (the
+   status and Calypso buttons, the offline chip: [data-obs-chrome]).
+   Stays: the chart and all that is drawn on it (the wind, storms, AIS, her
+   own boat, the place pin, the cyclone feed's "unavailable" line), anything
+   marked data-clear-view-keep (MOB, the scrubber and its pill, an urgent
+   threat chip, the clear view's own line), and every licence credit:
+   [data-map-credit], and Mapbox's own corner containers, which are inside
+   the chart and never named here.
+
+   visibility, not display: nothing moves, so the map never resizes, and a
+   kept control inside a hidden one (MOB in the helm menu, the storm's
+   credits in its card) still shows and still takes its taps. A hidden
+   element takes none. */
+[data-obs-clear-view='on'] > :not(.thalassa-chart-map, [data-clear-view-keep], [data-map-credit]),
+[data-obs-clear-view='on'] > .thalassa-chart-map > .storm-hud-badges,
+[data-obs-clear-view='on'] > .thalassa-chart-map .mapboxgl-ctrl-scale,
+main:has([data-obs-clear-view='on']) [data-obs-chrome],
+html.thalassa-obs-clear-view [data-thalassa-tab-bar] {
+    visibility: hidden;
+}
+[data-obs-clear-view='on'] :is([data-clear-view-keep], [data-map-credit]) {
+    visibility: visible;
+}
+/* The storm's credits without their card behind them: a backing of their own. */
+[data-obs-clear-view='on'] .storm-hud-badges [data-map-credit] {
+    width: fit-content;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: rgb(2 6 23 / 0.75);
+}
+/* A 150 ms fade out (a box holding a kept control just goes); none under
+   reduced motion. Coming back, the chips replay their own entrance. */
+@keyframes obs-clear-out {
+    from {
+        opacity: 1;
+        visibility: visible;
+    }
+
+    to {
+        opacity: 0;
+        visibility: hidden;
+    }
+}
+[data-obs-clear-view='on']
+    > :not(.thalassa-chart-map, [data-clear-view-keep], [data-map-credit]):not(
+        :has([data-clear-view-keep], [data-map-credit])
+    ),
+main:has([data-obs-clear-view='on']) [data-obs-chrome],
+html.thalassa-obs-clear-view [data-thalassa-tab-bar] {
+    animation: obs-clear-out 150ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+    [data-obs-clear-view='on']
+        > :not(.thalassa-chart-map, [data-clear-view-keep], [data-map-credit]):not(
+            :has([data-clear-view-keep], [data-map-credit])
+        ),
+    main:has([data-obs-clear-view='on']) [data-obs-chrome],
+    html.thalassa-obs-clear-view [data-thalassa-tab-bar] {
+        animation: none;
+    }
 }
 
 /* ── Chart map credits must clear the bottom tab bar ───────────────
@@ -5407,9 +5483,15 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
         right: 80px !important;
     }
 
-    /* MOB's landscape anchor is the menu's own top, so match it literally. */
+    /* MOB's landscape anchor is the menu's own top, so match it literally;
+       MOB stands 80px in from the menu's edge here, so the card stops 8px
+       short of its 52px. */
     .storm-hud-badges {
-        top: max(64px, calc(env(safe-area-inset-top) + 52px)) !important;
+        top: max(
+            max(64px, calc(env(safe-area-inset-top) + 52px)),
+            calc(var(--thalassa-threat-chip-bottom, 0px) + 8px)
+        ) !important;
+        right: calc(max(16px, env(safe-area-inset-right)) + 140px) !important;
     }
 
     .radial-helm-layer-grid {

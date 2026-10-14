@@ -29,12 +29,13 @@
  * Hidden when no threats. Updates every 10 seconds for lightning
  * (granular), every 60s for cyclones (slow-moving).
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { subscribeLightningStrikes, type LightningStrike } from '../../services/weather/api/blitzortungLightning';
 import { isBlitzortungEnabled } from '../../services/weather/api/lightningLicence';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { triggerHaptic } from '../../utils/system';
 import { calculateBearing, calculateDistance } from '../../utils/navigationCalculations';
+import { compassPoint, stormDistance } from './stormWords';
 
 interface ThreatBannerProps {
     visible: boolean;
@@ -50,6 +51,12 @@ interface ThreatBannerProps {
     flyTo: (lat: number, lon: number, zoom: number) => void;
     /** Told whether the banner is on screen, so Obs's position message can sit below it. */
     onShowingChange?: (showing: boolean) => void;
+    /**
+     * The storm the open storm card shows (129-13). Its distance is on the
+     * card, so the chip stands aside for it rather than sitting on the
+     * card's header; a different, nearer storm still gets the chip.
+     */
+    stormCardSid?: string | null;
 }
 
 interface Threat {
@@ -72,12 +79,17 @@ const RADIUS_CYCLONE_NM = 600;
 const STRIKE_WINDOW_MS = 5 * 60 * 1000;
 const REFRESH_INTERVAL_MS = 10_000; // re-evaluate threats every 10s
 
-// ── Geo helpers ─────────────────────────────────────────────────────
-
-function compass(bearing: number): string {
-    const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-    return dirs[Math.round(bearing / 45) % 8];
+/** "8 NM SE", with no-break spaces: "NM W" never wraps onto a line of its own (129-13). */
+function nmAway(nm: number, bearing: number): string {
+    return `${nm.toFixed(0)}\u00a0NM\u00a0${compassPoint(bearing)}`;
 }
+
+/**
+ * The chip's bottom edge, for the storm card under it (index.css
+ * .storm-hud-badges): set on the chart's own box while the chip shows, so
+ * the two are one measured stack and never overlap (129-13).
+ */
+const CHIP_BOTTOM_VAR = '--thalassa-threat-chip-bottom';
 
 // ── Component ───────────────────────────────────────────────────────
 
@@ -89,6 +101,7 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
     lightningActive: lightningRequested,
     flyTo,
     onShowingChange,
+    stormCardSid = null,
 }) => {
     // Flag first, so a build with the Blitzortung flag off drops the strike feed.
     const lightningActive = isBlitzortungEnabled() && lightningRequested;
@@ -108,10 +121,13 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
     // comment below describes.
     const posRef = useRef({ lat: userLat, lon: userLon });
     const cyclonesRef = useRef(cyclones);
+    const stormCardSidRef = useRef(stormCardSid);
     useEffect(() => {
         posRef.current = { lat: userLat, lon: userLon };
         cyclonesRef.current = cyclones;
     }, [userLat, userLon, cyclones]);
+    stormCardSidRef.current = stormCardSid;
+    const buttonRef = useRef<HTMLButtonElement>(null);
 
     // Subscribe to lightning when active. Strikes go straight into the
     // ref; the periodic effect below recomputes the banner from them.
@@ -168,7 +184,7 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
                         distanceNm: distNm,
                         bearing,
                         severity,
-                        label: `⚡ Lightning · ${distNm.toFixed(0)} NM ${compass(bearing)}`,
+                        label: `⚡ Lightning · ${nmAway(distNm, bearing)}`,
                         sublabel:
                             countWithin > 1
                                 ? `${countWithin} strikes nearby in last 5 min`
@@ -194,14 +210,17 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
                         nearestCyclone = c;
                     }
                 }
-                if (nearestCyclone && nearestNm <= RADIUS_CYCLONE_NM) {
+                // The open storm card already says how far this one is.
+                const onTheCard = nearestCyclone !== null && nearestCyclone.sid === stormCardSidRef.current;
+                if (nearestCyclone && nearestNm <= RADIUS_CYCLONE_NM && !onTheCard) {
                     const distNm = nearestNm;
-                    const bearing = calculateBearing(
+                    const away = stormDistance(
                         hereLat,
                         hereLon,
                         nearestCyclone.currentPosition.lat,
                         nearestCyclone.currentPosition.lon,
                     );
+                    const bearing = away?.bearing ?? 0;
                     const severity: Threat['severity'] = distNm < 100 ? 'danger' : distNm < 300 ? 'warning' : 'caution';
                     const cat = nearestCyclone.categoryLabel ?? nearestCyclone.category ?? '?';
                     const winds = nearestCyclone.maxWindKts ?? nearestCyclone.currentPosition.windKts;
@@ -210,7 +229,7 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
                         distanceNm: distNm,
                         bearing,
                         severity,
-                        label: `🌀 ${nearestCyclone.name || 'Tropical system'} · ${distNm.toFixed(0)} NM ${compass(bearing)}`,
+                        label: `🌀 ${nearestCyclone.name || 'Tropical system'} · ${nmAway(distNm, bearing)}`,
                         sublabel: `Cat ${cat}${winds ? ` · ${winds} kt winds` : ''}`,
                         target: {
                             lat: nearestCyclone.currentPosition.lat,
@@ -246,7 +265,28 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
         evaluate();
         const t = setInterval(evaluate, REFRESH_INTERVAL_MS);
         return () => clearInterval(t);
-    }, [visible, lightningActive]);
+    }, [visible, lightningActive, stormCardSid]);
+
+    // One measured stack with the storm card (129-13): the chip's bottom edge,
+    // in the chart's own box, while it shows; nothing once it is gone.
+    useLayoutEffect(() => {
+        const el = buttonRef.current;
+        const hub = el?.closest<HTMLElement>('[data-testid="map-hub"]');
+        if (!el || !hub) return undefined;
+        const publish = () => {
+            const bottom = el.getBoundingClientRect().bottom - hub.getBoundingClientRect().top;
+            hub.style.setProperty(CHIP_BOTTOM_VAR, `${Math.ceil(bottom)}px`);
+        };
+        publish();
+        const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(publish) : null;
+        observer?.observe(el);
+        window.addEventListener('resize', publish);
+        return () => {
+            observer?.disconnect();
+            window.removeEventListener('resize', publish);
+            hub.style.removeProperty(CHIP_BOTTOM_VAR);
+        };
+    }, [showing, threat?.id]);
 
     if (!visible || !threat) return null;
 
@@ -260,6 +300,10 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
 
     return (
         <button
+            ref={buttonRef}
+            // A storm or strike under 100 NM stays in the clear view (129-13).
+            data-clear-view-keep={threat.severity === 'danger' ? '' : undefined}
+            data-threat-chip=""
             onClick={() => {
                 triggerHaptic('light');
                 flyTo(threat.target.lat, threat.target.lon, threat.target.zoom);
@@ -281,6 +325,10 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
                 color: 'var(--day-ui-text, rgba(255,255,255,0.92))',
                 boxShadow: `0 8px 24px rgba(0,0,0,0.5), 0 0 16px ${sev.border}`,
                 animation: sev.pulse ? 'threat-pulse 2.4s ease-in-out infinite' : undefined,
+                // max-content: at left 50% a shrink-to-fit box gets only half the
+                // screen, which is why "W" wrapped onto a line of its own at 390
+                // (Shane 2026-10-14). Now it is as wide as its words, up to the gutters.
+                width: 'max-content',
                 maxWidth: 'calc(100vw - 32px)',
             }}
             aria-label={`Threat alert: ${threat.label}`}

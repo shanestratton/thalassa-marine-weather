@@ -28,6 +28,8 @@ import { WindStore } from '../../stores/WindStore';
 
 import { createLogger } from '../../utils/createLogger';
 import { daylightUiColor } from '../../utils/daylightUiColor';
+import { stormDistance, stormIdentityWords, type StormDistance } from './stormWords';
+import { ISSUER_ANCHORS, ISSUER_OFFSET_EM, issuerAnchorOrder, issuerLabelBox, type Box } from './issuerLabelPlacement';
 
 /**
  * The zoom the storm view opens at (Shane 2026-08-23: "can we start the storm
@@ -1135,8 +1137,16 @@ const SLEEVE_EDGE = 'cyclone-sleeve-edge';
 const MODELS_SOURCE = 'cyclone-models-src';
 const MODELS_LINE = 'cyclone-models-line';
 const MODELS_LABEL = 'cyclone-models-label';
-/** The issuer's own label: a layer of its own, above the models', so it is placed first and never dropped. */
+/**
+ * The issuer's own label: a layer of its own, above the models', so it is
+ * placed first and the chart's own labels yield to it. It no longer
+ * overlaps (129-13: "NHC official forecast" printed over a place's name at
+ * zoom 2); it takes the first free one of eight spots around the track's end,
+ * ordered by placeIssuerLabel so the HTML markers there are kept clear too.
+ */
 const ISSUER_LABEL = 'cyclone-issuer-label';
+/** Where each map's issuer label stands and what it says, for placeIssuerLabel. */
+const issuerLabels = new WeakMap<mapboxgl.Map, { at: [number, number]; text: string; order: string }>();
 
 /** Every model's track for a storm, from the service once it has loaded (129-09). */
 let modelSource: ((c: ActiveCyclone) => CycloneModelTrack[]) | null = null;
@@ -1189,6 +1199,7 @@ export function unwrapPolygonLongitudes<G extends GeoJSON.Polygon | GeoJSON.Mult
 }
 
 function removeProbabilitySleeve(map: mapboxgl.Map): void {
+    issuerLabels.delete(map);
     for (const id of [ISSUER_LABEL, MODELS_LABEL, MODELS_LINE, SLEEVE_EDGE, SLEEVE_CORE]) {
         if (map.getLayer(id)) map.removeLayer(id);
     }
@@ -1299,16 +1310,15 @@ function addProbabilitySleeve(map: mapboxgl.Map, cyclone: ActiveCyclone): void {
     const end = cyclone.forecastTrack[cyclone.forecastTrack.length - 1];
     if (issuer && end) {
         const issued = Date.parse(cyclone.forecastBy?.issued ?? '');
+        const text = Number.isFinite(issued) ? `${issuer.text}\n${utc(issued)}` : issuer.text;
         features.push({
             type: 'Feature',
-            properties: {
-                issuer: true,
-                official: issuer.official,
-                label: issuer.text,
-                text: Number.isFinite(issued) ? `${issuer.text}\n${utc(issued)}` : issuer.text,
-            },
+            properties: { issuer: true, official: issuer.official, label: issuer.text, text },
             geometry: { type: 'Point', coordinates: [end.lon, end.lat] },
         });
+        issuerLabels.set(map, { at: [end.lon, end.lat], text, order: '' });
+    } else {
+        issuerLabels.delete(map);
     }
     if (features.length === 0) {
         for (const id of [ISSUER_LABEL, MODELS_LABEL, MODELS_LINE]) if (map.getLayer(id)) map.removeLayer(id);
@@ -1354,12 +1364,52 @@ function addProbabilitySleeve(map: mapboxgl.Map, cyclone: ActiveCyclone): void {
                 'text-font': font,
                 'text-size': 10,
                 'text-max-width': 14,
-                'text-anchor': 'left',
-                'text-offset': [0.5, 0],
-                'text-allow-overlap': true,
+                'text-variable-anchor': [...ISSUER_ANCHORS],
+                'text-radial-offset': ISSUER_OFFSET_EM,
+                'text-justify': 'auto',
             },
             paint: { 'text-color': ['case', ['get', 'official'], '#ffffff', '#fbbf24'], ...halo },
         });
+    }
+    placeIssuerLabel(map);
+}
+
+/**
+ * Order the issuer label's spots so the first ones are clear of the HTML
+ * markers near the track's end: the chosen place's pin and name, and the
+ * storms' own badges, which Mapbox's label placement cannot see. Run as the
+ * label is drawn and on every camera stop; it touches the layer only when
+ * the order changes.
+ */
+export function placeIssuerLabel(map: mapboxgl.Map): void {
+    const label = issuerLabels.get(map);
+    if (!label) return;
+    try {
+        if (!map.getLayer(ISSUER_LABEL)) return;
+        const container = map.getContainer();
+        const frame = container.getBoundingClientRect();
+        // Track geometry, so through the one projector (tests/CycloneTrackSanity.test.ts).
+        const [point] = projectTrackContinuously(map, [label.at]);
+        const obstacles: Box[] = [];
+        for (const el of container.querySelectorAll<HTMLElement>(
+            '.obs-place-pin, .obs-place-pin__label, .cyclone-marker',
+        )) {
+            const r = el.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) continue;
+            obstacles.push({
+                left: r.left - frame.left,
+                top: r.top - frame.top,
+                right: r.right - frame.left,
+                bottom: r.bottom - frame.top,
+            });
+        }
+        const order = issuerAnchorOrder(point, issuerLabelBox(label.text), obstacles);
+        const key = order.join(',');
+        if (key === label.order) return;
+        label.order = key;
+        map.setLayoutProperty(ISSUER_LABEL, 'text-variable-anchor', order);
+    } catch {
+        /* the map or its style went away */
     }
 }
 
@@ -1552,6 +1602,9 @@ export function useCycloneLayer(
             }
         };
         map.on('moveend', onMoveEnd);
+        // The issuer label's spots, re-ordered round the markers wherever the camera stops.
+        const onIssuerPlace = () => placeIssuerLabel(map);
+        map.on('moveend', onIssuerPlace);
 
         // ── Create track overlay (SVG neon tube) on first use ──
         const ensureTrackOverlay = () => {
@@ -1885,7 +1938,10 @@ export function useCycloneLayer(
                 const sel = selectedStormRef.current;
                 const freshSel = sel ? cyclones.find((c) => c.sid === sel.sid) : undefined;
                 if (freshSel) {
-                    refreshStormCardInPlace(map.getContainer(), freshSel);
+                    refreshStormCardInPlace(map.getContainer(), freshSel, {
+                        lat: userLatRef.current,
+                        lon: userLonRef.current,
+                    });
                     // The card's badge and its stepper are separate nodes, and
                     // only this pass can add a stepper that was impossible at
                     // mount time because the storm list had not arrived yet.
@@ -2001,6 +2057,7 @@ export function useCycloneLayer(
             cancelled = true;
             map.off('zoomend', onZoomEnd);
             map.off('moveend', onMoveEnd);
+            map.off('moveend', onIssuerPlace);
             // Release center lock + restore zoom
             stormCenterRef.current = null;
             map.setMinZoom(0);
@@ -2051,35 +2108,9 @@ export function useCycloneLayer(
         const existing = map.getContainer().querySelector(`#${HUD_ID}`);
         if (existing) existing.remove();
 
-        const hud = document.createElement('div');
-        hud.id = HUD_ID;
-        // TOP ALIGNS WITH THE MOB FAB (Shane 2026-08-23) — and that is not a
-        // constant, so it cannot live here as one.
+        // The card's place on screen (top aligned with MOB, clear of it and
+        // of a threat chip) is index.css's .storm-hud-badges: see createStormHud.
         //
-        // MOB sits inside .radial-helm-menu (absolute top:192px) at
-        // .radial-helm-mob { top: calc(env(safe-area-inset-top)/2 - 95px) },
-        // i.e. 97px + half the notch inset, and it moves to a different
-        // anchor entirely in short landscape. A hard-coded 108/116 here was
-        // right on exactly one device and drifted on every other, which is
-        // how it landed in the pill row in the first place.
-        //
-        // So the offset moves to index.css beside .radial-helm-mob, derived
-        // from the same numbers and carrying the same landscape override.
-        // Keeping the two adjacent is the point: they are now one decision.
-        //
-        // z-index 760, NOT 600: the FAB rail is z-700 and the route banner
-        // z-720, so at 600 the storm card could be covered by furniture —
-        // "make sure that it is on top of all other layers".
-        hud.className = 'storm-hud-badges';
-        hud.style.cssText = `
-            position: absolute;
-            left: 16px;
-            z-index: 760;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            pointer-events: none;
-        `;
         // Idempotent, and NOT redundant: the keyframes are injected by the
         // [visible, mapReady] effect, which is a different effect from this
         // one. In practice it runs first, but "in practice" is not a
@@ -2087,11 +2118,6 @@ export function useCycloneLayer(
         // appear with no unroll, because CSS ignores an unknown animation
         // name rather than erroring.
         injectCycloneCSS();
-        hud.appendChild(createStormBadgeStatic(selectedStorm));
-        // The sleeve follows the selection: stepping storms must swap the GL
-        // cone with the card, or the punter reads one storm's numbers over
-        // another storm's probability envelope.
-        addProbabilitySleeve(map, selectedStorm);
         // STEP BETWEEN STORMS WITHOUT THE MENU (Shane 2026-08-23: "we need a
         // way to select a different storm without having to go back through
         // the menu").
@@ -2100,11 +2126,15 @@ export function useCycloneLayer(
         // view LOCKS the camera on the selected storm — so in a live Pacific
         // the other three are off-screen and there is nothing left to tap.
         // The only route back was the StormPicker modal, which is the menu he
-        // is describing. A stepper on the card needs no camera and no modal.
-        const switcher = createStormSwitcher(cyclonesRef.current, selectedStorm, (next) =>
-            onSelectStormRef.current?.(next),
-        );
-        if (switcher) hud.appendChild(switcher);
+        // is describing. A stepper on the card needs no camera and no modal;
+        // since 129-13 it is the card's own last row.
+        const hud = createStormHud(selectedStorm, cyclonesRef.current, (next) => onSelectStormRef.current?.(next), {
+            from: { lat: userLatRef.current, lon: userLonRef.current },
+        });
+        // The sleeve follows the selection: stepping storms must swap the GL
+        // cone with the card, or the punter reads one storm's numbers over
+        // another storm's probability envelope.
+        addProbabilitySleeve(map, selectedStorm);
         map.getContainer().appendChild(hud);
 
         // Update the center lock to the newly selected storm
@@ -2131,6 +2161,17 @@ export function useCycloneLayer(
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedStorm?.sid, visible, mapReady]);
+
+    // The card's distance line follows the selected place (129-13). The chip
+    // it replaced re-measured every 10 s; the card redraws only when its
+    // words change (badgeSignature), and never moves the camera.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady || !visible || !selectedStorm) return;
+        const fresh = cyclonesRef.current.find((c) => c.sid === selectedStorm.sid) ?? selectedStorm;
+        refreshStormCardInPlace(map.getContainer(), fresh, { lat: userLat, lon: userLon });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userLat, userLon]);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2215,8 +2256,23 @@ function computeDevProbability(cyclone: ActiveCyclone): 'LOW' | 'MODERATE' | 'HI
     return 'LOW';
 }
 
+/** Where the card measures the storm from: the selected place the threat chip measured from. */
+export type StormCardFrom = { lat: number; lon: number } | null | undefined;
+
+/** "138 NM W · Cat 1 · 80 kt winds": the threat chip's two lines, folded into the card (129-13). */
+function stormDistanceLine(cyclone: ActiveCyclone, distance: StormDistance): string {
+    const winds = cyclone.maxWindKts || cyclone.currentPosition.windKts;
+    return [
+        distance.text,
+        cyclone.category > 0 ? `Cat ${cyclone.categoryLabel}` : null,
+        winds ? `${winds} kt winds` : null,
+    ]
+        .filter(Boolean)
+        .join(' · ');
+}
+
 /** Build common StormBadgeData from an ActiveCyclone */
-function buildBadgeData(cyclone: ActiveCyclone, onClose?: () => void): StormBadgeData {
+function buildBadgeData(cyclone: ActiveCyclone, from?: StormCardFrom, onClose?: () => void): StormBadgeData {
     const accentColor = categoryColor(cyclone.category);
     const catLabel = categoryLabels[cyclone.categoryLabel] ?? `Cat ${cyclone.categoryLabel}`;
     const stormName = resolveStormName(cyclone);
@@ -2250,16 +2306,9 @@ function buildBadgeData(cyclone: ActiveCyclone, onClose?: () => void): StormBadg
     const nextAdvMin = Math.round((nextAdvDate.getTime() - now.getTime()) / 60000);
     const nextAdvStr = nextAdvMin < 60 ? `~${nextAdvMin} min` : `~${Math.floor(nextAdvMin / 60)}h ${nextAdvMin % 60}m`;
 
-    const basinLabels: Record<string, string> = {
-        WP: 'W. Pacific',
-        EP: 'E. Pacific',
-        AL: 'Atlantic',
-        IO: 'Indian Ocean',
-        SI: 'S. Indian',
-        SP: 'S. Pacific',
-        SH: 'S. Hemisphere',
-    };
-    const basinStr = basinLabels[cyclone.basin] ?? cyclone.basin;
+    // The basin and the storm's number in words, never the feed's raw "E · ep202026" (129-13).
+    const identity = stormIdentityWords(cyclone.basin, cyclone.sid, lat, lon);
+    const distance = from ? stormDistance(from.lat, from.lon, lat, lon) : null;
 
     // Who issued the track, when, and the official centre (129-09)
     const issuer = cyclone.issuer;
@@ -2304,8 +2353,9 @@ function buildBadgeData(cyclone: ActiveCyclone, onClose?: () => void): StormBadg
         catLabel,
         stormName,
         classification,
-        basinStr,
-        sid: cyclone.sid,
+        identity,
+        distanceLine: distance ? stormDistanceLine(cyclone, distance) : null,
+        distanceSeverity: distance?.severity ?? null,
         latStr,
         lonStr,
         dataTimeStr,
@@ -2374,7 +2424,7 @@ export function ensureStormSwitcher(
     const fresh = createStormSwitcher(all, current, onPick);
     if (!fresh) return;
     if (existing) existing.replaceWith(fresh);
-    else hud.appendChild(fresh);
+    else (hud.querySelector('[data-storm-footer]') ?? hud).appendChild(fresh);
 }
 
 export function createStormSwitcher(
@@ -2391,13 +2441,13 @@ export function createStormSwitcher(
 
     const bar = document.createElement('div');
     bar.dataset.stormSwitcher = stormSwitcherSignature(storms, current);
+    // The card's own last row since 129-13 (one card, not a card, a chip and
+    // a bar): a hairline above it instead of a second box and shadow.
     bar.style.cssText = `
         display:flex;align-items:center;justify-content:space-between;gap:6px;
-        background:var(--day-ui-surface, rgba(10,15,30,0.92));backdrop-filter:blur(20px);
-        -webkit-backdrop-filter:blur(20px);border:1px solid var(--day-ui-border, rgba(255,255,255,0.12));
-        border-radius:12px;padding:4px;pointer-events:auto;
+        border-top:1px solid var(--day-ui-border, rgba(255,255,255,0.1));
+        padding:4px;pointer-events:auto;
         font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
-        box-shadow:0 6px 20px rgba(0,0,0,0.6);
     `;
 
     const step = (delta: number): void => {
@@ -2444,21 +2494,64 @@ export function createStormSwitcher(
 // ── Static badge builder (accessible outside the main effect closure) ──
 export function createStormBadgeStatic(cyclone: ActiveCyclone, opts?: StormBadgeOpts): HTMLDivElement {
     const wrapper = document.createElement('div');
-    buildStormBadgeDOM(wrapper, buildBadgeData(cyclone), opts);
+    buildStormBadgeDOM(wrapper, buildBadgeData(cyclone, opts?.from), opts);
+    wrapper.dataset.sig = badgeSignature(cyclone, opts?.from);
     return wrapper;
 }
 
 /** How the card was left: expanded or collapsed, and whether it should
- *  re-play its entry animation. A refresh keeps both. */
+ *  re-play its entry animation. A refresh keeps both. `from`: the selected
+ *  place the card's distance line measures from (129-13). */
 interface StormBadgeOpts {
     expanded?: boolean;
     animate?: boolean;
+    from?: StormCardFrom;
+}
+
+/**
+ * The storm card and its stepper as the card effect mounts them in the map's
+ * container (also e2e/fixtures/storm-overlay.tsx): one card, the stepper its
+ * last row, kept clear of MOB by .storm-hud-badges in index.css.
+ */
+export function createStormHud(
+    selected: ActiveCyclone,
+    all: readonly ActiveCyclone[],
+    onPick: (storm: ActiveCyclone) => void,
+    opts?: StormBadgeOpts,
+): HTMLDivElement {
+    const hud = document.createElement('div');
+    hud.id = 'cyclone-hud-badges';
+    // TOP ALIGNS WITH THE MOB FAB (Shane 2026-08-23) — and that is not a
+    // constant, so it cannot live here as one: index.css derives it beside
+    // .radial-helm-mob, with the same landscape override, and (129-13) puts
+    // the card under a threat chip that is showing and its right edge clear
+    // of MOB. z-index 760, NOT 600: the FAB rail is z-700 and the route
+    // banner z-720 — "make sure that it is on top of all other layers".
+    hud.className = 'storm-hud-badges';
+    hud.style.cssText = `
+            position: absolute;
+            left: 16px;
+            z-index: 760;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: none;
+        `;
+    const badge = createStormBadgeStatic(selected, opts);
+    hud.appendChild(badge);
+    const switcher = createStormSwitcher(all, selected, onPick);
+    if (switcher) (badge.querySelector('[data-storm-footer]') ?? hud).appendChild(switcher);
+    return hud;
 }
 
 /** Everything on the card that can change between advisories. Cheap, and it
- *  is what decides whether a refresh is worth doing at all. */
-export function badgeSignature(c: ActiveCyclone): string {
+ *  is what decides whether a refresh is worth doing at all. With `from`, the
+ *  distance line's words too, so a boat on the move redraws it only when
+ *  its miles or its compass point change. */
+export function badgeSignature(c: ActiveCyclone, from?: StormCardFrom): string {
+    const away = from ? stormDistance(from.lat, from.lon, c.currentPosition?.lat, c.currentPosition?.lon) : null;
     return [
+        away?.text ?? '',
         c.category,
         c.categoryLabel,
         c.maxWindKts,
@@ -2494,16 +2587,20 @@ export function badgeSignature(c: ActiveCyclone): string {
  * swaps the card's contents for the same storm, keeps it expanded if the user
  * had it open, and skips the unroll so it does not flash.
  */
-export function refreshStormCardInPlace(container: HTMLElement, fresh: ActiveCyclone): void {
+export function refreshStormCardInPlace(container: HTMLElement, fresh: ActiveCyclone, from?: StormCardFrom): void {
     const hud = container.querySelector('#cyclone-hud-badges');
     const wrapper = hud?.firstElementChild as HTMLElement | null;
     if (!wrapper) return;
-    if (wrapper.dataset.sig === badgeSignature(fresh)) return; // nothing moved
+    const sig = badgeSignature(fresh, from);
+    if (wrapper.dataset.sig === sig) return; // nothing moved
     // The body is display:block only while the user has it open.
     const wasExpanded = (wrapper.querySelector('[data-storm-body]') as HTMLElement | null)?.style.display === 'block';
+    // The stepper rides in the card's last row (129-13): lift it out and put it back.
+    const switcher = wrapper.querySelector('[data-storm-switcher]');
     wrapper.replaceChildren();
-    buildStormBadgeDOM(wrapper, buildBadgeData(fresh), { expanded: wasExpanded, animate: false });
-    wrapper.dataset.sig = badgeSignature(fresh);
+    buildStormBadgeDOM(wrapper, buildBadgeData(fresh, from), { expanded: wasExpanded, animate: false });
+    if (switcher) wrapper.querySelector('[data-storm-footer]')?.appendChild(switcher);
+    wrapper.dataset.sig = sig;
 }
 
 // ── Shared storm badge DOM builder (no innerHTML) ──
@@ -2520,8 +2617,11 @@ interface StormBadgeData {
     catLabel: string;
     stormName: string;
     classification: string;
-    basinStr: string;
-    sid: string;
+    /** "East Pacific · storm 20". */
+    identity: string;
+    /** "138 NM W · Cat 1 · 80 kt winds" from the selected place, the chip's words; null without one. */
+    distanceLine: string | null;
+    distanceSeverity: StormDistance['severity'] | null;
     latStr: string;
     lonStr: string;
     dataTimeStr: string;
@@ -2546,7 +2646,7 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
         border-top:3px solid ${d.accentColor};border-radius:14px;
         padding:0;color:var(--day-ui-text, #fff);
         font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
-        min-width:200px;max-width:320px;z-index:760;
+        min-width:min(200px, 100%);max-width:320px;z-index:760;
         box-shadow:0 8px 32px rgba(0,0,0,0.7),0 0 16px ${d.accentColor}15;
         overflow:hidden;pointer-events:auto;cursor:pointer;
         ${opts?.animate === false ? '' : 'animation:storm-badge-unroll 260ms cubic-bezier(0.22,1,0.36,1);'}
@@ -2575,9 +2675,26 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     subtitleEl.textContent = d.classification;
     headerLeft.appendChild(subtitleEl);
 
+    // The threat chip's words, folded in (129-13): it sat on this card's
+    // header. Coloured as the chip was, by how near the storm is.
+    if (d.distanceLine) {
+        const near = {
+            danger: 'var(--day-ui-danger, #fca5a5)',
+            warning: 'var(--day-ui-orange, #fdba74)',
+            caution: 'var(--day-ui-amber, #fcd34d)',
+            far: 'var(--day-ui-text, #fff)',
+        }[d.distanceSeverity ?? 'far'];
+        const away = document.createElement('div');
+        away.dataset.stormDistance = d.distanceSeverity ?? 'far';
+        away.style.cssText = `font-size:12px;font-weight:700;line-height:1.3;margin-top:3px;color:${near};`;
+        away.textContent = d.distanceLine;
+        headerLeft.appendChild(away);
+    }
+
     const metaEl = document.createElement('div');
+    metaEl.dataset.stormMeta = '';
     metaEl.style.cssText = 'font-size:11px;color:var(--day-ui-muted, rgba(255,255,255,0.6));margin-top:2px;';
-    metaEl.textContent = `${d.basinStr} · ${d.sid} · ${d.latStr} ${d.lonStr}`;
+    metaEl.textContent = `${d.identity} · ${d.latStr} ${d.lonStr}`;
     headerLeft.appendChild(metaEl);
 
     // ── Who issued the track, and the official centre (129-09) ──
@@ -2607,7 +2724,13 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
         headerLeft.appendChild(link);
     }
     // Credits stay on the card even folded: attribution is a licence condition.
-    if (d.credits) line(d.credits, 'var(--day-ui-muted, rgba(255,255,255,0.6))').style.fontSize = '10px';
+    // data-map-credit: like every chart credit, it stays in the clear view
+    // (129-13) and is cut out of the layer menu's scrim.
+    if (d.credits) {
+        const credits = line(d.credits, 'var(--day-ui-muted, rgba(255,255,255,0.6))');
+        credits.style.fontSize = '10px';
+        credits.setAttribute('data-map-credit', '');
+    }
 
     header.appendChild(headerLeft);
 
@@ -2636,7 +2759,8 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
         expanded = !expanded;
         body.style.display = expanded ? 'block' : 'none';
         chevron.style.transform = expanded ? 'rotate(180deg)' : 'rotate(0deg)';
-        card.style.minWidth = expanded ? '280px' : '200px';
+        // Never wider than the room left of MOB (.storm-hud-badges).
+        card.style.minWidth = expanded ? 'min(280px, 100%)' : 'min(200px, 100%)';
     });
 
     // ── Advisory History Table ──
@@ -2800,5 +2924,9 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData, opts?: Stor
     body.appendChild(footer);
 
     card.appendChild(body);
+    // The storm stepper's row (createStormSwitcher), the card's last (129-13).
+    const stepperRow = document.createElement('div');
+    stepperRow.setAttribute('data-storm-footer', '');
+    card.appendChild(stepperRow);
     wrapper.appendChild(card);
 }
