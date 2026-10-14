@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import dompurifyUnavailable, { DOMPURIFY_UNAVAILABLE_MESSAGE } from '../utils/vendorStubs/dompurifyUnavailable';
 import html2canvasUnavailable, { HTML2CANVAS_UNAVAILABLE_MESSAGE } from '../utils/vendorStubs/html2canvasUnavailable';
@@ -60,7 +60,7 @@ function appSourceFiles(): string[] {
             /* optional entry point */
         }
     }
-    return out.map((path) => relative(ROOT, path));
+    return out.map((path) => relative(ROOT, path).split(sep).join('/'));
 }
 
 describe('jsPDF ships without html2canvas and DOMPurify', () => {

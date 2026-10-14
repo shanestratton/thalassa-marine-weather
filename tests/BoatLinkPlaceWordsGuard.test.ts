@@ -14,7 +14,7 @@
  * someone remembered ([[thalassa-pi-pinned-transport]]).
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOTS = ['components', 'services', 'utils', 'hooks', 'stores'];
@@ -29,7 +29,7 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
     for (const entry of readdirSync(dir)) {
         const p = join(dir, entry);
         if (statSync(p).isDirectory()) sourceFiles(p, out);
-        else if (/\.(ts|tsx)$/.test(p) && !/\.test\.|\.spec\./.test(p)) out.push(p);
+        else if (/\.(ts|tsx)$/.test(p) && !/\.test\.|\.spec\./.test(p)) out.push(p.split(sep).join('/'));
     }
     return out;
 }

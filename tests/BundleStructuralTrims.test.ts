@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { build, type Rollup } from 'vite';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -266,7 +266,7 @@ async function miniBuild(define: Record<string, string>): Promise<MiniBuild> {
                     Object.entries(GATE_ENTRIES).map(([name, rel]) => [name, resolve(ROOT, rel)]),
                 ),
                 preserveEntrySignatures: 'exports-only',
-                external: (id) => !/^[./\0]/.test(id) && !id.startsWith('@/'),
+                external: (id) => !/^[./\0]/.test(id) && !id.startsWith('@/') && !isAbsolute(id),
                 onwarn: () => {},
             },
         },

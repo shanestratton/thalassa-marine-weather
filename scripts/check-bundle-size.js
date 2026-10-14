@@ -98,7 +98,7 @@ function getFiles(dir, files = []) {
         if (entry.isDirectory()) {
             getFiles(full, files);
         } else if (!entry.name.endsWith('.map')) {
-            files.push({ path: full.replace(DIST + '/', ''), size: fs.statSync(full).size });
+            files.push({ path: path.relative(DIST, full).split(path.sep).join('/'), size: fs.statSync(full).size });
         }
     }
     return files;

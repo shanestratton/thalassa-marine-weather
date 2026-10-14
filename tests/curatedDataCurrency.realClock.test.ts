@@ -23,7 +23,7 @@
  * acknowledgement once its seed lapses.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
     CURATED_LAPSE_ACKNOWLEDGEMENTS,
@@ -220,7 +220,7 @@ describe('curated routing data on the REAL clock', () => {
     it('no past expiry date in shipped source or data escapes the registries above', () => {
         const sources = SCAN_ROOTS.flatMap((root) =>
             sourceFiles(join(ROOT, root)).map((path) => ({
-                file: relative(ROOT, path),
+                file: relative(ROOT, path).split(sep).join('/'),
                 text: readFileSync(path, 'utf8'),
             })),
         );

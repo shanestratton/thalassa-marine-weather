@@ -48,7 +48,7 @@ function walk(relative: string): string[] {
     const absolute = path.join(ROOT, relative);
     if (!fs.existsSync(absolute)) return [];
     const stat = fs.statSync(absolute);
-    if (stat.isFile()) return SOURCE.test(relative) ? [relative] : [];
+    if (stat.isFile()) return SOURCE.test(relative) ? [relative.split(path.sep).join('/')] : [];
     return fs.readdirSync(absolute).flatMap((name) => walk(path.join(relative, name)));
 }
 

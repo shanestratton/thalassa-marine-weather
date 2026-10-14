@@ -34,7 +34,7 @@ function fits(): Fit[] {
     const out: Fit[] = [];
     for (const name of fs.readdirSync(DIR)) {
         if (!/\.tsx?$/.test(name)) continue;
-        const file = path.join(DIR, name);
+        const file = path.join(DIR, name).split(path.sep).join('/');
         const text = fs.readFileSync(file, 'utf8');
         if (!/\b(?:fitBounds|cameraForBounds)\(/.test(text)) continue;
         const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);

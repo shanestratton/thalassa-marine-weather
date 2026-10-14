@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseAst, transformWithEsbuild } from 'vite';
 
@@ -150,7 +150,11 @@ export const interp = (value, counter) => {
                     name: 'virtual-app',
                     enforce: 'pre',
                     resolveId(source, importer) {
-                        const base = source.startsWith('/') ? source : importer ? join(importer, '..', source) : source;
+                        const base = source.startsWith('/')
+                            ? source
+                            : importer
+                              ? posix.join(importer, '..', source)
+                              : source;
                         for (const candidate of [base, `${base}.ts`]) if (files[candidate]) return candidate;
                         return null;
                     },
