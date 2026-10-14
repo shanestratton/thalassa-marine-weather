@@ -174,7 +174,8 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
         if (name === 'node_modules' || name.startsWith('.')) continue;
         const path = join(dir, name);
         if (statSync(path).isDirectory()) sourceFiles(path, out);
-        else if (/\.(ts|tsx|js|mjs|json)$/.test(name) && !/\.(test|spec)\./.test(name)) out.push(path);
+        // Tests never ship: vitest's *.test.* / *.spec.* and Deno's *_test.ts alike.
+        else if (/\.(ts|tsx|js|mjs|json)$/.test(name) && !/\.(test|spec)\.|_test\.ts$/.test(name)) out.push(path);
     }
     return out;
 }
