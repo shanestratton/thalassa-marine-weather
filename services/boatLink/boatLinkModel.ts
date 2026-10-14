@@ -32,6 +32,7 @@
  * brand of VPN. "Tailscale" is said only when the tunnel's address proves it.
  */
 import { sameIpv4Subnet, type NetworkInterfaceInfo } from '../../utils/lanRoute';
+import { zoneDisplayName } from '../../utils/timeZones';
 
 // ── WHERE ────────────────────────────────────────────────────────────────
 
@@ -731,4 +732,63 @@ export function describeBoatLink(input: WordsInput): BoatLinkWords {
         statusRow,
         hub: { value: hubValue, status: hubStatus, tone: data.state === 'none' ? 'grey' : pill.tone },
     };
+}
+
+// ── THE QUIET-BOAT WATCH ─────────────────────────────────────────────────
+
+/**
+ * The cloud's quiet-boat watch (129-08), in one honest line: who it pages,
+ * when, and what it cannot do. It hears her only through her Pi's internet
+ * updates, so a Pi kept off the internet (satellite mode, or a Pi restarted
+ * and not yet allowed back on) reads as a boat gone quiet.
+ *
+ * Until the 129-08 watchdog answers (crewPaging false) the server is still
+ * 125's, and the line says what that one does: the skipper alone, once per
+ * outage, nothing in her quiet window, and no all-clear.
+ */
+export interface QuietWatchFacts {
+    role: 'owner' | 'crew';
+    /** The boat's watch is on (the owner's switch). */
+    watchOn: boolean;
+    graceMin: number;
+    /** The declared weekly window, in the boat's own zone. */
+    window: { dow: number; start: string; end: string; tz: string } | null;
+    /** This phone keeps her Pi off the internet (satellite mode). */
+    satellite: boolean;
+    /** The 129-08 watchdog answers: crew paged, the all-clear, the window's 10-minute allowance. */
+    crewPaging: boolean;
+    /** A crew member's own switch for this boat (crew only; on unless said). */
+    pagingMe?: boolean;
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** "Wed 19:30–19:50 Auckland time", in the window's own zone. */
+export function quietWindowWords(window: { dow: number; start: string; end: string; tz: string }): string {
+    const hhmm = (t: string) => t.slice(0, 5);
+    const zone = zoneDisplayName(window.tz);
+    return `${WEEKDAYS[window.dow] ?? '?'} ${hhmm(window.start)}–${hhmm(window.end)} ${zone === 'UTC' ? 'UTC' : `${zone} time`}`;
+}
+
+export function describeQuietWatch(facts: QuietWatchFacts): string {
+    const caveat = 'It hears her only while her Pi may use the internet.';
+    if (facts.role === 'crew') {
+        if (!facts.watchOn) return 'Her skipper hasn’t switched the watch on, so nothing pages yet.';
+        return facts.pagingMe === false
+            ? 'Her skipper has the watch on, but you’ve turned these pages off for yourself.'
+            : `Her skipper has the watch on: after ${facts.graceMin} min with nothing from her Pi you’re paged, and told when she’s back. ${caveat}`;
+    }
+    if (facts.watchOn && facts.satellite) {
+        return 'Satellite mode keeps her Pi off the internet, so Thalassa can’t hear her and will page that she has gone quiet. Switch this off first if you don’t want that.';
+    }
+    if (!facts.crewPaging) {
+        const window = facts.window
+            ? ` Silence in her quiet window, ${quietWindowWords(facts.window)}, doesn’t count.`
+            : '';
+        return `After ${facts.graceMin} min with nothing from her Pi, Thalassa pages you, once until she reports again.${window} ${caveat}`;
+    }
+    const window = facts.window
+        ? ` Up to 10 min of a dropout in her quiet window, ${quietWindowWords(facts.window)}, doesn’t count.`
+        : '';
+    return `After ${facts.graceMin} min with nothing from her Pi, Thalassa pages you and the crew (not guests) you share the Instrument Panel with, and once more when she’s back.${window} ${caveat}`;
 }

@@ -29,6 +29,15 @@
  * passively, as the passage HUD does), and takes 'offshore' only from real
  * shore evidence. Shoal water runs under way, with or without a route, off the
  * boat's own sounder only. No tier check anywhere: safety is never paywalled.
+ *
+ * Build 129 (129-08): the aboard GPS/instruments-silent alarm, which was
+ * Calypso's 'nmea-backbone-dead' rule (./instrumentsSilentRule.ts). With the
+ * phone aboard (services/boatLink), under way (by her last live data), an
+ * anchor watch on, a voyage track recording or a route followed: "No GPS or
+ * instruments from the boat for N minutes" after 2 minutes with nothing from
+ * the gateway or the Pi on the boat's network.
+ * Its own lease ('instruments-watch') and lock-screen kind
+ * ('instruments-silent'); no Calypso, no internet, no voice.
  */
 import { Capacitor } from '@capacitor/core';
 import { AlarmAudioService } from '../AlarmAudioService';
@@ -47,6 +56,15 @@ import { collisionOwnStill } from '../../utils/collisionRule';
 import { destinationPoint } from '../../utils/navigationCalculations';
 import { createLogger } from '../../utils/createLogger';
 import { UnderwayAlarmStore, type UnderwayAlarmCard, type UnderwayAlarmKind } from './underwayAlarmStore';
+import {
+    INSTRUMENTS_SILENT_START,
+    acknowledgeInstrumentsSilent,
+    instrumentsSilentLines,
+    instrumentsSilentLockScreen,
+    nextInstrumentsSilent,
+    type InstrumentsSilentInput,
+    type InstrumentsSilentState,
+} from './instrumentsSilentRule';
 import { underKeelClearanceM } from './underKeelClearance';
 import {
     SHOAL_START,
@@ -108,6 +126,45 @@ export interface UnderwayInputs {
     draftM: number;
     draftAssumed: boolean;
     marginM: number;
+    /**
+     * (129-08) Where this phone is and how the boat's data reaches it
+     * (services/boatLink), and whether a voyage track records. Null when it
+     * could not be read: the instruments-silent alarm then stays as it was.
+     */
+    boat?: (Pick<InstrumentsSilentInput, 'where' | 'live' | 'lastLive'> & { tracking: boolean }) | null;
+}
+
+/**
+ * BoatLink, loaded with the watch: it is on the boot path already, and a
+ * static import would bring the Pi and gateway services into this module's
+ * own graph. Until it has loaded the aboard alarm has no facts, and says nothing.
+ */
+let boatLink: Pick<typeof import('../boatLink/BoatLinkService').BoatLinkService, 'boatFeedFacts'> | null = null;
+let boatLinkLoading = false;
+
+function loadBoatLink(): void {
+    if (boatLink || boatLinkLoading) return;
+    boatLinkLoading = true;
+    void import('../boatLink/BoatLinkService')
+        .then(({ BoatLinkService }) => {
+            boatLink = BoatLinkService;
+        })
+        .catch((error) => log.warn('boat link could not load for the instruments-silent alarm:', error))
+        .finally(() => {
+            boatLinkLoading = false;
+        });
+}
+
+/** BoatLink's facts for the aboard alarm, or null when they cannot be read. */
+function readBoatFacts(nowMs: number): UnderwayInputs['boat'] {
+    if (!boatLink) return null;
+    try {
+        const tracking = ShipLogService.getTrackingStatus();
+        return { ...boatLink.boatFeedFacts(nowMs), tracking: !!tracking?.isTracking && !tracking.isPaused };
+    } catch (error) {
+        log.warn('boat link facts unavailable for the instruments-silent alarm:', error);
+        return null;
+    }
 }
 
 function routeKey(follow: { voyageId?: string | null; startedAt?: string | null }, route: readonly RoutePoint[]) {
@@ -166,6 +223,7 @@ export function readUnderwayInputs(nowMs: number = Date.now()): UnderwayInputs {
         draftM: vesselDraftMetres(settings?.vessel),
         draftAssumed: vesselDraftIsAssumed(settings?.vessel),
         marginM: underKeelClearanceM(settings),
+        boat: readBoatFacts(nowMs),
     };
 }
 
@@ -173,6 +231,13 @@ export function readUnderwayInputs(nowMs: number = Date.now()): UnderwayInputs {
 
 let xte: XteState = XTE_START;
 let shoal: ShoalState = SHOAL_START;
+let instruments: InstrumentsSilentState = INSTRUMENTS_SILENT_START;
+/**
+ * Under way by the boat's last live data (129-08). The speed after her feed
+ * dies is a phone's at best, and often none: what she was doing while her
+ * instruments still spoke is what arms the aboard instruments-silent alarm.
+ */
+let underWayWhileLive = false;
 let followKey: string | null = null;
 let routeRef: readonly RoutePoint[] | null = null;
 let routeIndex: RouteIndex | null = null;
@@ -200,6 +265,13 @@ interface Voice {
 }
 
 const voices: Record<UnderwayAlarmKind, Voice> = {
+    instruments: {
+        owner: 'instruments-watch',
+        kind: 'instruments-silent',
+        token: null,
+        wanted: false,
+        alertLive: false,
+    },
     shoal: { owner: 'shoal-watch', kind: 'shoal', token: null, wanted: false, alertLive: false },
     'off-route': { owner: 'off-route-watch', kind: 'off-route', token: null, wanted: false, alertLive: false },
 };
@@ -246,7 +318,16 @@ function drive(voice: Voice, want: boolean, text: () => { title: string; body: s
 function publish(nowMs: number): void {
     const shoalOn = shoalAudible(shoal);
     const offRouteOn = xteAudible(xte, nowMs);
+    const instrumentsOn = instruments.status === 'sounding';
     const cards: UnderwayAlarmCard[] = [];
+    if (instrumentsOn) {
+        cards.push({
+            kind: 'instruments',
+            ...instrumentsSilentLines(instruments, nowMs),
+            sounding: true,
+            mutedUntil: null,
+        });
+    }
     if (shoal.sounding && !shoal.acknowledged) {
         cards.push({ kind: 'shoal', ...shoalLines(shoal), sounding: true, mutedUntil: null });
     }
@@ -269,6 +350,7 @@ function publish(nowMs: number): void {
     }
     UnderwayAlarmStore.set(cards, notices);
 
+    drive(voices.instruments, instrumentsOn, () => instrumentsSilentLockScreen(instruments, nowMs));
     drive(voices.shoal, shoalOn, () => lockScreenText('shoal', shoalLines(shoal)));
     drive(voices['off-route'], offRouteOn, () => lockScreenText('off-route', offRouteLines(xte)));
 }
@@ -334,11 +416,28 @@ export function runUnderwayPass(inputs: UnderwayInputs = readUnderwayInputs()): 
           })
         : SHOAL_START;
 
+    // The aboard instruments-silent alarm (129-08): with no facts, as it was.
+    // Armed by what she was doing while her data was live (under way), not
+    // only by a speed read after it died; or by an anchor watch, a voyage
+    // track recording, or a route being followed.
+    if (inputs.boat) {
+        if (inputs.boat.live) underWayWhileLive = underWay;
+        instruments = nextInstrumentsSilent(instruments, {
+            nowMs,
+            where: inputs.boat.where,
+            live: inputs.boat.live,
+            lastLive: inputs.boat.lastLive,
+            armed:
+                underWay || underWayWhileLive || inputs.atAnchor || inputs.boat.tracking || inputs.following !== null,
+        });
+    }
+
     // Arrived at the end of the route: off route is over for it, and says nothing more.
     const offRouteWatching = offRouteOn && !xte.arrived;
     context = { offRouteOn: offRouteWatching, shoalOn, underWay };
     // Armed: something this watch would sound for if Thalassa kept running.
     armed =
+        instruments.status === 'sounding' ||
         offRouteWatching ||
         xte.sounding ||
         shoal.sounding ||
@@ -351,6 +450,7 @@ export function runUnderwayPass(inputs: UnderwayInputs = readUnderwayInputs()): 
 UnderwayAlarmStore.subscribeActions(({ kind, nowMs }) => {
     if (kind === 'off-route') xte = muteXte(xte, nowMs);
     else if (kind === 'shoal') shoal = acknowledgeShoal(shoal);
+    else if (kind === 'instruments') instruments = acknowledgeInstrumentsSilent(instruments);
     else return;
     publish(nowMs);
 });
@@ -514,6 +614,7 @@ function queuePass(): void {
 export function startUnderwayAlarmWatch(): () => void {
     if (started) return stopUnderwayAlarmWatch;
     started = true;
+    loadBoatLink();
     unsubscribers = [NmeaStore.subscribe(queuePass), useFollowRouteStore.subscribe(queuePass)];
     timer = setInterval(() => safePass('tick'), TICK_MS);
     safePass('start');
@@ -533,6 +634,8 @@ export function stopUnderwayAlarmWatch(): void {
     stopRunning();
     xte = XTE_START;
     shoal = SHOAL_START;
+    instruments = INSTRUMENTS_SILENT_START;
+    underWayWhileLive = false;
     followKey = null;
     routeRef = null;
     routeIndex = null;
@@ -565,6 +668,7 @@ export const UnderwayAlarmWatch = {
         stopRunning();
         xte = XTE_START;
         shoal = SHOAL_START;
+        instruments = INSTRUMENTS_SILENT_START;
         followKey = null;
         routeRef = null;
         routeIndex = null;

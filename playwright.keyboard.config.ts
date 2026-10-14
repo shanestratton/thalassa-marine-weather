@@ -164,6 +164,10 @@ export default defineConfig({
         // pill, the Warnings page's official section and Settings → Alerts' switches fit 320 × 568
         // and 390 × 844 in wide fonts (e2e/fixtures/official-warnings.tsx).
         'official-warnings-layout.spec.ts',
+        // If the boat goes quiet (129-08): the skipper's and the crew's switches in Preferences fit
+        // 320 × 568 and 375 × 667 in wide fonts, and stay hidden until the column probe answers
+        // (e2e/fixtures/boat-quiet.tsx).
+        'boat-quiet-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

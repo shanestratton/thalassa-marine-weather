@@ -81,7 +81,8 @@ public final class AnchorSafetyNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
         "distress": "thalassa.distress-watch",
         "off-route": "thalassa.off-route-watch",
         "shoal": "thalassa.shoal-watch",
-        "watch-check": "thalassa.watch-check"
+        "watch-check": "thalassa.watch-check",
+        "instruments-silent": "thalassa.instruments-watch"
     ]
     private let safetyAlertRequestCount = 3
 

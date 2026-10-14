@@ -13,6 +13,8 @@
  * from the real rule (services/underway/watchCheckRule.ts) on Kestrel's
  * 20-minute watch: a minute before the check, sounding at it, or missed while
  * Thalassa was not running, with the strip's longest watch-check words.
+ * ?instruments=1 (129-08): the aboard GPS/instruments-silent card first, from
+ * the real rule, 95 minutes into the silence (its longest words).
  *
  * Fictional vessels only (MID 123 MMSIs): this repository is public.
  */
@@ -58,13 +60,15 @@ if (params.get('fonts') === 'wide') {
     document.head.append(wide);
 }
 
-const [{ AisGuardAlert }, { AisGuardAlertStore }, { UnderwayAlarmStore }, rule, watchRule] = await Promise.all([
-    import('../../components/map/AisGuardAlert'),
-    import('../../services/aisGuardAlertStore'),
-    import('../../services/underway/underwayAlarmStore'),
-    import('../../services/underway/underwayRule'),
-    import('../../services/underway/watchCheckRule'),
-]);
+const [{ AisGuardAlert }, { AisGuardAlertStore }, { UnderwayAlarmStore }, rule, watchRule, silentRule] =
+    await Promise.all([
+        import('../../components/map/AisGuardAlert'),
+        import('../../services/aisGuardAlertStore'),
+        import('../../services/underway/underwayAlarmStore'),
+        import('../../services/underway/underwayRule'),
+        import('../../services/underway/watchCheckRule'),
+        import('../../services/underway/instrumentsSilentRule'),
+    ]);
 
 const now = Date.now();
 
@@ -112,8 +116,19 @@ for (const [at, off] of [
 }
 if (params.get('muted') === '1') xte = rule.muteXte(xte, now);
 
+const silent = { status: 'sounding' as const, since: now - 95 * 60_000 };
 UnderwayAlarmStore.set(
     [
+        ...(params.get('instruments') === '1'
+            ? [
+                  {
+                      kind: 'instruments' as const,
+                      ...silentRule.instrumentsSilentLines(silent, now),
+                      sounding: true,
+                      mutedUntil: null,
+                  },
+              ]
+            : []),
         { kind: 'shoal', ...rule.shoalLines(shoal), sounding: rule.shoalAudible(shoal), mutedUntil: null },
         {
             kind: 'off-route',

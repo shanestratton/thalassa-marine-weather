@@ -30,6 +30,8 @@ test('publishes actual satellites/HDOP/quality with original times and no invent
     )!;
     const wire = buildTelemetryBody(snapshot, 'test-boat');
     assert.deepEqual(wire.extra, {
+        // 129-08: when the bus last spoke, here the GPS position's own time.
+        bus_at_ms: now,
         gnss_satellites: 32,
         gnss_satellites_at_ms: now - 1_000,
         gnss_hdop: 0.47,

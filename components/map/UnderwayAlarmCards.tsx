@@ -10,6 +10,10 @@
  * says until when. Not a toast: a card goes only when its alarm is answered
  * or over. The strip under them says when the watch cannot see.
  *
+ * Build 129 (129-08): the boat's GPS and instruments gone silent, aboard,
+ * rides first, and is acknowledged like shoal water: silent until her data is
+ * back, then it re-arms.
+ *
  * Build 126 (126-02b): the watch check rides last. A minute ahead it is a
  * calm heads-up (a status, not an alarm); at the check it sounds. Either
  * way its one button is "I'm on watch", the only answer it takes.
@@ -81,7 +85,25 @@ const HEADS_UP: React.CSSProperties = {
 function Glyph({ kind }: { kind: UnderwayAlarmCard['kind'] }) {
     return (
         <svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" style={{ flexShrink: 0, marginTop: 1 }}>
-            {kind === 'watch-check' ? (
+            {kind === 'instruments' ? (
+                // A gauge with a stroke through it: her instruments silent.
+                <>
+                    <path
+                        d="M3 14a7 7 0 1 1 14 0"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                    />
+                    <path
+                        d="M10 14l3-4M3 3l14 14"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                    />
+                </>
+            ) : kind === 'watch-check' ? (
                 // A clock face: the check comes round on the interval.
                 <>
                     <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2" />
@@ -140,12 +162,12 @@ function AlarmCard({ card }: { card: UnderwayAlarmCard }) {
                 >
                     I&apos;m on watch
                 </button>
-            ) : card.kind === 'shoal' ? (
+            ) : card.kind === 'shoal' || card.kind === 'instruments' ? (
                 <button
                     type="button"
                     style={BUTTON}
-                    aria-label="Acknowledge the shoal alarm"
-                    onClick={() => UnderwayAlarmStore.acknowledge('shoal')}
+                    aria-label={`Acknowledge the ${card.kind === 'shoal' ? 'shoal' : 'instruments-silent'} alarm`}
+                    onClick={() => UnderwayAlarmStore.acknowledge(card.kind as 'shoal' | 'instruments')}
                 >
                     Acknowledge
                 </button>

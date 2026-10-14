@@ -154,7 +154,9 @@ describe('the shared safety path', () => {
             '        "distress": "thalassa.distress-watch",',
             '        "off-route": "thalassa.off-route-watch",',
             '        "shoal": "thalassa.shoal-watch",',
-            '        "watch-check": "thalassa.watch-check"',
+            '        "watch-check": "thalassa.watch-check",',
+            // 129-08: the aboard GPS/instruments-silent alarm, last.
+            '        "instruments-silent": "thalassa.instruments-watch"',
         ]);
         expect(plugin).not.toMatch(/"watch-check": "thalassa\.(anchor|collision|distress|off-route|shoal)/);
         expect(service).toContain(
@@ -166,6 +168,21 @@ describe('the shared safety path', () => {
         expect(plugin).toContain('private let safetyAlertRequestCount = 3');
         const add = block(plugin, 'private func addSafetyAlertRequests', 'private func makeSafetyAlertRequests');
         expect(add).toContain('>= self.alarmRequestCount');
+    });
+
+    // Build 129 (129-08): Calypso's backbone-silence rule became the aboard
+    // GPS/instruments-silent alarm, with its own three ids on the same path.
+    it('has its own ids for the instruments-silent alarm, distinct from every other kind', () => {
+        const kinds = block(plugin, 'private static let safetyAlertKinds: [String: String] = [', '\n    ]');
+        expect(kinds.split('\n').at(-1)).toBe('        "instruments-silent": "thalassa.instruments-watch"');
+        expect(plugin).not.toMatch(
+            /"instruments-silent": "thalassa\.(anchor|collision|distress|off-route|shoal|watch-check)/,
+        );
+        expect(service).toContain(
+            "export type SafetyAlertKind = 'collision' | 'distress' | 'off-route' | 'shoal' | 'watch-check' | 'instruments-silent'",
+        );
+        const names = block(service, 'const SAFETY_ALERT_NAMES', 'const NativeAnchorNotifications');
+        expect(names).toContain("'instruments-silent': 'the instruments-silent alarm'");
     });
 
     it('reads an optional lead of whole seconds 5...3600, and rejects any other', () => {

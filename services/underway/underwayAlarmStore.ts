@@ -7,14 +7,16 @@
  * (components/map/UnderwayAlarmCards.tsx) load lazily. The watch writes here;
  * the cards' buttons act here, and the watch hears them at once.
  *
- * Order is fixed: shoal water first, then off route (the danger under the
- * keel is now; the line can wait a minute), then (126-02b) the watch check.
+ * Order is fixed: (129-08) the boat's instruments gone silent first (every
+ * other alarm here reads them), then shoal water, then off route (the danger
+ * under the keel is now; the line can wait a minute), then (126-02b) the
+ * watch check.
  * All sit under the collision cards. The under-way watch and the watch check
  * (./watchCheck.ts) each publish their own part; neither can clear the other's.
  */
 
-/** The under-way watch's two alarms. */
-export type UnderwayAlarmKind = 'shoal' | 'off-route';
+/** The under-way watch's alarms: (129-08) the aboard instruments-silent one, shoal and off route. */
+export type UnderwayAlarmKind = 'instruments' | 'shoal' | 'off-route';
 /** A card in the stack: the under-way watch's two, and the watch check (126-02b). */
 export type UnderwayCardKind = UnderwayAlarmKind | 'watch-check';
 
@@ -37,7 +39,7 @@ export interface UnderwayAlarmAction {
     nowMs: number;
 }
 
-const ORDER: Record<UnderwayCardKind, number> = { shoal: 0, 'off-route': 1, 'watch-check': 2 };
+const ORDER: Record<UnderwayCardKind, number> = { instruments: 0, shoal: 1, 'off-route': 2, 'watch-check': 3 };
 const MUTE_MS = 30 * 60_000;
 
 /** What the under-way watch last published, and what the watch check last published. */
@@ -123,8 +125,11 @@ export const UnderwayAlarmStore = {
         act({ kind, nowMs });
     },
 
-    /** Shoal's Acknowledge: silent, and the card stands aside until the water deepens and it re-arms. */
-    acknowledge(kind: 'shoal', nowMs = Date.now()): void {
+    /**
+     * Acknowledge: silent, and the card stands aside until it re-arms: shoal
+     * once the water deepens, instruments (129-08) once the data is back.
+     */
+    acknowledge(kind: 'shoal' | 'instruments', nowMs = Date.now()): void {
         UnderwayAlarmStore.set(
             own.cards.filter((c) => c.kind !== kind),
             own.notices,

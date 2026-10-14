@@ -111,7 +111,8 @@ Deno.test('every type that existed before is unchanged', () => {
     assertEquals(getThreadId('drag_warning'), 'thalassa-guardian');
     assertEquals(getThreadId('weather_alert'), 'thalassa-weather');
     assertEquals(getThreadId('hail'), 'thalassa-social');
-    assertEquals(getThreadId('boat_quiet'), 'thalassa-general');
+    // 129-08 gave the quiet boat a thread of its own (below).
+    assertEquals(getThreadId('boat_quiet'), 'thalassa-boat');
     assertEquals(getCollapseId('bolo_alert', { mmsi: 211000001 }), 'bolo-211000001');
     assertEquals(getCollapseId('geofence_alert', { mmsi: 211000001 }), 'geofence-211000001');
     assertEquals(getCollapseId('anchor_alarm', {}), 'anchor-alarm');
@@ -229,4 +230,47 @@ Deno.test('Time Sensitive for Severe and Extreme, never Critical; an update with
     const advisory = buildAps({ ...base, threadId: 'thalassa-official', level: 'active' }, false);
     assertEquals(advisory['interruption-level'], 'active');
     assertEquals(advisory.sound, 'default');
+});
+
+Deno.test('the quiet boat (129-08): one notification per boat, the page Time Sensitive, the all-clear quietly over it', () => {
+    const collapse = '0123456789abcdef';
+    for (const type of ['boat_quiet', 'boat_quiet_clear']) {
+        assertEquals(isCriticalType(type), false, type);
+        assertEquals(getThreadId(type), 'thalassa-boat', type);
+        assertEquals(getCollapseId(type, { collapse }), `boat-quiet-${collapse}`, type);
+        // A quiet boat is still news hours later: the default 6 h, never the safety alarms' 0.
+        assertEquals(getApnsExpiration(type, false, NOW), String(NOW_S + 6 * 60 * 60), type);
+        assertEquals(isStaleForDelivery(type, new Date(NOW - 50 * 60_000).toISOString(), NOW), false, type);
+        // A malformed key collapses nothing: one per boat or not at all.
+        for (const bad of [undefined, '', 'NOT-HEX-0123456789', '0123456789abcdef0', 42]) {
+            assertEquals(getCollapseId(type, { collapse: bad }), null, `${type} ${String(bad)}`);
+        }
+    }
+    // A page goes at once, day or night, through Focus where allowed; never Critical.
+    assertEquals(getInterruptionLevel('boat_quiet', {}), 'time-sensitive');
+    // The all-clear replaces it as an ordinary alert, so Sleep Focus keeps it quiet.
+    assertEquals(getInterruptionLevel('boat_quiet_clear', {}), 'active');
+    const page = buildAps(
+        {
+            title: 'Kestrel’s Pi is offline, or the boat’s internet is down',
+            body: 'b',
+            type: 'boat_quiet',
+            threadId: 'thalassa-boat',
+            level: getInterruptionLevel('boat_quiet', {}),
+        },
+        true,
+    );
+    assertEquals(page['interruption-level'], 'time-sensitive');
+    assertEquals(page.sound, 'default');
+    const clear = buildAps(
+        {
+            title: 'Kestrel is reporting again',
+            body: 'b',
+            type: 'boat_quiet_clear',
+            threadId: 'thalassa-boat',
+            level: 'active',
+        },
+        true,
+    );
+    assertEquals(clear['interruption-level'], 'active');
 });

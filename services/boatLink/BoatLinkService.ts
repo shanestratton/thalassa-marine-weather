@@ -392,6 +392,20 @@ class BoatLinkServiceClass {
         return this.evaluate(now).phoneStandsInForBoat;
     }
 
+    /**
+     * What the aboard instruments-silent alarm reads (129-08): where this
+     * phone is, whether the boat's data is live, and the last live reading
+     * with the lane it came down.
+     */
+    boatFeedFacts(now = Date.now()): { where: Where; live: boolean; lastLive: { at: number; lane: Lane } | null } {
+        const snapshot = this.evaluate(now);
+        return {
+            where: snapshot.where,
+            live: snapshot.data.state === 'live',
+            lastLive: this.lastReading ? { ...this.lastReading } : null,
+        };
+    }
+
     /** Tests only. */
     resetForTests(): void {
         this.stop();
