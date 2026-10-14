@@ -1,0 +1,242 @@
+name: Thalassa 129 full release validation
+
+# Validation ONLY. No Apple keys, signing, upload, deployment or source writes.
+# This exact candidate is build 129: the shipped 128 plus the 129 packages.
+on:
+    push:
+        branches: ['claude/testflight-129-validation-3-2026-10-14']
+        paths: ['.github/workflows/validate-testflight-129.yml']
+
+permissions:
+    contents: read
+
+concurrency:
+    group: thalassa-129-validation
+    cancel-in-progress: false
+
+env:
+    CANDIDATE_SHA: '407dcf298571a1d504d80c54f6ee268d1fbc18a6'
+    CI: 'true'
+    HUSKY: '0'
+    NODE_OPTIONS: --max-old-space-size=4096
+    PUPPETEER_SKIP_DOWNLOAD: 'true'
+    VITE_APP_BUILD: '129'
+    VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+    VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+    VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+    VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+    VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+    VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+
+jobs:
+    full:
+        name: full (${{ matrix.suite }})
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 150
+        strategy:
+            fail-fast: false
+            matrix:
+                suite: [unit-coverage, two-browser-e2e, keyboard-1, keyboard-2, keyboard-3, keyboard-pixel, plan-your-day]
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: '407dcf298571a1d504d80c54f6ee268d1fbc18a6'
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Verify exact source and all four build numbers
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  git merge-base --is-ancestor 5b3187afc146f618126ca0658e0aa142aff40196 HEAD
+                  git merge-base --is-ancestor b8ef21d96a699a240b0378db7d7fcdc0e93810cd HEAD
+                  node --input-type=module <<'NODE'
+                  import {readFileSync} from 'node:fs';
+                  const matches=[...readFileSync('ios/App/App.xcodeproj/project.pbxproj','utf8').matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)];
+                  if(matches.length!==4 || matches.some(m=>m[1]!=='129')) throw new Error('Expected four build-129 configurations');
+                  if(JSON.parse(readFileSync('package.json','utf8')).version!=='1.2.0') throw new Error('Unexpected marketing version');
+                  NODE
+                  echo "Exact release candidate: $CANDIDATE_SHA; iOS 1.2.0 (129)" >> "$GITHUB_STEP_SUMMARY"
+            - run: npm ci
+            - run: npm run check:beta:source
+            - name: All unit tests with coverage
+              if: matrix.suite == 'unit-coverage'
+              run: npx vitest run --reporter=verbose --coverage
+            - name: Build production app for both browser engines
+              if: matrix.suite == 'two-browser-e2e'
+              run: |
+                  set -euo pipefail
+                  npm run check:beta
+                  GITHUB_SHA="$(git rev-parse HEAD)" npm run build
+            - name: Install both browser engines
+              if: matrix.suite != 'unit-coverage'
+              run: npx playwright install --with-deps chromium webkit
+            - name: All Chromium and mobile Safari E2E tests
+              if: matrix.suite == 'two-browser-e2e'
+              run: npx playwright test --project=chromium --project=mobile-safari
+            - name: Complete keyboard, daylight and split-pane shard
+              if: startsWith(matrix.suite, 'keyboard-') && matrix.suite != 'keyboard-pixel'
+              env:
+                  SUITE: ${{ matrix.suite }}
+              run: npx playwright test --config playwright.keyboard.config.ts --shard="${SUITE#keyboard-}/3" --grep-invert @pixel
+            - name: Wind pixel checks, one worker
+              if: matrix.suite == 'keyboard-pixel'
+              run: npx playwright test --config playwright.keyboard.config.ts --grep @pixel --workers=1 --retries=1
+            - name: Complete Plan Your Day fit suite
+              if: matrix.suite == 'plan-your-day'
+              run: npx playwright test --config playwright.day-planner.config.ts
+            - name: Record successful full suite
+              env:
+                  SUITE: ${{ matrix.suite }}
+              run: echo "$SUITE PASSED on $CANDIDATE_SHA, build 129" >> "$GITHUB_STEP_SUMMARY"
+            - name: Preserve unit coverage
+              if: always() && matrix.suite == 'unit-coverage'
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: build129-coverage
+                  path: coverage/
+                  retention-days: 7
+            - name: Preserve browser failure evidence
+              if: failure() && matrix.suite != 'unit-coverage'
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: build129-failure-${{ matrix.suite }}
+                  path: |
+                      playwright-report/
+                      test-results/
+                  retention-days: 7
+
+    quick:
+        name: quick release gates
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 45
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: '407dcf298571a1d504d80c54f6ee268d1fbc18a6'
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Verify exact application commit and preserved release ancestors
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  git merge-base --is-ancestor 5b3187afc146f618126ca0658e0aa142aff40196 HEAD
+                  git merge-base --is-ancestor b8ef21d96a699a240b0378db7d7fcdc0e93810cd HEAD
+            - run: npm ci
+            - name: Dependency audits and both release gates
+              run: |
+                  set -euo pipefail
+                  node scripts/audit-gate.mjs
+                  npm ls --all
+                  node scripts/check-deps.mjs
+                  npm run check:beta:source
+                  npm run check:beta
+            - name: Lint, migration, route, formatting, mirror and type checks
+              run: |
+                  set -euo pipefail
+                  npm run lint
+                  npm run lint:routes
+                  npm run format:check
+                  node pi-cache/scripts/sync-router-engine.mjs --check
+                  node pi-cache/scripts/sync-collision-rule.mjs --check
+                  npx tsc --noEmit
+            - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+              with:
+                  deno-version: v2.9.4
+            - name: Edge formatting, types and all behavior tests
+              run: |
+                  set -euo pipefail
+                  deno fmt --check supabase/functions
+                  cd supabase/functions
+                  deno check */index.ts
+                  deno test */*_test.ts
+            - name: Guard tests
+              run: >-
+                  npx vitest run tests/noProtectedChartData.test.ts tests/retiredChartFixtures.ledger.test.ts
+                  tests/MarineReleaseSourceGates.test.ts tests/PublicBetaReleaseGateContract.test.ts
+                  tests/ReleaseAssetProxy.test.ts
+            - name: Production build, hidden-map cleanup and artifact checks
+              run: |
+                  set -euo pipefail
+                  GITHUB_SHA="$(git rev-parse HEAD)" SENTRY_SOURCEMAPS=1 npm run build
+                  npm run sourcemaps:upload
+                  npm run check:web-release
+                  npm run check:bundle
+            - name: Install Lighthouse browser
+              run: npx puppeteer browsers install chrome
+            - name: Lighthouse budgets
+              id: lighthouse
+              timeout-minutes: 5
+              run: node scripts/run-lighthouse-audit.mjs
+            - name: Assert Lighthouse audited the real application shell
+              if: always() && steps.lighthouse.outcome != 'skipped'
+              run: node scripts/assert-lighthouse-audited-app.mjs
+            - name: Preserve Lighthouse evidence
+              if: always() && steps.lighthouse.outcome != 'skipped'
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: build129-lighthouse
+                  path: .lighthouseci/
+                  include-hidden-files: true
+                  retention-days: 7
+                  if-no-files-found: error
+
+    packages:
+        name: package (${{ matrix.package }})
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - package: ais-ingest
+                      directory: workers/ais-ingest
+                    - package: deepgram-proxy
+                      directory: cloudflare-worker
+                    - package: pi-cache
+                      directory: pi-cache
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: '407dcf298571a1d504d80c54f6ee268d1fbc18a6'
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 22
+                  cache: npm
+                  cache-dependency-path: ${{ matrix.directory }}/package-lock.json
+            - name: Verify exact application commit and preserved release ancestors
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  git merge-base --is-ancestor 5b3187afc146f618126ca0658e0aa142aff40196 HEAD
+                  git merge-base --is-ancestor b8ef21d96a699a240b0378db7d7fcdc0e93810cd HEAD
+            - name: Install, audit and validate independent dependency tree
+              working-directory: ${{ matrix.directory }}
+              run: |
+                  set -euo pipefail
+                  npm ci
+                  npm audit --audit-level=high
+                  npm ls --all
+            - name: Build and test package
+              if: matrix.package != 'deepgram-proxy'
+              working-directory: ${{ matrix.directory }}
+              run: |
+                  set -euo pipefail
+                  npm run build
+                  npm test
+            - name: Type-check Deepgram proxy
+              if: matrix.package == 'deepgram-proxy'
+              working-directory: ${{ matrix.directory }}
+              run: ./node_modules/.bin/tsc --noEmit
