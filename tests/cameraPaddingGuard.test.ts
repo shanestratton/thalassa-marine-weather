@@ -147,7 +147,7 @@ function sourceFiles(dir: string): string[] {
             !/\.(test|spec|stories)\.tsx?$/.test(entry.name) &&
             !entry.name.endsWith('.d.ts')
         ) {
-            out.push(rel);
+            out.push(rel.split(path.sep).join('/'));
         }
     }
     return out;

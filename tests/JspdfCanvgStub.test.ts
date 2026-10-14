@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import canvgUnavailable, { CANVG_UNAVAILABLE_MESSAGE } from '../utils/vendorStubs/canvgUnavailable';
 
@@ -59,7 +59,7 @@ function appSourceFiles(): string[] {
             /* optional entry point */
         }
     }
-    return out.map((path) => relative(ROOT, path));
+    return out.map((path) => relative(ROOT, path).split(sep).join('/'));
 }
 
 describe('jsPDF ships without canvg', () => {

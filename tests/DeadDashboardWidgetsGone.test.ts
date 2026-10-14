@@ -13,10 +13,11 @@
  * MoonVisual / SolarArc celestial widgets. Every one was mounted only by tests.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = process.cwd();
+const posix = (path: string) => path.split(sep).join('/');
 const DELETED = [
     'components/WidgetRenderer.tsx',
     'components/dashboard/Advice.tsx',
@@ -45,7 +46,7 @@ function relativeSpecifiers(file: string): string[] {
     const source = readFileSync(file, 'utf8');
     const out: string[] = [];
     for (const m of source.matchAll(/(?:\bfrom\s+|\bimport\(\s*|\bvi\.mock\(\s*)['"`](\.{1,2}\/[^'"`]+)['"`]/g)) {
-        out.push(relative(ROOT, resolve(dirname(file), m[1])).replace(/\.(tsx?|js)$/, ''));
+        out.push(posix(relative(ROOT, resolve(dirname(file), m[1]))).replace(/\.(tsx?|js)$/, ''));
     }
     return out;
 }
@@ -65,7 +66,7 @@ describe('the dead dashboard widget registry stays deleted', () => {
         const offenders = sourceFiles().flatMap((file) =>
             relativeSpecifiers(file)
                 .filter((spec) => gone.has(spec))
-                .map((spec) => `${relative(ROOT, file)} -> ${spec}`),
+                .map((spec) => `${posix(relative(ROOT, file))} -> ${spec}`),
         );
         expect(offenders).toEqual([]);
     });

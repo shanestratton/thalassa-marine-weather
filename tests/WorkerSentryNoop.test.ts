@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
  */
 const ROOT = process.cwd();
 const read = (path: string) => readFileSync(path, 'utf8');
-const rel = (path: string) => relative(ROOT, path);
+const rel = (path: string) => relative(ROOT, path).split(sep).join('/');
 const APP_DIRS = ['components', 'hooks', 'services', 'src', 'stores', 'utils', 'modules', 'managers', 'pages'];
 const EXTENSIONS = ['.ts', '.tsx', '/index.ts', '/index.tsx', '.js', '.mjs'];
 

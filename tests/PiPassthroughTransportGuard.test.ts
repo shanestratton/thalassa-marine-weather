@@ -19,7 +19,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 /**
  * Callers allowed to touch the bare URL builders, and why.
@@ -70,7 +70,7 @@ function walk(dir: string, out: string[] = []): string[] {
         if (entry === 'node_modules' || entry.startsWith('.')) continue;
         const full = join(dir, entry);
         if (statSync(full).isDirectory()) walk(full, out);
-        else if (/\.tsx?$/.test(entry)) out.push(full);
+        else if (/\.tsx?$/.test(entry)) out.push(full.split(sep).join('/'));
     }
     return out;
 }

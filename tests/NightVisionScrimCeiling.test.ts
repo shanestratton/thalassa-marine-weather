@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { OVERLAY_Z_INDEX } from '../components/ui/OverlayPortal';
 
@@ -83,7 +83,7 @@ describe('night-vision scrim is the top layer', () => {
             for (const m of src.matchAll(/z-\[(\d+)\]|z-index:\s*(\d+)/g)) {
                 const z = Number(m[1] ?? m[2]);
                 if (!Number.isFinite(z) || z < ceiling) continue;
-                const rel = file.replace(`${ROOT}/`, '');
+                const rel = relative(ROOT, file).split(sep).join('/');
                 if (ALLOWED_ABOVE.some((a) => a.file === rel && a.z === z)) continue;
                 offenders.push(`${rel} → ${z}`);
             }

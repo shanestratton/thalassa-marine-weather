@@ -21,7 +21,7 @@
  * new map that mounts the chart fails here until it does the same.
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = join(__dirname, '..', '..');
@@ -58,7 +58,7 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
         if (statSync(path).isDirectory()) {
             if (!SKIP_DIRS.has(name) && !name.startsWith('.')) sourceFiles(path, out);
         } else if (/\.tsx?$/.test(name) && !/\.(test|spec)\.tsx?$/.test(name) && !name.endsWith('.d.ts')) {
-            out.push(relative(ROOT, path));
+            out.push(relative(ROOT, path).split(sep).join('/'));
         }
     }
     return out;

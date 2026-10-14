@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
@@ -298,7 +298,7 @@ describe('map provider attribution contract', () => {
             for (const name of readdirSync(resolve(process.cwd(), dir))) {
                 const path = join(dir, name);
                 if (statSync(resolve(process.cwd(), path)).isDirectory()) walk(path);
-                else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) files.push(path);
+                else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) files.push(path.split(sep).join('/'));
             }
         };
         for (const root of roots) {

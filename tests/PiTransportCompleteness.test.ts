@@ -104,7 +104,7 @@ function walk(dir: string, out: string[] = []): string[] {
         if (entry === 'node_modules' || entry.startsWith('.')) continue;
         const full = path.join(dir, entry);
         if (fs.statSync(full).isDirectory()) walk(full, out);
-        else if (/\.tsx?$/.test(entry)) out.push(full);
+        else if (/\.tsx?$/.test(entry)) out.push(full.split(path.sep).join('/'));
     }
     return out;
 }
