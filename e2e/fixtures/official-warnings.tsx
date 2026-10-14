@@ -14,6 +14,8 @@
  *   ?view=page|alerts|glass  &state=inforce|partial|none|rtl|nearby|offzone|...  &forecast=1
  *   &pin=1       a tapped official push (fictional) the page's answer does not list
  *   &fonts=wide  the house fit rule's wide fonts
+ *   &ahead=1     weather_alert_status answers as the look-ahead check (129-07), with
+ *                fictional status lines; without it, nothing answers (not deployed)
  */
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -66,6 +68,20 @@ window.fetch = async (input: RequestInfo | URL) => {
     if (url.pathname.endsWith('/rest/v1/rpc/official_alerts_watch_status')) return json([{ ran_at: now }]);
     if (url.pathname.endsWith('/rest/v1/rpc/cyclone_watch_status')) {
         return json([{ ran_at: now, unavailable_since: null }]);
+    }
+    if (url.pathname.endsWith('/rest/v1/rpc/weather_alert_status') && params.get('ahead') === '1') {
+        return json([
+            {
+                version: 2,
+                ran_at: now,
+                basis: 'saved',
+                lines: [
+                    'Wind: models disagree: ECMWF 28 kt, ICON 14 kt, UKMO not shown (your limit 20 kt).',
+                    'Seas: no wave model here.',
+                    'Good window: 2 of 3 models agree (ECMWF, ICON), Thu 06:00–12:00.',
+                ],
+            },
+        ]);
     }
     return json({ message: 'Official-warnings fixture: network disabled.' }, 503);
 };
@@ -158,6 +174,7 @@ function Fixture() {
                                 notifications,
                                 units: {},
                                 homePort: 'Zzbaytown (39.1, -76.4)',
+                                defaultLocation: 'Zzbaytown',
                             } as unknown as React.ComponentProps<typeof AlertsTab>['settings']
                         }
                         onSave={() => undefined}

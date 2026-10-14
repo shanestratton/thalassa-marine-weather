@@ -24,6 +24,12 @@ import {
 } from '../Icons';
 import { fetchCycloneWatchStatus, type CycloneWatchStatus } from '../../services/cycloneWatchStatus';
 import { fetchOfficialAlertsWatchStatus } from '../../services/officialAlertsWatchStatus';
+import { fetchWeatherAlertStatus, type WeatherAlertStatus } from '../../services/weatherAlertStatus';
+import {
+    FORECAST_ALERTS_VERSION,
+    LOOKAHEAD_CHOICES,
+    lookaheadHours,
+} from '../../supabase/functions/_shared/forecast-alerts/contract';
 import { extractCoords, extractDisplayName } from '../../utils/savedLocations';
 import { GustIcon, WavePeriodIcon } from '../icons/GlassGlyphs';
 import type { NotificationPreferences, UnitPreferences } from '../../types';
@@ -60,11 +66,13 @@ interface ThresholdSpec {
     note?: string;
 }
 
-// The server job (supabase/functions/check-weather-alerts) checks wind, gusts,
-// visibility, UV, temperature and rain. It has no wave or swell-period check,
-// so those two alarms fire only from the in-app check, while Thalassa is open;
+// The server job (supabase/functions/check-weather-alerts) checked wind, gusts,
+// visibility, UV, temperature and rain. It had no wave or swell-period check,
+// so those two alarms fired only from the in-app check, while Thalassa is open;
 // they used to sit under the intro's every-30-min promise as if covered
-// (build 123, W1-02). W2-03 adds the server check and drops this note.
+// (build 123, W1-02). The look-ahead check (129-07, was W2-03) reads the seas
+// too, so the note goes once the deployed function says it is that check
+// (weather_alert_status), and stays on a phone whose server is older.
 // Short enough for one line beside the value well at 375 pt (109 px at 12 px
 // system-ui, where 'Air temperature above' is 126).
 const OPEN_APP_ONLY = 'Only with app open';
@@ -530,6 +538,86 @@ const OfficialWarningsSwitches: React.FC<{
     );
 };
 
+/**
+ * "Looking ahead" (129-07): how far ahead the background check reads the wind
+ * and sea thresholds, "Good window opens", and what the check last saw at the
+ * position it reads, in its own words (already in the skipper's units, and
+ * never a UKMO value: CC BY-SA, so named and counted, never quoted). Shown
+ * only once the deployed function reports the look-ahead version.
+ */
+const LookingAhead: React.FC<{
+    status: WeatherAlertStatus;
+    hours: number;
+    goodWindow: boolean;
+    place?: string;
+    onSave: SettingsTabProps['onSave'];
+}> = ({ status, hours, goodWindow, place, onSave }) => {
+    const labelId = React.useId();
+    const ran = Date.parse(status.ranAt);
+    const stale = !(Date.now() - ran <= 2 * 3_600_000);
+    const at = status.basis === 'last-known' ? 'your last known position' : place?.trim() || 'your saved location';
+    // Where WAM has no water the seas lines quote Météo-France's model: credit it there too.
+    const mfwam = status.lines.some((line) => line.includes('MFWAM'));
+    return (
+        <Section title="Looking ahead">
+            <div className="border-b border-white/5 px-4 py-3">
+                <p id={labelId} className="font-bold text-white">
+                    Look ahead
+                </p>
+                <div role="group" aria-labelledby={labelId} className="mt-2 grid grid-cols-3 gap-2">
+                    {LOOKAHEAD_CHOICES.map((h) => (
+                        <button
+                            key={h}
+                            type="button"
+                            aria-pressed={h === hours}
+                            onClick={() => onSave({ alertLookaheadHours: h })}
+                            className={`min-h-11 rounded-lg border text-sm font-bold ${
+                                h === hours
+                                    ? 'border-sky-500/40 bg-sky-500/15 text-white'
+                                    : 'border-white/10 bg-white/2 text-gray-300'
+                            }`}
+                        >
+                            {h} h
+                        </button>
+                    ))}
+                </div>
+            </div>
+            <Row>
+                <div className="flex min-w-0 items-center gap-3">
+                    <div className={`${iconTileClass(goodWindow)} bg-emerald-500/20 text-emerald-300`}>
+                        <CheckCircleIcon className="w-6 h-6" />
+                    </div>
+                    <div className="min-w-0">
+                        <p className={`font-bold ${goodWindow ? 'text-white' : DISARMED_INK}`}>Good window opens</p>
+                        <p className={`text-xs leading-snug ${goodWindow ? 'text-gray-400' : DISARMED_INK}`}>
+                            When the models agree on 6 h inside your wind and sea limits.
+                        </p>
+                    </div>
+                </div>
+                <Toggle
+                    label="Good window opens"
+                    checked={goodWindow}
+                    onChange={(on) => onSave({ goodWindowAlerts: on })}
+                />
+            </Row>
+            <div className="space-y-1 px-4 py-3 text-xs leading-snug text-gray-300">
+                {stale && <p className="text-amber-300">Not checked since {utcLabel(ran)}</p>}
+                <p className="text-gray-400">
+                    {status.basis
+                        ? `${stale ? 'Last read' : `Checked ${utcLabel(ran)}`} at ${at}`
+                        : 'Not checked at your position yet.'}
+                </p>
+                {status.lines.map((line) => (
+                    <p key={line}>{line}</p>
+                ))}
+                <p className="text-gray-400">
+                    Forecast data: ECMWF, DWD ICON{mfwam ? ', Météo-France' : ''}. UKMO counted, never quoted.
+                </p>
+            </div>
+        </Section>
+    );
+};
+
 interface AlertsTabProps extends SettingsTabProps {
     /** Opens Settings → Account & Cloud, where the sign-in card is. */
     onOpenAccount?: () => void;
@@ -541,6 +629,19 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
     // sees the notice flash while it runs.
     const signedOut = useAuthStore((state) => state.authChecked && state.user === null);
     const [permission, setPermission] = useState<PermissionState>(null);
+    const [ahead, setAhead] = useState<WeatherAlertStatus | null>(null);
+    useEffect(() => {
+        let live = true;
+        void fetchWeatherAlertStatus().then((answer) => {
+            if (live) setAhead(answer);
+        });
+        return () => {
+            live = false;
+        };
+    }, []);
+    // The deployed check reads the seas and looks ahead only from this version on.
+    const looksAhead = !!ahead && ahead.version >= FORECAST_ALERTS_VERSION;
+    const hours = lookaheadHours(settings.alertLookaheadHours);
     const refreshPermission = useCallback(() => {
         void readNotificationPermission().then(setPermission);
     }, []);
@@ -588,7 +689,11 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
                     home port or the last known position, sent by push to a
                     signed-in account) (UX scorecard run 9). */}
                 <p className="border-b border-white/5 px-4 py-3 text-xs leading-relaxed text-gray-300">
-                    Checked about every 30 min at your home port or last known position, and sent as a notification.
+                    {/* Once the server looks ahead (129-07), each check is said as it is:
+                        only wind and gusts are agreed across models. */}
+                    {looksAhead
+                        ? `Checked about every 30 min at your home port or last known position. Wind and gusts: up to ${hours} h ahead, sent when 2 of 3 models agree. Seas: up to ${hours} h ahead, from one named wave model. The rest: the hour under way.`
+                        : 'Checked about every 30 min at your home port or last known position, and sent as a notification.'}{' '}
                     Needs a data connection, and signing in for alerts while Thalassa is closed.
                 </p>
                 {signedOut && <SignedOutNotice onOpenAccount={onOpenAccount} />}
@@ -597,8 +702,9 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
                     number field and the switch are never nested inside another
                     control. Every value well has the same shape (no "<" prefix —
                     above/below lives in the trigger line) so the values align. */}
-                {THRESHOLDS.map(({ key, title, trigger, unit, icon: Icon, iconClass, switchLabel, note }) => {
+                {THRESHOLDS.map(({ key, title, trigger, unit, icon: Icon, iconClass, switchLabel, note: caveat }) => {
                     const armed = settings.notifications[key].enabled;
+                    const note = looksAhead ? undefined : caveat;
                     const triggerId = `${idBase}-${key}-trigger`;
                     const noteId = `${idBase}-${key}-note`;
                     return (
@@ -673,6 +779,15 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
                     </div>
                 </Row>
             </Section>
+            {looksAhead && (
+                <LookingAhead
+                    status={ahead}
+                    hours={hours}
+                    goodWindow={settings.goodWindowAlerts === true}
+                    place={settings.defaultLocation}
+                    onSave={onSave}
+                />
+            )}
             <OfficialWarningsSwitches
                 marine={settings.officialMarineWarnings !== false}
                 advisories={settings.smallCraftAdvisories !== false}

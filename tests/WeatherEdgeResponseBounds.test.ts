@@ -6,7 +6,7 @@ const edgeSource = (name: string): string =>
     readFileSync(resolve(process.cwd(), `supabase/functions/${name}/index.ts`), 'utf8');
 
 describe('weather Edge upstream response boundaries', () => {
-    it.each(['get-weather', 'get-marine', 'check-weather-alerts'])(
+    it.each(['get-weather', 'get-marine'])(
         '%s uses timeout and bounded JSON helpers without response.json()',
         (name) => {
             const source = edgeSource(name);
@@ -53,12 +53,29 @@ describe('weather Edge upstream response boundaries', () => {
         expect(source).not.toContain("console.error('[get-marine] fetch failed:', err)");
     });
 
-    it('extracts only finite alert variables from a small current-weather payload', () => {
+    // check-weather-alerts asks many places a request since 129-07, and Open-Meteo
+    // answers a list of places with a JSON array, which readResponseJsonObjectLimited
+    // refuses by design. So it reads the bounded text itself, checks the media type,
+    // and parses a list of exactly as many places as it asked
+    // (_shared/forecast-alerts/lookahead.ts parseReplies).
+    it('check-weather-alerts reads each batch bounded, typed and timed, without response.json()', () => {
         const source = edgeSource('check-weather-alerts');
-        expect(source).toContain('MAX_WEATHER_RESPONSE_BYTES = 128_000');
-        expect(source).toContain('parseWeatherCurrent(data)');
-        expect(source).toContain('for (const key of WEATHER_KEYS)');
-        expect(source).toContain('Number.isFinite(field)');
-        expect(source).not.toContain("console.error('Weather fetch failed:', err)");
+        expect(source).toContain('fetchWithTimeout(');
+        expect(source).toContain('MAX_BATCH_RESPONSE_BYTES = 2_000_000');
+        expect(source).toContain('readResponseTextLimited(res, MAX_BATCH_RESPONSE_BYTES)');
+        expect(source).toContain("isJsonContentType(res.headers.get('content-type'))");
+        expect(source).toContain('parseReplies(JSON.parse(text), batch.length)');
+        expect(source).not.toMatch(/(?:upstream|res|data|r)\.json\(\)/);
+        expect(source).not.toContain('AbortSignal.timeout');
+    });
+
+    it('extracts only finite alert variables from each place’s reply', () => {
+        const shared = readFileSync(
+            resolve(process.cwd(), 'supabase/functions/_shared/forecast-alerts/lookahead.ts'),
+            'utf8',
+        );
+        expect(shared).toContain("typeof v === 'number' && Number.isFinite(v) ? v : null");
+        expect(shared).toMatch(/if \(!list \|\| list\.length !== expected\) return null;/);
+        expect(edgeSource('check-weather-alerts')).not.toContain("console.error('Weather fetch failed:', err)");
     });
 });

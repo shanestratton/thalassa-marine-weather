@@ -271,6 +271,21 @@ export interface UserSettings {
      */
     smallCraftAdvisories?: boolean;
     /**
+     * Settings → Alerts: "Look ahead" (build 129, 129-07). How far ahead the
+     * background check (check-weather-alerts) reads the wind and sea
+     * thresholds: 6, 12 or 24 h. Unset = 24 (Shane, 13 Oct 2026); anything
+     * else reads as 24 (_shared/forecast-alerts/contract.ts lookaheadHours).
+     * Shown once the deployed function reports the look-ahead version.
+     */
+    alertLookaheadHours?: 6 | 12 | 24;
+    /**
+     * Settings → Alerts: "Good window opens" (129-07). A push when two of
+     * three models rate a 6 h window Go against the High wind and High seas
+     * limits, after hours that are not. Not a safety alert: off unless
+     * exactly `true`.
+     */
+    goodWindowAlerts?: boolean;
+    /**
      * Settings → Preferences: "Start with The Glass beside the chart" (build
      * 128, Shane 2026-10-13). A tablet or wide window that starts in landscape
      * opens with The Glass pinned left and Obs on the right. Unset = on; only

@@ -13,14 +13,16 @@
  * vocabulary (supabase/functions/_shared/official-alerts/classify.ts). A
  * legacy text, or a type no warning has (UV), is never covered.
  *
- * Not imported by the app yet, so it adds nothing to the bundle until 129-07.
+ * The predicate itself is shared with check-weather-alerts (129-07), which
+ * drops a push it covers: supabase/functions/_shared/forecast-alerts/cover.ts.
+ * This file maps the app's "Forecast: …" texts onto it. Not imported by the
+ * app yet, so it adds nothing to the bundle.
  */
-import {
-    classifyOfficialEvent,
-    type ClassifiableInfo,
-    type OfficialHazard,
-} from '../supabase/functions/_shared/official-alerts/classify';
+import type { OfficialHazard } from '../supabase/functions/_shared/official-alerts/classify';
+import { officialCovers, type OfficialForCover } from '../supabase/functions/_shared/forecast-alerts/cover';
 import { FORECAST_ALERT_RULES, forecastAlertRule } from './forecastAlerts';
+
+export type { OfficialForCover };
 
 type RuleKey = keyof typeof FORECAST_ALERT_RULES;
 
@@ -43,19 +45,8 @@ const FORECAST_HAZARD: Partial<Record<RuleKey, readonly [OfficialHazard, number]
     nearFreezing: ['cold', 1],
 };
 
-export interface OfficialForCover {
-    provider: string;
-    infos: readonly ClassifiableInfo[];
-}
-
 export function forecastAlertCoveredByOfficial(alert: string, official: readonly OfficialForCover[]): boolean {
     const rule = forecastAlertRule(alert);
     const key = rule && (Object.keys(FORECAST_ALERT_RULES) as RuleKey[]).find((k) => FORECAST_ALERT_RULES[k] === rule);
-    const want = key ? FORECAST_HAZARD[key] : undefined;
-    if (!want) return false;
-    return official.some((o) =>
-        o.infos.some((info) =>
-            classifyOfficialEvent(o.provider, info).hazards.some(([h, n]) => h === want[0] && n >= want[1]),
-        ),
-    );
+    return officialCovers(key ? FORECAST_HAZARD[key] : undefined, official);
 }
