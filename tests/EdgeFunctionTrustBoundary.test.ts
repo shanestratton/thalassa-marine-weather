@@ -65,7 +65,9 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
     it('uses the deployed user-settings contract for weather-alert preferences', () => {
         const edge = functionSource('check-weather-alerts');
         expect(edge).toContain(".from('user_settings')");
-        expect(edge).toContain(".select('user_id, settings')");
+        // Only the settings the check uses, by JSON path (129-07), not the whole blob.
+        expect(edge).toContain("'user_id, notifications:settings->notifications");
+        expect(edge).toContain('coords:settings->defaultLocationCoords');
         expect(edge).toContain('defaultLocationCoords');
         expect(edge).toContain('guardianLocationsForUsers(');
         expect(edge).toContain("{ onConflict: 'user_id,alert_key', ignoreDuplicates: true }");

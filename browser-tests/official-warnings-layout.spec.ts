@@ -9,7 +9,8 @@
  *    scroll, every card inside the screen, 44 pt link and More, and the
  *    Arabic block laid out right to left;
  *  - Settings → Alerts: the Official warnings section fits one screen
- *    under the settings header, its two switches 44 pt.
+ *    under the settings header, its two switches 44 pt; and (129-07) the
+ *    Looking ahead section, once the check reports the look-ahead version.
  *  - MeteoAlarm (129-05b): its card (level and type as the title, the
  *    national service as source, its times, area and impacts, the other
  *    languages behind one control) and its notice (the disclaimer, verbatim,
@@ -276,4 +277,56 @@ test.describe('Settings → Alerts: Official warnings', () => {
             await info.attach(`alerts-official-${size.width}`, { path, contentType: 'image/png' });
         });
     }
+});
+
+// 129-07: once the deployed check reports the look-ahead version (weather_alert_status,
+// fictional answer with &ahead=1), Settings → Alerts shows "Looking ahead": the 6, 12 and
+// 24 h choice, "Good window opens" and the status lines. Without it the section is absent.
+test.describe('Settings → Alerts: Looking ahead', () => {
+    for (const size of SIZES) {
+        test(`fits one screen at ${size.width}x${size.height} under the settings header, wide fonts`, async ({
+            page,
+        }, info) => {
+            await open(page, size, 'view=alerts&ahead=1');
+            const heading = page.getByRole('heading', { level: 2, name: 'Looking ahead' });
+            await expect(heading).toBeVisible();
+            await expect(page.getByText('Only with app open')).toHaveCount(0);
+            await heading.scrollIntoViewIfNeeded();
+            await expectWideFaceDrawn(heading);
+            const section = heading.locator('xpath=..');
+            const fit = await section.evaluate((el) => {
+                const scroll = document.querySelector('[data-testid="settings-scroll"]')!.getBoundingClientRect();
+                const nav = document.querySelector('nav')!.getBoundingClientRect();
+                return {
+                    height: el.getBoundingClientRect().height,
+                    room: Math.min(scroll.bottom, nav.top) - scroll.top,
+                };
+            });
+            expect(fit.height, JSON.stringify(fit)).toBeLessThanOrEqual(fit.room);
+            // The choices are as tall as every Settings switch (35.75 at 320 pt's 13 px root, 44 at 16 px).
+            const toggle = (await page.getByRole('switch', { name: 'Good window opens' }).boundingBox())!;
+            const group = page.getByRole('group', { name: 'Look ahead' });
+            for (const name of ['6 h', '12 h', '24 h']) {
+                const box = (await group.getByRole('button', { name }).boundingBox())!;
+                expect(box.height, name).toBeGreaterThanOrEqual(toggle.height - 0.5);
+                expect(box.x + box.width, name).toBeLessThanOrEqual(size.width + 0.5);
+            }
+            await expect(page.getByText('Seas: no wave model here.')).toBeVisible();
+            await expectNoSidewaysOverflow(
+                page,
+                '[data-testid="settings-scroll"] p, [data-testid="settings-scroll"] button',
+            );
+            await section.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+            const path = info.outputPath(`alerts-ahead-${size.width}x${size.height}.png`);
+            await page.screenshot({ path, animations: 'disabled' });
+            await info.attach(`alerts-ahead-${size.width}`, { path, contentType: 'image/png' });
+        });
+    }
+
+    test('is absent until the function reports the look-ahead version', async ({ page }) => {
+        await open(page, { width: 320, height: 568 }, 'view=alerts');
+        await expect(page.getByRole('switch', { name: 'Official marine warnings at the boat' })).toBeVisible();
+        await expect(page.getByRole('heading', { level: 2, name: 'Looking ahead' })).toHaveCount(0);
+        await expect(page.getByText('Only with app open')).toHaveCount(2);
+    });
 });

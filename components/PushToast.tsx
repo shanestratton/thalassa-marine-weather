@@ -86,7 +86,10 @@ function getToastStyle(type: string): {
                 gradient: 'from-purple-600/95 to-purple-700/95',
                 border: 'border-purple-400/30',
             };
+        // A forecast, however severe (129-07 sends storm force inside 3 h as
+        // severe_weather_alert): the forecast's sky, never the official card.
         case 'weather_alert':
+        case 'severe_weather_alert':
         case 'cyclone_notice':
         case 'cyclone_urgent':
             return {
