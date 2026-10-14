@@ -2,17 +2,34 @@
  * WeatherInspectPopup — Glassmorphic weather info card shown on map tap.
  *
  * Renders a floating dark-glass card with current conditions at the
- * tapped coordinate. Shows atmospheric data always, marine data only
- * when over water.
+ * tapped coordinate. Shows atmospheric data always, and the sea in parts
+ * (130-04: wind sea, swell, swell 2, each with its own arrow) only where an
+ * open-water wave model reaches the point; elsewhere it says so.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import type { PointWeatherData } from '../../services/weather/pointWeather';
+import type { PointSea, PointWeatherData } from '../../services/weather/pointWeather';
+import {
+    SEA_CREDIT,
+    SEA_NONE_LONG,
+    SEA_PART_NONE_M,
+    seaDifferWords,
+    type SeaPart,
+} from '../../services/weather/seaPartitions';
 import { mToFt } from '../../utils/units';
-import { ThermometerIcon, WaveIcon, WindIcon } from '../icons/WeatherIcons';
+import {
+    GENERIC_BOAT_LABEL,
+    WAVE_POWER_HELP,
+    formatWavePower,
+    seaComfort,
+    wavePowerKwPerM,
+    type SeaComfort,
+} from '../../utils/seaComfort';
+import type { VesselProfile } from '../../types';
+import { ThermometerIcon, WindIcon } from '../icons/WeatherIcons';
 import { GaugeIcon } from '../icons/MaritimeIcons';
 import { CheckIcon, RefreshIcon, StarIcon } from '../icons/UIIcons';
-import { GustIcon, WavePeriodIcon } from '../icons/GlassGlyphs';
+import { GustIcon } from '../icons/GlassGlyphs';
 import { describeNearestBuoy, type BuoyLineUnits } from '../../services/weather/buoys/describe';
 import type { NearestBuoyResult } from '../../services/weather/buoys/types';
 
@@ -53,8 +70,10 @@ interface Props {
      * they have, null (or omitted) when there is no check to show.
      */
     buoy?: NearestBuoyResult | 'checking' | null;
-    /** The user's wave-height and distance units, for the buoy line. */
+    /** The user's wave-height and distance units: the sea's rows and the buoy line. */
     units?: BuoyLineUnits;
+    /** Her profile, for the comfort word's waterline; none is the generic 38 ft boat. */
+    vessel?: VesselProfile | null;
     /**
      * Open the Sounding sheet for this point (build 125, SND): ECMWF's upper
      * air as a skew-T. An explicit tap, so nothing is fetched until asked.
@@ -73,8 +92,10 @@ function kmhToKnots(kmh: number): number {
     return Math.round(kmh / 1.852);
 }
 
-function metresToFeet(m: number): number {
-    return Math.round(mToFt(m)); // canonical 3.28084 (was a drifted 3.281)
+/** A sea height in the user's wave unit: one decimal under 10 (canonical 3.28084 feet a metre). */
+function seaHeight(m: number, unit: BuoyLineUnits['waveHeight']): string {
+    const v = unit === 'ft' ? mToFt(m) : m;
+    return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${unit === 'ft' ? 'ft' : 'm'}`;
 }
 
 // ── Skeleton shimmer ──
@@ -132,6 +153,166 @@ const WindArrow: React.FC<{ deg: number }> = ({ deg }) => (
     >
         <path d="M12 19V5M5 12l7-7 7 7" />
     </svg>
+);
+
+/** A wave part's arrow, drawn as the wind's is: flowing from where the part comes FROM. */
+const SeaArrow: React.FC<{ deg: number }> = ({ deg }) => (
+    <svg
+        data-sea-arrow
+        role="img"
+        aria-label={`from ${degToCardinal(deg)}`}
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        style={{ transform: `rotate(calc(${deg + 180}deg - var(--chart-bearing, 0deg)))` }}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="inline-block shrink-0 align-[-1px] text-sky-400"
+    >
+        <path d="M12 19V5M5 12l7-7 7 7" />
+    </svg>
+);
+
+const SEA_ROWS: readonly [string, 'windSea' | 'swell' | 'swell2'][] = [
+    ['Wind sea', 'windSea'],
+    ['Swell', 'swell'],
+    ['Swell 2', 'swell2'],
+];
+
+/**
+ * One partition: height · period · arrow. No data is '--'; under 0.1 m is
+ * "none" (MFWAM's second swell is often 0.02-0.18 m): never a 0.0 that reads
+ * as a measured calm.
+ */
+const SeaRow: React.FC<{ label: string; part: SeaPart | null; unit: BuoyLineUnits['waveHeight'] }> = ({
+    label,
+    part,
+    unit,
+}) => {
+    const none = part !== null && part.hM < SEA_PART_NONE_M;
+    return (
+        <tr>
+            <th scope="row" className="pr-2 text-left font-bold text-white/50">
+                {label}
+            </th>
+            <td className="pr-2 text-right font-bold text-white tabular-nums whitespace-nowrap">
+                {part === null ? DASH : none ? 'none' : seaHeight(part.hM, unit)}
+            </td>
+            <td className="pr-2 text-right text-white/60 tabular-nums whitespace-nowrap">
+                {part && !none ? (part.periodS !== null ? `${Math.round(part.periodS)} s` : DASH) : ''}
+            </td>
+            <td className="text-left text-white/60 whitespace-nowrap">
+                {part && !none && part.fromDeg !== null ? (
+                    <>
+                        <SeaArrow deg={part.fromDeg} /> {degToCardinal(part.fromDeg)}
+                    </>
+                ) : (
+                    ''
+                )}
+            </td>
+        </tr>
+    );
+};
+
+/**
+ * The comfort word's reason, with the boat it judged for: "moderate sea for a
+ * generic 38 ft boat", "cross sea · est. waterline 8.8 m". The size reason
+ * names the boat in place of "her length": the bubble has no line to spare.
+ */
+function comfortWhy(comfort: SeaComfort, unit: BuoyLineUnits['waveHeight']): string {
+    const waterline = `est. waterline ${seaHeight(comfort.lwlM, unit)}`;
+    if (comfort.input === 'size')
+        return comfort.generic
+            ? comfort.reason.replace('her length', `a ${GENERIC_BOAT_LABEL}`)
+            : `${comfort.reason} (${waterline})`;
+    return `${comfort.reason} · ${comfort.generic ? GENERIC_BOAT_LABEL : waterline}`;
+}
+
+/**
+ * The sea in parts (130-04). The bubble cannot scroll, so the three rows take
+ * the old 2×2 grid's place, the wave power and the comfort word share one
+ * line, and the credit rides on the footer that was already there.
+ *
+ * Line pitch: text-xs's own (16 px on its 12 px floor), never `leading-4`.
+ * That is 1rem, and the root is 13 px on a 320 px phone: 13 px lines under a
+ * 12 px font, with accents touching the descenders above.
+ */
+const SeaParts: React.FC<{ sea: PointSea; unit: BuoyLineUnits['waveHeight']; vessel?: VesselProfile | null }> = ({
+    sea,
+    unit,
+    vessel,
+}) => {
+    const power = wavePowerKwPerM(sea.total);
+    const comfort = seaComfort(sea, vessel);
+    return (
+        <>
+            <div className="h-px bg-white/6 my-1" />
+            <table aria-label="Waves in parts" className="w-full border-collapse text-xs">
+                <tbody>
+                    {SEA_ROWS.map(([label, key]) => (
+                        <SeaRow key={key} label={label} part={sea[key]} unit={unit} />
+                    ))}
+                </tbody>
+            </table>
+            {comfort && (
+                <p data-testid="sea-comfort" className="mt-0.5 text-xs text-white/60">
+                    {power !== null && (
+                        <span title={WAVE_POWER_HELP}>
+                            {formatWavePower(power)}
+                            <span className="sr-only">. {WAVE_POWER_HELP}</span>
+                            {' · '}
+                        </span>
+                    )}
+                    {comfort.word ? (
+                        <>
+                            <b className="font-bold text-white">{comfort.word}</b> (beta): {comfortWhy(comfort, unit)}
+                            {' · comfort, not safety'}
+                        </>
+                    ) : (
+                        `${comfort.reason} · ${comfort.generic ? GENERIC_BOAT_LABEL : `est. waterline ${seaHeight(comfort.lwlM, unit)}`}`
+                    )}
+                </p>
+            )}
+            {/* GFS Wave speaks only here, and NOAA is credited here, beside its number. */}
+            {sea.differ && (
+                <p className="mt-0.5 text-xs text-amber-200">{seaDifferWords(sea.differ, (m) => seaHeight(m, unit))}</p>
+            )}
+        </>
+    );
+};
+
+/**
+ * While the sea is in the air: the same three rows reading "--", and the
+ * loading line in the comfort line's place (three lines' height: the comfort
+ * line's in the 288 px bubble in wide fonts), so the sea's arrival swaps
+ * content rather than growing the bubble. Mapbox picks the popup's anchor
+ * from this first paint and does not pick again as it grows: the old
+ * one-line box grew by ~115 px on arrival, pushing the coordinates and the
+ * close button off a 568 px screen above a bottom-anchored bubble.
+ */
+const SeaPending: React.FC = () => (
+    <>
+        <div className="h-px bg-white/6 my-1" />
+        <table aria-label="Waves in parts" aria-busy="true" className="w-full border-collapse text-xs">
+            <tbody>
+                {SEA_ROWS.map(([label, key]) => (
+                    <SeaRow key={key} label={label} part={null} unit={undefined} />
+                ))}
+            </tbody>
+        </table>
+        <p
+            role="status"
+            aria-live="polite"
+            data-testid="sea-pending"
+            className="mt-0.5 flex min-h-[48px] items-center gap-2 text-xs text-white/55"
+        >
+            <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-sky-400/30 border-t-sky-400" />
+            Sea state loading&hellip;
+        </p>
+    </>
 );
 
 // ── Save row ──
@@ -252,9 +433,11 @@ export const WeatherInspectPopup: React.FC<Props> = ({
     save,
     buoy,
     units,
+    vessel,
     onOpenSounding,
 }) => {
-    const hasMarine = data && data.waveHeightM != null && data.waveHeightM > 0;
+    /** The sea in parts, only where the wave model's cell passed the guard (130-04). */
+    const sea = data?.marineStatus === 'available' ? data.sea : null;
     /**
      * The sea half is still in the air. The atmospherics now paint as soon as
      * they land rather than waiting for the marine request, so there is a real
@@ -285,8 +468,11 @@ export const WeatherInspectPopup: React.FC<Props> = ({
         </button>
     ) : null;
 
+    // 288, was 280 (130-04): at 320 px that is the house's 16 px gutter, and in wide
+    // fonts it keeps a three-digit longitude and the Sounding pill on one line. The
+    // bubble cannot scroll, so every line it saves keeps the Save row off the tab bar.
     return (
-        <div style={{ minWidth: 240, maxWidth: 280 }}>
+        <div style={{ minWidth: 240, maxWidth: 288 }}>
             {/* Card */}
             <div
                 style={{
@@ -467,78 +653,21 @@ export const WeatherInspectPopup: React.FC<Props> = ({
                             </div>
                         )}
 
-                        {/* Marine section — only when over water */}
-                        {hasMarine && (
-                            <>
-                                <div className="h-px bg-white/6 my-1.5" />
-                                <div className="grid grid-cols-2 gap-x-3">
-                                    <Metric
-                                        icon={<WaveIcon className="w-4 h-4" />}
-                                        label="Waves"
-                                        value={
-                                            data && data.waveHeightM != null
-                                                ? `${data.waveHeightM.toFixed(1)}m / ${metresToFeet(data.waveHeightM)}ft`
-                                                : ''
-                                        }
-                                        loading={loading && !data}
-                                    />
-                                    <Metric
-                                        icon={<WavePeriodIcon className="w-4 h-4" />}
-                                        label="Period"
-                                        value={
-                                            data && data.wavePeriodS != null ? `${data.wavePeriodS.toFixed(0)}s` : ''
-                                        }
-                                        sub={
-                                            data && data.waveDirectionDeg != null
-                                                ? degToCardinal(data.waveDirectionDeg)
-                                                : ''
-                                        }
-                                        loading={loading && !data}
-                                    />
-                                    {data && data.swellHeightM != null && data.swellHeightM > 0 && (
-                                        <>
-                                            <Metric
-                                                icon={<WaveIcon className="w-4 h-4" />}
-                                                label="Swell"
-                                                value={`${data.swellHeightM.toFixed(1)}m / ${metresToFeet(data.swellHeightM)}ft`}
-                                                loading={loading && !data}
-                                            />
-                                            <Metric
-                                                icon={<WavePeriodIcon className="w-4 h-4" />}
-                                                label="Swell period"
-                                                value={
-                                                    data.swellPeriodS != null
-                                                        ? `${data.swellPeriodS.toFixed(0)}s`
-                                                        : DASH
-                                                }
-                                                sub={
-                                                    data.swellDirectionDeg != null
-                                                        ? degToCardinal(data.swellDirectionDeg)
-                                                        : ''
-                                                }
-                                                loading={loading && !data}
-                                            />
-                                        </>
-                                    )}
-                                </div>
-                            </>
-                        )}
+                        {/* The sea in parts: only where an open-water wave model reaches. */}
+                        {sea && <SeaParts sea={sea} unit={units?.waveHeight} vessel={vessel} />}
 
-                        {marinePending && (
-                            <div
-                                role="status"
-                                aria-live="polite"
-                                className="mt-2 flex items-center gap-2 rounded-lg border border-white/6 bg-white/3 px-2.5 py-2 text-xs text-white/55"
-                            >
-                                <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-sky-400/30 border-t-sky-400" />
-                                Sea state loading&hellip;
-                            </div>
-                        )}
+                        {marinePending && <SeaPending />}
 
-                        {data?.marineStatus === 'land' && !hasMarine && (
+                        {data?.marineStatus === 'land' && (
                             <p className="mt-2 text-xs leading-relaxed text-white/45">
                                 No sea state here — this point is over land.
                             </p>
+                        )}
+
+                        {/* A berth, a marina, an enclosed bay: the wave model answered from
+                            a cell too far off to be this water. Never its number, never "land". */}
+                        {data?.marineStatus === 'sheltered' && (
+                            <p className="mt-2 text-xs leading-relaxed text-white/45">{SEA_NONE_LONG}</p>
                         )}
 
                         {data?.marineStatus === 'unavailable' && (
@@ -558,9 +687,21 @@ export const WeatherInspectPopup: React.FC<Props> = ({
                             </p>
                         )}
 
+                        {/* The credit rides on the footer (a licence condition): MFWAM
+                            wherever its numbers show, and already while they load, so their
+                            arrival does not grow the footer. NOAA is credited in GFS Wave's
+                            own line. */}
                         {data && !loading && (
-                            <p className="mt-2 border-t border-white/6 pt-2 text-xs text-white/55">
-                                Open-Meteo · fetched{' '}
+                            <p
+                                data-testid="inspect-credit"
+                                className="mt-2 border-t border-white/6 pt-2 text-xs text-white/55"
+                            >
+                                {/* The wave credit names Open-Meteo itself, so it stands in for the plain one. */}
+                                {sea
+                                    ? `${sea.credit} · fetched`
+                                    : marinePending
+                                      ? `${SEA_CREDIT} · fetched`
+                                      : 'Open-Meteo · fetched'}{' '}
                                 {Math.max(0, Math.round((Date.now() - data.fetchedAt) / 60_000)) <= 1
                                     ? 'now'
                                     : `${Math.round((Date.now() - data.fetchedAt) / 60_000)} min ago`}

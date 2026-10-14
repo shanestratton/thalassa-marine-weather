@@ -67,7 +67,8 @@ describe('the atmospherics do not wait for the sea', () => {
     it('still fires both requests together — this is not serialisation', () => {
         const load = point.slice(point.indexOf('async function loadPointWeather'));
         const forecast = load.indexOf('const forecastPromise = fetchForecastPoint');
-        const marine = load.indexOf('const marinePromise = fetchMarinePoint');
+        // The sea in parts (130-04): one MFWAM + GFS Wave call, its own module.
+        const marine = load.indexOf('const marinePromise = fetchSeaPartitions');
         expect(forecast).toBeGreaterThan(-1);
         expect(marine).toBeGreaterThan(forecast);
         // Both created before either is awaited.
@@ -91,8 +92,10 @@ describe('the atmospherics do not wait for the sea', () => {
     it('says "loading", not "land", while the sea is still coming', () => {
         expect(popup).toMatch(/const marinePending = data\?\.marineStatus === 'pending';/);
         expect(popup).toContain('Sea state loading');
-        // The three states stay three different sentences.
+        // The states stay different sentences: no model reaches (130-04) is not
+        // land, and neither is a failure.
         expect(popup).toContain("data?.marineStatus === 'land'");
+        expect(popup).toContain("data?.marineStatus === 'sheltered'");
         expect(popup).toContain("data?.marineStatus === 'unavailable'");
     });
 });

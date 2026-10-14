@@ -11,6 +11,7 @@ import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WeatherInspectPopup } from '../components/map/WeatherInspectPopup';
 import type { PointWeatherData } from '../services/weather/pointWeather';
+import { SEA_CREDIT } from '../services/weather/seaPartitions';
 import type { NearestBuoyResult } from '../services/weather/buoys/types';
 
 const NOW = Date.UTC(2026, 9, 7, 17, 5);
@@ -27,12 +28,15 @@ const point = (overrides: Partial<PointWeatherData> = {}): PointWeatherData => (
     temperatureC: 16,
     humidity: 70,
     cloudCover: 20,
-    waveHeightM: 1.4,
-    wavePeriodS: 9,
-    waveDirectionDeg: 290,
-    swellHeightM: null,
-    swellPeriodS: null,
-    swellDirectionDeg: null,
+    sea: {
+        total: { hM: 1.4, periodS: 9, fromDeg: 290 },
+        windSea: { hM: 0.6, periodS: 4, fromDeg: 300 },
+        swell: { hM: 1.2, periodS: 11, fromDeg: 285 },
+        swell2: null,
+        differ: null,
+        credit: SEA_CREDIT,
+        snappedKm: 3.1,
+    },
     ...overrides,
 });
 
@@ -114,7 +118,7 @@ describe('WeatherInspectPopup — nearest wave buoy line', () => {
     it('shows nothing about buoys on land, or when the check could not run', () => {
         const { rerender } = render(
             <WeatherInspectPopup
-                data={point({ marineStatus: 'land', waveHeightM: null })}
+                data={point({ marineStatus: 'land', sea: null })}
                 loading={false}
                 onClose={vi.fn()}
                 buoy={found}

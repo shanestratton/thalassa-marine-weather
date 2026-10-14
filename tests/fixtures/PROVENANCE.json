@@ -289,6 +289,51 @@
         "tests/fixtures/official-alerts/rpc-answers.json": {
             "licence": "synthetic",
             "source": "Fictional official_alerts_at(lat, lon) answers in the shape of 129-05's RPC (coverage live, partial, unavailable, off and none, a marine warning matched within 3 NM of a berth, and one outside every listed issuer's coverage; NWS, ECCC, MeteoAlarm, BOM and a made-up issuer; for 129-05b a MeteoAlarm France warning in French and English and a MeteoAlarm Italy one near the French border), made by hand for 129-06 and 129-05b; no real warning, and every name with \"Zz\", \"架空\", \"fictional\", \"fictif\", \"fittizio\", \"test\", \"وهمي\", \"בדיוני\" or \"φανταστικό\" in it is invented."
+        },
+        "tests/fixtures/sea-partitions/gulf-of-lion-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for 43.0, 4.5, the Gulf of Lion, France; fetched 2026-10-14 06:10 UTC and trimmed to 24 hours (hours 00-23 UTC on 14 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/north-sea-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for 53.5, 3.0, the southern North Sea; fetched 2026-10-14 06:10 UTC and trimmed to 24 hours (hours 00-23 UTC on 14 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/north-sea-south-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for 53.48, 3.02, the southern North Sea 2.4 km from the north-sea fixture’s point and in the next MFWAM cell (elevation 0 m; its own cell answers, 2.8 km off); fetched 2026-10-14 07:25 UTC and trimmed to 24 hours (hours 00-23 UTC on 14 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/moorea-slope-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for -17.5, -149.8, a tap on the slope of Moorea, French Polynesia (Open-Meteo’s 90 m elevation for the point is 411 m; MFWAM’s own 1/12° cell there is wet, its centre at sea 4.7 km north, so the island is below the model’s grid); fetched 2026-10-14 06:10 UTC and trimmed to 24 hours (hours 16:00 UTC 22 Oct to 15:00 UTC 23 Oct, across MFWAM’s 9-day horizon) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/tahiti-windward-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for -17.55, -149.05, open water in the trades off Tahiti’s windward east coast, French Polynesia (elevation 0 m; its own MFWAM cell answers, 1.3 km off); fetched 2026-10-14 07:25 UTC and trimmed to 24 hours (hours 16:00 UTC 22 Oct to 15:00 UTC 23 Oct, across MFWAM’s 9-day horizon) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/anegada-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for 18.9, -64.3, north of Anegada, British Virgin Islands (a Caribbean cross sea); fetched 2026-10-14 06:10 UTC and trimmed to 24 hours (hours 00-23 UTC on 19 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/whitehaven-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for -20.30, 149.10, open water east of Whitehaven Beach, the Whitsundays, Queensland, inside the Great Barrier Reef (elevation 0 m; believed: its own MFWAM cell answers, 2.8 km off); fetched 2026-10-14 07:25 UTC and trimmed to 24 hours (hours 00-23 UTC on 14 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/airlie-beach-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for -20.268, 148.718, Airlie Beach, Queensland (refused: 17.7 km snap); fetched 2026-10-14 06:10 UTC and trimmed to 24 hours (hours 00-23 UTC on 14 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
+        },
+        "tests/fixtures/sea-partitions/lake-superior-2026-10-14.json": {
+            "licence": "cc-by-4.0",
+            "source": "Open-Meteo marine API through Thalassa’s proxy-openmeteo (models=meteofrance_wave,ncep_gfswave025, hourly, timeformat=unixtime, forecast_days=10), asked for 47.71, -87.52, open water on Lake Superior, between Michigan and Ontario (Open-Meteo’s 90 m elevation for the point is 181 m, the lake’s surface; its own MFWAM cell answers, 1.6 km off: MFWAM models the lake, so an elevation is no proof of land); fetched 2026-10-14 07:25 UTC and trimmed to 24 hours (hours 00-23 UTC on 14 Oct) of the 12 wave variables (130-04).",
+            "credit": "Météo-France MFWAM, E.U. Copernicus Marine Service (© Mercator Ocean), and NOAA GFS Wave, via Open-Meteo (CC BY 4.0)"
         }
     }
 }

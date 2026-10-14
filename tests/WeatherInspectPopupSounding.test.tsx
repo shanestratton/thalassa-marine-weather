@@ -15,6 +15,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { WeatherInspectPopup } from '../components/map/WeatherInspectPopup';
 import type { PointWeatherData } from '../services/weather/pointWeather';
+import { SEA_CREDIT } from '../services/weather/seaPartitions';
 
 const point = (): PointWeatherData => ({
     lat: 43.21,
@@ -28,12 +29,15 @@ const point = (): PointWeatherData => ({
     temperatureC: 19,
     humidity: 55,
     cloudCover: 10,
-    waveHeightM: 1.6,
-    wavePeriodS: 6,
-    waveDirectionDeg: 320,
-    swellHeightM: null,
-    swellPeriodS: null,
-    swellDirectionDeg: null,
+    sea: {
+        total: { hM: 1.6, periodS: 6, fromDeg: 320 },
+        windSea: { hM: 1.2, periodS: 4, fromDeg: 320 },
+        swell: { hM: 0.9, periodS: 9, fromDeg: 250 },
+        swell2: null,
+        differ: null,
+        credit: SEA_CREDIT,
+        snappedKm: 3.1,
+    },
 });
 
 describe('the Sounding action on the inspect bubble', () => {

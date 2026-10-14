@@ -1,5 +1,5 @@
 /**
- * The Glass's offshore sea tiles tell the truth (build 123, W1-07).
+ * The Glass's offshore sea tiles tell the truth (build 123, W1-07; build 130, 130-04).
  *
  * Re-verified on b123 c10fdda5, 2026-10-08:
  *   1. SWELL 2 and PER. 2 drew their arrow from `swellDirection`, which the
@@ -10,6 +10,12 @@
  *   2. SWELL 2's height is stored in feet, like waveHeight, and the tile
  *      printed those feet under a hard-coded 'ft', so a metric skipper read
  *      feet. It now converts with, and labels in, the user's Seas unit.
+ *
+ * Build 130 (130-04): PER. 2 becomes WIND SEA, with its own arrow from the
+ * wind sea's direction, and SWELL 2 gets back an arrow that is really the
+ * second swell's (secondarySwellDirection). Nothing fills those fields until
+ * 130-06 moves the Glass's sea to Open-Meteo, so WIND SEA reads "--" and
+ * SWELL 2 has no arrow until then; neither ever borrows swellDirection.
  *
  * Fictional readings at offshore points around the world, plus one in
  * Queensland, in metres and in feet.
@@ -124,19 +130,74 @@ const readout = (c: HTMLElement) => Array.from(valueRow(c).querySelectorAll('spa
 /** Arrows drawn beside the reading (the heading's icon is not counted). */
 const arrowsIn = (c: HTMLElement) => valueRow(c).querySelectorAll('svg').length;
 
-describe('Glass offshore grid: SWELL 2 and PER. 2 draw no borrowed arrow', () => {
-    it.each(SITES)('$place: no total-sea arrow on SWELL 2 or PER. 2', ({ swell2Ft, period }) => {
-        renderOffshore(metric, swell2Ft, period);
-        expect(arrowsIn(cell('SWELL 2'))).toBe(0);
-        expect(arrowsIn(cell('PER. 2'))).toBe(0);
-    });
+describe('Glass offshore grid: WIND SEA and SWELL 2, each with only its own arrow', () => {
+    it.each(SITES)(
+        '$place: no total-sea arrow on SWELL 2 or WIND SEA while the parts are not filled',
+        ({ swell2Ft, period }) => {
+            renderOffshore(metric, swell2Ft, period);
+            expect(arrowsIn(cell('SWELL 2'))).toBe(0);
+            expect(arrowsIn(cell('WIND SEA'))).toBe(0);
+        },
+    );
 
-    it('keeps the other offshore tiles as they were (no arrows, same labels)', () => {
+    it('PER. 2 is gone; WIND SEA reads "--" until 130-06 fills it, in the Seas unit', () => {
         renderOffshore(metric, 4.3, 9);
-        for (const label of ['WATER', 'DRIFT', 'SET', 'CAPE', 'SWELL 2', 'PER. 2']) {
+        for (const label of ['WATER', 'DRIFT', 'SET', 'CAPE', 'SWELL 2', 'WIND SEA']) {
             expect(screen.getAllByText(label, { exact: true }).length).toBeGreaterThan(0);
         }
-        expect(readout(cell('PER. 2'))).toEqual(['9', 's']);
+        expect(screen.queryByText('PER. 2', { exact: true })).toBeNull();
+        expect(readout(cell('WIND SEA'))).toEqual(['--', 'm']);
+    });
+
+    it.each(SITES)('$place: once the parts are filled, each cell draws its own direction', ({ swell2Ft, metres }) => {
+        render(
+            <HeroSlide
+                data={{
+                    ...offshoreData(swell2Ft, 9),
+                    windWaveHeight: swell2Ft,
+                    windWaveDirection: 75,
+                    secondarySwellDirection: 200,
+                }}
+                index={0}
+                units={metric}
+                settings={{} as never}
+                updateSettings={vi.fn()}
+                addDebugLog={undefined}
+                displaySource="StormGlass"
+                isVisible={true}
+                locationType="offshore"
+            />,
+        );
+        expect(readout(cell('WIND SEA'))).toEqual([metres, 'm']);
+        const windArrow = valueRow(cell('WIND SEA')).querySelector('svg')!;
+        const swell2Arrow = valueRow(cell('SWELL 2')).querySelector('svg')!;
+        expect(windArrow.style.transform).toBe('rotate(75deg)');
+        expect(swell2Arrow.style.transform).toBe('rotate(200deg)');
+    });
+
+    it('a direction with no height draws no arrow beside a dash', () => {
+        render(
+            <HeroSlide
+                data={{
+                    ...offshoreData(0, 0),
+                    secondarySwellHeight: null,
+                    windWaveHeight: null,
+                    windWaveDirection: 75,
+                    secondarySwellDirection: 200,
+                }}
+                index={0}
+                units={metric}
+                settings={{} as never}
+                updateSettings={vi.fn()}
+                addDebugLog={undefined}
+                displaySource="StormGlass"
+                isVisible={true}
+                locationType="offshore"
+            />,
+        );
+        expect(readout(cell('WIND SEA'))).toEqual(['--', 'm']);
+        expect(arrowsIn(cell('WIND SEA'))).toBe(0);
+        expect(arrowsIn(cell('SWELL 2'))).toBe(0);
     });
 });
 
@@ -172,7 +233,7 @@ describe("Glass offshore grid: SWELL 2 height in the user's Seas unit", () => {
             />,
         );
         expect(readout(cell('SWELL 2'))).toEqual(['--', 'm']);
-        expect(readout(cell('PER. 2'))).toEqual(['--', 's']);
+        expect(readout(cell('WIND SEA'))).toEqual(['--', 'm']);
     });
 });
 
@@ -197,6 +258,16 @@ describe('computeCardDisplayValues: secondary swell converts with the unit it la
     it('absent is a dash in either unit', () => {
         expect(computeCardDisplayValues(data(null), metric, 1, true).secondarySwellHeight).toBe('--');
         expect(computeCardDisplayValues(data(null), imperial, 1, true).secondarySwellHeight).toBe('--');
+    });
+
+    it('the wind sea, stored in feet like the others, converts with the same Seas unit', () => {
+        const wind = (ft: number | null) =>
+            ({ windWaveHeight: ft, windWaveDirection: 75 }) as unknown as SourcedWeatherMetrics;
+        expect(String(computeCardDisplayValues(wind(4.3), metric, 1, true).windWaveHeight)).toBe('1.3');
+        expect(String(computeCardDisplayValues(wind(4.3), imperial, 1, true).windWaveHeight)).toBe('4.3');
+        expect(computeCardDisplayValues(wind(4.3), metric, 1, true).windWaveDirDeg).toBe(75);
+        expect(computeCardDisplayValues(wind(null), metric, 1, true).windWaveHeight).toBe('--');
+        expect(computeCardDisplayValues(wind(null), metric, 1, true).windWaveDirDeg).toBeNull();
     });
 });
 

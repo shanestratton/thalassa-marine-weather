@@ -146,6 +146,17 @@ export interface WeatherMetrics {
     cape?: number | null;
     secondarySwellHeight?: number | null;
     secondarySwellPeriod?: number | null;
+    /**
+     * The sea in parts (130-04): the wind sea's height in FEET, like
+     * waveHeight; its period, s; and where it and the second swell come
+     * FROM, degrees true. The Glass's WIND SEA and SWELL 2 cells read them;
+     * nothing fills them until 130-06 moves the sea to Open-Meteo, so the
+     * cells read '--' (and draw no arrow) until then.
+     */
+    windWaveHeight?: number | null;
+    windWavePeriod?: number | null;
+    windWaveDirection?: number | null;
+    secondarySwellDirection?: number | null;
     precipChance?: number;
 }
 
@@ -223,6 +234,11 @@ export interface HourlyForecast {
     precipChance?: number;
     secondarySwellHeight?: number | null;
     secondarySwellPeriod?: number | null;
+    /** The sea in parts (130-04), as on WeatherMetrics: feet, seconds, degrees FROM. Filled from 130-06. */
+    windWaveHeight?: number | null;
+    windWavePeriod?: number | null;
+    windWaveDirection?: number | null;
+    secondarySwellDirection?: number | null;
     /** SPITFIRE only — per-hour spread across the blend's members. */
     windSpeedMin?: number | null;
     windSpeedMax?: number | null;

@@ -1,71 +1,6 @@
-import { WeatherMetrics } from '../../types';
-import { degreesToCardinal } from '../../utils/format';
-
-// Helper function to generate weather narrative based on current conditions
-// Designed to be concise and consistent with the widget data displayed below
-function generateWeatherNarrative(data: WeatherMetrics): string {
-    const temp = data.airTemperature;
-    const condition = data.condition || '';
-    const windSpeed = data.windSpeed || 0;
-    const windDir = data.windDirection || degreesToCardinal(data.windDegree || 0);
-    const windGust = data.windGust || 0;
-    const waveHeight = data.waveHeight || 0; // Already in feet from transformers
-    const visibility = data.visibility || 0;
-    const pressure = data.pressure || 1013;
-
-    const parts: string[] = [];
-
-    // 1. CONDITION - First, headline (capitalize)
-    if (condition && condition.toLowerCase() !== 'unknown') {
-        const cap = condition.charAt(0).toUpperCase() + condition.slice(1).toLowerCase();
-        parts.push(cap);
-    }
-
-    // 2. WIND - Key metric: "Wind DIR at SPEEDkts (gusts Xkts)"
-    if (windSpeed > 0) {
-        let windStr = `Wind ${windDir || 'VAR'} at ${Math.round(windSpeed)}kts`;
-        if (windGust > windSpeed + 3) {
-            windStr += `, gusts ${Math.round(windGust)}kts`;
-        }
-        parts.push(windStr);
-    } else {
-        parts.push('Calm winds');
-    }
-
-    // 3. SEAS - "Seas Xft" or sea state descriptor
-    const waveHeightFt = waveHeight; // Already in feet
-    if (waveHeightFt >= 8) {
-        parts.push(`Very rough seas ${waveHeightFt.toFixed(1)}ft`);
-    } else if (waveHeightFt >= 4) {
-        parts.push(`Rough seas ${waveHeightFt.toFixed(1)}ft`);
-    } else if (waveHeightFt >= 2) {
-        parts.push(`Moderate seas ${waveHeightFt.toFixed(1)}ft`);
-    } else if (waveHeightFt > 0.5) {
-        parts.push(`Slight seas ${waveHeightFt.toFixed(1)}ft`);
-    } else {
-        parts.push('Calm seas');
-    }
-
-    // 4. VISIBILITY - Only if notable (poor or moderate)
-    if (visibility > 0 && visibility < 5) {
-        parts.push(`Vis ${visibility.toFixed(1)}nm`);
-    }
-
-    // 5. PRESSURE - Only if notable (low = bad weather, high = stable)
-    if (pressure < 1000) {
-        parts.push(`Low pressure ${Math.round(pressure)}hPa`);
-    } else if (pressure > 1025) {
-        parts.push(`High pressure ${Math.round(pressure)}hPa`);
-    }
-
-    // 6. TEMP - append at end
-    if (temp !== null && temp !== undefined) {
-        parts.push(`${Math.round(temp)}°C`);
-    }
-
-    // Join with periods for readability
-    return parts.join('. ') + '.' || 'Pleasant conditions expected.';
-}
+// The weather narrative that lived here is gone (130-04): it had no caller
+// outside its own test, and it called 1.2 m (4 ft) "Rough seas", where WMO
+// code 3700 says Moderate. Sea-state words come from utils/marineFormatters.
 
 // Moon phase calculation using accurate synodic month
 function getMoonPhase(date: Date): { phase: string; emoji: string } {
@@ -101,4 +36,4 @@ function getMoonPhase(date: Date): { phase: string; emoji: string } {
     return phases[phaseIndex];
 }
 
-export { generateWeatherNarrative, getMoonPhase };
+export { getMoonPhase };

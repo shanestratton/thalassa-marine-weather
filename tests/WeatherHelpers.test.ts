@@ -1,94 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { generateWeatherNarrative, getMoonPhase } from '../components/dashboard/WeatherHelpers';
+import { getMoonPhase } from '../components/dashboard/WeatherHelpers';
 
-describe('generateWeatherNarrative', () => {
-    it('includes capitalized condition', () => {
-        const narrative = generateWeatherNarrative({
-            airTemperature: 22,
-            condition: 'partly cloudy',
-            windSpeed: 10,
-            windDirection: 'NW',
-            windDegree: 315,
-        } as any);
-        expect(narrative).toContain('Partly cloudy');
-    });
-
-    it('omits unknown condition', () => {
-        const narrative = generateWeatherNarrative({
-            airTemperature: 22,
-            condition: 'unknown',
-            windSpeed: 10,
-            windDirection: 'S',
-        } as any);
-        expect(narrative).not.toContain('Unknown');
-    });
-
-    it('includes wind with direction and speed', () => {
-        const narrative = generateWeatherNarrative({
-            windSpeed: 15,
-            windDirection: 'NE',
-            windGust: 25,
-        } as any);
-        expect(narrative).toContain('Wind NE at 15kts');
-        expect(narrative).toContain('gusts 25kts');
-    });
-
-    it('shows calm winds when windSpeed is 0', () => {
-        const narrative = generateWeatherNarrative({ windSpeed: 0 } as any);
-        expect(narrative).toContain('Calm winds');
-    });
-
-    it('omits gust if gust <= windSpeed + 3', () => {
-        const narrative = generateWeatherNarrative({
-            windSpeed: 10,
-            windGust: 13,
-            windDirection: 'N',
-        } as any);
-        expect(narrative).not.toContain('gusts');
-    });
-
-    it('classifies sea states correctly', () => {
-        expect(generateWeatherNarrative({ waveHeight: 9 } as any)).toContain('Very rough seas');
-        expect(generateWeatherNarrative({ waveHeight: 5 } as any)).toContain('Rough seas');
-        expect(generateWeatherNarrative({ waveHeight: 3 } as any)).toContain('Moderate seas');
-        expect(generateWeatherNarrative({ waveHeight: 1 } as any)).toContain('Slight seas');
-        expect(generateWeatherNarrative({ waveHeight: 0.2 } as any)).toContain('Calm seas');
-    });
-
-    it('includes poor visibility', () => {
-        const narrative = generateWeatherNarrative({ visibility: 2 } as any);
-        expect(narrative).toContain('Vis 2.0nm');
-    });
-
-    it('omits visibility when > 5nm', () => {
-        const narrative = generateWeatherNarrative({ visibility: 10 } as any);
-        expect(narrative).not.toContain('Vis');
-    });
-
-    it('includes low pressure warning', () => {
-        const narrative = generateWeatherNarrative({ pressure: 990 } as any);
-        expect(narrative).toContain('Low pressure 990hPa');
-    });
-
-    it('includes high pressure note', () => {
-        const narrative = generateWeatherNarrative({ pressure: 1030 } as any);
-        expect(narrative).toContain('High pressure 1030hPa');
-    });
-
-    it('appends temperature at end', () => {
-        const narrative = generateWeatherNarrative({ airTemperature: 22 } as any);
-        expect(narrative).toContain('22°C');
-    });
-
-    it('joins parts with periods', () => {
-        const narrative = generateWeatherNarrative({
-            windSpeed: 10,
-            windDirection: 'N',
-            waveHeight: 1.5,
-        } as any);
-        expect(narrative).toMatch(/\. /);
-    });
-});
+// generateWeatherNarrative is gone (130-04): it had no caller outside its own
+// test, and it called 1.2 m (4 ft) "Rough seas", where WMO 3700 says Moderate.
 
 describe('getMoonPhase', () => {
     it('returns a known new moon', () => {
@@ -129,5 +43,12 @@ describe('getMoonPhase', () => {
         const baseDate = new Date(Date.UTC(2024, 0, 1));
         const oneMonthLater = new Date(baseDate.getTime() + 29.53058770576 * 86400000);
         expect(getMoonPhase(baseDate).phase).toBe(getMoonPhase(oneMonthLater).phase);
+    });
+});
+
+describe('the dashboard helpers keep only the moon', () => {
+    it('generateWeatherNarrative is no longer exported', async () => {
+        const helpers = await import('../components/dashboard/WeatherHelpers');
+        expect(Object.keys(helpers)).toEqual(['getMoonPhase']);
     });
 });
