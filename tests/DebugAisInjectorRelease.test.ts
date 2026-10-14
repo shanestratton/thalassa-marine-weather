@@ -14,7 +14,7 @@
 // @vitest-environment node
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { build, type Rollup } from 'vite';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
@@ -58,8 +58,8 @@ async function buildGate(flag: boolean): Promise<{ code: string; chunks: string[
                 preserveEntrySignatures: 'exports-only',
                 external: (id, importer) => {
                     if (!importer || id.startsWith('\0')) return false;
-                    if (!/^[./]/.test(id)) return true;
-                    return !BUILT.test(id.startsWith('.') ? resolve(importer, '..', id) : id);
+                    if (!/^[./]/.test(id) && !isAbsolute(id)) return true;
+                    return !BUILT.test((id.startsWith('.') ? resolve(importer, '..', id) : id).replaceAll('\\', '/'));
                 },
                 onwarn: () => {},
             },

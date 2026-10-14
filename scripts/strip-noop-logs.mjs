@@ -172,8 +172,10 @@ export function insertAt(code, offsets, text, source) {
 function isAppLogger(source, id, root) {
     if (source === `@/${LOGGER_MODULE}`) return true;
     if (!source.startsWith('.')) return false;
-    const resolved = path.resolve(path.dirname(id), source).replaceAll('\\', '/').replace(SOURCE, '');
-    return resolved === `${root.replaceAll('\\', '/')}/${LOGGER_MODULE}`;
+    // Both sides through path.resolve, so a POSIX-style root on Windows gets the same drive letter.
+    const slashed = (file) => file.replaceAll('\\', '/');
+    const resolved = slashed(path.resolve(path.dirname(id), source)).replace(SOURCE, '');
+    return resolved === slashed(path.resolve(root, LOGGER_MODULE));
 }
 
 /**
