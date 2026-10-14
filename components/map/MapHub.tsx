@@ -321,6 +321,8 @@ import {
 import { IMAGERY_SCRUB_OWNED } from './mapHub/constants';
 import { useActiveVoyageChartSync } from './mapHub/useActiveVoyageChartSync';
 import { useCycloneCenterLock } from './mapHub/useCycloneCenterLock';
+import { useObsClearView } from './mapHub/useObsClearView';
+import { ObsClearViewChrome } from './ObsClearViewChrome';
 import { useFollowRouteClearOnPassage } from './mapHub/useFollowRouteClearOnPassage';
 import { useMarkHaloPulse } from './mapHub/useMarkHaloPulse';
 import { useOpenSeaMapRasterHide } from './mapHub/useOpenSeaMapRasterHide';
@@ -3246,6 +3248,19 @@ export const MapHub: React.FC<MapHubProps> = ({
     const surfaceEpoch = useSurfaceEpoch(ownshipStartup);
     useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart, surfaceEpoch);
     useObsCentreNoticeWatch(obsShowing);
+    // Clear view (129-13, mapHub/useObsClearView.ts): two fingers held on the
+    // chart hide Obs's controls, with or without a weather layer (Shane's
+    // choice, 129-13b); one tap brings them back. Never while MOB, the picker,
+    // plotting, Inspect or a passage point has the chart.
+    const obsFrameRef = useRef<HTMLDivElement>(null);
+    const clearView = useObsClearView({
+        frameRef: obsFrameRef,
+        mapRef,
+        mapReady,
+        available: obsShowing,
+        modeOwnsChart: mobActive || coordCaptureMode || browseWeatherInspectMode || !!passage.settingPoint,
+        holdGesture: settings.obsClearViewHold !== false,
+    });
     const ownBoatName = settings.vessel?.name?.trim() || null;
     // Read only: the phone aboard writes it (127-C-c). True means this
     // account's paired Pi holds licensed charts (127-DESKMAP C1).
@@ -3925,12 +3940,17 @@ export const MapHub: React.FC<MapHubProps> = ({
             {/* in the background after the basic plan lands. */}
             {!pickerMode && <RouteEnhancementChip />}
             {/* Map container — 70% on tablet during passage, full otherwise */}
-            <div className={`relative ${isHelmSplit ? 'flex-7 h-full' : 'w-full h-full'}`}>
+            <div
+                ref={obsFrameRef}
+                data-obs-clear-view={clearView.on ? 'on' : undefined}
+                className={`relative ${isHelmSplit ? 'flex-7 h-full' : 'w-full h-full'}`}
+            >
                 <div
                     ref={containerRef}
                     data-map-pane={isHelmSplit ? 'split' : undefined}
                     className="thalassa-chart-map w-full h-full"
                 />
+                <ObsClearViewChrome view={clearView} />
 
                 {pickerMode && (
                     <div
@@ -5482,6 +5502,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     cyclones={allCyclones}
                     lightningActive={browseLightningVisible}
                     onShowingChange={setThreatBannerShowing}
+                    stormCardSid={browseCycloneVisible ? (closestStorm?.sid ?? null) : null}
                     flyTo={(lat, lon, zoom) => {
                         const map = mapRef.current;
                         if (!map) return;
@@ -5941,6 +5962,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             onControlsHiddenChange={setChartControlsHidden}
                             extraLegend={obsKeyCount > 0 ? <ObsLayerKey {...obsKeyProps} /> : undefined}
                             extraLegendCount={obsKeyCount}
+                            keepInClearView={clearView.available || clearView.on}
                             desk={
                                 deskWind
                                     ? {

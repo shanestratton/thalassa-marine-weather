@@ -140,7 +140,8 @@ describe('it is driven by the catalogue, not by a prop', () => {
         // so this needs no prop round trip and, crucially, no camera move.
         const src = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
         const after = src.slice(src.indexOf('rebuildMarkers();', src.indexOf('No manual selection')));
-        expect(after.slice(0, 600)).toContain('refreshStormCardInPlace(map.getContainer(), freshSel)');
+        // With the place the distance line measures from (129-13).
+        expect(after.slice(0, 600)).toContain('refreshStormCardInPlace(map.getContainer(), freshSel, {');
         expect(after.slice(0, 600)).toContain('cyclones.find((c) => c.sid === sel.sid)');
         // And the card effect's deps must NOT have been widened to do it.
         expect(src).toContain('}, [selectedStorm?.sid, visible, mapReady]);');

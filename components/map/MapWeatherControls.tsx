@@ -74,6 +74,14 @@ interface MapWeatherControlsProps {
         pinned?: boolean;
         startMs: number | null;
     };
+    /**
+     * On Obs, whose clear view keeps the scrubber (129-13;
+     * mapHub/useObsClearView.ts). Shane: "Maybe the scrubber button. As that
+     * should stay." With a weather layer up, the pill and the timeline stay in
+     * the clear view and work as ever, so the forecast can be scrubbed over a
+     * clear chart. Not a switch: Shane chose the two-finger hold (129-13b).
+     */
+    keepInClearView?: boolean;
 }
 
 /**
@@ -92,6 +100,7 @@ export function MapWeatherControls({
     extraLegend,
     extraLegendCount,
     desk,
+    keepInClearView,
 }: MapWeatherControlsProps): React.ReactElement | null {
     // Above the early return: a hook is called on every render or on none.
     const passageLookAheadOn = usePassageLookAheadOn();
@@ -150,6 +159,8 @@ export function MapWeatherControls({
         onHiddenChange: onControlsHiddenChange,
     });
     if (!visible) return null;
+    // Kept in the clear view while there is a forecast to scrub; a layer key alone hides with the rest.
+    const clearViewKeep = keepInClearView && activeWeatherLayers.length > 0 ? '' : undefined;
     const compactSummary = summarizeWeatherControls({
         weather,
         activeLayer: activeLayer ?? null,
@@ -669,6 +680,7 @@ export function MapWeatherControls({
                 <section
                     ref={autoHide.panelRef}
                     {...autoHide.interactionProps}
+                    data-clear-view-keep={clearViewKeep}
                     aria-label={hasExtraLegend ? 'Chart layer controls' : 'Weather controls'}
                     // On the chart the geometry lives in index.css
                     // (.thalassa-chart-controls-panel): it is measured from the
@@ -855,6 +867,7 @@ export function MapWeatherControls({
                     ref={autoHide.triggerRef}
                     type="button"
                     onClick={autoHide.show}
+                    data-clear-view-keep={clearViewKeep}
                     data-testid="weather-status-pill"
                     data-tone={compactSummary.tone}
                     // Chart geometry: .thalassa-chart-controls-pill in index.css,

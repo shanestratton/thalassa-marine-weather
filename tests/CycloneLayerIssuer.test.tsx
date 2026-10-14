@@ -161,6 +161,10 @@ function makeMap() {
         setMaxZoom: () => undefined,
         getCenter: () => ({ lat: 18, lng: -108 }),
         project: ([lon, lat]: number[]) => ({ x: lon, y: lat }),
+        setLayoutProperty: (id: string, name: string, value: unknown) => {
+            const layer = layers.get(id) as { layout?: Record<string, unknown> } | undefined;
+            if (layer) layer.layout = { ...layer.layout, [name]: value };
+        },
         flyTo: vi.fn(),
         easeTo: vi.fn(),
         on: (event: string, handler: () => void) => {
@@ -372,12 +376,18 @@ describe('each model is a thin labelled line', () => {
         expect(labelLayer.layout['symbol-placement']).toBe('line');
         expect(labelLayer.layout['symbol-sort-key']).toBeDefined();
         expect(lines.map((f) => f.properties?.text).sort()).toEqual(['ECMWF 13/00Z', 'GFS 13/06Z']);
-        // The issuer's label has its own layer, placed first and never dropped for a model's.
+        // The issuer's label has its own layer, placed first so the chart's own
+        // labels yield to it. It no longer overlaps (129-13: it printed over a
+        // place's name at zoom 2); it takes the first free of eight spots round
+        // the track's end instead (tests/StormIssuerLabel.test.ts).
         const issuerLayer = h.layers.get('cyclone-issuer-label') as unknown as {
             layout: Record<string, unknown>;
             filter: unknown;
         };
-        expect(issuerLayer.layout['text-allow-overlap']).toBe(true);
+        expect(issuerLayer.layout['text-allow-overlap']).not.toBe(true);
+        expect(issuerLayer.layout['text-ignore-placement']).not.toBe(true);
+        expect(issuerLayer.layout['text-variable-anchor']).toHaveLength(8);
+        expect(issuerLayer.layout['text-radial-offset']).toBeGreaterThan(0);
         const ids = [...h.layers.keys()];
         expect(ids.indexOf('cyclone-issuer-label')).toBeGreaterThan(ids.indexOf('cyclone-models-label'));
         const issuerPoints = fc.features.filter((f) => f.properties?.issuer === true);
@@ -597,6 +607,38 @@ describe('a dead feed is never an all-clear', () => {
         const el = h.container.querySelector<HTMLElement>('#cyclone-feed-status')!;
         expect(el.style.whiteSpace).toBe('pre-line');
         expect(el.style.maxWidth).toBe('calc(100% - 32px)');
+        hook.unmount();
+    });
+});
+
+describe('the issuer label keeps clear of the place pin’s name (129-13)', () => {
+    it('orders its spots so the first is off the HTML pin Mapbox cannot see', async () => {
+        mocks.status.mockReturnValue(FEED_OK);
+        mocks.models.mockReset().mockReturnValue([]);
+        const s = storm();
+        mocks.fetch.mockResolvedValue([s]);
+        const h = makeMap();
+        // The chosen place's pin and its name, just right of the track's end
+        // (this mock projects a point to x = lon, y = lat: the end is at -113.6, 23.6).
+        const pin = document.createElement('button');
+        pin.className = 'obs-place-pin';
+        const chip = document.createElement('span');
+        chip.className = 'obs-place-pin__label';
+        chip.textContent = 'Puerto Ficticio';
+        pin.append(chip);
+        h.container.append(pin);
+        const rect = (left: number, top: number, right: number, bottom: number) =>
+            ({ left, top, right, bottom, width: right - left, height: bottom - top, x: left, y: top }) as DOMRect;
+        h.container.getBoundingClientRect = () => rect(0, 0, 0, 0);
+        pin.getBoundingClientRect = () => rect(-100, 26, -80, 60);
+        chip.getBoundingClientRect = () => rect(-110, 15, -40, 35);
+        const hook = renderHook(() =>
+            useCycloneLayer({ current: h.map as never }, true, true, 20, -105, vi.fn(), undefined, s),
+        );
+        await waitFor(() => expect(h.layers.has('cyclone-issuer-label')).toBe(true));
+        const layout = (h.layers.get('cyclone-issuer-label') as unknown as { layout: Record<string, unknown> }).layout;
+        await waitFor(() => expect((layout['text-variable-anchor'] as string[])[0]).toBe('right'));
+        expect(layout['text-variable-anchor']).toHaveLength(8);
         hook.unmount();
     });
 });

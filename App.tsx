@@ -1041,7 +1041,7 @@ const App: React.FC = () => {
     // header row beside the status button: bottom-left it sat over the
     // instrument grid's UV cell (UX scorecard run 5).
     const renderLandscapeNavToggle = (docked: boolean) => (
-        <nav aria-label={landscapeNavOpen ? 'Navigation toggle' : 'Main'}>
+        <nav aria-label={landscapeNavOpen ? 'Navigation toggle' : 'Main'} data-thalassa-tab-bar="">
             <button
                 type="button"
                 onClick={() => setLandscapeNavOpen((v) => !v)}
@@ -1743,6 +1743,8 @@ const App: React.FC = () => {
                             on every other page. */}
                             {isOffline && (
                                 <div
+                                    // Hidden with Obs's own controls in its clear view (129-13, index.css).
+                                    data-obs-chrome=""
                                     className="absolute z-601 pointer-events-auto flex items-center gap-1.5 px-2 py-1.5 bg-amber-500/15 border border-amber-500/25 rounded-lg backdrop-blur-md text-amber-400"
                                     style={{
                                         top: 'calc(env(safe-area-inset-top) + 8px)',
@@ -1778,6 +1780,7 @@ const App: React.FC = () => {
                             {/* Calypso mic (Skipper-tier) + System status ℹ — paired top-right on map view.
                             The mic steps aside while the Route Tracer is open (declutter 2026-07-17). */}
                             <div
+                                data-obs-chrome=""
                                 className="absolute z-601 pointer-events-auto flex items-center gap-2"
                                 style={{
                                     top: 'calc(env(safe-area-inset-top) + 8px)',
@@ -1862,6 +1865,8 @@ const App: React.FC = () => {
                 {(!isMobileLandscape || landscapeNavOpen) && !isStandalonePlan && (
                     <nav
                         className="fixed bottom-0 left-0 right-0 z-900 border-t pb-[env(safe-area-inset-bottom)]"
+                        // Obs's clear view hides it in place, never moving the chart (129-13, index.css).
+                        data-thalassa-tab-bar=""
                         style={{
                             // Fully opaque: at 0.985 + blur, page text still ghosted
                             // through the tab labels (UX scorecard run 5). The tokens
