@@ -22,8 +22,9 @@
 --                        names municipalities and sea areas whose outlines are
 --                        not loaded yet, so on it could place none of them.
 --                        Shane turns it on once the outlines are loaded.)
---     meteoalarm-* OFF  (39 countries; redistributor registration requested
---                        2026-10-09, no reply yet; Shane turns them on)
+--     meteoalarm-* ON   (39 countries, under MeteoAlarm's own Terms and
+--                        Conditions, which need no registration (129-05b): its
+--                        six rules are met, and each row's licence_note says how)
 --     bom          OFF  (no licence for commercial use; no public CAP endpoint)
 --   A row is never re-seeded over (ON CONFLICT DO NOTHING), so a flag Shane
 --   has flipped is never flipped back by a re-run.
@@ -39,15 +40,21 @@
 --   is already past expires_at, so the prune can never delete a row the next
 --   ingest would put back.
 -- * official_alert_zones: the shapes of the zones that zone-based warnings
---   name (NWS forecast, county, fire and marine zones; loaded from
---   api.weather.gov a few per run). Zones without a shape (MeteoAlarm EMMA_ID,
---   JMA areas, until their outlines are loaded; NWS's for the first couple of
---   hours) leave a warning "unplaced", and official_alerts_at() then answers
---   'partial' for every point its provider covers: never a silent all-clear.
+--   name (NWS forecast, county, fire and marine zones, loaded from
+--   api.weather.gov a few per run; MeteoAlarm's EMMA_ID outlines, loaded from
+--   the hub's Geocodes JSON by scripts/load-meteoalarm-geocodes.mjs through
+--   official_alert_zones_sync()). Zones without a shape (JMA areas until their
+--   outlines are loaded; NWS's for the first couple of hours; an EMMA_ID the
+--   hub adds before the next load) leave a warning "unplaced", and
+--   official_alerts_at() then answers 'partial' for every point its provider
+--   covers: never a silent all-clear.
 -- * official_alert_deliveries: which account was pushed which warning, for
 --   129-06. User-keyed: the account-deletion fence and ON DELETE CASCADE.
 --   Nothing writes it yet.
 -- * official_alerts_apply(): the ingest's one write call (service role only).
+-- * official_alert_zones_sync(): one provider's outlines under one scheme
+--   (EMMA_ID), as the hub's latest file has them: a changed one is written,
+--   one the file no longer lists is removed (service role only, 129-05b).
 -- * official_alerts_at(lat, lon): what is in force at a point (by polygon, or
 --   by zone when the warning has no polygon of its own), every info block
 --   verbatim, and a coverage answer: live, partial (live, but some warnings
@@ -94,6 +101,7 @@
 --     SELECT cron.unschedule('official-alerts-prune');
 --     DROP FUNCTION IF EXISTS public.official_alerts_at(double precision, double precision);
 --     DROP FUNCTION IF EXISTS public.official_alerts_apply(text, jsonb, text[], jsonb, jsonb);
+--     DROP FUNCTION IF EXISTS public.official_alert_zones_sync(text, text, text[], jsonb);
 --     DROP FUNCTION IF EXISTS public.prune_official_alerts();
 --     DROP TABLE IF EXISTS public.official_alert_deliveries, public.official_alert_zones,
 --         public.official_alerts, public.official_alert_providers;
@@ -383,6 +391,77 @@ END;
 $fn$;
     $definition$, gis);
 
+    -- One provider's outlines under one scheme (MeteoAlarm's EMMA_ID), as its
+    -- source has them now (129-05b): p_codes is every code it keeps, p_zones
+    -- this call's shapes (a batch of them; each call carries every code, so
+    -- one batch never drops another's). A shape is written only when its name
+    -- or geometry changed; a code under the scheme that p_codes no longer has
+    -- is removed (the hub's change log: "Removal of obsolete geocodes"). A
+    -- warning still naming a removed code is unplaced, so 'partial', never
+    -- an all-clear. scripts/load-meteoalarm-geocodes.mjs calls it, and
+    -- refuses to remove more than half of a country's outlines unless asked.
+    EXECUTE format($definition$
+CREATE OR REPLACE FUNCTION public.official_alert_zones_sync(
+    p_provider text,
+    p_scheme text,
+    p_codes text[],
+    p_zones jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog, public, extensions, pg_temp
+AS $fn$
+DECLARE
+    written integer := 0;
+    removed integer := 0;
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM public.official_alert_providers AS p WHERE p.id = p_provider) THEN
+        RAISE EXCEPTION 'official_alert_zones_sync: unknown provider' USING ERRCODE = '22023';
+    END IF;
+    IF p_scheme IS NULL OR p_scheme !~ '^[A-Za-z][A-Za-z0-9_]{1,30}$'
+        OR jsonb_typeof(coalesce(p_zones, '[]'::jsonb)) <> 'array' THEN
+        RAISE EXCEPTION 'official_alert_zones_sync: a scheme and an array of zones are needed' USING ERRCODE = '22023';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM unnest(coalesce(p_codes, '{}'::text[])) AS c(code)
+         WHERE c.code IS NULL OR left(c.code, length(p_scheme) + 1) <> p_scheme || ':'
+    ) OR EXISTS (
+        SELECT 1 FROM jsonb_array_elements(coalesce(p_zones, '[]'::jsonb)) AS z(v)
+         WHERE NOT (z.v->>'code' = ANY (coalesce(p_codes, '{}'::text[])))
+    ) THEN
+        RAISE EXCEPTION 'official_alert_zones_sync: every code must be under the scheme and every shape among the codes'
+            USING ERRCODE = '22023';
+    END IF;
+
+    WITH shapes AS (
+        SELECT z.code, z.name, z.source_url, public.official_alert_geometry(z.geometry) AS geom
+          FROM jsonb_to_recordset(coalesce(p_zones, '[]'::jsonb)) AS z(code text, name text, geometry jsonb, source_url text)
+    ), written AS (
+        INSERT INTO public.official_alert_zones AS t (provider_id, code, name, geom, source_url)
+        SELECT p_provider, s.code, s.name, s.geom, s.source_url FROM shapes AS s WHERE s.geom IS NOT NULL
+        ON CONFLICT (provider_id, code) DO UPDATE SET
+            name = EXCLUDED.name,
+            geom = EXCLUDED.geom,
+            source_url = EXCLUDED.source_url,
+            fetched_at = now()
+        WHERE t.name IS DISTINCT FROM EXCLUDED.name
+           OR %1$I.ST_AsBinary(t.geom) IS DISTINCT FROM %1$I.ST_AsBinary(EXCLUDED.geom)
+        RETURNING 1
+    )
+    SELECT count(*) INTO written FROM written;
+
+    DELETE FROM public.official_alert_zones AS z
+     WHERE z.provider_id = p_provider
+       AND left(z.code, length(p_scheme) + 1) = p_scheme || ':'
+       AND NOT (z.code = ANY (coalesce(p_codes, '{}'::text[])));
+    GET DIAGNOSTICS removed = ROW_COUNT;
+
+    RETURN jsonb_build_object('zones', written, 'removed', removed);
+END;
+$fn$;
+    $definition$, gis);
+
     -- What is in force at a point, and whether that answer can be trusted.
     --
     -- A warning is in force while it is not withdrawn and has not expired
@@ -403,8 +482,36 @@ $fn$;
     -- polygons match exactly. official_alerts_watch_match (20261014160000)
     -- matches the same way.
     --
+    -- MeteoAlarm (129-05b) reaches 3 NM too: its EMMA_ID outlines are land
+    -- areas (a departement, a Kreis), so a berth, or a boat just off the
+    -- coast, is outside every one of them. An EMMA_ID outline and a MeteoAlarm
+    -- warning's own polygon match within 3 NM as 'nearby'. And a MeteoAlarm
+    -- country covers a point within 3 NM of one of its own outlines, wherever
+    -- the outline is: its box takes in open sea where no MeteoAlarm warning is
+    -- ever issued ("live, nothing in force" there would be a false all-clear),
+    -- and leaves out islands and sea areas its outlines do hold (Madeira, the
+    -- Canaries, Ireland's Irish Sea areas, the Frisian waters), so the box
+    -- plays no part in it. A country whose warnings come as polygons with no
+    -- outlines (the United Kingdom, Norway, Sweden, Estonia, Israel, Ukraine,
+    -- Switzerland, Luxembourg and Andorra on 2026-10-14), or any before
+    -- scripts/load-meteoalarm-geocodes.mjs has run, covers no point while it
+    -- is live: its warnings are still shown where their polygons are. But a
+    -- MeteoAlarm country that is not live is listed where its box holds a
+    -- point another provider answers for, so a neighbour's outline (Met
+    -- Éireann's sea area off Portrush, Denmark's Øresund off Helsingborg)
+    -- never reads "live, nothing in force" while the Met Office's or SMHI's
+    -- feed is failing there. Only there: the boxes are coarse (Norway's holds
+    -- Tallinn), and where no one else answers the answer is 'none' anyway.
+    --
+    -- MeteoAlarm's terms ask for real time, never over 10 minutes behind: a
+    -- MeteoAlarm country is live only while its last success (written on
+    -- every 5-minute run, at the run's start) is under 8 minutes old
+    -- (ingest.ts REALTIME_LIVE_MS), so with the app's 90 seconds
+    -- (REALTIME_APP_MS) nothing shown as live is over 10 minutes behind.
+    --
     -- Each provider whose coverage holds the point is listed with its state:
-    --   live         answered within the last 30 min and not failing;
+    --   live         answered within the last 30 min (MeteoAlarm: 8) and not
+    --                failing;
     --   unavailable  failing (since unavailable_since), stopped (since its
     --                last success), or never answered (since null);
     --   off          its licence flag is off.
@@ -430,9 +537,13 @@ AS $fn$
 DECLARE
     pt %1$I.geometry;
     pt_east %1$I.geometry;
-    -- NWS marine zones (classify.ts NWS_MARINE_ZONE_AREAS) and their reach.
+    -- NWS marine zones (classify.ts NWS_MARINE_ZONE_AREAS), MeteoAlarm's outlines, and their reach.
     marine_zone CONSTANT text := '^nws:[a-z]+:(AM|AN|GM|PZ|PK|PH|PM|PS|LM|LS|LH|LO|LE|LC|SL)Z[0-9]{3}$';
+    meteoalarm_zone CONSTANT text := '^EMMA_ID:';
     reach_m CONSTANT double precision := 5556;
+    -- How old a last success may be while a provider is live; MeteoAlarm's terms ask for real time.
+    stale_after CONSTANT interval := interval '30 minutes';
+    realtime_live CONSTANT interval := interval '8 minutes';
     near_box %1$I.geometry;
     near_box_east %1$I.geometry;
     result jsonb;
@@ -447,31 +558,53 @@ BEGIN
     near_box := %1$I.ST_Expand(pt, 3.0 / 60 / greatest(cos(radians(p_lat)), 0.02), 3.0 / 60);
     near_box_east := %1$I.ST_Expand(pt_east, 3.0 / 60 / greatest(cos(radians(p_lat)), 0.02), 3.0 / 60);
 
-    WITH prov AS (
-        SELECT p.id, p.issuer, p.enabled, p.attribution, p.attribution_url, p.last_success_at,
+    WITH zone_hits AS (
+        -- The zones holding the point (inside), and NWS marine zones and MeteoAlarm outlines within 3 NM of it.
+        SELECT z.provider_id, z.code,
+               (%1$I.ST_Intersects(z.geom, pt) OR %1$I.ST_Intersects(z.geom, pt_east)) AS inside
+          FROM public.official_alert_zones AS z
+         WHERE %1$I.ST_Intersects(z.geom, pt) OR %1$I.ST_Intersects(z.geom, pt_east)
+            OR ((z.code ~ marine_zone OR z.code ~ meteoalarm_zone)
+                AND (z.geom && near_box OR z.geom && near_box_east)
+                AND %1$I.ST_DWithin(z.geom::%1$I.geography, pt::%1$I.geography, reach_m))
+    ), health AS (
+        SELECT p.id, p.adapter, p.coverage, p.issuer, p.enabled, p.attribution, p.attribution_url, p.last_success_at,
                CASE
                    WHEN NOT p.enabled THEN 'off'
                    WHEN p.unavailable_since IS NOT NULL THEN 'unavailable'
-                   WHEN p.last_success_at IS NULL OR p.last_success_at < now() - interval '30 minutes' THEN 'unavailable'
+                   WHEN p.last_success_at IS NULL
+                     OR p.last_success_at < now() - CASE WHEN p.adapter = 'meteoalarm' THEN realtime_live ELSE stale_after END
+                   THEN 'unavailable'
                    ELSE 'live'
                END AS state,
                CASE
                    WHEN NOT p.enabled THEN NULL
                    WHEN p.unavailable_since IS NOT NULL THEN p.unavailable_since
-                   WHEN p.last_success_at IS NULL OR p.last_success_at < now() - interval '30 minutes' THEN p.last_success_at
-                   ELSE NULL
-               END AS since
+                   ELSE p.last_success_at
+               END AS last_or_failing
           FROM public.official_alert_providers AS p
-         WHERE %1$I.ST_Intersects(p.coverage, pt)
-    ), zone_hits AS (
-        -- The zones holding the point (inside), and NWS marine zones within 3 NM of it.
-        SELECT z.provider_id, z.code,
-               (%1$I.ST_Intersects(z.geom, pt) OR %1$I.ST_Intersects(z.geom, pt_east)) AS inside
-          FROM public.official_alert_zones AS z
-         WHERE %1$I.ST_Intersects(z.geom, pt) OR %1$I.ST_Intersects(z.geom, pt_east)
-            OR (z.code ~ marine_zone
-                AND (z.geom && near_box OR z.geom && near_box_east)
-                AND %1$I.ST_DWithin(z.geom::%1$I.geography, pt::%1$I.geography, reach_m))
+    ), covering AS (
+        -- Who answers for the point: a provider whose coverage holds it; a MeteoAlarm country within 3 NM
+        -- of one of its own outlines, wherever that is.
+        SELECT h.* FROM health AS h
+         WHERE CASE
+                   WHEN h.adapter <> 'meteoalarm' THEN %1$I.ST_Intersects(h.coverage, pt)
+                   ELSE EXISTS (SELECT 1 FROM zone_hits AS zh WHERE zh.provider_id = h.id)
+               END
+    ), prov AS (
+        SELECT h.id, h.issuer, h.enabled, h.attribution, h.attribution_url, h.last_success_at, h.state,
+               CASE WHEN h.state = 'unavailable' THEN h.last_or_failing END AS since
+          FROM (
+              SELECT * FROM covering
+              UNION ALL
+              -- And a MeteoAlarm country that is not live, where its box holds a point another answers for:
+              -- its failure is never hidden behind a neighbour's live outline.
+              SELECT h.* FROM health AS h
+               WHERE h.adapter = 'meteoalarm' AND h.state = 'unavailable'
+                 AND %1$I.ST_Intersects(h.coverage, pt)
+                 AND EXISTS (SELECT 1 FROM covering)
+                 AND NOT EXISTS (SELECT 1 FROM covering AS c WHERE c.id = h.id)
+          ) AS h
     ), hits AS (
         SELECT a.id, 'polygon'::text AS matched_by
           FROM public.official_alerts AS a
@@ -479,18 +612,19 @@ BEGIN
            AND (a.expires_at IS NULL OR a.expires_at > now())
            AND (%1$I.ST_Intersects(a.geom, pt) OR %1$I.ST_Intersects(a.geom, pt_east))
         UNION
-        -- An NWS marine warning's polygon (one naming marine zones only) within 3 NM.
+        -- An NWS marine warning's polygon (one naming marine zones only), or a MeteoAlarm one, within 3 NM.
         SELECT a.id, 'nearby'::text
           FROM public.official_alerts AS a
          WHERE a.withdrawn_at IS NULL
            AND (a.expires_at IS NULL OR a.expires_at > now())
            AND (a.geom && near_box OR a.geom && near_box_east)
-           AND a.provider_id = 'nws'
-           AND cardinality(a.zones) > 0
-           AND NOT EXISTS (SELECT 1 FROM unnest(a.zones) AS zc(code) WHERE zc.code !~ marine_zone)
+           AND ((a.provider_id = 'nws'
+                 AND cardinality(a.zones) > 0
+                 AND NOT EXISTS (SELECT 1 FROM unnest(a.zones) AS zc(code) WHERE zc.code !~ marine_zone))
+                OR a.provider_id ~ '^meteoalarm-')
            AND %1$I.ST_DWithin(a.geom::%1$I.geography, pt::%1$I.geography, reach_m)
         UNION
-        -- 'zone' when a zone it names holds the point, 'nearby' when only a marine zone within 3 NM does.
+        -- 'zone' when a zone it names holds the point, 'nearby' when only one within 3 NM does.
         SELECT a.id,
                CASE WHEN EXISTS (
                    SELECT 1 FROM zone_hits AS zh
@@ -593,6 +727,8 @@ REVOKE ALL ON FUNCTION public.official_alert_geometry(jsonb) FROM PUBLIC, anon, 
 GRANT EXECUTE ON FUNCTION public.official_alert_geometry(jsonb) TO service_role;
 REVOKE ALL ON FUNCTION public.official_alerts_apply(text, jsonb, text[], jsonb, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.official_alerts_apply(text, jsonb, text[], jsonb, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.official_alert_zones_sync(text, text, text[], jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.official_alert_zones_sync(text, text, text[], jsonb) TO service_role;
 REVOKE ALL ON FUNCTION public.official_alerts_at(double precision, double precision) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.official_alerts_at(double precision, double precision) TO authenticated, service_role;
 
@@ -677,62 +813,70 @@ VALUES
 )
 ON CONFLICT (id) DO NOTHING;
 
--- MeteoAlarm: one row per member country's legacy Atom feed, all OFF.
--- Coverage is each country's bounding box (mainland and near islands).
+-- MeteoAlarm: one row per member country's legacy Atom feed, all ON under
+-- MeteoAlarm's own Terms and Conditions (129-05b; the licence_note says how
+-- each of its six rules is met). The issuer and the credit name the country's
+-- participants, as MeteoAlarm's "Our Warning Providers" page lists them (rule
+-- 2; supabase/functions/_shared/official-alerts/meteoalarm.ts holds the same
+-- names, and tests/OfficialAlertsMigration.test.ts keeps them equal), and the
+-- credit links to www.meteoalarm.org (rule 4). Coverage is each country's
+-- bounding box (mainland and near islands). official_alerts_at() answers for
+-- a country within 3 NM of its own EMMA_ID outlines (wherever they are, in
+-- the box or not), and uses the box only to list a country that is not live.
 INSERT INTO public.official_alert_providers
     (id, adapter, issuer, feed_url, enabled, licence_note, attribution, attribution_url, config, coverage)
 SELECT
     'meteoalarm-' || c.code,
     'meteoalarm',
-    'MeteoAlarm (' || c.country || ')',
+    c.participant || ' (MeteoAlarm)',
     'https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-' || c.slug,
-    false,
-    'OFF until the redistributor registration (free; requested from meteoalarm@geosphere.at on 2026-10-09, no reply yet) is confirmed; Shane turns these rows on. The feeds'' rights line (read 2026-10-14): "Licensed under terms equivalent to CC BY 4.0, with additional requirements for redistributing outlined in our Terms and Conditions". https://feeds.meteoalarm.org/ sends no ETag or Last-Modified, so each poll reads the whole feed; nothing is written unless a warning changed.',
-    'Warnings: MeteoAlarm.org (EUMETNET) and the national weather service, CC BY 4.0',
-    'https://meteoalarm.org/',
+    true,
+    'ON. MeteoAlarm Terms and Conditions, https://meteoalarm.org/en/live/page/terms-and-conditions (last updated 15/03/2024, read 2026-10-14), section 5: the warnings may be used and redistributed under terms equivalent to CC BY 4.0, with six more rules, each met here: (1) modified information goes with the original: Thalassa shows the issuer''s words verbatim, never modified; (2) the source is the national service for one country and "EUMETNET – MeteoAlarm" for more than one (this row''s issuer and attribution, the app''s card and notice, the push); (3) the time of issue is shown (the card, the push); (4) internet applications link to www.meteoalarm.org (the attribution link and the disclaimer); (5) operational redistribution in real time, the delay on average under 5 minutes and never over 10 minutes: ingest-official-alerts reads every MeteoAlarm feed on every 5-minute run, first, and records the read every run; official_alerts_at() calls a country live only while its last read is under 8 minutes old, else unavailable; and the app asks again every minute while MeteoAlarm is shown (keeping an answer 30 seconds), so nothing shown as live is over 10 minutes behind; a 429 or 503 from feeds.meteoalarm.org stops every request to it for the run, and its Retry-After is honoured across runs; (6) the disclaimer is published verbatim with every MeteoAlarm warning shown. Registration is optional: the Redistribution Hub''s support levels name "Registered" and "Non-Registered Redistributors" (https://meteoalarm.org/en/live/page/redistribution-hub, read 2026-10-14); it was requested from meteoalarm@geosphere.at on 2026-10-09. Shown as the hub''s Style Guide v1.0 (2026-02-19) asks: title of awareness level and type, the participant as source, onset and expiry with time zones, the area, every language sent, English where the reader''s is not. The EMMA_ID outlines (the hub''s Geocodes JSON, EUMETNET''s "Content") place warnings only, credited "Areas: EUMETNET – MeteoAlarm"; Shane is asking MeteoAlarm to confirm that use by email. https://feeds.meteoalarm.org/ sends no ETag or Last-Modified, so each poll reads the whole feed (1.99 MB for all 39 on 2026-10-14); nothing is written unless a warning changed.',
+    'Warnings: ' || c.participant,
+    'https://meteoalarm.org/en/live/',
     jsonb_build_object('country', c.code),
     ST_Multi(ST_MakeEnvelope(c.w, c.s, c.e, c.n, 4326))
 FROM (VALUES
-    ('ad', 'andorra', 'Andorra', 1.40, 42.42, 1.79, 42.66),
-    ('at', 'austria', 'Austria', 9.50, 46.35, 17.20, 49.05),
-    ('be', 'belgium', 'Belgium', 2.50, 49.45, 6.45, 51.60),
-    ('ba', 'bosnia-herzegovina', 'Bosnia and Herzegovina', 15.70, 42.55, 19.65, 45.30),
-    ('bg', 'bulgaria', 'Bulgaria', 22.35, 41.20, 28.70, 44.25),
-    ('hr', 'croatia', 'Croatia', 13.20, 42.35, 19.50, 46.60),
-    ('cy', 'cyprus', 'Cyprus', 32.20, 34.50, 34.65, 35.75),
-    ('cz', 'czechia', 'Czechia', 12.05, 48.50, 18.90, 51.10),
-    ('dk', 'denmark', 'Denmark', 7.80, 54.50, 15.30, 57.85),
-    ('ee', 'estonia', 'Estonia', 21.60, 57.50, 28.25, 59.75),
-    ('fi', 'finland', 'Finland', 19.00, 59.70, 31.60, 70.10),
-    ('fr', 'france', 'France', -5.30, 41.30, 9.60, 51.15),
-    ('de', 'germany', 'Germany', 5.85, 47.25, 15.05, 55.10),
-    ('gr', 'greece', 'Greece', 19.30, 34.75, 29.70, 41.80),
-    ('hu', 'hungary', 'Hungary', 16.10, 45.70, 22.90, 48.60),
-    ('is', 'iceland', 'Iceland', -24.60, 63.20, -13.40, 66.60),
-    ('ie', 'ireland', 'Ireland', -10.70, 51.35, -5.90, 55.45),
-    ('il', 'israel', 'Israel', 34.20, 29.45, 35.90, 33.35),
-    ('it', 'italy', 'Italy', 6.60, 35.45, 18.60, 47.10),
-    ('lv', 'latvia', 'Latvia', 20.90, 55.65, 28.25, 58.10),
-    ('lt', 'lithuania', 'Lithuania', 20.90, 53.90, 26.85, 56.45),
-    ('lu', 'luxembourg', 'Luxembourg', 5.70, 49.44, 6.55, 50.20),
-    ('mt', 'malta', 'Malta', 14.15, 35.75, 14.60, 36.10),
-    ('md', 'moldova', 'Moldova', 26.60, 45.45, 30.15, 48.50),
-    ('me', 'montenegro', 'Montenegro', 18.40, 41.80, 20.40, 43.60),
-    ('nl', 'netherlands', 'Netherlands', 3.30, 50.75, 7.25, 53.60),
-    ('no', 'norway', 'Norway', 4.40, 57.90, 31.20, 71.25),
-    ('pl', 'poland', 'Poland', 14.10, 49.00, 24.20, 54.90),
-    ('pt', 'portugal', 'Portugal', -9.60, 36.90, -6.15, 42.20),
-    ('mk', 'republic-of-north-macedonia', 'North Macedonia', 20.45, 40.85, 23.05, 42.40),
-    ('ro', 'romania', 'Romania', 20.25, 43.60, 29.90, 48.30),
-    ('rs', 'serbia', 'Serbia', 18.80, 42.20, 23.05, 46.20),
-    ('sk', 'slovakia', 'Slovakia', 16.80, 47.70, 22.60, 49.65),
-    ('si', 'slovenia', 'Slovenia', 13.35, 45.40, 16.65, 46.90),
-    ('es', 'spain', 'Spain', -9.40, 35.90, 4.40, 43.85),
-    ('se', 'sweden', 'Sweden', 10.90, 55.30, 24.20, 69.10),
-    ('ch', 'switzerland', 'Switzerland', 5.95, 45.80, 10.50, 47.85),
-    ('ua', 'ukraine', 'Ukraine', 22.10, 44.35, 40.25, 52.40),
-    ('gb', 'united-kingdom', 'United Kingdom', -8.70, 49.85, 1.80, 60.90)
-) AS c(code, slug, country, w, s, e, n)
+    ('ad', 'andorra', 'Andorra', 'Servei Meteorològic Nacional (SMN)', 1.40, 42.42, 1.79, 42.66),
+    ('at', 'austria', 'Austria', 'GeoSphere Austria', 9.50, 46.35, 17.20, 49.05),
+    ('be', 'belgium', 'Belgium', 'Institut Royal Météorologique/Koninklijk Meteorologisch Instituut (IRM/KMI)', 2.50, 49.45, 6.45, 51.60),
+    ('ba', 'bosnia-herzegovina', 'Bosnia and Herzegovina', 'Federalni Hidrometeorološki Zavod BiH (FHMZ) / Republički Hidrometeorološki Zavod Republike Srpske (RHMZ RS)', 15.70, 42.55, 19.65, 45.30),
+    ('bg', 'bulgaria', 'Bulgaria', 'National Institute of Meteorology and Hydrology (NIMH)', 22.35, 41.20, 28.70, 44.25),
+    ('hr', 'croatia', 'Croatia', 'Državni Hidrometeorološki Zavod (DHMZ)', 13.20, 42.35, 19.50, 46.60),
+    ('cy', 'cyprus', 'Cyprus', 'Cyprus Department of Meteorology (CYMET)', 32.20, 34.50, 34.65, 35.75),
+    ('cz', 'czechia', 'Czechia', 'Czech Hydrometeorological Institute (CHMI)', 12.05, 48.50, 18.90, 51.10),
+    ('dk', 'denmark', 'Denmark', 'Danmarks Meteorologiske Institut (DMI)', 7.80, 54.50, 15.30, 57.85),
+    ('ee', 'estonia', 'Estonia', 'Estonian Environment Agency (ESTEA)', 21.60, 57.50, 28.25, 59.75),
+    ('fi', 'finland', 'Finland', 'Finnish Meteorological Institute (FMI)', 19.00, 59.70, 31.60, 70.10),
+    ('fr', 'france', 'France', 'Météo-France', -5.30, 41.30, 9.60, 51.15),
+    ('de', 'germany', 'Germany', 'Deutscher Wetterdienst (DWD)', 5.85, 47.25, 15.05, 55.10),
+    ('gr', 'greece', 'Greece', 'Hellenic National Meteorological Service (HNMS)', 19.30, 34.75, 29.70, 41.80),
+    ('hu', 'hungary', 'Hungary', 'HungaroMet', 16.10, 45.70, 22.90, 48.60),
+    ('is', 'iceland', 'Iceland', 'Icelandic Meteorological Office (IMO)', -24.60, 63.20, -13.40, 66.60),
+    ('ie', 'ireland', 'Ireland', 'Met Éireann', -10.70, 51.35, -5.90, 55.45),
+    ('il', 'israel', 'Israel', 'Israel Meteorological Service (IMS)', 34.20, 29.45, 35.90, 33.35),
+    ('it', 'italy', 'Italy', 'Servizio Meteorologico dell’Aeronautica Militare (MeteoAM)', 6.60, 35.45, 18.60, 47.10),
+    ('lv', 'latvia', 'Latvia', 'Latvijas Vides, Ģeoloģijas un Meteoroloģijas Centrs (LVĢMC)', 20.90, 55.65, 28.25, 58.10),
+    ('lt', 'lithuania', 'Lithuania', 'Lietuvos Hidrometeorologijos Tarnyba (LHMT)', 20.90, 53.90, 26.85, 56.45),
+    ('lu', 'luxembourg', 'Luxembourg', 'MeteoLux', 5.70, 49.44, 6.55, 50.20),
+    ('mt', 'malta', 'Malta', 'Malta Meteorological Office (MAMO)', 14.15, 35.75, 14.60, 36.10),
+    ('md', 'moldova', 'Moldova', 'Autoritatea de Meteorologie și Monitoring de Mediu (AMM)', 26.60, 45.45, 30.15, 48.50),
+    ('me', 'montenegro', 'Montenegro', 'Zavod za Hidrometeorologiju i Seizmologiju (ZHMS)', 18.40, 41.80, 20.40, 43.60),
+    ('nl', 'netherlands', 'Netherlands', 'Koninklijk Nederlands Meteorologisch Instituut (KNMI)', 3.30, 50.75, 7.25, 53.60),
+    ('no', 'norway', 'Norway', 'Meteorologisk Institutt (MET Norway) / Norges Vassdrags- og Energidirektorat (NVE)', 4.40, 57.90, 31.20, 71.25),
+    ('pl', 'poland', 'Poland', 'Instytut Meteorologii i Gospodarki Wodnej - Państwowy Instytut Badawczy (IMGW-PIB)', 14.10, 49.00, 24.20, 54.90),
+    ('pt', 'portugal', 'Portugal', 'Instituto Português do Mar e da Atmosfera (IPMA)', -9.60, 36.90, -6.15, 42.20),
+    ('mk', 'republic-of-north-macedonia', 'North Macedonia', 'Hydrometeorological Service of Republic of North Macedonia (HMS)', 20.45, 40.85, 23.05, 42.40),
+    ('ro', 'romania', 'Romania', 'Administrația Națională de Meteorologie (ANM)', 20.25, 43.60, 29.90, 48.30),
+    ('rs', 'serbia', 'Serbia', 'Republički Hidrometeorološki Zavod Srbije (RHMZ)', 18.80, 42.20, 23.05, 46.20),
+    ('sk', 'slovakia', 'Slovakia', 'Slovenský Hydrometeorologický Ústav (SHMÚ)', 16.80, 47.70, 22.60, 49.65),
+    ('si', 'slovenia', 'Slovenia', 'Agencija Republike Slovenije za Okolje (ARSO)', 13.35, 45.40, 16.65, 46.90),
+    ('es', 'spain', 'Spain', 'Agencia Estatal de Meteorología (AEMET)', -9.40, 35.90, 4.40, 43.85),
+    ('se', 'sweden', 'Sweden', 'Sveriges Meteorologiska och Hydrologiska Institut (SMHI)', 10.90, 55.30, 24.20, 69.10),
+    ('ch', 'switzerland', 'Switzerland', 'Federal Office of Meteorology and Climatology MeteoSwiss', 5.95, 45.80, 10.50, 47.85),
+    ('ua', 'ukraine', 'Ukraine', 'Ukrainian Hydrometeorological Center (UHMC)', 22.10, 44.35, 40.25, 52.40),
+    ('gb', 'united-kingdom', 'United Kingdom', 'Met Office / Environment Agency (EA) / Natural Resources Wales (NRW) / Scottish Environment Protection Agency (SEPA)', -8.70, 49.85, 1.80, 60.90)
+) AS c(code, slug, country, participant, w, s, e, n)
 ON CONFLICT (id) DO NOTHING;
 
 -- ── The cron jobs (the shore-watch pattern, as 20261014120000) ──────────

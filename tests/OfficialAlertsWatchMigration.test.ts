@@ -166,20 +166,35 @@ describe('official alerts watch migration', () => {
         // A marine zone within 3 NM (5556 m on the sphere), after a box the GiST index answers.
         expect(body).toMatch(/3\.0 \/ 60 \/ greatest\(cos\(radians\(nums\.lat\)\), 0\.02\) AS dx/);
         expect(body).toMatch(
-            /OR \(z\.code ~ '[^']+'\s+AND \(z\.geom && %1\$I\.ST_Expand\(pts\.pt, pts\.dx, pts\.dy\)\s+OR z\.geom && %1\$I\.ST_Expand\(pts\.pt_east, pts\.dx, pts\.dy\)\)\s+AND %1\$I\.ST_DWithin\(z\.geom::%1\$I\.geography, pts\.pt::%1\$I\.geography, 5556\)\)\)/,
+            /OR \(\(z\.code ~ '[^']+' OR z\.code ~ '[^']+'\)\s+AND \(z\.geom && %1\$I\.ST_Expand\(pts\.pt, pts\.dx, pts\.dy\)\s+OR z\.geom && %1\$I\.ST_Expand\(pts\.pt_east, pts\.dx, pts\.dy\)\)\s+AND %1\$I\.ST_DWithin\(z\.geom::%1\$I\.geography, pts\.pt::%1\$I\.geography, 5556\)\)\)/,
         );
         // A marine warning's own polygon (NWS, naming marine zones only) too; any other polygon exactly.
         expect(body).toMatch(
-            /AND a\.provider_id = 'nws'\s+AND cardinality\(a\.zones\) > 0\s+AND NOT EXISTS \(\s+SELECT 1 FROM unnest\(a\.zones\) AS zc\(code\)\s+WHERE zc\.code !~ '[^']+'\s+\)\s+AND %1\$I\.ST_DWithin\(a\.geom::%1\$I\.geography, pts\.pt::%1\$I\.geography, 5556\)/,
+            /AND \(\(a\.provider_id = 'nws'\s+AND cardinality\(a\.zones\) > 0\s+AND NOT EXISTS \(\s+SELECT 1 FROM unnest\(a\.zones\) AS zc\(code\)\s+WHERE zc\.code !~ '[^']+'\s+\)\)\s+OR a\.provider_id ~ '[^']+'\)\s+AND %1\$I\.ST_DWithin\(a\.geom::%1\$I\.geography, pts\.pt::%1\$I\.geography, 5556\)/,
         );
         // The land match is the exact one: a land zone needs its shape to hold the point.
         expect(body).toMatch(
-            /AND \(%1\$I\.ST_Intersects\(z\.geom, pts\.pt\) OR %1\$I\.ST_Intersects\(z\.geom, pts\.pt_east\)\s+OR \(z\.code ~/,
+            /AND \(%1\$I\.ST_Intersects\(z\.geom, pts\.pt\) OR %1\$I\.ST_Intersects\(z\.geom, pts\.pt_east\)\s+OR \(\(z\.code ~/,
         );
         // The marine letters are not any US state's or territory's (a land zone never reaches 3 NM).
         const states =
             'AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC PR VI GU AS MP';
         for (const st of states.split(' ')) expect(NWS_MARINE_ZONE_AREAS).not.toContain(st);
+    });
+
+    it('reaches a MeteoAlarm outline or polygon 3 NM too, as official_alerts_at does (129-05b)', () => {
+        const fn = sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION public.official_alerts_watch_match'));
+        const body = fn.slice(0, fn.indexOf('$fn$;'));
+        // MeteoAlarm's EMMA_ID outlines are land areas: a boat at its berth is just outside them.
+        expect(body).toMatch(
+            /OR \(\(z\.code ~ '[^']+' OR z\.code ~ '\^EMMA_ID:'\)\s+AND \(z\.geom && %1\$I\.ST_Expand\(pts\.pt, pts\.dx, pts\.dy\)/,
+        );
+        // And a MeteoAlarm warning's own polygon (MET Norway's sea areas, Estonia's harbours).
+        expect(body).toMatch(
+            /WHERE zc\.code !~ '[^']+'\s+\)\)\s+OR a\.provider_id ~ '\^meteoalarm-'\)\s+AND %1\$I\.ST_DWithin\(a\.geom::%1\$I\.geography, pts\.pt::%1\$I\.geography, 5556\)/,
+        );
+        const at = readFileSync(join(held, '20261014150000_official_alerts.sql'), 'utf8');
+        expect(at).toContain("meteoalarm_zone CONSTANT text := '^EMMA_ID:';");
     });
 
     it('answers the app’s switch with when the watcher last ran, and nothing else', () => {

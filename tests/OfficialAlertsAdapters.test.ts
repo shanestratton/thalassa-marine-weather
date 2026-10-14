@@ -215,7 +215,8 @@ describe('MeteoAlarm (Atom + CAP), Germany, France and Greece', () => {
             '2.49.0.0.276.0.DWD.PVW.ZZ0002.MUL',
         ]);
         expect(out.alerts[0].infos.map((i) => i.language)).toEqual(['de-DE', 'en-GB']);
-        expect(out.alerts[0].zones).toEqual(['EMMA_ID:DE901']);
+        // The CAP names DE901; the feed lists it for DE902 as well: placed in both (129-05b), as the hub shows it.
+        expect(out.alerts[0].zones).toEqual(['EMMA_ID:DE901', 'EMMA_ID:DE902']);
         expect(out.withdraw).toEqual(['2.49.0.0.276.0.DWD.PVW.ZZ0000.MUL']);
         expect(out.snapshot).toBe('all');
         expect(out.partial).toBeNull();

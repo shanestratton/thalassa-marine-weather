@@ -28,6 +28,21 @@
  * - prune_official_alerts() removes alerts 24 h after expiry or withdrawal;
  * - privileges: anon cannot call the RPC or read a table; authenticated can
  *   call the RPC only.
+ * - MeteoAlarm (129-05b): its 39 rows on; its EMMA_ID outlines loaded through
+ *   official_alert_zones_sync() from the fictional Geocodes JSON
+ *   (tests/fixtures/official-alerts/meteoalarm-geocodes.json, by
+ *   geocodes.ts); a warning placed at Marseille, Hamburg and Athens; a berth
+ *   in Marseille's harbour, just outside the département's outline, told as
+ *   'nearby'; open sea 12 NM off claimed by no one ('none', never "live,
+ *   nothing in force"); an updated outline written once, a removed one
+ *   dropped and its warning then unplaced ('partial'); a country with no
+ *   outlines (polygons only) never claiming coverage but its warning shown;
+ *   a country read 9 minutes ago 'unavailable'
+ *   (MeteoAlarm's real time) where NWS at 9 minutes is still live; a sea
+ *   area outside its country's box (the Irish Sea) and an island outline
+ *   (a fictional Canaries one) covered by their country, and 'unavailable'
+ *   when it fails; and a polygon-only neighbour (the United Kingdom) that is
+ *   failing turning a live Irish outline's answer 'unavailable'.
  * PGlite is PostgreSQL compiled to WASM, not the deployed Supabase server, and
  * its PostGIS package is experimental. Single-session tests do not establish
  * concurrency, PostgREST behaviour or production query plans.
@@ -35,6 +50,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { meteoAlarmGeocodeZones, zoneSyncCalls } from '../supabase/functions/_shared/official-alerts/geocodes.ts';
 
 const modulePath = process.env.PGLITE_MODULE_PATH;
 const postgisPath = process.env.PGLITE_POSTGIS_MODULE_PATH;
@@ -46,6 +62,12 @@ const { postgis } = await import(pathToFileURL(postgisPath).href);
 const migration = await readFile(
     new URL('../supabase/held-migrations/20261014150000_official_alerts.sql', import.meta.url),
     'utf8',
+);
+const geocodes = meteoAlarmGeocodeZones(
+    JSON.parse(
+        await readFile(new URL('../tests/fixtures/official-alerts/meteoalarm-geocodes.json', import.meta.url), 'utf8'),
+    ),
+    'https://gitlab.com/meteoalarm-pm-group/documents/-/raw/master/MeteoAlarm_Geocodes_2026_07_31.json',
 );
 let checks = 0;
 const eq = (actual, expected, label) => {
@@ -171,20 +193,35 @@ async function runSchema(schema) {
             `${schema}: two cron jobs, as declared, after two runs`,
         );
         eq(
-            (await query('SELECT id FROM public.official_alert_providers WHERE enabled ORDER BY id')).map((r) => r.id),
+            (
+                await query(
+                    "SELECT id FROM public.official_alert_providers WHERE enabled AND adapter <> 'meteoalarm' ORDER BY id",
+                )
+            ).map((r) => r.id),
             ['eccc', 'nws'],
-            `${schema}: only NWS and ECCC start on (JMA waits for its area outlines)`,
+            `${schema}: NWS and ECCC on (JMA waits for its area outlines, the Bureau for a licence)`,
         );
         eq(
-            Number(
-                (
-                    await query(
-                        "SELECT count(*) AS n FROM public.official_alert_providers WHERE id LIKE 'meteoalarm-%'",
-                    )
-                )[0].n,
-            ),
-            39,
-            `${schema}: 39 MeteoAlarm rows`,
+            (
+                await query(
+                    "SELECT count(*)::int AS n, count(*) FILTER (WHERE enabled)::int AS on_ FROM public.official_alert_providers WHERE adapter = 'meteoalarm'",
+                )
+            )[0],
+            { n: 39, on_: 39 },
+            `${schema}: 39 MeteoAlarm rows, all on under MeteoAlarm's own terms (129-05b)`,
+        );
+        eq(
+            (
+                await query(
+                    "SELECT issuer, attribution, attribution_url FROM public.official_alert_providers WHERE id = 'meteoalarm-fr'",
+                )
+            )[0],
+            {
+                issuer: 'Météo-France (MeteoAlarm)',
+                attribution: 'Warnings: Météo-France',
+                attribution_url: 'https://meteoalarm.org/en/live/',
+            },
+            `${schema}: France's credit names its national service and links to www.meteoalarm.org`,
         );
 
         // ── Chesapeake Bay (NWS) ──
@@ -390,11 +427,11 @@ async function runSchema(schema) {
             ['unavailable', [['eccc', 'unavailable', null]]],
             `${schema}: never answered`,
         );
-        r = await at(43.3, 5.37); // Marseille
+        r = await at(43.3, 5.37); // Marseille, before any MeteoAlarm outline is loaded or any ingest has run
         eq(
             [r.coverage, r.providers.map((p) => [p.id, p.state])],
-            ['off', [['meteoalarm-fr', 'off']]],
-            `${schema}: Marseille, provider off`,
+            ['none', []],
+            `${schema}: Marseille: no outline loaded yet, so France claims nothing (never an all-clear)`,
         );
         eq((await at(-27.2, 153.1)).coverage, 'off', `${schema}: Newport, the Bureau is off`);
         eq((await at(0, -150)).coverage, 'none', `${schema}: mid-Pacific, not covered`);
@@ -431,9 +468,213 @@ async function runSchema(schema) {
             `${schema}: Tokyo Bay: placed by its zone once the shape is loaded`,
         );
 
+        // ── MeteoAlarm (129-05b): outlines, placement, the reach, coverage ──
+        const sync = (call) =>
+            asService('SELECT public.official_alert_zones_sync($1, $2, $3::text[], $4::jsonb) AS r', [
+                call.p_provider,
+                call.p_scheme,
+                call.p_codes,
+                JSON.stringify(call.p_zones),
+            ]).then((rows) => rows[0].r);
+        for (const [provider, zones] of geocodes.byProvider) {
+            for (const call of zoneSyncCalls(provider, zones)) await sync(call);
+        }
+        eq(
+            (
+                await query(
+                    "SELECT provider_id, count(*)::int AS n FROM public.official_alert_zones WHERE code LIKE 'EMMA_ID:%' GROUP BY provider_id ORDER BY provider_id",
+                )
+            ).map((x) => [x.provider_id, x.n]),
+            [
+                ['meteoalarm-de', 1],
+                ['meteoalarm-fr', 2],
+                ['meteoalarm-gr', 2],
+                ['meteoalarm-ie', 1],
+            ],
+            `${schema}: the hub's outlines loaded per country`,
+        );
+        for (const id of ['meteoalarm-fr', 'meteoalarm-de', 'meteoalarm-gr', 'meteoalarm-ee']) await live(id);
+        const meteo = (identifier, zone, over = {}) =>
+            alert(identifier, {
+                sender: 'zz@zzmet.example',
+                zones: zone ? [`EMMA_ID:${zone}`] : [],
+                infos: [info('Orange coastal event warning (fictional)', { language: 'en-GB' })],
+                content_hash: hash('7'),
+                ...over,
+            });
+        await apply('meteoalarm-fr', [meteo('fr-913', 'FR913'), meteo('fr-914', 'FR914', { content_hash: hash('8') })]);
+        await apply('meteoalarm-de', [meteo('de-901', 'DE901')]);
+        await apply('meteoalarm-gr', [meteo('gr-911', 'GR911')]);
+        for (const [lat, lon, provider, identifier, where] of [
+            [43.2965, 5.3698, 'meteoalarm-fr', 'fr-913', 'Marseille'],
+            [53.55, 9.99, 'meteoalarm-de', 'de-901', 'Hamburg'],
+            [37.98, 23.73, 'meteoalarm-gr', 'gr-911', 'Athens'],
+        ]) {
+            r = await at(lat, lon);
+            eq(
+                [
+                    r.coverage,
+                    r.providers.map((p) => [p.id, p.state]),
+                    r.alerts.map((a) => [a.identifier, a.matched_by]),
+                ],
+                ['live', [[provider, 'live']], [[identifier, 'zone']]],
+                `${schema}: ${where}: placed by its EMMA_ID outline`,
+            );
+        }
+        // Marseille's Vieux-Port, in the outline's harbour notch: just outside it, so 'nearby'.
+        r = await at(43.27, 5.39);
+        eq(
+            [r.coverage, r.alerts.map((a) => [a.identifier, a.matched_by])],
+            ['live', [['fr-913', 'nearby']]],
+            `${schema}: a berth just outside the département's outline is told, as nearby`,
+        );
+        // 12 NM off Marseille: open sea, no outline within 3 NM, so France claims nothing there.
+        r = await at(43.05, 5.37);
+        eq([r.coverage, r.providers, r.alerts], ['none', [], []], `${schema}: open sea: none, never "live, nothing"`);
+        // An outline that changed is written once; the same again writes nothing; one the hub dropped goes.
+        const fr = geocodes.byProvider.get('meteoalarm-fr');
+        const moved = fr.map((z) =>
+            z.code === 'EMMA_ID:FR913'
+                ? { ...z, geometry: z.geometry.map((poly) => poly.map((ring) => ring.map(([x, y]) => [x + 0.01, y]))) }
+                : z,
+        );
+        eq(
+            await sync(zoneSyncCalls('meteoalarm-fr', moved)[0]),
+            { zones: 1, removed: 0 },
+            `${schema}: one outline updated`,
+        );
+        eq(
+            await sync(zoneSyncCalls('meteoalarm-fr', moved)[0]),
+            { zones: 0, removed: 0 },
+            `${schema}: unchanged: none written`,
+        );
+        eq(
+            await sync(
+                zoneSyncCalls(
+                    'meteoalarm-fr',
+                    moved.filter((z) => z.code !== 'EMMA_ID:FR914'),
+                )[0],
+            ),
+            { zones: 0, removed: 1 },
+            `${schema}: an outline the hub removed is dropped`,
+        );
+        r = await at(43.2965, 5.3698);
+        eq(
+            [r.coverage, r.providers[0].unplaced, r.providers[0].unplaced_newest?.identifier],
+            ['partial', 1, 'fr-914'],
+            `${schema}: a warning naming a removed outline is unplaced: partial, never live`,
+        );
+        await assert.rejects(
+            () => sync({ p_provider: 'meteoalarm-fr', p_scheme: 'EMMA_ID', p_codes: ['nws:x:ANZ531'], p_zones: [] }),
+            (e) => e.code === '22023',
+        );
+        checks++;
+        // A country whose warnings are polygons only (Estonia): it claims no coverage, but its warning shows.
+        await apply('meteoalarm-ee', [
+            meteo('ee-1', null, { geometry: box(24.7, 59.42, 24.8, 59.46), content_hash: hash('6') }),
+        ]);
+        r = await at(59.44, 24.75); // Tallinn
+        eq(
+            [r.coverage, r.providers, r.alerts.map((a) => [a.identifier, a.matched_by])],
+            ['none', [], [['ee-1', 'polygon']]],
+            `${schema}: a polygon-only country's warning is shown; it claims nothing`,
+        );
+        eq(
+            (await at(59.45, 24.85)).alerts.map((a) => [a.identifier, a.matched_by]),
+            [['ee-1', 'nearby']],
+            `${schema}: a MeteoAlarm polygon reaches 3 NM`,
+        );
+        // MeteoAlarm's real time: a country read 9 minutes ago is unavailable (since that read); 7, live.
+        // NWS keeps its 30 minutes.
+        const readAgo = (id, minutes) =>
+            query(
+                `UPDATE public.official_alert_providers SET unavailable_since = NULL,
+                     last_success_at = now() - make_interval(mins => $2) WHERE id = $1`,
+                [id, minutes],
+            );
+        await readAgo('meteoalarm-fr', 9);
+        await readAgo('nws', 9);
+        r = await at(43.2965, 5.3698);
+        eq(
+            [r.coverage, r.providers.map((p) => [p.id, p.state, p.since === p.last_success_at])],
+            ['unavailable', [['meteoalarm-fr', 'unavailable', true]]],
+            `${schema}: MeteoAlarm read 9 min ago: unavailable, never a stale answer as live`,
+        );
+        eq((await at(39.1, -76.4)).coverage, 'live', `${schema}: NWS read 9 min ago: still live`);
+        await readAgo('meteoalarm-fr', 7);
+        eq(
+            (await at(43.2965, 5.3698)).coverage,
+            'partial',
+            `${schema}: MeteoAlarm read 7 min ago: live (partial here)`,
+        );
+        await live('meteoalarm-fr');
+        await live('nws');
+
+        // The Irish Sea, inside Ireland's sea-area outline EI901 but east of Ireland's box (it ends at -5.90),
+        // and in the United Kingdom's box. The UK sends polygons only: it has no outline.
+        for (const id of ['meteoalarm-ie', 'meteoalarm-gb']) await live(id);
+        r = await at(53.3, -5.5);
+        eq(
+            [r.coverage, r.providers.map((p) => [p.id, p.state])],
+            ['live', [['meteoalarm-ie', 'live']]],
+            `${schema}: a sea area outside its country's box is that country's`,
+        );
+        // 1 NM east of EI901 (a berth off its edge): still Ireland's, within 3 NM.
+        r = await at(53.5, -4.97);
+        eq(
+            [r.coverage, r.providers.map((p) => [p.id, p.state])],
+            ['live', [['meteoalarm-ie', 'live']]],
+            `${schema}: within 3 NM of a sea-area outline`,
+        );
+        // The Met Office's feed fails: the neighbour's live outline no longer answers "nothing in force".
+        await query(
+            "UPDATE public.official_alert_providers SET unavailable_since = now() - interval '2 hours' WHERE id = 'meteoalarm-gb'",
+        );
+        r = await at(53.5, -4.97);
+        eq(
+            [r.coverage, r.providers.map((p) => [p.id, p.state])],
+            [
+                'unavailable',
+                [
+                    ['meteoalarm-gb', 'unavailable'],
+                    ['meteoalarm-ie', 'live'],
+                ],
+            ],
+            `${schema}: a failing polygon-only neighbour makes it unavailable, never a false all-clear`,
+        );
+        await live('meteoalarm-gb');
+        // An island outline far outside its country's box (a fictional one off Gran Canaria): Spain's.
+        await sync(
+            zoneSyncCalls('meteoalarm-es', [
+                {
+                    code: 'EMMA_ID:ES999',
+                    name: 'Zz costa de una isla (fictional box)',
+                    geometry: box(-15.6, 28.0, -15.3, 28.2).coordinates,
+                    sourceUrl: 'https://gitlab.com/meteoalarm-pm-group/documents/-/raw/master/zz.json',
+                },
+            ])[0],
+        );
+        r = await at(28.1, -15.43);
+        eq(
+            [r.coverage, r.providers.map((p) => [p.id, p.state, p.since])],
+            ['unavailable', [['meteoalarm-es', 'unavailable', null]]],
+            `${schema}: an island outside its country's box: that country's, and unavailable until it answers`,
+        );
+        await live('meteoalarm-es');
+        eq((await at(28.1, -15.43)).coverage, 'live', `${schema}: the island, once Spain answers: live`);
+
+        // The outlines' loader is the service role's alone.
+        await db.exec('RESET ROLE; SET ROLE authenticated');
+        await assert.rejects(
+            () => query("SELECT public.official_alert_zones_sync('meteoalarm-fr', 'EMMA_ID', '{}', '[]')"),
+            (e) => e.code === '42501',
+        );
+        await db.exec('RESET ROLE');
+        checks++;
+
         // A provider that is off is refused.
         await assert.rejects(
-            () => apply('meteoalarm-fr', [alert('x')]),
+            () => apply('bom', [alert('x')]),
             (e) => e.code === '42501',
         );
         checks++;

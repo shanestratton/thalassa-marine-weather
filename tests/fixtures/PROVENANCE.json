@@ -274,6 +274,10 @@
             "licence": "synthetic",
             "source": "Fictional Atom feed in the layout of the MeteoAlarm legacy Atom feed for Greece, made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
         },
+        "tests/fixtures/official-alerts/meteoalarm-geocodes.json": {
+            "licence": "synthetic",
+            "source": "Fictional FeatureCollection in the layout of MeteoAlarm's Geocodes JSON (the Redistribution Hub's EMMA_ID outlines: code, country, name, type), made by hand for 129-05b: simple boxes around Marseille, Hamburg and Athens and a few more, not the real outlines (the real file is EUMETNET's Content and is not copied here), plus three features the loader must skip; every name with \"Zz\" or \"fictional\" in it is invented."
+        },
         "tests/fixtures/official-alerts/nws-active.json": {
             "licence": "synthetic",
             "source": "Fictional GeoJSON in the layout of api.weather.gov/alerts/active (zone-based and polygon alerts, a Spanish es-US alert, an Update across 180 degrees, a Cancel, and an alert whose CAP expiry has passed while NWS still lists it until its end), made by hand for 129-05; no real warning, and every name with \"Zz\", \"架空\", \"fictional\" or \"test\" in it is invented."
@@ -284,7 +288,7 @@
         },
         "tests/fixtures/official-alerts/rpc-answers.json": {
             "licence": "synthetic",
-            "source": "Fictional official_alerts_at(lat, lon) answers in the shape of 129-05's RPC (coverage live, partial, unavailable, off and none, a marine warning matched within 3 NM of a berth, and one outside every listed issuer's coverage; NWS, ECCC, MeteoAlarm, BOM and a made-up issuer), made by hand for 129-06; no real warning, and every name with \"Zz\", \"架空\", \"fictional\", \"fictif\", \"test\", \"وهمي\", \"בדיוני\" or \"φανταστικό\" in it is invented."
+            "source": "Fictional official_alerts_at(lat, lon) answers in the shape of 129-05's RPC (coverage live, partial, unavailable, off and none, a marine warning matched within 3 NM of a berth, and one outside every listed issuer's coverage; NWS, ECCC, MeteoAlarm, BOM and a made-up issuer; for 129-05b a MeteoAlarm France warning in French and English and a MeteoAlarm Italy one near the French border), made by hand for 129-06 and 129-05b; no real warning, and every name with \"Zz\", \"架空\", \"fictional\", \"fictif\", \"fittizio\", \"test\", \"وهمي\", \"בדיוני\" or \"φανταστικό\" in it is invented."
         }
     }
 }

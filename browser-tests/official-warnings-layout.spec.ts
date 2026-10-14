@@ -10,11 +10,17 @@
  *    Arabic block laid out right to left;
  *  - Settings → Alerts: the Official warnings section fits one screen
  *    under the settings header, its two switches 44 pt.
+ *  - MeteoAlarm (129-05b): its card (level and type as the title, the
+ *    national service as source, its times, area and impacts, the other
+ *    languages behind one control) and its notice (the disclaimer, verbatim,
+ *    with two www.meteoalarm.org links) fit without sideways scroll, one
+ *    country and two.
  * No network: official_alerts_at and the watcher status answer from the
  * fixture's fictional data.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
+import { METEOALARM_DISCLAIMER } from '../supabase/functions/_shared/official-alerts/meteoalarm';
 
 const SIZES = [
     { width: 320, height: 568 },
@@ -191,6 +197,37 @@ test.describe('the Warnings page leads with the official warnings', () => {
                 }
                 const path = info.outputPath(`warnings-${state}-${size.width}x${size.height}.png`);
                 await page.screenshot({ path, animations: 'disabled' });
+                await info.attach(`warnings-${state}-${size.width}`, { path, contentType: 'image/png' });
+            });
+        }
+    }
+});
+
+test.describe('MeteoAlarm under its own terms', () => {
+    for (const size of SIZES) {
+        for (const state of ['meteoalarm', 'meteoalarm-border']) {
+            test(`${state} at ${size.width}x${size.height}, wide fonts`, async ({ page }, info) => {
+                await open(page, size, `view=page&state=${state}`);
+                const section = page.getByRole('region', { name: 'Official warnings in force here' });
+                await expect(section).toBeVisible();
+                const card = section.getByRole('article').first();
+                await expect(card.getByText(/^Source: /)).toBeVisible();
+                await expect(card.getByText(/^In effect from .+ until .+$/)).toBeVisible();
+                await expectWideFaceDrawn(card.getByRole('heading', { level: 3 }));
+                const notice = section.getByTestId('meteoalarm-notice');
+                const disclaimer = notice.getByTestId('meteoalarm-disclaimer');
+                await expect(disclaimer).toBeVisible();
+                expect(await disclaimer.textContent()).toBe(METEOALARM_DISCLAIMER);
+                await expect(disclaimer.getByRole('link', { name: 'www.meteoalarm.org' })).toHaveCount(2);
+                if (state === 'meteoalarm-border') await expect(notice.getByText(/^Source: EUMETNET/)).toBeVisible();
+                await expectNoSidewaysOverflow(page, 'article, article p, [data-testid="meteoalarm-notice"] p');
+                // Every other language behind one control, opened: still inside the screen.
+                const other = card.getByText(/^Also issued in /);
+                await other.click();
+                await expect(card.locator('details[open]')).toHaveCount(1);
+                await expectNoSidewaysOverflow(page, 'article, article p, article li');
+                const path = info.outputPath(`warnings-${state}-${size.width}x${size.height}.png`);
+                await page.screenshot({ path, animations: 'disabled', fullPage: true });
                 await info.attach(`warnings-${state}-${size.width}`, { path, contentType: 'image/png' });
             });
         }

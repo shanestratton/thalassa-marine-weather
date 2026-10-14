@@ -203,7 +203,7 @@ describe('any CAP issuer', () => {
         expect(push('fictional-cap', { event: 'Zz', category: ['Met'] }, 'Extreme').push).toBe(false);
     });
 
-    it('MeteoAlarm: a coastal event is coastal, wind and fog are land (for when its flag is on)', () => {
+    it('MeteoAlarm: a coastal event is coastal, wind and fog are land', () => {
         const at = (value: string) => [{ valueName: 'awareness_type', value }];
         expect(
             classifyOfficialEvent('meteoalarm-gr', { event: 'Κίνδυνος στις ακτές', parameters: at('7; coastalevent') })

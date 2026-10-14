@@ -26,9 +26,21 @@ vi.mock('../services/externalLinks', () => ({ openExternalUrl: mocks.openExterna
 
 import { supabase } from '../services/supabase';
 import { WarningDetails } from '../components/WarningDetails';
-import { clearOfficialWarningsCache, fetchOfficialWarnings } from '../services/officialWarnings';
+import {
+    clearOfficialWarningsCache,
+    fetchOfficialWarnings,
+    OFFICIAL_REFRESH_MS,
+    REALTIME_ANSWER_MS,
+    REALTIME_REFRESH_MS,
+} from '../services/officialWarnings';
+import { REALTIME_APP_MS } from '../supabase/functions/_shared/official-alerts/ingest';
 import { pinOfficialPush, peekOfficialPushPin, takeOfficialPushPin } from '../services/officialPushPin';
 import { OFFICIAL_WARNINGS_SOURCES } from '../utils/officialWarningsSource';
+import {
+    METEOALARM_DISCLAIMER,
+    METEOALARM_LINK,
+    METEOALARM_SOURCE,
+} from '../supabase/functions/_shared/official-alerts/meteoalarm';
 
 type Answer = Record<string, unknown> & { lat: number; lon: number; alerts: Array<Record<string, any>> };
 const FIXTURES = JSON.parse(readFileSync('tests/fixtures/official-alerts/rpc-answers.json', 'utf8')) as {
@@ -214,9 +226,11 @@ describe('never a false all-clear', () => {
         expect(within(section).queryByText(/No official warnings/)).toBeNull();
     });
 
-    it('off: the issuer’s feed is not connected yet, with its link (Europe until MeteoAlarm confirms)', async () => {
+    it('off: the issuer’s feed is not connected yet, with its link (a MeteoAlarm country turned off)', async () => {
         const section = await show('off');
-        expect(within(section).getByText('MeteoAlarm (France)’s feed isn’t connected yet')).toBeInTheDocument();
+        expect(within(section).getByText('Météo-France (MeteoAlarm)’s feed isn’t connected yet')).toBeInTheDocument();
+        // Nothing of MeteoAlarm's is shown, so no disclaimer is owed.
+        expect(within(section).queryByTestId('meteoalarm-notice')).toBeNull();
         expect(within(section).getByRole('link', { name: /Open MeteoAlarm warnings/ })).toHaveAttribute(
             'href',
             OFFICIAL_WARNINGS_SOURCES.meteoalarm.url,
@@ -454,6 +468,32 @@ describe('a tapped official push', () => {
         );
     });
 
+    it('a MeteoAlarm one carries MeteoAlarm’s disclaimer and www.meteoalarm.org link, as every MeteoAlarm warning shown does', async () => {
+        pinOfficialPush(
+            {
+                notification_type: 'official_warning',
+                provider: 'meteoalarm-fr',
+                identifier: '2.49.0.0.250.0.FR.ZZ0099',
+                basis: 'fix',
+                event: 'Orange Coastal Event Warning',
+                expires: '2026-10-15T04:00:00Z',
+            },
+            {
+                title: 'Orange Coastal Event Warning',
+                body: 'Vagues-submersion zz (texte fictif)\nMétéo-France · Issued 14 Oct, 07:30 CEST · www.meteoalarm.org',
+            },
+        );
+        await show('clear');
+        const pin = screen.getByTestId('official-push-pin');
+        const notice = within(pin).getByTestId('meteoalarm-notice');
+        const disclaimer = within(notice).getByTestId('meteoalarm-disclaimer');
+        expect(disclaimer.textContent).toBe(METEOALARM_DISCLAIMER);
+        const links = within(disclaimer).getAllByRole('link', { name: 'www.meteoalarm.org' });
+        expect(links).toHaveLength(2);
+        for (const link of links) expect(link).toHaveAttribute('href', METEOALARM_LINK);
+        expect(within(notice).getByText(`Areas: ${METEOALARM_SOURCE}`)).toBeInTheDocument();
+    });
+
     it('an expired one is not shown', async () => {
         tapped();
         vi.setSystemTime(new Date('2026-10-15T05:00:00Z'));
@@ -487,5 +527,168 @@ describe('official and "Forecast:" never mix', () => {
         const officialStyle = new Set(official.map((el) => el.className));
         const forecastStyle = new Set(forecast.map((el) => el.className));
         expect([...officialStyle].some((c) => forecastStyle.has(c))).toBe(false);
+    });
+});
+
+describe('MeteoAlarm, under its own terms (129-05b)', () => {
+    it('a warning as the Style Guide asks: level and type in the title, its source, its area and its times', async () => {
+        setLanguage('en-GB');
+        const section = await show('meteoalarm');
+        const [card] = within(section).getAllByRole('article');
+        const [fr, en] = FIXTURES.answers.meteoalarm.alerts[0].infos;
+        // Title: the awareness level and type, in the app's English; the issuer's own event as sent.
+        const title = within(card).getByRole('heading', { level: 3 });
+        expect(title.textContent).toBe('Orange Coastal Event Warning');
+        expect(spokenIn(title)).toBe('en');
+        expect(within(card).getByText(en.event)).toHaveAttribute('lang', 'en-GB');
+        // Source: the national service, never only "MeteoAlarm" (rule 2).
+        expect(within(card).getByText('Source: Météo-France')).toBeInTheDocument();
+        // The area, as the issuer names it.
+        expect(within(card).getByText('Bouches-du-Zzrhône')).toHaveAttribute('dir', 'auto');
+        // In effect from onset until expiry, and the time of issue (rule 3), with their time zones.
+        expect(within(card).getByText(/^In effect from .+ until .+$/)).toBeInTheDocument();
+        expect(within(card).getByText(/^Issued [^·]+$/)).toBeInTheDocument();
+        // The impacts, as sent.
+        expect(
+            within(card).getByText(en.parameters.find((p: { valueName: string }) => p.valueName === 'impacts').value),
+        ).toBeInTheDocument();
+        // Every language the issuer sent is in the page (the Style Guide): French under "Also issued in".
+        const other = within(card).getByText(/^Also issued in French/);
+        const block = other.closest('details')!;
+        expect(within(block).getByTestId('official-description').textContent).toBe(fr.description);
+        expect(spokenIn(within(block).getByTestId('official-description'))).toBe('fr-FR');
+        expect(within(block).getByText(fr.instruction)).toBeInTheDocument();
+        expect(within(card).getAllByTestId('official-description')[0].textContent).toBe(en.description);
+    });
+
+    it('a reader whose language MeteoAlarm did not send reads the English block, as the Style Guide asks', async () => {
+        setLanguage('de-DE');
+        const section = await show('meteoalarm');
+        const [card] = within(section).getAllByRole('article');
+        const [fr, en] = FIXTURES.answers.meteoalarm.alerts[0].infos;
+        expect(within(card).getByText(en.headline)).toBeInTheDocument();
+        expect(
+            within(card)
+                .getByText(/^Also issued in French/)
+                .closest('details'),
+        ).toContainElement(within(card).getByText(fr.headline));
+    });
+
+    it('the disclaimer, byte for byte, with the www.meteoalarm.org link; the areas credited to EUMETNET', async () => {
+        const section = await show('meteoalarm');
+        const notice = within(section).getByTestId('meteoalarm-notice');
+        const disclaimer = within(notice).getByTestId('meteoalarm-disclaimer');
+        expect(disclaimer.textContent).toBe(METEOALARM_DISCLAIMER);
+        expect(new TextEncoder().encode(disclaimer.textContent!).join(',')).toBe(
+            new TextEncoder().encode(METEOALARM_DISCLAIMER).join(','),
+        );
+        const links = within(disclaimer).getAllByRole('link', { name: 'www.meteoalarm.org' });
+        expect(links).toHaveLength(2);
+        for (const link of links) expect(link).toHaveAttribute('href', METEOALARM_LINK);
+        fireEvent.click(links[0]);
+        expect(mocks.openExternalUrl).toHaveBeenCalledWith(METEOALARM_LINK);
+        expect(within(notice).getByText(`Areas: ${METEOALARM_SOURCE}`)).toBeInTheDocument();
+        // One country: its national service is the source, and "EUMETNET – MeteoAlarm" is not.
+        expect(within(notice).queryByText(new RegExp(`^Source: ${METEOALARM_SOURCE}`))).toBeNull();
+        expect(within(section).getByRole('link', { name: 'Warnings: Météo-France' })).toHaveAttribute(
+            'href',
+            METEOALARM_LINK,
+        );
+        expect(within(section).getByText(/^Checked .* with Météo-France \(MeteoAlarm\)$/)).toBeInTheDocument();
+        expect(spokenIn(disclaimer)).toBe('en');
+    });
+
+    it('more than one country: "EUMETNET – MeteoAlarm" is the source; a warning for an area within 3 NM says so', async () => {
+        setLanguage('en-GB');
+        const section = await show('meteoalarm-border');
+        const notice = within(section).getByTestId('meteoalarm-notice');
+        expect(within(notice).getByText(`Source: ${METEOALARM_SOURCE}`)).toBeInTheDocument();
+        expect(within(notice).getByTestId('meteoalarm-disclaimer').textContent).toBe(METEOALARM_DISCLAIMER);
+        const [card] = within(section).getAllByRole('article');
+        expect(
+            within(card).getByText('Source: Servizio Meteorologico dell’Aeronautica Militare (MeteoAM)'),
+        ).toBeInTheDocument();
+        expect(within(card).getByText('For an area within 3 NM of here')).toBeInTheDocument();
+        expect(within(card).queryByText(/For the waters within/)).toBeNull();
+    });
+
+    it('an answer with MeteoAlarm in it is asked again every minute, so the page stays in real time (rule 5)', async () => {
+        // What the page shows is never more than REALTIME_APP_MS behind the database: a minute's refresh and a
+        // cache of 30 seconds (the ingest's rule-5 sum, tests/OfficialAlertsMigration.test.ts, counts on it).
+        expect(REALTIME_REFRESH_MS + REALTIME_ANSWER_MS).toBe(REALTIME_APP_MS);
+        vi.useFakeTimers({
+            shouldAdvanceTime: true,
+            toFake: ['Date', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'],
+        });
+        vi.setSystemTime(new Date(FIXTURES.anchor));
+        await show('meteoalarm');
+        expect(rpc).toHaveBeenCalledTimes(1);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(REALTIME_REFRESH_MS);
+        });
+        expect(rpc).toHaveBeenCalledTimes(2);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(REALTIME_REFRESH_MS);
+        });
+        expect(rpc).toHaveBeenCalledTimes(3);
+        // NWS keeps its 5 minutes: the minute's look finds nothing due.
+        cleanup();
+        clearOfficialWarningsCache();
+        rpc.mockClear();
+        await show('inforce');
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(OFFICIAL_REFRESH_MS - 60_000);
+        });
+        expect(rpc).toHaveBeenCalledTimes(1);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(60_000);
+        });
+        expect(rpc).toHaveBeenCalledTimes(2);
+    });
+
+    it('a MeteoAlarm warning that reaches the database just after another screen asked is on this page within 90 seconds', async () => {
+        vi.useFakeTimers({
+            shouldAdvanceTime: true,
+            toFake: ['Date', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'],
+        });
+        vi.setSystemTime(new Date(FIXTURES.anchor));
+        const t0 = Date.now();
+        const a = FIXTURES.answers.meteoalarm;
+        const fresh = a.alerts[0];
+        // The Glass asks first: nothing in force yet. The warning reaches the database a moment later.
+        let inDatabase = false;
+        rpc.mockImplementation((async () => ({
+            data: { ...structuredClone(a), alerts: inDatabase ? [structuredClone(fresh)] : [] },
+            error: null,
+        })) as never);
+        await fetchOfficialWarnings(a.lat, a.lon);
+        inDatabase = true;
+        // 29 s on, the page opens: the Glass's answer is still in the cache, so it shows none at first.
+        vi.setSystemTime(new Date(t0 + REALTIME_ANSWER_MS - 1_000));
+        render(<WarningDetails alerts={[]} placeName="Zzport" coordinates={{ lat: a.lat, lon: a.lon }} />);
+        const section = await screen.findByRole('region', SECTION);
+        expect(within(section).queryAllByRole('article')).toHaveLength(0);
+        // Its next look a minute later asks again: shown by 90 s after the database had it.
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(REALTIME_REFRESH_MS);
+        });
+        expect(Date.now() - t0).toBeLessThanOrEqual(REALTIME_APP_MS);
+        expect(within(section).getAllByRole('article')).toHaveLength(1);
+    });
+
+    it('back in the foreground after a while, it asks again at once', async () => {
+        vi.useFakeTimers({
+            shouldAdvanceTime: true,
+            toFake: ['Date', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'],
+        });
+        vi.setSystemTime(new Date(FIXTURES.anchor));
+        await show('meteoalarm');
+        expect(rpc).toHaveBeenCalledTimes(1);
+        // The app was suspended for 20 minutes (no timer ran); it comes back.
+        vi.setSystemTime(new Date(Date.parse(FIXTURES.anchor) + 20 * 60_000));
+        await act(async () => {
+            document.dispatchEvent(new Event('visibilitychange'));
+        });
+        expect(rpc).toHaveBeenCalledTimes(2);
     });
 });

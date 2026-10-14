@@ -24,6 +24,13 @@
  * - A tapped official push (services/officialPushPin.ts) is marked on its
  *   card, or, when this place's answer does not list it, shown on its own
  *   with the position it was sent for.
+ * - MeteoAlarm under its own terms (129-05b): a warning titled by its
+ *   awareness level and type, its national service as the source, in effect
+ *   from onset until expiry, its time of issue and area, its impacts, every
+ *   language it was sent in (English where the reader's was not), and, with
+ *   anything of MeteoAlarm's shown, "EUMETNET – MeteoAlarm" as the source of
+ *   more than one country, the areas' credit, and MeteoAlarm's disclaimer
+ *   verbatim with its www.meteoalarm.org link.
  */
 import React, { useId, useState } from 'react';
 import { ExternalLinkIcon, RadioTowerIcon } from '../Icons';
@@ -39,6 +46,19 @@ import {
 } from '../../services/officialWarnings';
 import { OFFICIAL_WARNINGS_SOURCES, type OfficialWarningsSource } from '../../utils/officialWarningsSource';
 import { officialPushBasisLabel, type OfficialPushPin } from '../../services/officialPushPin';
+import {
+    isMeteoAlarm,
+    METEOALARM_COLOURS,
+    METEOALARM_DISCLAIMER,
+    METEOALARM_LINK,
+    METEOALARM_LINK_TEXT,
+    METEOALARM_SOURCE,
+    meteoAlarmCountries,
+    meteoAlarmIssuerNames,
+    meteoAlarmLevel,
+    meteoAlarmParticipant,
+    meteoAlarmTitle,
+} from '../../supabase/functions/_shared/official-alerts/meteoalarm';
 
 const CARD = 'rounded-2xl border border-sky-300/30 bg-sky-950/60 p-4 text-slate-100';
 
@@ -52,10 +72,11 @@ function readerLanguages(): string[] {
 /**
  * The block to show: the reader's language where the issuer sent one, taking
  * the reader's languages in their order and each exactly, then by its base
- * language, before the next; else the issuer's first. `other` is set when the
- * block is not in the reader's language, so the card can say which it is.
+ * language, before the next; else the issuer's first (`english`: else English
+ * where it was sent, as MeteoAlarm's Style Guide asks). `other` is set when
+ * the block is not in the reader's language, so the card can say which it is.
  */
-export function pickOfficialInfo(infos: OfficialInfo[]): { info: OfficialInfo; other: boolean } {
+export function pickOfficialInfo(infos: OfficialInfo[], english = false): { info: OfficialInfo; other: boolean } {
     const langs = readerLanguages().map((l) => l.toLowerCase());
     const base = (l: string) => l.toLowerCase().split('-')[0];
     for (const want of langs) {
@@ -64,7 +85,7 @@ export function pickOfficialInfo(infos: OfficialInfo[]): { info: OfficialInfo; o
         const same = infos.find((i) => base(i.language) === base(want));
         if (same) return { info: same, other: false };
     }
-    const first = infos[0];
+    const first = (english && infos.find((i) => /^en\b/i.test(i.language))) || infos[0];
     const unknown = !first.language;
     return { info: first, other: !unknown && langs.length > 0 && !langs.some((l) => base(l) === base(first.language)) };
 }
@@ -137,12 +158,89 @@ const Label: React.FC<{ gap?: 'mt-1' | 'mt-2'; children: React.ReactNode }> = ({
     </p>
 );
 
+const linkTo = (url: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    void openExternalUrl(url);
+};
+
+/** A block's impacts (MeteoAlarm's "impacts" parameters), as a list, as sent. */
+const Impacts: React.FC<{ info: OfficialInfo; lang?: string }> = ({ info, lang }) => {
+    const impacts = info.parameters.filter((p) => p.valueName === 'impacts' && p.value.trim());
+    return impacts.length > 0 ? (
+        <ul lang={lang} dir="auto" className="mt-2 list-disc space-y-1 ps-5 text-sm">
+            {impacts.map((p, i) => (
+                <li key={i}>{p.value}</li>
+            ))}
+        </ul>
+    ) : null;
+};
+
+/** The other language blocks of a MeteoAlarm warning: every word, in its own language, behind one control. */
+const OtherLanguages: React.FC<{ infos: OfficialInfo[] }> = ({ infos }) => (
+    <details className="mt-3">
+        <summary lang="en" className="min-h-11 cursor-pointer py-2 text-sm font-bold text-sky-300">
+            Also issued in {infos.map((i) => languageName(i.language)).join(', ')}
+        </summary>
+        {infos.map((i, n) => (
+            <div key={n} lang={i.language || undefined} dir="auto" className="mt-2 border-t border-sky-300/20 pt-2">
+                <p className="text-sm font-semibold">{i.event}</p>
+                {i.headline && <p className="mt-1 text-sm">{i.headline}</p>}
+                <Impacts info={i} />
+                {[i.description, i.instruction].map(
+                    (text, k) =>
+                        text && (
+                            <p
+                                key={k}
+                                data-testid={k ? 'official-instruction' : 'official-description'}
+                                className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed"
+                            >
+                                {text}
+                            </p>
+                        ),
+                )}
+            </div>
+        ))}
+    </details>
+);
+
+/**
+ * What MeteoAlarm's terms ask beside its warnings: "EUMETNET – MeteoAlarm" as
+ * the source when more than one country is shown (rule 2), the areas' credit,
+ * and the disclaimer verbatim with its www.meteoalarm.org links (rules 4, 6).
+ */
+export const MeteoAlarmNotice: React.FC<{ countries: number }> = ({ countries }) => {
+    const [before, middle, after] = METEOALARM_DISCLAIMER.split(METEOALARM_LINK_TEXT);
+    const link = (
+        <a href={METEOALARM_LINK} onClick={linkTo(METEOALARM_LINK)} className="underline underline-offset-2">
+            {METEOALARM_LINK_TEXT}
+        </a>
+    );
+    return (
+        <div lang="en" data-testid="meteoalarm-notice" className="space-y-1 text-xs leading-snug text-slate-400">
+            {countries > 1 && <p>Source: {METEOALARM_SOURCE}</p>}
+            <p>Areas: {METEOALARM_SOURCE}</p>
+            <p data-testid="meteoalarm-disclaimer">
+                {before}
+                {link}
+                {middle}
+                {link}
+                {after}
+            </p>
+        </div>
+    );
+};
+
 const Card: React.FC<{ alert: OfficialAlert; pinned?: boolean }> = ({ alert, pinned }) => {
     const titleId = useId();
-    const { info, other } = pickOfficialInfo(alert.infos);
+    const meteo = isMeteoAlarm(alert.provider);
+    const { info, other } = pickOfficialInfo(alert.infos, meteo);
     const lang = info.language || undefined;
     const issued = when(alert.sent);
     const until = when(alert.expires ?? info.expires);
+    // MeteoAlarm's Style Guide: its title is the awareness level and type, in the level's colour.
+    const title = meteo ? meteoAlarmTitle(info.parameters) : null;
+    const level = meteo ? meteoAlarmLevel(info.parameters) : null;
+    const from = when(alert.onset ?? info.onset ?? alert.sent);
     return (
         <article
             aria-labelledby={titleId}
@@ -156,25 +254,70 @@ const Card: React.FC<{ alert: OfficialAlert; pinned?: boolean }> = ({ alert, pin
                 {pinned && <span className="font-semibold normal-case tracking-normal">· From your notification</span>}
             </p>
             <p dir="auto" className="mt-1 text-sm font-semibold text-sky-100">
-                {alert.issuer}
+                {meteo
+                    ? `Source: ${meteoAlarmParticipant(meteoAlarmIssuerNames(alert.issuer), alert.sender, info.senderName)}`
+                    : alert.issuer}
             </p>
-            <h3 id={titleId} lang={lang} dir="auto" className="mt-1 text-lg font-bold text-white">
-                {info.event}
+            <h3
+                id={titleId}
+                lang={title ? 'en' : lang}
+                dir="auto"
+                className="mt-1 flex items-center gap-2 text-lg font-bold text-white"
+            >
+                {level !== null && (
+                    <span
+                        aria-hidden="true"
+                        className="h-3 w-3 shrink-0 rounded-full"
+                        style={{ background: METEOALARM_COLOURS[level] }}
+                    />
+                )}
+                {title ?? info.event}
             </h3>
+            {title && title.toLowerCase() !== info.event.trim().toLowerCase() && (
+                <p lang={lang} dir="auto" className="mt-1 text-sm font-semibold">
+                    {info.event}
+                </p>
+            )}
             {info.headline && (
                 <p lang={lang} dir="auto" className="mt-1 text-sm font-medium">
                     {info.headline}
                 </p>
             )}
-            {(issued || until) && (
-                <Label gap="mt-2">
-                    {[issued && `Issued ${issued}`, until && `Until ${until}`].filter(Boolean).join(' · ')}
+            {meteo ? (
+                <>
+                    {from && (
+                        <Label gap="mt-2">
+                            In effect from {from}
+                            {until && ` until ${until}`}
+                        </Label>
+                    )}
+                    {issued && <Label>Issued {issued}</Label>}
+                    {info.areaDesc.length > 0 && (
+                        <p className="mt-1 text-xs text-slate-300">
+                            <span lang="en">Area: </span>
+                            <span lang={lang} dir="auto">
+                                {info.areaDesc.join('; ')}
+                            </span>
+                        </p>
+                    )}
+                </>
+            ) : (
+                (issued || until) && (
+                    <Label gap="mt-2">
+                        {[issued && `Issued ${issued}`, until && `Until ${until}`].filter(Boolean).join(' · ')}
+                    </Label>
+                )
+            )}
+            {alert.matchedBy === 'nearby' && (
+                <Label>
+                    For {meteo ? 'an area' : 'the waters'} within {NEARBY_NM} NM of here
                 </Label>
             )}
-            {alert.matchedBy === 'nearby' && <Label>For the waters within {NEARBY_NM} NM of here</Label>}
             {other && <Label>In {languageName(info.language)}, as issued</Label>}
+            <Impacts info={info} lang={lang} />
             {info.description && <Fold text={info.description} lang={lang} testId="official-description" />}
             {info.instruction && <Fold text={info.instruction} lang={lang} testId="official-instruction" />}
+            {meteo && alert.infos.length > 1 && <OtherLanguages infos={alert.infos.filter((i) => i !== info)} />}
         </article>
     );
 };
@@ -264,6 +407,11 @@ export const OfficialWarningsSection: React.FC<{
     const allClear = answer.coverage === 'live' && alerts.length === 0 && !answer.staleSince;
     // The credit of every issuer whose words or answer are shown here.
     const credited = officialCredits(answer, alerts);
+    // MeteoAlarm's countries whose words or answer are shown here (its rules 2, 4 and 6).
+    const meteoCountries = meteoAlarmCountries([
+        ...alerts.map((a) => a.provider),
+        ...answer.providers.filter((p) => p.state === 'live').map((p) => p.id),
+    ]);
     return (
         <section aria-labelledby={headingId} className="space-y-3">
             <h2 id={headingId} className="text-sm font-bold uppercase tracking-wider text-sky-200">
@@ -321,6 +469,7 @@ export const OfficialWarningsSection: React.FC<{
                     ))}
                 </p>
             )}
+            {meteoCountries > 0 && <MeteoAlarmNotice countries={meteoCountries} />}
         </section>
     );
 };
@@ -377,6 +526,11 @@ export const PinnedOfficialPush: React.FC<{
                 {placeName ? `Not listed for ${placeName} below. ` : 'Not listed for this page’s place below. '}
                 It may be for other waters, or updated since.
             </Label>
+            {isMeteoAlarm(pin.provider) && (
+                <div className="mt-2">
+                    <MeteoAlarmNotice countries={1} />
+                </div>
+            )}
             {source && (
                 <a
                     href={source.url}

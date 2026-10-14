@@ -11,7 +11,12 @@
  *   ECCC    the CAP-CP event code (profile:CAP-CP:Event), in either language
  *           block; a watch, advisory or statement by its headline.
  *   any CAP a tsunami in the Geo category, in the scripts its issuers use.
- *   MeteoAlarm  the awareness type ("7; coastalevent").
+ *   MeteoAlarm  the issuer's own geographicDomain ("marine", MET Norway's sea
+ *           areas), else an OASIS Event Term for the sea or the coast
+ *           (OET-097 Hazardous Seas, OET-043 Coastal Flood), else the
+ *           awareness type ("7; coastalevent", "14; marinehazard"); its
+ *           strength from the awareness level: yellow is an advisory (Y),
+ *           orange and red are warnings (W) (129-05b).
  *   JMA     the warning's own name (海上強風警報, 津波警報).
  *
  * The answer: where it applies (marine, coastal, land, or unknown), how
@@ -233,7 +238,10 @@ const ECCC_EVENTS: Record<string, Kind> = {
     weather: land(),
 };
 
-/** MeteoAlarm awareness types ("7; coastalevent"): only coastal events are at sea. */
+/**
+ * MeteoAlarm awareness types (the Style Guide's list): a coastal event (7) and
+ * a marine hazard (14) are at the coast and at sea; every other type is land.
+ */
 const METEOALARM_TYPES: Record<string, Kind> = {
     '1': land(W1),
     '3': land([['thunderstorm', 2]]),
@@ -241,7 +249,36 @@ const METEOALARM_TYPES: Record<string, Kind> = {
     '5': land([['heat', 2]]),
     '6': land([['cold', 1]]),
     '7': coastal([['sea', 2]]),
+    '14': marine([['sea', 2]]),
 };
+
+/** OASIS Event Terms (the eventCode OET:v1.0 MeteoAlarm's profile carries) for the sea and the coast. */
+const OET_SEA: Record<string, Kind> = {
+    'OET-043': coastal([['flood', 1]]), // Coastal Flood
+    'OET-091': marine([['cold', 2]]), // Freezing Spray
+    'OET-097': marine([['sea', 2]]), // Hazardous Seas
+    'OET-101': marine([['sea', 2]]), // High Seas
+    'OET-102': coastal([['sea', 2]]), // High Surf
+    'OET-103': coastal([['flood', 1]]), // High Tide
+    'OET-191': coastal([['surge', 2]]), // Storm Surge
+    'OET-198': marine([['thunderstorm', 1]]), // Tornadic Waterspout
+    'OET-218': marine([['thunderstorm', 1]]), // Waterspout
+};
+
+/** A MeteoAlarm warning's class: the issuer's word for the sea, else a sea term, else its awareness type. */
+function fromMeteoAlarm(info: ClassifiableInfo): [Kind, Significance] | null {
+    const type = /^\s*(\d+)/.exec(value(info.parameters, /^awareness_type$/i) ?? '')?.[1];
+    const oet = (info.eventCodes ?? []).map((c) => OET_SEA[c.value.trim()]).find(Boolean);
+    let kind: Kind | null = oet ?? (type ? (METEOALARM_TYPES[type] ?? land()) : null);
+    if (!kind) return null;
+    if (/^marine$/i.test(value(info.parameters, /^geographicDomain$/i) ?? '') && kind.domain === 'land') {
+        // Its hazards at sea: a wind warning for a sea area is a gale or more (MET Norway's kuling).
+        kind = marine(kind.hazards.map(([h, n]) => [h, h === 'wind' ? Math.max(n, 2) : n] as const));
+    }
+    // Yellow (2) is "be aware": an advisory. Orange (3) and red (4) are warnings.
+    const level = /^\s*(\d+)/.exec(value(info.parameters, /^awareness_level$/i) ?? '')?.[1];
+    return [kind, level === '2' || level === '1' ? 'Y' : 'W'];
+}
 
 /** JMA's names: 海上 (at sea) warnings, and the coast's storm surge and high waves. */
 const JMA_NAMES: ReadonlyArray<readonly [RegExp, Kind]> = [
@@ -311,8 +348,7 @@ export function classifyOfficialEvent(
         const kind = code ? ECCC_EVENTS[code] : undefined;
         if (kind) found = [kind, significanceFrom(said)];
     } else if (provider.startsWith('meteoalarm')) {
-        const type = /^(\d+)/.exec(value(info.parameters, /^awareness_type$/i) ?? '')?.[1];
-        if (type) found = [METEOALARM_TYPES[type] ?? land(), 'W'];
+        found = fromMeteoAlarm(info);
     } else if (provider === 'jma') {
         const hit = JMA_NAMES.find(([pattern]) => pattern.test(info.event));
         if (hit) found = [hit[1], significanceFrom(info.event)];
