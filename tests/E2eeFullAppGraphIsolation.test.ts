@@ -60,6 +60,53 @@ describe('exact full-App graph isolation', () => {
         expect(() => plugin.load(repo + '/services/sentrySdk.ts#bypass')).toThrow();
         expect(() => plugin.load(pathToFileURL(repo + '/index.tsx').href + '?raw#bypass')).toThrow();
     });
+    it('projects the exact nativeStorage export set for the chart-store importer with no original-load escape', () => {
+        const plugin = createFullAppGraphIsolation();
+        const importer = repo + '/services/enc/EncCellStore.ts';
+        const original = repo + '/services/nativeStorage.ts';
+        const selected = plugin.resolveId('../nativeStorage', importer);
+        expect(selected).toMatch(/^\0thalassa-full-app-closed:/);
+        const code = plugin.load(selected!);
+        const projection = /^export \{([^}]+)\} from ("[^"]+");$/.exec(code!);
+        expect(projection).not.toBeNull();
+        const names = projection![1].split(',');
+        expect(names).toHaveLength(15);
+        expect(new Set(names).size).toBe(names.length);
+        expect([...names].sort()).toEqual(
+            [
+                'DATA_CACHE_KEY',
+                'VOYAGE_CACHE_KEY',
+                'HISTORY_CACHE_KEY',
+                'prepareChartStore',
+                'purgeWebDiskCache',
+                'usesNativeEncryptedLargeStorage',
+                'isAllowedEncryptedLargeStorageKey',
+                'saveLargeData',
+                'saveLargeDataImmediate',
+                'loadLargeDataSync',
+                'loadLargeData',
+                'deleteLargeData',
+                'flushPendingSaves',
+                'readCacheVersion',
+                'writeCacheVersion',
+            ].sort(),
+        );
+        expect(JSON.parse(projection![2])).toBe(
+            repo + '/experiments/scuttlebutt-e2ee/full-app-pilot/boundaryMemory.ts',
+        );
+        for (const source of [
+            original,
+            original + '?raw#bypass',
+            original + '#bypass',
+            pathToFileURL(original).href + '?raw#bypass',
+            '/@fs/' + original + '?raw#bypass',
+        ]) {
+            expect(plugin.resolveId(source, importer)).toBe(selected);
+            expect(() => plugin.load(source)).toThrow(/Production entry or authority/);
+        }
+        expect(plugin.resolveId('../nativeStorage.ts', importer)).toBe(selected);
+        expect(plugin.resolveId('@/services/nativeStorage', importer)).toBe(selected);
+    });
     it('allows real core only for audited Research files while App/native packages resolve closed', () => {
         const plugin = createFullAppGraphIsolation();
         expect(

@@ -11,7 +11,85 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
-## Current clean-upstream reconciliation after the 14 October OS proof
+## Current chart-control isolation, refreshed web and native baseline refusal
+
+The [new source-bound record](../experiments/scuttlebutt-e2ee/review/chart-control-web-native-baseline-2026-10-14.json)
+fixes the post-reconciliation named-export gap without exposing real chart
+storage: `prepareChartStore` and `purgeWebDiskCache` are exact isolated exports,
+both asynchronous fixed refusals. They only increment the existing bounded
+refusal counter; no arguments, callbacks, browser/native storage, timers or
+successful mutation are evaluated. The exact native-storage projection has
+15 exports. Ordinary/native storage implementation, native permission/lifecycle
+rules, provider and all 61 HTTPS prerequisite inputs remain unchanged.
+
+Executed **167 contract cases across three suites**, including four added cases,
+and **one actual-App jsdom mount case**, plus syntax, formatting, named lint and
+narrow strict types. Existing tests/assertions are retained. Unit no-I/O claims
+are limited to supplied fresh poison/spies; they are not whole-process packet
+measurement. Fresh combined-source web build passed: **1,757 module inputs,
+six proof inputs, 294 outputs, two ES worker graphs and one explicit brand asset**,
+no source-hash omissions, inherited synthetic canaries absent and no automatic
+public-directory copy. Cache/artifact writes stayed private; no shared dependency
+installation or writes occurred.
+
+Fresh actual unsupported Chrome Window startup/Chat/closure/remount/CSP passed,
+with zero page errors and six retained console errors. Synthetic pagehide is not
+OS lifecycle. Cleanup fields all passed; an additional OS check found exact owned
+browser PID **86677** absent, its private profile removed and zero processes using
+that profile. The original 150,000-ms Window observation bound was unchanged;
+the existing 180,000-ms coordinator allowance lets its bounded cleanup finish,
+not extend observation acceptance. Build receipt SHA-256
+`4e46a1977d19bd59b4377476b99409015c210a7ddeb8cb12df6b2f1a5601d19f`;
+Window SHA-256 `7f21f22d5c0ec52207f5843d640e67cc7758f5e3fbd7d4857bf4e7547790de2b`.
+
+Fresh **29-source / 28-driver-pin** native App compiled/launched, independently
+observed PID **88584**, 343 unsigned / 346 signed files. Its current **initiator
+prefix** matched the original prefix validator: 11 cases, 126 UI assertions,
+47 protected-exchange assertions and two synthetic relay accepts. Provider,
+Keychain, sealed store, admission and adapter are real; SDK Auth/URLProtocol relay
+are synthetic. This is separate prefix evidence, **not whole-driver acceptance**.
+
+**Whole native run failed `scene-baseline-validate`.** Exact retained six-event
+startup ends `protected-ready`, foreground-active and cover absent. Its original
+witness is observed, but **account present=false and original snapshot current=false**,
+with one successful verify completion. These two facts violate the original
+pre-background current-authority requirements. The fixed refusal is now narrowed;
+**why authority was already unavailable remains unproved**. Do not claim lease
+expiry, a crypto failure or a runtime fix. The setup Settings launch happened,
+but protected-stage background/foreground actions were not dispatched. No OS
+roundtrip, opposite-role, navigation, cold/recovery or physical pass is credited.
+Finish selectors stayed 0/0; 23 progress entries ended `await-foreground`.
+Exact disposable simulator ID/name absence and run-source stability passed.
+
+Parent `/private/tmp/thalassa-full-root-protected-w2VwVX/run-receipt.json`, SHA-256
+`55e22b7e4cc90c50855270e5fe1f76f94720a2c7b30189b922237945aa2d0ee2`,
+remains failed. Saved read-only replay matched 28 driver hashes, 11 stage bindings,
+four retained inputs and 343/346 recorded artifact entries, accepted the original
+prefix and reproduced the original baseline refusal. Replay SHA-256
+`5425f7b9bbbc388e62be7b5b80c90ea7b974c73a37be5c04127a4d73217854a5`.
+It is an internal deterministic check, not new native execution, reverse artifact
+inventory validation or independent assessment. Raw resources/reports/observer
+bytes stay private. The prior accepted `1d477da1e` OS run remains frozen and is
+not transferred to this failed changed-graph run.
+
+Current cumulative shared waiting was **85,345/120,000 ms**: web/checks 15,236,
+native parent 61 and native child 70,048. Only 104,703 ms remaining was passed to
+the child. Failed-child results stopped downstream dispatch; no unchanged relaunch,
+deadline widening or new default child budget occurred. Production, hosted actors,
+primary checkout/iOS and human devices/accounts/keys remain untouched.
+
+Next measure the original witness's non-secret lifetime/generation/clock boundary
+behind this pre-background refusal, without retaining credentials, substituting
+a fresh witness for a failed original, granting permission or weakening gates.
+If facade/prerequisite sources must change, regenerate legitimate provider/HTTPS
+evidence first. Navigation needs its own resource-bound observations: a tab change
+unmounts local Chat work and suppresses late publication but does not itself sign
+out native Auth, revoke authority or prove plaintext zeroization. Genuine roles
+depend on actual generated IDs; the existing driver cannot deterministically
+request an opposite role. Shipping/cutover/recovery/physical/provenance/licence
+and independent assessment gates remain open. **Not merge-ready.**
+
+## Historical clean-upstream reconciliation after the 14 October OS proof
 
 The final pre-push ancestry check correctly refused dispatch: master had normally
 advanced from `c7d49a32b7f6ef9f3e6ce860b9d28caefc9ba8c7` to
@@ -4808,14 +4886,15 @@ attachments or uploads.
 
 ## Safe cutover and acceptance gates
 
-Latest bounded evidence is [the 14 October same-process record](../experiments/scuttlebutt-e2ee/review/scene-closure-os-roundtrip-2026-10-14.json),
-frozen to `1d477da1ed429e9d50197e0c44f3d69a65719dc9` before the newer master merge:
-initiator protected exchange, genuine background fencing and complete
-foreground/closed-UI correlation passed in one owned simulator process. The
-earlier foreground failure remains failed and unexplained. Cold/recovery,
-protected-away navigation, current opposite role, physical and live full-App
-Auth/HTTPS acceptance and the newly merged App graph are not credited. None of the five shipping gates below
-is closed by this bounded simulator, diagnostic or source/mock evidence.
+Latest bounded evidence is [the current 14 October record](../experiments/scuttlebutt-e2ee/review/chart-control-web-native-baseline-2026-10-14.json):
+closed chart projections, combined-source build and actual unsupported Window
+passed; the current native initiator prefix matched but whole OS run failed
+pre-background because original account/snapshot authority was already stale.
+The underlying reason remains unproved. The older full same-process OS pass is
+frozen to `1d477da1ed429e9d50197e0c44f3d69a65719dc9`, not transferred. Current
+full OS, protected-away navigation, opposite role, cold/recovery, physical and
+live App Auth/HTTPS acceptance are not credited. None of the five shipping gates
+below is closed by these bounded simulator, diagnostic or source/mock checks.
 
 1. **Provider spike:** license decision, pinned dependency, two real iPhones
    exchange messages with confirmed negotiated suite; native store design and
@@ -4838,9 +4917,10 @@ is closed by this bounded simulator, diagnostic or source/mock evidence.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: repair/test the strictly closed chart-control graph projections and refresh
-the changed combined-source build and actual Window/native acceptance. Then
-extend same-process evidence with a separately source-bound
+Next: explain the current original-witness pre-background staleness without
+credential retention, replacement-witness acceptance or weakened validators.
+Regenerate legitimate provider/HTTPS prerequisites before changing their sources.
+Then obtain current same-process evidence with a separately source-bound
 opposite role and actual protected-away/back navigation; preserve distinct
 cold-start refusal and same-store recovery contracts and receipts. Extend the
 bounded native-to-hosted acceptance above into actual current App Auth/HTTPS,

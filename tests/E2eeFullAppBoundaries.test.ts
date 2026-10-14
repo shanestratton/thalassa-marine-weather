@@ -13,6 +13,9 @@ import {
     FULL_APP_MEMORY_MAX_VALUE_BYTES,
     FullAppMemoryUnavailableError,
     HISTORY_CACHE_KEY,
+    prepareChartStore,
+    purgeWebDiskCache,
+    readFullAppMemoryCounters,
     VOYAGE_CACHE_KEY,
 } from '../experiments/scuttlebutt-e2ee/full-app-pilot/boundaryMemory';
 import {
@@ -109,6 +112,74 @@ describe('isolated full-App volatile storage adapter', () => {
             await expect(createFullAppMemoryBoundary().Preferences[method]()).rejects.toMatchObject(memoryFailure);
         },
     );
+
+    it.each(['prepareChartStore', 'purgeWebDiskCache'] as const)(
+        'refuses nativeStorage %s without reading arguments, touching browser/native APIs or mutating volatile data',
+        async (method) => {
+            const memory = createFullAppMemoryBoundary();
+            await memory.Preferences.set({ key: 'fixture-preference', value: 'preserved' });
+            await memory.nativeStorage.saveLargeData('fixture-cache', { preserved: true });
+            await memory.nativeStorage.writeCacheVersion('fixture-version');
+            const before = memory.readCounters();
+            const readArgument = vi.fn(() => {
+                throw new Error('private-chart-argument-canary');
+            });
+            const options = new Proxy(
+                {},
+                {
+                    get: readArgument,
+                    ownKeys: readArgument,
+                    getOwnPropertyDescriptor: readArgument,
+                },
+            );
+            const callback = vi.fn();
+            const touchApi = vi.fn(() => {
+                throw new Error('Unexpected browser or native storage operation');
+            });
+            const deniedApi = new Proxy({}, { get: touchApi });
+            vi.stubGlobal('fetch', touchApi);
+            for (const name of [
+                'localStorage',
+                'sessionStorage',
+                'indexedDB',
+                'caches',
+                'window',
+                'document',
+                'Capacitor',
+                'webkit',
+            ])
+                vi.stubGlobal(name, deniedApi);
+            const timeout = vi.spyOn(globalThis, 'setTimeout');
+            const interval = vi.spyOn(globalThis, 'setInterval');
+            const pending = memory.nativeStorage[method](options, callback);
+            expect(pending).toBeInstanceOf(Promise);
+            await expect(pending).rejects.toBeInstanceOf(FullAppMemoryUnavailableError);
+            await expect(pending).rejects.toMatchObject(memoryFailure);
+            expect(memory.readCounters()).toEqual({ ...before, refusals: before.refusals + 1 });
+            expect(readArgument).not.toHaveBeenCalled();
+            expect(callback).not.toHaveBeenCalled();
+            expect(touchApi).not.toHaveBeenCalled();
+            expect(timeout).not.toHaveBeenCalled();
+            expect(interval).not.toHaveBeenCalled();
+            expect(await memory.Preferences.keys()).toEqual({ keys: ['fixture-preference'] });
+            expect(await memory.Preferences.get({ key: 'fixture-preference' })).toEqual({ value: 'preserved' });
+            expect(await memory.nativeStorage.loadLargeData('fixture-cache')).toEqual({ preserved: true });
+            expect(await memory.nativeStorage.readCacheVersion()).toBe('fixture-version');
+            expect(JSON.stringify(memory.readCounters())).not.toContain('private-chart-argument-canary');
+        },
+    );
+
+    it('exports both chart storage operations as fixed async refusals using only the existing refusal counter', async () => {
+        const before = readFullAppMemoryCounters();
+        for (const method of [prepareChartStore, purgeWebDiskCache]) {
+            expect(method).toBeTypeOf('function');
+            const pending = method();
+            expect(pending).toBeInstanceOf(Promise);
+            await expect(pending).rejects.toBeInstanceOf(FullAppMemoryUnavailableError);
+            await expect(pending).rejects.toMatchObject(memoryFailure);
+        }
+        expect(readFullAppMemoryCounters()).toEqual({ ...before, refusals: before.refusals + 2 });
+    });
 
     it.each(['', 'bad\u0000key', 'x'.repeat(4_097)])(
         'refuses malformed memory keys without preserving their contents',

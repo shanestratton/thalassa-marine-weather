@@ -116,7 +116,7 @@ modules.set(
     reexport(
         'boundaryMemory.ts',
         names(
-            'DATA_CACHE_KEY VOYAGE_CACHE_KEY HISTORY_CACHE_KEY usesNativeEncryptedLargeStorage isAllowedEncryptedLargeStorageKey saveLargeData saveLargeDataImmediate loadLargeDataSync loadLargeData deleteLargeData flushPendingSaves readCacheVersion writeCacheVersion',
+            'DATA_CACHE_KEY VOYAGE_CACHE_KEY HISTORY_CACHE_KEY usesNativeEncryptedLargeStorage isAllowedEncryptedLargeStorageKey prepareChartStore purgeWebDiskCache saveLargeData saveLargeDataImmediate loadLargeDataSync loadLargeData deleteLargeData flushPendingSaves readCacheVersion writeCacheVersion',
         ),
     ),
 );

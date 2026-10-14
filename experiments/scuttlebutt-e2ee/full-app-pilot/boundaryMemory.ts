@@ -137,6 +137,14 @@ export function createFullAppMemoryBoundary() {
         HISTORY_CACHE_KEY,
         usesNativeEncryptedLargeStorage: () => false,
         isAllowedEncryptedLargeStorageKey: (..._key: unknown[]) => false,
+        // Chart-directory/cache controls are not volatile cache operations.
+        // Refuse them without evaluating arguments or touching any real store.
+        async prepareChartStore(..._options: unknown[]): Promise<never> {
+            return refuse();
+        },
+        async purgeWebDiskCache(..._options: unknown[]): Promise<never> {
+            return refuse();
+        },
         async saveLargeData(key: string, value: unknown): Promise<void> {
             count('cacheWrites');
             save(key, value);
@@ -183,6 +191,8 @@ export const Preferences = memory.Preferences;
 export const {
     usesNativeEncryptedLargeStorage,
     isAllowedEncryptedLargeStorageKey,
+    prepareChartStore,
+    purgeWebDiskCache,
     saveLargeData,
     saveLargeDataImmediate,
     loadLargeDataSync,

@@ -51,20 +51,41 @@ production or server changes accompanied the update.
 
 ## Current integration candidate
 
-After that proof, the final ancestry gate found normal master advancement to
+The [latest 14 October record](../experiments/scuttlebutt-e2ee/review/chart-control-web-native-baseline-2026-10-14.json)
+adds strictly unavailable chart-storage projection exports, preserving real
+storage isolation. All 167 contract cases and one actual-App jsdom mount passed,
+with syntax/format/lint/narrow types. Fresh combined-source build (1,757 module
+inputs / 294 outputs / two ES worker graphs) and actual unsupported Chrome
+startup/Chat/closure/remount/CSP passed. Zero page errors, six console errors and
+independent owned browser PID/profile absence are retained. None is native Auth,
+OS lifecycle, physical acceptance or independent security assessment.
+
+The fresh 29-source native App compiled/launched with PID 88584 and its original
+initiator prefix matched 11 cases / 126 UI / 47 exchange assertions, with two
+synthetic relay accepts and real native provider/state/adapter. **Whole run failed
+before protected background dispatch**: the retained `protected-ready` observer
+had account unavailable and the original snapshot stale despite foreground-active
+and cover absent. Original baseline validation correctly refused. Exact cause
+behind those authority facts is unproved; do not infer expiry or crypto failure.
+Saved deterministic replay reproduced the refusal; it is not another native run
+or independent assessment. All original gates remain. The earlier `1d477da1e`
+OS pass is historical and not transferred. Current full OS/navigation/opposite
+role/cold/recovery and every shipping gate remain open. **Not merge-ready.**
+
+Before this refresh, the final ancestry gate found normal master advancement to
 `5b3187afc146f618126ca0658e0aa142aff40196`. Its 264 paths were merged conflict-free
 into the isolated continuation; the seven retired chart fixtures remain absent
 and all recorded E2EE source hashes unchanged. See the
 [upstream reconciliation](../experiments/scuttlebutt-e2ee/review/scene-closure-upstream-reconciliation-2026-10-14.json).
 The accepted run below is frozen to `1d477da1ed429e9d50197e0c44f3d69a65719dc9`;
-it does not accept the newer combined App graph. Current build/Window/native
-refresh is queued. Source review identified missing isolated projection exports
+it does not accept the newer combined App graph. At reconciliation, fresh
+build/Window/native validation was queued. Source review identified missing isolated projection exports
 for two newly imported chart-storage controls, not an observed build failure;
-these must stay strictly unavailable and receive refusal/no-I/O tests. New tablet
+the current entry above now records their strict refusal/no-I/O tests. New tablet
 boot routing also needs fresh navigation coverage. No release upload or deployed
 change is implied by reconciling upstream build-128 metadata.
 
-The [current 14 October same-process record](../experiments/scuttlebutt-e2ee/review/scene-closure-os-roundtrip-2026-10-14.json)
+The [preceding 14 October same-process record](../experiments/scuttlebutt-e2ee/review/scene-closure-os-roundtrip-2026-10-14.json)
 passed a fresh owned-simulator protected/background/foreground run with original
 acceptance predicates and deadlines unchanged: 29 Swift sources, 28 driver pins,
 342 unsigned / 345 signed files and independent PID 20232. Current initiator
