@@ -32,6 +32,8 @@ const SENC_UPSTREAM = 'tools/senc-extractor/src';
 const ENGINE_ENTRY = 'services/inshoreRouterEngine.ts';
 // Prettier formats the mirror (and its --check output) across ~36 files.
 const CHECK_TIMEOUT_MS = 120_000;
+// A 'dir' symlink needs Developer Mode or admin on Windows; a junction needs neither (and rmSync removes only the link).
+const DIR_LINK = process.platform === 'win32' ? 'junction' : 'dir';
 
 function check(cwd: string, script: string) {
     const result = spawnSync(process.execPath, [script, '--check'], {
@@ -72,7 +74,7 @@ function scratchRepo(): string {
         // The mirror keeps each module at its app path; the stamp has no app source.
         if (rel !== 'syncedFrom.ts') copy(rel);
     }
-    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(root, 'node_modules'), 'dir');
+    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(root, 'node_modules'), DIR_LINK);
     return root;
 }
 
@@ -90,7 +92,7 @@ function sencScratchRepo(): string {
         copy(`pi-cache/src/sencEngine/${rel}`);
         if (rel !== 'syncedFrom.ts') copy(`${SENC_UPSTREAM}/${rel}`);
     }
-    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(root, 'node_modules'), 'dir');
+    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(root, 'node_modules'), DIR_LINK);
     return root;
 }
 
