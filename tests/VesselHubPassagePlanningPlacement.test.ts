@@ -65,7 +65,8 @@ describe('VesselHub passage-planning placement', () => {
         expect(hubScroll).toBeGreaterThan(binderStart);
 
         expect(passageRow).toContain("onNavigate('crew')");
-        expect(passageRow).toContain('passageCrewCount');
+        // The crew register's count, the float plan's way (129-14, tests/VesselHubCrewCount.test.tsx).
+        expect(passageRow).toContain('crewCountShown');
         expect(passageRow).toContain('pendingCrewInvites');
         expect(source).not.toContain('requestSavedRoutesLibraryOpen(scope)');
         expect(source).not.toContain('label="Saved Routes"');

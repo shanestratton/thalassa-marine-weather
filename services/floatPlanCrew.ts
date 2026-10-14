@@ -34,8 +34,16 @@ import {
     floatPlanSelfDetails,
     isNotPushedYet,
     mergeAboard,
+    rosterSeedsFromVesselProfile,
+    seedPerson,
     type FloatPlanSelfDetails,
 } from './crew/floatPlanPeople';
+import { localDay } from './crew/dateOfBirth';
+import {
+    dateOfBirthColumnAbsent,
+    isDateOfBirthColumnMissing,
+    noteDateOfBirthColumnAbsent,
+} from './crew/dateOfBirthColumn';
 import { sortByCrewRank } from './crew/crewRank';
 import { formatPlannedRouteLabel, formatStoredPlannedRouteName } from './shiplog/plannedRouteNaming';
 
@@ -72,9 +80,11 @@ export type FloatPlanRosterSeed = {
     /**
      * An accepted crew member's own name, phone and age from THEIR Settings,
      * shared for this float plan (crew_float_plan_details, 2026-10-04).
-     * `name` is already theirs; `appName` is what the app calls them.
+     * `name` is already theirs; `appName` is what the app calls them. The age
+     * is on the plan's departure day when they shared a date of birth
+     * (129-14); the date of birth itself never comes this far.
      */
-    shared?: FloatPlanSelfDetails & { appName: string };
+    shared?: Omit<FloatPlanSelfDetails, 'dateOfBirth'> & { appName: string };
     /**
      * Accepted crew whose every invite named a passage other than this plan's:
      * that passage's name (or "another passage"), so the sheet can say where
@@ -197,12 +207,15 @@ export function crewRoleToFloatPlanRole(role: CrewRole | string): string {
  * carries their most senior role, as on their own device.
  *
  * Pending invites stay offers for THIS plan only: global ones and this
- * voyage's, as "Add <name>" chips, never pre-listed.
+ * voyage's, as "Add <name>" chips, never pre-listed. The Vessel hub's count
+ * (anyPassagePending, 129-14) takes every passage's: someone invited for the
+ * next passage is still someone invited to the boat.
  */
 function partitionCrewRows(
     rows: VesselCrewRow[],
     voyageId: string | null | undefined,
     ownerId: string,
+    anyPassagePending = false,
 ): { accepted: VesselCrewRow[]; pending: VesselCrewRow[]; elsewhere: Map<VesselCrewRow, string> } {
     const accepted: VesselCrewRow[] = [];
     const pending: VesselCrewRow[] = [];
@@ -242,7 +255,7 @@ function partitionCrewRows(
         if (passage && !here.has(key)) elsewhere.set(accepted[at], passage);
     }
     for (const row of others) {
-        if (row.status !== 'pending' || !forThisPlan(row)) continue;
+        if (row.status !== 'pending' || !(anyPassagePending || forThisPlan(row))) continue;
         const key = keyOf(row);
         if (!key || seen.has(key)) continue;
         seen.set(key, -1);
@@ -303,7 +316,27 @@ async function passageNames(
  * with `.in('user_id', ids)` for every name at once. The identity scope is
  * captured first and re-checked after every await, as everywhere else.
  */
-export async function loadFloatPlanCrew(voyageId?: string | null): Promise<FloatPlanCrew | null> {
+export interface LoadFloatPlanCrewOptions {
+    /**
+     * The day the plan's ages are for, yyyy-mm-dd: its departure day, in the
+     * plan's own zone (129-14). Today by default.
+     */
+    onDay?: string;
+    /**
+     * The Vessel hub's count (129-14): names only from the shared details
+     * (the identity rule needs them; phones and ages are not read), every
+     * passage's pending invites, and no passage names.
+     */
+    forCount?: boolean;
+}
+
+/** The shared-details columns the plan reads; the date of birth since 129-14, until the server says it has none. */
+const DETAILS_COLUMNS = 'user_id, full_name, phone, age';
+
+export async function loadFloatPlanCrew(
+    voyageId?: string | null,
+    { onDay = localDay(), forCount = false }: LoadFloatPlanCrewOptions = {},
+): Promise<FloatPlanCrew | null> {
     if (!supabase) return null;
     const scope = getAuthIdentityScope();
     if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
@@ -332,6 +365,7 @@ export async function loadFloatPlanCrew(voyageId?: string | null): Promise<Float
             (crewData ?? []) as VesselCrewRow[],
             voyageId,
             user.id,
+            forCount,
         );
 
         const nameIds = [
@@ -382,24 +416,50 @@ export async function loadFloatPlanCrew(voyageId?: string | null): Promise<Float
         // vessel profile in settings"). RLS shows a skipper only his accepted
         // crew's rows. Optional: before the 20261004120000 push, or on any
         // error, the names above still stand.
-        const shared = new Map<string, FloatPlanSelfDetails>();
+        // Their date of birth too since 129-14, aged on the plan's departure
+        // day here and dropped: the seeds below carry the age only. Before the
+        // 129 migration the column is missing: asked again without it, and
+        // remembered (services/crew/dateOfBirthColumn.ts). The hub's count
+        // reads their names only.
+        const shared = new Map<string, Omit<FloatPlanSelfDetails, 'dateOfBirth'>>();
         const acceptedIds = accepted.map((row) => row.crew_user_id).filter((id): id is string => Boolean(id));
         if (acceptedIds.length > 0) {
-            const { data, error } = await supabase
-                .from('crew_float_plan_details')
-                .select('user_id, full_name, phone, age')
-                .in('user_id', acceptedIds);
+            const db = supabase;
+            const read = (columns: string) =>
+                db.from('crew_float_plan_details').select(columns).in('user_id', acceptedIds);
+            const withBirthDates = !forCount && !dateOfBirthColumnAbsent();
+            let { data, error } = await read(
+                forCount
+                    ? 'user_id, full_name'
+                    : withBirthDates
+                      ? `${DETAILS_COLUMNS}, date_of_birth`
+                      : DETAILS_COLUMNS,
+            );
             if (!isAuthIdentityScopeCurrent(scope)) return null;
+            if (withBirthDates && error && isDateOfBirthColumnMissing(error)) {
+                noteDateOfBirthColumnAbsent();
+                ({ data, error } = await read(DETAILS_COLUMNS));
+                if (!isAuthIdentityScopeCurrent(scope)) return null;
+            }
             // Before the push the table is missing: quiet, one read per open.
             if (error && !isNotPushedYet(error)) {
                 log.warn('float plan crew: shared details read failed', error.message);
             }
-            for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+            for (const row of (data ?? []) as unknown as Array<Record<string, unknown>>) {
                 if (typeof row?.user_id !== 'string') continue;
-                const own = floatPlanSelfDetails({
-                    contactPhone: row.phone as string,
-                    crewRoster: [{ name: row.full_name as string, age: row.age as number }],
-                });
+                const { dateOfBirth: _birth, ...own } = floatPlanSelfDetails(
+                    {
+                        contactPhone: row.phone as string,
+                        crewRoster: [
+                            {
+                                name: row.full_name as string,
+                                age: row.age as number,
+                                dateOfBirth: row.date_of_birth as string,
+                            },
+                        ],
+                    },
+                    onDay,
+                );
                 if (own.name || own.phone || own.age) shared.set(row.user_id, own);
             }
         }
@@ -408,7 +468,9 @@ export async function loadFloatPlanCrew(voyageId?: string | null): Promise<Float
         // says which passage (review 2026-10-06), so a one-off guest on every
         // later plan is never silent.
         const passages =
-            elsewhere.size > 0 ? await passageNames(supabase, user.id, [...new Set(elsewhere.values())]) : null;
+            elsewhere.size > 0 && !forCount
+                ? await passageNames(supabase, user.id, [...new Set(elsewhere.values())])
+                : null;
         if (!isAuthIdentityScopeCurrent(scope)) return null;
 
         const toSeed = (row: VesselCrewRow, source: 'crew' | 'invite'): FloatPlanRosterSeed => {
@@ -444,30 +506,11 @@ export async function loadFloatPlanCrew(voyageId?: string | null): Promise<Float
 }
 
 /**
- * The vessel profile's own people (Shane 2026-09-09) as Float Plan seeds:
- * the rows the skipper typed under "Crew Aboard", named ones only, capped at
- * the crew count, ages carried. These outrank the crew-invite list — they are
- * the skipper's own answer to "who is aboard".
+ * The vessel profile's own people as Float Plan seeds, aged on the plan's
+ * departure day: services/crew/floatPlanPeople.ts since 129-14, where the
+ * Vessel hub's count reads them without loading Supabase.
  */
-export function rosterSeedsFromVesselProfile(
-    vessel:
-        | { crewCount?: number; crewRoster?: Array<{ name: string; age?: number; rank?: string }> }
-        | null
-        | undefined,
-): Array<FloatPlanRosterSeed & { age: number | null }> {
-    const rows = vessel?.crewRoster ?? [];
-    const cap =
-        typeof vessel?.crewCount === 'number' && Number.isFinite(vessel.crewCount)
-            ? Math.max(1, Math.min(99, Math.round(vessel.crewCount)))
-            : rows.length;
-    return rows.slice(0, cap).flatMap((row, index) => {
-        const name = (row?.name ?? '').trim();
-        if (!name) return [];
-        const rank = (row.rank ?? '').trim();
-        const age = typeof row.age === 'number' && Number.isFinite(row.age) && row.age > 0 ? Math.round(row.age) : null;
-        return [{ name, role: rank || (index === 0 ? 'Skipper' : 'Crew'), source: 'profile' as const, age }];
-    });
-}
+export { rosterSeedsFromVesselProfile };
 
 /**
  * The vessel profile's people and the accepted crew not already among them
@@ -480,18 +523,5 @@ export function mergeProfileWithCrew(
     profile: ReturnType<typeof rosterSeedsFromVesselProfile>,
     aboard: FloatPlanRosterSeed[],
 ) {
-    return sortByCrewRank(
-        mergeAboard(
-            profile,
-            aboard.map((seed) => ({
-                appName: seed.shared?.appName ?? seed.name,
-                ownName: seed.shared?.name,
-                role: seed.role,
-                isSkipper: seed.source === 'skipper',
-                crewUserId: seed.crewUserId,
-                age: seed.shared?.age,
-                phone: seed.shared?.phone,
-            })),
-        ),
-    );
+    return sortByCrewRank(mergeAboard(profile, aboard.map(seedPerson)));
 }

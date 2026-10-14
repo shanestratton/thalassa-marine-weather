@@ -57,7 +57,7 @@ describe('rosterSeedsFromVesselProfile', () => {
 
 describe('Vessel tab — one row per person under Crew Aboard', () => {
     const tab = readFileSync('components/settings/VesselTab.tsx', 'utf8');
-    it('renders crewCount rows of name / age / rank and saves them on the profile', () => {
+    it('renders crewCount rows of name / date of birth / rank and saves them on the profile', () => {
         expect(tab).toContain('Array.from({ length: vesselCrewAboard(vessel) }');
         expect(tab).toContain('data-testid="vessel-crew-roster"');
         // Each field is named after the heading the skipper sees ('Skipper name',
@@ -66,7 +66,9 @@ describe('Vessel tab — one row per person under Crew Aboard', () => {
             "const crewHeading = (index: number) => (index === 0 ? 'Skipper' : `Crew ${index + 1}`);",
         );
         expect(tab).toContain('aria-label={`${crewHeading(index)} name`}');
-        expect(tab).toContain('aria-label={`${crewHeading(index)} age`}');
+        // A date of birth, not an age, since 129-14 (tests/VesselTabDateOfBirth.test.tsx).
+        expect(tab).toContain('aria-label={`${crewHeading(index)} date of birth`}');
+        expect(tab).not.toContain('aria-label={`${crewHeading(index)} age`}');
         expect(tab).toContain('aria-label={`${crewHeading(index)} rank`}');
         expect(tab).toContain('FLOAT_PLAN_ROLES.map((role) =>');
         expect(tab).toContain('const patch = { crewRoster: next } as Partial<VesselProfile>;');

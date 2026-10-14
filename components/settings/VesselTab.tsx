@@ -21,7 +21,9 @@ import { saveIdentity } from '../../services/VesselIdentityService';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 import { vesselCrewAboard, vesselCruisingSpeedKts, vesselMaxWaveHeightFt } from '../../services/units';
 import { FLOAT_PLAN_ROLES } from '../../services/floatPlanCrew';
+import { ageOn, isBirthDate, localDay } from '../../services/crew/dateOfBirth';
 import { useShareMyFloatPlanDetailsOnEdit } from '../../hooks/useShareMyFloatPlanDetailsOnEdit';
+import { BirthDateInput } from './BirthDateInput';
 import type { VesselCrewPerson } from '../../types/vessel';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { AlertTriangleIcon, AnchorIcon, EyeIcon, CheckIcon, PlusSquareIcon, RefreshIcon, TrashIcon } from '../Icons';
@@ -619,6 +621,23 @@ function MetricInput({
  *  skipper sees (UX scorecard run 9). */
 const crewHeading = (index: number) => (index === 0 ? 'Skipper' : `Crew ${index + 1}`);
 
+/**
+ * The line under a person's date of birth (129-14): the age it gives today,
+ * or, for a row with only the age typed before 129, that age and a gentle
+ * note. Null when there is neither.
+ */
+function birthDateHint(person: VesselCrewPerson, today: string): string | null {
+    if (isBirthDate(person.dateOfBirth)) {
+        const age = ageOn(person.dateOfBirth, today);
+        if (age === null) return 'That date is after today.';
+        return age === 0 ? 'Under 1 today' : `Age ${age} today`;
+    }
+    const age = person.age;
+    if (typeof age === 'number' && Number.isFinite(age) && age >= 1 && age <= 120)
+        return `Age ${Math.round(age)} from before. Add date of birth so this stays right.`;
+    return null;
+}
+
 interface VesselTabProps extends SettingsTabProps {
     /** Opens Settings → Preferences. Passed once the ocean-currents switch
      *  lives there (toggles live in Preferences); until then this page keeps
@@ -845,16 +864,25 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
         return () => clearTimeout(t);
     }, [fleetAvailable, vesselName, vesselType, vesselModel]);
 
-    // Crew: your own name, mobile and age (the Skipper row and Skipper mobile
-    // here) go on your skipper's float plan (Shane 2026-10-04), after an edit.
+    // Crew: your own name, mobile and date of birth (the Skipper row and
+    // Skipper mobile here) go to your skipper for the float plan (Shane
+    // 2026-10-04; the date since 129-14, printed as an age), after an edit.
     useShareMyFloatPlanDetailsOnEdit(vessel);
 
     const crewAboard = vesselCrewAboard(vessel);
     /** One row per person aboard, padded to the crew count (rank defaults: Skipper first, Crew after). */
     const crewRosterRows: VesselCrewPerson[] = Array.from({ length: vesselCrewAboard(vessel) }, (_, i) => {
         const row = vessel?.crewRoster?.[i];
-        return { name: row?.name ?? '', age: row?.age, rank: row?.rank || (i === 0 ? 'Skipper' : 'Crew') };
+        return {
+            name: row?.name ?? '',
+            ...(row?.dateOfBirth ? { dateOfBirth: row.dateOfBirth } : {}),
+            age: row?.age,
+            rank: row?.rank || (i === 0 ? 'Skipper' : 'Crew'),
+        };
     });
+    /** This phone's own calendar day: a date of birth's age, and the latest date the picker offers. */
+    const today = localDay();
+    const birthHints = crewRosterRows.map((person) => birthDateHint(person, today));
     const updateVesselRoster = (index: number, change: Partial<VesselCrewPerson>) => {
         const next = crewRosterRows.map((row, i) => (i === index ? { ...row, ...change } : row));
         const patch = { crewRoster: next } as Partial<VesselProfile>;
@@ -2212,18 +2240,25 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                         <p id={`${fid}-crew-help`} className="text-xs text-gray-400 mt-1.5">
                             Used for provisioning and watch scheduling in passage plans
                         </p>
-                        {/* One row per person aboard — name, age, rank — straight
-                            under the count (Shane 2026-09-09: "the same amount of
-                            area to add a punters name and age and rank … those
-                            names should auto xfer across to the float plan"). The
-                            Float Plan seeds its persons roster from these first. */}
+                        {/* One row per person aboard — name, date of birth, rank —
+                            straight under the count (Shane 2026-09-09: "the same
+                            amount of area to add a punters name and age and rank …
+                            those names should auto xfer across to the float plan").
+                            The Float Plan seeds its persons roster from these first.
+                            A date of birth, not an age, since 129-14 (Shane
+                            2026-10-14: "can we change punters age for date of
+                            birth. Otherwise we will have to change the age every
+                            year"): the plan prints the age it gives on the
+                            departure day. On a crew member's own profile the
+                            Skipper row is them, and goes to their skipper's plan. */}
                         <div className="mt-3 space-y-3" data-testid="vessel-crew-roster">
                             {crewRosterRows.map((person, index) => (
                                 <div
                                     key={index}
                                     // Stacked, not three across (Shane 2026-09-09: "just stack
                                     // them claude. never enough space"): the name gets the whole
-                                    // line, age and rank share the one below. No card of its own
+                                    // line, and date of birth and rank stack under it (side by side
+                                    // on an iPad). No card of its own
                                     // (it sat three levels deep) and visible labels, not
                                     // placeholder-only fields (UX scorecard run 6).
                                     className={`space-y-2 ${index > 0 ? 'border-t border-white/5 pt-3' : ''}`}
@@ -2245,32 +2280,58 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                                             className={`${FIELD_CLASS} focus:border-sky-500`}
                                         />
                                     </label>
-                                    {/* Age and Rank share one 44 pt height and one field
-                                        look (UX scorecard run 7). */}
-                                    <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
-                                        <label className="block min-w-0">
-                                            <span className={FIELD_LABEL_CLASS}>Age</span>
-                                            <input
-                                                type="number"
-                                                inputMode="numeric"
-                                                min="0"
-                                                max="120"
-                                                aria-label={`${crewHeading(index)} age`}
-                                                value={
-                                                    typeof person.age === 'number' && Number.isFinite(person.age)
-                                                        ? person.age
-                                                        : ''
-                                                }
-                                                onChange={(e) => {
-                                                    const n = parseInt(e.target.value, 10);
-                                                    updateVesselRoster(index, {
-                                                        age: Number.isFinite(n) && n > 0 ? n : undefined,
-                                                    });
-                                                }}
-                                                placeholder="--"
-                                                className={`${FIELD_CLASS} ${NO_SPINNER_CLASS} tabular-nums focus:border-sky-500`}
-                                            />
-                                        </label>
+                                    {/* Date of birth and Rank share one 44 pt height and
+                                        one field look (UX scorecard run 7): side by side
+                                        while each has 11rem (an iPad), else stacked, so a
+                                        phone shows the whole date beside the browser's
+                                        calendar button. The platform's own date picker,
+                                        so the date reads in the phone's own format; it is
+                                        stored as yyyy-mm-dd. The age it gives today shows
+                                        under it; an age typed before 129 stays, with a
+                                        note, until a date is entered. */}
+                                    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(11rem,100%),1fr))] items-start gap-2">
+                                        <div className="min-w-0">
+                                            <label className="block min-w-0">
+                                                <span className={FIELD_LABEL_CLASS}>Date of birth</span>
+                                                {/* Holds what is being typed, and hands up only a
+                                                    whole date or a cleared field (BirthDateInput). */}
+                                                <BirthDateInput
+                                                    saved={isBirthDate(person.dateOfBirth) ? person.dateOfBirth : ''}
+                                                    max={today}
+                                                    aria-label={`${crewHeading(index)} date of birth`}
+                                                    aria-describedby={
+                                                        birthHints[index] ? `${fid}-crew-${index}-birth` : undefined
+                                                    }
+                                                    onCommit={(dateOfBirth) => {
+                                                        // Cleared: the age it gave goes with it. An age
+                                                        // typed before 129 stays until a date replaces it.
+                                                        if (!dateOfBirth) {
+                                                            if (person.dateOfBirth)
+                                                                updateVesselRoster(index, {
+                                                                    dateOfBirth: undefined,
+                                                                    age: undefined,
+                                                                });
+                                                            return;
+                                                        }
+                                                        // The age too, for builds before 129 that read only it.
+                                                        const age = ageOn(dateOfBirth, today);
+                                                        updateVesselRoster(index, {
+                                                            dateOfBirth,
+                                                            age: age !== null && age >= 1 ? age : undefined,
+                                                        });
+                                                    }}
+                                                    className={`${FIELD_CLASS} scheme-dark tabular-nums focus:border-sky-500`}
+                                                />
+                                            </label>
+                                            {birthHints[index] && (
+                                                <p
+                                                    id={`${fid}-crew-${index}-birth`}
+                                                    className="mt-1 text-xs leading-snug text-gray-400"
+                                                >
+                                                    {birthHints[index]}
+                                                </p>
+                                            )}
+                                        </div>
                                         <label className="block min-w-0">
                                             <span className={FIELD_LABEL_CLASS}>Rank</span>
                                             <select

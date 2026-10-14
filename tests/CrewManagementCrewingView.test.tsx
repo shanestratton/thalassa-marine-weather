@@ -491,7 +491,7 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         expect(within(card).getByText('People aboard: 4')).toBeInTheDocument();
         expect(
             await within(card).findByText(
-                "Your name, mobile and age from Settings → Vessel Profile go on Wandering Albatross's float plan. In the app only the skippers you crew for see them; the float plan itself goes to whoever they send it to.",
+                "Your name, mobile and date of birth from Settings → Vessel Profile go to Wandering Albatross's skipper for the float plan, which prints your age, never the date. In the app only the skippers you crew for see them; the float plan itself goes to whoever they send it to.",
             ),
         ).toBeInTheDocument();
         // Nobody else's phone or age is anywhere on the page.

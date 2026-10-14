@@ -18,6 +18,22 @@ export interface VesselDimensionUnits {
 /** A person aboard, as the vessel profile remembers them. */
 export interface VesselCrewPerson {
     name: string;
+    /**
+     * Their date of birth, yyyy-mm-dd: a calendar date with no time and no
+     * zone (129-14, Shane 2026-10-14: "can we change punters age for date of
+     * birth. Otherwise we will have to change the age every year"). The float
+     * plan prints the age it gives on the departure day, never the date. Like
+     * the rest of the roster it goes only to the float plan, and to the
+     * person's own skipper when it is their own row (crew_float_plan_details):
+     * never the public page, the crew's view of the boat or a log line.
+     */
+    dateOfBirth?: string;
+    /**
+     * The age as typed before 129. Kept while there is no date of birth, and
+     * set to the age a date of birth gives on the day it is entered, for
+     * builds before 129 that read only this. A date of birth wins whenever
+     * there is one; one is never guessed from this.
+     */
     age?: number;
     /** One of the Float Plan's roles — Skipper, First mate, Navigator, Engineer, Cook, Deckhand, Crew, Guest, Child. */
     rank?: string;
@@ -70,7 +86,8 @@ export interface VesselProfile {
      * the skipper types them once (Shane 2026-09-09: "the same amount of area
      * to add a punters name and age and rank … those names should auto xfer
      * across to the float plan"). Rows beyond crewCount are ignored; empty
-     * names are skipped when the Float Plan seeds its persons roster.
+     * names are skipped when the Float Plan seeds its persons roster. A date
+     * of birth in place of the age since 129-14 (VesselCrewPerson).
      */
     crewRoster?: VesselCrewPerson[];
     customIconUrl?: string;

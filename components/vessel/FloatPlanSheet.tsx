@@ -40,6 +40,7 @@ import {
     type FloatPlanRosterSeed,
 } from '../../services/floatPlanCrew';
 import { aboardCount } from '../../services/crew/floatPlanPeople';
+import { dayIn } from '../../services/crew/dateOfBirth';
 import { sortByCrewRank } from '../../services/crew/crewRank';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
@@ -295,6 +296,16 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         return Number.isFinite(value) ? value : Date.now();
     }, [preset, voyage?.departure_time]);
 
+    // The day the plan's ages are for (129-14): its departure day, in the zone
+    // it prints its times in. A birthday during the passage does not matter;
+    // the plan prints the age a date of birth gives on this day, never the date.
+    // That zone is this phone's: a voyage carries no zone of its own. So a
+    // phone on Brisbane time planning a 00:30 departure from Noumea (UTC+11)
+    // reads the day before, and a crew member born that day is a year younger
+    // on the plan; its printed departure time is Brisbane's too, so the plan
+    // agrees with itself. The place's own zone is for when a voyage has one.
+    const departureDay = useMemo(() => dayIn(departureMs, timeZone), [departureMs, timeZone]);
+
     const etaMs = useMemo(() => {
         if (preset) return Number.isFinite(preset.etaMs) ? Number(preset.etaMs) : null;
         const value = voyage?.eta ? new Date(voyage.eta).getTime() : Number.NaN;
@@ -488,7 +499,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         // names under "Crew Aboard" "auto xfer across to the float plan"). They
         // are the skipper's answer to who is aboard; the crew-invite list then
         // only offers its pending invitees as chips.
-        const profileSeeds = rosterSeedsFromVesselProfile(vessel);
+        const profileSeeds = rosterSeedsFromVesselProfile(vessel, departureDay);
         const seededFromProfile = profileSeeds.length > 0;
         const unnamedBeyond = (listed: number) => Math.max(0, aboardCount(listed, vessel?.crewCount) - listed);
         const profileRows: RosterRow[] = inRankOrder(
@@ -506,7 +517,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
             if (!personsTouchedRef.current) setPersonsOnBoard(aboardCount(profileRows.length, vessel?.crewCount));
         }
         void (async () => {
-            const result = await loadFloatPlanCrew(voyage?.id ?? null);
+            const result = await loadFloatPlanCrew(voyage?.id ?? null, { onDay: departureDay });
             if (cancelled || !result || !isAuthIdentityScopeCurrent(scope)) return;
             const invitedFor = invitedElsewhere(result.aboard);
             setCrewInvitedFor(invitedFor);
@@ -598,7 +609,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
     const refreshRosterFromCrew = async () => {
         triggerHaptic('light');
         const scope = getAuthIdentityScope();
-        const result = await loadFloatPlanCrew(voyage?.id ?? null);
+        const result = await loadFloatPlanCrew(voyage?.id ?? null, { onDay: departureDay });
         if (!result || !isAuthIdentityScopeCurrent(scope)) return;
         const previous = personsRosterRef.current;
         // Names and roles come back fresh from the crew list — that is what a
