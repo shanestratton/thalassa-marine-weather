@@ -14,6 +14,12 @@ export interface MetricWidget {
     headingColor: string;
     labelColor: string;
     dirDeg?: number | null; // Optional direction arrow (degrees)
+    /**
+     * A long heading (WIND SEA, 130-04): normal tracking and a tighter gap
+     * keep it on one line in a third of a 320 px phone in wide fonts, where
+     * the widest tracking broke it in two.
+     */
+    compactLabel?: boolean;
 }
 
 interface MetricGridPanelProps {
@@ -38,10 +44,12 @@ const SmallArrow: React.FC<{ degrees: number; size?: number }> = ({ degrees, siz
 
 const MetricCell: React.FC<{ w: MetricWidget; value: string | number; unit: string }> = ({ w, value, unit }) => (
     <div className="flex flex-col items-center justify-center h-full py-2 px-1 gap-1">
-        <div className="glass-metric-heading-row flex items-center gap-1.5 opacity-90">
+        <div
+            className={`glass-metric-heading-row flex items-center ${w.compactLabel ? 'gap-1' : 'gap-1.5'} opacity-90`}
+        >
             <span className={`w-3 h-3 ${w.headingColor}`}>{w.icon}</span>
             <span
-                className={`glass-metric-heading text-[11px] font-sans font-bold tracking-widest uppercase ${w.labelColor}`}
+                className={`glass-metric-heading text-[11px] font-sans font-bold ${w.compactLabel ? 'tracking-normal whitespace-nowrap' : 'tracking-widest'} uppercase ${w.labelColor}`}
             >
                 {w.label}
             </span>

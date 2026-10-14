@@ -56,7 +56,8 @@ export interface CardDisplayValues {
     moon?: string;
     cape?: number | string;
     secondarySwellHeight?: number | string;
-    secondarySwellPeriod?: number | string;
+    /** PER. 2 became WIND SEA (130-04). */
+    windWaveHeight?: number | string;
     sogKts?: number | string;
     cogDeg?: number | string;
 }

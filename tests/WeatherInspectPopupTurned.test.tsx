@@ -102,12 +102,7 @@ describe('the bubble’s wind arrow subtracts the chart’s bearing', () => {
             temperatureC: 16,
             humidity: 70,
             cloudCover: 20,
-            waveHeightM: null,
-            wavePeriodS: null,
-            waveDirectionDeg: null,
-            swellHeightM: null,
-            swellPeriodS: null,
-            swellDirectionDeg: null,
+            sea: null,
         } as unknown as PointWeatherData;
         const { container } = render(<WeatherInspectPopup data={data} loading={false} onClose={vi.fn()} />);
         const arrow = [...container.querySelectorAll('svg')].find((svg) =>

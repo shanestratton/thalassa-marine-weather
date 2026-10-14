@@ -3,12 +3,30 @@
  *
  * Fires two lightweight parallel API calls:
  *   1. Open-Meteo Forecast — wind, pressure, temp, humidity, cloud cover
- *   2. Open-Meteo Marine — wave height, period, direction, swell
+ *   2. The sea in parts (services/weather/seaPartitions, build 130): MFWAM's
+ *      wind sea, swell and second swell, GFS Wave as a second opinion, behind
+ *      a snap guard for THIS point
  *
  * Returns a unified PointWeatherData object for the popup display.
  */
 
 import { fetchOpenMeteoProxy } from './openMeteoProxy';
+import { fetchSeaPartitions, seaHourAt, seaModelsDiffer, type SeaPart, type SeaPartitions } from './seaPartitions';
+
+/** The sea at the hour of the tap: MFWAM's numbers only, behind the guard. */
+export interface PointSea {
+    /** The total sea; its mean period. */
+    total: SeaPart;
+    windSea: SeaPart | null;
+    swell: SeaPart | null;
+    swell2: SeaPart | null;
+    /** MFWAM and GFS Wave part by ×1.5 and 0.3 m: say so. Null when they agree, or GFS has no say. */
+    differ: { mfwamM: number; gfsM: number } | null;
+    /** Shown wherever these numbers are (a licence condition). */
+    credit: string;
+    /** How far MFWAM's answering cell is from the tap. */
+    snappedKm: number | null;
+}
 
 export interface PointWeatherData {
     lat: number;
@@ -21,8 +39,15 @@ export interface PointWeatherData {
      * paints as soon as the ATMOSPHERIC half arrives; without it the marine
      * block would have to claim 'unavailable' during the second or two before
      * its own request settles, which is a lie the punter can see.
+     *
+     * 'sheltered' (130-04): the wave model answered, but from a cell too far
+     * away to be this water (a berth, a marina, an enclosed bay), or with
+     * nulls. It reads SEA_NONE_LONG, never a number and never "over land".
+     * 'land' stays for a source that can prove dry land; the wave reply
+     * cannot (it answers inland taps from the nearest wet cell), so the sea
+     * path never claims it.
      */
-    marineStatus: 'available' | 'land' | 'unavailable' | 'pending';
+    marineStatus: 'available' | 'land' | 'sheltered' | 'unavailable' | 'pending';
     // Atmospheric — null when the model did not supply the field. Never 0:
     // "0 kts" and "0°C" are readings, and the popup shows '--' for null.
     windSpeedKmh: number | null;
@@ -32,13 +57,8 @@ export interface PointWeatherData {
     temperatureC: number | null;
     humidity: number | null;
     cloudCover: number | null;
-    // Marine (optional — null if on land)
-    waveHeightM: number | null;
-    wavePeriodS: number | null;
-    waveDirectionDeg: number | null;
-    swellHeightM: number | null;
-    swellPeriodS: number | null;
-    swellDirectionDeg: number | null;
+    /** The sea in parts; null unless marineStatus is 'available'. */
+    sea: PointSea | null;
 }
 
 /**
@@ -114,7 +134,7 @@ async function loadPointWeather(
     // Both fire together; the atmospheric one is simply allowed to report
     // first rather than being held behind the marine one.
     const forecastPromise = fetchForecastPoint(latStr, lonStr);
-    const marinePromise = fetchMarinePoint(latStr, lonStr);
+    const marinePromise = fetchSeaPartitions(lat, lon);
     // Nothing awaits the marine promise until below; without this an early
     // rejection would surface as an unhandled one.
     const marineSettled = marinePromise.then(
@@ -138,11 +158,11 @@ async function loadPointWeather(
     }
 
     const marine = await marineSettled;
-    const sea = marine.value;
+    const sea = marine.value ? seaNow(marine.value, Date.now()) : null;
 
     const data: PointWeatherData = {
         ...shape(lat, lon, wx, sea),
-        marineStatus: !marine.ok ? 'unavailable' : sea ? 'available' : 'land',
+        marineStatus: !marine.ok ? 'unavailable' : sea ? 'available' : 'sheltered',
     };
 
     pointCache.set(cacheKey(lat, lon), { at: Date.now(), data });
@@ -154,12 +174,27 @@ async function loadPointWeather(
     return data;
 }
 
-function shape(lat: number, lon: number, wx: AtmoData, sea: MarineData | null): PointWeatherData {
+/** The hour of the tap, or null where the guard refused the cell or MFWAM has no total for it. */
+function seaNow(partitions: SeaPartitions, now: number): PointSea | null {
+    const hour = seaHourAt(partitions, now);
+    if (!hour?.total) return null;
+    return {
+        total: hour.total,
+        windSea: hour.windSea,
+        swell: hour.swell,
+        swell2: hour.swell2,
+        differ: seaModelsDiffer(hour),
+        credit: partitions.credit,
+        snappedKm: partitions.snappedKm,
+    };
+}
+
+function shape(lat: number, lon: number, wx: AtmoData, sea: PointSea | null): PointWeatherData {
     return {
         lat,
         lon,
         fetchedAt: Date.now(),
-        marineStatus: sea ? 'available' : 'land',
+        marineStatus: sea ? 'available' : 'sheltered',
         windSpeedKmh: wx.windSpeedKmh,
         windDirectionDeg: wx.windDirectionDeg,
         windGustsKmh: wx.windGustsKmh,
@@ -167,12 +202,7 @@ function shape(lat: number, lon: number, wx: AtmoData, sea: MarineData | null): 
         temperatureC: wx.temperatureC,
         humidity: wx.humidity,
         cloudCover: wx.cloudCover,
-        waveHeightM: sea?.waveHeightM ?? null,
-        wavePeriodS: sea?.wavePeriodS ?? null,
-        waveDirectionDeg: sea?.waveDirectionDeg ?? null,
-        swellHeightM: sea?.swellHeightM ?? null,
-        swellPeriodS: sea?.swellPeriodS ?? null,
-        swellDirectionDeg: sea?.swellDirectionDeg ?? null,
+        sea,
     };
 }
 
@@ -208,40 +238,5 @@ async function fetchForecastPoint(lat: string, lon: string): Promise<AtmoData | 
         temperatureC: c.temperature_2m ?? null,
         humidity: c.relative_humidity_2m ?? null,
         cloudCover: c.cloud_cover ?? null,
-    };
-}
-
-// ── Marine (waves/swell) ────────────────────────────────────────
-
-interface MarineData {
-    waveHeightM: number | null;
-    wavePeriodS: number | null;
-    waveDirectionDeg: number | null;
-    swellHeightM: number | null;
-    swellPeriodS: number | null;
-    swellDirectionDeg: number | null;
-}
-
-async function fetchMarinePoint(lat: string, lon: string): Promise<MarineData | null> {
-    const data = await fetchOpenMeteoProxy<{
-        current?: Record<string, number | null>;
-    }>('marine', {
-        latitude: lat,
-        longitude: lon,
-        current: 'wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period,swell_wave_direction',
-    });
-    const c = data?.current;
-    if (!c) return null;
-
-    // Marine API returns null for land locations
-    if (c.wave_height == null && c.swell_wave_height == null) return null;
-
-    return {
-        waveHeightM: c.wave_height ?? null,
-        wavePeriodS: c.wave_period ?? null,
-        waveDirectionDeg: c.wave_direction ?? null,
-        swellHeightM: c.swell_wave_height ?? null,
-        swellPeriodS: c.swell_wave_period ?? null,
-        swellDirectionDeg: c.swell_wave_direction ?? null,
     };
 }

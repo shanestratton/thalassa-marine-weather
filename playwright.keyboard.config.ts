@@ -106,6 +106,11 @@ export default defineConfig({
         // picker, six readings and the credit fit 320 × 568 in wide fonts, centred
         // above the tab bar, in every palette (e2e/fixtures/sounding-sheet.tsx).
         'sounding-sheet-layout.spec.ts',
+        // The sea in parts (130-04): the weather bubble's wind sea, swell and swell 2 rows, the
+        // wave power, the beta comfort word and the MFWAM credit keep the Save row above the tab
+        // bar at 320 × 568 in wide fonts; a berth reads "No open-water wave model reaches here"
+        // (e2e/fixtures/weather-inspect.tsx).
+        'weather-inspect-layout.spec.ts',
         // The big Log track map on Relief + Sat (build 125, 125-13b): Mapbox GL in
         // TrackMapViewer at 320 × 568 and 390 × 844 in wide fonts, the Solent,
         // Fiji across the antimeridian and the Whitsundays, offline tiles from
