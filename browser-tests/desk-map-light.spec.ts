@@ -729,17 +729,54 @@ const quietWrites = (page: Page) =>
     page.evaluate(
         () =>
             new Promise<number>((resolve) => {
-                const map = window.__thalassaMap as unknown as {
-                    on(t: string, f: () => void): void;
-                    off(t: string, f: () => void): void;
+                // The app's own style writes, counted once the chart is idle. Mapbox can
+                // fire a 'styledata' of its own on a still chart, so counting those failed
+                // 128's code too (release run 38522448875, and 2 of 4 runs locally).
+                const map = window.__thalassaMap as unknown as Record<string, unknown> & {
+                    once(t: string, f: () => void): void;
+                    triggerRepaint(): void;
                 };
-                let writes = 0;
-                const count = () => (writes += 1);
-                map.on('styledata', count);
-                setTimeout(() => {
-                    map.off('styledata', count);
-                    resolve(writes);
-                }, 2_000);
+                const writers = [
+                    'setStyle',
+                    'addLayer',
+                    'removeLayer',
+                    'moveLayer',
+                    'setPaintProperty',
+                    'setLayoutProperty',
+                    'setFilter',
+                    'setLayerZoomRange',
+                    'addSource',
+                    'removeSource',
+                ];
+                let started = false;
+                const count = () => {
+                    if (started) return;
+                    started = true;
+                    let writes = 0;
+                    const saved = writers.map((name) => [name, map[name]] as const);
+                    for (const [name, real] of saved) {
+                        if (typeof real !== 'function') continue;
+                        map[name] = function (this: unknown, ...args: unknown[]) {
+                            // The offline fallback's one-time install (useOfflineBaseLayer, on
+                            // 'idle' when the phone reads offline) answers the network, not a
+                            // still chart rewriting its style; it raced this window in WebKit.
+                            const first = args[0] as { id?: unknown } | string | undefined;
+                            const id = typeof first === 'string' ? first : first?.id;
+                            const offlineInstall =
+                                (name === 'addSource' || name === 'addLayer') &&
+                                (id === 'osm-offline-fallback' || id === 'seamark-offline-fallback');
+                            if (!offlineInstall) writes += 1;
+                            return (real as (...a: unknown[]) => unknown).apply(this, args);
+                        };
+                    }
+                    setTimeout(() => {
+                        for (const [name, real] of saved) map[name] = real;
+                        resolve(writes);
+                    }, 2_000);
+                };
+                map.once('idle', count);
+                map.triggerRepaint();
+                setTimeout(count, 3_000);
             }),
     );
 /** The planner's line edges and the reliefBase palette, as the chart has them. */
