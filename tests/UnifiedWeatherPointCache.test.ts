@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fetchMock = vi.hoisted(() => vi.fn());
 const pinnedPiRequest = vi.hoisted(() => vi.fn());
@@ -36,6 +36,9 @@ vi.mock('../utils/timezone', () => ({
 
 describe('unified weather point cache identity', () => {
     beforeEach(() => {
+        // fetchUnifiedWeatherRaw returns null before the Pi lane without a Supabase URL. CI sets one
+        // from repo vars; a checkout with no .env has none, so the test supplies its own.
+        vi.stubEnv('VITE_SUPABASE_URL', 'https://fictional-project.supabase.co');
         fetchMock.mockReset();
         fetchMock.mockResolvedValue({
             ok: true,
@@ -49,6 +52,10 @@ describe('unified weather point cache identity', () => {
             headers: { 'X-Cache': 'HIT' },
             data: JSON.stringify({ provider: 'weatherkit', isPremium: false }),
         });
+    });
+
+    afterEach(() => {
+        vi.unstubAllEnvs();
     });
 
     it('does not reuse a five-minute report for another point in the same 0.01-degree cell', async () => {
