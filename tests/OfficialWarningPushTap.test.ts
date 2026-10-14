@@ -13,7 +13,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PushToast, pushForegroundToast } from '../components/PushToast';
 import { takeOfficialPushPin } from '../services/officialPushPin';
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn(async () => undefined) }));
+vi.mock('../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/system')>()),
+    triggerHaptic: vi.fn(async () => undefined),
+}));
 afterEach(() => {
     cleanup();
     takeOfficialPushPin();

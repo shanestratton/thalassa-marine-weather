@@ -11,6 +11,7 @@
  * run yet) is null: not answered.
  */
 import { supabase } from './supabase';
+import { getAuthIdentityScope } from './authIdentityScope';
 
 export interface WeatherAlertStatus {
     version: number;
@@ -22,6 +23,8 @@ export interface WeatherAlertStatus {
 }
 
 export async function fetchWeatherAlertStatus(): Promise<WeatherAlertStatus | null> {
+    // Signed out there is no account to report on, and the RPC is for signed-in users.
+    if (!getAuthIdentityScope().userId) return null;
     try {
         const { data, error } = (await supabase?.rpc('weather_alert_status')) ?? {};
         const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null | undefined;

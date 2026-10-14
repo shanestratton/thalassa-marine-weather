@@ -174,7 +174,9 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
         if (name === 'node_modules' || name.startsWith('.')) continue;
         const path = join(dir, name);
         if (statSync(path).isDirectory()) sourceFiles(path, out);
-        else if (/\.(ts|tsx|js|mjs|json)$/.test(name) && !/\.(test|spec)\./.test(name)) out.push(path);
+        // Deno's tests are named *_test.ts; like *.test.ts they are never deployed (a
+        // function bundles only what its index.ts imports), so they are not shipped source.
+        else if (/\.(ts|tsx|js|mjs|json)$/.test(name) && !/\.(test|spec)\.|_test\.ts$/.test(name)) out.push(path);
     }
     return out;
 }

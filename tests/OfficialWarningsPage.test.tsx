@@ -25,6 +25,7 @@ vi.mock('../context/UIContext', () => ({ useUI: () => ({ setPage: mocks.setPage 
 vi.mock('../services/externalLinks', () => ({ openExternalUrl: mocks.openExternalUrl }));
 
 import { supabase } from '../services/supabase';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { WarningDetails } from '../components/WarningDetails';
 import {
     clearOfficialWarningsCache,
@@ -77,6 +78,8 @@ async function show(name: string, extra: Partial<React.ComponentProps<typeof War
 let language: PropertyDescriptor | undefined;
 let languages: PropertyDescriptor | undefined;
 beforeEach(() => {
+    // official_alerts_at is for signed-in users; the app never asks signed out.
+    setAuthIdentityScope('fixture-skipper');
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(FIXTURES.anchor));
     clearOfficialWarningsCache();
@@ -88,6 +91,7 @@ beforeEach(() => {
     languages = Object.getOwnPropertyDescriptor(Navigator.prototype, 'languages');
 });
 afterEach(() => {
+    setAuthIdentityScope(null);
     cleanup();
     vi.useRealTimers();
     if (language) Object.defineProperty(Navigator.prototype, 'language', language);
