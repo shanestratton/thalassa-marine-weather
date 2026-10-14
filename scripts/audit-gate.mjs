@@ -6,7 +6,7 @@
  * expired entry fails the gate, so an exception can't quietly become permanent.
  * The audit itself failing to run fails the gate too (fail-closed).
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 
 const ALLOW = [
     {
@@ -23,8 +23,12 @@ const ALLOW = [
 const BLOCKING = new Set(['high', 'critical']);
 
 function runAudit() {
+    const options = { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 };
     try {
-        return execFileSync('npm', ['audit', '--json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+        // On Windows npm is npm.cmd, which Node runs only through a shell (CVE-2024-27980). A fixed
+        // command string, because Node 24 warns about argument arrays with shell: true (DEP0190).
+        if (process.platform === 'win32') return execSync('npm.cmd audit --json', options);
+        return execFileSync('npm', ['audit', '--json'], options);
     } catch (error) {
         // npm audit exits non-zero whenever it finds anything; its JSON is still on stdout.
         if (error && typeof error.stdout === 'string' && error.stdout.trim().startsWith('{')) return error.stdout;

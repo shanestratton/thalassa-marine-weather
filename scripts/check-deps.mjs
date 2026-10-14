@@ -24,9 +24,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { builtinModules } from 'node:module';
-import { pathToFileURL } from 'node:url';
-
-const ROOT = new URL('..', import.meta.url).pathname;
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /** Packages consumed by native/build tooling rather than TS imports. */
 const DEAD_ALLOWLIST = new Set([
@@ -228,6 +226,9 @@ export function findImportSpecifiers(text) {
 }
 
 function main() {
+    // fileURLToPath, not .pathname: on Windows .pathname is '/C:/...', which join() turns into 'C:\C:\...'.
+    // Here, not at module level: the jsdom test that imports this module has no file: URL to convert.
+    const ROOT = fileURLToPath(new URL('..', import.meta.url));
     const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
     const prodDeps = Object.keys(pkg.dependencies ?? {});
     const allDeclared = new Set([...prodDeps, ...Object.keys(pkg.devDependencies ?? {})]);
