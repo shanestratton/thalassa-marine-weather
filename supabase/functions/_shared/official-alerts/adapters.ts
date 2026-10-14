@@ -15,7 +15,13 @@
  *   stops listing (63 references that day, none to an alert still listed).
  * - meteoalarm: one country's legacy Atom feed (CAP fields inline), a
  *   snapshot; the full CAP (every language) is read once per identifier.
- *   OFF until the redistributor registration is confirmed.
+ *   Read on every run under MeteoAlarm's own terms (129-05b, ingest.ts):
+ *   every new warning in the same run (four documents at a time, up to
+ *   METEOALARM_MAX_DOCS), a feed that fails asked once more, never one that
+ *   says to slow down (429, 503): that holds the whole host, every country,
+ *   for the rest of the run, and as long as its Retry-After asks (HostHolds).
+ *   A warning is placed by the EMMA_ID areas its full CAP and its Atom
+ *   entries name (some countries send only NUTS3 or FIPS codes).
  * - jma: 気象庁防災情報XML (JMA disaster prevention XML, not CAP), from the
  *   PULL Atom feeds. Per office, the newest 気象警報・注意報（Ｈ２７） (VPWW54,
  *   municipalities) and 地方海上警報（Ｈ２８） (VPCU51, sea areas) are each a
@@ -106,6 +112,79 @@ export interface AdapterContext {
      * so the next run carries on from there instead of starting over.
      */
     timeLeft?: () => number;
+    /** A pause before a retry; tests pass one that does not wait. */
+    sleep?: (ms: number) => Promise<void>;
+    /** Hosts that asked to slow down, shared by the whole run (ingest.ts); a fresh one when absent. */
+    holds?: HostHolds;
+}
+
+/** A GET answered with something other than 200 or 304; `retryAfterMs` from its Retry-After, when it gave one. */
+export class HttpError extends Error {
+    constructor(readonly status: number, readonly retryAfterMs: number | null = null) {
+        super(`HTTP ${status}`);
+    }
+}
+
+/** The longest wait a Retry-After is taken for (a day): longer, the providers read "unavailable" all the same. */
+export const RETRY_AFTER_MAX_MS = 24 * 60 * 60_000;
+
+/** A Retry-After header (seconds, or an HTTP date) as milliseconds from `nowMs`, or null. */
+export function parseRetryAfter(value: string | null, nowMs: number): number | null {
+    const v = value?.trim();
+    if (!v) return null;
+    const ms = /^\d+$/.test(v) ? Number(v) * 1000 : Date.parse(v) - nowMs;
+    return Number.isFinite(ms) && ms > 0 ? Math.min(ms, RETRY_AFTER_MAX_MS) : null;
+}
+
+/** The answer that asks a client to slow down: never retried, never worked around. */
+export const isSlowDown = (err: unknown): boolean => err instanceof Error && /^HTTP (429|503)$/.test(err.message);
+
+const hostOf = (url: string | null | undefined): string | null => {
+    try {
+        return url ? new URL(url).hostname : null;
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Hosts that asked Thalassa to slow down (HTTP 429 or 503), shared by every
+ * provider in a run: MeteoAlarm's 39 feeds and their documents are one host,
+ * feeds.meteoalarm.org, so one country told to slow down stops every
+ * country's requests there for the rest of the run. A host that said how long
+ * to wait (Retry-After) is left alone that long across runs too: ingest.ts
+ * keeps the time in the provider's feed_state (holdUntil) and carries it into
+ * the next run's holds.
+ */
+export class HostHolds {
+    private readonly asked = new Set<string>();
+    private readonly until = new Map<string, number>();
+    constructor(private readonly nowMs: number) {}
+    /** Whether nothing more may be asked of this URL's host now. */
+    held(url: string | null | undefined): boolean {
+        const host = hostOf(url);
+        return !!host && (this.asked.has(host) || (this.until.get(host) ?? 0) > this.nowMs);
+    }
+    /** The host asked to slow down; for `retryAfterMs` more when it said how long. */
+    hold(url: string, retryAfterMs: number | null = null): void {
+        const host = hostOf(url);
+        if (!host) return;
+        this.asked.add(host);
+        if (retryAfterMs && retryAfterMs > 0) this.carry(url, this.nowMs + Math.min(retryAfterMs, RETRY_AFTER_MAX_MS));
+    }
+    /** A wait an earlier run was asked for (feed_state.holdUntil, ISO or ms). */
+    carry(url: string | null | undefined, untilAt: unknown): void {
+        const host = hostOf(url);
+        const ms = typeof untilAt === 'number' ? untilAt : typeof untilAt === 'string' ? Date.parse(untilAt) : NaN;
+        if (!host || !Number.isFinite(ms) || ms <= this.nowMs) return;
+        this.until.set(host, Math.max(this.until.get(host) ?? 0, Math.min(ms, this.nowMs + RETRY_AFTER_MAX_MS)));
+    }
+    /** Until when later runs must leave this URL's host alone (ms), or null. */
+    untilFor(url: string | null | undefined): number | null {
+        const host = hostOf(url);
+        const ms = host ? this.until.get(host) : undefined;
+        return ms !== undefined && ms > this.nowMs ? ms : null;
+    }
 }
 
 export interface AdapterOutput {
@@ -139,6 +218,8 @@ export interface ZoneShape {
 
 export interface Adapter {
     run(ctx: AdapterContext): Promise<AdapterOutput>;
+    /** The most documents one run may fetch, when the adapter needs more than ingest.ts's default. */
+    maxDocs?: number;
     /** A zone document (GeoJSON Feature) as a shape, for adapters whose alerts name zones by URL. */
     parseZone?(text: string, code: string): ZoneShape | null;
 }
@@ -359,10 +440,56 @@ const nws: Adapter = {
 // ── MeteoAlarm ─────────────────────────────────────────────────────────
 
 const METEOALARM_HOSTS = ['feeds.meteoalarm.org'];
+/** New warnings' documents read at once per country: a burst of a hundred is read in one run (rule 5). */
+export const METEOALARM_DOC_CONCURRENCY = 4;
+/** The most documents one country's run reads (MAX_DOCS_PER_RUN would leave a burst for later runs). */
+export const METEOALARM_MAX_DOCS = 250;
+/** A pause before a failed feed is asked once more. */
+export const METEOALARM_RETRY_MS = 2_000;
+/**
+ * The Accept header for a full CAP document. feeds.meteoalarm.org answers
+ * "406 Not Acceptable" to `application/cap+xml`, `application/xml` and
+ * `text/xml` alone, and 200 (as text/xml) once any type is admitted: probed
+ * 2026-10-14 with Thalassa's User-Agent on a Bulgarian and a German
+ * document. So the CAP type is asked for first and any other accepted.
+ */
+export const METEOALARM_DOC_ACCEPT = 'application/cap+xml, application/xml;q=0.9, */*;q=0.8';
+/** Failures worth one more ask in the same run: a gateway or network fault, never "slow down" (429, 503). */
+const TRANSIENT = /^HTTP 50[024]$|timed out|aborted|network|connection|error sending request|fetch failed/i;
+const EMMA_CODE = /^EMMA_ID:[A-Z]{2}\d{3,6}$/;
 
 export interface MeteoAlarmListing {
     /** CAP identifier to the full CAP document's URL, for every Actual entry. */
     listed: Map<string, string>;
+    /** CAP identifier to the latest cap:expires its entries give (ISO), or null when one gives none. */
+    expires: Map<string, string | null>;
+    /**
+     * CAP identifier to the EMMA_ID areas its entries name ("EMMA_ID:BG002"):
+     * the hub's own placement, from each entry's link
+     * (https://meteoalarm.org?geocode=EMMA_ID:BG002) and its EMMA_ID geocodes.
+     * Bulgaria and Romania send only NUTS3 codes, and Ireland's land warnings
+     * FIPS codes, in the full CAP as well; the entries' links still name the
+     * EMMA_ID area (14 Oct 2026), so their warnings can be placed.
+     */
+    zones: Map<string, Set<string>>;
+}
+
+/** The EMMA_ID areas one Atom entry names: its links' geocode and its own EMMA_ID geocodes. */
+function entryEmmaIds(entry: AtomEntry): string[] {
+    const out: string[] = [];
+    for (const link of entry.links) {
+        try {
+            const code = new URL(link.href).searchParams.get('geocode');
+            if (code && EMMA_CODE.test(code)) out.push(code);
+        } catch {
+            // Not a URL: nothing to place by.
+        }
+    }
+    for (const g of childrenNamed(entry.node, 'geocode')) {
+        const code = `${childText(g, 'valueName')}:${childText(g, 'value')}`;
+        if (EMMA_CODE.test(code)) out.push(code);
+    }
+    return out;
 }
 
 /** A MeteoAlarm legacy Atom feed: the CAP identifiers in force and where each full CAP is. Null when not Atom. */
@@ -370,50 +497,101 @@ export function parseMeteoAlarmAtom(xml: string): MeteoAlarmListing | null {
     const feed = parseAtom(xml);
     if (!feed) return null;
     const listed = new Map<string, string>();
+    const expires = new Map<string, string | null>();
+    const zones = new Map<string, Set<string>>();
     for (const entry of feed.entries) {
         const identifier = childText(entry.node, 'identifier');
         const status = childText(entry.node, 'status');
         const link = entry.links.find((l) => l.type === 'application/cap+xml');
         if (!identifier || status !== 'Actual' || !link) continue;
         if (!listed.has(identifier)) listed.set(identifier, link.href);
+        const until = toIso(childText(entry.node, 'expires'));
+        const prior = expires.get(identifier);
+        // One entry per area: the warning lasts until its latest area does, and one with no expiry keeps it open.
+        expires.set(identifier, prior === null || !until ? null : latestTime([prior ?? null, until]));
+        const named = zones.get(identifier) ?? new Set<string>();
+        for (const code of entryEmmaIds(entry)) named.add(code);
+        zones.set(identifier, named);
     }
-    return { listed };
+    return { listed, expires, zones };
 }
 
 const meteoalarm: Adapter = {
+    maxDocs: METEOALARM_MAX_DOCS,
     async run(ctx) {
         const url = ctx.provider.feedUrl;
         if (!url || !onHost(url, METEOALARM_HOSTS)) throw new Error('MeteoAlarm feed must be on feeds.meteoalarm.org');
-        const res = await ctx.http.get(url, { validators: validatorsFor(ctx.provider.feedState, url) });
+        const timeLeft = ctx.timeLeft ?? (() => Infinity);
+        const sleep = ctx.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+        const holds = ctx.holds ?? new HostHolds(ctx.nowMs);
+        const waiting = () => new Error('waiting: feeds.meteoalarm.org asked to slow down');
+        /** One GET; a 429 or 503 holds the whole host (every country) for the rest of the run. */
+        const get = async (u: string, opts: { validators?: Validators; accept?: string }) => {
+            try {
+                return await ctx.http.get(u, opts);
+            } catch (err) {
+                if (isSlowDown(err)) holds.hold(u, err instanceof HttpError ? err.retryAfterMs : null);
+                throw err;
+            }
+        };
+        if (holds.held(url)) throw waiting();
+        const ask = () => get(url, { validators: validatorsFor(ctx.provider.feedState, url) });
+        let res: HttpResult;
+        try {
+            res = await ask();
+        } catch (err) {
+            // Once more, after a pause, for a gateway or network fault: a missed run would be 10 minutes.
+            if (!TRANSIENT.test(err instanceof Error ? err.message : String(err)) || timeLeft() < 15_000) throw err;
+            await sleep(METEOALARM_RETRY_MS);
+            if (holds.held(url)) throw waiting();
+            res = await ask();
+        }
         if (res.status === 'not-modified') return emptyOutput(ctx.provider.feedState);
         const listing = parseMeteoAlarmAtom(res.text);
         if (!listing) throw new Error('MeteoAlarm answered with something that is not an Atom feed');
         const present = new Set(listing.listed.keys());
-        const toRead = [...listing.listed].filter(([id]) => !ctx.known.get(id)?.live);
+        // A warning the feed itself says is over is neither read nor stored (diffAlerts would drop it).
+        const over = (id: string) => {
+            const until = listing.expires.get(id);
+            return !!until && Date.parse(until) <= ctx.nowMs;
+        };
+        const toRead = [...listing.listed].filter(([id]) => !ctx.known.get(id)?.live && !over(id));
         const alerts: NormalizedAlert[] = [];
         const withdraw: string[] = [];
-        let unread = 0;
-        for (const [identifier, capUrl] of toRead.slice(0, ctx.maxDocs)) {
-            if (!onHost(capUrl, METEOALARM_HOSTS)) {
+        let unread = Math.max(0, toRead.length - ctx.maxDocs);
+        const queue = toRead.slice(0, ctx.maxDocs);
+        const readOne = async ([identifier, capUrl]: [string, string]) => {
+            // Asked to slow down (by this country's reads or another's): nothing more this run, never a workaround.
+            if (!onHost(capUrl, METEOALARM_HOSTS) || holds.held(capUrl) || timeLeft() <= 0) {
                 unread++;
-                continue;
+                return;
             }
             try {
-                const doc = await ctx.http.get(capUrl, { accept: 'application/cap+xml' });
+                const doc = await get(capUrl, { accept: METEOALARM_DOC_ACCEPT });
                 const cap = doc.status === 'ok' ? parseCapAlert(doc.text) : null;
                 if (!cap || cap.identifier !== identifier) {
                     unread++;
-                    continue;
+                    return;
                 }
                 withdraw.push(...cap.references.map((r) => r.identifier));
                 const draft = cap.msgType === 'Cancel' ? null : capDraft(cap, { zone: (n) => n === 'EMMA_ID' });
-                if (draft) alerts.push(await finishAlert(draft));
-                else present.delete(identifier);
+                if (draft) {
+                    // The areas the hub's own entries name too: a NUTS3- or FIPS-only document is still placed.
+                    draft.zones = [...draft.zones, ...(listing.zones.get(identifier) ?? [])];
+                    alerts.push(await finishAlert(draft));
+                } else present.delete(identifier);
             } catch {
                 unread++;
             }
-        }
-        unread += Math.max(0, toRead.length - ctx.maxDocs);
+        };
+        await Promise.all(
+            Array.from({ length: Math.min(METEOALARM_DOC_CONCURRENCY, queue.length) }, async () => {
+                for (let next = queue.shift(); next; next = queue.shift()) await readOne(next);
+            }),
+        );
+        // In the feed's order, however the reads finished.
+        const order = new Map(toRead.map(([id], i) => [id, i]));
+        alerts.sort((a, b) => (order.get(a.identifier) ?? 0) - (order.get(b.identifier) ?? 0));
         return {
             notModified: false,
             alerts,

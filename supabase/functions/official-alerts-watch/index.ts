@@ -135,7 +135,7 @@ Deno.serve(async (req: Request) => {
                 const { data, error } = await db
                     .from('official_alerts')
                     .select(
-                        'id, provider_id, identifier, refs, zones, sent_at, onset_at, effective_at, expires_at, infos',
+                        'id, provider_id, identifier, sender, refs, zones, sent_at, onset_at, effective_at, expires_at, infos',
                     )
                     .in('id', ids);
                 if (error) throw new Error('alert read failed');
@@ -145,6 +145,7 @@ Deno.serve(async (req: Request) => {
                         id: r.id,
                         provider: r.provider_id,
                         identifier: r.identifier,
+                        sender: str(r.sender),
                         refs: strings(r.refs),
                         zones: strings(r.zones),
                         sentAt: r.sent_at,

@@ -367,12 +367,12 @@
             "providers": [
                 {
                     "id": "meteoalarm-fr",
-                    "issuer": "MeteoAlarm (France)",
+                    "issuer": "Météo-France (MeteoAlarm)",
                     "state": "off",
                     "since": null,
                     "last_success_at": null,
-                    "attribution": "Warnings: MeteoAlarm.org (EUMETNET) and the national weather service, CC BY 4.0",
-                    "attribution_url": "https://meteoalarm.org/",
+                    "attribution": "Warnings: Météo-France",
+                    "attribution_url": "https://meteoalarm.org/en/live/",
                     "unplaced": 0,
                     "unplaced_newest": null
                 }
@@ -830,6 +830,225 @@
                     ],
                     "attribution": "Warnings: National Weather Service (NOAA)",
                     "attribution_url": "https://www.weather.gov/"
+                }
+            ]
+        },
+        "meteoalarm": {
+            "lat": 43.2965,
+            "lon": 5.3698,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "live",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "meteoalarm-fr",
+                    "issuer": "Météo-France (MeteoAlarm)",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:58:00Z",
+                    "attribution": "Warnings: Météo-France",
+                    "attribution_url": "https://meteoalarm.org/en/live/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": [
+                {
+                    "provider": "meteoalarm-fr",
+                    "issuer": "Météo-France (MeteoAlarm)",
+                    "identifier": "2.49.0.0.250.0.FR.ZZ0042",
+                    "sender": "vigilance@meteo.fr",
+                    "sent": "2026-10-14T10:30:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T10:30:00Z",
+                    "onset": "2026-10-14T14:00:00Z",
+                    "expires": "2026-10-15T06:00:00Z",
+                    "matched_by": "zone",
+                    "infos": [
+                        {
+                            "language": "fr-FR",
+                            "category": ["Met"],
+                            "event": "Vigilance orange vagues-submersion",
+                            "urgency": "Expected",
+                            "severity": "Severe",
+                            "certainty": "Likely",
+                            "effective": "2026-10-14T10:30:00Z",
+                            "onset": "2026-10-14T14:00:00Z",
+                            "expires": "2026-10-15T06:00:00Z",
+                            "ends": null,
+                            "senderName": "Météo-France",
+                            "headline": "Vigilance orange vagues-submersion sur le littoral de Zzprovence (texte fictif)",
+                            "description": "Fortes vagues de sud-est, 4 à 5 m au large.\nSurcote de 40 à 50 cm sur le littoral. Texte inventé pour les tests.",
+                            "instruction": "Éloignez-vous des bords de mer. Ne prenez pas la mer.",
+                            "web": "https://example.org/zz-fictional",
+                            "contact": null,
+                            "responseType": ["Monitor"],
+                            "areaDesc": ["Bouches-du-Zzrhône"],
+                            "parameters": [
+                                {
+                                    "valueName": "awareness_level",
+                                    "value": "3; orange; Severe"
+                                },
+                                {
+                                    "valueName": "awareness_type",
+                                    "value": "7; coastalevent"
+                                },
+                                {
+                                    "valueName": "impacts",
+                                    "value": "Submersion possible des quais et des digues (texte fictif)."
+                                }
+                            ],
+                            "eventCodes": []
+                        },
+                        {
+                            "language": "en-GB",
+                            "category": ["Met"],
+                            "event": "Orange waves-submersion warning",
+                            "urgency": "Expected",
+                            "severity": "Severe",
+                            "certainty": "Likely",
+                            "effective": "2026-10-14T10:30:00Z",
+                            "onset": "2026-10-14T14:00:00Z",
+                            "expires": "2026-10-15T06:00:00Z",
+                            "ends": null,
+                            "senderName": "Météo-France",
+                            "headline": "Orange warning for waves and coastal flooding on the Zzprovence coast (test text)",
+                            "description": "Strong south-easterly waves, 4 to 5 m offshore.\nSurge of 40 to 50 cm on the coast. Invented test text.",
+                            "instruction": "Keep away from the sea front. Do not go to sea.",
+                            "web": "https://example.org/zz-fictional",
+                            "contact": null,
+                            "responseType": ["Monitor"],
+                            "areaDesc": ["Bouches-du-Zzrhône"],
+                            "parameters": [
+                                {
+                                    "valueName": "awareness_level",
+                                    "value": "3; orange; Severe"
+                                },
+                                {
+                                    "valueName": "awareness_type",
+                                    "value": "7; coastalevent"
+                                },
+                                {
+                                    "valueName": "impacts",
+                                    "value": "Quays and breakwaters may flood (test text)."
+                                }
+                            ],
+                            "eventCodes": []
+                        }
+                    ],
+                    "attribution": "Warnings: Météo-France",
+                    "attribution_url": "https://meteoalarm.org/en/live/"
+                }
+            ]
+        },
+        "meteoalarm-border": {
+            "lat": 43.775,
+            "lon": 7.505,
+            "at": "2026-10-14T12:00:00Z",
+            "coverage": "live",
+            "unplaced": 0,
+            "providers": [
+                {
+                    "id": "meteoalarm-fr",
+                    "issuer": "Météo-France (MeteoAlarm)",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:58:00Z",
+                    "attribution": "Warnings: Météo-France",
+                    "attribution_url": "https://meteoalarm.org/en/live/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                },
+                {
+                    "id": "meteoalarm-it",
+                    "issuer": "Servizio Meteorologico dell’Aeronautica Militare (MeteoAM) (MeteoAlarm)",
+                    "state": "live",
+                    "since": null,
+                    "last_success_at": "2026-10-14T11:58:00Z",
+                    "attribution": "Warnings: Servizio Meteorologico dell’Aeronautica Militare (MeteoAM)",
+                    "attribution_url": "https://meteoalarm.org/en/live/",
+                    "unplaced": 0,
+                    "unplaced_newest": null
+                }
+            ],
+            "alerts": [
+                {
+                    "provider": "meteoalarm-it",
+                    "issuer": "Servizio Meteorologico dell’Aeronautica Militare (MeteoAM) (MeteoAlarm)",
+                    "identifier": "2.49.0.0.380.0.IT.ZZ0007",
+                    "sender": "zz@aeronautica.example",
+                    "sent": "2026-10-14T09:00:00Z",
+                    "msg_type": "Alert",
+                    "effective": "2026-10-14T09:00:00Z",
+                    "onset": "2026-10-14T12:00:00Z",
+                    "expires": "2026-10-14T23:00:00Z",
+                    "matched_by": "nearby",
+                    "infos": [
+                        {
+                            "language": "it-IT",
+                            "category": ["Met"],
+                            "event": "Arancione Vento Allerta",
+                            "urgency": "Expected",
+                            "severity": "Severe",
+                            "certainty": "Likely",
+                            "effective": "2026-10-14T10:30:00Z",
+                            "onset": "2026-10-14T12:00:00Z",
+                            "expires": "2026-10-14T23:00:00Z",
+                            "ends": null,
+                            "senderName": "Servizio Meteorologico dell’Aeronautica Militare",
+                            "headline": "Allerta arancione per vento forte in Zzliguria (testo fittizio)",
+                            "description": "Venti forti da sud-ovest con raffiche fino a 90 km/h sulla costa. Testo inventato per le prove.",
+                            "instruction": null,
+                            "web": "https://example.org/zz-fictional",
+                            "contact": null,
+                            "responseType": ["Monitor"],
+                            "areaDesc": ["Zzliguria"],
+                            "parameters": [
+                                {
+                                    "valueName": "awareness_level",
+                                    "value": "3; orange; Severe"
+                                },
+                                {
+                                    "valueName": "awareness_type",
+                                    "value": "1; Wind"
+                                }
+                            ],
+                            "eventCodes": []
+                        },
+                        {
+                            "language": "en-GB",
+                            "category": ["Met"],
+                            "event": "Orange Wind Warning",
+                            "urgency": "Expected",
+                            "severity": "Severe",
+                            "certainty": "Likely",
+                            "effective": "2026-10-14T10:30:00Z",
+                            "onset": "2026-10-14T12:00:00Z",
+                            "expires": "2026-10-14T23:00:00Z",
+                            "ends": null,
+                            "senderName": "Italian Air Force National Meteorological Service",
+                            "headline": "Orange warning for strong wind in Zzliguria (test text)",
+                            "description": "Strong south-westerly winds with gusts up to 90 km/h on the coast. Invented test text.",
+                            "instruction": null,
+                            "web": "https://example.org/zz-fictional",
+                            "contact": null,
+                            "responseType": ["Monitor"],
+                            "areaDesc": ["Zzliguria"],
+                            "parameters": [
+                                {
+                                    "valueName": "awareness_level",
+                                    "value": "3; orange; Severe"
+                                },
+                                {
+                                    "valueName": "awareness_type",
+                                    "value": "1; Wind"
+                                }
+                            ],
+                            "eventCodes": []
+                        }
+                    ],
+                    "attribution": "Warnings: Servizio Meteorologico dell’Aeronautica Militare (MeteoAM)",
+                    "attribution_url": "https://meteoalarm.org/en/live/"
                 }
             ]
         }

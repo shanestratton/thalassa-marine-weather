@@ -3,8 +3,21 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { HEARTBEAT_MS, RUN_PERIOD_MS } from '../supabase/functions/_shared/official-alerts/ingest';
+import {
+    HEARTBEAT_MS,
+    PROVIDER_TIMEOUT_MS,
+    REALTIME_APP_MS,
+    REALTIME_HEARTBEAT_MS,
+    REALTIME_LIVE_MS,
+    RUN_BUDGET_MS,
+    RUN_PERIOD_MS,
+} from '../supabase/functions/_shared/official-alerts/ingest';
 import { SIMPLIFY_DEGREES } from '../supabase/functions/_shared/official-alerts/normalize';
+import {
+    METEOALARM_LINK,
+    meteoAlarmParticipants,
+    METEOALARM_SOURCE,
+} from '../supabase/functions/_shared/official-alerts/meteoalarm';
 
 // The official warnings' tables, write call, point query, pruning and cron jobs
 // (129-05). Written with 129, NOT pushed: supabase db push applies every file
@@ -30,6 +43,7 @@ const sql = migration
 const between = (from: string, to: string) => sql.slice(sql.indexOf(from), sql.indexOf(to, sql.indexOf(from)));
 const rpc = between('CREATE OR REPLACE FUNCTION public.official_alerts_at', '$fn$;');
 const apply = between('CREATE OR REPLACE FUNCTION public.official_alerts_apply', '$fn$;');
+const zoneSync = between('CREATE OR REPLACE FUNCTION public.official_alert_zones_sync', '$fn$;');
 
 /** Quotes, dollar quotes, comments and brackets: balanced, and every top-level statement ends in ';'. */
 function lex(text: string): { ok: boolean; problem?: string; statements: string[] } {
@@ -112,7 +126,7 @@ function coverage(): Map<string, number[][][]> {
         out.set(m[1], rings);
     }
     for (const m of migration.matchAll(
-        /\('([a-z]{2})', '[a-z-]+', '[^']+', (-?[\d.]+), (-?[\d.]+), (-?[\d.]+), (-?[\d.]+)\)/g,
+        /\('([a-z]{2})', '[a-z-]+', '[^']+', '[^']+', (-?[\d.]+), (-?[\d.]+), (-?[\d.]+), (-?[\d.]+)\)/g,
     )) {
         const [w, s, e, n] = [m[2], m[3], m[4], m[5]].map(Number);
         out.set(`meteoalarm-${m[1]}`, [
@@ -150,7 +164,7 @@ describe('official alerts migration', () => {
         const bodies = [...migration.matchAll(/format\(\$definition\$([\s\S]*?)\$definition\$, gis\)/g)].map((m) =>
             m[1].replace(/%1\$I/g, 'extensions'),
         );
-        expect(bodies).toHaveLength(3);
+        expect(bodies).toHaveLength(4);
         for (const body of bodies) {
             const inner = lex(body);
             expect(inner.problem).toBeUndefined();
@@ -256,10 +270,13 @@ describe('official alerts migration', () => {
         );
         expect(rpc).toContain('reach_m CONSTANT double precision := 5556;');
         expect(rpc).toMatch(
-            /OR \(z\.code ~ marine_zone\s+AND \(z\.geom && near_box OR z\.geom && near_box_east\)\s+AND %1\$I\.ST_DWithin\(z\.geom::%1\$I\.geography, pt::%1\$I\.geography, reach_m\)\)/,
+            /OR \(\(z\.code ~ marine_zone OR z\.code ~ meteoalarm_zone\)\s+AND \(z\.geom && near_box OR z\.geom && near_box_east\)\s+AND %1\$I\.ST_DWithin\(z\.geom::%1\$I\.geography, pt::%1\$I\.geography, reach_m\)\)/,
         );
+        // MeteoAlarm's outlines are land areas: a berth, or a boat off the coast, is just outside them
+        // (129-05b). An EMMA_ID outline and a MeteoAlarm polygon reach 3 NM too, as 'nearby'.
+        expect(rpc).toContain("meteoalarm_zone CONSTANT text := '^EMMA_ID:';");
         expect(rpc).toMatch(
-            /WHERE zc\.code !~ marine_zone\)\s+AND %1\$I\.ST_DWithin\(a\.geom::%1\$I\.geography, pt::%1\$I\.geography, reach_m\)/,
+            /WHERE zc\.code !~ marine_zone\)\)\s+OR a\.provider_id ~ '\^meteoalarm-'\)\s+AND %1\$I\.ST_DWithin\(a\.geom::%1\$I\.geography, pt::%1\$I\.geography, reach_m\)/,
         );
         expect(rpc).toContain("THEN 'zone'::text ELSE 'nearby'::text END");
         // An exact match wins over 'nearby' for the same warning.
@@ -276,11 +293,11 @@ describe('official alerts migration', () => {
 
     it('official_alerts_at: a coverage answer that is never a false all-clear', () => {
         expect(rpc).toMatch(
-            /WHEN NOT p\.enabled THEN 'off'\s+WHEN p\.unavailable_since IS NOT NULL THEN 'unavailable'/,
+            /WHEN NOT p\.enabled THEN 'off'\s+WHEN p\.unavailable_since IS NOT NULL THEN 'unavailable'\s+WHEN p\.last_success_at IS NULL\s+OR p\.last_success_at < now\(\) - CASE WHEN p\.adapter = 'meteoalarm' THEN realtime_live ELSE stale_after END\s+THEN 'unavailable'\s+ELSE 'live'/,
         );
-        expect(rpc).toMatch(
-            /WHEN p\.last_success_at IS NULL OR p\.last_success_at < now\(\) - interval '30 minutes' THEN 'unavailable'\s+ELSE 'live'/,
-        );
+        expect(rpc).toContain("stale_after CONSTANT interval := interval '30 minutes';");
+        // Since when: failing since, else the last success (null when never answered); none while live or off.
+        expect(rpc).toContain("CASE WHEN h.state = 'unavailable' THEN h.last_or_failing END AS since");
         // Any enabled provider there that is not live makes the whole answer unavailable; a live one with
         // warnings in force it cannot place (no polygon, a zone with no shape yet) makes it partial, never
         // live; "off" only when nothing on covers it.
@@ -302,6 +319,20 @@ describe('official alerts migration', () => {
         expect(rpc).toMatch(/ORDER BY r\.sent_at DESC, r\.identifier\s+LIMIT 1/);
         // A healthy provider is refreshed well inside the 30 minutes, even when sharded over two slots.
         expect(HEARTBEAT_MS + 2 * RUN_PERIOD_MS).toBeLessThan(30 * 60_000);
+    });
+
+    it('MeteoAlarm is live only while its last read is under 8 minutes old, so nothing shown as live is over 10 behind (rule 5)', () => {
+        // The SQL's window is ingest.ts's REALTIME_LIVE_MS.
+        const m = /realtime_live CONSTANT interval := interval '(\d+) minutes';/.exec(rpc);
+        expect(m).not.toBeNull();
+        expect(Number(m![1]) * 60_000).toBe(REALTIME_LIVE_MS);
+        // A warning missing from a live answer was published after the last read began; the app shows an
+        // answer at most REALTIME_APP_MS after it was given. Together, under 10 minutes.
+        expect(REALTIME_LIVE_MS + REALTIME_APP_MS).toBeLessThan(10 * 60_000);
+        // A healthy country writes its last success every run, and is never older than one period plus the
+        // run's own time (the budget and one provider's timeout), so a healthy country is never called stopped.
+        expect(REALTIME_HEARTBEAT_MS).toBeLessThan(RUN_PERIOD_MS);
+        expect(RUN_PERIOD_MS + RUN_BUDGET_MS + PROVIDER_TIMEOUT_MS).toBeLessThan(REALTIME_LIVE_MS);
     });
 
     it('indexes: GiST on live alert shapes and on zones, GIN on live zone keys', () => {
@@ -363,21 +394,99 @@ describe('official alerts migration', () => {
         expect(row('jma')).toContain('出典：気象庁防災情報XML');
         expect(row('bom')).toMatch(/NULL, false,/);
         expect(row('bom')).toContain('personal and non-commercial use only');
-        // MeteoAlarm: 39 member feeds, every one OFF until the registration is confirmed.
+        // MeteoAlarm: 39 member feeds, every one ON under its own terms (129-05b). Registration is
+        // optional; the six rules of the Terms and Conditions are met (the note says how).
         const meteo = between(
             'INSERT INTO public.official_alert_providers\n    (id, adapter, issuer, feed_url, enabled, licence_note, attribution, attribution_url, config, coverage)\nSELECT',
             'ON CONFLICT (id) DO NOTHING;',
         );
         expect(meteo).toMatch(
-            /'https:\/\/feeds\.meteoalarm\.org\/feeds\/meteoalarm-legacy-atom-' \|\| c\.slug,\s+false,/,
+            /'https:\/\/feeds\.meteoalarm\.org\/feeds\/meteoalarm-legacy-atom-' \|\| c\.slug,\s+true,/,
         );
-        expect(meteo).toContain('requested from meteoalarm@geosphere.at on 2026-10-09, no reply yet');
-        const countries = [...meteo.matchAll(/\('([a-z]{2})', '([a-z-]+)', /g)].map((m) => m[2]);
-        expect(countries).toHaveLength(39);
-        expect(countries).toEqual(
+        expect(meteo).not.toMatch(/c\.slug,\s+false,/);
+        expect(meteo).not.toContain('no reply yet');
+        const note = /'(ON\. MeteoAlarm Terms and Conditions[^]*?)',\n/.exec(meteo)![1];
+        for (const said of [
+            'https://meteoalarm.org/en/live/page/terms-and-conditions',
+            'last updated 15/03/2024',
+            'CC BY 4.0',
+            'Non-Registered Redistributors',
+            `"${METEOALARM_SOURCE}" for more than one`,
+            'the time of issue',
+            'www.meteoalarm.org',
+            'under 5 minutes',
+            'never over 10',
+            'the disclaimer',
+            `"Areas: ${METEOALARM_SOURCE}"`,
+        ]) {
+            expect(note, said).toContain(said);
+        }
+        expect(note.length).toBeLessThanOrEqual(4000);
+        // The source is the national service: its name in the issuer and the credit, linked to
+        // www.meteoalarm.org (rule 4), never "MeteoAlarm.org (EUMETNET) and the national weather service".
+        expect(meteo).toContain("c.participant || ' (MeteoAlarm)'");
+        expect(meteo).toContain("'Warnings: ' || c.participant");
+        expect(meteo).toContain(`'${METEOALARM_LINK}'`);
+        expect(meteo).not.toContain('MeteoAlarm.org (EUMETNET) and the national weather service');
+        const rows = [...meteo.matchAll(/\('([a-z]{2})', '([a-z-]+)', '([^']+)', '([^']+)', /g)];
+        expect(rows).toHaveLength(39);
+        expect(rows.map((m) => m[2])).toEqual(
             expect.arrayContaining(['germany', 'france', 'greece', 'republic-of-north-macedonia']),
         );
+        // Each country's participants, as the shared table names them (the push and the app read it).
+        for (const [, code, , , participant] of rows) {
+            expect(participant, code).toBe(meteoAlarmParticipants(`meteoalarm-${code}`).join(' / '));
+        }
+        expect(rows.find((m) => m[1] === 'fr')![4]).toBe('Météo-France');
+        expect(rows.find((m) => m[1] === 'de')![4]).toBe('Deutscher Wetterdienst (DWD)');
+        expect(rows.find((m) => m[1] === 'gr')![4]).toBe('Hellenic National Meteorological Service (HNMS)');
         expect(sql.match(/ON CONFLICT \(id\) DO NOTHING;/g)).toHaveLength(2);
+    });
+
+    it('official_alert_zones_sync loads the hub’s outlines: changed ones written, removed ones dropped, service role only', () => {
+        expect(zoneSync).toContain('SECURITY INVOKER');
+        expect(zoneSync).toMatch(/p_provider text,\s+p_scheme text,\s+p_codes text\[\],\s+p_zones jsonb/);
+        expect(zoneSync).toContain("RAISE EXCEPTION 'official_alert_zones_sync: unknown provider'");
+        // Every shape sent is one of the codes kept, all under the scheme.
+        expect(zoneSync).toContain(
+            "RAISE EXCEPTION 'official_alert_zones_sync: every code must be under the scheme and every shape among the codes'",
+        );
+        // Written only when the name or the shape changed.
+        expect(zoneSync).toMatch(
+            /ON CONFLICT \(provider_id, code\) DO UPDATE SET[\s\S]*WHERE t\.name IS DISTINCT FROM EXCLUDED\.name\s+OR %1\$I\.ST_AsBinary\(t\.geom\) IS DISTINCT FROM %1\$I\.ST_AsBinary\(EXCLUDED\.geom\)/,
+        );
+        // The provider's outlines under the scheme that the hub no longer lists are removed.
+        expect(zoneSync).toMatch(
+            /DELETE FROM public\.official_alert_zones AS z\s+WHERE z\.provider_id = p_provider\s+AND left\(z\.code, length\(p_scheme\) \+ 1\) = p_scheme \|\| ':'\s+AND NOT \(z\.code = ANY \(coalesce\(p_codes, '\{\}'::text\[\]\)\)\);/,
+        );
+        expect(sql).toContain(
+            'REVOKE ALL ON FUNCTION public.official_alert_zones_sync(text, text, text[], jsonb) FROM PUBLIC, anon, authenticated;',
+        );
+        expect(sql).toContain(
+            'GRANT EXECUTE ON FUNCTION public.official_alert_zones_sync(text, text, text[], jsonb) TO service_role;',
+        );
+        expect(migration).toContain(
+            'DROP FUNCTION IF EXISTS public.official_alert_zones_sync(text, text, text[], jsonb);',
+        );
+    });
+
+    it('a MeteoAlarm country covers a point within 3 NM of its own outlines, box or not; one that is not live, its box where another answers', () => {
+        // zone_hits first (the zones holding the point, and the marine and EMMA_ID ones within 3 NM), then
+        // the providers. The others by their coverage. A MeteoAlarm one where one of its outlines is, even an
+        // island or a sea area outside its box (Las Palmas, the Irish Sea), so open sea is never "live,
+        // nothing in force"; and, while it is failing, stopped or never answered, where its box holds a point
+        // another provider answers for, so a polygon-only country's failure is never hidden behind a
+        // neighbour's live outline.
+        expect(rpc.indexOf('WITH zone_hits AS (')).toBeGreaterThan(0);
+        expect(rpc).toMatch(
+            /covering AS \(\s+SELECT h\.\* FROM health AS h\s+WHERE CASE\s+WHEN h\.adapter <> 'meteoalarm' THEN %1\$I\.ST_Intersects\(h\.coverage, pt\)\s+ELSE EXISTS \(SELECT 1 FROM zone_hits AS zh WHERE zh\.provider_id = h\.id\)\s+END/,
+        );
+        // A MeteoAlarm country that is not live joins where its box holds a point another answers for.
+        expect(rpc).toMatch(
+            /SELECT \* FROM covering\s+UNION ALL\s+SELECT h\.\* FROM health AS h\s+WHERE h\.adapter = 'meteoalarm' AND h\.state = 'unavailable'\s+AND %1\$I\.ST_Intersects\(h\.coverage, pt\)\s+AND EXISTS \(SELECT 1 FROM covering\)\s+AND NOT EXISTS \(SELECT 1 FROM covering AS c WHERE c\.id = h\.id\)/,
+        );
+        expect(rpc.indexOf('zone_hits AS (')).toBeLessThan(rpc.indexOf('covering AS ('));
+        expect(rpc.indexOf('covering AS (')).toBeLessThan(rpc.indexOf('prov AS ('));
     });
 
     it('every coverage ring is closed and simple (no edge crosses another), so PostGIS reads it as valid', () => {
@@ -404,7 +513,7 @@ describe('official alerts migration', () => {
         }
     });
 
-    it('coverage: Chesapeake Bay is NWS, Marseille MeteoAlarm France (off), Tokyo Bay JMA (off), Newport the Bureau (off)', () => {
+    it('coverage: Chesapeake Bay is NWS, Marseille MeteoAlarm France (near its outlines), Tokyo Bay JMA (off), Newport the Bureau (off)', () => {
         expect(covering(39.1, -76.4)).toEqual(['nws']); // upper Chesapeake Bay
         expect(covering(37.0, -76.1)).toEqual(['nws']); // Chesapeake Bay mouth
         expect(covering(43.3, 5.37)).toEqual(['meteoalarm-fr']); // Marseille

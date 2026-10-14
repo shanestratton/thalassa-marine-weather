@@ -59,6 +59,10 @@
 -- Special Marine Warning, clipped to the water). 3 NM reaches every berth
 -- above and not the next zone up the bay (ANZ531, 4.3 NM and more from
 -- them). Land zones and land polygons still match exactly.
+-- MeteoAlarm (129-05b) reaches 3 NM too, as official_alerts_at does: its
+-- EMMA_ID outlines are land areas, so a berth or a boat just off the coast is
+-- outside every one, and its own polygons (MET Norway's sea areas, Estonia's
+-- harbours) reach the boat beside them.
 -- * official_alerts_watch_status: one row, written at the end of every run
 --   (when it ran, boats, pushes, held, failed). Service role only.
 -- * official_alerts_watch_status(): what the app reads to decide whether to
@@ -214,28 +218,29 @@ AS $fn$
            AND a.withdrawn_at IS NULL
            AND (%1$I.ST_Intersects(a.geom, pts.pt) OR %1$I.ST_Intersects(a.geom, pts.pt_east))
         UNION
-        -- An NWS marine warning's polygon (one naming marine zones only) within 3 NM.
+        -- An NWS marine warning's polygon (one naming marine zones only), or a MeteoAlarm one, within 3 NM.
         SELECT pts.pk, a.id
           FROM pts
           JOIN public.official_alerts AS a
             ON pts.pk IS NOT NULL
            AND a.withdrawn_at IS NULL
            AND (a.geom && %1$I.ST_Expand(pts.pt, pts.dx, pts.dy) OR a.geom && %1$I.ST_Expand(pts.pt_east, pts.dx, pts.dy))
-           AND a.provider_id = 'nws'
-           AND cardinality(a.zones) > 0
-           AND NOT EXISTS (
-               SELECT 1 FROM unnest(a.zones) AS zc(code)
-                WHERE zc.code !~ '^nws:[a-z]+:(AM|AN|GM|PZ|PK|PH|PM|PS|LM|LS|LH|LO|LE|LC|SL)Z[0-9]{3}$'
-           )
+           AND ((a.provider_id = 'nws'
+                 AND cardinality(a.zones) > 0
+                 AND NOT EXISTS (
+                     SELECT 1 FROM unnest(a.zones) AS zc(code)
+                      WHERE zc.code !~ '^nws:[a-z]+:(AM|AN|GM|PZ|PK|PH|PM|PS|LM|LS|LH|LO|LE|LC|SL)Z[0-9]{3}$'
+                 ))
+                OR a.provider_id ~ '^meteoalarm-')
            AND %1$I.ST_DWithin(a.geom::%1$I.geography, pts.pt::%1$I.geography, 5556)
         UNION
-        -- By a zone it names whose shape holds the point, or an NWS marine zone within 3 NM.
+        -- By a zone it names whose shape holds the point, or an NWS marine zone or MeteoAlarm outline within 3 NM.
         SELECT pts.pk, a.id
           FROM pts
           JOIN public.official_alert_zones AS z
             ON pts.pk IS NOT NULL
            AND (%1$I.ST_Intersects(z.geom, pts.pt) OR %1$I.ST_Intersects(z.geom, pts.pt_east)
-                OR (z.code ~ '^nws:[a-z]+:(AM|AN|GM|PZ|PK|PH|PM|PS|LM|LS|LH|LO|LE|LC|SL)Z[0-9]{3}$'
+                OR ((z.code ~ '^nws:[a-z]+:(AM|AN|GM|PZ|PK|PH|PM|PS|LM|LS|LH|LO|LE|LC|SL)Z[0-9]{3}$' OR z.code ~ '^EMMA_ID:')
                     AND (z.geom && %1$I.ST_Expand(pts.pt, pts.dx, pts.dy)
                          OR z.geom && %1$I.ST_Expand(pts.pt_east, pts.dx, pts.dy))
                     AND %1$I.ST_DWithin(z.geom::%1$I.geography, pts.pt::%1$I.geography, 5556)))

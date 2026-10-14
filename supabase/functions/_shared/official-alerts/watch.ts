@@ -32,13 +32,18 @@
  * The push: the issuer's event as the title, its headline as the body (the
  * reader's language is not known on the server, so English where the issuer
  * sent it, else its first block), and the credit its licence asks as the last
- * line where it fits. Its data names the warning (provider and identifier)
+ * line where it fits. A MeteoAlarm warning (129-05b) is titled as its Style
+ * Guide asks ("Orange Coastal Event Warning"), and its last line names the
+ * national service and the time of issue on the boat's clock (MeteoAlarm's
+ * rules 2 and 3), always, then www.meteoalarm.org (rule 4) where it fits.
+ * Its data names the warning (provider and identifier)
  * and what position it was decided for (the basis: the boat's fix, the home
  * port...), so a tap can show it on a Warnings page set to another place.
  * Never a coordinate, in the payload or anywhere it logs.
  */
 import { type Boat, type BoatBasis, boatZone, type FixRow, isQuietHour, resolveBoat } from '../cyclone/watch.ts';
 import { type CapSeverity, classifyOfficialEvent, officialPushClass, severityRank } from './classify.ts';
+import { isMeteoAlarm, METEOALARM_LINK_TEXT, meteoAlarmSource, meteoAlarmTitle } from './meteoalarm.ts';
 import type { StoredInfo } from './normalize.ts';
 
 /** An advisory due inside this of now is sent at night: it is about to begin. */
@@ -46,11 +51,15 @@ export const ONSET_SOON_MS = 3 * 3_600_000;
 /** send-push's body limit (push_notification_queue's CHECK and send-push's 422). */
 const BODY_MAX = 500;
 const TITLE_MAX = 120;
+/** The longest MeteoAlarm participant a push names before it is cut (the longest listed is 112). */
+const METEOALARM_SOURCE_MAX = 200;
 
 export interface WatchAlert {
     id: number;
     provider: string;
     identifier: string;
+    /** The CAP sender: which participant a MeteoAlarm warning is from, where a country has several. */
+    sender?: string | null;
     refs: string[];
     zones: string[];
     sentAt: string;
@@ -150,18 +159,57 @@ const cut = (text: string, max: number): string => {
     return `${(space > max * 0.6 ? room.slice(0, space) : room).trimEnd()}…`;
 };
 
+/** A time on the boat's clock, with its zone ("14 Oct, 07:30 CEST"); a nautical zone reads "UTC+2". */
+export function boatTime(iso: string, zone: string | number = 'UTC'): string | null {
+    const ms = Date.parse(iso);
+    if (!Number.isFinite(ms)) return null;
+    const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' };
+    if (typeof zone === 'string') {
+        try {
+            return new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: zone, timeZoneName: 'short' }).format(ms);
+        } catch {
+            zone = 0;
+        }
+    }
+    const text = new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: 'UTC' }).format(ms + zone * 3_600_000);
+    return `${text} UTC${zone === 0 ? '' : `${zone > 0 ? '+' : '-'}${Math.abs(zone)}`}`;
+}
+
 /**
  * The title and body: the issuer's event and headline (else the first line
  * of its description), as written, and its credit last where it fits. A
  * headline longer than the lock screen allows is ended with an ellipsis; the
- * Warnings page holds every word.
+ * Warnings page holds every word. A MeteoAlarm warning's credit is its
+ * national service, the time it was issued on the boat's clock (`zone`), and
+ * www.meteoalarm.org: the link is dropped when the headline leaves no room
+ * for it, and the headline is cut before the service or the time ever is.
  */
-export function officialPushText(alert: WatchAlert, info: StoredInfo): { title: string; body: string } {
-    const title = cut(info.event.trim() || 'Official warning', TITLE_MAX);
+export function officialPushText(
+    alert: WatchAlert,
+    info: StoredInfo,
+    zone: string | number = 'UTC',
+): { title: string; body: string } {
+    const meteo = isMeteoAlarm(alert.provider);
+    const title = cut(
+        (meteo && meteoAlarmTitle(info.parameters)) || info.event.trim() || 'Official warning',
+        TITLE_MAX,
+    );
     const lead = (info.headline?.trim() || info.description?.trim().split('\n')[0]?.trim() || title).trim();
+    if (meteo) {
+        // The participant and the issue time always go (MeteoAlarm's rules 2 and 3): only the link is
+        // dropped, and then the headline is cut, to make room for them.
+        const source = cut(meteoAlarmSource(alert.provider, alert.sender, info.senderName), METEOALARM_SOURCE_MAX);
+        const issued = boatTime(alert.sentAt, zone);
+        const kept = [source, issued && `Issued ${issued}`].filter((p): p is string => !!p).join(' · ');
+        const full = `${kept} · ${METEOALARM_LINK_TEXT}`;
+        if (lead.length + 1 + full.length <= BODY_MAX) return { title, body: `${lead}\n${full}` };
+        return { title, body: `${cut(lead, BODY_MAX - 1 - kept.length)}\n${kept}` };
+    }
     const credit = alert.attribution.trim();
-    const body = credit && lead.length + 1 + credit.length <= BODY_MAX ? `${lead}\n${credit}` : cut(lead, BODY_MAX);
-    return { title, body };
+    return {
+        title,
+        body: credit && lead.length + 1 + credit.length <= BODY_MAX ? `${lead}\n${credit}` : cut(lead, BODY_MAX),
+    };
 }
 
 const ms = (iso: string | null | undefined): number => (iso ? Date.parse(iso) : NaN);
@@ -262,7 +310,7 @@ export function decideOfficialPushes(input: {
                 }
             }
             const chainKey = vtecKey ?? told?.chainKey ?? chainKeyFor(alert.provider, alert.identifier);
-            const { title, body } = officialPushText(alert, info);
+            const { title, body } = officialPushText(alert, info, zone);
             // What this message told: the next update sounds only if it rises above it.
             const severity = verdict.severity;
             const delivery: OfficialDelivery = {

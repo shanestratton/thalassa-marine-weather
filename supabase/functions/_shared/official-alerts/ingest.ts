@@ -14,9 +14,15 @@
  *   a feed that keeps listing one never makes a prune and re-insert loop.
  * - The provider's status row is written when its cursors or health change,
  *   and otherwise at most every HEARTBEAT_MS, so official_alerts_at() can
- *   tell a live provider from a stopped one (STALE_AFTER in the migration is
- *   30 min). Validators and feed_state.soft (ECCC's listing progress) alone
- *   never force a write; soft state rides along with any alert or zone write.
+ *   tell a live provider from a stopped one (it reads one as stopped 30 min
+ *   after its last success). Validators and feed_state.soft (ECCC's listing
+ *   progress) alone never force a write; soft state rides along with any
+ *   alert or zone write.
+ * - A real-time provider (MeteoAlarm) is the exception: its last success is
+ *   written on every successful run (REALTIME_HEARTBEAT_MS is under one run
+ *   period), because official_alerts_at() reads it as stopped once that is
+ *   REALTIME_LIVE_MS old. That is 39 one-row status writes a run (468 an
+ *   hour) on a 45-row table whose updated columns carry no index.
  * - Nothing is written at all when nothing changed: the store is not called.
  *
  * Sharding and isolation: a run takes at most MAX_PER_RUN providers (the
@@ -25,6 +31,36 @@
  * failing provider is recorded as unavailable and never blocks another. An
  * adapter that walks many requests stops APPLY_RESERVE_MS before its timeout
  * and writes what it has read, so a long backfill makes progress run by run.
+ *
+ * Real time (129-05b): MeteoAlarm's terms ask that a warning reach Thalassa's
+ * readers on average in under 5 minutes and never in over 10. Its providers
+ * are read on every run and never sharded, only the others share the slots,
+ * and they are started first, so the run's budget reaches them before any
+ * other. A feed that fails is asked once more in the same run (adapters.ts).
+ * The 10 minutes are kept end to end by one rule: official_alerts_at() calls
+ * a MeteoAlarm country "live" only while its last success (the start of the
+ * run that read it, so no later than the read) is under REALTIME_LIVE_MS
+ * (8 min) old, and the app shows an answer at most REALTIME_APP_MS (90 s)
+ * after it was given (services/officialWarnings.ts, hooks/useOfficialWarnings.ts).
+ * A warning missing from anything shown as live was therefore published
+ * under 9.5 minutes before; once a country is older than that, the app says
+ * it could not check, never an all-clear. A healthy run's last success is at
+ * most one period plus the run's own time (RUN_BUDGET_MS + PROVIDER_TIMEOUT_MS,
+ * 145 s) old, 7.4 minutes, so a healthy country never trips it. Measured
+ * 2026-10-14: the 39 legacy
+ * Atom feeds were 1.99 MB together (Switzerland 519 KB, Germany 338 KB; a
+ * stormy day's Germany was 503 KB), 81 s one after another from Australia
+ * (about 1.1 s to the first byte each), so about 15 s six at a time, and
+ * parsing all 39 took 15 ms of CPU in Deno, far inside the edge runtime's 2 s
+ * CPU and 150 s wall clock. A warning published just after a run starts waits
+ * 5 minutes for the next; on average 2.5, plus the run's own seconds.
+ * WebSub was weighed and not built: MeteoAlarm's feeds name Google's hub
+ * (pubsubhubbub.appspot.com), which was pinged within a minute of a change on
+ * 2026-10-14, but a hub sends only new entries and MeteoAlarm drops a
+ * cancelled warning from its feed rather than publishing a Cancel, so a
+ * 5-minute poll is needed for removals and the 10-minute guarantee anyway,
+ * and WebSub would add a public endpoint, a shared secret and 39 leases to
+ * renew for an average that the poll already keeps under 5 minutes.
  *
  * The mass-drop guard: a snapshot that would silently withdraw (no Update or
  * Cancel naming them) more than MASS_DROP_MIN warnings still in force, and
@@ -43,7 +79,7 @@ import type {
     ProviderRow,
     Validators,
 } from './adapters.ts';
-import { ADAPTERS } from './adapters.ts';
+import { ADAPTERS, HostHolds, HttpError, parseRetryAfter } from './adapters.ts';
 import { canonicalJson, geoJsonToMultiPolygon, type NormalizedAlert, prepareGeometry } from './normalize.ts';
 
 export const RUN_PERIOD_MS = 5 * 60_000;
@@ -58,6 +94,16 @@ export const MAX_DOCS_PER_RUN = 40;
 export const ZONES_PER_RUN = 25;
 /** A healthy provider's status row is refreshed at least this often (4 writes an hour). */
 export const HEARTBEAT_MS = 15 * 60_000;
+/** A real-time provider's: every run (a period less a minute, so a run started a little early still writes). */
+export const REALTIME_HEARTBEAT_MS = RUN_PERIOD_MS - 60_000;
+/**
+ * How old a real-time provider's last success may be while official_alerts_at()
+ * calls it live (the held migration's interval '8 minutes' for adapter
+ * 'meteoalarm'; tests/OfficialAlertsMigration.test.ts keeps them equal).
+ */
+export const REALTIME_LIVE_MS = 8 * 60_000;
+/** The most an app shows a real-time answer after it was given: its 60 s refresh and 30 s cache. */
+export const REALTIME_APP_MS = 90_000;
 /** A snapshot that would withdraw more than this many alerts, and most of what is live, is refused. */
 export const MASS_DROP_MIN = 50;
 export const MASS_DROP_SHARE = 0.75;
@@ -124,7 +170,7 @@ export function createHttp(
             }
             if (res.status !== 200) {
                 await res.body?.cancel();
-                throw new Error(`HTTP ${res.status}`);
+                throw new HttpError(res.status, parseRetryAfter(res.headers.get('retry-after'), Date.now()));
             }
             const declared = Number(res.headers.get('content-length') ?? NaN);
             const max = opts.maxBytes ?? MAX_BODY_BYTES;
@@ -167,6 +213,7 @@ export function nextStatus(
 ): ProviderStatus | null {
     const now = new Date(nowMs).toISOString();
     const age = (iso: string | null) => (iso ? nowMs - Date.parse(iso) : Infinity);
+    const heartbeat = isRealtime(prev) ? REALTIME_HEARTBEAT_MS : HEARTBEAT_MS;
     if (outcome.ok && !outcome.partial) {
         const status: ProviderStatus = {
             lastSuccessAt: now,
@@ -175,7 +222,7 @@ export function nextStatus(
             unavailableSince: null,
             feedState: outcome.feedState,
         };
-        const due = forced || prev.unavailableSince !== null || age(prev.lastSuccessAt) >= HEARTBEAT_MS ||
+        const due = forced || prev.unavailableSince !== null || age(prev.lastSuccessAt) >= heartbeat ||
             cursorState(prev.feedState) !== cursorState(outcome.feedState);
         return due ? status : null;
     }
@@ -189,7 +236,7 @@ export function nextStatus(
         feedState,
     };
     const due = forced || prev.unavailableSince === null || prev.lastError !== error ||
-        age(prev.lastErrorAt) >= HEARTBEAT_MS || cursorState(prev.feedState) !== cursorState(feedState);
+        age(prev.lastErrorAt) >= heartbeat || cursorState(prev.feedState) !== cursorState(feedState);
     return due ? status : null;
 }
 
@@ -242,6 +289,23 @@ export function diffAlerts(known: Map<string, Known>, out: AdapterOutput, nowMs 
 
 const NO_CHANGE: Diff = { upserts: [], withdraw: [], silent: [], live: 0 };
 
+/**
+ * A provider whose licence asks for real-time redistribution: read on every
+ * run, first, never sharded (MeteoAlarm: on average under 5 minutes, never
+ * over 10).
+ */
+export const isRealtime = (p: ProviderRow): boolean => p.adapter === 'meteoalarm' || p.config.realtime === true;
+
+/**
+ * The feed state with the wait its host asked for (Retry-After) as holdUntil,
+ * so the next runs leave the host alone that long; without one, none.
+ */
+function withHold(state: Record<string, unknown>, provider: ProviderRow, holds: HostHolds): Record<string, unknown> {
+    const until = holds.untilFor(provider.feedUrl);
+    const { holdUntil: _prior, ...rest } = state;
+    return until === null ? rest : { ...rest, holdUntil: new Date(until).toISOString() };
+}
+
 export interface ProviderResult {
     provider: string;
     ok: boolean;
@@ -265,6 +329,10 @@ export async function ingestProvider(
         signal?: AbortSignal;
         /** Milliseconds left before the provider must stop starting requests (see AdapterContext). */
         timeLeft?: () => number;
+        /** A pause before a retry (AdapterContext.sleep). */
+        sleep?: (ms: number) => Promise<void>;
+        /** Hosts that asked to slow down, shared by the run (adapters.ts HostHolds). */
+        holds?: HostHolds;
     },
 ): Promise<ProviderResult> {
     const result: ProviderResult = {
@@ -278,6 +346,7 @@ export async function ingestProvider(
         error: null,
     };
     const adapter = (deps.adapters ?? ADAPTERS)[provider.adapter];
+    const holds = deps.holds ?? new HostHolds(deps.nowMs);
     try {
         if (!provider.enabled) throw new Error('licence flag is off'); // never reached from runIngest
         if (!adapter) throw new Error(`no adapter ${provider.adapter}`);
@@ -288,11 +357,13 @@ export async function ingestProvider(
             known,
             http: deps.http,
             nowMs: deps.nowMs,
-            maxDocs: MAX_DOCS_PER_RUN,
+            maxDocs: adapter.maxDocs ?? MAX_DOCS_PER_RUN,
             timeLeft,
+            sleep: deps.sleep,
+            holds,
         });
         const diff = out.notModified ? NO_CHANGE : diffAlerts(known, out, deps.nowMs);
-        const { massDropSince: _since, ...feedState } = out.feedState;
+        const { massDropSince: _since, ...feedState } = withHold(out.feedState, provider, holds);
         let withdraw = diff.withdraw;
         let refusal: { error: string; feedState: Record<string, unknown> } | null = null;
         if (
@@ -310,7 +381,11 @@ export async function ingestProvider(
                 refusal = {
                     error:
                         `refused: the feed would withdraw ${diff.silent.length} of ${diff.live} warnings in force at once`,
-                    feedState: { ...provider.feedState, massDropSince: since ?? new Date(deps.nowMs).toISOString() },
+                    feedState: withHold(
+                        { ...provider.feedState, massDropSince: since ?? new Date(deps.nowMs).toISOString() },
+                        provider,
+                        holds,
+                    ),
                 };
             }
         }
@@ -367,7 +442,8 @@ export async function ingestProvider(
         const error = shortError(err);
         result.ok = false;
         result.error = error;
-        const status = nextStatus(provider, { ok: false, error }, deps.nowMs);
+        const feedState = withHold(provider.feedState, provider, holds);
+        const status = nextStatus(provider, { ok: false, error, feedState }, deps.nowMs);
         if (status && !deps.signal?.aborted) {
             try {
                 await deps.store.apply(provider.id, { upserts: [], withdraw: [], zones: [], status });
@@ -395,13 +471,18 @@ const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
         );
     });
 
-/** The providers this run takes: every enabled one, or, past MAX_PER_RUN, this 5-minute slot's share. */
+/**
+ * The providers this run takes: every real-time one, first, then every other
+ * enabled one, or, past MAX_PER_RUN of those, this 5-minute slot's share.
+ */
 export function shardFor(enabled: ProviderRow[], nowMs: number, maxPerRun = MAX_PER_RUN): ProviderRow[] {
     const sorted = [...enabled].sort((a, b) => a.id.localeCompare(b.id));
-    if (sorted.length <= maxPerRun) return sorted;
-    const shards = Math.ceil(sorted.length / maxPerRun);
+    const realtime = sorted.filter(isRealtime);
+    const rest = sorted.filter((p) => !isRealtime(p));
+    if (rest.length <= maxPerRun) return [...realtime, ...rest];
+    const shards = Math.ceil(rest.length / maxPerRun);
     const slot = Math.floor(nowMs / RUN_PERIOD_MS) % shards;
-    return sorted.filter((_, i) => i % shards === slot);
+    return [...realtime, ...rest.filter((_, i) => i % shards === slot)];
 }
 
 export interface RunSummary {
@@ -423,6 +504,8 @@ export async function runIngest(deps: {
     runBudgetMs?: number;
     /** Elapsed-time clock for the run budget (milliseconds). */
     clock?: () => number;
+    /** A pause before a retry (tests pass one that does not wait). */
+    sleep?: (ms: number) => Promise<void>;
 }): Promise<RunSummary> {
     const clock = deps.clock ?? (() => Date.now());
     const started = clock();
@@ -433,9 +516,16 @@ export async function runIngest(deps: {
     const chosen = shardFor(enabled, deps.nowMs, deps.maxPerRun);
     const deferred = enabled.filter((p) => !chosen.includes(p)).map((p) => p.id);
     const timeout = deps.providerTimeoutMs ?? PROVIDER_TIMEOUT_MS;
-    // Started in a rotating order, so the provider left for last is not always the same one.
-    const turn = chosen.length > 0 ? Math.floor(deps.nowMs / RUN_PERIOD_MS) % chosen.length : 0;
-    const queue = [...chosen.slice(turn), ...chosen.slice(0, turn)];
+    // One host's "slow down" is every provider's on that host, this run and as long as it asked.
+    const holds = new HostHolds(deps.nowMs);
+    for (const p of enabled) holds.carry(p.feedUrl, p.feedState.holdUntil);
+    // Real-time providers first, so the budget never leaves one for the next run; each group started in a
+    // rotating order, so the provider left for last is not always the same one.
+    const rotate = (list: ProviderRow[]) => {
+        const turn = list.length > 0 ? Math.floor(deps.nowMs / RUN_PERIOD_MS) % list.length : 0;
+        return [...list.slice(turn), ...list.slice(0, turn)];
+    };
+    const queue = [...rotate(chosen.filter(isRealtime)), ...rotate(chosen.filter((p) => !isRealtime(p)))];
     const ran: ProviderResult[] = [];
     const worker = async () => {
         for (let p = queue.shift(); p; p = queue.shift()) {
@@ -452,6 +542,7 @@ export async function runIngest(deps: {
             const r = await withTimeout(
                 ingestProvider(provider, {
                     ...deps,
+                    holds,
                     signal: abandon.signal,
                     timeLeft: () => allowed - reserve - (clock() - begun),
                 }),

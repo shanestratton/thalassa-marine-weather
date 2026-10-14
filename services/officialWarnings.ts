@@ -13,6 +13,13 @@
  * outlines' own simplification), and a "not answered" for 10, so the Glass and
  * the page share one call.
  *
+ * An answer with MeteoAlarm in it is kept 30 seconds, not 4 minutes, and the
+ * hook asks again every minute while one is shown (officialRefreshMs): its
+ * terms ask that a warning reach the reader on average in under 5 minutes and
+ * never in over 10 (129-05b). So what is shown is at most 90 seconds older
+ * than the database (REALTIME_APP_MS in the ingest), and the database calls a
+ * MeteoAlarm country live only while it was read in the last 8 minutes.
+ *
  * A refresh that fails after an answer never takes a warning away: the last
  * answer for that account and position is given again, marked stale (since
  * when it was last answered), and asked again after a minute. A known gale
@@ -37,6 +44,8 @@ export interface OfficialInfo {
     onset: string | null;
     expires: string | null;
     category: string[];
+    /** The issuer's names for the areas it covers. */
+    areaDesc: string[];
     parameters: Array<{ valueName: string; value: string }>;
     eventCodes: Array<{ valueName: string; value: string }>;
 }
@@ -45,6 +54,8 @@ export interface OfficialAlert {
     provider: string;
     issuer: string;
     identifier: string;
+    /** The CAP sender (which of a MeteoAlarm country's participants sent it). */
+    sender: string | null;
     /**
      * How it reached the point: its own polygon, a zone holding the point, or
      * 'nearby', a marine warning within 3 NM (NWS's marine zones end at the
@@ -112,6 +123,7 @@ function parseInfo(v: unknown): OfficialInfo | null {
         onset: str(i.onset),
         expires: str(i.expires),
         category: strs(i.category),
+        areaDesc: strs(i.areaDesc),
         parameters: pairs(i.parameters),
         eventCodes: pairs(i.eventCodes),
     };
@@ -151,6 +163,7 @@ export function parseOfficialAnswer(raw: unknown): OfficialAnswer | null {
             provider: r.provider as string,
             issuer: str(r.issuer) ?? (r.provider as string),
             identifier: r.identifier as string,
+            sender: str(r.sender),
             matchedBy: matched === 'polygon' || matched === 'zone' || matched === 'nearby' ? matched : null,
             sent: str(r.sent) ?? '',
             onset: str(r.onset),
@@ -172,9 +185,23 @@ export function officialInForce(answer: OfficialAnswer, nowMs: number): Official
 }
 
 const ANSWER_MS = 4 * 60_000;
+/** How long an answer with MeteoAlarm in it is kept (rule 5 of its terms: real time). */
+export const REALTIME_ANSWER_MS = 30_000;
+/** How often an answer with MeteoAlarm in it is asked again while it is shown. */
+export const REALTIME_REFRESH_MS = 60_000;
+/** How often any other answer is asked again (the 4-minute cache answers in between). */
+export const OFFICIAL_REFRESH_MS = 5 * 60_000;
+export const hasMeteoAlarm = (a: OfficialAnswer): boolean =>
+    [...a.providers.map((p) => p.id), ...a.alerts.map((x) => x.provider)].some((id) => id.startsWith('meteoalarm-'));
 const UNANSWERED_MS = 10 * 60_000;
 /** A failed refresh after an answer is asked again this soon, so the stale mark clears quickly. */
 const STALE_RETRY_MS = 60_000;
+
+/** When a shown answer should be asked again: a stale one or one with MeteoAlarm every minute, else every 5. */
+export function officialRefreshMs(answer: OfficialAnswer | null): number {
+    if (answer?.staleSince) return STALE_RETRY_MS;
+    return answer && hasMeteoAlarm(answer) ? REALTIME_REFRESH_MS : OFFICIAL_REFRESH_MS;
+}
 const cache = new Map<string, { at: number; ttl: number; value: Promise<OfficialAnswer | null> }>();
 /** The last good answer per account and position, never overwritten by a failure. */
 const lastGood = new Map<string, OfficialAnswer>();
@@ -209,7 +236,7 @@ export function fetchOfficialWarnings(lat: number, lon: number): Promise<Officia
             answer = null;
         }
         if (answer) {
-            entry.ttl = ANSWER_MS;
+            entry.ttl = hasMeteoAlarm(answer) ? REALTIME_ANSWER_MS : ANSWER_MS;
             lastGood.set(key, answer);
             return answer;
         }
