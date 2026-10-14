@@ -1,0 +1,362 @@
+{
+    "schemaVersion": 1,
+    "dateBrisbane": "2026-10-14",
+    "category": "passive-original-authority-timing-preparation-current-native-launch-unobserved",
+    "sourceBase": "496accdcfedb6ea2502cb6d6b0cbf87f465b73d8",
+    "branch": "codex/scuttlebutt-e2ee-integration-clean-2026-10-11",
+    "compiledUpstream": "5b3187afc146f618126ca0658e0aa142aff40196",
+    "mergeReady": false,
+    "independentAssessment": false,
+    "ordinaryAndLiveEncryptionDisabled": true,
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift": "1984ef8ab4a1d1f16bb79a96f678bcecf85df2400dc24831766ce44d2ed418f0",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppSceneUiFixture.swift": "f8608ad3f4a5afeace7185dacb1138f038000aa854d5972cf72eb221025ab6cb",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneAuthorityTimingEvidence.swift": "9808cf1ecf53d0e904919eab1f6a4999cb80b9f57ffcea1d3acb53221025a903",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneAuthorityTimingEvidenceSyntheticTests.swift": "fdbdd83438186aaa91b0816d22b226a20a534d77c610e0a9d668d08e841017a2",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneAuthorityTimingContract.mjs": "d9d5e873aea9929e86653891d1b9942ea0d0f724b6daf9c31cbb005e06942446",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneAuthorityTimingContract.test.mjs": "7d93f6e32d1b32ca08fa2937ee9ee874cd1891be98afdfc962edad90bd90084b",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneAuthorityTimingWiring.test.mjs": "a16842cc7f93d056ef2b8c3662930e7179fbb8a2aa9e724d71ec2ac72b79f2f7",
+        "experiments/scuttlebutt-e2ee/bridge-native/firstInboxStageWiring.test.mjs": "2dca0844956b0913c654afac56600f928ac532dc04bee32edd29adb24d81e453",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneClosureDiagnosticWiring.test.mjs": "79fa7762bde15bf1bf7024d90b499d6c449d78987c67f45ef1fdf70fca50c114",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneFinishStageWiring.test.mjs": "5d69b2661617bd680193a90eeaf279d53e590ddf07f0bdfe976cf676b6213892",
+        "experiments/scuttlebutt-e2ee/bridge-native/sceneProgressStageWiring.test.mjs": "68c1f9f60ddd479d9fd3637a7c875a247a755ff0f3e934542af4d9e87f9bde80",
+        "experiments/scuttlebutt-e2ee/bridge-native/fullAppProtectedUiProof.mjs": "9672c9f1185c0601eec37cc805775273d705c6d29da6550bdefcd05777784546",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "c40e3a774a3179e1125a500957ac5134bbcac6b3a3c2da353da7def62e4a25ae",
+        "experiments/scuttlebutt-e2ee/bridge-native/generate_project.rb": "b6fd3c3dfacf30e98af9708f4e06415ed77ecb801a4a025c1bbac13af3d14fd2",
+        "tests/E2eeSceneLifecycleEvidence.test.ts": "77429814a585c247a8c41c2e967c0a48dfdc4209eb451191587747ab23943d13"
+    },
+    "implementation": {
+        "scope": "separate simulator-only passive diagnostic; no ordinary, provider, deadline or native authority rule changes",
+        "maximumEntries": 32,
+        "maximumBytes": 16384,
+        "clock": "native ContinuousClock; injectable clock only in direct-call TEST compilation",
+        "buckets": [
+            "unobserved",
+            "lt-1s",
+            "1s-to-lt-10s",
+            "10s-to-lt-30s",
+            "30s-to-lt-60s",
+            "60s-to-lt-120s",
+            "ge-120s"
+        ],
+        "anchors": "first successful verify completion and first original capture; later verifies never reset either age",
+        "noNewAuthorityGetters": true,
+        "noNewCredentialSnapshotRetention": true,
+        "existingOriginalWitnessOnly": true,
+        "unavailableRefusalsRecordedWithUnknownFacts": true,
+        "exactPrivateWrapperBoundToCurrentSourceResourceProcess": true,
+        "rawNonceOnlyInPrivateExactByteArtifact": true,
+        "parentInspectionTimingOnly": true,
+        "authorityMutated": false,
+        "acceptanceEvidence": false,
+        "originalSceneContractSHA256": "8002624e1c946b0bcaafe2509ead14d38bef12af7b33c722dc696c92bec59d97",
+        "prerequisite61ByteIdenticalToF61": true,
+        "sceneSwiftInventory": 30,
+        "ordinaryMaximumSwiftInventory": 24
+    },
+    "checks": {
+        "receipt": {
+            "path": "/private/tmp/thalassa-authority-timing-verified.Ja9SZT/checks-receipt.json",
+            "sha256": "d5576b53c78497c6bf987d8d11ded72c189646df5e36b79768abd0b7c6510bc0"
+        },
+        "helper": {
+            "path": "/private/tmp/thalassa-authority-timing-verified.Ja9SZT/checks.mjs",
+            "sha256": "336f953f852f28a6eabe1d10806a69e242b4e9d81d22c161b258e67a07577ff5"
+        },
+        "config": {
+            "path": "/private/tmp/thalassa-authority-timing-verified.Ja9SZT/vitest.config.mjs",
+            "sha256": "52b8d742c46eccddd4161fe1f12af3859684f3c0a39c40232d64fb614876dacf"
+        },
+        "stages": [
+            {
+                "label": "named-format-write",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 725,
+                "expectedExit": 0
+            },
+            {
+                "label": "syntax-sceneAuthorityTimingContract.mjs",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 36,
+                "expectedExit": 0
+            },
+            {
+                "label": "syntax-fullAppProtectedUiProof.mjs",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 34,
+                "expectedExit": 0
+            },
+            {
+                "label": "syntax-build.mjs",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 34,
+                "expectedExit": 0
+            },
+            {
+                "label": "ruby-syntax",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 66,
+                "expectedExit": 0
+            },
+            {
+                "label": "format-check",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 672,
+                "expectedExit": 0
+            },
+            {
+                "label": "lint",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 1527,
+                "expectedExit": 0
+            },
+            {
+                "label": "narrow-types",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 902,
+                "expectedExit": 0
+            },
+            {
+                "label": "wiring-node",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 546,
+                "expectedExit": 0,
+                "tests": 595,
+                "passed": 595
+            },
+            {
+                "label": "affected-contracts",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 1588,
+                "expectedExit": 0
+            },
+            {
+                "label": "swift6-timing-compile",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 1787,
+                "expectedExit": 0
+            },
+            {
+                "label": "swift6-timing-synthetic",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 668,
+                "expectedExit": 0
+            },
+            {
+                "label": "swift6-timing-ordinary-disabled",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 152,
+                "expectedExit": 0
+            },
+            {
+                "label": "swift6-disabled-symbol-refusal",
+                "exit": 1,
+                "timedOut": false,
+                "durationMs": 207,
+                "expectedExit": 1
+            },
+            {
+                "label": "swift6-ios-scene-typecheck",
+                "exit": 0,
+                "timedOut": false,
+                "durationMs": 1165,
+                "expectedExit": 0
+            }
+        ],
+        "nodeCases": {
+            "total": 595,
+            "passed": 595
+        },
+        "affectedContracts": {
+            "total": 370,
+            "passed": 370,
+            "failed": 0
+        },
+        "swiftSynthetic": {
+            "assertions": 9063,
+            "maximumJSONBytes": 8604,
+            "inspectedEntries": 4
+        },
+        "swiftSyntheticOutput": {
+            "path": "/private/tmp/thalassa-authority-timing-verified.Ja9SZT/swift6-timing-synthetic.stdout",
+            "sha256": "6f982b47f5d35281426122f25651b028c6b8b8c7029d610350d015ac17cbffd8"
+        },
+        "iOS27SimulatorSingleFileTypecheck": true,
+        "ordinaryDisabledTypecheck": true,
+        "disabledSymbolReferenceExpectedRefusal": true,
+        "noNativeEncryptionOrOsAcceptance": true,
+        "firstFailedReceipt": {
+            "path": "/private/tmp/thalassa-authority-timing-checks.XILUcP/checks-receipt.json",
+            "sha256": "7fda66fac5d06f6368158f9e87b04826de8bc5560bcbab939f0a0b3bfeaced65"
+        },
+        "firstFailure": {
+            "nodeTotal": 594,
+            "nodePassed": 593,
+            "reason": "old write-body token equality omitted stripping only the new optional timing persistence call",
+            "preservedFailed": true
+        },
+        "privacySourceReviewCorrection": "full admitted wrapper would have copied nonce into parent inspection; detached timing-only projection and explicit no-binding-field tests applied before any new native invocation",
+        "unavailableSourceReviewCorrection": "both existing authority refusal branches now record unavailable without a new getter"
+    },
+    "unchangedWeb": {
+        "buildReceipt": {
+            "path": "/private/tmp/thalassa-chart-closed-current.8vNNkc/build-receipt.json",
+            "sha256": "4e46a1977d19bd59b4377476b99409015c210a7ddeb8cb12df6b2f1a5601d19f"
+        },
+        "windowReceipt": {
+            "path": "/private/tmp/thalassa-full-app-window-fviyF8/window-receipt.json",
+            "sha256": "7f21f22d5c0ec52207f5843d640e67cc7758f5e3fbd7d4857bf4e7547790de2b"
+        },
+        "moduleInputs": 1757,
+        "proofInputs": 6,
+        "outputs": 294,
+        "currentInputOutputHashesMatched": true,
+        "newWebOrWindowExecution": false,
+        "previousWindowConsoleErrors": 6,
+        "noNativeOrOsAcceptanceTransferred": true
+    },
+    "nativeAttempt": {
+        "controllerReceipt": {
+            "path": "/private/tmp/thalassa-authority-timing-native.ZZRm6j/controller-receipt.json",
+            "sha256": "915a8ef431e788be83561197a61a4645de994642bb850fc70059d647b5faccd4"
+        },
+        "controllerHelper": {
+            "path": "/private/tmp/thalassa-authority-timing-native.ZZRm6j/run.mjs",
+            "sha256": "1ec86992a52eb077671352fb027953cc13c362362a4b9940478af336ed8358f6"
+        },
+        "parentReceipt": {
+            "path": "/private/tmp/thalassa-full-root-protected-jbatum/run-receipt.json",
+            "sha256": "2e27420f7051f82433916e8ef87760f1b3e35fb8002e6b864725edc3da339972"
+        },
+        "buildReceipt": {
+            "path": "/private/tmp/thalassa-messaging-build-5NKjaj/build-receipt.json",
+            "sha256": "ad75ab9d04f7d825b57a79c938527b100d10c21969991007376bb80fad4a8ee1"
+        },
+        "status": "failed",
+        "phase": "actual-full-root-protected",
+        "compilePassed": true,
+        "swiftInputs": 30,
+        "driverInputs": 30,
+        "unsignedArtifactEntries": 343,
+        "signedArtifactEntries": 346,
+        "ownedControlLaunch": {
+            "version": 1,
+            "exitStatus": 0,
+            "timedOut": false,
+            "returnedPID": 30883,
+            "launchCallAccepted": true,
+            "nativeResearchAcceptanceProved": false
+        },
+        "appLaunch": {
+            "operation": "owned-app-launch",
+            "exitStatus": null,
+            "timedOut": true,
+            "returnedPid": null,
+            "boundMs": 30000,
+            "nativePhaseObserved": false,
+            "expectedNativeFilePresent": false,
+            "expectedPhaseFilePresent": false,
+            "executionAndCause": "unknown; null PID does not prove no app execution and does not demonstrate an encryption failure"
+        },
+        "timingDiagnosticStatus": "no-file",
+        "timingRuntimeEvidence": false,
+        "newProtectedExchangeAccepted": false,
+        "newOsLifecycleAccepted": false,
+        "noEarlierCountsTransferred": true,
+        "cleanupReported": {
+            "idAbsent": true,
+            "nameAbsent": true,
+            "sourcesUnchanged": true
+        },
+        "readOnlyVerification": {
+            "receipt": {
+                "path": "/private/tmp/thalassa-authority-timing-native.ZZRm6j/verification-v2-receipt.json",
+                "sha256": "47deb88921fbd9a9ea4b71da954a9302b37cb0eb17cf37d4f8c6e92c740fdad0"
+            },
+            "helper": {
+                "path": "/private/tmp/thalassa-authority-timing-native.ZZRm6j/verify-v2.mjs",
+                "sha256": "81c6239694e5aaac4db042ed285952be35f1fc80ef5175c892223fe2299ffd1a"
+            },
+            "driverInputs": 30,
+            "swiftInputs": 30,
+            "unsignedEntries": 343,
+            "signedEntries": 346,
+            "focusedCheckInputs": 26,
+            "currentSourcesAndRecordedArtifactsMatch": true,
+            "ownedSimulatorIdAbsent": true,
+            "ownedSimulatorNameAbsent": true,
+            "swiftChangedFromPriorBaseline": [
+                "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppProtectedUiFixture.swift",
+                "experiments/scuttlebutt-e2ee/bridge-native/ResearchFullAppSceneUiFixture.swift"
+            ],
+            "swiftAdded": [
+                "experiments/scuttlebutt-e2ee/bridge-native/ResearchSceneAuthorityTimingEvidence.swift"
+            ],
+            "newNativeInvocation": false,
+            "reverseCompleteArtifactInventory": false,
+            "independentSecurityAssessment": false,
+            "initialVerifierFailure": {
+                "receipt": {
+                    "path": "/private/tmp/thalassa-authority-timing-native.ZZRm6j/verification-receipt.json",
+                    "sha256": "b3a2c0a8907ae79cc66e5b2c329be2a9517165c2c2f95d758d045d81bcc3d089"
+                },
+                "helper": {
+                    "path": "/private/tmp/thalassa-authority-timing-native.ZZRm6j/verify.mjs",
+                    "sha256": "ddb33ffa01d49016a3addbc2e5fa4271c9f6b22a7be7f2d4ca69fc2dca7e0a93"
+                },
+                "reason": "relative artifact manifest keys were incorrectly treated as absolute filesystem paths; verifier corrected, no native re-execution",
+                "preservedFailed": true
+            }
+        }
+    },
+    "waiting": {
+        "limitMs": 120000,
+        "firstCheckMs": 152,
+        "verifiedCheckAdditionalMs": 236,
+        "controllerMs": 5120,
+        "childMs": 0,
+        "totalMs": 5508,
+        "childRemainingBudgetMs": 114492,
+        "noFreshDefaultAllowance": true,
+        "overshootObserved": false,
+        "queued": false
+    },
+    "interpretation": [
+        "No current timing sample exists because the app launch was unobserved; prior stale baseline remains unexplained.",
+        "Below-60s age cannot exclude expiry; the native deadline starts before these anchors and is not renewed.",
+        "At-least-60s since original capture means its maximum lease budget has elapsed by recorder time, not that expiry caused the earlier getter refusal.",
+        "Fence attempts count refused calls; successful completions omit failed fencing that can already clear revision/lease, and native suspension can add a completion without a plugin attempt.",
+        "The prior accepted same-process OS proof remains frozen to its exact older slice; this changed graph has no new protected exchange or OS acceptance."
+    ],
+    "remainingGates": [
+        "Diagnose the bounded owned-app-launch timeout without unchanged relaunches or extended deadlines; cause is unknown.",
+        "Obtain current original-authority timing observations and diagnose stale original native baseline without replacement snapshots or relaxed deadlines.",
+        "Current-source actual protected OS roundtrip/navigation/opposite role; cold process refusal and same-store recovery are distinct.",
+        "Full adapter HTTPS/current Auth and adversarial integration; fail-closed old-client/private-queue/push cutover and rollback.",
+        "Shipping device/prekey lifecycle, retention/scalable-sync and recovery policies; physical acceptance; dependency/source-binary provenance/licensing; independent security assessment."
+    ],
+    "safety": {
+        "primaryCheckoutOrIosChanged": false,
+        "masterMergedOrPushed": false,
+        "productionChanged": false,
+        "humanDevicesAccountsKeysChanged": false,
+        "yachtOrShoreWatchChanged": false,
+        "hostedActorsChanged": false,
+        "sharedDependencyWrites": false,
+        "ordinaryEncryptionEnabled": false,
+        "rawAuthMessageOrResourceNoncePublished": false
+    }
+}

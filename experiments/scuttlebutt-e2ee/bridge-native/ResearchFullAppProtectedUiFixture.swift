@@ -49,6 +49,7 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
     private var originalFenceCount: Int?
 #if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
     static let sceneFinishStageEvidence = ResearchSceneFinishStageEvidence()
+    static let sceneAuthorityTimingEvidence = ResearchSceneAuthorityTimingEvidence()
     private var sceneFinishInput: (ResearchSceneFinishStageEvidence.Callsite,
                                    ResearchSceneFinishStageEvidence.NativeValidationBoundary?)?
 #endif
@@ -88,21 +89,55 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
         guard shared.facade === candidate, let count = shared.sceneVerifyFenceCompletions else { return }
         // Overflow becomes unknown/refused evidence, never a fabricated total.
         shared.sceneVerifyFenceCompletions = count < 10000 ? count + 1 : nil
+#if targetEnvironment(simulator)
+        noteSceneTiming(.verifyCompleted)
+#endif
     }
     @MainActor static func sceneAuthorityFacts() -> ResearchSceneLifecycleEvidence.AuthorityFacts {
         shared.lock.lock()
         let facade = shared.facade, original = shared.original, completions = shared.sceneVerifyFenceCompletions
         shared.lock.unlock()
-        guard let facade else { return .unavailable }
+        guard let facade else {
+#if targetEnvironment(simulator)
+            noteSceneAuthorityUnavailable()
+#endif
+            return .unavailable
+        }
         let accountPresent = facade.currentAccount() != nil
         let current = original.map { facade.currentMessageContext(snapshot: $0) == $0.context }
         shared.lock.lock(); defer { shared.lock.unlock() }
         guard shared.facade === facade, shared.original?.context == original?.context,
-              shared.sceneVerifyFenceCompletions == completions else { return .unavailable }
+              shared.sceneVerifyFenceCompletions == completions else {
+#if targetEnvironment(simulator)
+            noteSceneAuthorityUnavailable()
+#endif
+            return .unavailable
+        }
+#if targetEnvironment(simulator)
+        // Reuse only the ORIGINAL getter results above. No new account,
+        // snapshot, credential or authority lookup is performed for timing.
+        noteSceneTiming(.authorityObserved, accountPresent: accountPresent, originalCurrent: current)
+#endif
         return .init(observationStatus: .observed, facadeObserved: true,
             originalSnapshotObserved: original != nil, accountPresent: accountPresent,
             originalSnapshotCurrent: current, verifyFenceCompletions: completions)
     }
+#if targetEnvironment(simulator)
+    private static func noteSceneAuthorityUnavailable() {
+        shared.lock.lock(); defer { shared.lock.unlock() }
+        sceneAuthorityTimingEvidence.record(.authorityUnavailable, fenceAttempts: shared.counters["fenceSession"],
+            verifyCompletions: shared.sceneVerifyFenceCompletions,
+            facadeObserved: false, originalObserved: false)
+    }
+    private static func noteSceneTiming(_ phase: ResearchSceneAuthorityTimingEvidence.Phase,
+                                        accountPresent: Bool? = nil, originalCurrent: Bool? = nil) {
+        shared.lock.lock(); defer { shared.lock.unlock() }
+        sceneAuthorityTimingEvidence.record(phase, fenceAttempts: shared.counters["fenceSession"],
+            verifyCompletions: shared.sceneVerifyFenceCompletions,
+            facadeObserved: shared.facade != nil, originalObserved: shared.original != nil,
+            accountPresent: accountPresent, originalCurrent: originalCurrent)
+    }
+#endif
     @MainActor static func sceneWindowEvidence(_ raw: Any?, runID: String) throws -> [String: Any] {
         guard let window = try fullAppWindow(raw, runID: runID) else { throw ResearchFullAppProtectedUiError.unavailable }
         return window
@@ -399,8 +434,17 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
               case .none = enrollment.registration, case .none = enrollment.claim,
               case .pairingState(let pair) = try facade.executeMessageOperation(snapshot: snapshot, operation: .pairingState), pair.status == .unpaired,
               facade.currentMessageContext(snapshot: snapshot) == snapshot.context else { throw ResearchFullAppProtectedUiError.unavailable }
-        if let original { guard facade.currentMessageContext(snapshot: original) == original.context else { throw ResearchFullAppProtectedUiError.unavailable } }
-        else { lock.lock(); original = snapshot; originalFenceCount = copiedCounters()["fenceSession"]; lock.unlock() }
+        if let original {
+            guard facade.currentMessageContext(snapshot: original) == original.context else { throw ResearchFullAppProtectedUiError.unavailable }
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+            Self.noteSceneTiming(.originalRechecked, accountPresent: true, originalCurrent: true)
+#endif
+        } else {
+            lock.lock(); original = snapshot; originalFenceCount = copiedCounters()["fenceSession"]; lock.unlock()
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+            Self.noteSceneTiming(.originalCaptured, accountPresent: true, originalCurrent: true)
+#endif
+        }
     }
     @MainActor private func fenced() -> Bool {
         guard let facade, let original, let baseline = originalFenceCount, (copiedCounters()["fenceSession"] ?? 0) > baseline else { return false }
@@ -509,6 +553,7 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
             // the lifecycle driver/JS. No stale earlier prefix can authorize it.
             if report.phase == "native-proof-captured" {
 #if targetEnvironment(simulator)
+                Self.noteSceneTiming(.protectedReport)
                 nativeBoundary = .protectedReady
 #endif
                 try ResearchFullAppSceneUiFixture.protectedReady()
@@ -525,6 +570,10 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
         guard !terminal, !controlBusy, let facade, let view, let original, facade.currentMessageContext(snapshot: original) == original.context else { throw ResearchFullAppProtectedUiError.unavailable }
         let expected = report.phase == "protected-setup" ? "prepared" : report.phase == "protected-peer-reply" ? "peer-replied" : "native-proof-captured"
         guard progressIndex < Self.progressPhases.count, Self.progressPhases[progressIndex] == expected else { throw ResearchFullAppProtectedUiError.unavailable }
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+        Self.noteSceneTiming(report.phase == "protected-setup" ? .protectedSetup : report.phase == "protected-peer-reply" ? .peerReply : .proofCaptured,
+            originalCurrent: true)
+#endif
         if report.phase == "capture-proof" {
             guard setupComplete, replyComplete, capturedProof == nil, let helper else { throw ResearchFullAppProtectedUiError.unavailable }
             capturedProof = try sanitizedExchange(helper.evidence())
@@ -587,7 +636,13 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
         let active = controlTask; active?.cancel()
         Task { @MainActor in
             if let active { await active.value }
-            defer { self.lock.lock(); self.original = nil; self.originalFenceCount = nil; self.lock.unlock() }
+            defer {
+                self.lock.lock(); self.original = nil; self.originalFenceCount = nil; self.lock.unlock()
+#if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
+                Self.noteSceneTiming(.originalCleared)
+                ResearchFullAppSceneUiFixture.persistAuthorityTimingDiagnostic()
+#endif
+            }
             let deadline = ContinuousClock.now.advanced(by: .seconds(3))
             while !self.fenced(), ContinuousClock.now < deadline { try? await Task.sleep(nanoseconds: 25_000_000) }
             do {
@@ -615,6 +670,7 @@ final class ResearchFullAppProtectedUiFixture: NSObject, WKScriptMessageHandler,
 #if E2EE_FULL_APP_SCENE_UI_FIXTURE && targetEnvironment(simulator)
         ResearchFullAppSceneUiFixture.persistFirstInboxDiagnostic()
         ResearchFullAppSceneUiFixture.persistSceneFinishDiagnostic()
+        ResearchFullAppSceneUiFixture.persistAuthorityTimingDiagnostic()
 #endif
         guard let runID, let nonce else { throw ResearchFullAppProtectedUiError.unavailable }
 #if E2EE_FULL_APP_SCENE_UI_FIXTURE

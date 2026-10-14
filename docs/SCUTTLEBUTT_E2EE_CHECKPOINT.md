@@ -11,7 +11,75 @@ Never push old local foundation/integration refs or the local backup stash. The
 rewritten remote integration is left untouched; coherent new pushes belong only
 to this clean continuation branch, without force-push, all-branch or mirror pushes.
 
-## Current chart-control isolation, refreshed web and native baseline refusal
+## Current passive authority timing preparation; app launch unobserved
+
+The [new source-bound preparation/failure record](../experiments/scuttlebutt-e2ee/review/authority-timing-launch-unobserved-2026-10-14.json)
+adds a separate simulator-only native timing diagnostic to investigate the
+original-authority baseline refusal below. It records at most **32 immutable
+entries / 16,384 bytes**, using coarse monotonic age buckets from the first
+successful verify and first original capture. Later verifies never reset those
+anchors. It reuses already computed scalar observations; there are **no new
+authority getters or credential-bearing snapshots**, no authority mutation,
+deadline change, timer grace or acceptance permission. Both existing unavailable
+branches remain refusals and now emit explicit unknown diagnostic facts.
+Original scene contract bytes, all 61 provider/HTTPS prerequisite inputs,
+ordinary source limits and every previous native acceptance gate are unchanged.
+The resource/process-bound exact wrapper stays private; the parent inspection
+contains detached timing facts only, never the resource nonce.
+
+Executed **595 synthetic/source/parser/driver cases**, **370 affected contract
+cases across five suites**, and a separate Swift 6 direct-call recorder harness
+with **9,063 assertions** (maximum serialized diagnostic 8,604 bytes). Named
+syntax, formatting, lint and narrow strict types passed. Recorder-only iOS 27
+simulator typecheck, ordinary-disabled typecheck and expected disabled-symbol
+compile refusal passed separately. None establishes native encryption, OS or
+physical acceptance. The first 593/594 case receipt remains failed: a write-body
+parity expectation had not removed exactly the new optional diagnostic write.
+That narrow correction retains all previous behavior/gates. Source review also
+caught a full-wrapper nonce projection and missing unavailable markers; both
+were corrected before native invocation, with explicit tests.
+
+**One fresh changed-source attempt compiled the 30-source App and signed only an
+owned copy, but the unchanged 30-second app-launch call timed out with null exit
+and no returned app PID.** Settings control launch succeeded (PID 30883). No
+native phase/report or timing file was observed; there is **no accepted current
+exchange, timing sample or OS roundtrip**. Actual app execution and the cause are
+unknown, not a demonstrated crypto failure. Do not repeat an unchanged launch
+or extend its deadline to obtain a pass. Do not transfer earlier assertion or
+exchange counts to this attempt. Parent receipt:
+`/private/tmp/thalassa-full-root-protected-jbatum/run-receipt.json`, SHA-256
+`2e27420f7051f82433916e8ef87760f1b3e35fb8002e6b864725edc3da339972`.
+
+A saved read-only verifier matched all **30 driver / 30 Swift inputs**, the
+recorded **343 unsigned / 346 signed file entries**, all 26 focused-check inputs,
+and the preserved web graph (1,757 module inputs / six proof inputs / 294 outputs).
+Exact disposable simulator ID/name absence was independently re-observed.
+Of the previous 29 Swift sources, 27 are unchanged, two fixture files changed,
+and only the timing recorder was added. The first verifier receipt stays failed:
+it treated relative artifact keys as absolute paths; the corrected verifier
+did not rerun the app. This is input/artifact correspondence, not a new native
+execution or independent security assessment. The current web/Window inputs
+were unchanged, so those unchanged executions were not repeated. Six historical
+Window console errors remain retained.
+
+Cumulative shared waiting this run was **5,508 / 120,000 ms**: first checks 152,
+corrected checks 236, controller 5,120, child 0. The child received only 114,492 ms
+remaining, never another full allowance. No wait overshoot was tested/observed.
+All exact receipts, source hashes and failed/unrun categories are in the record.
+
+Next: diagnose this bounded launch failure without unchanged launches or wider
+deadlines, then legitimately obtain current timing evidence for the stale native
+baseline. Below-60s age cannot exclude expiry; at-least-60s since original capture
+only establishes elapsed maximum lease budget by the later recorder timestamp,
+not the cause of an earlier getter refusal. Attempt counts and successful verify
+counts have different boundaries and do not rule out failed fencing mutation.
+Current protected OS/navigation/opposite-role, cold/refusal/recovery, full HTTPS/
+Auth and all shipping/physical/licence/independent-review gates remain open.
+**Not merge-ready.** Production, primary/iOS, human devices/accounts/keys and
+ordinary encryption were untouched. This preparation does not replace the
+previous failed baseline or promote the older accepted OS proof.
+
+## Previous chart-control isolation, refreshed web and native baseline refusal
 
 The [new source-bound record](../experiments/scuttlebutt-e2ee/review/chart-control-web-native-baseline-2026-10-14.json)
 fixes the post-reconciliation named-export gap without exposing real chart

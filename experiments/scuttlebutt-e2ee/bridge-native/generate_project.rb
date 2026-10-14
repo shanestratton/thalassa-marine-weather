@@ -34,7 +34,7 @@ begin
     ResearchLocalUiFixture.swift ResearchFullAppProtectedHttpFence.swift ResearchFullAppProtectedUiFixture.swift
     ResearchProtectedUiRelay.swift ResearchProtectedUiFixture.swift ResearchSceneLifecycleEvidence.swift
     ResearchFullAppSceneUiFixture.swift ResearchFirstInboxStageEvidence.swift ResearchSceneFinishStageEvidence.swift
-    ResearchSceneProgressStageEvidence.swift].sort
+    ResearchSceneProgressStageEvidence.swift ResearchSceneAuthorityTimingEvidence.swift].sort
   raise 'Bounded native sources required' unless sources.is_a?(Array) &&
     (manifest['sceneUiFixture'] ? sources.sort == scene_sources : sources.length.between?(3, 24)) &&
     sources.uniq.length == sources.length

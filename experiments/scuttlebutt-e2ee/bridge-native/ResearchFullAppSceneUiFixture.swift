@@ -23,6 +23,7 @@ final class ResearchFullAppSceneUiFixture: NSObject, WKScriptMessageHandler {
     private var firstInboxDiagnosticFile: URL?
     private var finishDiagnosticFile: URL?
     private var progressDiagnosticFile: URL?
+    private var authorityTimingDiagnosticFile: URL?
     private let progressStageEvidence = ResearchSceneProgressStageEvidence()
     private weak var scene: UIScene?
     private weak var delegate: ResearchSceneDelegate?
@@ -128,6 +129,7 @@ final class ResearchFullAppSceneUiFixture: NSObject, WKScriptMessageHandler {
         Self.persistFirstInboxDiagnostic()
         Self.persistSceneFinishDiagnostic()
         try? writeSceneProgressDiagnostic()
+        Self.persistAuthorityTimingDiagnostic()
     }
 
     // Optional diagnostic I/O is separate from every operation, reply and scene
@@ -186,6 +188,29 @@ final class ResearchFullAppSceneUiFixture: NSObject, WKScriptMessageHandler {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         try requireFirstInboxDiagnostic(file)
         finishDiagnosticFile = file
+    }
+
+    static func persistAuthorityTimingDiagnostic() { try? shared.writeAuthorityTimingDiagnostic() }
+    private func writeAuthorityTimingDiagnostic() throws {
+        guard let observer, let documents, let observerFile, let runID, let nonce, let resourceSHA256,
+              try observer.persist(inNativeDocumentsRoot: documents).path == observerFile.path,
+              let slash = observerFile.path.lastIndex(of: "/") else { throw ResearchFullAppSceneUiError.unavailable }
+        let file = URL(fileURLWithPath: String(observerFile.path[..<slash]) + "/scene-authority-timing.json")
+        let row: [String: Any] = ["version": 1, "kind": "research-scene-authority-timing-observations",
+            "runID": runID, "nonce": nonce, "resourceSHA256": resourceSHA256,
+            "process": ["pid": observer.processID, "epoch": observer.processEpoch],
+            "timing": ResearchFullAppProtectedUiFixture.sceneAuthorityTimingEvidence.snapshot(),
+            "acceptanceEvidence": false, "authorityMutated": false]
+        let bytes = try JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
+        guard (1...16384).contains(bytes.count) else { throw ResearchFullAppSceneUiError.unavailable }
+        if let existing = authorityTimingDiagnosticFile {
+            guard existing.path == file.path else { throw ResearchFullAppSceneUiError.unavailable }
+            try requireFirstInboxDiagnostic(file, maximumBytes: 16384)
+            try bytes.write(to: file, options: [.atomic, .completeFileProtection])
+        } else { try bytes.write(to: file, options: [.withoutOverwriting, .completeFileProtection]) }
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        try requireFirstInboxDiagnostic(file, maximumBytes: 16384)
+        authorityTimingDiagnosticFile = file
     }
 
     // Separate diagnostic admission is available before protected-ready. It

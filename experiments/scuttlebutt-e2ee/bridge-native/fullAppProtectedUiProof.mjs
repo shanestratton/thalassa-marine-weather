@@ -55,6 +55,7 @@ import { inspectFirstInboxStageEvidence } from './firstInboxStageContract.mjs';
 import { inspectSceneFinishStageEvidence } from './sceneFinishStageContract.mjs';
 import { inspectSceneProgressStageEvidence } from './sceneProgressStageContract.mjs';
 import { inspectSceneClosureCorrelationDiagnostic } from './sceneClosureCorrelationDiagnostic.mjs';
+import { inspectSceneAuthorityTimingEvidence } from './sceneAuthorityTimingContract.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const checkout = resolve(here, '../../..');
@@ -108,7 +109,9 @@ let prerequisiteInputs = [],
     sceneFinishDiagnosticCaptureComplete = false,
     sceneProgressDiagnosticCaptureComplete = false,
     sceneClosureDiagnosticCaptureComplete = false,
-    sceneClosureDiagnosticAttempted = false;
+    sceneClosureDiagnosticAttempted = false,
+    sceneAuthorityTimingDiagnosticCaptureComplete = false,
+    sceneAuthorityTimingDiagnosticAttempted = false;
 function regular(path, limit = 16 * 1024 * 1024) {
     assert(isAbsolute(path));
     for (let p = path; p !== dirname(p); p = dirname(p)) assert(!lstatSync(p).isSymbolicLink());
@@ -294,6 +297,7 @@ function sceneFiles() {
         firstInboxDiagnostic: join(directory, 'scene-first-inbox-stage.json'),
         finishDiagnostic: join(directory, 'scene-finish-stage.json'),
         progressDiagnostic: join(directory, 'scene-progress-stage.json'),
+        authorityTiming: join(directory, 'scene-authority-timing.json'),
     };
 }
 function inspectSceneObservation(raw, diagnostic = false) {
@@ -638,6 +642,91 @@ function captureSceneClosureDiagnostic() {
     receipt.sceneClosureDiagnosticCaptureComplete = sceneClosureDiagnosticCaptureComplete;
     save();
 }
+function captureSceneAuthorityTimingDiagnostic() {
+    if (!sceneProof || sceneAuthorityTimingDiagnosticAttempted) return;
+    sceneAuthorityTimingDiagnosticAttempted = true;
+    sceneAuthorityTimingDiagnosticCaptureComplete = false;
+    receipt.sceneAuthorityTimingDiagnosticStatus = 'no-file';
+    receipt.sceneAuthorityTimingDiagnosticCaptureComplete = false;
+    let boundary = 'input-file';
+    try {
+        const files = sceneFiles();
+        if (!files || !existsSync(files.authorityTiming)) return;
+        boundary = 'launch-and-sources';
+        assert(Number.isSafeInteger(receipt.ownedLaunchPID) && receipt.ownedLaunchPID > 0);
+        const observerSource = regular(files.observer, 65536);
+        const directory = lstatSync(dirname(observerSource));
+        assert(directory.uid === process.getuid() && (directory.mode & 0o7777) === 0o700);
+        assert((lstatSync(observerSource).mode & 0o7777) === 0o600);
+        const observerBytes = readFileSync(observerSource);
+        assert(observerBytes.length > 0 && observerBytes.length <= 65536);
+        const observerSourceSHA256 = createHash('sha256').update(observerBytes).digest('hex');
+        const observer = inspectSceneObservation(JSON.parse(observerBytes.toString('utf8')));
+        assert(observer.process.pid === receipt.ownedLaunchPID && observer.process.epoch === files.epoch);
+        assert(hash(regular(sceneFixtureFile, 65536)) === receipt.sceneFixtureResource.sha256);
+        assert(hash(regular(protectedFixtureFile, 128 * 1024)) === receipt.fixtureResource.sha256);
+        for (const [name, expected] of Object.entries(receipt.sourceHashes))
+            assert(hash(regular(join(checkout, name))) === expected);
+        boundary = 'private-file';
+        const source = regular(files.authorityTiming, 16384);
+        assert((lstatSync(source).mode & 0o7777) === 0o600);
+        const diagnosticBytes = readFileSync(source);
+        assert(diagnosticBytes.length > 0 && diagnosticBytes.length <= 16384);
+        const sourceSHA256 = createHash('sha256').update(diagnosticBytes).digest('hex');
+        boundary = 'shape-and-bindings';
+        const pin = {
+            runID,
+            nonce,
+            resourceSHA256: receipt.sceneFixtureResource.sha256,
+            pid: receipt.ownedLaunchPID,
+            epoch: observer.process.epoch,
+        };
+        const inspection = inspectSceneAuthorityTimingEvidence(JSON.parse(diagnosticBytes.toString('utf8')), pin);
+        boundary = 'copy';
+        const privateDirectory = lstatSync(scratch);
+        assert(privateDirectory.uid === process.getuid() && (privateDirectory.mode & 0o7777) === 0o700);
+        const path = join(scratch, 'scene-authority-timing-diagnostic.json');
+        const observerPath = join(scratch, 'scene-authority-timing-observer.json');
+        writeFileSync(path, diagnosticBytes, { mode: 0o600, flag: 'wx' });
+        writeFileSync(observerPath, observerBytes, { mode: 0o600, flag: 'wx' });
+        assert((lstatSync(path).mode & 0o7777) === 0o600 && (lstatSync(observerPath).mode & 0o7777) === 0o600);
+        assert(hash(regular(source, 16384)) === sourceSHA256 && hash(regular(path, 16384)) === sourceSHA256);
+        assert(hash(regular(observerSource, 65536)) === observerSourceSHA256);
+        assert(hash(regular(observerPath, 65536)) === observerSourceSHA256);
+        receipt.sceneAuthorityTimingDiagnostic = {
+            path,
+            sha256: sourceSHA256,
+            sourceSHA256,
+            // Keep the admitted resource nonce only in its private exact-byte
+            // artifact. The parent carries detached bounded timing facts.
+            inspection: inspection.timing,
+            binding: {
+                runID,
+                resourceSHA256: receipt.sceneFixtureResource.sha256,
+                protectedResourceSHA256: receipt.fixtureResource.sha256,
+                pid: observer.process.pid,
+                epoch: observer.process.epoch,
+                observerReceipt: {
+                    path: observerPath,
+                    sha256: observerSourceSHA256,
+                    sourceSHA256: observerSourceSHA256,
+                },
+            },
+            acceptanceEvidence: false,
+            wholeRunAccepted: false,
+        };
+        receipt.sceneAuthorityTimingDiagnosticStatus = 'observed-unaccepted';
+        sceneAuthorityTimingDiagnosticCaptureComplete =
+            inspection.timing.status === 'recording' &&
+            inspection.timing.entries.length > 0 &&
+            inspection.timing.evidenceCategory === 'simulator-native-observations';
+    } catch {
+        receipt.sceneAuthorityTimingDiagnosticStatus = 'refused';
+        receipt.sceneAuthorityTimingDiagnosticRefusalBoundary = boundary;
+    }
+    receipt.sceneAuthorityTimingDiagnosticCaptureComplete = sceneAuthorityTimingDiagnosticCaptureComplete;
+    save();
+}
 function sceneSourceBindings() {
     const names = {
         driver: 'bridge-native/fullAppProtectedUiProof.mjs',
@@ -791,6 +880,8 @@ try {
             'bridge-native/ResearchSceneProgressStageEvidence.swift',
             'bridge-native/sceneProgressStageContract.mjs',
             'bridge-native/sceneClosureCorrelationDiagnostic.mjs',
+            'bridge-native/ResearchSceneAuthorityTimingEvidence.swift',
+            'bridge-native/sceneAuthorityTimingContract.mjs',
             'full-app-pilot/windowProofContract.mjs',
         );
     receipt.sourceHashes = Object.fromEntries(
@@ -1065,6 +1156,7 @@ try {
     captureSceneFinishStageDiagnostic();
     captureSceneProgressStageDiagnostic();
     captureSceneClosureDiagnostic();
+    captureSceneAuthorityTimingDiagnostic();
     if (sceneProof && nativeObservationPassed && !firstInboxDiagnosticCaptureComplete) {
         receipt.status = 'failed';
         receipt.failedOrQueuedPhase = receipt.phase;
@@ -1119,6 +1211,23 @@ try {
         process.exitCode = 1;
         console.error('Protected scene fixture incomplete; bounded closure diagnostic refused or absent.');
     }
+    if (
+        sceneProof &&
+        nativeObservationPassed &&
+        firstInboxDiagnosticCaptureComplete &&
+        sceneFinishDiagnosticCaptureComplete &&
+        sceneProgressDiagnosticCaptureComplete &&
+        sceneClosureDiagnosticCaptureComplete &&
+        !sceneAuthorityTimingDiagnosticCaptureComplete
+    ) {
+        receipt.status = 'failed';
+        receipt.failedOrQueuedPhase = receipt.phase;
+        receipt.failedOperation = 'scene-authority-timing-diagnostic-validate';
+        receipt.failedOperationExitStatus = null;
+        receipt.failedOperationTimedOut = false;
+        process.exitCode = 1;
+        console.error('Protected scene fixture incomplete; bounded authority timing diagnostic refused or absent.');
+    }
     if (simulator) {
         try {
             const d = own();
@@ -1145,6 +1254,7 @@ try {
         (!sceneProof || sceneFinishDiagnosticCaptureComplete) &&
         (!sceneProof || sceneProgressDiagnosticCaptureComplete) &&
         (!sceneProof || sceneClosureDiagnosticCaptureComplete) &&
+        (!sceneProof || sceneAuthorityTimingDiagnosticCaptureComplete) &&
         receipt.ownedSimulatorRemoved === true
     ) {
         receipt.status = 'passed';

@@ -262,10 +262,11 @@ test('all existing driver helper bytes remain unchanged except one exact foregro
     const names = [...oldDriver.matchAll(/^(?:async )?function (\w+)\(/gm)].map((match) => match[1]);
     for (const name of names) {
         const current = functionBytes(driver, name);
-        const preserved =
+        const preserved = (
             name === 'sceneStage'
                 ? current.replace("    if (stage === 'foreground-closed') captureSceneClosureDiagnostic();\n", '')
-                : current;
+                : current
+        ).replace("        authorityTiming: join(directory, 'scene-authority-timing.json'),\n", '');
         assert.equal(preserved, functionBytes(oldDriver, name), name + ' bytes changed');
     }
     assert.equal((jsBody(driver, 'sceneStage').match(/captureSceneClosureDiagnostic\(\)/g) ?? []).length, 1);
@@ -304,9 +305,17 @@ test('capture admission precedes private exact-byte copies and never performs pr
     );
 });
 
-test('scene-only parser pin adds no Swift input and preserves exact 29/24 inventories', () => {
-    assert.equal(builder, original('bridge-native/build.mjs'));
-    assert.equal(generator, original('bridge-native/generate_project.rb'));
+test('closure parser adds no Swift input while timing adds exactly one to the unchanged 29/24 inventories', () => {
+    assert.equal((builder.match(/'ResearchSceneAuthorityTimingEvidence\.swift'/g) ?? []).length, 1);
+    assert.equal((generator.match(/\bResearchSceneAuthorityTimingEvidence\.swift\b/g) ?? []).length, 1);
+    assert.deepEqual(
+        tokens(builder.replace(/join\(HERE, 'ResearchSceneAuthorityTimingEvidence\.swift'\),\s*/, '')),
+        tokens(original('bridge-native/build.mjs')),
+    );
+    assert.deepEqual(
+        tokens(generator.replace(/\bResearchSceneAuthorityTimingEvidence\.swift\b/, '')),
+        tokens(original('bridge-native/generate_project.rb')),
+    );
     const ordinary = enclosed(driver, /\bconst\s+names\s*=\s*(?=\[)/, '[', ']').body;
     const added = enclosed(driver, /if\s*\(sceneProof\)\s*names\.push/, '(', ')').body;
     assert.doesNotMatch(ordinary, /sceneClosureCorrelationDiagnostic/);
@@ -323,7 +332,12 @@ test('scene-only parser pin adds no Swift input and preserves exact 29/24 invent
     const sceneFiles = filenames(enclosed(builder, /if\s*\(sceneResource\)\s*sourcePaths\.push/, '(', ')').body);
     const ordinaryFiles = [...base, 'ResearchLocalUiFixture.swift', ...protectedFiles];
     assert.equal(ordinaryFiles.length, 24);
-    assert.equal(ordinaryFiles.length + sceneFiles.length, 29);
+    assert.equal(ordinaryFiles.length + sceneFiles.length, 30);
+    assert.equal(
+        ordinaryFiles.length +
+            sceneFiles.filter((name) => name !== 'ResearchSceneAuthorityTimingEvidence.swift').length,
+        29,
+    );
     const inventory = /scene_sources\s*=\s*%w\[([^\]]+)\]\.sort/.exec(generator)?.[1].trim().split(/\s+/).sort();
     assert.deepEqual([...ordinaryFiles, ...sceneFiles].sort(), inventory);
 });
@@ -608,7 +622,7 @@ test('ordinary mode performs no scene capture and nonforeground stage keeps its 
     assert.equal(sceneFixture.state.sceneClosureDiagnosticAttempted, false);
 });
 
-test('finally captures before cleanup and all old whole-run gates survive with one extra completeness gate', () => {
+test('finally captures before cleanup and all old whole-run gates survive the added completeness gates', () => {
     const body = enclosed(driver, /\}\s*finally\b/).body,
         list = tokens(body);
     let after = position(list, 'captureSceneProgressStageDiagnostic();');
@@ -620,20 +634,31 @@ test('finally captures before cleanup and all old whole-run gates survive with o
     const current = enclosed(body, pattern, '(', ')').body;
     const previous = enclosed(enclosed(oldDriver, /\}\s*finally\b/).body, pattern, '(', ')').body;
     const added = '&& (!sceneProof || sceneClosureDiagnosticCaptureComplete)';
-    const currentTokens = tokens(current),
-        addedTokens = tokens(added);
-    const start = position(currentTokens, added);
-    assert.deepEqual(
-        [...currentTokens.slice(0, start), ...currentTokens.slice(start + addedTokens.length)],
-        tokens(previous),
-    );
+    const timingAdded = '&& (!sceneProof || sceneAuthorityTimingDiagnosticCaptureComplete)';
+    const currentTokens = tokens(current);
+    for (const addition of [added, timingAdded]) {
+        const start = position(currentTokens, addition);
+        currentTokens.splice(start, tokens(addition).length);
+    }
+    assert.deepEqual(currentTokens, tokens(previous));
     const failure = enclosed(
         body,
         /\bif\s*(?=\(\s*sceneProof\s*&&\s*nativeObservationPassed\s*&&\s*firstInboxDiagnosticCaptureComplete\s*&&\s*sceneFinishDiagnosticCaptureComplete\s*&&\s*sceneProgressDiagnosticCaptureComplete\s*&&\s*!sceneClosureDiagnosticCaptureComplete)/,
     );
-    const withoutNewBlock = body.slice(0, failure.start) + body.slice(failure.end);
-    const preserved = tokens(withoutNewBlock);
-    for (const addition of ['captureSceneClosureDiagnostic();', added]) {
+    const withoutClosureBlock = body.slice(0, failure.start) + body.slice(failure.end);
+    const timingFailure = enclosed(
+        withoutClosureBlock,
+        /\bif\s*(?=\(\s*sceneProof\s*&&\s*nativeObservationPassed\s*&&\s*firstInboxDiagnosticCaptureComplete\s*&&\s*sceneFinishDiagnosticCaptureComplete\s*&&\s*sceneProgressDiagnosticCaptureComplete\s*&&\s*sceneClosureDiagnosticCaptureComplete\s*&&\s*!sceneAuthorityTimingDiagnosticCaptureComplete)/,
+    );
+    const withoutNewBlocks =
+        withoutClosureBlock.slice(0, timingFailure.start) + withoutClosureBlock.slice(timingFailure.end);
+    const preserved = tokens(withoutNewBlocks);
+    for (const addition of [
+        'captureSceneClosureDiagnostic();',
+        'captureSceneAuthorityTimingDiagnostic();',
+        added,
+        timingAdded,
+    ]) {
         const index = position(preserved, addition);
         preserved.splice(index, tokens(addition).length);
     }
@@ -651,6 +676,7 @@ test('finally captures before cleanup and all old whole-run gates survive with o
         sceneFinishDiagnosticCaptureComplete: true,
         sceneProgressDiagnosticCaptureComplete: true,
         sceneClosureDiagnosticCaptureComplete: true,
+        sceneAuthorityTimingDiagnosticCaptureComplete: true,
         receipt: { ownedSimulatorRemoved: true },
     };
     assert.equal(accept(base), true);
@@ -660,6 +686,7 @@ test('finally captures before cleanup and all old whole-run gates survive with o
         'sceneFinishDiagnosticCaptureComplete',
         'sceneProgressDiagnosticCaptureComplete',
         'sceneClosureDiagnosticCaptureComplete',
+        'sceneAuthorityTimingDiagnosticCaptureComplete',
     ])
         assert.equal(accept({ ...base, [key]: false }), false, key + ' remains necessary');
     assert.equal(accept({ ...base, receipt: { ownedSimulatorRemoved: false } }), false);

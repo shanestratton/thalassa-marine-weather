@@ -537,7 +537,12 @@ test('native persistence is optional, private, bounded at 16384 and exclusive be
         position(validation, source);
     const capture = swiftBody(scene, 'capture');
     assert.deepEqual(
-        tokens(capture.replace(/try\? writeSceneProgressDiagnostic\(\)/, ''), true),
+        tokens(
+            capture
+                .replace(/try\? writeSceneProgressDiagnostic\(\)/, '')
+                .replace(/Self\.persistAuthorityTimingDiagnostic\(\)/, ''),
+            true,
+        ),
         tokens(swiftBody(oldScene, 'capture'), true),
     );
     const route = swiftBody(scene, 'userContentController');
@@ -899,7 +904,7 @@ test('capture/refusal checks precede owned cleanup and diagnostics alone never a
     after = position(list, "quiet('/usr/bin/xcrun', ['simctl', 'delete', simulator])", after);
     after = position(
         list,
-        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && (!sceneProof || sceneClosureDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
+        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && (!sceneProof || sceneClosureDiagnosticCaptureComplete) && (!sceneProof || sceneAuthorityTimingDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
         after,
     );
     position(list, 'receipt.nativeProtectedExchangeAccepted = true', after);

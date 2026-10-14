@@ -376,8 +376,10 @@ test('synthetic source retains the exact twenty-key protected report and separat
         .trim()
         .split(/\s+/)
         .sort();
-    assert.equal(inventory?.length, 29);
-    assert.equal(new Set(inventory).size, 29);
+    assert.equal(inventory?.length, 30);
+    assert.equal(new Set(inventory).size, 30);
+    assert.equal(inventory.filter((name) => name !== 'ResearchSceneAuthorityTimingEvidence.swift').length, 29);
+    assert.equal(inventory.filter((name) => name === 'ResearchSceneAuthorityTimingEvidence.swift').length, 1);
     assert.ok(inventory.includes('ResearchFirstInboxStageEvidence.swift'));
     assert.match(
         ruby,
@@ -460,7 +462,7 @@ test('synthetic source captures admitted diagnostic/hash/binding on both failed 
     position(final, "quiet('/usr/bin/xcrun', ['simctl', 'delete', simulator])", extraction);
     position(
         final,
-        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && (!sceneProof || sceneClosureDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
+        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && (!sceneProof || sceneClosureDiagnosticCaptureComplete) && (!sceneProof || sceneAuthorityTimingDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
         extraction,
     );
     position(final, 'save()', extraction);

@@ -458,10 +458,9 @@ test('native report retains the exact 20 keys and the original write behavior', 
     const body = swiftBody(protectedFixture, 'write');
     assert.equal(FULL_APP_PROTECTED_REPORT_KEYS.length, 20);
     assert.deepEqual(dictionaryKeys(body, /let\s+body:\s*\[String:\s*Any\]\s*=/), FULL_APP_PROTECTED_REPORT_KEYS);
-    const current = swiftLane(body, true, true).replace(
-            /ResearchFullAppSceneUiFixture\.persistSceneFinishDiagnostic\(\)/,
-            '',
-        ),
+    const current = swiftLane(body, true, true)
+            .replace(/ResearchFullAppSceneUiFixture\.persistSceneFinishDiagnostic\(\)/, '')
+            .replace(/ResearchFullAppSceneUiFixture\.persistAuthorityTimingDiagnostic\(\)/, ''),
         baseline = swiftLane(swiftBody(oldProtectedFixture, 'write'), true, true);
     assert.deepEqual(tokens(current, true), tokens(baseline, true));
     assert.deepEqual(tokens(jsBody(javascript, 'post')), tokens(jsBody(oldJavascript, 'post')));
@@ -565,7 +564,7 @@ test('driver diagnostic capture and refusal gates precede owned cleanup and cann
     const cleanup = position(list, 'if (simulator)', gate);
     position(
         list,
-        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && (!sceneProof || sceneClosureDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
+        'nativeObservationPassed && (!sceneProof || firstInboxDiagnosticCaptureComplete) && (!sceneProof || sceneFinishDiagnosticCaptureComplete) && (!sceneProof || sceneProgressDiagnosticCaptureComplete) && (!sceneProof || sceneClosureDiagnosticCaptureComplete) && (!sceneProof || sceneAuthorityTimingDiagnosticCaptureComplete) && receipt.ownedSimulatorRemoved === true',
         cleanup,
     );
     const latestBody = jsBody(driver, 'captureLatestSceneNativeDiagnostic');

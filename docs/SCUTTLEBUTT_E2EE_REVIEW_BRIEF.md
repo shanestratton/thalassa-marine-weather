@@ -51,7 +51,29 @@ production or server changes accompanied the update.
 
 ## Current integration candidate
 
-The [latest 14 October record](../experiments/scuttlebutt-e2ee/review/chart-control-web-native-baseline-2026-10-14.json)
+The [latest passive timing preparation record](../experiments/scuttlebutt-e2ee/review/authority-timing-launch-unobserved-2026-10-14.json)
+adds a separate simulator-only 32-entry / 16,384-byte monotonic age diagnostic,
+without new authority getters, credential snapshots, deadline extensions or
+acceptance permissions. Original scene gates and all 61 prerequisite sources
+remain byte-identical. Exact bound resources stay private; parent inspection
+excludes the nonce. All 595 synthetic/source/parser cases, 370 affected contract
+cases, 9,063 separate Swift direct-call assertions and named static checks passed;
+these are not native encryption or OS acceptance. Initial failed check/verifier
+receipts and source-review privacy corrections remain explicit.
+
+One fresh 30-source App compiled, but its unchanged 30-second launch timed out
+with null exit/returned PID and no observed app phase, native report or timing
+file. Settings control succeeded. Cause and actual app execution remain unknown;
+this does not demonstrate an encryption failure. No current exchange or OS
+acceptance is claimed. Read-only checks matched 30 driver / 30 Swift inputs,
+343 unsigned / 346 signed recorded entries and current preserved web inputs;
+exact disposable simulator absence was re-observed. Shared waiting totalled
+5,508/120,000 ms with only the remaining budget passed to the child. Do not
+repeat unchanged launches or transfer old exchange counts. Timing evidence and
+the earlier stale-authority cause remain open, alongside every shipping gate.
+**Not merge-ready; ordinary/live encryption remains disabled.**
+
+The [preceding 14 October record](../experiments/scuttlebutt-e2ee/review/chart-control-web-native-baseline-2026-10-14.json)
 adds strictly unavailable chart-storage projection exports, preserving real
 storage isolation. All 167 contract cases and one actual-App jsdom mount passed,
 with syntax/format/lint/narrow types. Fresh combined-source build (1,757 module
