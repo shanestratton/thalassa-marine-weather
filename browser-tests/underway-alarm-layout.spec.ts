@@ -202,6 +202,36 @@ for (const size of SIZES) {
     }
 }
 
+// 129-08: the aboard GPS/instruments-silent alarm rides first, under the collision card.
+for (const size of SIZES) {
+    test(`the instruments-silent card fits ${size.width}x${size.height} first in the stack with wide fonts`, async ({
+        page,
+    }) => {
+        const errors = await openFixture(page, size, '&instruments=1');
+        const card = page.locator('[data-underway="instruments"]');
+        await expect(card).toHaveCount(1);
+        await settle(page);
+        await expect(card).toHaveAttribute('role', 'alert');
+        await expect(card).toContainText('INSTRUMENTS SILENT');
+        await expect(card).toContainText('No GPS or instruments from the boat for 95 minutes');
+        await expect(card.getByRole('button', { name: 'Acknowledge the instruments-silent alarm' })).toHaveCount(1);
+        const order = await page.evaluate(() =>
+            [...document.querySelectorAll<HTMLElement>('[data-testid="ais-guard-stack"] [role]')]
+                .filter((el) => el.getAttribute('role') === 'alert' || el.dataset.underway)
+                .map((el) => el.dataset.underway ?? (el.textContent?.includes('CLOSE QUARTERS') ? 'collision' : '?')),
+        );
+        expect(order).toEqual(['collision', 'instruments', 'shoal', 'off-route']);
+        const geometry = await stackGeometry(page);
+        expect(Math.abs(geometry.left - geometry.right), 'centred across').toBeLessThanOrEqual(1);
+        expect(geometry.top).toBeGreaterThanOrEqual(0);
+        expect(geometry.bottom, 'clear of the tab bar').toBeLessThanOrEqual(geometry.navTop + 0.5);
+        expect(geometry.sideways).toEqual([]);
+        expect(geometry.pageSideways).toBe(false);
+        expect(await controlIssues(page, '[data-testid="ais-guard-stack"]')).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+}
+
 test.describe('Settings → Preferences → Under-way alarms, in the real app', () => {
     test.use({
         serviceWorkers: 'block',

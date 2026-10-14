@@ -34,6 +34,18 @@
  *                     never Critical (that is for the boat's own alarms); an
  *                     update that raised nothing replaces the notification
  *                     with no sound (passive).
+ *
+ * Build 129 (129-08) maps the quiet-boat watchdog's two types (held migration
+ * 20261014180000_vessel_quiet_watch_crew):
+ *   boat_quiet        her Pi, or her instruments, quiet for the grace: to the
+ *                     owner and the crew who share her instruments. Time
+ *                     Sensitive, day or night, never Critical; still news
+ *                     hours later, so the default 6 h expiry.
+ *   boat_quiet_clear  the all-clear, to those the page went to (or, the
+ *                     watch switched off mid-page, its closing word). An
+ *                     ordinary alert, so Sleep Focus keeps it quiet.
+ * Both collapse to one lock-screen notification per boat (data.collapse, a
+ * 16-hex key the watchdog derives from the owner) in a thread of their own.
  */
 
 export const DIRECT_MESSAGE_TTL_SECONDS = 24 * 60 * 60;
@@ -92,6 +104,9 @@ export function getThreadId(type: string): string {
             return 'thalassa-cyclone';
         case 'official_warning':
             return 'thalassa-official';
+        case 'boat_quiet':
+        case 'boat_quiet_clear':
+            return 'thalassa-boat';
         default:
             return 'thalassa-general';
     }
@@ -105,6 +120,9 @@ const isStormKey = (v: unknown): v is string => typeof v === 'string' && /^[A-Z0
 /** official-alerts-watch's provider:chain, "nws:0123456789abcdef": under APNs's 64-byte collapse id. */
 const isOfficialCollapse = (v: unknown): v is string =>
     typeof v === 'string' && /^[a-z0-9][a-z0-9-]{1,39}:[0-9a-f]{16}$/.test(v);
+
+/** The quiet-boat watchdog's per-boat key (129-08). */
+const isBoatQuietCollapse = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{16}$/.test(v);
 
 /** An official warning's expiry, in ms, or NaN. */
 const officialExpiry = (data: Record<string, unknown> | undefined): number =>
@@ -127,6 +145,10 @@ export function getCollapseId(type: string, data: Record<string, unknown>): stri
     }
     // One per official warning and its updates (129-06).
     if (type === 'official_warning' && isOfficialCollapse(data?.collapse)) return data.collapse;
+    // One per boat: the all-clear lands on the page it answers (129-08).
+    if ((type === 'boat_quiet' || type === 'boat_quiet_clear') && isBoatQuietCollapse(data?.collapse)) {
+        return `boat-quiet-${data.collapse}`;
+    }
     return null;
 }
 
@@ -216,6 +238,9 @@ export interface ApsInput {
  * nothing.
  */
 export function getInterruptionLevel(type: string, data: Record<string, unknown>): InterruptionLevel | undefined {
+    // The quiet boat (129-08): the page goes at once, the all-clear as an ordinary alert.
+    if (type === 'boat_quiet') return 'time-sensitive';
+    if (type === 'boat_quiet_clear') return 'active';
     if (type !== 'official_warning') return undefined;
     if (data?.silent === true) return 'passive';
     return data?.severity === 'Severe' || data?.severity === 'Extreme' ? 'time-sensitive' : 'active';

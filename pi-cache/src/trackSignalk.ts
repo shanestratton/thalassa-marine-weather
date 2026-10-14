@@ -418,13 +418,56 @@ function readGnssExtra(doc: unknown, nowMs: number): Record<string, number | str
 }
 
 /**
+ * Readings only the boat's own receivers and sensors make. Never a clock
+ * (navigation.datetime), a calculation that moves with the Pi's clock (sun,
+ * moon) or a parent's or the document's own stamp.
+ */
+const BUS_PATHS = [
+    'navigation.position',
+    'navigation.speedOverGround',
+    'navigation.courseOverGroundTrue',
+    'navigation.courseOverGroundMagnetic',
+    'navigation.headingTrue',
+    'navigation.headingMagnetic',
+    'navigation.speedThroughWater',
+    'navigation.attitude',
+    'environment.wind.speedApparent',
+    'environment.wind.angleApparent',
+    'environment.depth.belowTransducer',
+    'environment.depth.belowKeel',
+    'environment.depth.belowSurface',
+    'environment.water.temperature',
+    'steering.rudderAngle',
+] as const;
+
+/**
+ * When the boat's bus last spoke (129-08): the newest of those readings' own
+ * Signal K times, none more than 5 s ahead of the Pi's clock. The cloud's
+ * quiet-boat watchdog tells "her Pi is offline" from "her instruments are
+ * silent" by it: Signal K keeps a dead bus's last values, so the snapshot
+ * alone cannot say.
+ */
+function readBusAt(selfDocument: unknown, nowMs: number): number | null {
+    let newest: number | null = null;
+    for (const path of BUS_PATHS) {
+        const at = timestampAt(selfDocument, path, false);
+        if (at === null || at <= 0 || at > nowMs + 5_000) continue;
+        if (newest === null || at > newest) newest = at;
+    }
+    return newest;
+}
+
+/**
  * Read the boat's whole bus off a Signal K self document for the cloud
  * snapshot (services/CloudTelemetryService on the phones, vessel_telemetry in
  * the cloud). null when the document offers nothing at all.
  */
 export function readTelemetrySnapshot(selfDocument: unknown, now: () => number = Date.now): TelemetrySnapshot | null {
     const nowMs = now();
+    const busAt = readBusAt(selfDocument, nowMs);
     const extra: Record<string, number | string> = {
+        // First among the snapshot's keys: the relay keeps the first 40 only.
+        ...(busAt !== null ? { bus_at_ms: busAt } : {}),
         ...readGnssExtra(selfDocument, nowMs),
         ...readTrueHeadingExtra(selfDocument, nowMs),
     };

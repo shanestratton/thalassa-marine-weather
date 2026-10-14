@@ -16,7 +16,8 @@ describe('true bow heading across the existing Pi telemetry JSON contract', () =
             () => now,
         )!;
         const body = buildTelemetryBody(snapshot, 'test-vessel');
-        const expected = { heading_true_deg: 0, heading_true_at_ms: now - 2_000 };
+        // 129-08: bus_at_ms (when the bus last spoke) rides first, through the relay unchanged.
+        const expected = { bus_at_ms: now - 2_000, heading_true_deg: 0, heading_true_at_ms: now - 2_000 };
         expect(body.extra).toEqual(expected);
         const relayed = parseTelemetryBody(body, now);
         expect(relayed.ok).toBe(true);

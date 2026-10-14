@@ -16,7 +16,8 @@ const absent = (navigation: Record<string, unknown>) => {
 
 test('publishes real true heading and original time through existing wire extra', () => {
     const value = snapshot({ headingTrue: leaf(90 * rad) });
-    assert.deepEqual(value.extra, { heading_true_deg: 90, heading_true_at_ms: now - 1_000 });
+    // 129-08: bus_at_ms, when the bus last spoke, here the heading's own time.
+    assert.deepEqual(value.extra, { bus_at_ms: now - 1_000, heading_true_deg: 90, heading_true_at_ms: now - 1_000 });
     assert.deepEqual(buildTelemetryBody(value, 'test').extra, value.extra);
     assert.equal(value.headingDeg, 90, 'legacy output unchanged');
 });

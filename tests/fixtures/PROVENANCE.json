@@ -15,6 +15,10 @@
             "licence": "synthetic",
             "source": "One second of plain blue at 64x36, no sound, made with ffmpeg (see e2e/fixtures/diary-compose.tsx)."
         },
+        "tests/fixtures/boat-quiet/cases.json": {
+            "licence": "synthetic",
+            "source": "The quiet-boat watchdog’s decision, recipient and message cases (129-08), written by hand: made-up times, fictional boats (Kestrel, Αύρα, 海風, دانة) and fictional all-zero UUIDs."
+        },
         "tests/fixtures/buoys/irish-mi-iwbnetwork-latest-2026-10-07T1700Z.json": {
             "licence": "cc-by-4.0",
             "source": "Marine Institute (Ireland) ERDDAP, Irish Weather Buoy Network wave dataset, latest rows fetched 2026-10-07 17:00 UTC.",

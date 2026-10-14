@@ -1,3 +1,13 @@
+/**
+ * Calypso's 'nmea-backbone-dead' rule is gone (129-08): it became the aboard
+ * GPS/instruments-silent alarm in the app-wide under-way watch
+ * (services/underway/instrumentsSilentRule.ts, tests/InstrumentsSilentAlarm.test.ts),
+ * which needs neither Calypso, nor ElevenLabs, nor the internet, and fires
+ * only with the phone aboard. Calypso's monitor keeps its other rules and no
+ * longer runs a clock of its own for that one, so the two can never both
+ * speak for the same silence.
+ */
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -52,7 +62,7 @@ function silentNmeaState(lastAnyUpdate: number): Record<string, unknown> {
     };
 }
 
-describe('AlertMonitorService NMEA-silence watchdog', () => {
+describe('Calypso no longer carries the backbone-silence rule', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-08-05T04:00:00.000Z'));
@@ -66,29 +76,22 @@ describe('AlertMonitorService NMEA-silence watchdog', () => {
         vi.useRealTimers();
     });
 
-    it('fires after sustained backbone silence even when NmeaStore emits no more snapshots', () => {
-        const lastUpdate = Date.now();
+    it('stays silent through ten minutes of a dead backbone: the aboard alarm owns that now', () => {
         AlertMonitorService.start();
-
         expect(mocks.nmeaStart).toHaveBeenCalledOnce();
-        expect(mocks.listener).toBeTypeOf('function');
+        vi.advanceTimersByTime(600_000);
+        mocks.listener?.(mocks.state);
+        expect(mocks.dispatchAlert).not.toHaveBeenCalled();
+        // No clock of its own is left running for it.
+        expect(vi.getTimerCount()).toBe(0);
+    });
 
-        // The rule starts violating just after 60 seconds and requires three
-        // consecutive watchdog evaluations before it may fire.
-        vi.advanceTimersByTime(63_000);
-
-        expect(mocks.dispatchAlert).toHaveBeenCalledOnce();
-        expect(mocks.dispatchAlert).toHaveBeenCalledWith(
-            expect.objectContaining({
-                ruleId: 'nmea-backbone-dead',
-                title: 'NMEA offline',
-                firstViolatingAt: lastUpdate + 61_000,
-                firedAt: lastUpdate + 63_000,
-            }),
-        );
-
-        AlertMonitorService.stop();
-        vi.advanceTimersByTime(700_000);
-        expect(mocks.dispatchAlert).toHaveBeenCalledOnce();
+    it('names the rule nowhere, and the under-way watch carries the alarm instead', () => {
+        const monitor = readFileSync('services/AlertMonitorService.ts', 'utf8');
+        expect(monitor).not.toContain('nmea-backbone-dead');
+        expect(monitor).not.toContain('setInterval');
+        const watch = readFileSync('services/underway/UnderwayAlarmWatch.ts', 'utf8');
+        expect(watch).toContain("'instruments-watch'");
+        expect(watch).toContain("'instruments-silent'");
     });
 });

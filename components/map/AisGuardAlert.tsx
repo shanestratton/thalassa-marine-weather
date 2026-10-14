@@ -126,7 +126,8 @@ class UnderwayCardsBoundary extends React.Component<
         return (
             <>
                 {this.props.cards.map((card) => {
-                    const shoal = card.kind === 'shoal';
+                    // 129-08: the instruments-silent alarm is acknowledged as shoal water is.
+                    const shoal = card.kind === 'shoal' || card.kind === 'instruments';
                     // 126-02b: the watch check's only answer, sounding or a minute ahead.
                     const watch = card.kind === 'watch-check';
                     return (
@@ -141,14 +142,16 @@ class UnderwayCardsBoundary extends React.Component<
                                         watch
                                             ? "I'm on watch"
                                             : shoal
-                                              ? 'Acknowledge the shoal alarm'
+                                              ? `Acknowledge the ${card.kind === 'shoal' ? 'shoal' : 'instruments-silent'} alarm`
                                               : 'Mute the off-route alarm for 30 minutes'
                                     }
                                     onClick={() =>
                                         watch
                                             ? UnderwayAlarmStore.onWatch()
                                             : shoal
-                                              ? UnderwayAlarmStore.acknowledge('shoal')
+                                              ? UnderwayAlarmStore.acknowledge(
+                                                    card.kind === 'shoal' ? 'shoal' : 'instruments',
+                                                )
                                               : UnderwayAlarmStore.mute('off-route')
                                     }
                                 >

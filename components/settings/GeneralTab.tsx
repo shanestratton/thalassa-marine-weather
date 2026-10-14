@@ -14,6 +14,7 @@ import {
 } from './SettingsPrimitives';
 import { FleetSharingSection } from './FleetSharingSection';
 import { SeabedMappingSection } from './SeabedMappingSection';
+import { BoatQuietSection } from './BoatQuietSection';
 import { DisplayModeSection, OrientationSection, VisualPreferencesSection } from './AestheticsTab';
 import { ShipClockSection } from './ShipClockSection';
 import { SmartPolarsSetting } from './SmartPolarsSetting';
@@ -749,6 +750,11 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     />
                 </Row>
             </Section>
+
+            {/* If the boat goes quiet (129-08): the cloud watchdog's switches, the
+                skipper's for the boat and a crew member's own, hidden until
+                their probe answers. */}
+            <BoatQuietSection satellite={satellite} />
 
             {/* Smoke builds only (THALASSA_DEBUG_AIS_INJECTOR=1): null, and folded
                 out, in every release build. */}

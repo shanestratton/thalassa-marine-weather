@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { createOnboardSupplement } from './onboardSensors.js';
 import { readTelemetrySnapshot } from './trackSignalk.js';
 import { MAX_BACKOFF_MS, PUBLISH_INTERVAL_MS, TelemetryPublisher, buildTelemetryBody } from './telemetryPublisher.js';
 
@@ -320,4 +321,173 @@ test('depth_reference and depth_offset_m: the body says what the depth is measur
     );
     assert.equal(surface.depth_m, 7.4);
     assert.equal((surface.extra as Record<string, unknown>).depth_reference, 'below-waterline');
+});
+
+// 129-08: the cloud's quiet-boat watchdog tells "her Pi is offline" from "her
+// instruments are silent" by when the bus last spoke, sent as bus_at_ms.
+const BUS_NOW = Date.parse('2026-10-14T03:00:00Z');
+const stamped = (ageMs: number) => new Date(BUS_NOW - ageMs).toISOString();
+
+test('bus_at_ms is the newest instrument reading’s own time, sent first among the snapshot’s keys', () => {
+    const doc = {
+        timestamp: stamped(0),
+        navigation: {
+            timestamp: stamped(0),
+            datetime: { value: stamped(0), timestamp: stamped(0) },
+            position: { value: { latitude: 59.91, longitude: 10.75 }, timestamp: stamped(90_000) },
+            speedOverGround: { value: 2.1, timestamp: stamped(90_000) },
+        },
+        environment: {
+            wind: { speedApparent: { value: 6.2, timestamp: stamped(4_000) } },
+            depth: { belowTransducer: { value: 14.2, timestamp: stamped(30_000) } },
+        },
+    };
+    const snapshot = readTelemetrySnapshot(doc, () => BUS_NOW)!;
+    assert.equal(snapshot.extra?.bus_at_ms, BUS_NOW - 4_000, 'the apparent wind spoke last');
+    const body = buildTelemetryBody(snapshot, 'test', { ais_watch: 'on' });
+    assert.deepEqual(Object.keys(body.extra as Record<string, unknown>).slice(0, 2), ['ais_watch', 'bus_at_ms']);
+});
+
+test('no bus_at_ms from clocks, the document’s own stamp or a reading dated ahead of the Pi', () => {
+    // The GPS clock, a sun calculation and the document's own stamp move with
+    // the Pi's clock, not the bus; a far-future leaf is a bad clock.
+    const doc = {
+        timestamp: stamped(0),
+        navigation: {
+            timestamp: stamped(0),
+            datetime: { value: stamped(0), timestamp: stamped(0) },
+            position: { value: { latitude: 35.68, longitude: 139.77 }, timestamp: stamped(-60_000) },
+        },
+        environment: { sun: { value: 'day', timestamp: stamped(0) } },
+    };
+    const snapshot = readTelemetrySnapshot(doc, () => BUS_NOW)!;
+    assert.equal(snapshot.extra?.bus_at_ms, undefined);
+});
+
+test('a frozen bus keeps its old bus_at_ms while the Pi keeps publishing', () => {
+    const frozen = {
+        navigation: {
+            position: { value: { latitude: -33.86, longitude: 151.21 }, timestamp: stamped(20 * 60_000) },
+            headingMagnetic: { value: 1.2, timestamp: stamped(21 * 60_000) },
+        },
+    };
+    const snapshot = readTelemetrySnapshot(frozen, () => BUS_NOW)!;
+    assert.equal(snapshot.extra?.bus_at_ms, BUS_NOW - 20 * 60_000);
+});
+
+// 129-08: the publisher keeps the cloud hearing the Pi while her bus is
+// silent, without ever dating an old reading as new. Through the real
+// publisher and the real onboard supplement the Pi runs (server.ts).
+const PAIRED = {
+    signalkOrigin: 'http://sk',
+    endpoint: 'https://x.supabase.co/functions/v1/telemetry-relay',
+    anonKey: () => 'anon',
+    credentials: () => ({ relayId: 'relay-1234567890abcdef', token: 'a'.repeat(64) }),
+    internetAllowed: () => true,
+    deviceLabel: 'kestrel-pi',
+};
+
+/** Signal K's document for a bus that went silent at `deadAt`: values and GPS clock frozen there. */
+function frozenBus(deadAt: number) {
+    const at = new Date(deadAt).toISOString();
+    return {
+        navigation: {
+            datetime: { value: at, timestamp: at },
+            position: { value: { latitude: 59.91, longitude: 10.75 }, timestamp: at },
+            speedOverGround: { value: 0.1, timestamp: at },
+        },
+        environment: { depth: { belowTransducer: { value: 6.3, timestamp: at } } },
+    };
+}
+
+function publisherOver(
+    doc: () => unknown,
+    clock: { now: number },
+    barometer?: { at: number; hpa: number; tempC: number },
+) {
+    const bodies: Record<string, unknown>[] = [];
+    const sk = (url: string | URL, init?: RequestInit) => {
+        const d = doc();
+        return d === null ? Promise.reject(new Error('Signal K down')) : fakeSignalK(d)(url, init);
+    };
+    const publisher = new TelemetryPublisher({
+        ...PAIRED,
+        now: () => clock.now,
+        fetchImpl: async (url, init) => {
+            if (String(url).includes('telemetry-relay')) {
+                bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+                return new Response('{"ok":true}', { status: 200 });
+            }
+            return sk(url, init);
+        },
+        supplement: createOnboardSupplement({
+            barometer: () => ({
+                available: !!barometer,
+                reason: barometer ? null : 'no sensor fitted',
+                latest: barometer ?? null,
+                samples: barometer ? [barometer] : [],
+            }),
+            now: () => clock.now,
+        }),
+    });
+    return { publisher, bodies };
+}
+
+test('every post says when the Pi sent it, by its own clock, beside the readings’ own time', async () => {
+    const clock = { now: BUS_NOW };
+    const { publisher, bodies } = publisherOver(() => frozenBus(BUS_NOW - 3_000), clock);
+    assert.equal(await publisher.publishOnce(), 'sent');
+    assert.equal(bodies[0].sent_at, new Date(BUS_NOW).toISOString());
+    assert.equal(bodies[0].reported_at, new Date(BUS_NOW - 3_000).toISOString());
+});
+
+test('a bus silent 16 min, no onboard sensors: still posted as it is, dated by its stalled clock, with bus_at_ms', async () => {
+    const deadAt = BUS_NOW - 16 * 60_000;
+    const clock = { now: BUS_NOW };
+    const { publisher, bodies } = publisherOver(() => frozenBus(deadAt), clock);
+    // Before 129-08 the supplement set this bus aside and nothing went: 'no-data'.
+    assert.equal(await publisher.publishOnce(), 'sent');
+    const body = bodies[0];
+    assert.equal(body.reported_at, new Date(deadAt).toISOString(), 'never re-dated as new');
+    assert.equal(body.sent_at, new Date(BUS_NOW).toISOString());
+    assert.equal(body.lat, 59.91, 'her last position, under its own old time');
+    assert.equal((body.extra as Record<string, unknown>).bus_at_ms, deadAt);
+});
+
+test('a bus silent 16 min beside a fresh barometer: the barometer’s snapshot carries the bus’s bus_at_ms', async () => {
+    const deadAt = BUS_NOW - 16 * 60_000;
+    const clock = { now: BUS_NOW };
+    const { publisher, bodies } = publisherOver(() => frozenBus(deadAt), clock, {
+        at: BUS_NOW - 20_000,
+        hpa: 1012.4,
+        tempC: 18.5,
+    });
+    assert.equal(await publisher.publishOnce(), 'sent');
+    const body = bodies[0];
+    assert.equal(body.reported_at, new Date(BUS_NOW).toISOString(), 'the barometer’s own fresh time');
+    assert.equal(body.pressure_hpa, 1012.4);
+    assert.equal(body.lat, null, 'the stalled bus’s position is not passed off as current');
+    const extra = body.extra as Record<string, unknown>;
+    assert.equal(extra.bus_at_ms, deadAt);
+    assert.equal(Object.keys(extra)[0], 'bus_at_ms');
+});
+
+test('Signal K stops answering: the bus as last read, dated as it was, until it answers again', async () => {
+    const clock = { now: BUS_NOW };
+    let doc: unknown = frozenBus(BUS_NOW - 2_000);
+    const { publisher, bodies } = publisherOver(() => doc, clock);
+    assert.equal(await publisher.publishOnce(), 'sent');
+    doc = null;
+    clock.now = BUS_NOW + 20 * 60_000;
+    assert.equal(await publisher.publishOnce(), 'sent');
+    assert.equal(bodies[1].reported_at, new Date(BUS_NOW - 2_000).toISOString());
+    assert.equal((bodies[1].extra as Record<string, unknown>).bus_at_ms, BUS_NOW - 2_000);
+    assert.equal(bodies[1].sent_at, new Date(BUS_NOW + 20 * 60_000).toISOString());
+});
+
+test('nothing ever read and nothing on board: still nothing to send', async () => {
+    const clock = { now: BUS_NOW };
+    const { publisher, bodies } = publisherOver(() => null, clock);
+    assert.equal(await publisher.publishOnce(), 'no-data');
+    assert.equal(bodies.length, 0);
 });

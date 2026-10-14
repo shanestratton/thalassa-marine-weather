@@ -12,6 +12,16 @@
  * What it will not do: publish while the skipper's Pi policy forbids ordinary
  * internet (satellite), publish when unpaired, hold a service-role key, or
  * hammer a cloud that is refusing it — failures back off to five minutes.
+ *
+ * 129-08, the cloud's quiet-boat watchdog: it must hear the Pi whenever the
+ * Pi is up and online, even when her bus has gone silent, and know when the
+ * bus last spoke (extra.bus_at_ms, readTelemetrySnapshot). So every post says
+ * when the Pi sent it by its own clock (sent_at, which the relay checks for
+ * age), while reported_at stays the readings' own time; a bus the supplement
+ * set aside because its GPS clock stalled still goes, as it is, when nothing
+ * fresher has replaced it; Signal K not answering sends the bus as last read;
+ * and a supplement's own snapshot carries the bus's bus_at_ms. Nothing old is
+ * ever dated as new.
  */
 import { fetchSelfDocument, type BroadcastDeps } from './anchorBroadcaster.js';
 import { readTelemetrySnapshot, type TelemetrySnapshot } from './trackSignalk.js';
@@ -112,6 +122,17 @@ export function buildTelemetryBody(
     };
 }
 
+/**
+ * The snapshot with the bus's bus_at_ms (when the bus has one), first among
+ * its keys: a supplement's own snapshot, made because the bus was set aside,
+ * still says when the bus last spoke.
+ */
+function withBusTime(snapshot: TelemetrySnapshot | null, bus: TelemetrySnapshot | null): TelemetrySnapshot | null {
+    const busAt = bus?.extra?.bus_at_ms;
+    if (!snapshot || typeof busAt !== 'number' || snapshot.extra?.bus_at_ms !== undefined) return snapshot;
+    return { ...snapshot, extra: { bus_at_ms: busAt, ...snapshot.extra } };
+}
+
 export class TelemetryPublisher {
     private timer: ReturnType<typeof setTimeout> | null = null;
     private running = false;
@@ -119,6 +140,8 @@ export class TelemetryPublisher {
     private consecutiveFailures = 0;
     private lastOutcome: PublishOutcome | null = null;
     private lastSentAt: number | null = null;
+    /** The bus as last read off Signal K, with its own times (129-08). */
+    private lastBus: TelemetrySnapshot | null = null;
 
     constructor(private readonly deps: TelemetryPublisherDeps) {}
 
@@ -194,9 +217,18 @@ export class TelemetryPublisher {
         const anonKey = this.deps.anonKey();
         if (!anonKey) return 'no-anon-key';
 
+        const now = this.deps.now ?? Date.now;
         const doc = await fetchSelfDocument({ fetchImpl: this.deps.fetchImpl, signalkOrigin: this.deps.signalkOrigin });
-        const bus = doc === null ? null : readTelemetrySnapshot(doc, this.deps.now);
-        const snapshot = this.deps.supplement ? await this.deps.supplement(bus) : bus;
+        const read = doc === null ? null : readTelemetrySnapshot(doc, now);
+        if (read) this.lastBus = read;
+        // Signal K not answering, or restarted with nothing: the bus as last
+        // read, dated as it was then (Signal K keeps a dead bus's values so).
+        const bus = read ?? this.lastBus;
+        const supplemented = this.deps.supplement ? await this.deps.supplement(bus) : bus;
+        // The supplement sets aside a bus whose GPS clock has stalled. With
+        // nothing fresher to send instead, the bus goes as it is, still dated
+        // by that clock: the cloud hears the Pi, and nothing old reads as new.
+        const snapshot = withBusTime(supplemented ?? bus, bus);
         if (!snapshot) return 'no-data';
 
         let response: Awaited<ReturnType<FetchLike>>;
@@ -210,14 +242,17 @@ export class TelemetryPublisher {
                     'X-Thalassa-Pi-Relay-Id': credential.relayId,
                     'X-Thalassa-Pi-Relay-Token': credential.token,
                 },
-                body: JSON.stringify(
-                    buildTelemetryBody(
+                body: JSON.stringify({
+                    ...buildTelemetryBody(
                         snapshot,
                         this.deps.deviceLabel,
                         this.deps.aisWatchExtra?.(),
                         this.deps.trailingExtra?.(),
                     ),
-                ),
+                    // When the Pi sent it, by its own clock: the relay checks
+                    // this for age, so a stalled reading still gets through.
+                    sent_at: new Date(now()).toISOString(),
+                }),
                 signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
             });
         } catch {

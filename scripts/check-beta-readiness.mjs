@@ -2527,10 +2527,10 @@ check(
             'not running as a background or terminated-app vessel monitor',
             'Keep dedicated instrument alarms and watchkeeping procedures active',
         ]) &&
-        includesAll(alertMonitor, [
-            "FEATURE_VISIBILITY.calypsoAlerts || import.meta.env.MODE === 'test'",
-            "this.evaluate(NmeaStore.getState(), 'nmea-backbone-dead')",
-        ]) &&
+        includesAll(alertMonitor, ["FEATURE_VISIBILITY.calypsoAlerts || import.meta.env.MODE === 'test'"]) &&
+        // 129-08: the backbone-silence rule left Calypso for the aboard instruments-silent alarm.
+        !alertMonitor.includes('nmea-backbone-dead') &&
+        read('services/underway/UnderwayAlarmWatch.ts').includes("'instruments-silent'") &&
         alertNotifier.includes('not a background, terminated-app, or Critical Alert channel') &&
         !alertNotifier.includes('audible even when the app is backgrounded'),
 );
