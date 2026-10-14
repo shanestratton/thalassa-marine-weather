@@ -523,8 +523,9 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     />
                 </Row>
                 {/* Obs's clear view (129-13): a way out for a skipper who finds
-                    the gesture fiddly. On by default; the scrubber pill's press
-                    and hold, and a tap to come back, are not switched by it. */}
+                    the gesture fiddly. On by default. The hold is the one touch
+                    way in (129-13b); H, VoiceOver's hidden button and the tap
+                    that brings the controls back are not switched by it. */}
                 <Row>
                     <div className="flex-1 min-w-0">
                         <p className="text-sm text-white font-medium">Two-finger hold clears the chart</p>

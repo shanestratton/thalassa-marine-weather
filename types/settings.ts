@@ -240,8 +240,9 @@ export interface UserSettings {
     /**
      * Settings → Preferences → Chart: "Two-finger hold clears the chart"
      * (build 129, 129-13). Two fingers held still on Obs hide its controls;
-     * on unless set to exactly false. The scrubber pill's press and hold, a
-     * tap to come back, H and Escape are not switched by it.
+     * on unless set to exactly false. It is the one touch way in (129-13b:
+     * Shane chose the hold, not a long press on the scrubber); a tap to come
+     * back, H and Escape are not switched by it.
      * components/map/mapHub/useObsClearView.ts reads it.
      */
     obsClearViewHold?: boolean;

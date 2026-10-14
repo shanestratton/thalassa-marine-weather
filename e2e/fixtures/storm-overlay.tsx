@@ -16,6 +16,7 @@
  *   &fonts=wide       Verdana / DejaVu Sans, the widest faces we meet
  *   &storms=1         one storm (no stepper); default three
  *   &nearer=1         another storm nearer the place than the card's: its chip shows
+ *   &weather=0        no weather layer up: no scrubber pill, no wind credit
  *   &map=1            a real Mapbox GL map (Chromium's gesture tests)
  *
  * <html data-clear-view="on|off"> says whether the controls are hidden;
@@ -191,6 +192,8 @@ if (params.has('nearer'))
         }),
     );
 const STORMS = params.get('storms') === '1' ? ALL.slice(0, 1) : ALL;
+/** A weather layer up (the wind, so the scrubber's pill), unless &weather=0. */
+const WEATHER = params.get('weather') !== '0';
 const SELECTED = STORMS[0];
 
 /** Just enough of a map for the zoom readout and the clear view's gesture, without &map=1. */
@@ -375,22 +378,27 @@ function Fixture() {
                         flyTo={noop}
                         stormCardSid={SELECTED.sid}
                     />
-                    <div
-                        data-testid="wind-credit"
-                        data-map-credit
-                        className={`thalassa-wind-credit ${CREDITS_STRIP_POSITION_CLASS}`}
-                        style={{ top: creditsStripTop(0) }}
-                    >
-                        {windCreditLine('icon')}
-                    </div>
-                    <MapWeatherControls
-                        weather={windWeather}
-                        visible
-                        embedded={false}
-                        controlsHidden={controlsHidden}
-                        onControlsHiddenChange={setControlsHidden}
-                        clearView={{ onHold: clearView.toggle }}
-                    />
+                    {WEATHER && (
+                        <div
+                            data-testid="wind-credit"
+                            data-map-credit
+                            className={`thalassa-wind-credit ${CREDITS_STRIP_POSITION_CLASS}`}
+                            style={{ top: creditsStripTop(0) }}
+                        >
+                            {windCreditLine('icon')}
+                        </div>
+                    )}
+                    {/* MapHub draws the controls only while a layer is up. */}
+                    {WEATHER && (
+                        <MapWeatherControls
+                            weather={windWeather}
+                            visible
+                            embedded={false}
+                            controlsHidden={controlsHidden}
+                            onControlsHiddenChange={setControlsHidden}
+                            keepInClearView
+                        />
+                    )}
                 </div>
             </div>
             {/* The chart page's own corner controls App.tsx draws beside MapHub: the status button. */}

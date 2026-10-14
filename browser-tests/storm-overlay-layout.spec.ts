@@ -16,6 +16,12 @@ import { expect, test, type Page } from '@playwright/test';
  * hides every control but MOB, the credits, the Mapbox wordmark and the
  * scrubber, without moving the chart; one tap brings them back and never
  * reaches the chart. A two-finger TAP is still Mapbox's zoom-out.
+ *
+ * 129-13b: asked how clearing the screen should work, Shane chose "Two-finger
+ * hold (Recommended)" on 14 Oct, not a long press on the scrubber and not
+ * both. So the hold clears the screen with a weather layer up and with none,
+ * and the scrubber's pill stays, and works, in the clear view without being
+ * a switch: a long press on it clears nothing and brings nothing back.
  */
 
 const SIZES = [
@@ -79,6 +85,58 @@ function topBoxes(page: Page) {
 }
 
 const apart = (a: Rect, b: Rect) => a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+
+/** An element's computed visibility, or 'missing'. */
+const visibilityOf = (page: Page, selector: string) =>
+    page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        return el ? getComputedStyle(el).visibility : 'missing';
+    }, selector);
+
+type Cdp = Awaited<ReturnType<ReturnType<Page['context']>['newCDPSession']>>;
+/**
+ * One gesture's touches through one DevTools session (it keeps the fingers
+ * down between calls), each carrying its own time from the gesture's start,
+ * so a busy runner cannot stretch a 90 ms tap past Mapbox's 500 ms (it reads
+ * the events' timeStamps). The waits are real too, for the clear view's own timer.
+ */
+async function touches(
+    page: Page,
+    cdp: Cdp,
+    steps: { type: string; points: { x: number; y: number }[]; waitMs: number }[],
+) {
+    let clock = Date.now() / 1000;
+    for (const step of steps) {
+        await cdp.send('Input.dispatchTouchEvent', {
+            type: step.type as 'touchStart',
+            touchPoints: step.points.map((p, id) => ({ x: p.x, y: p.y, id })),
+            timestamp: clock,
+        });
+        clock += step.waitMs / 1000;
+        if (step.waitMs) await page.waitForTimeout(step.waitMs);
+    }
+}
+
+/** Two fingers, 110 px apart mid-chart at 390 x 844, clear of every control. */
+const FINGER_A = { x: 140, y: 520 };
+const FINGER_B = { x: 250, y: 520 };
+/** A quick two-finger tap: Mapbox's zoom-out. */
+const TWO_FINGER_TAP = [
+    { type: 'touchStart', points: [FINGER_A, FINGER_B], waitMs: 90 },
+    { type: 'touchEnd', points: [], waitMs: 0 },
+];
+/** Two fingers held 700 ms, creeping 5 px as on a moving boat: the clear view's way in and out. */
+const creep = (d: number) => [
+    { x: FINGER_A.x + d, y: FINGER_A.y + d },
+    { x: FINGER_B.x + d, y: FINGER_B.y + d },
+];
+const TWO_FINGER_HOLD = [
+    { type: 'touchStart', points: [FINGER_A, FINGER_B], waitMs: 150 },
+    { type: 'touchMove', points: creep(2), waitMs: 150 },
+    { type: 'touchMove', points: creep(4), waitMs: 150 },
+    { type: 'touchMove', points: creep(5), waitMs: 250 },
+    { type: 'touchEnd', points: [], waitMs: 500 },
+];
 
 for (const size of SIZES) {
     test(`one storm card, clear of MOB, the rail and the top row, with the basin in words, at ${size.name}`, async ({
@@ -238,32 +296,7 @@ for (const size of SIZES) {
 test.describe('on a real Mapbox map', () => {
     test.use({ hasTouch: true });
 
-    type Cdp = Awaited<ReturnType<ReturnType<Page['context']>['newCDPSession']>>;
-    /** Touches through one DevTools session: it keeps the fingers down between calls. */
-    /**
-     * One gesture's touches, each carrying its own time from the gesture's
-     * start, so a busy runner cannot stretch a 90 ms tap past Mapbox's 500 ms
-     * (it reads the events' timeStamps). The waits are real too, for the
-     * clear view's own timer.
-     */
-    async function touches(
-        page: Page,
-        cdp: Cdp,
-        steps: { type: string; points: { x: number; y: number }[]; waitMs: number }[],
-    ) {
-        let clock = Date.now() / 1000;
-        for (const step of steps) {
-            await cdp.send('Input.dispatchTouchEvent', {
-                type: step.type as 'touchStart',
-                touchPoints: step.points.map((p, id) => ({ x: p.x, y: p.y, id })),
-                timestamp: clock,
-            });
-            clock += step.waitMs / 1000;
-            if (step.waitMs) await page.waitForTimeout(step.waitMs);
-        }
-    }
-
-    test('two fingers held clear the screen with no zoom-out; a two-finger tap is still Mapbox’s zoom-out', async ({
+    test('two fingers held clear the screen with a weather layer up and no zoom-out; a two-finger tap is still Mapbox’s zoom-out', async ({
         page,
         browserName,
     }) => {
@@ -274,33 +307,23 @@ test.describe('on a real Mapbox map', () => {
         const zoom = () =>
             page.evaluate(() => (window as unknown as { __stormFixture: { zoom(): number } }).__stormFixture.zoom());
         await expect.poll(zoom).toBe(4);
+        // The wind is up: its scrubber's pill is on the chart.
+        await expect(page.getByTestId('weather-status-pill')).toBeVisible();
         const cdp = await page.context().newCDPSession(page);
-        const A = { x: 140, y: 520 };
-        const B = { x: 250, y: 520 };
+        const A = FINGER_A;
         // A two-finger tap: Mapbox zooms out a level, and the controls stay.
-        await touches(page, cdp, [
-            { type: 'touchStart', points: [A, B], waitMs: 90 },
-            { type: 'touchEnd', points: [], waitMs: 0 },
-        ]);
+        await touches(page, cdp, TWO_FINGER_TAP);
         await expect.poll(zoom, { timeout: 5_000 }).toBeCloseTo(3, 1);
         await page.waitForTimeout(400);
         await expect(page.locator('html')).toHaveAttribute('data-clear-view', 'off');
         const before = await zoom();
         // A hold, the fingers creeping 5 px as on a moving boat, lifted at 700 ms:
         // the screen clears as they lift, and the zoom stays.
-        const creep = (d: number) => [
-            { x: A.x + d, y: A.y + d },
-            { x: B.x + d, y: B.y + d },
-        ];
-        await touches(page, cdp, [
-            { type: 'touchStart', points: [A, B], waitMs: 150 },
-            { type: 'touchMove', points: creep(2), waitMs: 150 },
-            { type: 'touchMove', points: creep(4), waitMs: 150 },
-            { type: 'touchMove', points: creep(5), waitMs: 250 },
-            { type: 'touchEnd', points: [], waitMs: 500 },
-        ]);
+        await touches(page, cdp, TWO_FINGER_HOLD);
         await expect(page.locator('html')).toHaveAttribute('data-clear-view', 'on');
         expect(await zoom()).toBeCloseTo(before, 3);
+        // The pill stays over the clear chart.
+        await expect.poll(() => visibilityOf(page, '[data-testid="weather-status-pill"]')).toBe('visible');
         // One tap brings the controls back and never reaches the chart (no weather readout).
         const clicks = () =>
             page.evaluate(() =>
@@ -325,6 +348,117 @@ test.describe('on a real Mapbox map', () => {
         await expect(page.locator('html')).toHaveAttribute('data-clear-view', 'on');
         expect(errors).toEqual([]);
     });
+});
+
+test('a long press on the scrubber’s pill clears nothing and brings nothing back; in the clear view the pill stays and still opens the timeline', async ({
+    page,
+}) => {
+    test.slow();
+    const errors = await openFixture(page, { width: 390, height: 844 }, '?fonts=wide');
+    await expect.poll(async () => (await topBoxes(page)).card?.height ?? 0).toBeGreaterThan(100);
+    const html = page.locator('html');
+    const pill = page.getByTestId('weather-status-pill');
+    const reopen = async () => {
+        await page.reload();
+        await expect(html).toHaveAttribute('data-storm-fixture', 'ready');
+        await expect.poll(async () => (await topBoxes(page)).card?.height ?? 0).toBeGreaterThan(100);
+    };
+    /** Held 900 ms, well past the app's 500 ms long press, then lifted. */
+    const longPressPill = async () => {
+        const box = (await pill.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.waitForTimeout(900);
+        await page.mouse.up();
+        await page.waitForTimeout(300);
+    };
+    // The controls showing: a long press on the pill is the pill's own, never the clear view.
+    await longPressPill();
+    if (captureDir && test.info().project.name === 'chromium')
+        await page.screenshot({ path: `${captureDir}/pill-long-press-390.png`, animations: 'disabled' });
+    await expect(html).toHaveAttribute('data-clear-view', 'off');
+    await expect.poll(() => visibilityOf(page, '[aria-label^="Zoom "]')).toBe('visible');
+
+    // In the clear view the pill stays, and a tap on it opens the timeline over the clear
+    // chart: the tap is the pill's, not the "tap anywhere" that brings the controls back.
+    await reopen();
+    await page.locator('body').press('h');
+    await expect(html).toHaveAttribute('data-clear-view', 'on');
+    await expect.poll(() => visibilityOf(page, '[data-testid="weather-status-pill"]')).toBe('visible');
+    await expect.poll(() => visibilityOf(page, '[aria-label^="Zoom "]')).toBe('hidden');
+    await pill.click();
+    const timeline = page.getByRole('region', { name: 'Weather controls' });
+    await expect(timeline).toBeVisible();
+    await expect.poll(() => visibilityOf(page, 'section[aria-label="Weather controls"]')).toBe('visible');
+    await expect(html).toHaveAttribute('data-clear-view', 'on');
+
+    // A long press on the pill in the clear view brings nothing back either.
+    await reopen();
+    await page.locator('body').press('h');
+    await expect(html).toHaveAttribute('data-clear-view', 'on');
+    await longPressPill();
+    await expect(html).toHaveAttribute('data-clear-view', 'on');
+    expect(errors).toEqual([]);
+});
+
+test.describe('two fingers held, the one way in by touch (Shane, 14 Oct)', () => {
+    test.use({ hasTouch: true });
+
+    for (const variant of [
+        {
+            name: 'weather',
+            title: 'with a weather layer up; a quick two-finger tap and a long press on the pill do not',
+            query: '?fonts=wide',
+        },
+        {
+            name: 'no-weather',
+            title: 'with no weather layer; a quick two-finger tap does not',
+            query: '?fonts=wide&weather=0',
+        },
+    ]) {
+        test(`clear the screen ${variant.title}`, async ({ page, browserName }) => {
+            test.skip(browserName !== 'chromium', 'touches are sent through Chromium’s DevTools protocol');
+            test.slow();
+            const errors = await openFixture(page, { width: 390, height: 844 }, variant.query);
+            await expect.poll(async () => (await topBoxes(page)).card?.height ?? 0).toBeGreaterThan(100);
+            const html = page.locator('html');
+            const pill = page.getByTestId('weather-status-pill');
+            if (variant.name === 'weather') await expect(pill).toBeVisible();
+            else await expect(pill).toHaveCount(0);
+            const cdp = await page.context().newCDPSession(page);
+            // A quick two-finger tap is Mapbox's zoom-out (the real map's test), never the clear view.
+            await touches(page, cdp, TWO_FINGER_TAP);
+            await page.waitForTimeout(400);
+            await expect(html).toHaveAttribute('data-clear-view', 'off');
+            // Held: the screen clears as the fingers lift.
+            await touches(page, cdp, TWO_FINGER_HOLD);
+            await expect(html).toHaveAttribute('data-clear-view', 'on');
+            await expect.poll(() => visibilityOf(page, '#cyclone-hud-badges')).toBe('hidden');
+            await expect.poll(() => visibilityOf(page, '.radial-helm-mob')).toBe('visible');
+            if (variant.name === 'weather')
+                await expect.poll(() => visibilityOf(page, '[data-testid="weather-status-pill"]')).toBe('visible');
+            if (captureDir)
+                await page.screenshot({
+                    path: `${captureDir}/clear-view-${variant.name}-390.png`,
+                    animations: 'disabled',
+                });
+            // Held again: the controls come back.
+            await touches(page, cdp, TWO_FINGER_HOLD);
+            await expect(html).toHaveAttribute('data-clear-view', 'off');
+            await expect.poll(() => visibilityOf(page, '#cyclone-hud-badges')).toBe('visible');
+            if (variant.name === 'weather') {
+                // One finger held on the pill: not a way in.
+                const box = (await pill.boundingBox())!;
+                const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+                await touches(page, cdp, [
+                    { type: 'touchStart', points: [centre], waitMs: 900 },
+                    { type: 'touchEnd', points: [], waitMs: 300 },
+                ]);
+                await expect(html).toHaveAttribute('data-clear-view', 'off');
+            }
+            expect(errors).toEqual([]);
+        });
+    }
 });
 
 for (const size of SIZES) {

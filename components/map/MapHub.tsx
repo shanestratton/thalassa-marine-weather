@@ -3248,10 +3248,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     const surfaceEpoch = useSurfaceEpoch(ownshipStartup);
     useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart, surfaceEpoch);
     useObsCentreNoticeWatch(obsShowing);
-    // Clear view (129-13, mapHub/useObsClearView.ts): a press and hold on the
-    // scrubber's pill, or two fingers held on the chart, hide Obs's controls;
-    // one tap brings them back. Never while MOB, the picker, plotting,
-    // Inspect or a passage point has the chart.
+    // Clear view (129-13, mapHub/useObsClearView.ts): two fingers held on the
+    // chart hide Obs's controls, with or without a weather layer (Shane's
+    // choice, 129-13b); one tap brings them back. Never while MOB, the picker,
+    // plotting, Inspect or a passage point has the chart.
     const obsFrameRef = useRef<HTMLDivElement>(null);
     const clearView = useObsClearView({
         frameRef: obsFrameRef,
@@ -5962,7 +5962,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             onControlsHiddenChange={setChartControlsHidden}
                             extraLegend={obsKeyCount > 0 ? <ObsLayerKey {...obsKeyProps} /> : undefined}
                             extraLegendCount={obsKeyCount}
-                            clearView={clearView.available || clearView.on ? { onHold: clearView.toggle } : undefined}
+                            keepInClearView={clearView.available || clearView.on}
                             desk={
                                 deskWind
                                     ? {

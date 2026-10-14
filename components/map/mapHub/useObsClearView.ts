@@ -8,11 +8,11 @@
  * scrubber button. As that should stay."
  *
  * Ways in and out:
- *  - press and hold the scrubber's pill (MapWeatherControls), which stays on
- *    screen in the clear view: in and out at the same button;
  *  - two fingers held still on the chart and lifted (clearView/twoFingerHold.ts:
- *    a two-finger TAP is Mapbox's zoom-out), for when no weather layer is up
- *    and so no pill; Preferences can switch this one off;
+ *    a two-finger TAP is Mapbox's zoom-out), on every chart view, with a
+ *    weather layer up or none. Shane chose it on 14 Oct (129-13b): "Two-finger
+ *    hold (Recommended)", not a long press on the scrubber and not both.
+ *    Preferences can switch it off;
  *  - H on a keyboard toggles, Escape brings the controls back;
  *  - a hidden button for VoiceOver, "Clear the screen", and in the clear view
  *    "Controls hidden. Double tap to show" takes the focus (ObsClearViewChrome).
@@ -26,8 +26,9 @@
  * What hides and what stays is index.css ([data-obs-clear-view='on']): the
  * chart and what is drawn on it, MOB, the credits ([data-map-credit]), the
  * Mapbox wordmark and attribution, the scrubber, an urgent threat chip and
- * anything marked data-clear-view-keep stay. The tab bar hides too, except
- * in split view, where it is The Glass's as well.
+ * anything marked data-clear-view-keep stay. The scrubber's pill is kept,
+ * and its tap still opens the timeline, but it is not a switch. The tab bar
+ * hides too, except in split view, where it is The Glass's as well.
  */
 import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react';
 import type mapboxgl from 'mapbox-gl';

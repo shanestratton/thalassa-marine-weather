@@ -5,7 +5,7 @@
  * Kept separate from MapHub so the control surface can evolve and be tested
  * without entangling it with Mapbox lifecycle and route-planning state.
  */
-import React, { Suspense, useEffect, useId, useRef, useState } from 'react';
+import React, { Suspense, useId, useState } from 'react';
 import { useWeatherControlsAutoHide } from './useWeatherControlsAutoHide';
 import { summarizeWeatherControls } from './weatherControlSummary';
 import { CREDITS_STRIP_POSITION_CLASS, creditsStripTop } from './creditsStrip';
@@ -33,7 +33,6 @@ import { lazyRetry } from '../../utils/lazyRetry';
 import { useFollowedBoatKey } from './useFollowedBoatKey';
 import { WIND_PARTICLE_GRADIENT_LIGHT, type WindPalette } from './windRamp';
 import { DeskWindAgreement, useWindStartHandOff } from './DeskWindLine';
-import { triggerHaptic } from '../../utils/system';
 
 type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
 
@@ -76,17 +75,14 @@ interface MapWeatherControlsProps {
         startMs: number | null;
     };
     /**
-     * Obs's clear view (129-13; mapHub/useObsClearView.ts). Shane: "Maybe the
-     * scrubber button. As that should stay." Press and hold the pill to clear
-     * the screen or bring it back; a tap still opens the timeline. With a
-     * weather layer up the pill and the timeline stay in the clear view, so
-     * the forecast can be scrubbed over a clear chart.
+     * On Obs, whose clear view keeps the scrubber (129-13;
+     * mapHub/useObsClearView.ts). Shane: "Maybe the scrubber button. As that
+     * should stay." With a weather layer up, the pill and the timeline stay in
+     * the clear view and work as ever, so the forecast can be scrubbed over a
+     * clear chart. Not a switch: Shane chose the two-finger hold (129-13b).
      */
-    clearView?: { onHold: () => void };
+    keepInClearView?: boolean;
 }
-
-/** Held this long, the pill clears the screen (or brings it back): the app's long press. */
-export const PILL_HOLD_MS = 500;
 
 /**
  * The chart-only weather control cluster. It deliberately accepts the weather
@@ -104,7 +100,7 @@ export function MapWeatherControls({
     extraLegend,
     extraLegendCount,
     desk,
-    clearView,
+    keepInClearView,
 }: MapWeatherControlsProps): React.ReactElement | null {
     // Above the early return: a hook is called on every render or on none.
     const passageLookAheadOn = usePassageLookAheadOn();
@@ -121,24 +117,6 @@ export function MapWeatherControls({
     const [checkOpen, setCheckOpen] = useState(false);
     // The desk's start hand-off.
     const startHandOff = useWindStartHandOff(weather, desk?.startMs);
-    // The pill's press and hold (clearView): its timer, where it began, and
-    // whether it fired, so the lift's click does not also open the timeline.
-    const pillHold = useRef<{ timer: number | null; x: number; y: number; fired: boolean }>({
-        timer: null,
-        x: 0,
-        y: 0,
-        fired: false,
-    });
-    const dropPillHold = () => {
-        if (pillHold.current.timer !== null) window.clearTimeout(pillHold.current.timer);
-        pillHold.current.timer = null;
-    };
-    useEffect(() => {
-        const hold = pillHold.current;
-        return () => {
-            if (hold.timer !== null) window.clearTimeout(hold.timer);
-        };
-    }, []);
 
     // Identify active weather layers (only scrubber-capable types).
     const weatherKeys: HelixLayer[] = [
@@ -182,7 +160,7 @@ export function MapWeatherControls({
     });
     if (!visible) return null;
     // Kept in the clear view while there is a forecast to scrub; a layer key alone hides with the rest.
-    const clearViewKeep = clearView && activeWeatherLayers.length > 0 ? '' : undefined;
+    const clearViewKeep = keepInClearView && activeWeatherLayers.length > 0 ? '' : undefined;
     const compactSummary = summarizeWeatherControls({
         weather,
         activeLayer: activeLayer ?? null,
@@ -888,38 +866,7 @@ export function MapWeatherControls({
                 <button
                     ref={autoHide.triggerRef}
                     type="button"
-                    onClick={(event) => {
-                        // The lift after a hold that cleared the screen: not also a tap.
-                        if (pillHold.current.fired) {
-                            pillHold.current.fired = false;
-                            event.preventDefault();
-                            return;
-                        }
-                        autoHide.show();
-                    }}
-                    onPointerDown={(event) => {
-                        if (!clearView) return;
-                        dropPillHold();
-                        const hold = pillHold.current;
-                        hold.fired = false;
-                        hold.x = event.clientX;
-                        hold.y = event.clientY;
-                        hold.timer = window.setTimeout(() => {
-                            hold.timer = null;
-                            hold.fired = true;
-                            triggerHaptic('medium');
-                            clearView.onHold();
-                        }, PILL_HOLD_MS);
-                    }}
-                    onPointerMove={(event) => {
-                        const hold = pillHold.current;
-                        if (hold.timer !== null && Math.hypot(event.clientX - hold.x, event.clientY - hold.y) > 10)
-                            dropPillHold();
-                    }}
-                    onPointerUp={dropPillHold}
-                    onPointerCancel={dropPillHold}
-                    onPointerLeave={dropPillHold}
-                    onContextMenu={clearView ? (event) => event.preventDefault() : undefined}
+                    onClick={autoHide.show}
                     data-clear-view-keep={clearViewKeep}
                     data-testid="weather-status-pill"
                     data-tone={compactSummary.tone}
@@ -962,7 +909,6 @@ export function MapWeatherControls({
                     </span>
                     <span id={summaryId} className="sr-only">
                         {compactSummary.accessibleText}
-                        {clearView ? ' Press and hold to clear the screen, or to bring the controls back.' : ''}
                     </span>
                 </button>
             ) : null}
