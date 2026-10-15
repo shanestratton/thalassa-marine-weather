@@ -2,7 +2,7 @@
 
 Scope: the expanded Thalassa Roadmap dated 14 October 2026, confirmed by Shane on 16 October (Brisbane). The original is archived in [roadmap/2026-10-14.md](roadmap/2026-10-14.md). Its package scope is authoritative; its old delivery narrative is not current release evidence.
 
-Base application: corrected build 132 candidate `a9372b33c967d79d8676e9bb3564b68c794cc33b`. Build 132's isolated validation/release controls must finish without moving b132, master or its correction branch. Work for 133 stays on separate branches. Native build numbers are133 in all four configurations; marketing version stays1.2.0.
+Base application: released build 132, `a9372b33c967d79d8676e9bb3564b68c794cc33b`. All eleven jobs in full validation [38805623915](https://github.com/shanestratton/thalassa-marine-weather/actions/runs/38805623915) passed. Guarded virtual Mac release [38808271837](https://github.com/shanestratton/thalassa-marine-weather/actions/runs/38808271837) succeeded and uploaded 1.2.0 (132) once. Apple reported processing VALID, not expired, at 2026-10-15T21:52:53Z. Tester assignment and physical-device acceptance remain unverified. After release completion, b132 was fast-forwarded to the exact validated and uploaded commit. Work for 133 stays on separate branches. Native build numbers are 133 in all four configurations; marketing version stays 1.2.0.
 
 | Package | Scope                                                       | Delivery requirement                                                                 |
 | ------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------ |
@@ -20,4 +20,4 @@ Base application: corrected build 132 candidate `a9372b33c967d79d8676e9bb3564b68
 
 Acceptance details, exclusions and dependencies are in the archived roadmap. Each implementation must record targeted tests and any live deploy/install evidence separately. Existing licensing restrictions, physical-device checks, paywall hold, PYD account restriction and memory gates remain in force. No size-limit increase: measure against the repository's current budget, not the roadmap's stale footer.
 
-Do not release 133 before build 132's upload and Apple processing outcome are established. Never reuse an uploaded build number. No package is complete merely because its plan or test fixture exists.
+Build 132's upload and Apple processing outcome are established; build 133 still requires its own complete validation and release gates. Never reuse an uploaded build number. No package is complete merely because its plan or test fixture exists.
