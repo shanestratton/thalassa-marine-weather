@@ -24,7 +24,9 @@ import {
  *    keyboard up the field being typed in shows above the button;
  *  - the six categories are the Stores grid: three across, two rows, every
  *    label whole at 320 px ('Electronics' ran out of its pill);
- *  - the notes are folded away until asked for, and open when there are some.
+ *  - the notes are folded away until asked for, and open when there are some;
+ *  - each item's own page shows its whole name, the long ones on three lines
+ *    at most, and Edit in the header (132-B20).
  */
 
 for (const size of SIZES) {
@@ -115,6 +117,44 @@ for (const size of SIZES) {
             .toBe(true);
         await edit.click();
         await expect(page.getByRole('dialog', { name: 'Edit equipment' })).toBeVisible();
+        await expectNothingSideways(page);
+        expect(errors).toEqual([]);
+    });
+
+    // Every item's name whole on its own page, the long ones too (132-B20
+    // review): clamped to two lines, 'Watermaker, high-pressure pump and
+    // pre-filters' lost two lines and 'Autopilot drive, below-deck hydraulic
+    // ram' three, at every size. Unclamped and beside '‹ EQUIPMENT', the
+    // autopilot took six lines; the type steps down and the parent's name
+    // gives the name room, so none takes more than three.
+    test(`Equipment at ${size.name}: every item's page shows its whole name, on three lines at most`, async ({
+        page,
+    }) => {
+        const errors = await openBinder(page, 'equipment', size);
+        await expect(page.getByRole('heading', { level: 1, name: 'Equipment' })).toBeVisible({ timeout: 25_000 });
+        const names = await page
+            .locator('[aria-label^="Options for "]')
+            .evaluateAll((buttons) => buttons.map((b) => b.getAttribute('aria-label')!.slice('Options for '.length)));
+        expect(names).toEqual(
+            expect.arrayContaining([
+                'Main engine',
+                'Autopilot drive, below-deck hydraulic ram',
+                'Watermaker, high-pressure pump and pre-filters',
+            ]),
+        );
+        for (const name of names) {
+            await page.getByRole('button', { name: `Options for ${name}`, exact: true }).click();
+            await page.getByRole('button', { name: `View details for ${name}`, exact: true }).click();
+            const h1 = page.locator('[data-page-header]').getByRole('heading', { level: 1, name, exact: true });
+            await expect(h1).toBeVisible();
+            await expectHeaderWhole(page, size);
+            const lines = await h1.evaluate((el) =>
+                Math.round(el.clientHeight / parseFloat(getComputedStyle(el).lineHeight)),
+            );
+            expect(lines, `"${name}" at ${size.name}: its lines`).toBeLessThanOrEqual(3);
+            await page.getByRole('button', { name: 'Back to equipment list' }).click();
+            await expect(page.getByRole('heading', { level: 1, name: 'Equipment' })).toBeVisible();
+        }
         await expectNothingSideways(page);
         expect(errors).toEqual([]);
     });

@@ -23,8 +23,11 @@ export type Size = (typeof SIZES)[number];
 
 export type Binder = 'equipment' | 'documents' | 'maintenance' | 'stores' | 'checklists';
 
-/** The page, signed in, seeded and drawn in the wide face; returns its page errors as they come. */
-export async function openBinder(page: Page, binder: Binder, size: Size): Promise<string[]> {
+/**
+ * The page, signed in, seeded (or, `empty`, as a new skipper first sees it) and
+ * drawn in the wide face; returns its page errors as they come.
+ */
+export async function openBinder(page: Page, binder: Binder, size: Size, { empty = false } = {}): Promise<string[]> {
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.route('**/*', (route) => {
@@ -36,7 +39,9 @@ export async function openBinder(page: Page, binder: Binder, size: Size): Promis
     await page.routeWebSocket(/^wss?:\/\/(?!127\.0\.0\.1|localhost)/, (socket) => socket.close());
     await applyWideFonts(page);
     await page.setViewportSize({ width: size.width, height: size.height });
-    await page.goto(`/e2e/fixtures/binder-sheets.html?binder=${binder}&insetTop=${size.insets.top}`);
+    await page.goto(
+        `/e2e/fixtures/binder-sheets.html?binder=${binder}&insetTop=${size.insets.top}${empty ? '&empty=1' : ''}`,
+    );
     await page.waitForFunction(
         () => (window as unknown as { __binderSheetsReady?: boolean }).__binderSheetsReady,
         undefined,

@@ -52,9 +52,13 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                     h1 under the Equipment crumb, and Edit is the one 44 pt
                     control in its action slot, where the other binder pages
                     keep theirs. The name was an h2 with no h1 above it, and
-                    Edit a 56 px button floating over the page's last rows. */}
+                    Edit a 56 px button floating over the page's last rows.
+                    The name is the page's point, so it takes every line it
+                    needs (wrapTitle), as the h2 did: the house header's two
+                    lines cut the long ones short. */}
                 <PageHeader
                     title={item.equipment_name}
+                    wrapTitle
                     subtitle={
                         <p className="flex items-center gap-1.5 text-label text-gray-400 font-bold uppercase tracking-widest">
                             <CategoryIcon className="h-3.5 w-3.5 shrink-0" />

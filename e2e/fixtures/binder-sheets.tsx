@@ -22,6 +22,7 @@
  * ?binder=equipment|documents|maintenance|stores|checklists
  * &insetTop=20 (the status bar's inset, which pushes the page down; a browser
  * draws env(safe-area-inset-*) as 0, so the header takes it from here).
+ * &empty=1 (nothing seeded: a new skipper's first visit, 132-B20).
  * Dispatch `test:keyboard` with a height to raise a keyboard.
  */
 import React from 'react';
@@ -305,7 +306,7 @@ const SEED: Record<Binder, () => Promise<void>> = {
     stores: seedStores,
     checklists: seedChecklists,
 };
-await SEED[binder]();
+if (params.get('empty') !== '1') await SEED[binder]();
 
 const PAGES: Record<Binder, () => Promise<React.FC<{ onBack: () => void }>>> = {
     equipment: async () => (await import('../../components/vessel/EquipmentList')).EquipmentList,
