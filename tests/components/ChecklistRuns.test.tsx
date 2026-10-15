@@ -62,6 +62,7 @@ import {
     type ChecklistEntry,
     type ChecklistRun,
 } from '../../services/vessel/LocalChecklistService';
+import { LocalMaintenanceService } from '../../services/vessel/LocalMaintenanceService';
 import { authScopedStorageKey } from '../../services/authIdentityScope';
 import { toast } from '../../components/Toast';
 
@@ -89,6 +90,7 @@ const LISTS = [
 const DRAFT_KEY = () => authScopedStorageKey('thalassa_checklist_run_draft_v1');
 const saveRun = vi.mocked(LocalChecklistService.saveRun);
 const create = vi.mocked(LocalChecklistService.create);
+const createTask = vi.mocked(LocalMaintenanceService.createTask);
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -332,6 +334,53 @@ describe('Complete: saves the run once, with when it began (CHK-04, CHK-06)', ()
         expect(saveRun).toHaveBeenCalledTimes(1);
         expect(runDialog()).not.toBeInTheDocument();
     });
+
+    it('a tick while Complete saves is not taken, and the saved run never comes back to be completed again', async () => {
+        const repair = deferred<Awaited<ReturnType<typeof createTask>>>();
+        createTask.mockReturnValueOnce(repair.promise);
+        const first = render(<ChecklistsPage onBack={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Run Pre-departure' }));
+        tick('Bilge pump', 'not checked');
+        tick('Bilge pump', 'passed');
+        fireEvent.click(screen.getByRole('button', { name: 'Flag Bilge pump for repair and maintenance' }));
+
+        // A tick in the same moment as Complete, before the page re-renders:
+        // the guard, not just the inert items, keeps it out.
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Complete checklist run' }));
+            tick('Close seacocks', 'not checked');
+        });
+
+        // Saved, and the phone's copy let go; the repair is still being added,
+        // so the run is on screen with its items inert.
+        expect(saveRun).toHaveBeenCalledTimes(1);
+        expect(localStorage.getItem(DRAFT_KEY())).toBeNull();
+        const seacocks = screen.getByRole('button', { name: 'Close seacocks: not checked. Change status to passed' });
+        const flag = screen.getByRole('button', { name: 'Flag Bilge pump for repair and maintenance' });
+        expect(seacocks).toBeDisabled();
+        expect(flag).toBeDisabled();
+        fireEvent.click(seacocks);
+        fireEvent.click(flag);
+        expect(localStorage.getItem(DRAFT_KEY())).toBeNull();
+
+        await act(async () => {
+            repair.resolve({ id: 'maintenance-task' } as Awaited<ReturnType<typeof createTask>>);
+        });
+        expect(runDialog()).not.toBeInTheDocument();
+        expect(localStorage.getItem(DRAFT_KEY())).toBeNull();
+        expect(saveRun.mock.calls[0][0].items.map((i) => [i.text, i.status, i.flagged_rm])).toEqual([
+            ['Bilge pump', 'fail', true],
+            ['Close seacocks', 'unchecked', false],
+        ]);
+
+        // The app opens again: nothing to bring back, nothing to complete twice.
+        first.unmount();
+        render(<ChecklistsPage onBack={vi.fn()} />);
+        expect(runDialog()).not.toBeInTheDocument();
+        expect(toast.info).not.toHaveBeenCalledWith('Your “Pre-departure” run is back where you left it');
+        expect(saveRun).toHaveBeenCalledTimes(1);
+        expect(createTask).toHaveBeenCalledTimes(1);
+    });
 });
 
 describe('Add: once per tap, and under the checklist just made (CHK-06, CHK-09)', () => {
@@ -476,6 +525,30 @@ describe('Past runs: when each list was last run, and what failed (CHK-10)', () 
         expect(pre).toHaveTextContent('Last run Wed 7 Oct 2026, 08:00');
         expect(within(pre).getByRole('list', { name: 'Earlier runs' }).children).toHaveLength(4);
         expect(pre).toHaveTextContent('2 earlier runs not shown');
+    });
+
+    it('a list carried untouched through a pre-132 run of every list is still not run yet', () => {
+        const legacy: ChecklistRun = {
+            id: 'r-legacy',
+            started_at: lastRun,
+            completed_at: lastRun,
+            items: [
+                { ...item('i-bilge', 'Bilge pump', 'pass'), heading_id: undefined },
+                { ...item('i-seacocks', 'Close seacocks', 'pass'), heading_id: undefined },
+                {
+                    ...item('i-jib', 'Storm jib hanked on', 'unchecked'),
+                    heading: 'Heavy weather',
+                    heading_id: undefined,
+                },
+            ],
+        };
+        render(<PastRunsSheet runs={[legacy]} entries={LISTS} onClose={vi.fn()} />);
+
+        expect(screen.getByRole('region', { name: 'Pre-departure' })).toHaveTextContent(
+            'Last run Tue 13 Oct 2026, 14:05',
+        );
+        expect(screen.queryByRole('region', { name: 'Heavy weather' })).not.toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: 'Past runs' })).toHaveTextContent('Not run yet: Heavy weather');
     });
 
     it('a run in progress on another device is not a past run', () => {

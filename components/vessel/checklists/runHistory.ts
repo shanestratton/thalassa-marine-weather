@@ -7,7 +7,8 @@
  * runs could hold every list at once and carry only the checklist's name, so
  * their items are matched to a list by that name, then (for a list renamed
  * since) by the item itself while it still exists; a list deleted since keeps
- * the name it had.
+ * the name it had. A list with nothing checked in such a run was carried
+ * along, not run, and is left out of it.
  */
 import type { ChecklistEntry, ChecklistRun, ChecklistRunItem } from '../../../services/vessel/LocalChecklistService';
 
@@ -61,6 +62,11 @@ export function summariseRunHistory(runs: ChecklistRun[], entries: ChecklistEntr
             byList.set(key, group);
         }
         for (const [key, group] of byList) {
+            // A pre-132 run held every list at once, so a list with nothing
+            // checked in it was not run, only carried along: it falls back to
+            // its last real run, or to 'Not run yet'.
+            const legacy = group.items.every((i) => !i.heading_id);
+            if (legacy && group.items.every((i) => i.status === 'unchecked')) continue;
             const list = lists.get(key) ?? { key, name: group.name, runs: [], latest: completedTime(run) };
             list.runs.push({
                 id: run.id,

@@ -189,8 +189,10 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
 
     // Every tick is kept on the phone as it lands (132-B16, CHK-04): a crash,
     // or iOS closing the app in the background, used to lose the whole run.
+    // Not while Complete saves: once saved the phone's copy is cleared, and
+    // writing it back brought a completed run back to be completed again.
     useEffect(() => {
-        if (!activeRun) return;
+        if (!activeRun || completingRef.current) return;
         const scope = getAuthIdentityScope();
         if (!currentOperation(scope)) return;
         if (saveRunDraft({ ...activeRun, items: runItems }, scope) || draftWarnedRef.current) return;
@@ -545,10 +547,13 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         setPastRunsOpen(true);
     }, []);
 
+    // Ticks and flags wait while Complete saves (132-B16): the run saved is the
+    // one on screen when Complete was tapped, so a tick then was left out of
+    // it, and kept on the phone as a run still to finish.
     const toggleRunItem = useCallback(
         (entryId: string) => {
             const scope = getAuthIdentityScope();
-            if (!currentOperation(scope)) return;
+            if (!currentOperation(scope) || completingRef.current) return;
             triggerHaptic('light');
             setRunItems((prev) =>
                 prev.map((item) => {
@@ -566,7 +571,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     const toggleRmFlag = useCallback(
         (entryId: string) => {
             const scope = getAuthIdentityScope();
-            if (!currentOperation(scope)) return;
+            if (!currentOperation(scope) || completingRef.current) return;
             triggerHaptic('light');
             setRunItems((prev) =>
                 prev.map((item) => {
@@ -1173,6 +1178,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                         <button
                                                             type="button"
                                                             onClick={() => toggleRunItem(item.entry_id)}
+                                                            disabled={completing}
                                                             className="flex flex-1 min-w-0 min-h-[44px] items-center gap-3 text-left rounded-lg active:scale-[0.98] transition-transform"
                                                             aria-label={`${item.text}: ${statusLabel}. Change status to ${nextStatusLabel}`}
                                                         >
@@ -1241,6 +1247,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                                 aria-label={`Flag ${item.text} for repair and maintenance`}
                                                                 aria-pressed={item.flagged_rm}
                                                                 onClick={() => toggleRmFlag(item.entry_id)}
+                                                                disabled={completing}
                                                                 className={`hit-target-44 shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-micro font-bold uppercase tracking-wider transition-all ${
                                                                     item.flagged_rm
                                                                         ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'

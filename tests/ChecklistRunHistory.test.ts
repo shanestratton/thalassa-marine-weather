@@ -2,7 +2,8 @@
  * Past runs, list by list (132-B16, CHK-10): summariseRunHistory groups the
  * completed runs in checklist_runs under the checklist each item was run
  * under, newest first. Runs from before 132 could hold every list at once and
- * name their list only by text. Fictional lists.
+ * name their list only by text; a list with nothing checked in one was not
+ * run. Fictional lists.
  */
 import { describe, expect, it } from 'vitest';
 import { summariseRunHistory } from '../components/vessel/checklists/runHistory';
@@ -94,6 +95,57 @@ describe('summariseRunHistory', () => {
         expect(history.map((list) => [list.key, runTally(list.runs[0])])).toEqual([
             ['h-pre', 'Passed'],
             ['h-heavy', '0 passed · 1 failed'],
+        ]);
+    });
+
+    it('a list with nothing checked in a pre-132 run was carried along, not run', () => {
+        const history = summariseRunHistory(
+            [
+                run('legacy-new', '2026-09-20T01:00:00.000Z', [
+                    item('i-bilge', 'Bilge pump', 'Pre-departure', 'pass'),
+                    item('i-seacocks', 'Close seacocks', 'Pre-departure', 'unchecked'),
+                    item('i-jib', 'Storm jib hanked on', 'Heavy weather', 'unchecked'),
+                ]),
+                run('legacy-old', '2026-09-01T01:00:00.000Z', [
+                    item('i-bilge', 'Bilge pump', 'Pre-departure', 'unchecked'),
+                    item('i-jib', 'Storm jib hanked on', 'Heavy weather', 'fail'),
+                ]),
+            ],
+            ENTRIES,
+        );
+        // Heavy weather's last run is the one where it was ticked; Pre-departure's
+        // older slice, with nothing ticked, is not a run of it.
+        expect(history.map((list) => [list.key, list.runs.map((r) => r.id)])).toEqual([
+            ['h-pre', ['legacy-new']],
+            ['h-heavy', ['legacy-old']],
+        ]);
+        expect(runTally(history[0].runs[0])).toBe('1 passed · 1 not checked');
+    });
+
+    it('a list never ticked in any pre-132 run has no past run', () => {
+        const history = summariseRunHistory(
+            [
+                run('legacy', '2026-09-20T01:00:00.000Z', [
+                    item('i-bilge', 'Bilge pump', 'Pre-departure', 'pass'),
+                    item('i-jib', 'Storm jib hanked on', 'Heavy weather', 'unchecked'),
+                ]),
+            ],
+            ENTRIES,
+        );
+        expect(history.map((list) => list.key)).toEqual(['h-pre']);
+    });
+
+    it('a list run on its own from 132 counts even with nothing checked: it was chosen and completed', () => {
+        const history = summariseRunHistory(
+            [
+                run('r1', '2026-10-05T00:00:00.000Z', [
+                    item('i-jib', 'Storm jib hanked on', 'Heavy weather', 'unchecked', 'h-heavy'),
+                ]),
+            ],
+            ENTRIES,
+        );
+        expect(history.map((list) => [list.key, runTally(list.runs[0])])).toEqual([
+            ['h-heavy', '0 passed · 1 not checked'],
         ]);
     });
 
