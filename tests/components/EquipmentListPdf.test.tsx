@@ -135,7 +135,10 @@ describe('Equipment: Share or save', () => {
         expect(screen.getByText(/Shared from Wind Dancer/)).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Share or save equipment list' }));
         await waitFor(() =>
-            expect(mocks.exportPdf).toHaveBeenCalledWith([expect.objectContaining({ id: 'equipment-a' })], 'Wind Dancer'),
+            expect(mocks.exportPdf).toHaveBeenCalledWith(
+                [expect.objectContaining({ id: 'equipment-a' })],
+                'Wind Dancer',
+            ),
         );
     });
 

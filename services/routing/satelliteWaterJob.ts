@@ -359,10 +359,7 @@ async function decodeTile(t: SatelliteTile): Promise<{ rgba: Uint8ClampedArray; 
  *                     classify beside a re-tap's fresh route); the worker
  *                     passes none, its answer to a stopped route is dropped.
  */
-export async function satelliteCropWater(
-    crop: SatelliteCrop,
-    stillWanted?: () => boolean,
-): Promise<FeatureCollection> {
+export async function satelliteCropWater(crop: SatelliteCrop, stillWanted?: () => boolean): Promise<FeatureCollection> {
     const empty: FeatureCollection = { type: 'FeatureCollection', features: [] };
     const { tiles, zoom, bbox } = crop;
     if (tiles.length === 0) return empty;

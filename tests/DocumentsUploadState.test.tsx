@@ -417,9 +417,7 @@ describe('Documents: a refused upload says so, with the reason and a Retry butto
         });
 
         await waitFor(() => expect(sync.syncNow).toHaveBeenCalledTimes(2));
-        await waitFor(() =>
-            expect(screen.queryByRole('button', { name: /Trying again/ })).not.toBeInTheDocument(),
-        );
+        await waitFor(() => expect(screen.queryByRole('button', { name: /Trying again/ })).not.toBeInTheDocument());
         expect(within(card('Hull insurance, Horta to Papeete')).queryByText(/Upload failed/)).not.toBeInTheDocument();
         expect(toast.success).not.toHaveBeenCalled();
     });
