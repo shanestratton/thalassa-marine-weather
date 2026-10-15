@@ -30,8 +30,8 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - feature: coastal-wind
-                      sha: 86cd4bf90a8ace66b6912bb6c53c578c7418818f
+                    - feature: chart-datum
+                      sha: fb4837b9983c1b4aa8002b7ed8eaeccb9649c32c
         env:
             CANDIDATE_SHA: ${{ matrix.sha }}
             FEATURE: ${{ matrix.feature }}
