@@ -147,6 +147,33 @@ describe('one stacked seven-day picture of the spot', () => {
         expect(panel('wind').querySelectorAll('clipPath')).toHaveLength(2);
     });
 
+    it('names the gusts when they reach their limit before the wind reaches its own', () => {
+        // Gusts at the 28 kt limit Saturday 02:00 (wind 20); the wind at 24 only on Monday.
+        open({
+            hourly: week((i) =>
+                i === 18
+                    ? { windSpeed: 20, windGust: 28 }
+                    : i === 78
+                      ? { windSpeed: 24, windGust: 27 }
+                      : { windSpeed: 12, windGust: 17 },
+            ),
+        });
+        expect(read('wind')).toHaveTextContent('Gusts reach your 28 kts limit Sat 02:00');
+        expect(read('wind')).toHaveClass('text-red-300');
+    });
+
+    it('names the wind when it reaches its limit first, and the gusts when only they do', () => {
+        open({
+            hourly: week((i) =>
+                i === 10 ? { windSpeed: 23, windGust: 25 } : i === 40 ? { windSpeed: 15, windGust: 30 } : {},
+            ),
+        });
+        expect(read('wind')).toHaveTextContent('Reaches your 22 kts limit Fri 18:00');
+        cleanup();
+        open({ hourly: week((i) => (i === 40 ? { windSpeed: 18, windGust: 30 } : { windSpeed: 12, windGust: 17 })) });
+        expect(read('wind')).toHaveTextContent('Gusts reach your 28 kts limit Sun 00:00');
+    });
+
     it('says when the boat stays within its limits', () => {
         open({ hourly: week(() => ({ windSpeed: 10, windGust: 14 })) });
         expect(read('wind')).toHaveTextContent('Within your limits (22 kts, gusts 28)');
@@ -232,16 +259,132 @@ describe('reading any hour', () => {
         expect(read('pressure')).toHaveTextContent('1016 hPa');
     });
 
-    it('reads the hour under a touch', () => {
+    it('gives the week’s summaries back when the slider loses focus', () => {
         open();
         const slider = screen.getByRole('slider', { name: 'Hour to read' });
-        vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 336 } as DOMRect);
-        // jsdom has no PointerEvent: a MouseEvent of the same type carries clientX.
-        act(() => {
-            slider.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 60 }));
+        act(() => slider.focus());
+        fireEvent.keyDown(slider, { key: 'ArrowRight' });
+        expect(read('wind')).toHaveTextContent('12 kts, gust 17');
+        act(() => screen.getByRole('button', { name: 'Close all metrics' }).focus());
+        expect(read('wind')).toHaveTextContent('Reaches your 22 kts limit Sat 14:00');
+    });
+
+    describe('under a finger or the mouse', () => {
+        /** 60 px across 336 is hour 30, Saturday 14:00, when the wind is 24 kts. */
+        const slider = () => {
+            const s = screen.getByRole('slider', { name: 'Hour to read' });
+            vi.spyOn(s, 'getBoundingClientRect').mockReturnValue({ left: 0, width: 336 } as DOMRect);
+            return s;
+        };
+        // jsdom has no PointerEvent: a MouseEvent of the same type, given the pointer's own fields.
+        const pointer = (
+            target: Element,
+            type: string,
+            x: number,
+            y = 100,
+            pointerType = 'touch',
+            relatedTarget: Element | null = null,
+        ) =>
+            act(() => {
+                const e = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, relatedTarget });
+                Object.defineProperties(e, { pointerType: { value: pointerType }, pointerId: { value: 1 } });
+                target.dispatchEvent(e);
+            });
+        const summaries = () => {
+            expect(read('wind')).toHaveTextContent('Reaches your 22 kts limit Sat 14:00');
+            expect(read('pressure')).toHaveTextContent('Falls 4.5 hPa in 3 h to Tue 15:00');
+        };
+
+        it('reads the hour under a sideways drag, and gives the summaries back when the finger lifts', () => {
+            open();
+            const s = slider();
+            pointer(s, 'pointerdown', 50);
+            summaries();
+            pointer(s, 'pointermove', 60, 101);
+            expect(read('wind')).toHaveTextContent('24 kts, gust 29');
+            expect(read('rain')).toHaveTextContent('0 mm, 20% chance');
+            pointer(s, 'pointerup', 60, 101);
+            summaries();
+            expect(s.getAttribute('aria-valuetext')).toMatch(/^None chosen/);
         });
-        expect(read('wind')).toHaveTextContent('24 kts, gust 29');
-        expect(read('rain')).toHaveTextContent('0 mm, 20% chance');
+
+        it('leaves the summaries alone while the sheet scrolls over the panels', () => {
+            open();
+            const s = slider();
+            pointer(s, 'pointerdown', 60, 300);
+            pointer(s, 'pointermove', 62, 270);
+            summaries();
+            // The browser takes the gesture for its scroll.
+            pointer(s, 'pointercancel', 62, 270);
+            pointer(s, 'pointermove', 64, 200);
+            summaries();
+        });
+
+        it('reads under a finger held still, until it lifts', () => {
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+            try {
+                open();
+                const s = slider();
+                pointer(s, 'pointerdown', 60);
+                act(() => vi.advanceTimersByTime(200));
+                summaries();
+                act(() => vi.advanceTimersByTime(100));
+                expect(read('wind')).toHaveTextContent('24 kts, gust 29');
+                pointer(s, 'pointerup', 60);
+                summaries();
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('reads under the mouse, until it leaves the panels', () => {
+            open();
+            const s = slider();
+            pointer(s, 'pointermove', 60, 100, 'mouse');
+            expect(read('wind')).toHaveTextContent('24 kts, gust 29');
+            // React hears a pointer leaving as pointerout to somewhere outside it.
+            pointer(s, 'pointerout', 400, 100, 'mouse', document.body);
+            summaries();
+        });
+    });
+});
+
+describe('day names that never collide', () => {
+    /** The row at 375 px (311 px of week) and each name about as wide as Verdana Bold draws it. */
+    const ROW = 311;
+    const perChar = 8.5;
+    beforeEach(() => {
+        vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+            const width =
+                this.getAttribute('data-testid') === 'meteogram-days'
+                    ? ROW
+                    : this.tagName === 'SPAN'
+                      ? (this.textContent ?? '').length * perChar
+                      : 0;
+            return { x: 0, y: 0, left: 0, top: 0, right: width, bottom: 0, width, height: 0 } as DOMRect;
+        });
+    });
+    const names = () =>
+        [...screen.getByTestId('meteogram-days').querySelectorAll<HTMLElement>('[data-day-name]')].map((n) => ({
+            text: n.textContent!,
+            l: (parseFloat(n.style.left) / 100) * ROW,
+        }));
+
+    it('drops to the weekdays at 375 px in a wide face, each clear of the next, the last part day giving way', () => {
+        open();
+        const shown = names();
+        expect(shown.map((n) => n.text)).toEqual(['Fri', 'Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu']);
+        shown.slice(1).forEach((n, i) => expect(n.l - shown[i].l).toBeGreaterThanOrEqual(3 * perChar + 6 - 1e-6));
+        // The measuring probe is gone again.
+        expect(screen.getByTestId('meteogram-days').querySelectorAll('span:not([data-day-name])')).toHaveLength(0);
+    });
+
+    it('fits the names again on the phone’s clock', () => {
+        open();
+        fireEvent.click(screen.getByRole('button', { name: 'Phone time' }));
+        // Honolulu's Thursday at either end; its six whole days between.
+        const texts = names().map((n) => n.text);
+        expect(texts.filter((t) => t !== 'Thu')).toEqual(['Fri', 'Sat', 'Sun', 'Mon', 'Tue', 'Wed']);
     });
 });
 

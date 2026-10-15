@@ -110,7 +110,7 @@ export function wallClock(ms: number, tz?: string): number[] {
 
 /** The instant a wall-clock hour on a calendar day occurs in `tz`. Where the
  *  hour does not exist (a daylight-saving jump), the first instant after it. */
-export function wallToInstant(y: number, mo: number, d: number, h: number, tz?: string): number {
+function wallToInstant(y: number, mo: number, d: number, h: number, tz?: string): number {
     if (!zoneFormat(tz)) return new Date(y, mo - 1, d, h).getTime();
     const target = Date.UTC(y, mo - 1, d, h);
     const offset = (ms: number) => {

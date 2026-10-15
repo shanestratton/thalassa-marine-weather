@@ -9,6 +9,7 @@
 import SunCalc from 'suncalc';
 import { describe, expect, it } from 'vitest';
 import {
+    DAY_GAP_PX,
     HOUR_MS,
     METEOGRAM_HOURS,
     alignHourly,
@@ -19,6 +20,7 @@ import {
     fastFallPath,
     fastFallSegments,
     firstAtOrOver,
+    fitDayLabels,
     forecastEnd,
     forecastTimeMs,
     formatHour,
@@ -53,19 +55,45 @@ describe('forecast stamps become instants', () => {
     it('reads zoned stamps as written', () => {
         expect(forecastTimeMs('2026-10-16T04:00:00Z')).toBe(T0 + 4 * H);
         expect(forecastTimeMs('2026-10-16T14:00:00+10:00')).toBe(T0 + 4 * H);
-        expect(forecastTimeMs('2026-10-16T04:00:00.000Z', { timeZone: 'Europe/Paris' })).toBe(T0 + 4 * H);
+        expect(forecastTimeMs('2026-10-16T04:00:00.000Z', { utcOffsetSeconds: 7200 })).toBe(T0 + 4 * H);
     });
 
-    it('reads bare stamps on the place’s zone, or at a fixed offset', () => {
-        expect(forecastTimeMs('2026-10-16T14:00', { timeZone: 'Australia/Brisbane' })).toBe(T0 + 4 * H);
+    it('reads bare stamps at the report’s fixed offset', () => {
         expect(forecastTimeMs('2026-10-16T14:00', { utcOffsetSeconds: 36_000 })).toBe(T0 + 4 * H);
-        expect(forecastTimeMs('2026-10-16T05:30', { timeZone: 'Asia/Kolkata' })).toBe(T0);
+        expect(forecastTimeMs('2026-10-16T05:30', { utcOffsetSeconds: 19_800 })).toBe(T0);
     });
 
-    it('keeps the right hour across a clock change on the place’s zone', () => {
-        // Marseille goes from CEST (+2) to CET (+1) early on Sun 25 Oct 2026.
-        expect(forecastTimeMs('2026-10-24T12:00', { timeZone: 'Europe/Paris' })).toBe(Date.UTC(2026, 9, 24, 10));
-        expect(forecastTimeMs('2026-10-26T12:00', { timeZone: 'Europe/Paris' })).toBe(Date.UTC(2026, 9, 26, 11));
+    // Captured live on 2026-10-15 from api.open-meteo.com (timezone=auto, 43.30 N
+    // 5.37 E, 24 to 26 Oct 2026, the hours Marseille goes back from CEST to CET):
+    // timezone 'Europe/Paris', abbreviation 'GMT+2', utc_offset_seconds 7200, and
+    // 72 stamps one an hour with no 02:00 doubled. Each pair is a stamp and its
+    // timeformat=unixtime twin from the same request; all 72 matched at +7200.
+    const MARSEILLE_ACROSS_THE_CHANGE: [string, number][] = [
+        ['2026-10-24T00:00', 1792792800],
+        ['2026-10-25T00:00', 1792879200],
+        ['2026-10-25T01:00', 1792882800],
+        ['2026-10-25T02:00', 1792886400],
+        ['2026-10-25T03:00', 1792890000],
+        ['2026-10-25T04:00', 1792893600],
+        ['2026-10-26T12:00', 1793008800],
+        ['2026-10-26T23:00', 1793048400],
+    ];
+
+    it('reads Open-Meteo’s stamps across a clock change at the one offset it wrote them in', () => {
+        const clock = bareClock(7200);
+        for (const [stamp, unix] of MARSEILLE_ACROSS_THE_CHANGE) expect(forecastTimeMs(stamp, clock)).toBe(unix * 1000);
+        // Read on Paris's own rules, Monday noon would land at 11:00Z, an hour late.
+        expect(forecastTimeMs('2026-10-26T12:00', clock)).toBe(Date.UTC(2026, 9, 26, 10));
+    });
+
+    it('lines a report up the same way whenever it is opened, before the change or after', () => {
+        const hourly = MARSEILLE_ACROSS_THE_CHANGE.map(([time], i) => hour(time, { windSpeed: i + 1 }));
+        // Opened on Saturday 24th (CEST) and on Monday 26th (CET), from the cache.
+        for (const opened of [Date.UTC(2026, 9, 23, 22), Date.UTC(2026, 9, 26, 0)]) {
+            const grid = alignHourly(hourly, opened, METEOGRAM_HOURS, bareClock(7200));
+            const monday = (Date.UTC(2026, 9, 26, 10) - opened) / H;
+            expect(grid.series.wind[monday]).toBe(7);
+        }
     });
 
     it('is NaN for anything that is not a time', () => {
@@ -74,20 +102,20 @@ describe('forecast stamps become instants', () => {
         expect(forecastTimeMs(undefined)).toBeNaN();
     });
 
-    it('takes the place’s zone when the report’s offset is that zone’s, else the fixed offset', () => {
-        const now = Date.UTC(2026, 9, 20, 12);
-        expect(bareClock(now, 'Europe/Paris', 7200)).toEqual({ timeZone: 'Europe/Paris' });
+    it('takes the report’s offset as given, the StormGlass transformer’s in hours', () => {
+        expect(bareClock(7200)).toEqual({ utcOffsetSeconds: 7200 });
         // A publisher answering in GMT: its bare stamps are UTC, not the place's.
-        expect(bareClock(now, 'Europe/Paris', 0)).toEqual({ utcOffsetSeconds: 0 });
-        // The StormGlass transformer's offset is in hours.
-        expect(bareClock(now, 'Australia/Brisbane', 10)).toEqual({ timeZone: 'Australia/Brisbane' });
-        expect(bareClock(now, 'Australia/Brisbane', undefined)).toEqual({});
-        expect(zoneOffsetSeconds(now, 'Asia/Kolkata')).toBe(19_800);
+        expect(bareClock(0)).toEqual({ utcOffsetSeconds: 0 });
+        expect(bareClock(10)).toEqual({ utcOffsetSeconds: 36_000 });
+        expect(bareClock(-9.5)).toEqual({ utcOffsetSeconds: -34_200 });
+        expect(bareClock(undefined)).toEqual({});
+        expect(bareClock(Number.NaN)).toEqual({});
+        expect(zoneOffsetSeconds(Date.UTC(2026, 9, 20, 12), 'Asia/Kolkata')).toBe(19_800);
     });
 });
 
 describe('every series on one grid of epoch hours', () => {
-    const clock = { timeZone: 'Australia/Brisbane' };
+    const clock = bareClock(36_000);
 
     it('lines up zoned and bare stamps on the same hour, and drops what is outside the week', () => {
         const grid = alignHourly(
@@ -298,7 +326,7 @@ describe('days and times on a clock', () => {
         const kolkata = dayMarks(T0, METEOGRAM_HOURS, 'Asia/Kolkata');
         expect(kolkata.midnights[0]).toBe(18.5);
         expect(kolkata.midnights).toHaveLength(7);
-        expect(kolkata.labels[0]).toEqual({ at: 9.25, text: 'Fri 16' });
+        expect(kolkata.labels[0]).toEqual({ from: 0, to: 18.5, at: 9.25, text: 'Fri 16', short: 'Fri' });
     });
 
     it('names a different day on another clock', () => {
@@ -318,6 +346,72 @@ describe('days and times on a clock', () => {
             'Thu 22',
             'Fri 23',
         ]);
+    });
+
+    describe('as many day names as the row has room for', () => {
+        // The Brisbane week opened at 10:00: Friday's 14 h, six whole days,
+        // Thursday, and the next Friday's last 10 h.
+        const brisbane = dayMarks(T0, METEOGRAM_HOURS, 'Australia/Brisbane').labels;
+        /** About Verdana Bold at the 12 px floor, the house wide face; about Inter's. */
+        const wide = (text: string) => text.length * 8.5;
+        const narrow = (text: string) => text.length * 6.5;
+        const boxes = (placed: { text: string; left: number }[], width: number, widthOf: (t: string) => number) =>
+            placed.map((d) => ({ l: d.left * width, r: d.left * width + widthOf(d.text) }));
+        const apart = (b: { l: number; r: number }[], width: number) =>
+            b.every(
+                (x, i) => x.l >= -1e-9 && x.r <= width + 1e-9 && (i === 0 || x.l - b[i - 1].r >= DAY_GAP_PX - 1e-9),
+            );
+
+        it('falls back to the weekdays at 375 px in wide fonts, every name clear of the next', () => {
+            // 375 less the overlay's and the sheet's 16 px sides: 311 px, 44 px a day.
+            const placed = fitDayLabels(brisbane, METEOGRAM_HOURS, 311, wide);
+            expect(placed.map((d) => d.text)).toEqual(['Fri', 'Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu']);
+            expect(apart(boxes(placed, 311, wide), 311)).toBe(true);
+        });
+
+        it('lets the part days give way rather than crowd their neighbours', () => {
+            // Room for every whole day's full name, none for the ends': 'Fri 23'
+            // would sit 15 h from 'Thu 22' (the review's case), 'Fri 16' 19 h from 'Sat 17'.
+            const placed = fitDayLabels(brisbane, METEOGRAM_HOURS, 400, narrow);
+            expect(placed.map((d) => d.text)).toEqual(['Sat 17', 'Sun 18', 'Mon 19', 'Tue 20', 'Wed 21', 'Thu 22']);
+            expect(apart(boxes(placed, 400, narrow), 400)).toBe(true);
+        });
+
+        it('keeps the full names where every whole day still has room', () => {
+            const placed = fitDayLabels(brisbane, METEOGRAM_HOURS, 480, narrow);
+            expect(placed.map((d) => d.text)).toEqual([
+                'Fri 16',
+                'Sat 17',
+                'Sun 18',
+                'Mon 19',
+                'Tue 20',
+                'Wed 21',
+                'Thu 22',
+            ]);
+            expect(apart(boxes(placed, 480, narrow), 480)).toBe(true);
+        });
+
+        it('stays clear whenever the sheet is opened, on any clock, a clock change and 320 px too', () => {
+            // Paris's second week holds Sunday 25 Oct, 25 hours long.
+            for (const start of [T0, Date.UTC(2026, 9, 22)]) {
+                for (let h = 0; h < 24; h++) {
+                    for (const zone of ['Australia/Brisbane', 'Asia/Kolkata', 'Europe/Paris']) {
+                        const labels = dayMarks(start + h * H, METEOGRAM_HOURS, zone).labels;
+                        for (const width of [256, 311, 343]) {
+                            const placed = fitDayLabels(labels, METEOGRAM_HOURS, width, wide);
+                            const where = `${zone} +${h} h at ${width} px`;
+                            expect(apart(boxes(placed, width, wide), width), where).toBe(true);
+                            // Every whole day keeps its name.
+                            expect(placed.length, where).toBeGreaterThanOrEqual(6);
+                        }
+                    }
+                }
+            }
+        });
+
+        it('draws nothing it cannot measure', () => {
+            expect(fitDayLabels(brisbane, METEOGRAM_HOURS, 0, wide)).toEqual([]);
+        });
     });
 
     it('formats an hour and names the clock', () => {

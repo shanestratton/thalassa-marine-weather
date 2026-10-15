@@ -15,7 +15,7 @@
  * day cards' chip), so it adds no provider and usually no request. The
  * hour-by-hour work is meteogramModel's.
  */
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { HourlyForecast, UnitPreferences } from '../../types';
 import type { VesselWindowThresholds } from '../../services/vesselWindowThresholds';
 import { queryModelSpread } from '../../services/weather/ModelSpreadService';
@@ -49,6 +49,7 @@ import {
     epochHour,
     fastFallPath,
     firstAtOrOver,
+    fitDayLabels,
     forecastEnd,
     formatHour,
     linePath,
@@ -62,6 +63,7 @@ import {
     zoneName,
     zoneOffsetSeconds,
     type HourValues,
+    type PlacedDay,
     type SpreadBand,
 } from './meteogramModel';
 
@@ -98,6 +100,23 @@ const STEP: Record<string, number> = {
 };
 /** A scale label in a plot's corner, legible over the lines. */
 const TAG = 'absolute text-[10px] leading-3 text-white/60 bg-slate-900/70 rounded px-0.5';
+/** A day's name over the panels; also the probe the row measures names in. */
+const DAY_NAME = 'absolute text-[11px] font-bold text-white/70 whitespace-nowrap leading-4';
+/** A touch reads an hour once it is plainly a sideways drag, or held this
+ *  long: the start of a scroll is neither (131-02 review). */
+const HOLD_MS = 250;
+const SIDEWAYS_PX = 6;
+
+/** A finger on the panels: where it went down and is now, and whether it reads yet. */
+interface Press {
+    id: number;
+    x: number;
+    x0: number;
+    y0: number;
+    reading: boolean;
+    /** The hold timer. */
+    hold: number;
+}
 
 const f1 = (n: number) => Math.round(n * 10) / 10;
 const maxOf = (...series: (HourValues | undefined)[]) =>
@@ -222,10 +241,7 @@ export const Meteogram: React.FC<MeteogramProps> = ({
     // undefined is the phone's own clock throughout meteogramModel.
     const clock = phoneClock ? undefined : placeZone;
 
-    const grid = useMemo(
-        () => alignHourly(hourly, startMs, HOURS, bareClock(nowMs, placeZone, utcOffset)),
-        [hourly, startMs, nowMs, placeZone, utcOffset],
-    );
+    const grid = useMemo(() => alignHourly(hourly, startMs, HOURS, bareClock(utcOffset)), [hourly, startMs, utcOffset]);
     const nights = useMemo(
         () =>
             (placed ? nightSpans(startMs, HOURS, lat!, lon!) : [])
@@ -235,6 +251,46 @@ export const Meteogram: React.FC<MeteogramProps> = ({
     );
     const days = useMemo(() => dayMarks(startMs, HOURS, clock), [startMs, clock]);
     const midnights = useMemo(() => days.midnights.map((m) => `M${m} 0V100`).join(''), [days]);
+
+    // The day names the row has room for, measured in the face it draws them
+    // in: a narrow phone or a wide font gets the weekdays alone, and a part
+    // day gives way, rather than two names overlapping (131-02 review).
+    // Unmeasured (no layout yet), every name is drawn centred on its day.
+    const daysRef = useRef<HTMLDivElement>(null);
+    const [dayFit, setDayFit] = useState<PlacedDay[] | null>(null);
+    useLayoutEffect(() => {
+        const row = daysRef.current;
+        if (!row) return;
+        let live = true;
+        const measure = () => {
+            const width = live ? row.getBoundingClientRect().width : 0;
+            if (!(width > 0)) return setDayFit(null);
+            const probe = document.createElement('span');
+            probe.className = DAY_NAME;
+            probe.style.visibility = 'hidden';
+            row.append(probe);
+            const widths = new Map<string, number>();
+            const widthOf = (text: string) => {
+                if (!widths.has(text)) {
+                    probe.textContent = text;
+                    widths.set(text, probe.getBoundingClientRect().width);
+                }
+                return widths.get(text)!;
+            };
+            const fit = fitDayLabels(days.labels, HOURS, width, widthOf);
+            probe.remove();
+            setDayFit(fit);
+        };
+        measure();
+        // Measured again once the face has loaded, and whenever the row resizes.
+        document.fonts?.ready.then(() => live && measure()).catch(() => {});
+        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => live && measure());
+        observer?.observe(row);
+        return () => {
+            live = false;
+            observer?.disconnect();
+        };
+    }, [days]);
 
     // The models' wind spread, from the comparison's memoised answer for the
     // cell. Passive, as the day cards ask: never a retry storm, nothing offline.
@@ -297,13 +353,17 @@ export const Meteogram: React.FC<MeteogramProps> = ({
         const windOver = firstAtOrOver(wind, limits.wind.poor);
         const gustOver = firstAtOrOver(gust, limits.gust.poor);
         const windLimit = `${speed(limits.wind.poor)} ${speedUnit}`;
+        // Whichever limit the week reaches FIRST: gusts at your limit on
+        // Saturday are not hidden behind the wind reaching its own on Monday
+        // (131-02 review). Both in the same hour reads as the wind's.
+        const gustsFirst = gustOver !== null && (windOver === null || gustOver < windOver);
         const windRead =
             windEnd === 0
                 ? nothing('wind')
-                : windOver !== null
-                  ? reaches('Reaches', windLimit, windOver)
-                  : gustOver !== null
-                    ? reaches('Gusts reach', `${speed(limits.gust.poor)} ${speedUnit}`, gustOver)
+                : gustsFirst
+                  ? reaches('Gusts reach', `${speed(limits.gust.poor)} ${speedUnit}`, gustOver)
+                  : windOver !== null
+                    ? reaches('Reaches', windLimit, windOver)
                     : read(`Within your limits (${windLimit}, gusts ${speed(limits.gust.poor)})`, 'ok');
 
         // ── Waves and period ──
@@ -438,11 +498,50 @@ export const Meteogram: React.FC<MeteogramProps> = ({
     }, [grid, spread, limits, units, startMs, clock]);
 
     // ── The scrub: touch and drag (or arrow keys) to read any hour ──
+    // A read lasts while the finger is down, the mouse is over the panels or
+    // the slider has focus; then the week's summaries come back. A touch
+    // reads only once it is a sideways drag or a hold, so scrolling the sheet
+    // over the panels never swaps them out (131-02 review).
     const [cursor, setCursor] = useState<number | null>(null);
+    const press = useRef<Press | null>(null);
     const to = (h: number) => setCursor(Math.max(0, Math.min(HOURS - 1, h)));
     const scrubTo = (clientX: number) => {
         const box = scrubRef.current?.getBoundingClientRect();
         if (box && box.width > 0) to(Math.round(((clientX - box.left) / box.width) * HOURS));
+    };
+    const endRead = () => {
+        if (press.current) window.clearTimeout(press.current.hold);
+        press.current = null;
+        setCursor(null);
+    };
+    useEffect(
+        () => () => {
+            if (press.current) window.clearTimeout(press.current.hold);
+        },
+        [],
+    );
+    const onPointerDown = (e: React.PointerEvent) => {
+        if (e.pointerType === 'mouse') return scrubTo(e.clientX);
+        if (press.current) window.clearTimeout(press.current.hold);
+        const p: Press = { id: e.pointerId, x: e.clientX, x0: e.clientX, y0: e.clientY, reading: false, hold: 0 };
+        p.hold = window.setTimeout(() => {
+            if (press.current !== p) return;
+            p.reading = true;
+            scrubTo(p.x);
+        }, HOLD_MS);
+        press.current = p;
+    };
+    const onPointerMove = (e: React.PointerEvent) => {
+        if (e.pointerType === 'mouse') return scrubTo(e.clientX);
+        const p = press.current;
+        if (!p || p.id !== e.pointerId) return;
+        p.x = e.clientX;
+        const sideways = Math.abs(e.clientX - p.x0);
+        if (!p.reading && sideways >= SIDEWAYS_PX && sideways > Math.abs(e.clientY - p.y0)) {
+            p.reading = true;
+            window.clearTimeout(p.hold);
+        }
+        if (p.reading) scrubTo(e.clientX);
     };
     const onKeyDown = (e: React.KeyboardEvent) => {
         const next =
@@ -475,6 +574,7 @@ export const Meteogram: React.FC<MeteogramProps> = ({
             className="flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
             role="presentation"
+            data-meteogram-overlay=""
         >
             <div className="absolute inset-0 bg-black/70" />
             <div
@@ -530,17 +630,29 @@ export const Meteogram: React.FC<MeteogramProps> = ({
                         )}
                     </p>
 
-                    {/* Day names on the chosen clock. */}
-                    <div className="relative h-4 mt-1" aria-hidden="true" data-testid="meteogram-days">
-                        {days.labels.map((l) => (
-                            <span
-                                key={l.at}
-                                className="absolute -translate-x-1/2 text-[11px] font-bold text-white/70 whitespace-nowrap leading-4"
-                                style={{ left: `${(l.at / HOURS) * 100}%` }}
-                            >
-                                {l.text}
-                            </span>
-                        ))}
+                    {/* Day names on the chosen clock, as many as fit. */}
+                    <div ref={daysRef} className="relative h-4 mt-1" aria-hidden="true" data-testid="meteogram-days">
+                        {dayFit
+                            ? dayFit.map((d) => (
+                                  <span
+                                      key={d.left}
+                                      className={DAY_NAME}
+                                      style={{ left: `${d.left * 100}%` }}
+                                      data-day-name=""
+                                  >
+                                      {d.text}
+                                  </span>
+                              ))
+                            : days.labels.map((l) => (
+                                  <span
+                                      key={l.at}
+                                      className={`${DAY_NAME} -translate-x-1/2`}
+                                      style={{ left: `${(l.at / HOURS) * 100}%` }}
+                                      data-day-name=""
+                                  >
+                                      {l.text}
+                                  </span>
+                              ))}
                     </div>
 
                     <div className="relative mt-1">
@@ -591,11 +703,16 @@ export const Meteogram: React.FC<MeteogramProps> = ({
                             aria-valuetext={cursorText || 'None chosen. Use the arrow keys to step through the hours.'}
                             className="absolute inset-0 rounded-md"
                             style={{ touchAction: 'pan-y' }}
-                            onPointerDown={(e) => scrubTo(e.clientX)}
-                            onPointerMove={(e) => {
-                                if (e.pointerType === 'mouse' || e.buttons) scrubTo(e.clientX);
+                            onPointerDown={onPointerDown}
+                            onPointerMove={onPointerMove}
+                            onPointerUp={(e) => {
+                                // A mouse still over the panels keeps reading where it is.
+                                if (e.pointerType !== 'mouse') endRead();
                             }}
+                            onPointerCancel={endRead}
+                            onPointerLeave={endRead}
                             onKeyDown={onKeyDown}
+                            onBlur={endRead}
                         />
                     </div>
 

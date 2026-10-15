@@ -178,6 +178,10 @@ export default defineConfig({
         // named in words; and the clear view, which keeps MOB, the credits and the scrubber
         // (e2e/fixtures/storm-overlay.tsx).
         'storm-overlay-layout.spec.ts',
+        // The point meteogram (131-02): 'All metrics' fits 375 × 667 in wide fonts, down to 320 × 568,
+        // centred above the tab bar, and its day names never touch whatever hour it opens at
+        // (e2e/fixtures/meteogram.tsx).
+        'meteogram-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

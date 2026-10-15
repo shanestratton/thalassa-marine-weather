@@ -7,7 +7,7 @@
  * (floor(ms / 1 h)), never matched by array index or by a time string: the
  * report's hours and the model comparison's come from different requests,
  * and the report itself mixes zoned stamps ('…T17:00:00Z', WeatherKit) with
- * bare ones ('…T17:00', Open-Meteo on the place's own clock).
+ * bare ones ('…T17:00', Open-Meteo, at the report's one fixed offset).
  *
  * NO INTERPOLATION. A missing hour stays missing: lines break across it
  * (runs()), and where a series stops for good the panel marks the rest of
@@ -18,7 +18,7 @@
  */
 import type { HourlyForecast } from '../../types';
 import type { AtmosVar, SpreadBlock } from '../../services/weather/ModelSpreadService';
-import { sunAltitudeDeg, wallClock, wallToInstant } from '../../utils/celestial';
+import { sunAltitudeDeg, wallClock } from '../../utils/celestial';
 import { tendencyLabel } from '../../utils/barometerTendency';
 
 export const HOUR_MS = 3_600_000;
@@ -50,9 +50,8 @@ const finite = (v: unknown): number | null => (typeof v === 'number' && Number.i
 
 export const epochHour = (ms: number): number => Math.floor(ms / HOUR_MS);
 
-/** How a timestamp with no zone reads: on an IANA zone's clock, or at a fixed offset. */
+/** How a timestamp with no zone reads: at the report's fixed offset, or on the phone's clock without one. */
 export interface BareClock {
-    timeZone?: string;
     utcOffsetSeconds?: number;
 }
 
@@ -64,7 +63,6 @@ export function forecastTimeMs(time: string | null | undefined, clock: BareClock
     const bare = BARE_TIME.exec(text);
     if (!bare) return text ? Date.parse(text) : NaN;
     const [y, mo, d, h, mi] = bare.slice(1).map(Number);
-    if (clock.timeZone) return wallToInstant(y, mo, d, h, clock.timeZone) + mi * 60_000;
     const offset = clock.utcOffsetSeconds;
     if (offset != null && Number.isFinite(offset)) return Date.UTC(y, mo - 1, d, h, mi) - offset * 1000;
     // Neither: the phone's clock, as new Date() reads it everywhere else.
@@ -78,19 +76,23 @@ export function zoneOffsetSeconds(ms: number, timeZone?: string): number {
 }
 
 /**
- * How the report's bare stamps read. Open-Meteo's are on the clock its
- * utc_offset_seconds names: the place's own when it was asked for 'auto' (so
- * read on the place's zone, and a clock change mid-week lands on the right
- * hour), otherwise that fixed offset. The StormGlass transformer hands the
- * offset over in HOURS, so a small one is taken as hours. A report with no
- * offset carries zoned stamps only (WeatherKit), or is read as the rest of
- * the app reads it.
+ * How the report's bare stamps read: always at the ONE offset the report
+ * names, never on the zone's daylight-saving rules. Open-Meteo writes its
+ * whole time array at the utc_offset_seconds in force when it answered, so
+ * across a clock change the stamps run on, one an hour, with no hour doubled
+ * or skipped (checked live 2026-10-15: Marseille across 25 Oct, 72 stamps,
+ * each its unixtime twin plus 7200 s; tests/meteogramModel.test.ts keeps the
+ * capture). Read on the zone's rules, every hour after the change landed an
+ * hour off (131-02 review). The rest of the app reads them the same way
+ * (WeatherWindowService.toUtcIso, the StormGlass hybrid merge); the place's
+ * zone is for SHOWING the times. The StormGlass transformer hands the offset
+ * over in HOURS, so a small one is taken as hours. A report with no offset
+ * carries zoned stamps only (WeatherKit), or is read as the rest of the app
+ * reads it.
  */
-export function bareClock(nowMs: number, timeZone?: string, utcOffset?: number): BareClock {
+export function bareClock(utcOffset?: number): BareClock {
     if (utcOffset == null || !Number.isFinite(utcOffset)) return {};
-    const seconds = Math.abs(utcOffset) <= 14 ? utcOffset * 3600 : utcOffset;
-    if (timeZone && zoneOffsetSeconds(nowMs, timeZone) === seconds) return { timeZone };
-    return { utcOffsetSeconds: seconds };
+    return { utcOffsetSeconds: Math.abs(utcOffset) <= 14 ? utcOffset * 3600 : utcOffset };
 }
 
 export interface MeteogramGrid {
@@ -371,11 +373,21 @@ export function zoneName(ms: number, clock?: string): string {
     }
 }
 
+export interface DayLabel {
+    /** The day's stretch of the week, [from, to) in hours, and its middle. */
+    from: number;
+    to: number;
+    at: number;
+    /** 'Thu 22', and the weekday alone ('Thu') for a row too tight for it. */
+    text: string;
+    short: string;
+}
+
 export interface DayMarks {
     /** Hour offsets of each midnight inside the week. */
     midnights: number[];
-    /** One label per day wide enough to carry it, centred on its stretch. */
-    labels: { at: number; text: string }[];
+    /** One per day wide enough to carry a name; fitDayLabels picks the ones drawn. */
+    labels: DayLabel[];
 }
 
 /** The week's midnights and day names on a clock (an IANA zone, or the phone's). */
@@ -394,13 +406,67 @@ export function dayMarks(startMs: number, hours: number, clock?: string): DayMar
         if (at > 0 && at < hours) midnights.push(at);
     }
     const name = clockFormat(clock, { weekday: 'short', day: 'numeric' });
+    const weekday = clockFormat(clock, { weekday: 'short' });
     const edges = [0, ...midnights, hours];
-    const labels: { at: number; text: string }[] = [];
+    const labels: DayLabel[] = [];
     for (let k = 0; k < edges.length - 1; k++) {
+        const [from, to] = [edges[k], edges[k + 1]];
         // A stretch under six hours is a sliver of a day: no room for its name.
-        if (edges[k + 1] - edges[k] < 6) continue;
-        const at = (edges[k] + edges[k + 1]) / 2;
-        labels.push({ at, text: name.format(startMs + at * HOUR_MS) });
+        if (to - from < 6) continue;
+        const at = (from + to) / 2;
+        const ms = startMs + at * HOUR_MS;
+        labels.push({ from, to, at, text: name.format(ms), short: weekday.format(ms) });
     }
     return { midnights, labels };
+}
+
+/** The least room between two day names, px. */
+export const DAY_GAP_PX = 6;
+
+export interface PlacedDay {
+    text: string;
+    /** The name's left edge, as a share of the row's width. */
+    left: number;
+}
+
+/**
+ * The day names a row widthPx wide can carry without one touching the next,
+ * measured in the face it draws them in (widthOf). At 375 px the week is
+ * about 311 px, 44 px a day: 'Wed 21' in a wide face is wider than that, and
+ * a part day at either end put its name half a day from its neighbour's
+ * (131-02 review). Each name sits centred on its own stretch, kept inside
+ * the row; whole days are placed before the part days at the ends, so a part
+ * day gives way to its neighbour, and a name pushed off its own day by the
+ * row's edge is left out. The full names when every whole day keeps its name
+ * in them, else the weekdays alone; never a mix.
+ */
+export function fitDayLabels(
+    labels: DayLabel[],
+    hours: number,
+    widthPx: number,
+    widthOf: (text: string) => number,
+    gapPx = DAY_GAP_PX,
+): PlacedDay[] {
+    if (!(widthPx > 0)) return [];
+    const px = widthPx / hours;
+    // A clock change makes a whole day 23 or 25 hours long.
+    const whole = (day: DayLabel) => day.to - day.from >= 23;
+    const order = [...labels].sort((a, b) => b.to - b.from - (a.to - a.from) || a.at - b.at);
+    const place = (form: 'text' | 'short') => {
+        const kept: { text: string; l: number; r: number; whole: boolean }[] = [];
+        for (const day of order) {
+            const text = day[form];
+            const w = widthOf(text);
+            const l = Math.min(Math.max(0, day.at * px - w / 2), widthPx - w);
+            const r = l + w;
+            const mid = (l + r) / 2;
+            if (l < 0 || mid < day.from * px || mid > day.to * px) continue;
+            if (kept.some((k) => l < k.r + gapPx && r > k.l - gapPx)) continue;
+            kept.push({ text, l, r, whole: whole(day) });
+        }
+        return kept;
+    };
+    let shown = place('text');
+    if (shown.filter((k) => k.whole).length < labels.filter(whole).length) shown = place('short');
+    return shown.sort((a, b) => a.l - b.l).map(({ text, l }) => ({ text, left: l / widthPx }));
 }
