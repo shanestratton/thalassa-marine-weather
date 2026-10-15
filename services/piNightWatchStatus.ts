@@ -63,6 +63,8 @@ export interface PiWatchAlarm {
     mmsi: number;
     name: string;
     cpaNm: number | null;
+    positionBasis?: 'report' | 'dead-reckoned';
+    uncertaintyNm?: number;
     tcpaMin: number | null;
     rangeNm: number | null;
     bearingDeg: number | null;
@@ -146,6 +148,9 @@ function alarmFromWire(raw: unknown, skewMs: number, receivedAt: number): PiWatc
         mmsi: r.mmsi,
         name: typeof r.name === 'string' ? r.name.trim().slice(0, 60) : '',
         cpaNm: finite(r.cpaNm),
+        ...(r.positionBasis === 'report' || r.positionBasis === 'dead-reckoned'
+            ? { positionBasis: r.positionBasis, uncertaintyNm: Math.max(0, Math.min(5, finite(r.uncertaintyNm) ?? 0)) }
+            : {}),
         tcpaMin: finite(r.tcpaMin),
         rangeNm: finite(r.rangeNm),
         bearingDeg: finite(r.bearingDeg),
@@ -222,6 +227,12 @@ function alarmFromCloud(data: Record<string, unknown>, nowMs: number): PiWatchAl
         mmsi,
         name: typeof data.name === 'string' ? data.name.trim().slice(0, 60) : '',
         cpaNm: loose(data.cpa_nm),
+        ...(data.position_basis === 'report' || data.position_basis === 'dead-reckoned'
+            ? {
+                  positionBasis: data.position_basis,
+                  uncertaintyNm: Math.max(0, Math.min(5, loose(data.uncertainty_nm) ?? 0)),
+              }
+            : {}),
         tcpaMin: loose(data.tcpa_min),
         rangeNm: loose(data.range_nm),
         bearingDeg: loose(data.bearing_deg),

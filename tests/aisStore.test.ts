@@ -80,6 +80,25 @@ describe('AisStore — target management', () => {
         expect(t.lon).toBe(153.1);
         expect(t.sog).toBe(10);
     });
+
+    it('static and safety messages refresh receiver activity without refreshing the position or trail', () => {
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+        AisStore.update({ mmsi: 111222333, lat: -27.5, lon: 153.2, cog: 90, sog: 5, lastUpdated: 1_000_000 });
+        clock.mockReturnValue(1_660_000);
+        AisStore.update({ mmsi: 111222333, name: 'STATIC UPDATE', length: 42, lastUpdated: 1_660_000 });
+        AisStore.update({ mmsi: 111222333, safetyText: 'NAVIGATION NOTICE', lastUpdated: 1_660_000 });
+
+        expect(AisStore.getTargets().get(111222333)).toMatchObject({
+            name: 'STATIC UPDATE',
+            length: 42,
+            lat: -27.5,
+            lon: 153.2,
+            lastUpdated: 1_000_000,
+        });
+        expect(AisStore.getLastHeardAt()).toBe(1_660_000);
+        expect(AisStore.getTrail(111222333)).toEqual([{ lat: -27.5, lon: 153.2, at: 1_000_000 }]);
+        expect(AisStore.toGeoJSON().features[0].properties.lastUpdated).toBe(1_000_000);
+    });
 });
 
 describe('AisStore — GeoJSON export', () => {

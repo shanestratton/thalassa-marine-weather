@@ -166,6 +166,7 @@ function card(e: Encounter, nowMs: number): CollisionAlertCard {
         shipType: '',
         timestamp: nowMs,
         collision: {
+            ...(a.positionBasis ? { positionBasis: a.positionBasis, uncertaintyNm: a.uncertaintyNm } : {}),
             cpaNm: Math.round((a.cpaNm ?? 0) * 100) / 100,
             tcpaMin: Math.round((a.tcpaMin ?? 0) * 10) / 10,
             // The encounter's kind decides the button: close quarters is acknowledged, never muted.

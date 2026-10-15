@@ -304,6 +304,12 @@ export interface SmartPolarBucketGrid {
 
 /** Decoded AIS vessel target from NMEA !AIVDM / !AIVDO sentences */
 export interface AisTarget {
+    /** Metres reported by AIS; absent when the transmitter reports unavailable. */
+    length?: number;
+    beam?: number;
+    draught?: number;
+    /** AIS ETA has no year: retain its UTC month/day/hour/minute without inventing one. */
+    eta?: string;
     mmsi: number; // 9-digit Maritime Mobile Service Identity
     name: string; // Vessel name (from msg 5/24)
     lat: number; // Decimal degrees

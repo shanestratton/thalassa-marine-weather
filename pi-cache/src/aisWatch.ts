@@ -126,6 +126,8 @@ export interface AisWatchAlarm {
     name: string;
     /** The last computed CPA and TCPA (null for a beacon, or before one could be computed). */
     cpaNm: number | null;
+    positionBasis?: 'report' | 'dead-reckoned';
+    uncertaintyNm?: number;
     tcpaMin: number | null;
     /** From our own fix; null without one, or without her position. */
     rangeNm: number | null;
@@ -875,6 +877,13 @@ export class AisNightWatch {
         const a = g.assessment;
         alarm.name = g.target.name || alarm.name;
         alarm.cpaNm = round(a.cpaNm, 2);
+        if (a.positionBasis) {
+            alarm.positionBasis = a.positionBasis;
+            alarm.uncertaintyNm = a.uncertaintyNm;
+        } else {
+            delete alarm.positionBasis;
+            delete alarm.uncertaintyNm;
+        }
         alarm.tcpaMin = round(a.tcpaMin, 1);
         alarm.rangeNm = round(a.rangeNm, 2);
         alarm.bearingDeg = round(a.bearingDeg, 0);

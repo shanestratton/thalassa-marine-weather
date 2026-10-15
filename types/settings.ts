@@ -91,6 +91,8 @@ export const POLISH_LABEL: Record<PolishStyle, string> = {
 };
 
 export interface UserSettings {
+    /** Reported AIS motion vector on the chart; never an alarm preference. */
+    aisVectorMinutes?: 6 | 12 | 30;
     /** @deprecated Use `subscriptionTier` instead. Kept for migration only. */
     isPro?: boolean;
     /** Active subscription tier */

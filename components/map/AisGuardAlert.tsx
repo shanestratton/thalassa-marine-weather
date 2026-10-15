@@ -211,7 +211,12 @@ const FROM_PI = ' · FROM THE PI';
 const HEARD_BY_PI = 'Heard by the Pi’s radio';
 
 function piSignature(alarms: PiWatchAlarm[]): string {
-    return alarms.map((a) => `${a.key}|${a.cpaNm}|${a.tcpaMin}|${a.rangeNm}|${a.bearingDeg}|${a.lost}`).join(';');
+    return alarms
+        .map(
+            (a) =>
+                `${a.key}|${a.cpaNm}|${a.tcpaMin}|${a.rangeNm}|${a.bearingDeg}|${a.lost}|${a.positionBasis}|${a.uncertaintyNm}`,
+        )
+        .join(';');
 }
 
 /** A Pi collision alarm (126-04a) as the phone's own card: the same words, marked as the Pi's. */
@@ -226,6 +231,7 @@ function piCollisionCard(a: PiWatchAlarm): CollisionAlertCard {
         shipType: '',
         timestamp: a.raisedAt,
         collision: {
+            ...(a.positionBasis ? { positionBasis: a.positionBasis, uncertaintyNm: a.uncertaintyNm } : {}),
             cpaNm: a.cpaNm ?? 0,
             tcpaMin: a.tcpaMin ?? 0,
             closeQuarters: a.kind === 'close-quarters',

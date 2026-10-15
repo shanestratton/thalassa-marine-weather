@@ -1248,7 +1248,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 },
             });
 
-            // Time tick dots along predicted tracks (5, 10, 15 min marks)
+            // Time ticks divide the selected vector length into thirds.
             map.addLayer({
                 id: 'ais-predicted-tracks-dots',
                 type: 'circle',
