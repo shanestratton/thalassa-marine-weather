@@ -93,7 +93,8 @@ describe('the app starts without the router (131-04)', () => {
 
     it("the start-up (index.tsx and the app shell) reaches only the engine's three leaves, and no router", () => {
         expect(routerReach(['index.tsx', APP_SHELL_ENTRY])).toEqual(START_UP_LEAVES);
-    });
+        // Walking the app's import graph takes seconds; under coverage on a two-core runner it overran 5 s.
+    }, 60_000);
 
     it('those leaves import nothing of the engine for a value, so the router cannot ride in with them', () => {
         for (const leaf of START_UP_LEAVES.filter((f) => f !== 'utils/createLogger.ts')) {
@@ -112,7 +113,7 @@ describe('the app starts without the router (131-04)', () => {
         const store = code(read('services/savedTraceStore.ts'));
         expect([...store.matchAll(/from '\.\/routeTracer'/g)]).toHaveLength(1);
         expect(store).toContain("import type { TracePoint } from './routeTracer';");
-    });
+    }, 60_000);
 
     it('the shell services and screens that read the library reach no router', () => {
         // The ones a launch or a skipper's everyday use loads: the account sync
@@ -138,7 +139,7 @@ describe('the app starts without the router (131-04)', () => {
                 module,
             ).toEqual([]);
         }
-    });
+    }, 60_000);
 });
 
 describe('the library has one home (131-04)', () => {
