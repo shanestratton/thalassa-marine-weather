@@ -107,11 +107,19 @@ module.exports = {
                 // measured by Lighthouse yet: the PC this was built on runs no
                 // audit. From production builds, gzipped as the preview serves
                 // it, the start-up's JavaScript and CSS went 906,864 B (release
-                // 128) -> 860,910 (build 131 before 131-04) -> 688,408 (after);
-                // applied to CI's 891,486 that predicts about 673,000. 800000
-                // sits well above that estimate on purpose until CI has measured
-                // it, and the engine coming back to start-up (+172,502) still
-                // fails it. Ratchet to the first CI measurement + ~10%.
+                // 128) -> 860,910 (build 131 before 131-04) -> 688,431 (after;
+                // a few bytes either way between builds, as the chunk names in
+                // the code change); applied to CI's 891,486 that predicts about
+                // 673,000. 800000 sits well above that estimate on purpose until
+                // CI has measured it, so this line fails only past ~127,000 B of
+                // growth: the whole 131-04 saving coming back (about +172,500)
+                // fails it, but the router-engine chunk alone (119,837 gzipped;
+                // 673,000 + 119,837 is about 792,800) would NOT. That is guarded
+                // elsewhere: the build fails when the start-up imports the route
+                // job (routeEngineChunkOf, scripts/route-job-closure.mjs), and
+                // tests/RouterEngineLazy131.test.ts fails when the start-up
+                // reaches any engine module but its three plain leaves.
+                // Ratchet to the first CI measurement + ~10%.
                 'total-byte-weight': ['error', { maxNumericValue: 800000 }],
             },
         },

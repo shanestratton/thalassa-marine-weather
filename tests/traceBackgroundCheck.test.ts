@@ -6,7 +6,7 @@
  * cold chart windows on a long passage, so it never competes with Route
  * Tracer, never runs hidden, and never repeats an attempt that cannot change.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RecheckOutcome } from '../services/traceRecheck';
 
 const hoisted = vi.hoisted(() => ({
@@ -119,6 +119,14 @@ const statusOf = (id: string) => {
     return traceFollowStatus(trace.verification, trace.points, ctx(), getTraceCheckOutcome(id));
 };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+// The queue reaches traceRecheck by dynamic import, and since 131-04 nothing
+// above loads the tracer and engine with it (saved traces come from
+// savedTraceStore). Load that graph once here, so the first test's import is
+// never a cold wait inside vi.waitFor's 1 s, whichever test runs first.
+beforeAll(async () => {
+    await import('../services/traceRecheck');
+}, 30_000);
 
 describe('traceBackgroundCheck', () => {
     let A: string;

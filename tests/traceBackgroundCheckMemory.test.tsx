@@ -16,7 +16,7 @@
  */
 import { act, renderHook } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RecheckOutcome, RecheckReport } from '../services/traceRecheck';
 
 const hoisted = vi.hoisted(() => ({
@@ -116,6 +116,14 @@ const finding = (report: RecheckReport): RecheckOutcome => ({
 type Call = { points: readonly TracePoint[]; resolve: (outcome: RecheckOutcome) => void };
 let calls: Call[] = [];
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+// The queue reaches traceRecheck by dynamic import, and since 131-04 nothing
+// above loads the tracer and engine with it (saved traces come from
+// savedTraceStore). Load that graph once here, so the first test's import is
+// never a cold wait inside vi.waitFor's 1 s, whichever test runs first.
+beforeAll(async () => {
+    await import('../services/traceRecheck');
+}, 30_000);
 
 describe('the background queue, 125-07', () => {
     let A: string;
