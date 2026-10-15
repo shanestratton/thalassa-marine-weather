@@ -228,7 +228,7 @@ describe.each(ZONES)('on a phone in %s', (zone) => {
     });
 
     describe("Maintenance 'First due'", () => {
-        it("starts on today's local day, read when the form opens and again on reset", () => {
+        it("starts on today's local day when the page opens, and again on reset", () => {
             // 18:00 Friday 9 October: Saturday in UTC on an American phone.
             vi.setSystemTime(local(10, 9, 18));
             const { result } = renderHook(() => useMaintenanceForm());
@@ -238,6 +238,37 @@ describe.each(ZONES)('on a phone in %s', (zone) => {
             act(() => result.current.setField('title', 'Check bilge pump'));
             act(() => result.current.reset());
             expect(result.current.form).toMatchObject({ title: '', dueDate: '2026-10-10' });
+        });
+
+        it('moves an untouched day on to today as Add opens, and keeps the rest of a draft', () => {
+            vi.setSystemTime(local(10, 9, 21));
+            const { result } = renderHook(() => useMaintenanceForm());
+            act(() => result.current.openForAdd());
+            act(() => result.current.setField('title', 'Check bilge pump'));
+            // The sheet is closed unsaved, and the page stays open overnight.
+            vi.setSystemTime(local(10, 10, 7));
+            act(() => result.current.openForAdd());
+            expect(result.current.form).toMatchObject({ title: 'Check bilge pump', dueDate: '2026-10-10' });
+        });
+
+        it('keeps a day the skipper picked in a draft', () => {
+            vi.setSystemTime(local(10, 9, 21));
+            const { result } = renderHook(() => useMaintenanceForm());
+            act(() => result.current.openForAdd());
+            act(() => result.current.setField('dueDate', '2026-10-20'));
+            vi.setSystemTime(local(10, 10, 7));
+            act(() => result.current.openForAdd());
+            expect(result.current.form.dueDate).toBe('2026-10-20');
+        });
+
+        it("opens Add clean after an edit, not on the edited task's name and day", () => {
+            vi.setSystemTime(local(10, 10, 7));
+            const { result } = renderHook(() => useMaintenanceForm());
+            act(() =>
+                result.current.populate({ title: 'Raw-water impeller', trigger: 'annual', dueDate: '2027-03-01' }),
+            );
+            act(() => result.current.openForAdd());
+            expect(result.current.form).toMatchObject({ title: '', trigger: 'monthly', dueDate: '2026-10-10' });
         });
     });
 

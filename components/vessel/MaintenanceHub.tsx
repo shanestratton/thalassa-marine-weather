@@ -194,6 +194,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         setTrigger,
         reset: resetForm,
         populate: populateForm,
+        openForAdd,
     } = useMaintenanceForm();
     const [showAddForm, setShowAddForm] = useState(false);
     const [addFormIdentity, setAddFormIdentity] = useState<AuthIdentityScope | null>(null);
@@ -1341,6 +1342,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             const identity = taskData.identity;
                             if (!isAuthIdentityScopeCurrent(identity)) return;
                             triggerHaptic('medium');
+                            // 'First due' is today as the sheet opens, not the day
+                            // the page did, and never an edited task's (131-B11).
+                            openForAdd();
                             setAddFormIdentity(identity);
                             setShowAddForm(true);
                         }}

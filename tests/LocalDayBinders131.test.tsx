@@ -62,6 +62,7 @@ vi.mock('../components/Toast', () => ({ toast: { success: vi.fn(), error: vi.fn(
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { getFullQueue, initLocalDatabase, mergePulledRecords } from '../services/vessel/LocalDatabase';
 import { LocalEquipmentService } from '../services/vessel/LocalEquipmentService';
+import { LocalMaintenanceService } from '../services/vessel/LocalMaintenanceService';
 import { EquipmentList } from '../components/vessel/EquipmentList';
 import { InventoryList } from '../components/vessel/InventoryList';
 import { DocumentsHub } from '../components/vessel/DocumentsHub';
@@ -279,5 +280,39 @@ describe('Maintenance (MAINT-07)', () => {
         expect(screen.getByText('Sat 14 Nov 2026')).toBeInTheDocument();
         const edit = await openEditSheet();
         expect(within(edit).getByLabelText('Next due date')).toHaveValue('2026-11-14');
+    });
+
+    async function openAddSheet(): Promise<HTMLElement> {
+        fireEvent.click(screen.getByRole('button', { name: 'Add task' }));
+        return screen.findByRole('dialog', { name: 'New task' });
+    }
+
+    it("'First due' is today as Add opens on a page left open overnight, and the task is due today", async () => {
+        // 21:00 Friday 9 October in Brisbane; the phone sleeps on the page.
+        phoneAt('Australia/Brisbane', 10, 9, 21);
+        await openBinder(SYNCED);
+        // 07:00 Saturday, still Friday in UTC: the skipper taps Add.
+        phoneAt('Australia/Brisbane', 10, 10, 7);
+        const create = vi.spyOn(LocalMaintenanceService, 'createTask');
+        const add = await openAddSheet();
+        expect(within(add).getByLabelText('First due')).toHaveValue('2026-10-10');
+
+        fireEvent.change(within(add).getByLabelText(/Task name/), { target: { value: 'Check bilge pump' } });
+        fireEvent.click(within(add).getByRole('button', { name: 'Create task' }));
+        await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+        expect(create.mock.calls[0][0]).toMatchObject({ title: 'Check bilge pump', next_due_date: '2026-10-10' });
+    });
+
+    it("Add opens clean after an edit, not on the edited task's name and due day", async () => {
+        await openBinder(SYNCED);
+        const edit = await openEditSheet();
+        expect(within(edit).getByLabelText('Next due date')).toHaveValue('2026-11-01');
+        fireEvent.click(within(edit).getByRole('button', { name: 'Save changes' }));
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit task' })).not.toBeInTheDocument());
+
+        const add = await openAddSheet();
+        expect(within(add).getByLabelText(/Task name/)).toHaveValue('');
+        // 18:00 Friday 30 October in Los Angeles.
+        expect(within(add).getByLabelText('First due')).toHaveValue('2026-10-30');
     });
 });

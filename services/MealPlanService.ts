@@ -9,8 +9,8 @@
  *  5. Leftover management → creates new Fridge/Prepared stores entry
  *
  * All operations go through LocalDatabase for offline-first sync.
- * A meal's day is 'YYYY-MM-DD', a calendar day of the passage as the crew
- * live it (calculateMealDays; UTC days until 131-B11).
+ * A meal's day is 'YYYY-MM-DD', a calendar day of the passage on this phone's
+ * clock (calculateMealDays; UTC days until 131-B11).
  */
 
 import { atomicLocalTransaction, getAll, query, insertLocal, generateUUID } from './vessel/LocalDatabase';
@@ -643,11 +643,17 @@ export interface MealDayInfo {
  * Emergency days are appended after the ETA for weather delays,
  * mechanical issues, etc. Cook should plan shelf-stable meals for these.
  *
- * The days are the crew's own calendar days, from the one the boat leaves on
+ * The days are this phone's calendar days, from the one the boat leaves on
  * (131-B11, GAL-05). They were UTC dates: a 07:00 Saturday departure from
  * Brisbane is Friday 21:00 UTC, so the plan began on Friday and dropped the
  * Monday at the end. A departure time is a moment, on the local day it falls
  * on; a bare 'YYYY-MM-DD' is that day.
+ *
+ * A shared galley seen on a phone set to another time zone gets that phone's
+ * days: the skipper's Brisbane Sat–Mon is Fri–Sun on a phone in Los Angeles.
+ * UTC days matched on every phone, but were the wrong day for hours of each
+ * day anywhere off UTC. One agreed zone for every phone (the skipper's, or
+ * the departure's) waits on Shane.
  */
 export function calculateMealDays(departureTime: string, eta: string): MealDayInfo {
     const dep = new Date(departureTime);

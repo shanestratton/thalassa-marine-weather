@@ -39,7 +39,7 @@ const log = createLogger('MealCalendar');
 
 // Hoisted formatters: constructing an Intl.DateTimeFormat is the expensive
 // half of toLocaleDateString(locale, options), and the grid did it per day
-// per render. The key is a calendar day, 'YYYY-MM-DD' (the crew's local day
+// per render. The key is a calendar day, 'YYYY-MM-DD' (this phone's local day
 // since 131-B11): its noon written with timeZone: 'UTC' is that very day in
 // every zone, UTC+12…+14 included (audit 2026-09-02).
 const DAY_SHORT_FMT = new Intl.DateTimeFormat(undefined, {
