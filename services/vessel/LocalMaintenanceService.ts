@@ -18,6 +18,7 @@ import {
 import { getAuthIdentityScope } from '../authIdentityScope';
 import { LocalEngineHoursService } from './LocalEngineHoursService';
 import { DATA_EVENTS, dispatchDataChange } from '../../utils/dataChangeEvents';
+import { addLocalDays, toLocalDateString } from '../../utils/localDate';
 import type { MaintenanceTask, MaintenanceHistory } from '../../types';
 
 const TASKS_TABLE = 'maintenance_tasks';
@@ -332,9 +333,9 @@ export class LocalMaintenanceService {
         const now = new Date();
         for (const t of DEFAULT_MAINTENANCE_TASKS) {
             const isEngineHours = t.trigger_type === 'engine_hours';
-            const dueDate = isEngineHours
-                ? null
-                : new Date(now.getTime() + t.interval_value * 86_400_000).toISOString().split('T')[0];
+            // The local day, not the UTC one: before 10:00 in Queensland that
+            // was a day early (131-B11, MAINT-07).
+            const dueDate = isEngineHours ? null : toLocalDateString(addLocalDays(now, t.interval_value));
             const dueHours = isEngineHours && reading !== null ? reading + t.interval_value : null;
 
             const record: MaintenanceTask = {

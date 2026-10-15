@@ -9,6 +9,8 @@ import type { ShipDocument, DocumentCategory } from '../../../types';
 import type { DocUpload } from '../../../services/vessel/DocumentSyncService';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
+import { formatDisplayDate } from '../../../utils/displayDate';
+import { localDaysUntil } from '../../../utils/localDate';
 import { AlertTriangleIcon, CheckIcon, ClipboardIcon } from '../../icons/UIIcons';
 import { CloudIcon } from '../../icons/WeatherIcons';
 import { CATEGORIES } from './DocumentForm';
@@ -19,26 +21,17 @@ export type ExpiryStatus = 'valid' | 'warning' | 'expired' | 'none';
 
 export function getExpiryStatus(expiryDate: string | null): ExpiryStatus {
     if (!expiryDate) return 'none';
-    const now = Date.now();
     // A date-only string ("2026-09-02") parses as UTC MIDNIGHT, which is 10:00
     // that morning in Queensland — so a document read "Expired" while it was
     // still valid for the rest of the day, and the badge showed the previous
-    // day west of UTC (audit 2026-09-02). Treat a date-only expiry as valid
-    // through the end of that local day.
-    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.exec(expiryDate);
-    const expiry = dateOnly
-        ? new Date(
-              Number(expiryDate.slice(0, 4)),
-              Number(expiryDate.slice(5, 7)) - 1,
-              Number(expiryDate.slice(8, 10)),
-              23,
-              59,
-              59,
-              999,
-          ).getTime()
-        : new Date(expiryDate).getTime();
-    if (expiry < now) return 'expired';
-    if (expiry - now < 30 * 86400000) return 'warning';
+    // day west of UTC (audit 2026-09-02). The synced form of the same day,
+    // "2026-09-02T00:00:00+00:00", did both still (131-B11, DOC-5). The expiry
+    // is the local day either names, valid through the end of it, amber for
+    // the 30 days before.
+    const days = localDaysUntil(expiryDate);
+    if (days === null) return 'none';
+    if (days < 0) return 'expired';
+    if (days < 30) return 'warning';
     return 'valid';
 }
 
@@ -202,7 +195,7 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
                                     <span
                                         className={`px-2 py-0.5 rounded-lg text-label font-bold ${status === 'expired' ? 'bg-red-500/20 text-red-400' : status === 'warning' ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-400'}`}
                                     >
-                                        Exp {new Date(doc.expiry_date).toLocaleDateString()}
+                                        Exp {formatDisplayDate(doc.expiry_date, { weekday: false })}
                                     </span>
                                 )}
                             </div>

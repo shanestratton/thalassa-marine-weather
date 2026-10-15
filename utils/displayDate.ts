@@ -5,25 +5,23 @@
  * '27/09/2026' elsewhere (UX scorecard run 9). Zero-padded dd/mm/yyyy stays
  * inside date inputs only.
  */
+import { readLocalDay } from './localDate';
 
 // Fixed names, not Intl: en-AU spells September 'Sept' on newer ICU.
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** A bare 'YYYY-MM-DD' names a calendar day, not an instant. */
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-
 /**
- * 'Sun 28 Sep 2026', or '28 Sep 2026' with `weekday: false`. A bare
- * 'YYYY-MM-DD' is read as that LOCAL day (new Date('2026-09-28') is UTC
- * midnight, the 27th west of Greenwich); a timestamp is shown on the local
- * day it falls on, the same instant the due-in-days count uses. '--' stands
+ * 'Sun 28 Sep 2026', or '28 Sep 2026' with `weekday: false`. A stored day,
+ * bare '2026-09-28' or synced '2026-09-28T00:00:00+00:00', is that LOCAL day
+ * (utils/localDate readLocalDay, 131-B11; new Date() makes either UTC
+ * midnight, the 27th west of Greenwich); any other timestamp is shown on the
+ * local day it falls on, the same day the due-in-days count uses. '--' stands
  * in for a missing or unreadable date.
  */
 export function formatDisplayDate(value: string | null | undefined, options: { weekday?: boolean } = {}): string {
-    if (!value) return '--';
-    const date = DATE_ONLY.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
-    if (Number.isNaN(date.getTime())) return '--';
+    const date = readLocalDay(value);
+    if (!date) return '--';
     const day = `${date.getDate()} ${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`;
     return options.weekday === false ? day : `${DAY_NAMES[date.getDay()]} ${day}`;
 }

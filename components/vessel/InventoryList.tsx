@@ -36,6 +36,7 @@ import { useBinderSource } from '../../hooks/useBinderSource';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { changedFields, countDelta, REMOVED_NOTHING_SAVED } from '../../utils/changedFields';
+import { localDayString } from '../../utils/localDate';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import {
     authScopedStorageKey,
@@ -380,7 +381,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         setEditZone(item.location_zone || '');
         setEditSpecific(item.location_specific || '');
         setEditDescription(item.description || '');
-        setEditExpiry(item.expiry_date || '');
+        setEditExpiry(localDayString(item.expiry_date));
         setEditBarcode(item.barcode || '');
         setEditBoxId(boxOf(item));
     };
@@ -416,7 +417,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         // edit is a delta against that count ("took 2", not "set to 10"), on
         // the same delta path as ±, so changes made at once add up (STORES-04).
         const delta = countDelta(item.quantity, editQty);
-        const updates = changedFields(item, {
+        // The expiry as the sheet showed it, its local day (131-B11): left
+        // alone, it is not a change.
+        const shown = { ...item, expiry_date: localDayString(item.expiry_date) || null };
+        const updates = changedFields(shown, {
             item_name: editName,
             category: editCategory,
             min_quantity: editMinQty,

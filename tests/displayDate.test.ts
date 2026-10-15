@@ -10,6 +10,8 @@ describe('formatDisplayDate', () => {
 
     it('reads a bare date as that local day, not UTC midnight', () => {
         expect(formatDisplayDate('2026-01-01')).toBe('Thu 1 Jan 2026');
+        // And the same day synced back from a timestamp column (131-B11).
+        expect(formatDisplayDate('2026-01-01T00:00:00+00:00')).toBe('Thu 1 Jan 2026');
     });
 
     it('shows -- for a missing or unreadable date', () => {

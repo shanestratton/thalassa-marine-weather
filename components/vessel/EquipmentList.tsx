@@ -43,6 +43,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { isRowInBinder } from '../../services/vessel/sharedBinders';
 import { getById } from '../../services/vessel/LocalDatabase';
 import { changedFields, REMOVED_ELSEWHERE, REMOVED_NOTHING_SAVED } from '../../utils/changedFields';
+import { localDayString } from '../../utils/localDate';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import {
     getAuthIdentityScope,
@@ -361,7 +362,14 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         const scope = getAuthIdentityScope();
         // Only what was changed against the item as the sheet opened, so a
         // field another device changed meanwhile keeps its new value (EQ-4).
-        const updates = changedFields(editBaseline, {
+        // Its dates as the sheet showed them, local days: left alone, they
+        // are no change (131-B11).
+        const shown = {
+            ...editBaseline,
+            installation_date: localDayString(editBaseline.installation_date) || null,
+            warranty_expiry: localDayString(editBaseline.warranty_expiry) || null,
+        };
+        const updates = changedFields(shown, {
             equipment_name: newName.trim(),
             category: newCategory,
             make: newMake.trim(),
@@ -414,8 +422,10 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         setNewMake(item.make);
         setNewModel(item.model);
         setNewSerial(item.serial_number);
-        setNewInstallDate(item.installation_date || '');
-        setNewWarrantyExpiry(item.warranty_expiry || '');
+        // As local days: the synced '2026-11-01T00:00:00+00:00' is no value a
+        // date input takes, so both fields opened blank after a sync (131-B11, EQ-2).
+        setNewInstallDate(localDayString(item.installation_date));
+        setNewWarrantyExpiry(localDayString(item.warranty_expiry));
         setNewNotes(item.notes || '');
         setShowEditForm(true);
     };
