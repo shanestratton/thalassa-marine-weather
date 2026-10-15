@@ -121,6 +121,18 @@
             "source": "OpenStreetMap overlay for the Newport to Pinkenba bbox, as the Pi's /api/osm/overlay served it (Overpass), captured 2026-07-31.",
             "credit": "© OpenStreetMap contributors (ODbL)"
         },
+        "tests/fixtures/polars/fair-wind-expedition.txt": {
+            "licence": "synthetic",
+            "source": "A polar for a fictional 38 ft cruiser (Fair Wind), figures made up by hand, written in the layout Expedition reads and writes: a '!Expedition polar' line, then a tab-separated line per true wind speed of angle / boat speed pairs, beat and run angles moving with the wind (132-B22)."
+        },
+        "tests/fixtures/polars/fair-wind-table.pol": {
+            "licence": "synthetic",
+            "source": "The same fictional boat's polar as a TWA × TWS table, figures made up by hand: semicolons, decimal commas and a 0 kn column, as qtVlm-style .pol files have them (132-B22)."
+        },
+        "tests/fixtures/polars/upwind-only.pol": {
+            "licence": "synthetic",
+            "source": "A made-up TWA × TWS table with figures only to 52°: a file routes cannot sail on, which the Polars page import refuses (132-B22)."
+        },
         "tests/fixtures/routeJob/archipelago-12nm.json": {
             "licence": "synthetic",
             "source": "Route-job golden (a sha256 and a short summary of the router's answer), captured on the unchanged 127 code from the synthetic archipelago in tests/helpers/routeJobScenes.ts (tests/fixtures/syntheticArchipelago.ts, fictional ZZ producer, OC-99-SYN ids). 127-ROUTE-W1."

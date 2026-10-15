@@ -24,6 +24,13 @@ const DISPLAY_MIN_SAMPLES = 3;
  * cell 1.7× her speed.
  */
 export const ROUTING_MIN_BUCKET_SAMPLES = 10;
+/**
+ * The spread a bucket's outlier test never goes under: a log reads to 0.1 kn.
+ * Ten identical readings made the spread 0, and the bucket then refused every
+ * sample a tenth of a knot off, for good (132-B22, found by the learned-polar
+ * maths tests, tests/SmartPolarMaths.test.ts).
+ */
+const MIN_STW_STD_DEV = 0.1;
 
 class SmartPolarStoreClass {
     private grid: SmartPolarBucketGrid | null = null;
@@ -108,7 +115,7 @@ class SmartPolarStoreClass {
         if (bucket.count >= ROUTING_MIN_BUCKET_SAMPLES) {
             const mean = bucket.sumSTW / bucket.count;
             const variance = bucket.sumSTW2 / bucket.count - mean * mean;
-            const stdDev = Math.sqrt(Math.max(0, variance));
+            const stdDev = Math.max(MIN_STW_STD_DEV, Math.sqrt(Math.max(0, variance)));
             if (Math.abs(stw - mean) > 3 * stdDev) {
                 return; // Reject outlier
             }
