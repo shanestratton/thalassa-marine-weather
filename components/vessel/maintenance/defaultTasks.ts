@@ -30,7 +30,8 @@ export const DEFAULT_MAINTENANCE_TASKS: DefaultTaskTemplate[] = [
     },
     {
         title: 'Inspect Raw Water Strainer',
-        description: 'Check for Newport weed, jellyfish, and debris. Clean basket if blocked.',
+        // Weed anywhere: 'Newport weed' named one Queensland marina (132-B19).
+        description: 'Check for weed, jellyfish, and debris. Clean basket if blocked.',
         category: 'Engine',
         trigger_type: 'monthly',
         interval_value: 30,
@@ -192,7 +193,10 @@ export const DEFAULT_MAINTENANCE_TASKS: DefaultTaskTemplate[] = [
     },
     {
         title: 'Inspect Shore Power Lead & Plug',
-        description: 'Look for burn marks, corrosion, or melted pins. Test RCD/ELCB while connected.',
+        // The device by its full name, as boats are wired worldwide; 'RCD/ELCB'
+        // was two abbreviations, one of them obsolete (132-B19).
+        description:
+            'Look for burn marks, corrosion, or melted pins. While connected, press the test button on the residual-current device (RCD).',
         category: 'Safety',
         trigger_type: 'monthly',
         interval_value: 30,

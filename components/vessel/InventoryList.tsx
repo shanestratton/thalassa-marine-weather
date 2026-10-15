@@ -835,7 +835,28 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
             {/* ═══ EDIT ITEM MODAL ═══ */}
             {editItem && (
-                <ModalSheet isOpen={true} onClose={() => setEditItem(null)} title="Edit item">
+                <ModalSheet
+                    isOpen={true}
+                    onClose={() => setEditItem(null)}
+                    title="Edit item"
+                    // Save stays on screen below the five-row grid and the fields (132-B19).
+                    footer={
+                        <>
+                            {!editName.trim() && (
+                                <p className="text-micro text-amber-400/80 text-center mb-2">Item name is required</p>
+                            )}
+                            <Button
+                                variant="primary"
+                                aria-label="Save inventory item changes"
+                                onClick={handleSaveEdit}
+                                disabled={!editName.trim() || savingEdit}
+                                className="w-full disabled:cursor-not-allowed"
+                            >
+                                Save changes
+                            </Button>
+                        </>
+                    }
+                >
                     <div className="space-y-2">
                         {/* Category — first */}
                         <div>
@@ -1003,19 +1024,6 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         {/* Expiry — full width to prevent date picker overflow */}
                         <FormField label="Expiry / service" type="date" value={editExpiry} onChange={setEditExpiry} />
                     </div>
-
-                    {!editName.trim() && (
-                        <p className="text-micro text-amber-400/80 text-center mt-2">Item name is required</p>
-                    )}
-                    <Button
-                        variant="primary"
-                        aria-label="Save inventory item changes"
-                        onClick={handleSaveEdit}
-                        disabled={!editName.trim() || savingEdit}
-                        className="w-full mt-2 disabled:cursor-not-allowed"
-                    >
-                        Save changes
-                    </Button>
                 </ModalSheet>
             )}
 

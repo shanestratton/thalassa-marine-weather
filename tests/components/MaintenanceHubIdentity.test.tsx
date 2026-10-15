@@ -100,8 +100,20 @@ vi.mock('../../components/ui/SlideToAction', () => ({
 }));
 
 vi.mock('../../components/ui/ModalSheet', () => ({
-    ModalSheet: ({ children, title }: { children: React.ReactNode; title: string }) => (
-        <section aria-label={title}>{children}</section>
+    // The sheet's pinned main button too (132-B19).
+    ModalSheet: ({
+        children,
+        title,
+        footer,
+    }: {
+        children: React.ReactNode;
+        title: string;
+        footer?: React.ReactNode;
+    }) => (
+        <section aria-label={title}>
+            {children}
+            {footer}
+        </section>
     ),
 }));
 

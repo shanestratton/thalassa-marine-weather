@@ -38,6 +38,8 @@ import {
     FALLBACK_CATEGORY_ICON,
 } from './equipment/SwipeableEquipmentCard';
 import { EquipmentDetail } from './equipment/EquipmentDetail';
+import { BinderCategoryGrid } from './BinderCategoryGrid';
+import { FoldedNotes } from './FoldedNotes';
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { isRowInBinder } from '../../services/vessel/sharedBinders';
@@ -54,6 +56,8 @@ import {
 
 /** Category display order for the register — module scope, it never changes. */
 const CATEGORY_ORDER: EquipmentCategory[] = ['Propulsion', 'Electronics', 'HVAC', 'Plumbing', 'Rigging', 'Galley'];
+/** The sheet's category grid, each choice spoken as it always was. */
+const CATEGORY_CHOICES = CATEGORIES.map((cat) => ({ ...cat, name: `Select ${cat.label} category` }));
 
 interface EquipmentListProps {
     onBack: () => void;
@@ -443,43 +447,43 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
                 {/* Edit Equipment Modal */}
                 {showEditForm && (
-                    <ModalSheet isOpen={true} onClose={() => setShowEditForm(false)} title="Edit equipment">
+                    <ModalSheet
+                        isOpen={true}
+                        onClose={() => setShowEditForm(false)}
+                        title="Edit equipment"
+                        footer={
+                            <Button
+                                variant="primary"
+                                aria-label="Save equipment changes"
+                                onClick={handleSaveEdit}
+                                className="w-full"
+                            >
+                                Save changes
+                            </Button>
+                        }
+                    >
                         {renderFormFields()}
-                        <Button
-                            variant="primary"
-                            aria-label="Save equipment changes"
-                            onClick={handleSaveEdit}
-                            className="w-full mt-2"
-                        >
-                            Save changes
-                        </Button>
                     </ModalSheet>
                 )}
             </>
         );
     }
 
+    // The sheet's fields; ModalSheet scrolls them above the pinned button (132-B19).
     function renderFormFields() {
         return (
-            <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
+            <div className="flex flex-col gap-2">
                 <div>
                     <label className="text-micro text-gray-400 font-bold uppercase tracking-wider block mb-1">
                         Category
                     </label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                        {CATEGORIES.map((cat) => (
-                            <button
-                                aria-label={`Select ${cat.label} category`}
-                                aria-pressed={newCategory === cat.id}
-                                key={cat.id}
-                                onClick={() => setNewCategory(cat.id)}
-                                className={`flex items-center justify-center gap-1.5 py-1 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
-                            >
-                                <cat.Icon className="h-3.5 w-3.5 shrink-0" />
-                                {cat.label}
-                            </button>
-                        ))}
-                    </div>
+                    {/* The Stores grid (132-B19): 'Electronics' ran out of its pill at 320 px. */}
+                    <BinderCategoryGrid
+                        label="Equipment category"
+                        choices={CATEGORY_CHOICES}
+                        value={newCategory}
+                        onChange={setNewCategory}
+                    />
                 </div>
 
                 <FormField
@@ -513,14 +517,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     />
                 </div>
 
-                <FormField
-                    label="Notes (optional)"
-                    type="textarea"
-                    value={newNotes}
-                    onChange={setNewNotes}
-                    placeholder="Additional details…"
-                    rows={1}
-                />
+                <FoldedNotes value={newNotes} onChange={setNewNotes} placeholder="Additional details…" rows={1} />
             </div>
         );
     }
@@ -946,19 +943,29 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
             {/* ═══ ADD EQUIPMENT MODAL ═══ */}
             {showAddForm && (
-                <ModalSheet isOpen={true} onClose={() => setShowAddForm(false)} title="Add equipment">
+                <ModalSheet
+                    isOpen={true}
+                    onClose={() => setShowAddForm(false)}
+                    title="Add equipment"
+                    footer={
+                        <>
+                            {!newName.trim() && (
+                                <p className="text-micro text-amber-400/80 text-center mb-2">
+                                    Equipment name is required
+                                </p>
+                            )}
+                            <button
+                                aria-label="Register new equipment"
+                                onClick={handleAdd}
+                                disabled={!newName.trim()}
+                                className="w-full min-h-[44px] py-3 bg-linear-to-r from-emerald-600 to-emerald-600 text-white font-bold text-base rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"
+                            >
+                                Register equipment
+                            </button>
+                        </>
+                    }
+                >
                     {renderFormFields()}
-                    {!newName.trim() && (
-                        <p className="text-micro text-amber-400/80 text-center mt-2">Equipment name is required</p>
-                    )}
-                    <button
-                        aria-label="Register new equipment"
-                        onClick={handleAdd}
-                        disabled={!newName.trim()}
-                        className="w-full min-h-[44px] py-3 mt-2 bg-linear-to-r from-emerald-600 to-emerald-600 text-white font-bold text-base rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"
-                    >
-                        Register equipment
-                    </button>
                 </ModalSheet>
             )}
 

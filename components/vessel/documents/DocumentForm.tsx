@@ -12,6 +12,8 @@ import { triggerHaptic } from '../../../utils/system';
 import { FlagIcon } from '../../icons/NavigationIcons';
 import { RadioIcon, UsersIcon } from '../../icons/UIIcons';
 import { BoatIcon } from '../../icons/MaritimeIcons';
+import { BinderCategoryGrid } from '../BinderCategoryGrid';
+import { FoldedNotes } from '../FoldedNotes';
 
 /** A stroke icon; each one is aria-hidden. */
 export type DocumentCategoryIcon = (props: { className?: string }) => React.JSX.Element;
@@ -61,6 +63,18 @@ export const CATEGORIES: { id: DocumentCategory; label: string; Icon: DocumentCa
 ];
 
 /**
+ * The sheet's category grid, each choice spoken as it always was ('Customs
+ * category'). 'Registration' is too long for a third of a 320 px sheet in
+ * wide fonts: it wraps at a soft hyphen, 'Regis-tration', never 'Registratio'
+ * over 'n'.
+ */
+const CATEGORY_CHOICES = CATEGORIES.map((cat) => ({
+    ...cat,
+    label: cat.label.replace('Registration', 'Regis­tration'),
+    name: `${cat.label} category`,
+}));
+
+/**
  * Crew passports and IDs: the one category the server keeps for the binder's
  * owner (ship_documents read policy, 20261010110000, 126-B4). Crew with
  * Documents shared never read one, so they are never offered it: the outbox
@@ -69,8 +83,8 @@ export const CATEGORIES: { id: DocumentCategory; label: string; Icon: DocumentCa
  */
 export const CREW_IDS_CATEGORY: DocumentCategory = 'Crew Visas/IDs';
 
+/** The sheet's fields; its Save is DocumentFormSave, in the sheet's footer (132-B19). */
 interface DocumentFormProps {
-    isEdit: boolean;
     formName: string;
     formCategory: DocumentCategory;
     formIssueDate: string;
@@ -85,7 +99,6 @@ interface DocumentFormProps {
     onNotesChange: (v: string) => void;
     onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onRemoveFile: () => void;
-    onSave: () => void;
     /**
      * False on a skipper's shared Documents: crew cannot attach to (or strip
      * the file from) a skipper's record, whose vault folder is theirs alone.
@@ -105,7 +118,6 @@ interface DocumentFormProps {
 }
 
 export const DocumentForm: React.FC<DocumentFormProps> = ({
-    isEdit,
     formName,
     formCategory,
     formIssueDate,
@@ -120,36 +132,26 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
     onNotesChange,
     onFileSelect,
     onRemoveFile,
-    onSave,
     allowAttach = true,
     crewView = false,
     fileBusy = false,
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const categories = crewView ? CATEGORIES.filter((cat) => cat.id !== CREW_IDS_CATEGORY) : CATEGORIES;
+    const categories = crewView ? CATEGORY_CHOICES.filter((cat) => cat.id !== CREW_IDS_CATEGORY) : CATEGORY_CHOICES;
 
     return (
         <>
-            {/* Category */}
+            {/* Category: the Stores grid (132-B19); 'Registration' ran out of its pill at 320 px. */}
             <div className="mb-3">
                 <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1.5">
                     Category
                 </label>
-                <div className="grid grid-cols-3 gap-1.5">
-                    {categories.map((cat) => (
-                        <button
-                            aria-label={`${cat.label} category`}
-                            aria-pressed={formCategory === cat.id}
-                            key={cat.id}
-                            onClick={() => onCategoryChange(cat.id)}
-                            type="button"
-                            className={`flex items-center justify-center gap-1.5 py-1.5 min-h-[44px] rounded-full text-label font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
-                        >
-                            <cat.Icon className="h-3.5 w-3.5 shrink-0" />
-                            {cat.label}
-                        </button>
-                    ))}
-                </div>
+                <BinderCategoryGrid
+                    label="Document category"
+                    choices={categories}
+                    value={formCategory}
+                    onChange={onCategoryChange}
+                />
                 {!crewView && formCategory === CREW_IDS_CATEGORY && (
                     <p className="text-micro text-gray-400 mt-1.5 ml-1">
                         Only you see crew IDs, even when you share Documents with crew.
@@ -260,29 +262,32 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                 </div>
             )}
 
-            {/* Notes */}
-            <div className="mb-4">
-                <FormField
-                    label="Notes (optional)"
-                    type="textarea"
-                    value={formNotes}
-                    onChange={onNotesChange}
-                    placeholder="Policy number, agent contact…"
-                    rows={2}
-                />
-            </div>
-
-            {!formName.trim() && (
-                <p className="text-micro text-amber-400/80 text-center mt-2">Document name is required</p>
-            )}
-            <Button
-                variant="primary"
-                onClick={onSave}
-                disabled={!formName.trim() || fileBusy}
-                className="w-full mt-1 disabled:cursor-not-allowed"
-            >
-                {isEdit ? 'Save changes' : 'Add document'}
-            </Button>
+            {/* Notes, folded away until wanted (132-B19) */}
+            <FoldedNotes value={formNotes} onChange={onNotesChange} placeholder="Policy number, agent contact…" />
         </>
     );
 };
+
+/**
+ * The sheet's Save, for ModalSheet's footer: on screen on an SE, below the
+ * fields (132-B19). It sat after the notes, below the fold.
+ */
+export const DocumentFormSave: React.FC<{
+    isEdit: boolean;
+    formName: string;
+    /** A picked file still being kept on the phone: Save waits (126-B3a). */
+    fileBusy?: boolean;
+    onSave: () => void;
+}> = ({ isEdit, formName, fileBusy = false, onSave }) => (
+    <>
+        {!formName.trim() && <p className="text-micro text-amber-400/80 text-center mb-2">Document name is required</p>}
+        <Button
+            variant="primary"
+            onClick={onSave}
+            disabled={!formName.trim() || fileBusy}
+            className="w-full disabled:cursor-not-allowed"
+        >
+            {isEdit ? 'Save changes' : 'Add document'}
+        </Button>
+    </>
+);

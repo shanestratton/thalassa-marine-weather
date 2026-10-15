@@ -94,7 +94,6 @@ function Form({
 }) {
     return (
         <DocumentForm
-            isEdit={false}
             formName="Passport — Ana Ribeiro"
             formCategory={category}
             formIssueDate=""
@@ -109,7 +108,6 @@ function Form({
             onNotesChange={vi.fn()}
             onFileSelect={vi.fn()}
             onRemoveFile={vi.fn()}
-            onSave={vi.fn()}
             crewView={crewView}
         />
     );
