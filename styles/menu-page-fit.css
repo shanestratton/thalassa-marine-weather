@@ -860,11 +860,19 @@
         -webkit-line-clamp: 3;
     }
 }
-/* In an iPad's split pane the pane already ends above the tab bar (as the
-   Route Planner's CTA finds, styles/split-pane.css): no band to clear. */
+/* In an iPad's split pane the frame ends above the tab bar, but the page
+   inside it does not: App.tsx hangs every page --split-page-overhang (4.5rem
+   and the home indicator) below the frame, so a page's own clearance lands on
+   the frame's edge. The list clears that band, as the Vessel page and the
+   Binder do with their 4rem + 8 px (132-B23 follow-up). Padded a bare 16 px,
+   the cards filled the band too and the last one ran ~55 px under the pane's
+   edge at 1024x768, its fade out of sight below. Now the last card ends 16 px
+   above the edge, as it ends 16 px above the tab bar on a phone, and the fade
+   sits on the edge. (The Route Planner's CTA is different: it is fixed, and
+   the frame is its containing block, so it never hangs into the band.) */
 [data-split-pane='page'] .skipper-ref-scroll {
-    --thalassa-scroll-fade-inset: 0px;
+    --thalassa-scroll-fade-inset: var(--split-page-overhang, 0px);
 }
 [data-split-pane='page'] .skipper-ref-scroll > .skipper-ref-body {
-    padding-bottom: 16px;
+    padding-bottom: calc(var(--split-page-overhang, 0px) + 16px);
 }
