@@ -23,16 +23,37 @@
  *
  * The scene's own OSM water is served as the boat Pi's overlay (its marina
  * and harbour water, as in the route job's parity tests). Every outside
- * request is aborted, so tides, notices, satellite water and the land check
- * fail fast, as on the real-engine tests in autorouting-trial.spec.ts.
+ * request is aborted, so tides, notices and the land check fail fast, as on
+ * the real-engine tests in autorouting-trial.spec.ts.
+ *
+ * Auto's last short pauses (131-05): the window measured covers the route's
+ * prep ("Following deep water") as well as the engine. Its satellite water
+ * check reads one picture at each end of the route, and those pictures are
+ * read in the route worker now: when the dev server has a Mapbox token (as
+ * the router needs to ask for them), every satellite tile is served as a
+ * real PNG of a textured suburb with no water in it (tests/helpers/
+ * satelliteTiles.ts), so each crop is decoded and classified pixel by pixel,
+ * and the route it measures is the one it would be without them. The last
+ * test reads a canal crop in the route worker and on the main thread, with
+ * each browser's own picture decoder: the same land and water.
  */
 import { expect, test, type Page } from '@playwright/test';
 import type mapboxgl from 'mapbox-gl';
+import type { FeatureCollection } from 'geojson';
 import { syntheticArchipelago } from '../tests/fixtures/syntheticArchipelago';
+import { CANAL_BBOX, canalTiles, canalWaterProblems, landTile, satelliteTileOf } from '../tests/helpers/satelliteTiles';
 
 const ROUTE = syntheticArchipelago().routes['20nm'];
 const LIVE_LINE = 'The chart stays live while it works. Stop ends it.';
 const STOPPED = 'Stopped. Nothing changed.';
+/** The words while the router preps and routes: the window the pauses are measured over. */
+const ROUTER_BUSY = ['Following deep water', 'Routing round the land'];
+/** A satellite tile of the suburb alone: decoded and classified in full, no water (131-05). */
+const LAND_TILE = Buffer.from(landTile());
+/** Satellite tiles served to the page since it opened (131-05). */
+let satelliteTilesServed = 0;
+const isSatelliteTile = (url: URL) =>
+    url.hostname === 'api.mapbox.com' && url.pathname.startsWith('/v4/mapbox.satellite/');
 /**
  * The pause limits. On the M1 (Chromium and WebKit) the longest pause while it
  * routes was 16-18 ms and the probe waited 3-9 ms. CI's runners (4 vCPUs, a
@@ -46,7 +67,7 @@ const STOP_MS = process.env.CI ? 500 : 300;
 const SETTLE_GAP_MS = process.env.CI ? 100 : 50;
 
 interface Beat {
-    /** [time, the status read "Routing round the land"] every 4 ms. */
+    /** [time, the status read "Following deep water" or "Routing round the land"] every 4 ms. */
     ticks: [number, boolean][];
     /** [time, status text] whenever it changed. */
     texts: [number, string][];
@@ -61,6 +82,7 @@ type FixtureWindow = Window & {
         lastRoute: { coordinates: [number, number][]; engine?: Record<string, unknown> } | null;
         workers: { url: string; sent: string[] }[];
         probeClicks: number[];
+        mapboxToken: boolean;
     };
 };
 
@@ -68,9 +90,19 @@ async function openFixture(page: Page, query = '') {
     const ORIGIN = new URL(test.info().project.use.baseURL!).origin;
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
+    satelliteTilesServed = 0;
     await page.addInitScript(() => sessionStorage.setItem('lazyRetry_lastReloadAt', String(Date.now())));
     await page.route('**/*', (route) => {
         const url = new URL(route.request().url());
+        // The router's satellite crops (131-05): land, decoded and classified, no water.
+        if (isSatelliteTile(url)) {
+            satelliteTilesServed++;
+            return route.fulfill({
+                contentType: 'image/png',
+                headers: { 'Access-Control-Allow-Origin': '*' },
+                body: LAND_TILE,
+            });
+        }
         // The OSM water the boat Pi would hand back for the scene (its harbour
         // and marina water), as the route job's parity tests serve it.
         if (url.pathname === '/services/OsmRouteOverlayService.ts' && !url.searchParams.has('fixtureOriginal'))
@@ -143,13 +175,13 @@ const calculate = (page: Page) => page.getByRole('button', { name: 'Calculate tr
 
 /** The heartbeat, the frame counter, Chromium's long tasks, and every click's event time. */
 async function startBeat(page: Page) {
-    await page.evaluate(() => {
+    await page.evaluate((busyWords) => {
         const beat: Beat = { ticks: [], texts: [], frames: [], longTasks: [], clicks: [] };
         let last = '';
         setInterval(() => {
             const text = document.querySelector('.trial-tracer-status')?.textContent ?? '';
             const now = performance.now();
-            beat.ticks.push([now, text.includes('Routing round the land')]);
+            beat.ticks.push([now, busyWords.some((words) => text.includes(words))]);
             if (text !== last) beat.texts.push([now, (last = text)]);
         }, 4);
         const frame = (t: number) => {
@@ -170,7 +202,7 @@ async function startBeat(page: Page) {
             true,
         );
         (window as unknown as FixtureWindow).__beat = beat;
-    });
+    }, ROUTER_BUSY);
 }
 
 /**
@@ -199,7 +231,11 @@ async function settleThenBeat(page: Page) {
     });
 }
 
-/** While the status read "Routing round the land": the window, its longest gap, frames and long tasks. */
+/**
+ * While the status read "Following deep water" (the route's prep, with its
+ * satellite crops; 131-05) or "Routing round the land" (the engine): the
+ * window, its longest gap, frames and long tasks.
+ */
 async function routingWindow(page: Page) {
     return page.evaluate((limit) => {
         const beat = (window as unknown as FixtureWindow).__beat;
@@ -294,10 +330,24 @@ test('the router works in the worker: the chart stays live, a click answers, the
         `[route-worker] ${info.project.name} counted ${[...seconds]} over ${Math.round(busy)} ms; probe ${probe[0]} ms`,
     );
     expect(seconds.size).toBeGreaterThanOrEqual(busy >= 2_000 ? 3 : busy >= 1_000 ? 2 : 1);
+    // The window held the prep as well as the engine (131-05).
+    expect(w.texts.some((t) => t.includes('Following deep water'))).toBe(true);
     // One route worker; a tracer grid (if Auto's chart checks build one) never shares it.
     const sent = await workers(page);
     expect(sent.filter((s) => s.includes('job'))).toHaveLength(1);
     expect(sent.filter((s) => s.includes('job') && s.includes('grid'))).toEqual([]);
+    // The two satellite crops (131-05) were read in that same route worker,
+    // and only there: never on this thread, never in the grid instance.
+    if (await page.evaluate(() => (window as unknown as FixtureWindow).__trialFixture.mapboxToken)) {
+        expect(satelliteTilesServed, 'satellite tiles served for the crops').toBeGreaterThan(0);
+        expect(sent.filter((s) => s.includes('water'))).toEqual(sent.filter((s) => s.includes('job')));
+    } else {
+        info.annotations.push({
+            type: 'satellite crops',
+            description: 'no Mapbox token on this dev server: the router asked for no satellite crops',
+        });
+        expect(sent.filter((s) => s.includes('water'))).toEqual([]);
+    }
     expect(errors).toEqual([]);
 });
 
@@ -367,5 +417,69 @@ test('Stop ends the route at once and keeps her pins; the next route comes from 
     await routed(page);
     expect(await route(page)).toBe(reference);
     expect((await workers(page)).filter((s) => s.includes('job'))).toHaveLength(2);
+    expect(errors).toEqual([]);
+});
+
+test('a satellite crop read in the route worker gives the main thread’s land and water, picture for picture', async ({
+    page,
+}) => {
+    test.setTimeout(120_000);
+    // 131-05's risk: a worker's picture decoder could read the same bytes
+    // differently from the page's. Each browser's own decoder reads a canal
+    // crop both ways, through the app's own fetchSatelliteWater.
+    const errors = await openFixture(page);
+    const tiles = canalTiles();
+    let served = 0;
+    await page.route(isSatelliteTile, (r) => {
+        const t = satelliteTileOf(r.request().url());
+        const png = t && tiles.get(`${t.x}/${t.y}`);
+        if (!png) return r.abort();
+        served++;
+        return r.fulfill({
+            contentType: 'image/png',
+            headers: { 'Access-Control-Allow-Origin': '*' },
+            body: Buffer.from(png),
+        });
+    });
+    const out = await page.evaluate(async (bbox) => {
+        // The dev server's own module instances, the ones the app imported.
+        const [satUrl, hostUrl, jobUrl] = [
+            '/services/satelliteWater.ts',
+            '/services/routing/routeWorkerHost.ts',
+            '/services/routing/routeJob.ts',
+        ];
+        const sat = (await import(/* @vite-ignore */ satUrl)) as typeof import('../services/satelliteWater');
+        const host = (await import(/* @vite-ignore */ hostUrl)) as typeof import('../services/routing/routeWorkerHost');
+        const job = (await import(/* @vite-ignore */ jobUrl)) as typeof import('../services/routing/routeJob');
+        const fixture = (window as unknown as FixtureWindow).__trialFixture;
+        const read = job.ROUTE_ENGINE.water;
+        let mainReads = 0;
+        job.ROUTE_ENGINE.water = (crop) => {
+            mainReads++;
+            return read(crop);
+        };
+        const PageWorker = window.Worker;
+        try {
+            // In the route worker…
+            const inWorker: FeatureCollection = await sat.fetchSatelliteWater(bbox, 'pk.fixture-not-a-token');
+            const sentWater = fixture.workers.flatMap((w) => w.sent).filter((type) => type === 'water').length;
+            const workerReads = mainReads;
+            // …and on this thread, where no worker can take it.
+            host.__resetRouteWorkerHostForTest();
+            Object.defineProperty(window, 'Worker', { configurable: true, value: undefined });
+            const onMain: FeatureCollection = await sat.fetchSatelliteWater(bbox, 'pk.fixture-not-a-token');
+            return { inWorker, onMain, sentWater, workerReads, mainReads };
+        } finally {
+            Object.defineProperty(window, 'Worker', { configurable: true, value: PageWorker });
+            job.ROUTE_ENGINE.water = read;
+            host.__resetRouteWorkerHostForTest();
+        }
+    }, CANAL_BBOX);
+    expect(served, 'two tiles, each read twice').toBe(4);
+    expect(out.sentWater, 'crops sent to the route worker').toBe(1);
+    expect(out.workerReads, 'crops read on the main thread while a worker could').toBe(0);
+    expect(out.mainReads, 'crops read on the main thread with no worker').toBe(1);
+    expect(canalWaterProblems(out.inWorker)).toEqual([]);
+    expect(out.onMain).toEqual(out.inWorker);
     expect(errors).toEqual([]);
 });

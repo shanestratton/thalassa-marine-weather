@@ -377,9 +377,10 @@ function untilStopped<T>(run: Promise<T>, signal: AbortSignal): Promise<T> {
 /**
  * The water at the route's two ends (2026-06-18, asked for with the cells
  * since 128-ROUTE-P): satellite-classified water per endpoint crop, else
- * Mapbox's vector water for that crop. A route that has stopped, or ended
- * without them, reads no satellite crop on the main thread and asks for no
- * vector water.
+ * Mapbox's vector water for that crop. The crops' pictures are read in the
+ * route worker since 131-05 (satelliteWater readCrop), the main thread only
+ * where no worker can. A route that has stopped, or ended without them, reads
+ * no satellite crop on the main thread and asks for no vector water.
  */
 function fetchEndpointWater(
     origin: InshoreOrigin,
