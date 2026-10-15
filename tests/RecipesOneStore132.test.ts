@@ -26,20 +26,37 @@ const server = vi.hoisted(() => {
         calls: [] as string[],
         updates: [] as { table: string; patch: Record<string, unknown> }[],
         inserts: [] as { table: string; row: Row }[],
+        // A request (by its `calls` entry) that waits for the test to let it
+        // answer, once: a send still on the way on a slow link.
+        holds: new Map<string, Promise<void>>(),
+        // A request (by its `calls` entry) the server refuses.
+        refuse: new Set<string>(),
     };
     const rows = (table: string) => {
         if (!state.tables.has(table)) state.tables.set(table, []);
         return state.tables.get(table)!;
     };
+    // PostgREST order: nulls last ascending, first descending.
+    const compare = (a: unknown, b: unknown) =>
+        a == null ? (b == null ? 0 : 1) : b == null ? -1 : a < b ? -1 : a > b ? 1 : 0;
 
     function from(table: string) {
         const filters: Array<(row: Row) => boolean> = [];
         let op: 'select' | 'update' | 'insert' | 'delete' = 'select';
         let columns = '*';
         let payload: Row = { id: '' };
+        let sort: { key: string; ascending: boolean } | null = null;
+        let span: { from: number; to: number } | null = null;
         const run = async (): Promise<{ data: unknown; error: { code?: string; message: string } | null }> => {
-            state.calls.push(`${op} ${table}${op === 'select' && columns !== '*' ? `(${columns})` : ''}`);
+            const call = `${op} ${table}${op === 'select' && columns !== '*' ? `(${columns})` : ''}`;
+            state.calls.push(call);
+            const hold = state.holds.get(call);
+            if (hold) {
+                state.holds.delete(call);
+                await hold;
+            }
             if (state.offline) throw new TypeError('Failed to fetch');
+            if (state.refuse.has(call)) return { data: null, error: { code: '57014', message: 'canceling statement' } };
             if (op === 'select' && table === 'recipes' && columns === 'rating_avg' && !state.oneStore) {
                 return { data: null, error: { code: '42703', message: 'column recipes.rating_avg does not exist' } };
             }
@@ -62,7 +79,12 @@ const server = vi.hoisted(() => {
                 );
                 return { data: matching.map((row) => ({ ...row })), error: null };
             }
-            return { data: matching.map((row) => ({ ...row })), error: null };
+            const by = sort;
+            const ordered = by
+                ? [...matching].sort((a, b) => (by.ascending ? 1 : -1) * compare(a[by.key], b[by.key]))
+                : matching;
+            const page = span ? ordered.slice(span.from, span.to + 1) : ordered;
+            return { data: page.map((row) => ({ ...row })), error: null };
         };
         const single = async () => {
             const result = await run();
@@ -90,9 +112,22 @@ const server = vi.hoisted(() => {
                 );
                 return api;
             },
-            order: () => api,
-            range: () => api,
-            limit: () => api,
+            in: (key: string, values: unknown[]) => {
+                filters.push((row) => values.includes(row[key]));
+                return api;
+            },
+            order: (key: string, options?: { ascending?: boolean }) => {
+                sort = { key, ascending: options?.ascending ?? true };
+                return api;
+            },
+            range: (first: number, last: number) => {
+                span = { from: first, to: last };
+                return api;
+            },
+            limit: (count: number) => {
+                span = { from: 0, to: count - 1 };
+                return api;
+            },
             update: (patch: Row) => {
                 op = 'update';
                 payload = patch;
@@ -253,6 +288,8 @@ beforeEach(async () => {
     server.state.calls = [];
     server.state.updates = [];
     server.state.inserts = [];
+    server.state.holds.clear();
+    server.state.refuse.clear();
     accounts += 1;
     SKIPPER = `skipper-${accounts}`;
     CREW = `crew-${accounts}`;
@@ -343,6 +380,106 @@ describe('an edit saves on the phone first and syncs later (GAL-04)', () => {
             },
         ]);
         expect(server.state.updates[0].patch).not.toHaveProperty('image_url');
+        expect(pendingCommunityCopies()).toEqual([]);
+    });
+
+    it('an edit saved while the copy of the one before is on the way is sent too: the copy ends with the newer text', async () => {
+        await mergePulledRecords('recipes', [recipe('r-feijoada', SKIPPER, 'Feijoada', { visibility: 'shared' })]);
+        server.state.tables.set('community_recipes', [
+            { id: 'r-feijoada', user_id: SKIPPER, title: 'Feijoada', visibility: 'community', image_url: null },
+        ]);
+        let answer!: () => void;
+        server.state.holds.set(
+            'update community_recipes',
+            new Promise<void>((resolve) => {
+                answer = resolve;
+            }),
+        );
+
+        await updateCustomRecipe('r-feijoada', { title: 'Feijoada completa' });
+        await vi.waitFor(() => expect(server.state.calls).toContain('update community_recipes'));
+        // The first send hangs on a slow link while the cook saves again.
+        await updateCustomRecipe('r-feijoada', { title: 'Feijoada da casa' });
+        expect(pendingCommunityCopies()).toEqual(['r-feijoada']);
+        answer();
+
+        await expect(flushCommunityCopies()).resolves.toBe(0);
+        expect(server.state.updates.map((update) => update.patch.title)).toEqual([
+            'Feijoada completa',
+            'Feijoada da casa',
+        ]);
+        expect(server.state.tables.get('community_recipes')?.[0]).toMatchObject({ title: 'Feijoada da casa' });
+        expect(pendingCommunityCopies()).toEqual([]);
+    });
+
+    it('a recipe edited while another’s copy is on the way is sent by the same run, not left waiting', async () => {
+        await mergePulledRecords('recipes', [
+            recipe('r-feijoada', SKIPPER, 'Feijoada', { visibility: 'shared' }),
+            recipe('r-moqueca', SKIPPER, 'Moqueca', { visibility: 'shared' }),
+        ]);
+        server.state.tables.set('community_recipes', [
+            { id: 'r-feijoada', user_id: SKIPPER, title: 'Feijoada', visibility: 'community', image_url: null },
+            { id: 'r-moqueca', user_id: SKIPPER, title: 'Moqueca', visibility: 'community', image_url: null },
+        ]);
+        let answer!: () => void;
+        server.state.holds.set(
+            'update community_recipes',
+            new Promise<void>((resolve) => {
+                answer = resolve;
+            }),
+        );
+
+        await updateCustomRecipe('r-feijoada', { title: 'Feijoada completa' });
+        await vi.waitFor(() => expect(server.state.calls).toContain('update community_recipes'));
+        await updateCustomRecipe('r-moqueca', { title: 'Moqueca baiana' });
+        answer();
+
+        await expect(flushCommunityCopies()).resolves.toBe(0);
+        expect(server.state.tables.get('community_recipes')?.map((row) => row.title)).toEqual([
+            'Feijoada completa',
+            'Moqueca baiana',
+        ]);
+    });
+
+    it('a photo change waits for a copy still on the way, so the older text cannot land over it', async () => {
+        const photo = `https://project.example.test/storage/v1/object/public/recipe-photos/${SKIPPER}/r-feijoada.jpg`;
+        await mergePulledRecords('recipes', [recipe('r-feijoada', SKIPPER, 'Feijoada', { visibility: 'shared' })]);
+        server.state.tables.set('recipes', [
+            { id: 'r-feijoada', user_id: SKIPPER, title: 'Feijoada', visibility: 'shared', image_url: null },
+        ]);
+        server.state.tables.set('community_recipes', [
+            { id: 'r-feijoada', user_id: SKIPPER, title: 'Feijoada', visibility: 'community', image_url: null },
+        ]);
+        server.state.offline = true;
+        await updateCustomRecipe('r-feijoada', { title: 'Feijoada completa' });
+        await flushCommunityCopies();
+        server.state.offline = false;
+        let answer!: () => void;
+        server.state.holds.set(
+            'update community_recipes',
+            new Promise<void>((resolve) => {
+                answer = resolve;
+            }),
+        );
+
+        // The Galley opens: the waiting copy goes, and hangs on a slow link.
+        void flushCommunityCopies();
+        await vi.waitFor(() => expect(server.state.calls).toContain('update community_recipes'));
+        const saving = updateCustomRecipe('r-feijoada', { title: 'Feijoada com foto', image_url: photo });
+        // Every request that can answer does, before the slow copy's.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        answer();
+
+        await expect(saving).resolves.toMatchObject({ title: 'Feijoada com foto', image_url: photo });
+        expect(server.state.updates.map((update) => [update.table, update.patch.title])).toEqual([
+            ['community_recipes', 'Feijoada completa'],
+            ['recipes', 'Feijoada com foto'],
+            ['community_recipes', 'Feijoada com foto'],
+        ]);
+        expect(server.state.tables.get('community_recipes')?.[0]).toMatchObject({
+            title: 'Feijoada com foto',
+            image_url: photo,
+        });
         expect(pendingCommunityCopies()).toEqual([]);
     });
 
@@ -580,6 +717,72 @@ describe('one recipe shows in the Galley and on the Captain’s Table (GAL-06)',
             { number: 1, step: 'Soak the beans.' },
             { number: 2, step: 'Simmer two hours.' },
         ]);
+    });
+
+    describe('before the push, with more than 50 recipes on the Captain’s Table', () => {
+        // 50 rated recipes, older and quicker than a new one still at rating 0.
+        // From 126 a Captain's Table recipe has a shared `recipes` twin too.
+        const day = (n: number) => `2026-08-${String((n % 28) + 1).padStart(2, '0')}T00:00:00.000Z`;
+        beforeEach(() => {
+            const rated = Array.from({ length: 50 }, (_, n) => ({
+                ...community(`c-${n}`, 'sailor-9', `Damper ${n}`),
+                rating_avg: 3 + (n % 3),
+                ready_in_minutes: 20 + n,
+                created_at: day(n),
+            }));
+            server.state.tables.set('community_recipes', [
+                ...rated,
+                {
+                    ...community('c-new', 'sailor-9', 'Pão de queijo'),
+                    rating_avg: 0,
+                    rating_count: 0,
+                    ready_in_minutes: 90,
+                },
+            ]);
+            server.state.tables.set('recipes', [
+                { ...recipe('c-new', 'sailor-9', 'Pão de queijo', { visibility: 'shared', created_at: NOW }) },
+                { ...recipe('c-3', 'sailor-9', 'Damper 3', { visibility: 'shared', created_at: day(3) }) },
+                {
+                    ...recipe('g-moqueca', SKIPPER, 'Moqueca', {
+                        visibility: 'shared',
+                        created_at: '2026-10-14T00:00:00.000Z',
+                    }),
+                },
+            ]);
+        });
+
+        it.each(['top_rated', 'prep_time'] as const)(
+            'sorted %s: the new recipe off the first page is not shown as a Galley recipe that cannot be rated',
+            async (sortBy) => {
+                const table = await browseCommunityRecipes(50, 0, sortBy);
+
+                expect(table).toHaveLength(51);
+                expect(table.map((row) => row.supabaseId)).not.toContain('c-new');
+                expect(table.filter((row) => !row.canRate).map((row) => [row.title, row.authorName])).toEqual([
+                    ['Moqueca', 'You'],
+                ]);
+            },
+        );
+
+        it('it shows, rated, on its own page, and first among the newest', async () => {
+            const second = await browseCommunityRecipes(50, 50, 'top_rated');
+            expect(second.map((row) => [row.supabaseId, row.authorName, row.canRate])).toEqual([
+                ['c-new', 'Sailor Nine', true],
+            ]);
+
+            const newest = await browseCommunityRecipes(50, 0, 'newest');
+            expect(newest[0]).toMatchObject({ supabaseId: 'c-new', canRate: true });
+            expect(newest.filter((row) => row.supabaseId === 'c-new')).toHaveLength(1);
+        });
+
+        it('if the check for a Captain’s Table row cannot answer, only the Captain’s Table rows show', async () => {
+            server.state.refuse.add('select community_recipes(id)');
+
+            const table = await browseCommunityRecipes(50, 0, 'top_rated');
+
+            expect(table).toHaveLength(50);
+            expect(table.every((row) => row.canRate)).toBe(true);
+        });
     });
 
     it('after the push: the shared recipes rows only, rated, with their author', async () => {

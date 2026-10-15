@@ -65,13 +65,27 @@ function writePending(ids: string[]): void {
     }
 }
 
+/**
+ * How many edits of each recipe this session has saved. A send whose count
+ * changed while it was on the way carried the row as it was before the newer
+ * edit, so the recipe keeps waiting and is sent again (132-B18 review).
+ */
+const edits = new Map<string, number>();
+
+/** Sends of one recipe in one run before it waits for the next (edits keep coming). */
+const MAX_SENDS_PER_RUN = 3;
+
 /** The recipes whose Captain's Table copy still waits for an edit. */
 export function pendingCommunityCopies(): string[] {
     return readPending();
 }
 
-/** An edit to this recipe was saved on the phone: its copy (if any) must follow. */
+/**
+ * An edit to this recipe was saved on the phone: its copy (if any) must
+ * follow. Called after the phone has the edit, never before.
+ */
 export function markCommunityCopyPending(recipeId: string): void {
+    edits.set(recipeId, (edits.get(recipeId) ?? 0) + 1);
     const pending = readPending();
     if (!pending.includes(recipeId)) writePending([...pending, recipeId]);
 }
@@ -97,6 +111,8 @@ async function sendCopy(recipeId: string): Promise<'done' | 'retry'> {
     const scope = getAuthIdentityScope();
     let row: CopySource | null;
     try {
+        // Read before the first await: the run counts this recipe's edits in
+        // the same tick, so the count matches the row sent.
         row = getById<CopySource>('recipes', recipeId);
     } catch (error) {
         log.warn('galley: recipe-copy', getErrorMessage(error));
@@ -138,17 +154,30 @@ let flushing: Promise<number> | null = null;
 
 /**
  * Send every waiting copy. Never throws; resolves to how many still wait.
- * Two calls at once share one run.
+ * Two calls at once share one run, so the run also sends what is marked while
+ * it is under way: a recipe it has not tried yet, and an edit saved while that
+ * recipe's copy was on the way (a send carries the row as it was when it
+ * started; clearing the recipe after it would leave the copy with the earlier
+ * text until some later edit).
  */
 export function flushCommunityCopies(): Promise<number> {
     if (flushing) return flushing;
     const run = async () => {
         try {
             const scope = getAuthIdentityScope();
-            for (const recipeId of readPending()) {
-                if (!isAuthIdentityScopeCurrent(scope)) break;
-                if ((await sendCopy(recipeId)) === 'done' && isAuthIdentityScopeCurrent(scope)) {
-                    writePending(readPending().filter((id) => id !== recipeId));
+            const tried = new Set<string>();
+            for (;;) {
+                const recipeId = readPending().find((id) => !tried.has(id));
+                if (!recipeId || !isAuthIdentityScopeCurrent(scope)) break;
+                tried.add(recipeId);
+                for (let send = 0; send < MAX_SENDS_PER_RUN; send += 1) {
+                    // Counted before the row is read: sendCopy reads it in the same tick.
+                    const edit = edits.get(recipeId) ?? 0;
+                    if ((await sendCopy(recipeId)) !== 'done' || !isAuthIdentityScopeCurrent(scope)) break;
+                    if ((edits.get(recipeId) ?? 0) === edit) {
+                        writePending(readPending().filter((id) => id !== recipeId));
+                        break;
+                    }
                 }
             }
         } catch (error) {

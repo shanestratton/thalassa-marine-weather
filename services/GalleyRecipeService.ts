@@ -2208,6 +2208,11 @@ export async function updateCustomRecipe(recipeId: string, patch: RecipeEditPatc
         return null;
     }
 
+    // A Captain's Table copy still on the way carries the recipe as it was
+    // before this edit: it lands first, so this change is the copy's last
+    // word (132-B18 review). Nothing waits when no copy does.
+    await flushCommunityCopies();
+
     const owner = await captureRecipeOwnerAuthorization(ownerId);
     if (typeof owner === 'string') return null;
 
@@ -2750,9 +2755,10 @@ function communityRecipeFromRow(r: any, fallbackAuthor: string, canRate: boolean
  * One recipe shows in both the Galley and here (132-B18, GAL-06): once the
  * one store is live every shared `recipes` row is read, ratings and author
  * included. Until then the Captain's Table's own rows, joined by the recipes
- * shared from the Galley (same id: the Captain's Table row wins, it carries
- * the ratings), which show without ratings. A copy waiting for an edit made
- * on this phone is sent first, so the table shows the recipe as it is now.
+ * shared from the Galley, which show without ratings (never a recipe with a
+ * Captain's Table row, whichever page that row is on: it carries the
+ * ratings). A copy waiting for an edit made on this phone is sent first, so
+ * the table shows the recipe as it is now.
  */
 export async function browseCommunityRecipes(
     limit = 50,
@@ -2811,9 +2817,28 @@ export async function browseCommunityRecipes(
     const recipes = community.data.map((r: any) => communityRecipeFromRow(r, 'A Fellow Sailor', true));
     const self = getAuthIdentityScope().userId;
     const seen = new Set(recipes.map((recipe) => recipe.supabaseId));
-    for (const r of galleyShared) {
-        if (seen.has(r.id)) continue;
-        seen.add(r.id);
+    const fromGalley = galleyShared.filter((r) => !seen.has(r.id));
+    if (fromGalley.length === 0) return recipes;
+
+    // A recipe shared from the Captain's Table's own form has a shared
+    // `recipes` twin with its id. When its table row is not on this page (a
+    // new one still at rating 0 sorts past the first 50) it is still the
+    // table's recipe, rated there: it shows on its own page, never here as a
+    // Galley recipe that "can't be rated yet" (132-B18 review). Every reader
+    // sees the table's community rows, and an owner their own. If the check
+    // cannot answer, none of the Galley's recipes show this time rather than
+    // a table recipe shown as one.
+    const ids = fromGalley.map((r) => r.id as string);
+    let twins: Set<string>;
+    try {
+        const { data, error } = await client.from('community_recipes').select('id').in('id', ids);
+        if (error || !Array.isArray(data)) return recipes;
+        twins = new Set(data.map((row: { id: string }) => row.id));
+    } catch {
+        return recipes;
+    }
+    for (const r of fromGalley) {
+        if (twins.has(r.id)) continue;
         recipes.push(communityRecipeFromRow(r, self && r.user_id === self ? 'You' : 'A Fellow Sailor', false));
     }
     return recipes;
