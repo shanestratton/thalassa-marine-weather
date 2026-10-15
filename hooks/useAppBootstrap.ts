@@ -9,7 +9,7 @@ import { useUI } from '../context/UIContext';
 import { pushForegroundToast } from '../components/PushToast';
 import { ShoreWatchAlarmService } from '../services/ShoreWatchAlarmService';
 import { startAnimationBudgetGuard } from '../utils/animationBudget';
-import { useAuthStore } from '../stores/authStore';
+import { currentAppleCredentialAccount, useAuthStore } from '../stores/authStore';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -176,6 +176,7 @@ export function useAppBootstrap() {
     }, []);
 
     // ── Sign in with Apple credential revocation ──────────────────
+    // The check is of the signed-in account's own Keychain binding (131-01).
     useEffect(() => {
         if (!authChecked) return;
         let active = true;
@@ -187,7 +188,7 @@ export function useAppBootstrap() {
                     if (!active) return;
                     const { handleNativeAppleCredentialRevocation } = await import('../stores/authStore');
                     if (active) await handleNativeAppleCredentialRevocation(event.userId);
-                }),
+                }, currentAppleCredentialAccount()),
             )
             .then((started) => {
                 if (active) stop = started;

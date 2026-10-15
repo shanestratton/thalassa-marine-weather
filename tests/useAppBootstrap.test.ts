@@ -93,6 +93,8 @@ vi.mock('../stores/authStore', () => ({
             authChecked: boot.authChecked,
             user: boot.authUserId ? { id: boot.authUserId } : null,
         }),
+    // The Apple credential check's account (131-01); this harness signs in no Apple user.
+    currentAppleCredentialAccount: () => null,
 }));
 vi.mock('../services/PushNotificationService', () => ({ PushNotificationService: pushService }));
 // The Pi's cloud alarm link (126-04b), started by a push from the Pi.
