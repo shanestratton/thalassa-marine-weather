@@ -74,6 +74,12 @@ describe('parseSuffixedHourly', () => {
 // ── Ten-day comparison (W1-08): seven members, one fetch per 0.1° cell ──
 
 vi.mock('./openMeteoProxy', () => ({ fetchOpenMeteoProxy: vi.fn() }));
+// These established memo/transport tests exercise the pre-deploy catalogue.
+// CoastalModels.test owns real capability discovery and the gated swap.
+vi.mock('./coastalModelSupport', () => ({
+    refreshCoastalModelCapabilities: async () => {},
+    supportedRegionalModel: () => undefined,
+}));
 
 const T0 = Date.UTC(2026, 9, 7, 14) / 1000; // the current hour, unixtime seconds
 const HOURS = 240;
@@ -127,7 +133,7 @@ describe('queryModelSpread — ten-day, seven-member comparison', () => {
         vi.useRealTimers();
     });
 
-    it('asks for the seven models over 240 hours in unixtime, with no cell_selection yet', async () => {
+    it('asks for the seven models over 240 hours in unixtime from the sea cell', async () => {
         const { proxy, svc } = await loadSpread();
         await svc.queryModelSpread(50.77, -1.3); // the Solent
 
@@ -141,9 +147,8 @@ describe('queryModelSpread — ten-day, seven-member comparison', () => {
         expect(String(marine.models).split(',')).toEqual(WAVES);
         expect(marine.forecast_hours).toBe('240');
         expect(marine.timeformat).toBe('unixtime');
-        // Sea-cell selection waits for W2-01, so the sheet and the Glass agree at the coast.
-        expect(forecast).not.toHaveProperty('cell_selection');
-        expect(marine).not.toHaveProperty('cell_selection');
+        expect(forecast.cell_selection).toBe('sea');
+        expect(marine.cell_selection).toBe('sea');
     });
 
     it('returns GFS and GEM as members, credited to NOAA and ECCC', async () => {

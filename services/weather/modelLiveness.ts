@@ -16,6 +16,8 @@
  * and the probe retries after an hour.
  */
 import { fetchOpenMeteoProxy } from './openMeteoProxy';
+import { pruneMap } from '../../utils/boundedMap';
+import { ECMWF_9KM, REGIONAL_MODELS } from './regionalModels';
 
 export type ModelLiveness = 'live' | 'dead' | 'unknown';
 
@@ -46,6 +48,16 @@ export const LIVENESS_FAILURE_BACKOFF_MS = 3_600_000;
 export const LIVENESS_CLOCK_SKEW_MS = 5 * 60_000;
 const PROBE_TIMEOUT_MS = 10_000;
 const STORAGE_KEY = 'thalassa_model_liveness_v1';
+const MAX_RECORDS = 64;
+type Point = { lat: number; lon: number };
+const regionalIds = new Set(REGIONAL_MODELS.map((m) => m.id));
+function verdictKey(model: string, point?: Point): string {
+    // New coastal capabilities require a sea-cell probe. Regional verdicts
+    // are local: a finite London response never unlocks a different domain.
+    if (regionalIds.has(model))
+        return `sea:${model}:${point ? `${point.lat.toFixed(1)},${point.lon.toFixed(1)}` : 'unknown'}`;
+    return model === ECMWF_9KM ? `sea:${model}` : model;
+}
 
 let records: Map<string, ModelLivenessRecord> | null = null;
 const inFlight = new Map<string, Promise<ModelLivenessRecord | null>>();
@@ -75,15 +87,17 @@ function store(): Map<string, ModelLivenessRecord> {
                 records.set(model, r);
             }
         }
+        pruneMap(records, MAX_RECORDS, (r) => (ageOf(r.checkedAt) ?? Infinity) > LIVENESS_TTL_MS);
     } catch {
         // Unreadable or corrupt storage: no verdicts, so every model is unknown.
     }
     return records;
 }
 
-function save(record: ModelLivenessRecord): void {
+function save(record: ModelLivenessRecord, key = record.model): void {
     const all = store();
-    all.set(record.model, record);
+    all.set(key, record);
+    pruneMap(all, MAX_RECORDS, (r) => (ageOf(r.checkedAt) ?? Infinity) > LIVENESS_TTL_MS);
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(all)));
     } catch {
@@ -95,26 +109,32 @@ function save(record: ModelLivenessRecord): void {
  * Today's verdict for a model: 'unknown' until a probe has answered within a
  * day — and unknown for a verdict stamped in the future (see LIVENESS_CLOCK_SKEW_MS).
  */
-export function modelLiveness(model: string): ModelLiveness {
-    const r = store().get(model);
+export function modelLiveness(model: string, point?: Point): ModelLiveness {
+    const r = store().get(verdictKey(model, point));
     const age = r ? ageOf(r.checkedAt) : null;
     if (!r || age === null || age > LIVENESS_TTL_MS) return 'unknown';
     return r.live ? 'live' : 'dead';
 }
 
-export function isModelLive(model: string): boolean {
-    return modelLiveness(model) === 'live';
+export function isModelLive(model: string, point?: Point): boolean {
+    return modelLiveness(model, point) === 'live';
 }
 
 type ProbeReply = { hourly?: Record<string, unknown> };
 
 /** Probe once now. Resolves null (and records nothing) when the request fails. */
-export function probeModelLiveness(
-    model: string,
-    point: { lat: number; lon: number },
-): Promise<ModelLivenessRecord | null> {
-    const pending = inFlight.get(model);
+export function probeModelLiveness(model: string, point: Point): Promise<ModelLivenessRecord | null> {
+    const key = verdictKey(model, point);
+    const pending = inFlight.get(key);
     if (pending) return pending;
+    if (
+        !Number.isFinite(point.lat) ||
+        !Number.isFinite(point.lon) ||
+        Math.abs(point.lat) > 90 ||
+        Math.abs(point.lon) > 180 ||
+        inFlight.size >= MAX_RECORDS
+    )
+        return Promise.resolve(null);
     const run = (async () => {
         try {
             const reply = await fetchOpenMeteoProxy<ProbeReply>(
@@ -127,6 +147,7 @@ export function probeModelLiveness(
                     forecast_hours: LIVENESS_PROBE_HOURS,
                     timeformat: 'unixtime',
                     timezone: 'UTC',
+                    ...(model === ECMWF_9KM || regionalIds.has(model) ? { cell_selection: 'sea' } : {}),
                 },
                 PROBE_TIMEOUT_MS,
             );
@@ -136,24 +157,25 @@ export function probeModelLiveness(
             const total = Array.isArray(values) ? values.length : 0;
             const record: ModelLivenessRecord = {
                 model,
-                live: total > 0 && nonNull >= Math.max(1, Math.ceil(total * LIVENESS_MIN_FRACTION)),
+                live: nonNull >= Math.ceil(Math.max(total, LIVENESS_PROBE_HOURS) * LIVENESS_MIN_FRACTION),
                 nonNull,
                 total,
                 checkedAt: Date.now(),
                 lat: point.lat,
                 lon: point.lon,
             };
-            failedAt.delete(model);
-            save(record);
+            failedAt.delete(key);
+            save(record, key);
             return record;
         } catch {
-            failedAt.set(model, Date.now());
+            failedAt.set(key, Date.now());
+            pruneMap(failedAt, MAX_RECORDS, (at) => (ageOf(at) ?? Infinity) >= LIVENESS_FAILURE_BACKOFF_MS);
             return null;
         } finally {
-            inFlight.delete(model);
+            inFlight.delete(key);
         }
     })();
-    inFlight.set(model, run);
+    inFlight.set(key, run);
     return run;
 }
 
@@ -163,11 +185,28 @@ export function probeModelLiveness(
  * failed request.
  */
 export function ensureModelLiveness(model: string, point: { lat: number; lon: number }): void {
-    if (modelLiveness(model) !== 'unknown' || inFlight.has(model)) return;
-    const failed = failedAt.get(model);
+    void refreshModelLiveness(model, point);
+}
+
+/** Awaitable form for capability discovery; shares the same daily verdict,
+ * in-flight coalescing and failure backoff as the passive callers. */
+export function refreshModelLiveness(model: string, point: Point): Promise<ModelLivenessRecord | null> {
+    const key = verdictKey(model, point);
+    if (modelLiveness(model, point) !== 'unknown') return Promise.resolve(store().get(key) ?? null);
+    const pending = inFlight.get(key);
+    if (pending) return pending;
+    const failed = failedAt.get(key);
     const sinceFailure = failed === undefined ? null : ageOf(failed);
-    if (sinceFailure !== null && sinceFailure < LIVENESS_FAILURE_BACKOFF_MS) return;
-    void probeModelLiveness(model, point);
+    if (sinceFailure !== null && sinceFailure < LIVENESS_FAILURE_BACKOFF_MS) return Promise.resolve(null);
+    return probeModelLiveness(model, point);
+}
+
+/** A real request can disprove a prior capability (proxy rollback/null run). */
+export function markModelUnavailable(model: string, point: Point = { lat: 0, lon: 0 }): void {
+    save(
+        { model, live: false, nonNull: 0, total: LIVENESS_PROBE_HOURS, checkedAt: Date.now(), ...point },
+        verdictKey(model, point),
+    );
 }
 
 /** Forget every verdict (tests). `keepStorage` simulates an app restart. */

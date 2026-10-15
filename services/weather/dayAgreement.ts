@@ -153,6 +153,7 @@ export function localDayStarts(times: number[], timeZone: string): number[] {
 /** One model's hourly values, in block order. */
 export interface ModelValues {
     id: string;
+    displayOnly?: boolean;
     values: readonly (number | null)[];
 }
 
@@ -197,6 +198,8 @@ export function windAgreementForDays(
     starts: number[],
     length: number,
 ): DayWindAgreement[] {
+    speed = speed.filter((m) => !m.displayOnly);
+    dir = dir.filter((m) => !m.displayOnly);
     const gate = speed.length > 0;
     const base = gate ? speed : dir;
     const dirOf = new Map(dir.map((m) => [m.id, m.values]));
@@ -292,8 +295,12 @@ const HOUR_MS = 3_600_000;
 export function windAgreementByDay(block: SpreadBlock<AtmosVar> | null, timeZone: string): WindDayVerdict[] {
     const times = block?.times ?? [];
     if (!block || !times.length) return [];
-    const speed = block.models.map((m) => ({ id: m.id, values: m.values.wind_speed_10m }));
-    const dir = block.models.map((m) => ({ id: m.id, values: m.values.wind_direction_10m }));
+    const speed = block.models
+        .filter((m) => !m.displayOnly)
+        .map((m) => ({ id: m.id, values: m.values.wind_speed_10m }));
+    const dir = block.models
+        .filter((m) => !m.displayOnly)
+        .map((m) => ({ id: m.id, values: m.values.wind_direction_10m }));
     const starts = localDayStarts(times, timeZone);
     const day = dayFormat(timeZone);
     const last = times.length - 1;

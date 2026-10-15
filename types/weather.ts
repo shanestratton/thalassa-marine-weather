@@ -16,6 +16,7 @@ export type WeatherModel =
     // These are what the Glass model picker offers.
     | 'dwd_icon'
     | 'ecmwf_ifs025'
+    | 'ecmwf_ifs'
     | 'ecmwf_aifs025_single'
     | 'ukmo_global_deterministic_10km'
     | 'jma_gsm'

@@ -141,6 +141,8 @@ export const FORECAST_HOURLY = new Set([
     'visibility',
     'uv_index',
     'cape',
+    'lifted_index',
+    'convective_inhibition',
 ]);
 
 const FORECAST_DAILY = new Set([
@@ -172,7 +174,9 @@ const MARINE_CURRENT = new Set([
     'secondary_swell_wave_height',
     'secondary_swell_wave_direction',
     'secondary_swell_wave_period',
-    'secondary_swell_wave_peak_period',
+    'tertiary_swell_wave_height',
+    'tertiary_swell_wave_direction',
+    'tertiary_swell_wave_period',
     'ocean_current_velocity',
     'ocean_current_direction',
     'sea_surface_temperature',
@@ -198,6 +202,7 @@ const FORECAST_MODELS = new Set([
     'gfs_seamless',
     'ncep_gfs025',
     'ecmwf_ifs025',
+    'ecmwf_ifs',
     'ecmwf_aifs025_single',
     'icon_seamless',
     'dwd_icon',
@@ -205,6 +210,18 @@ const FORECAST_MODELS = new Set([
     'gem_seamless',
     'ukmo_global_deterministic_10km',
     'jma_gsm',
+    'meteofrance_arome_france_hd',
+    'meteofrance_arome_france',
+    'dwd_icon_d2',
+    'dwd_icon_eu',
+    'ukmo_uk_deterministic_2km',
+    'knmi_harmonie_arome_netherlands',
+    'knmi_harmonie_arome_europe',
+    'dmi_harmonie_arome_europe',
+    'metno_nordic',
+    'ncep_hrrr_conus',
+    'cmc_gem_hrdps',
+    'jma_msm',
 ]);
 
 const MARINE_MODELS = new Set(['best_match', 'ecmwf_wam025', 'dwd_gwam', 'meteofrance_wave', 'ncep_gfswave025']);
@@ -291,13 +308,11 @@ export function validateRequest(operation: Operation, params: Record<string, unk
     };
 
     let selectorCount = 0;
-    for (
-        const [name, allowed, max] of [
-            ['current', currentAllowed, 24],
-            ['hourly', hourlyAllowed, 32],
-            ['daily', dailyAllowed, 24],
-        ] as const
-    ) {
+    for (const [name, allowed, max] of [
+        ['current', currentAllowed, 24],
+        ['hourly', hourlyAllowed, 32],
+        ['daily', dailyAllowed, 24],
+    ] as const) {
         if (params[name] === undefined) continue;
         const parsed = parseCsv(params[name], allowed, max);
         if (!parsed) return null;
@@ -312,13 +327,11 @@ export function validateRequest(operation: Operation, params: Record<string, unk
         output.models = models;
     }
 
-    for (
-        const [name, min, max] of [
-            ['forecast_days', 1, 16],
-            ['forecast_hours', 1, 384],
-            ['past_days', 0, 5],
-        ] as const
-    ) {
+    for (const [name, min, max] of [
+        ['forecast_days', 1, 16],
+        ['forecast_hours', 1, 384],
+        ['past_days', 0, 5],
+    ] as const) {
         if (params[name] === undefined) continue;
         const parsed = parseBoundedInteger(params[name], min, max);
         if (parsed === null) return null;

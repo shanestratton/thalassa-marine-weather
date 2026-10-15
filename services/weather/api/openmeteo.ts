@@ -3,12 +3,14 @@ import { pruneMap } from '../../../utils/boundedMap';
 import { MarineWeatherReport, WeatherModel } from '../../../types';
 import { determineLocationType } from '../locationType';
 import { isConcreteModel } from '../forecastModels';
+import { isSeaCellForecast } from '../coastalProvenance';
+import { markModelUnavailable } from '../modelLiveness';
+import { ECMWF_9KM } from '../regionalModels';
 import { fetchPublishedForecast } from '../wxPublished';
 import { fetchOpenMeteoProxy } from '../openMeteoProxy';
 import { generateDescription } from '../transformers';
 import { calculateFeelsLike, calculateDistanceKm } from '../../../utils/math';
 import { degreesToCardinal } from '../../../utils/format';
-import { piCache } from '../../PiCacheService';
 import { getSolarTimes, getSolarTimesForDate, getMoonData } from '../../../utils/celestial';
 import { resolveTimeZone } from '../../../utils/timezone';
 
@@ -210,6 +212,7 @@ const doFetchOpenMeteo = async (
     model: WeatherModel = 'best_match',
 ): Promise<MarineWeatherReport> => {
     const now = new Date();
+    let servedModel = model;
 
     // normalize (wrap/clamp) - copied logic
     const safeLat = Math.max(-90, Math.min(90, lat));
@@ -231,6 +234,7 @@ const doFetchOpenMeteo = async (
         timezone: 'auto',
         forecast_days: '16',
         models: model,
+        cell_selection: 'sea',
         elevation: 'nan', // Explicitly request elevation metadata if needed, though usually default.
         // actually standard OM API returns it.
     });
@@ -245,9 +249,31 @@ const doFetchOpenMeteo = async (
         // contract, so the parser below cannot tell the difference.
         if (isConcreteModel(model)) {
             const published = await fetchPublishedForecast(safeLat, safeLon, model);
-            if (published) return published.payload as OMWeatherResponse;
+            if (published && isSeaCellForecast(published.payload, model, safeLat, safeLon))
+                return published.payload as OMWeatherResponse;
         }
-        return fetchOpenMeteoProxy<OMWeatherResponse>('forecast', Object.fromEntries(params.entries()));
+        try {
+            const reply = await fetchOpenMeteoProxy<OMWeatherResponse>(
+                'forecast',
+                Object.fromEntries(params.entries()),
+            );
+            if (
+                model !== ECMWF_9KM ||
+                Number.isFinite(reply.current?.wind_speed_10m) ||
+                reply.hourly?.wind_speed_10m?.some((value) => typeof value === 'number' && Number.isFinite(value))
+            )
+                return reply;
+        } catch (error) {
+            if (model !== ECMWF_9KM) throw error;
+        }
+        // The deployed proxy may have rolled back after the daily probe.
+        // Fall back under the coarse model's own identity, including its tag.
+        markModelUnavailable(ECMWF_9KM);
+        servedModel = 'ecmwf_ifs025';
+        return fetchOpenMeteoProxy<OMWeatherResponse>('forecast', {
+            ...Object.fromEntries(params.entries()),
+            models: servedModel,
+        });
     };
 
     // Pi Cache combined endpoint — serves the full dataset pre-fetched by the
@@ -270,15 +296,9 @@ const doFetchOpenMeteo = async (
     const tideDataPromise = fetchRealTides(lat, lon).catch(() => null);
     const landContextPromise = reverseGeocodeContext(lat, lon).catch(() => null);
 
-    const wData = isConcreteModel(model)
-        ? await fetchDirect()
-        : (
-              await piCache.fetch<OMWeatherResponse>(
-                  '/api/weather/combined',
-                  { lat: safeLat.toFixed(4), lon: safeLon.toFixed(4) },
-                  fetchDirect,
-              )
-          ).data;
+    // The legacy combined Pi cache has no sea-cell/model provenance. Until
+    // its publisher supplies that contract it cannot serve this coastal read.
+    const wData = await fetchDirect();
 
     // Fetch Marine (Waves) using Ring Search (Proximity)
     let waveData: OMMarineResponse | null = null;
@@ -546,7 +566,7 @@ const doFetchOpenMeteo = async (
         forecast: dailies,
         tides: [],
         tideHourly: [],
-        modelUsed: `openmeteo_${model}`,
+        modelUsed: `openmeteo_${servedModel}`,
         boatingAdvice: advice,
         isLandlocked: false,
         alerts: generateSafetyAlerts(currentMetrics, dailies[0]?.highTemp, dailies),

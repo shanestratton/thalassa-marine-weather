@@ -233,6 +233,8 @@ export interface HourlySeries {
     label: string;
     provider: string;
     hex: string;
+    displayOnly?: boolean;
+    horizonHours?: number;
     /** One value per hour of the block, in display units; null where the
      *  model has no data that hour (a gap, never filled in). */
     values: (number | null)[];
@@ -314,6 +316,8 @@ export function seriesFor(
             label: m.label,
             provider: m.provider,
             hex: m.hex,
+            displayOnly: m.displayOnly,
+            horizonHours: m.horizonHours,
             values: raw.map((v) => (v == null ? null : conv(v))),
         });
     }
@@ -367,6 +371,7 @@ export function chartPath(
 
 /** How many models have a value at each hour. */
 export function memberCounts(series: HourlySeries[], length: number): number[] {
+    series = series.filter((s) => !s.displayOnly);
     return Array.from({ length }, (_, i) => series.reduce((n, s) => n + (s.values[i] != null ? 1 : 0), 0));
 }
 
@@ -423,7 +428,10 @@ export interface DayAgreement {
 /** Spread among the models with a value at hour i, and their median; null
  *  under two members. */
 function hourStats(series: HourlySeries[], i: number, spec: ParamSpec): { spread: number; median: number } | null {
-    const vals = series.map((s) => s.values[i]).filter((v): v is number => v != null);
+    const vals = series
+        .filter((s) => !s.displayOnly)
+        .map((s) => s.values[i])
+        .filter((v): v is number => v != null);
     if (vals.length < 2) return null;
     return {
         spread: spec.circular ? circularSpread(vals) : Math.max(...vals) - Math.min(...vals),
@@ -445,6 +453,8 @@ export function agreementByDay(
     param: MatrixParam,
     speeds?: HourlySeries[],
 ): DayAgreement[] {
+    series = series.filter((s) => !s.displayOnly);
+    speeds = speeds?.filter((s) => !s.displayOnly);
     if (param === 'wind' || param === 'dir') {
         const wind = param === 'wind';
         return windAgreementForDays(wind ? series : (speeds ?? []), wind ? [] : series, starts, length).map(
@@ -678,7 +688,11 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
             if (spec.circular) {
                 // Centred on the compass point nearest the mean: the seam stays at
                 // least 135° from the consensus and the ticks are always five.
-                const lo = Math.round(circularMean(flat) / 90) * 90 - 180;
+                const bearings = series
+                    .filter((s) => !s.displayOnly)
+                    .flatMap((s) => s.values)
+                    .filter((v): v is number => v != null);
+                const lo = Math.round(circularMean(bearings) / 90) * 90 - 180;
                 return {
                     minY: lo,
                     maxY: lo + 360,
@@ -844,6 +858,17 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                 10 days · {hasData ? `${series.length} ` : ''}
                                 {spec.block === 'marine' ? 'wave ' : ''}
                                 {series.length === 1 ? 'model' : 'models'}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1">
+                                {spread?.atmos?.models.some((m) => m.horizonHours !== undefined)
+                                    ? spread.atmos.models
+                                          .filter((m) => m.horizonHours !== undefined)
+                                          .map(
+                                              (m) =>
+                                                  `${m.label} · up to ${m.horizonHours} h${m.displayOnly ? ' · display only (CC BY-SA 4.0)' : ''}`,
+                                          )
+                                          .join('; ')
+                                    : 'Global models only'}
                             </p>
                         </div>
                         <button
@@ -1105,6 +1130,11 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                         >
                                             {s.label}
                                         </div>
+                                        {s.horizonHours !== undefined && (
+                                            <div className="text-xs text-gray-400">
+                                                Up to {s.horizonHours} h{s.displayOnly ? ' · display only' : ''}
+                                            </div>
+                                        )}
                                         <div className="text-[11px] font-mono text-gray-300 tabular-nums">
                                             {current == null ? '—' : current.toFixed(spec.decimals)}
                                         </div>
@@ -1112,6 +1142,76 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                 );
                             })}
                         </div>
+                    )}
+
+                    {/* Raw model values only: UKV can be displayed, but never
+                        contributes to agreement, spread, confidence or means. */}
+                    {(spread?.atmos || spread?.marine) && (
+                        <details className="mx-4 mb-3 text-xs text-gray-300">
+                            <summary className="cursor-pointer py-2 font-semibold">
+                                All metrics · {atHour.format(initialDay ?? nowMs)}
+                            </summary>
+                            <div className="overflow-x-auto">
+                                <table
+                                    className="w-full text-right tabular-nums whitespace-nowrap"
+                                    aria-label="All model metrics"
+                                >
+                                    <thead>
+                                        <tr>
+                                            <th scope="col" className="text-left p-1">
+                                                Model
+                                            </th>
+                                            {PARAMS.map((p) => (
+                                                <th scope="col" className="p-1" key={p.id}>
+                                                    {p.short}
+                                                    {p.unit ? ` (${p.unit})` : ''}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {[...(spread?.atmos?.models ?? []), ...(spread?.marine?.models ?? [])].map(
+                                            (m) => (
+                                                <tr key={m.id}>
+                                                    <th scope="row" className="text-left p-1 font-normal">
+                                                        {m.label}
+                                                        {m.displayOnly ? ' (display only)' : ''}
+                                                    </th>
+                                                    {PARAMS.map((p) => {
+                                                        const block =
+                                                            p.block === 'atmos' ? spread?.atmos : spread?.marine;
+                                                        const raw = (
+                                                            m.values as Partial<
+                                                                Record<AtmosVar | MarineVar, (number | null)[]>
+                                                            >
+                                                        )[p.variable];
+                                                        const value =
+                                                            raw && block
+                                                                ? sampleAt(block.times, raw, initialDay ?? nowMs)
+                                                                : null;
+                                                        return (
+                                                            <td className="p-1" key={p.id}>
+                                                                {value == null
+                                                                    ? '—'
+                                                                    : (p.convert ? p.convert(value) : value).toFixed(
+                                                                          p.decimals,
+                                                                      )}
+                                                            </td>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            ),
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {spread?.atmos?.models.some((m) => m.displayOnly) && (
+                                <p className="mt-2">
+                                    UKV: UK Met Office · CC BY-SA 4.0. Display only; excluded from derived agreement and
+                                    confidence.
+                                </p>
+                            )}
+                        </details>
                     )}
 
                     {/* The asked-for day's verdict, or the summary of the next three days */}

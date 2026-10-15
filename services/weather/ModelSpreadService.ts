@@ -20,7 +20,40 @@
 import { pruneMap } from '../../utils/boundedMap';
 
 import { fetchOpenMeteoProxy } from './openMeteoProxy';
-import { COMPARE_MODELS, WAVE_SPREAD_MODELS } from './forecastModels';
+import { selectableForecastModels, SPREAD_EXTRA_MODELS, SELECTABLE_MODELS, WAVE_SPREAD_MODELS } from './forecastModels';
+import { refreshCoastalModelCapabilities, supportedRegionalModel } from './coastalModelSupport';
+import { markModelUnavailable } from './modelLiveness';
+import { ECMWF_9KM, regionalModelLabel } from './regionalModels';
+
+export interface ComparisonModel {
+    id: string;
+    label: string;
+    provider: string;
+    hex: string;
+    horizonHours?: number;
+    /** UKV is licensed for labelled display only, never any derived value. */
+    displayOnly?: boolean;
+}
+
+export function comparisonModelsFor(lat: number, lon: number): ComparisonModel[] {
+    const regional = supportedRegionalModel(lat, lon);
+    return [
+        ...selectableForecastModels(),
+        ...SPREAD_EXTRA_MODELS,
+        ...(regional
+            ? [
+                  {
+                      id: regional.id,
+                      label: regionalModelLabel(regional),
+                      provider: regional.provider,
+                      hex: '#e879f9',
+                      horizonHours: regional.horizonHours,
+                      displayOnly: regional.displayOnly,
+                  },
+              ]
+            : []),
+    ];
+}
 
 export const ATMOS_VARS = [
     'wind_speed_10m',
@@ -46,6 +79,8 @@ export interface SpreadModelSeries<V extends string> {
     label: string;
     provider: string;
     hex: string;
+    horizonHours?: number;
+    displayOnly?: boolean;
     /** Per-variable hourly values aligned to the block's `times`. null = the
      *  model doesn't publish that variable (or that hour is missing). */
     values: Record<V, (number | null)[]>;
@@ -107,7 +142,7 @@ export function spreadCellKey(lat: number, lon: number): string {
 export function parseSuffixedHourly<V extends string>(
     hourly: Record<string, unknown> | undefined,
     vars: readonly V[],
-    models: { id: string; label: string; provider: string; hex: string }[],
+    models: ComparisonModel[],
 ): SpreadBlock<V> | null {
     const rawTimes = hourly?.time;
     if (!Array.isArray(rawTimes) || rawTimes.length === 0) return null;
@@ -121,7 +156,10 @@ export function parseSuffixedHourly<V extends string>(
         for (const v of vars) {
             const arr = hourly?.[`${v}_${m.id}`];
             if (Array.isArray(arr)) {
-                values[v] = (arr as (number | null)[]).map((x) => (typeof x === 'number' ? x : null));
+                values[v] = times.map((_, i) => {
+                    const x: unknown = arr[i];
+                    return i < (m.horizonHours ?? Infinity) && typeof x === 'number' && Number.isFinite(x) ? x : null;
+                });
                 if (values[v].some((x) => x != null)) hasAny = true;
             } else {
                 values[v] = times.map(() => null);
@@ -134,22 +172,39 @@ export function parseSuffixedHourly<V extends string>(
     return out.length ? { times, models: out } : null;
 }
 
-async function fetchSpread(lat: number, lon: number): Promise<{ data: ModelSpreadResult; complete: boolean }> {
-    // Deliberately no cell_selection yet: sea cells must change the Glass and
-    // this comparison together (W2-01), or they would disagree at the coast.
+async function fetchSpread(
+    lat: number,
+    lon: number,
+    requested: ComparisonModel[],
+): Promise<{ data: ModelSpreadResult; complete: boolean }> {
+    let atmosModels = requested;
     const common = {
         latitude: lat.toFixed(4),
         longitude: lon.toFixed(4),
         forecast_hours: String(SPREAD_HOURS),
         timeformat: 'unixtime',
+        cell_selection: 'sea',
     };
     const [atmosRaw, marineRaw] = await Promise.all([
         fetchOpenMeteoProxy<Record<string, unknown>>('forecast', {
             ...common,
             hourly: ATMOS_VARS.join(','),
-            models: COMPARE_MODELS.map((m) => m.id).join(','),
+            models: requested.map((m) => m.id).join(','),
             wind_speed_unit: 'kn',
-        }).catch(() => null),
+        }).catch(async () => {
+            // A proxy rollback must not blank the seven established models.
+            // Retry once under their real IDs; never relabel ifs025 as 9 km.
+            const newModels = requested.filter((m) => m.id === ECMWF_9KM || m.horizonHours !== undefined);
+            if (!newModels.length) return null;
+            newModels.forEach((m) => markModelUnavailable(m.id, { lat, lon }));
+            atmosModels = [...SELECTABLE_MODELS, ...SPREAD_EXTRA_MODELS];
+            return fetchOpenMeteoProxy<Record<string, unknown>>('forecast', {
+                ...common,
+                hourly: ATMOS_VARS.join(','),
+                models: atmosModels.map((m) => m.id).join(','),
+                wind_speed_unit: 'kn',
+            }).catch(() => null);
+        }),
         fetchOpenMeteoProxy<Record<string, unknown>>('marine', {
             ...common,
             hourly: MARINE_VARS.join(','),
@@ -169,7 +224,7 @@ async function fetchSpread(lat: number, lon: number): Promise<{ data: ModelSprea
             atmos: parseSuffixedHourly(
                 atmosRaw?.hourly as Record<string, unknown> | undefined,
                 ATMOS_VARS,
-                COMPARE_MODELS.map((m) => ({ id: m.id, label: m.label, provider: m.provider, hex: m.hex })),
+                atmosModels,
             ),
             marine: parseSuffixedHourly(
                 marineRaw?.hourly as Record<string, unknown> | undefined,
@@ -192,7 +247,14 @@ export async function queryModelSpread(
     lon: number,
     options: SpreadQueryOptions = {},
 ): Promise<ModelSpreadResult> {
-    const key = spreadCellKey(lat, lon);
+    await refreshCoastalModelCapabilities({ lat, lon });
+    const models = comparisonModelsFor(lat, lon);
+    // Sub-km regional grids cannot share an 11 km memo at the coast. Include
+    // the gated catalogue so a pre-deploy answer never survives the swap.
+    const point = models.some((m) => m.horizonHours !== undefined)
+        ? `${lat.toFixed(3)},${lon.toFixed(3)}`
+        : spreadCellKey(lat, lon);
+    const key = `sea:${point}:${models.map((m) => m.id).join(',')}`;
     const hit = memo.get(key);
     if (hit && Date.now() - hit.at < MEMO_TTL_MS) return hit.data;
     const pending = inflight.get(key);
@@ -200,7 +262,7 @@ export async function queryModelSpread(
     const recent = options.passive ? incomplete.get(key) : undefined;
     if (recent && Date.now() - recent.at < PASSIVE_RETRY_MS) return recent.data;
 
-    const promise = fetchSpread(lat, lon)
+    const promise = fetchSpread(lat, lon, models)
         .then(({ data, complete }) => {
             // Only memoise when BOTH endpoints answered — a transient failure
             // on either leg must not lock in a false "no model publishes

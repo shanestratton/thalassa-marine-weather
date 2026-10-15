@@ -15,6 +15,8 @@ import {
     getOffshoreModelInfo,
 } from '../../services/weather/forecastModels';
 import { listPublishedModels } from '../../services/weather/wxPublished';
+import { refreshCoastalModelCapabilities, applyEcmwfPinMigration } from '../../services/weather/coastalModelSupport';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 import { servedModelDisplayName } from '../../services/weather/servedModelName';
 import { spitfireLocationFor } from '../../services/weather/spitfire';
 import { ModelPickerSheet } from './ModelPickerSheet';
@@ -169,7 +171,8 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // In its place: the forecast-model picker. A manual "Refresh now"
         // escape hatch lives inside the sheet.
         const updateSettings = useSettingsStore((s) => s.updateSettings);
-        const glassModel = resolveForecastModel(useSettingsStore((s) => s.settings.forecastModel));
+        const storedForecastModel = useSettingsStore((s) => s.settings.forecastModel);
+        const glassModel = resolveForecastModel(storedForecastModel);
         const offshoreModel = resolveOffshoreModel(useSettingsStore((s) => s.settings.offshoreModel));
         const ownVesselName = useSettingsStore((s) => s.settings.vessel?.name?.trim() || 'The boat');
         // The held boat is the one being followed: while crewing, hers (2026-10-05).
@@ -217,6 +220,30 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         // lets Spitfire appear wherever the publisher has computed it — the
         // hardcoded location list remains as the pre-publisher fallback.
         const [publishedModels, setPublishedModels] = useState<string[]>([]);
+        const [, setCapabilityRevision] = useState(0);
+        useEffect(() => {
+            const lat = coordinates?.lat;
+            const lon = coordinates?.lon;
+            if (offshore || lat == null || lon == null) return;
+            let active = true;
+            const identity = getAuthIdentityScope();
+            const originalPin = storedForecastModel;
+            void refreshCoastalModelCapabilities({ lat, lon }).then(() => {
+                if (!active || !isAuthIdentityScopeCurrent(identity)) return;
+                // A delayed probe cannot overwrite another account's settings,
+                // nor a different pin chosen while this request was in flight.
+                applyEcmwfPinMigration(
+                    originalPin,
+                    () => isAuthIdentityScopeCurrent(identity),
+                    () => useSettingsStore.getState().settings.forecastModel,
+                    (forecastModel) => useSettingsStore.getState().updateSettings({ forecastModel }),
+                );
+                setCapabilityRevision((revision) => revision + 1);
+            });
+            return () => {
+                active = false;
+            };
+        }, [coordinates?.lat, coordinates?.lon, offshore, storedForecastModel]);
         useEffect(() => {
             const lat = coordinates?.lat;
             const lon = coordinates?.lon;
