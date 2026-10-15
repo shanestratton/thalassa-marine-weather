@@ -14,7 +14,13 @@ import mapboxgl from 'mapbox-gl';
 import { AisStreamService } from '../../services/AisStreamService';
 import { AisStore } from '../../services/AisStore';
 import { ensureAisPictureLayers, writeAisMapData } from './aisPictureLayers';
-import { aisReportAgeSec, aisVectorMinutes, buildAisDrFeatures, nearLongitude, deadReckonAis } from '../../services/ais/aisDeadReckon';
+import {
+    aisReportAgeSec,
+    aisVectorMinutes,
+    buildAisDrFeatures,
+    nearLongitude,
+    deadReckonAis,
+} from '../../services/ais/aisDeadReckon';
 import { supabase } from '../../services/supabase';
 import { onLocalAisChange } from './useAisLayer';
 import { AIS_SART_LAYER } from './aisDistressSymbol';
@@ -883,7 +889,11 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                     const ageMin = Number.isFinite(lastUpdated) ? Math.max(0, (now - lastUpdated) / 60_000) : null;
                     return {
                         ...f,
-                        properties: { ...f.properties, source: 'local', staleMinutes: ageMin === null ? null : Math.floor(ageMin) },
+                        properties: {
+                            ...f.properties,
+                            source: 'local',
+                            staleMinutes: ageMin === null ? null : Math.floor(ageMin),
+                        },
                     };
                 }),
                 ...internetFeatures,
