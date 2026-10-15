@@ -117,10 +117,14 @@ export const PolarChart: React.FC<PolarChartProps> = ({
                 const [mx, my] = polarToXY(-dataset.angles[aIdx], r);
                 mirrorPoints.push([mx, my]);
 
-                // Anomaly check
-                const neighbors: number[] = [];
-                if (aIdx > 0) neighbors.push(dataset.matrix[aIdx - 1]?.[wIdx] ?? 0);
-                if (aIdx < dataset.angles.length - 1) neighbors.push(dataset.matrix[aIdx + 1]?.[wIdx] ?? 0);
+                // Anomaly check, against the neighbouring angles' figures. A 0 is
+                // no figure — the parser writes 0 inside an Expedition line's
+                // beat angle, and a table's 0° row is all 0 — so it is left out:
+                // averaged in, it ringed every beat-angle figure of a good import
+                // in red (132-B22 review).
+                const neighbors = [dataset.matrix[aIdx - 1]?.[wIdx] ?? 0, dataset.matrix[aIdx + 1]?.[wIdx] ?? 0].filter(
+                    (n) => n > 0,
+                );
                 if (neighbors.length > 0) {
                     const avgN = neighbors.reduce((a, b) => a + b, 0) / neighbors.length;
                     if (avgN > 0 && Math.abs(speed - avgN) / avgN > 0.5) {

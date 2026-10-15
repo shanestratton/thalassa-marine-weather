@@ -157,6 +157,57 @@ describe('a TWA × TWS table, as most .pol and .csv files are (132-B22)', () => 
         expect(headless.format).toBe('table');
     });
 
+    // Review fix: split by spaces, "TWA TWS" was two cells. Every figure was
+    // read one wind speed low, the last column came out empty and was dropped,
+    // and routes sailed an optimistic polar without a word.
+    const ROWS = [
+        [45, 4.6, 5.4, 5.9, 6.2, 6.5, 6.6],
+        [60, 5.3, 6.2, 6.7, 7.0, 7.3, 7.4],
+        [90, 5.6, 6.5, 7.0, 7.4, 7.7, 7.9],
+        [120, 5.2, 6.2, 6.9, 7.3, 7.9, 8.3],
+        [150, 3.7, 4.7, 5.6, 6.3, 7.1, 7.9],
+        [180, 3.0, 4.0, 4.9, 5.7, 6.6, 7.3],
+    ];
+    const table = (header: string, sep: string) =>
+        [header, ...ROWS.map((row) => row.join(sep))].join('\n').replace(/\|/g, sep);
+
+    it('a header label of more than one word is one label: every figure stays under its own wind speed', () => {
+        for (const [header, sep] of [
+            ['TWA TWS 6 8 10 12 16 20', ' '],
+            ['TWA / TWS   6  8  10  12  16  20', ' '],
+            ['TWA|TWS|6|8|10|12|16|20', '\t'],
+            ['TWA|TWS|6|8|10|12|16|20', ';'],
+        ]) {
+            const label = `${JSON.stringify(header)} by ${JSON.stringify(sep)}`;
+            const { polar, format } = readPolarFile(table(header, sep));
+            expect(format, label).toBe('table');
+            expect(polar.windSpeeds, label).toEqual([6, 8, 10, 12, 16, 20]);
+            expect(polar.matrix, label).toEqual(ROWS.map((row) => row.slice(1)));
+            expect(cell(polar, 120, 20), label).toBe(8.3);
+            expect(whyRoutesCannotSail(polar), label).toBeNull();
+        }
+    });
+
+    it('a header that does not line up with its rows is refused, not read a column off', () => {
+        // No "TWA" corner: 6 would be taken for the label, and every figure read a wind speed high.
+        const noCorner = table('6 8 10 12 16 20', ' ');
+        expect(() => readPolarFile(noCorner)).toThrow(PolarFileError);
+        expect(() => readPolarFile(noCorner)).toThrow(
+            "The 45° row has more figures than the header has wind speeds, so its columns don't line up",
+        );
+        // A row one figure longer than the header, by tabs or by commas: the same.
+        expect(() => readPolarFile(['TWA\t6\t8', '45\t4.6\t5.4', '90\t5.6\t6.5\t7.0'].join('\n'))).toThrow(
+            'The 90° row has more figures',
+        );
+        expect(() => readPolarFile(['TWA,6,8', '45,4.6,5.4,5.9'].join('\n'))).toThrow(PolarFileError);
+        // A trailing separator or a short row is not a misfit: short rows read 0, as before.
+        const ragged = readPolarFile(['TWA;6;8;', '45;4,6;5,4;', '90;5,6'].join('\n')).polar;
+        expect(ragged.matrix).toEqual([
+            [4.6, 5.4],
+            [5.6, 0],
+        ]);
+    });
+
     it('parsePolarFile still returns the polar alone, whatever the file is called', () => {
         expect(parsePolarFile(EXPEDITION, 'Fair Wind.pol')).toEqual(readPolarFile(EXPEDITION).polar);
         expect(parsePolarFile(TABLE, 'Fair Wind.csv')).toEqual(readPolarFile(TABLE).polar);

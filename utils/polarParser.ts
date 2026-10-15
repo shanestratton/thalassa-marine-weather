@@ -141,6 +141,21 @@ function tableSplitter(header: string): (line: string) => string[] {
 }
 
 /**
+ * The header with its label as one cell. The label is the first cell and
+ * every word after it ("TWA TWS", "TWA / TWS"): a wind speed is a number, and
+ * a row's angle is one cell under the whole label. Split by spaces, "TWA TWS"
+ * was two cells, so every figure was read one wind speed low, without a word
+ * (132-B22 review). An empty cell is a column, not a word.
+ */
+function headerWithLabel(parts: string[]): string[] {
+    let end = 1;
+    while (end < parts.length && parts[end] !== '' && isNaN(Number(parts[end]))) end++;
+    const header = [parts.slice(0, end).join(' '), ...parts.slice(end)];
+    while (header.length > 1 && header[header.length - 1] === '') header.pop();
+    return header;
+}
+
+/**
  * The header's wind-speed columns: each one's index in the line, and its
  * speed. A 0 kn (or unreadable) column is left out WITH its figures — rows
  * are read at these same indices, never re-counted from the second cell, so
@@ -169,7 +184,8 @@ function rowFigures(parts: string[], columns: { col: number }[]): number[] {
 function parseTable(lines: string[]): PolarData {
     const split = tableSplitter(lines[0]);
     // First column is the label (TWA or similar), rest are wind speeds
-    const columns = headerColumns(split(lines[0]));
+    const header = headerWithLabel(split(lines[0]));
+    const columns = headerColumns(header);
     const windSpeeds = columns.map((c) => c.tws);
     if (windSpeeds.length === 0) throw new PolarFileError('No valid wind speeds found in header');
 
@@ -180,6 +196,14 @@ function parseTable(lines: string[]): PolarData {
         const parts = split(lines[i]);
         const angle = parseFloat(parts[0]);
         if (isNaN(angle) || angle < 0 || angle > 180) continue;
+        // A figure with no wind speed over it: the header and the rows don't
+        // line up (a header without its "TWA" cell, say), and reading on would
+        // put every figure under the wrong wind speed. Refused, not guessed (132-B22 review).
+        if (parts.slice(header.length).some((cell) => !isNaN(parseFloat(cell)))) {
+            throw new PolarFileError(
+                `The ${angle}° row has more figures than the header has wind speeds, so its columns don't line up`,
+            );
+        }
 
         angles.push(angle);
         matrix.push(rowFigures(parts, columns));
