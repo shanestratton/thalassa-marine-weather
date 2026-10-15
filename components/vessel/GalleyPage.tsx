@@ -452,7 +452,10 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                            count before it, so a wrap never starts a line with '·'.
                            The stores count says what it is ('0 stores held' was
                            opaque) and only shows when something is held back for a
-                           planned meal (UX scorecard run 7). */
+                           planned meal (UX scorecard run 7). It may wrap between
+                           its words, its number kept with 'reserved': whole on one
+                           line it ran off the screen beside '‹ BOAT BINDER' in wide
+                           fonts, by 74 px at 320 pt and 15 px at 390 (132-B17). */
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             <span className="whitespace-nowrap">
                                 {visibleActiveMeals.length} meal{visibleActiveMeals.length === 1 ? '' : 's'}
@@ -462,12 +465,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                 {visibleSavedRecipes.length} recipe{visibleSavedRecipes.length === 1 ? '' : 's'}
                                 {reservedCount > 0 && <>&nbsp;·</>}
                             </span>
-                            {reservedCount > 0 && (
-                                <>
-                                    {' '}
-                                    <span className="whitespace-nowrap">{reservedCount} reserved from stores</span>
-                                </>
-                            )}
+                            {reservedCount > 0 && <> {reservedCount}&nbsp;reserved from stores</>}
                         </p>
                     }
                     onBack={onBack}
@@ -529,10 +527,16 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
             {/* Content. Pads its own bottom clear of the tab bar that floats over
                 it, as its binder siblings do, and fades under the bar: with two
                 meals on a phone "Open shopping list" (the only way into the
-                grocery list) ended under the bar, untappable (audit GAL-01). */}
+                grocery list) ended under the bar, untappable (audit GAL-01).
+                The same band is scroll padding (132-B17): a button brought into
+                view, as a keyboard's Tab does, stops above the bar, not under
+                it, where Kedgeree's Share sat behind VESSEL at 375 x 667. */}
             <div
                 className="thalassa-scroll-fade thalassa-scroll-fade--nav flex-1 overflow-y-auto"
-                style={{ paddingBottom: 'calc(var(--thalassa-tabbar-height) + 16px)' }}
+                style={{
+                    paddingBottom: 'calc(var(--thalassa-tabbar-height) + 16px)',
+                    scrollPaddingBottom: 'calc(var(--thalassa-tabbar-height) + 16px)',
+                }}
             >
                 {tab === 'active' && (
                     <div

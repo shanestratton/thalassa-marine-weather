@@ -563,7 +563,9 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                 )}
             </div>
 
-            {/* Footer nav */}
+            {/* Footer nav. Each button keeps a 44 px floor in pixels (132-B17):
+                py-3.5 and text-sm are rem, and the root font is fluid, so
+                Continue measured 39 px at 320 pt. */}
             <div className="fixed bottom-0 left-0 right-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 bg-linear-to-t from-black via-black/95 to-transparent">
                 {saveError && (
                     <p role="alert" className="mb-3 text-center text-xs font-bold text-red-300">
@@ -575,7 +577,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                         <button
                             onClick={() => setStep(step - 1)}
                             aria-label={`Back to step ${step - 1}`}
-                            className="px-6 py-3.5 rounded-xl bg-white/10 text-white text-sm font-bold transition-all active:scale-95"
+                            className="min-h-[44px] px-6 py-3.5 rounded-xl bg-white/10 text-white text-sm font-bold transition-all active:scale-95"
                         >
                             Back
                         </button>
@@ -585,7 +587,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                             onClick={() => canProceed() && setStep(step + 1)}
                             disabled={!canProceed()}
                             aria-label={`Continue to step ${step + 1}`}
-                            className={`flex-1 py-3.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${
+                            className={`flex-1 min-h-[44px] py-3.5 rounded-xl text-sm font-bold transition-all active:scale-95 ${
                                 canProceed()
                                     ? 'bg-linear-to-r from-amber-500 to-orange-500 text-black'
                                     : 'bg-white/10 text-gray-500 cursor-not-allowed'
@@ -598,7 +600,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                             onClick={handleSave}
                             disabled={saving}
                             aria-label={saving ? 'Saving recipe' : isEditing ? 'Save recipe changes' : 'Save recipe'}
-                            className="flex-1 py-3.5 rounded-xl bg-linear-to-r from-amber-500 to-orange-500 text-black text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
+                            className="flex-1 min-h-[44px] py-3.5 rounded-xl bg-linear-to-r from-amber-500 to-orange-500 text-black text-sm font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
                         >
                             {saving ? (
                                 <>
