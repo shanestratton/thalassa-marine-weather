@@ -127,5 +127,6 @@ describe("the route job's own logger copy", () => {
         expect(importers).toEqual(
             expect.arrayContaining(['services/routing/routeJob.ts', 'services/engine/constants.ts']),
         );
-    });
+        // A whole-graph walk: seconds under coverage on a two-core runner, so not the 5 s default.
+    }, 60_000);
 });

@@ -126,6 +126,11 @@ test.describe('Preferences → If the boat goes quiet', () => {
         test.skip(PHASE === 'before', 'nothing to switch before 129-08');
         await open(page, SIZES[0], 'state=new');
         const toggle = page.getByRole('switch', { name: 'Page if the boat goes quiet', exact: true });
+        // The save-failed line lives in this card. Scoped to it: a new install's display mode is
+        // 'Auto + night' (131-03), whose night note is a role="status" elsewhere on this page.
+        const card = page
+            .getByRole('heading', { name: 'If the boat goes quiet' })
+            .locator('xpath=following-sibling::*[1]');
         await expect(toggle).toHaveAttribute('aria-checked', 'false', { timeout: 15_000 });
         await toggle.click();
         await expect
@@ -134,7 +139,7 @@ test.describe('Preferences → If the boat goes quiet', () => {
             )
             .toBe(2);
         await expect(toggle).toHaveAttribute('aria-checked', 'true');
-        await expect(page.getByRole('status')).toHaveCount(0);
+        await expect(card.getByRole('status')).toHaveCount(0);
         const writes = await page.evaluate(
             () =>
                 (
@@ -157,7 +162,7 @@ test.describe('Preferences → If the boat goes quiet', () => {
         // Switched off again: one update, her row now there.
         await toggle.click();
         await expect(toggle).toHaveAttribute('aria-checked', 'false');
-        await expect(page.getByRole('status')).toHaveCount(0);
+        await expect(card.getByRole('status')).toHaveCount(0);
     });
 
     test('hidden when the probe fails: no switch nothing honours', async ({ page }, info) => {
