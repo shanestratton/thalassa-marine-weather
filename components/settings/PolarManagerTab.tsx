@@ -4,20 +4,22 @@
  * Tab B: Manual Matrix (editable spreadsheet)
  *
  * Also includes:
+ * - One line at the top: which polar routes really sail (130-B6)
  * - Smart Polars state, with a link to its switch in Settings → Preferences
  *   (moved there, UX scorecard run 8; see SmartPolarsSetting)
- * - Factory vs Smart polar data for routing
+ * - Your polar vs Smart for routing ('Factory' until build 131, 130-B6)
  * - Where the learner hears the boat from (services/smartPolarFeed)
  * - Smart Polars stats & filter gate status
  * - PolarChart with overlay
  *
  * Yacht database selection has moved to VesselTab (Settings → Vessel Profile).
  */
-import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
-import type { PolarData } from '../../types';
+import React, { useState, useEffect, useCallback, useId, useMemo, useRef } from 'react';
+import type { PolarData, VesselProfile } from '../../types';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { PolarChart } from './PolarChart';
 import { parsePolarFile, validatePolarData, createEmptyPolar } from '../../utils/polarParser';
+import { yourPolarAsSailed } from '../../services/routingPolar';
 import { SmartPolarService, type FilterStatus } from '../../services/SmartPolarService';
 import { learnerFeedState, subscribeLearnerFeedState, type LearnerFeedState } from '../../services/smartPolarFeed';
 import { SmartPolarStore } from '../../services/SmartPolarStore';
@@ -80,7 +82,11 @@ interface PolarManagerTabProps {
         polarData?: PolarData;
         polarBoatModel?: string;
         polarSource_type?: 'database' | 'file_import' | 'manual';
+        /** Her cruising speed scales a yacht-database shape, as routes scale it. */
+        vessel?: VesselProfile | null;
     };
+    /** Which polar routes really sail: the routing resolver's words, as the passage banner prints them. */
+    routesSailOn?: string;
     onSave?: (patch: Record<string, unknown>) => void;
     onNavigateToNmea?: () => void;
     /** Opens Settings so the skipper can pick a yacht under Vessel Profile. */
@@ -91,6 +97,7 @@ interface PolarManagerTabProps {
 
 export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
     settings,
+    routesSailOn,
     onSave,
     onNavigateToNmea,
     onOpenVesselProfile,
@@ -228,13 +235,33 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
         setShowResetConfirm(false);
     };
 
+    // The figures routes sail on (130-B6): a yacht-database shape scaled to
+    // her cruising speed exactly as routes scale it, her own figures as
+    // given. The chart and the table show these, and an edit saves them as
+    // her own figures: editing the raw shape made every route ~45% slow.
+    const vessel = settings?.vessel;
+    const shown = useMemo(() => yourPolarAsSailed(polarData, source, vessel), [polarData, source, vessel]);
+
     // Same test PolarChart uses for its own empty state.
     const hasFigures = (data: PolarData | null | undefined) =>
         data?.matrix.some((row) => row.some((v) => v > 0)) ?? false;
-    const chartIsEmpty = !hasFigures(polarData) && !hasFigures(smartPolarData);
+    const chartIsEmpty = !hasFigures(shown.polar) && !hasFigures(smartPolarData);
 
     return (
         <div className="w-full max-w-2xl mx-auto flex flex-col h-full overflow-y-auto pb-[calc(5.5rem+env(safe-area-inset-bottom))] animate-in fade-in slide-in-from-right-4 duration-300">
+            {/* Which polar routes really sail (130-B6), in the resolver's own
+                words — the passage banner's, the HUD's and Plan Your Day's —
+                so the skipper never has to guess which table counts. A long
+                imported file name wraps rather than running off. */}
+            {routesSailOn && (
+                <p
+                    className="shrink-0 mb-3 px-1 text-sm leading-snug text-gray-300 [overflow-wrap:anywhere]"
+                    data-testid="polars-routes-sail-on"
+                >
+                    <span className="font-bold text-white">Routes sail on:</span> {routesSailOn}
+                </p>
+            )}
+
             {/* ═══════════════════════════════════════════ */}
             {/* SMART POLARS SECTION */}
             {/* ═══════════════════════════════════════════ */}
@@ -292,7 +319,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                     </div>
                 ) : (
                     <div className="aspect-square w-full max-h-[360px] mx-auto flex justify-center items-center">
-                        <PolarChart data={polarData} overlayData={smartPolarData} emptyLabel="No polar yet" />
+                        <PolarChart data={shown.polar} overlayData={smartPolarData} emptyLabel="No polar yet" />
                     </div>
                 )}
 
@@ -397,7 +424,8 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                             )}
                             {activeTab === 'manual' && (
                                 <ManualTab
-                                    polarData={polarData}
+                                    polarData={shown.polar}
+                                    scaledToKts={shown.scaledToKts}
                                     onChange={(data) => updatePolar(data, boatModel, 'manual')}
                                 />
                             )}
@@ -633,15 +661,18 @@ const SmartPolarsCard: React.FC<{
                 <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/5">
                     <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Routing uses</span>
                     <div className="flex-1 flex bg-black/40 p-0.5 rounded-lg">
-                        {/* Named from the visible word, with which one is in use. */}
+                        {/* Named from the visible word, with which one is in use.
+                            'Your polar', not 'Factory' (130-B6): it is the polar
+                            the skipper chose — from the yacht database,
+                            imported or typed in — not a factory's. */}
                         <button
                             type="button"
-                            aria-label="Factory polar data for routing"
+                            aria-label="Your polar for routing"
                             aria-pressed={polarSource === 'factory'}
                             onClick={() => onToggleSource('factory')}
                             className={`flex-1 min-h-11 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'factory' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
                         >
-                            Factory
+                            Your polar
                         </button>
                         <button
                             type="button"
@@ -819,8 +850,10 @@ const ImportTab: React.FC<{
 
 const ManualTab: React.FC<{
     polarData: PolarData;
+    /** The cruising speed a yacht-database shape is shown scaled to; null for her own figures. */
+    scaledToKts: number | null;
     onChange: (data: PolarData) => void;
-}> = ({ polarData, onChange }) => {
+}> = ({ polarData, scaledToKts, onChange }) => {
     const updateCell = (angleIdx: number, windIdx: number, value: string) => {
         const num = parseFloat(value);
         const newMatrix = polarData.matrix.map((row, ai) =>
@@ -835,6 +868,16 @@ const ManualTab: React.FC<{
                 <h3 className={CARD_HEADING_CLASS}>Type the figures</h3>
                 <span className="text-xs text-gray-400">Boat speed in knots</span>
             </div>
+
+            {/* What these figures are, and what an edit does (130-B6): one
+                changed cell saves the whole table as her own figures. */}
+            {scaledToKts !== null && (
+                <p className="mb-4 text-xs leading-relaxed text-gray-400">
+                    The yacht database figures, scaled to her cruising speed of {Math.round(scaledToKts * 10) / 10} kn:
+                    the figures routes sail on. Change one and the whole table becomes your own figures, and stops
+                    following her cruising speed.
+                </p>
+            )}
 
             <div className="overflow-x-auto custom-scrollbar -mx-1 px-1">
                 <table className="w-full border-collapse min-w-[500px]">
@@ -872,9 +915,11 @@ const ManualTab: React.FC<{
                                     const isAnomaly = checkAnomaly(polarData, aIdx, wIdx);
                                     return (
                                         <td key={wIdx} className="p-1">
+                                            {/* 0.01 kn: what a scaled database
+                                                figure is shown to (130-B6). */}
                                             <input
                                                 type="number"
-                                                step="0.1"
+                                                step="0.01"
                                                 min="0"
                                                 max="30"
                                                 value={val || ''}

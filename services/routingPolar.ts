@@ -19,7 +19,9 @@
  *        yacht database: the SHAPE, scaled to her cruising speed with
  *        passagePlan.polarScale — the Passage HUD's rule, and its speed
  *        (vesselCruisingSpeedKts: a stored 0 means "auto", sqrt(LOA) × 1.2);
- *        the generated tables run ~45% slow, raw they would cripple every ETA;
+ *        the generated tables run ~45% slow, raw they would cripple every ETA.
+ *        The Polars page shows and edits these scaled figures, to 0.01 kn
+ *        (yourPolarAsSailed; build 131, 130-B6);
  *   4. otherwise the generic cruising polar — its SHAPE scaled to her
  *      cruising speed exactly as a database shape is (build 125, 125-08: it
  *      was sailed raw, ~5.9 kn on a fair reach whatever the boat, while the
@@ -309,6 +311,42 @@ const scaleBy = (p: PolarData, scale: number): PolarData => ({
     matrix: p.matrix.map((r) => r.map((v) => v * scale)),
 });
 
+/** What a database shape is scaled by for her, and the cruising speed it is matched to. */
+function databaseScale(polar: PolarData, vessel: VesselProfile): { scale: number | null; cruiseKts: number } {
+    // The Passage HUD's own speed: a stored 0 is "auto" (VesselTab's
+    // "Reset to auto"), sqrt(LOA) × 1.2 for a sailing boat.
+    const cruiseKts = vesselCruisingSpeedKts(vessel, 0);
+    return { scale: polarScale(polar, cruiseKts), cruiseKts };
+}
+
+/**
+ * "Your polar" with the figures routes sail on, on its own rows and columns,
+ * for the Polars page to show, chart and edit (build 131, 130-B6). The page
+ * showed a yacht-database table raw, ~45% slow, and one changed cell saved
+ * the whole raw table as her own figures — sailed as given, so every route
+ * went ~45% slow. Now a database shape is shown scaled by the scale routes
+ * use, each figure to 0.01 kn (within 0.005 kn of the route's), and an edit
+ * saves those figures. Imported or typed-in figures, a table routes cannot
+ * use and any boat that is not a sailing boat are shown as stored (the
+ * page's top line says what routes sail then).
+ * `scaledToKts`: the cruising speed a database shape was scaled to.
+ */
+export function yourPolarAsSailed(
+    polar: PolarData,
+    kind: UserSettings['polarSource_type'],
+    vessel: VesselProfile | null | undefined,
+): { polar: PolarData; scaledToKts: number | null } {
+    const asStored = { polar, scaledToKts: null };
+    const boat = resolveEffectiveVessel(vessel);
+    if (kind !== 'database' || boat.type !== 'sail') return asStored;
+    const checked = checkPolar(polar);
+    if ('why' in checked) return asStored;
+    const { scale, cruiseKts } = databaseScale(checked.polar, boat);
+    if (scale === null) return asStored;
+    const matrix = polar.matrix.map((r) => r.map((v) => round2(v * scale)));
+    return { polar: { ...polar, matrix }, scaledToKts: cruiseKts };
+}
+
 /**
  * The generic polar for her: its shape scaled so a fair reaching breeze gives
  * her cruising speed (vesselCruisingSpeedKts: a stored 0 is "auto"), as a
@@ -347,10 +385,7 @@ function factoryPolar(settings: RoutingPolarSettings, vessel: VesselProfile): Om
     const name = settings.polarBoatModel?.trim() || '';
     switch (kind) {
         case 'database': {
-            // The Passage HUD's own speed: a stored 0 is "auto" (VesselTab's
-            // "Reset to auto"), sqrt(LOA) × 1.2 for a sailing boat.
-            const cruise = vesselCruisingSpeedKts(vessel, 0);
-            const scale = polarScale(checked.polar, cruise);
+            const { scale, cruiseKts: cruise } = databaseScale(checked.polar, vessel);
             if (scale === null) {
                 return generic(`the yacht database polar cannot be matched to a cruising speed of ${kn(cruise)} kn`);
             }
