@@ -6,7 +6,7 @@
  * places come from whatever atlas the caller passes (the real Whitsundays
  * tile in the tests, which is public).
  */
-import type { CruisingPoint } from '../../services/anchorages/cruisingReference';
+import type { CruisingPoint, NamedPlace } from '../../services/anchorages/cruisingReference';
 import type { AtlasFeature, LatLon } from '../../services/dayPlanner/places';
 import type { TodayLoaderDeps } from '../../services/dayPlanner/todayLoader';
 import type { RouteForecast } from '../../services/routeForecastSampler';
@@ -207,6 +207,7 @@ export function fakeTodayDeps(
         scenario?: DayPlanScenario;
         atlas?: readonly AtlasFeature[];
         osm?: readonly CruisingPoint[];
+        names?: readonly NamedPlace[];
         tides?: Tide[] | null;
         nowMs?: number;
     } = {},
@@ -234,6 +235,8 @@ export function fakeTodayDeps(
                   },
         loadAtlas: async () => options.atlas ?? [],
         loadReferenceTile: async () => ({ points: [...(options.osm ?? [])], stale: false }),
+        // The map's names (131-PYD-10): none unless a test or fixture brings them; never the network.
+        loadNamedPlaces: async () => ({ points: [...(options.names ?? [])], stale: false }),
         loadCoastline: async () => null,
         savedRoutes: () => [],
         loadTides: async () =>
