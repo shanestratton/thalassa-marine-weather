@@ -10,7 +10,8 @@ import { describe, expect, it } from 'vitest';
 import { parsePolarFile } from '../utils/polarParser';
 
 describe('parsePolarFile: a 0 kn column is dropped with its figures', () => {
-    it('Expedition .pol (tabs)', () => {
+    // A TWA × TWS table, as .pol files mostly are: Expedition's own layout is pairs (tests/polarFileFormats.test.ts, 132-B22).
+    it('a TWA × TWS table .pol (tabs)', () => {
         const polar = parsePolarFile(
             ['TWA\t0\t6\t8\t10', '45\t0\t4.2\t5.0\t5.6', '90\t0\t5.3\t6.3\t7.0', '150\t0\t3.8\t4.9\t5.8'].join('\n'),
             'Fair Wind.pol',
@@ -24,7 +25,7 @@ describe('parsePolarFile: a 0 kn column is dropped with its figures', () => {
         ]);
     });
 
-    it('OpenCPN .csv (commas and semicolons)', () => {
+    it('a TWA × TWS table .csv (commas and semicolons)', () => {
         for (const sep of [',', ';']) {
             const polar = parsePolarFile(
                 [`TWA\\TWS${sep}0${sep}6${sep}8`, `52${sep}0${sep}4.6${sep}5.4`, `120${sep}0${sep}5.0${sep}6.1`].join(

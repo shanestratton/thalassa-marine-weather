@@ -214,6 +214,17 @@ function checkPolar(value: unknown): { polar: PolarData } | { why: string } {
 }
 
 /**
+ * Why routes could not sail on this polar, in the resolver's own words; null
+ * when they can. The Polars page refuses an imported file with it (132-B22):
+ * before, a file routes could not use was saved, and every route then sailed
+ * the generic polar while the page showed the file.
+ */
+export function whyRoutesCannotSail(polar: PolarData): string | null {
+    const checked = checkPolar(polar);
+    return 'why' in checked ? checked.why : null;
+}
+
+/**
  * Give a sailing polar its no-go zone: zero-speed rows at 0° and at five
  * degrees inside its first priced angle (its own leading all-zero rows are
  * replaced), and no TWS column under 0.1 kn.
