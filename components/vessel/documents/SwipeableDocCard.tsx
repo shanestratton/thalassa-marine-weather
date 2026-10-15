@@ -6,9 +6,10 @@
 
 import React from 'react';
 import type { ShipDocument, DocumentCategory } from '../../../types';
+import type { DocUpload } from '../../../services/vessel/DocumentSyncService';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
-import { CheckIcon, ClipboardIcon } from '../../icons/UIIcons';
+import { AlertTriangleIcon, CheckIcon, ClipboardIcon } from '../../icons/UIIcons';
 import { CloudIcon } from '../../icons/WeatherIcons';
 import { CATEGORIES } from './DocumentForm';
 
@@ -73,6 +74,12 @@ interface SwipeableDocCardProps {
     onToggleSelect: () => void;
     /** Where its file is; omitted for a paper with no file. */
     fileState?: keyof typeof FILE_STATE;
+    /** Its change still in the outbox (131-B9); omitted once it has uploaded. */
+    upload?: DocUpload;
+    /** Try refused uploads again now; shown only on a refused one. */
+    onRetryUpload?: () => void;
+    /** A retry is under way. */
+    retryingUpload?: boolean;
 }
 
 export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
@@ -83,6 +90,9 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
     selected,
     onToggleSelect,
     fileState,
+    upload,
+    onRetryUpload,
+    retryingUpload = false,
 }) => {
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
         onSwipeComplete: () => void triggerHaptic('light'),
@@ -201,6 +211,38 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
                                     <file.Icon className="mt-px h-3 w-3 shrink-0" />
                                     {file.label}
                                 </p>
+                            )}
+                            {/* Saved here, not in the cloud yet, or refused and why
+                                (131-B9): from the outbox, until it really has gone. */}
+                            {upload && (
+                                <p
+                                    className={`mt-1 flex items-start gap-1 text-label font-bold ${upload.failed ? 'text-red-400' : 'text-sky-400'}`}
+                                >
+                                    {upload.failed ? (
+                                        <AlertTriangleIcon className="mt-px h-3 w-3 shrink-0" />
+                                    ) : (
+                                        <CloudIcon className="mt-px h-3 w-3 shrink-0" />
+                                    )}
+                                    {upload.failed ? `Upload failed: ${upload.reason}` : 'Not uploaded yet'}
+                                </p>
+                            )}
+                            {upload?.failed && onRetryUpload && (
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onRetryUpload();
+                                    }}
+                                    disabled={retryingUpload}
+                                    aria-label={
+                                        retryingUpload
+                                            ? `Trying again to upload ${doc.document_name}`
+                                            : `Retry uploading ${doc.document_name}`
+                                    }
+                                    className="hit-target-44 mt-1.5 rounded-lg bg-red-500/20 px-3 py-1 text-label font-bold text-red-400 disabled:opacity-60"
+                                >
+                                    {retryingUpload ? 'Trying again…' : 'Retry'}
+                                </button>
                             )}
                         </div>
 

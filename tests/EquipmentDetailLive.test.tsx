@@ -51,12 +51,8 @@ vi.mock('../services/vessel/SyncService', () => ({
 }));
 vi.mock('../services/vessel/DocumentSyncService', () => ({
     DocumentSyncService: {
-        pullFromCloud: vi.fn().mockResolvedValue(0),
         getDownloadUrl: vi.fn(async (uri: string) => uri),
         openDownload: vi.fn().mockResolvedValue(undefined),
-        markForSync: vi.fn(),
-        markDeleted: vi.fn(),
-        pendingCount: 0,
     },
 }));
 vi.mock('../utils/equipmentPdfExport', () => ({ exportEquipmentPdf: vi.fn().mockResolvedValue(undefined) }));

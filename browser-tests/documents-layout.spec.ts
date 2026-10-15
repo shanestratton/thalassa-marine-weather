@@ -19,7 +19,10 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  *     up)"), on one line or wrapped, never clipped, inside its card;
  *   - nothing scrolls sideways;
  *   - the ⋮ menu's "Share or save selected" is a 44 pt target, on screen, and
- *     the menu ends above the tab bar.
+ *     the menu ends above the tab bar;
+ *   - papers filed here say "Not uploaded yet" (nothing runs the sync engine
+ *     in the fixture), and the one the cloud refused says why, inside its
+ *     card, with a Retry that is a 44 pt target (131-B9, DOC-8 and DOC-9).
  *
  * Set DOCUMENTS_SHOTS_DIR (and DOCUMENTS_SHOT_TAG, e.g. before/after) to save
  * docs-430-<tag>.png and docs-430-menu-<tag>.png for Shane.
@@ -117,6 +120,52 @@ for (const mode of MODES) {
                 expect(m.clipped, `"${m.text}" is clipped`).toBe(false);
                 expect(m.inside, `"${m.text}" stays inside its card`).toBe(true);
             }
+            await expectNothingSideways(page);
+            expect(errors).toEqual([]);
+        });
+
+        test(`Documents, ${mode}, ${size.name}: what has not uploaded says so, and Retry fits`, async ({ page }) => {
+            const errors = await open(page, size, mode);
+
+            // Four papers filed here, one of them refused on its last try.
+            await expect(page.getByText('Not uploaded yet', { exact: true })).toHaveCount(3);
+            const refused = page.getByText('Upload failed: the connection dropped', { exact: true });
+            await expect(refused).toHaveCount(1);
+            await expect(page.getByText('3 pending', { exact: true })).toHaveCount(1);
+            await expect(page.getByText('1 upload failed', { exact: true })).toHaveCount(1);
+            const retry = page.getByRole('button', { name: 'Retry uploading Crew list, Papeete' });
+            await expect(retry).toHaveText('Retry');
+            await retry.scrollIntoViewIfNeeded();
+            if (size.width === 430 && mode === 'dark') await shot(page, `docs-430-upload-${TAG}`);
+            const m = await retry.evaluate((button) => {
+                const card = button.closest('.rounded-2xl')!.getBoundingClientRect();
+                const r = button.getBoundingClientRect();
+                const line = button.previousElementSibling as HTMLElement;
+                const l = line.getBoundingClientRect();
+                // The 44 pt hit box is the button's ::before (index.css, .hit-target-44).
+                const before = getComputedStyle(button, '::before');
+                const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                return {
+                    hitW: Math.max(r.width, parseFloat(before.width) || 0),
+                    hitH: Math.max(r.height, parseFloat(before.height) || 0),
+                    inside:
+                        r.left >= card.left - 0.5 &&
+                        r.right <= card.right + 0.5 &&
+                        r.top >= card.top - 0.5 &&
+                        r.bottom <= card.bottom + 0.5,
+                    lineInside: l.left >= card.left - 0.5 && l.right <= card.right + 0.5,
+                    lineClipped: line.scrollWidth > line.clientWidth + 1,
+                    clipped: button.scrollWidth > button.clientWidth + 1,
+                    hitIsRetry: !!hit && (hit === button || button.contains(hit)),
+                };
+            });
+            expect(m.hitW, 'Retry is a 44 pt target (width)').toBeGreaterThanOrEqual(43.5);
+            expect(m.hitH, 'Retry is a 44 pt target (height)').toBeGreaterThanOrEqual(43.5);
+            expect(m.inside, 'Retry stays inside its card').toBe(true);
+            expect(m.lineInside, 'the reason stays inside its card').toBe(true);
+            expect(m.lineClipped, 'the reason is not clipped').toBe(false);
+            expect(m.clipped, "Retry's word is not clipped").toBe(false);
+            expect(m.hitIsRetry, 'a tap on Retry reaches it').toBe(true);
             await expectNothingSideways(page);
             expect(errors).toEqual([]);
         });
