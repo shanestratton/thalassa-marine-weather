@@ -970,6 +970,8 @@ export default function TodaySheet({
                     polarIsOwn={routing.source !== 'default'}
                     polar={routing}
                     leavingMarina={!!base.marina}
+                    start={base.start}
+                    coastline={base.coastline}
                     loadLanding={detailRow.candidate.reviewed?.landingTide ? loadLanding : null}
                     onPlot={(departureMs, why) => plot(detailRow, departureMs, why)}
                     onBack={() => {

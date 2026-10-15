@@ -31,6 +31,9 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  * Back returns to the same stop page, and "Use on the main chart" hands the
  * chart the routed line, never a straight one. With no route, or for a
  * tester, "Plot by hand" hands it two marks and no pins.
+ *
+ * 132-PYD-9: the stop page's picture of the way draws no line while it is not
+ * routed, and the provider's own line once it is, in the room the plan leaves.
  */
 
 test.use({ timezoneId: 'Europe/London' });
@@ -148,6 +151,25 @@ for (const size of [AS_DRAWN.se2, AS_DRAWN.mid, AS_DRAWN.shane])
         expect(await layoutIssues(page, false)).toEqual([]);
         expect(errors).toEqual([]);
     });
+
+// 132-PYD-9: never a straight line on the picture either: none until routed, then the provider's line (the
+// fixture's three points: start, its bend, the stop), and the page still one screen.
+test("the stop page's picture has no line until routed, then the routed line", async ({ page }) => {
+    const errors = await open(page, AS_DRAWN.shane, `&mode=routed&owner=1${AS_DRAWN.shane.query}`);
+    await openStop(page);
+    const picture = page.locator('.today-detail .today-pic');
+    await expect(picture.locator('svg[role="img"]')).toHaveAttribute('aria-label', /^Map: /);
+    await expect(picture.locator('polyline, line')).toHaveCount(0);
+    const detail = await routeIt(page);
+    await expect(detail.locator('li[data-route]')).toHaveText(/^Finding the way round the land/);
+    await expect(picture.locator('polyline, line')).toHaveCount(0);
+    await expect(detail.locator('li[data-route]')).toHaveText(ROUTED, { timeout: 10_000 });
+    await expect(picture.locator('polyline')).toHaveCount(1);
+    expect((await picture.locator('polyline').getAttribute('points'))!.split(' ')).toHaveLength(3);
+    await expect(picture.locator('svg[role="img"]')).toHaveAttribute('aria-label', /, the routed line, /);
+    expect(await layoutIssues(page, false)).toEqual([]);
+    expect(errors).toEqual([]);
+});
 
 test('at 320 x 568 as drawn the routed stop page may scroll inside its card, its level, route row and times in view', async ({
     page,

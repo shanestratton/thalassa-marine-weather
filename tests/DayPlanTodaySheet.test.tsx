@@ -490,6 +490,19 @@ const listed = (list: HTMLElement) =>
         .getAllByRole('listitem')
         .map((li) => li.textContent!);
 
+/**
+ * A phone's room for the stop page's picture (132-PYD-9): jsdom lays nothing out, so the picture is never
+ * drawn in these tests unless the room the card is given (800 px) and its column's width (360 px) are.
+ */
+function roomForPicture() {
+    vi.spyOn(Element.prototype, 'clientHeight', 'get').mockImplementation(function (this: Element) {
+        return this.classList.contains('today-overlay') ? 800 : 0;
+    });
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+        return this.classList.contains('today-plan') ? 360 : 0;
+    });
+}
+
 describe('Screen 2: a stop, and Plot by hand', () => {
     it('opens as a plan read at a glance, every row a tap away; Plot by hand sends two marks, never a line', async () => {
         const { dialog, onPlot } = open();
@@ -769,6 +782,68 @@ describe('Screen 2: a stop, and Plot by hand', () => {
                 .getByText(/^At anchor \d\d:\d\d → 09:00 tomorrow · /)
                 .closest('details'),
         ).not.toBeNull();
+    });
+
+    it('132-PYD-9: a rose by the shelter word, and a picture of the way in the room the plan leaves, with no line', async () => {
+        const { dialog } = open();
+        const [first] = await stopRows(dialog);
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', {
+            name: titled(first.querySelector('.today-stop-name')!.textContent!),
+        });
+        // The first fact is the shelter word; beside it, the atlas's land table as a rose, its words unchanged.
+        const [shelter] = within(within(detail).getByRole('list', { name: 'At a glance' })).getAllByRole('listitem');
+        expect(
+            await within(shelter).findByRole('img', {
+                name: /^Shelter rose: (land close to the [NESW]{1,2}(, [NESW]{1,2})*|no land close by)$/,
+            }),
+        ).toBeTruthy();
+        expect(shelter.textContent).toBe(
+            first.querySelector('.today-stop-shelter')!.textContent!.replace(/^\s*· /, ''),
+        );
+        // The plan first: with no room left for it (this DOM lays nothing out), no picture, and no gap for one.
+        expect(detail.querySelector('.today-pic')).toBeNull();
+        // A phone's room: the picture takes it, 2 : 1, as the page is measured again (a leave chip here).
+        roomForPicture();
+        const chips = within(within(detail).getByRole('group', { name: 'Leave at' })).getAllByRole('button');
+        fireEvent.click(chips.find((b) => b.getAttribute('aria-pressed') !== 'true')!);
+        const map = await within(detail).findByRole('img', {
+            name: /^Map: your start \(dot\) and .+ \(pin\), wind [NESW]{1,2} \d+(–\d+)? kn\. Land not drawn: the coastline didn't load\.$/,
+        });
+        const box = detail.querySelector<HTMLElement>('.today-pic')!;
+        expect([box.style.width, box.style.height]).toEqual(['304px', '152px']);
+        // Under the facts and notes it draws, over the details.
+        expect(box.previousElementSibling?.matches('.today-glance, .today-rows')).toBe(true);
+        expect(box.nextElementSibling?.matches('details.today-how')).toBe(true);
+        // Not routed: no line of any kind. These sources have no coastline: said, never drawn as open sea.
+        expect(map.querySelector('polyline, line')).toBeNull();
+        expect(within(box).getByText('Land not loaded')).toBeTruthy();
+    });
+
+    it('132-PYD-9: land from the coastline Plan Your Day already read, and nothing new asked for it', async () => {
+        roomForPicture();
+        // A fictional coast round the marina, about a mile off, anticlockwise: land inside it.
+        const ring = Array.from({ length: 24 }, (_, i): [[number, number], [number, number]] => {
+            const at = (k: number): [number, number] => [
+                MARINA.lon + 0.02 * Math.cos((k * Math.PI) / 12),
+                MARINA.lat + 0.017 * Math.sin((k * Math.PI) / 12),
+            ];
+            return [at(i), at(i + 1)];
+        });
+        const { dialog, io: sources } = open({ sheetIo: io({ loader: { loadCoastline: async () => ring } }) });
+        const [first] = await stopRows(dialog);
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', {
+            name: titled(first.querySelector('.today-stop-name')!.textContent!),
+        });
+        // Maureen's Cove, north of Hook Island: its picture reaches past the coastline asked for, and says so.
+        await within(detail).findByRole('img', {
+            name: /^Map: .+\. Land © OpenStreetMap(, drawn to 27 NM from the start)?\.$/,
+        });
+        expect(detail.querySelector('.today-pic rect')).toHaveClass('today-pic-sea');
+        expect(detail.querySelector('.today-pic path.today-pic-land')!.getAttribute('d')).toMatch(/^M[\d.]+ \d+h/);
+        // The coastline was asked for once, by the place, never by the picture.
+        expect(sources.loader.loadCoastline).toHaveBeenCalledOnce();
     });
 });
 
@@ -1200,7 +1275,8 @@ describe('Sources and limits', () => {
             /^Forecast data: /,
             'Waves: Météo-France (MFWAM)',
             'Tides: WorldTides, Harbour Gauge, metres above LAT, approx. ±0.3 m',
-            'Places: © OpenStreetMap contributors (ODbL)',
+            // The coastline too: each stop's picture draws its land from it (132-PYD-9).
+            'Places and coastline: © OpenStreetMap contributors (ODbL)',
             'Queensland anchorage atlas (OpenStreetMap + GBRMPA)',
             'Queensland Parks notes, CC BY 4.0, © State of Queensland',
             'Light: worked out on this phone',
@@ -1551,6 +1627,29 @@ describe('Route round the land (127-PYD-2)', () => {
         const again = await screen.findByRole('dialog', { name: new RegExp(`^${name}`) });
         expect(routeRow(again)).toHaveTextContent('Routed on your charts · 16.5 NM each way');
         expect(route.fn).toHaveBeenCalledOnce();
+    });
+
+    it('132-PYD-9: the picture draws the routed line once routed, every point of it, and no line before', async () => {
+        roomForPicture();
+        let release = () => {};
+        const held = new Promise<void>((resolve) => (release = resolve));
+        const route = routes(async (req) => {
+            await held;
+            return routedProposal(req);
+        });
+        const { detail } = await openStop({ route });
+        const map = await within(detail).findByRole('img', { name: /^Map: / });
+        expect(map.querySelector('polyline, line')).toBeNull();
+        fireEvent.click(within(detail).getByRole('button', { name: 'Route round the land' }));
+        // While it routes, still none: never a straight line standing in for the route.
+        await waitFor(() => expect(routeRow(detail)).toHaveTextContent(/^Finding the way round the land/));
+        expect(detail.querySelector('.today-pic polyline')).toBeNull();
+        release();
+        await waitFor(() =>
+            expect(within(detail).getByRole('img', { name: /^Map: .+ \(pin\), the routed line, wind / })).toBeTruthy(),
+        );
+        // The provider's three points, start, bend and stop: its line, not one of ours.
+        expect(detail.querySelector('.today-pic polyline')!.getAttribute('points')!.split(' ')).toHaveLength(3);
     });
 
     it('a tester sees no route row, no button and no timing line; nothing is routed', async () => {

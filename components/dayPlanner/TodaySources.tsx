@@ -174,7 +174,8 @@ export function TodaySources({
                         above LAT; check the official tide table
                     </li>
                 )}
-                <li>Places: © OpenStreetMap contributors (ODbL)</li>
+                {/* The coastline too: shelter, distances and each stop's picture (132-PYD-9). */}
+                <li>Places and coastline: © OpenStreetMap contributors (ODbL)</li>
                 {base.placesStatus === 'partial' && (
                     <li>Part of the area&rsquo;s places didn&rsquo;t load: the list may be short.</li>
                 )}
