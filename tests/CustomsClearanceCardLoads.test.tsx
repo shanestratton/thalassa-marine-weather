@@ -9,7 +9,7 @@
  * to count.
  */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { packagedFetch } from './helpers/packagedFetch';
 
@@ -102,5 +102,75 @@ describe('CustomsClearanceCard loads its JSON', () => {
         const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
         render(<CustomsClearanceCard voyagePlan={plan('Marmaris, Türkiye', 'Rhodes, Greece')} />);
         expect(await screen.findByText(/clearance guide could not be loaded/i)).toBeInTheDocument();
+    });
+});
+
+describe('130-09: the card picks the right country for a port, and says when it cannot', () => {
+    const CANNOT_TELL = "Can't Tell If This Passage Crosses a Border";
+
+    it('names Russell, NZ as New Zealand, and a port of entry on its own by its country', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        render(<CustomsClearanceCard voyagePlan={plan('Sydney', 'Russell, NZ')} />);
+        expect(screen.getByRole('button', { name: 'Departing Australia' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Arriving New Zealand' })).toBeInTheDocument();
+        // Sydney is one of Australia's ports of entry: no warning.
+        expect(screen.queryByText(/is not a designated port of entry/)).not.toBeInTheDocument();
+        expect(
+            await screen.findByText('Clear out with Australian Border Force (ABF) — book appointment'),
+        ).toBeVisible();
+    });
+
+    it('checks the port of entry by whole words, accents folded: Noumea is Nouméa', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        render(<CustomsClearanceCard voyagePlan={plan('Noumea', 'Newport, QLD')} />);
+        expect(screen.getByRole('button', { name: 'Departing New Caledonia' })).toBeInTheDocument();
+        expect(screen.queryByText(/is not a designated port of entry/)).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Arriving Australia' }));
+        expect(screen.getByText('Newport, QLD is not a designated port of entry')).toBeInTheDocument();
+    });
+
+    it('says it cannot tell when neither port is one it knows, with one check to tick', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        const onCheckedChange = vi.fn();
+        render(
+            <CustomsClearanceCard
+                voyageId="voyage-b"
+                voyagePlan={plan('Santa Cruz, California', 'Santa Cruz, Galápagos')}
+                onCheckedChange={onCheckedChange}
+            />,
+        );
+        // Named as the skipper typed them, never as some other country.
+        expect(screen.getByRole('button', { name: 'Departing Santa Cruz, California' })).toBeInTheDocument();
+        expect(screen.queryByText(/Australia/)).not.toBeInTheDocument();
+        expect(screen.getByText(CANNOT_TELL)).toBeInTheDocument();
+        expect(
+            screen.getByText(/We don't recognise Santa Cruz, California or Santa Cruz, Galápagos/),
+        ).toBeInTheDocument();
+        expect(screen.queryByText('Limited Data Available')).not.toBeInTheDocument();
+
+        // The check is the one item: nothing ticked, so Cast Off waits on it.
+        await waitFor(() => expect(onCheckedChange).toHaveBeenLastCalledWith(1, 0));
+        const check = screen.getByRole('button', { name: /I've checked whether this passage crosses a border/ });
+        expect(check).toHaveAttribute('aria-pressed', 'false');
+        fireEvent.click(check);
+        await waitFor(() => expect(onCheckedChange).toHaveBeenLastCalledWith(1, 1));
+        expect(check).toHaveAttribute('aria-pressed', 'true');
+
+        // The arrival tab says the same.
+        fireEvent.click(screen.getByRole('button', { name: 'Arriving Santa Cruz, Galápagos' }));
+        expect(screen.getByText(CANNOT_TELL)).toBeInTheDocument();
+    });
+
+    it('keeps the document list when one port is known, and no border check', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        const onCheckedChange = vi.fn();
+        render(<CustomsClearanceCard voyagePlan={plan('Opua, NZ', 'Phuket')} onCheckedChange={onCheckedChange} />);
+        expect(screen.queryByText(CANNOT_TELL)).not.toBeInTheDocument();
+        expect(await screen.findByText('Complete Customs Departure form (NZCS 5)')).toBeInTheDocument();
+        await waitFor(() => expect(onCheckedChange).toHaveBeenLastCalledWith(expect.any(Number), 0));
+        expect(onCheckedChange.mock.calls.at(-1)![0]).toBeGreaterThan(1);
+        fireEvent.click(screen.getByRole('button', { name: 'Arriving Phuket' }));
+        expect(screen.getByText('Limited Data Available')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /crosses a border/ })).not.toBeInTheDocument();
     });
 });
