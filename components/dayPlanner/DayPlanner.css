@@ -217,10 +217,37 @@
 .today-leave-more summary::-webkit-details-marker { display: none; }
 .today-leave-more summary::after { content: ' More'; color: #67e8f9; font-weight: 700; text-decoration: underline; }
 .today-route-mark { color: #67e8f9; }
-/* The stop page's verdict, first, in its level's colour (127-PYD-1). */
-.today-rows li[data-level] { color: var(--level); font-weight: 700; }
-.today-leave { margin-top: clamp(4px, 4px + 0.022 * var(--today-room), 8px); }
 .today-footnote { margin: clamp(4px, 4px + 0.022 * var(--today-room), 8px) 4px 0; color: #94a3b8; font-size: 0.6875rem; line-height: 1.273; }
+/* The stop page as a plan, read at a glance (132-PYD-8), in two blocks: its level, the way, the times and when to
+   leave; then its facts, its notes, how each time was worked out (a tap away) and what is not checked. One gap
+   between every block. Phone landscape sets the blocks side by side (below). Lean (132-PYD-8 review: the package
+   was over its +2 KB): the app's reset already zeroes margins, padding and list bullets, so these rules don't. */
+.today-detail .today-body,
+.today-plan { gap: var(--today-gap-chip); }
+.today-plan { display: flex; flex-direction: column; min-width: 0; }
+.today-plan > .today-footnote { margin-top: 0; }
+/* Its level, always, in its colour: Inside too (127-PYD-1 opened on it only when it was not); unknown, the text's. */
+.today-level { padding: 2px 4px 0; color: var(--level); font-size: 0.8125rem; font-weight: 750; line-height: 1.3; }
+/* The times, big: to 30 px with the room, never wider than their column holds (28% of it: "07:00" is 3.3 em in
+   the wide face's bold), so large text and a 320 pt phone keep them whole. What each leg takes under them. */
+.today-times { display: flex; gap: 4px; }
+.today-times li { display: flex; flex: 1; flex-direction: column; min-width: 0; padding: 3px 6px; border-radius: 10px; background: #ffffff08; container-type: inline-size; }
+.today-times-label { color: #94a3b8; font-size: 0.625rem; font-weight: 750; letter-spacing: 0.08em; line-height: 1.2; text-transform: uppercase; }
+.today-times-at { font-size: min(clamp(1.375rem, 1.375rem + 0.045 * var(--today-room), 30px), 28cqi); font-variant-numeric: tabular-nums; font-weight: 750; line-height: 1.12; white-space: nowrap; }
+.today-times-note { color: #cbd5e1; font-size: 0.6875rem; line-height: 1.2; }
+/* No times, and why, where they would be; the weather along the way, loading or failed, under the area wind's. */
+.today-untimed { padding: 0 4px; color: #cbd5e1; font-size: 0.75rem; line-height: 1.25; }
+/* Its facts, a few words each, never a button, in the text's colour, outlined for dark and light alike; a
+   reviewed stop's "Local notes" amber, as on its row. */
+.today-glance { display: flex; flex-wrap: wrap; gap: 4px; }
+.today-glance li { padding: 1px 8px; border: 1px solid #94a3b866; border-radius: 999px; font-size: 0.6875rem; font-weight: 650; line-height: 1.45; }
+.today-glance li[data-notes] { border-color: #fbbf24; color: #fcd34d; }
+/* How each time was worked out: every row as it was, a tap away, a 44 pt target (12 + 20 + 12; a block, not
+   flex: the summary keeps its own toggle in every engine). */
+.today-how summary { display: block; padding: 12px 4px; color: #67e8f9; font-size: 0.8125rem; font-weight: 650; line-height: 20px; cursor: pointer; list-style: none; }
+.today-how summary::-webkit-details-marker { display: none; }
+.today-how summary::after { content: '▾'; margin-left: 6px; }
+.today-how[open] summary::after { content: '▴'; }
 .today-options { display: flex; flex-direction: column; gap: var(--today-gap-chip); margin: 0; padding: 0; list-style: none; }
 .today-option { width: 100%; min-height: 44px; padding: 0 10px; border-radius: 12px; background: #ffffff0d; font-weight: 650; text-align: left; }
 .today-option:disabled { opacity: 0.5; }
@@ -459,16 +486,23 @@
     .today-main .today-col-a { grid-area: 2 / 1 / 4 / 2; min-height: 0; overflow-y: auto; }
     .today-main .today-col-b { grid-area: 1 / 2 / 3 / 3; min-height: 0; margin-top: 8px; overflow-y: auto; }
     .today-main .today-foot { grid-area: 3 / 2; }
+    /* The stop page (132-PYD-8): the plan on the left, its facts and notes on the right, the first note in view. */
+    .today-detail { width: min(100%, 760px); }
+    .today-detail .today-body { flex-direction: row; align-items: flex-start; column-gap: 10px; }
+    .today-detail .today-plan { flex: 1 1 0; }
 }
 .display-light .today-overlay { background: #0f172a66; color: #0f172a; }
 .display-light .today-card { border-color: #0e749033; background: #fff; }
 .display-light :is(.today-place, .today-chip, .today-cell, .today-stop, .today-button, .today-option) { background: #f1f5f9; color: #0f172a; }
-.display-light :is(.today-sub, .today-cell-label, .today-facts, .today-stop-l2, .today-stop-shelter, .today-credit, .today-footnote, .today-option-note, .today-icon) { color: #475569; }
-.display-light :is(.today-link, .today-inline-link, .today-h3, .today-main .today-title h2) { color: #0e7490; }
+/* Its own rule: an element in that list would outweigh .today-primary below. */
+.display-light .today-times li { background: #f1f5f9; }
+.display-light :is(.today-sub, .today-cell-label, .today-facts, .today-stop-l2, .today-stop-shelter, .today-credit, .today-footnote, .today-option-note, .today-icon, .today-times-label, .today-times-note, .today-untimed) { color: #475569; }
+.display-light :is(.today-link, .today-inline-link, .today-h3, .today-main .today-title h2, .today-how summary) { color: #0e7490; }
 .display-light [data-level='inside'] { --level: #15803d; }
 .display-light [data-level='near'] { --level: #b45309; }
 .display-light [data-level='over'] { --level: #b91c1c; }
 .display-light .today-tag { border-color: #b45309; color: #b45309; }
+.display-light .today-glance li[data-notes] { border-color: #b45309; color: #b45309; }
 .display-light .today-pick { border-color: #0e7490; color: #0e7490; }
 .display-light .today-chip[aria-pressed='true'] { border-color: #0e7490; background: #cffafe; }
 .display-light :is(.today-notice, .today-rows li[data-parks]) { color: #92400e; }
