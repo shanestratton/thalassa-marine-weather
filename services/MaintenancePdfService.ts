@@ -7,8 +7,7 @@
  *
  * Drawn with jsPDF primitives (129-10): text, rules, filled rows and the
  * shapes of the checkbox and status dot, with services/pdf/pdfText.ts printing
- * any script. Shared through the Web Share API with the file attached, or
- * downloaded on the web.
+ * any script.
  *
  * These used to be HTML pages put through jsPDF's html() (html2canvas + DOMPurify,
  * about 230 KB). DOMPurify returned only the <body>, so the stylesheet in
@@ -16,32 +15,30 @@
  * table rules, and the emoji (⚓, 📋, the status dots, the checkbox) printed as
  * garbage. The layout below is the one that stylesheet described, in the same
  * sizes (the page was 800 CSS px across A4).
+ *
+ * 130-B8: printed from the rows R&M has on the phone, which the caller passes
+ * in; they were fetched from the server, so offline at sea the PDFs came out
+ * blank. With no rows nothing is made ('empty'). Shared through sharePdfBlob
+ * (the share sheet in the iPhone app); dates are the phone's own
+ * (services/pdf/pdfDates.ts); the headings carry no emoji; a cost prints as
+ * the figure typed, with no '$' the app never asked for.
  */
 import type { jsPDF } from 'jspdf';
-import {
-    MaintenanceService,
-    calculateStatus,
-    sortByUrgency,
-    type TaskWithStatus,
-    type TrafficLight,
-} from './MaintenanceService';
+import { calculateStatus, sortByUrgency, type TaskWithStatus, type TrafficLight } from './MaintenanceService';
 import type { MaintenanceTask, MaintenanceHistory } from '../types';
-import { PdfTextWriter, PT_MM, sharePdfFile, type PdfTextStyle } from './pdf/pdfText';
+import { PdfTextWriter, PT_MM, type PdfTextStyle } from './pdf/pdfText';
+import { pdfFileDay, pdfLongDate, pdfShortDate } from './pdf/pdfDates';
+import { sharePdfBlob, shareTitle, type ShareOutcome } from '../utils/sharePdf';
 
 // ── Shared Helpers ──────────────────────────────────────────────
 
-function formatDate(iso: string | null): string {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
-function formatCurrency(val: number | null): string {
+/**
+ * A cost as the figure typed, in the phone's number style: the records carry
+ * no currency, so the PDF claims none ('$' read as US dollars to anyone else).
+ */
+function formatCost(val: number | null): string {
     if (val === null || val === undefined || val === 0) return '—';
-    return `$${val.toFixed(2)}`;
-}
-
-function longDate(now: Date): string {
-    return now.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+    return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // ── TEMPLATE A: Engine Room Clipboard ───────────────────────────
@@ -56,7 +53,7 @@ export function clipboardDueText(task: TaskWithStatus): string {
         const hours = task.next_due_hours;
         return hours === null || hours === undefined || task.hoursUnanchored ? '—' : `${hours.toLocaleString()} hrs`;
     }
-    return task.next_due_date ? formatDate(task.next_due_date) : '—';
+    return pdfShortDate(task.next_due_date);
 }
 
 /** The clipboard's rows, most urgent first. */
@@ -374,6 +371,14 @@ const BODY_10: PdfTextStyle = { size: fontPt(10), color: INK };
 const TITLE_11: PdfTextStyle = { size: fontPt(11), bold: true, color: INK };
 const HEAD_9: PdfTextStyle = { size: fontPt(9), bold: true, color: '#ffffff', charSpace: 0.9 * PX };
 const ZEBRA = '#f8f9fa';
+const META: PdfTextStyle = { size: fontPt(10), color: '#666666' };
+const META_BOLD: PdfTextStyle = { ...META, bold: true };
+
+/** The heading's line, after the boat's name in bold; with no name set, no stand-in for it. */
+function metaLine(vesselName: string, rest: Segment[]): Segment[] {
+    const name = vesselName.trim();
+    return name ? [{ text: name, style: META_BOLD }, { text: '  |  ', style: META }, ...rest] : rest;
+}
 
 function buildChecklistPdf(
     tasks: MaintenanceTask[],
@@ -383,14 +388,14 @@ function buildChecklistPdf(
     now = new Date(),
 ): jsPDF {
     const page = new MaintenancePage(JsPdf);
-    const dateStr = longDate(now);
-    const meta: PdfTextStyle = { size: fontPt(10), color: '#666666' };
-    const metaBold: PdfTextStyle = { ...meta, bold: true };
-    page.heading('⚓ VESSEL MAINTENANCE CHECKLIST', [
-        { text: vesselName, style: metaBold },
-        { text: `  |  ${dateStr}  |  Engine Hours: `, style: meta },
-        { text: engineHours === null ? '—' : engineHours.toLocaleString(), style: metaBold },
-    ]);
+    const dateStr = pdfLongDate(now);
+    page.heading(
+        'VESSEL MAINTENANCE CHECKLIST',
+        metaLine(vesselName, [
+            { text: `${dateStr}  |  Engine Hours: `, style: META },
+            { text: engineHours === null ? '—' : engineHours.toLocaleString(), style: META_BOLD },
+        ]),
+    );
 
     const columns = [{ width: 32 * PX }, { width: 0 }, { width: 24 }, { width: 58 }];
     columns[1].width = WIDTH - columns[0].width - columns[2].width - columns[3].width;
@@ -427,35 +432,39 @@ function buildServiceHistoryPdf(
     now = new Date(),
 ): jsPDF {
     const page = new MaintenancePage(JsPdf);
-    const dateStr = longDate(now);
-    const meta: PdfTextStyle = { size: fontPt(10), color: '#666666' };
-    const metaBold: PdfTextStyle = { ...meta, bold: true };
-    page.heading('📋 OFFICIAL VESSEL SERVICE HISTORY', [
-        { text: vesselName, style: metaBold },
-        { text: `  |  Generated: ${dateStr}  |  Entries: `, style: meta },
-        { text: String(history.length), style: metaBold },
-    ]);
+    const dateStr = pdfLongDate(now);
+    page.heading(
+        'VESSEL SERVICE HISTORY',
+        metaLine(vesselName, [
+            { text: `Generated: ${dateStr}  |  Entries: `, style: META },
+            { text: String(history.length), style: META_BOLD },
+        ]),
+    );
 
-    const columns = [{ width: 24 }, { width: 50 }, { width: 20 }, { width: 0 }, { width: 24 }];
-    columns[3].width = WIDTH - columns.reduce((sum, column) => sum + column.width, 0);
+    // The cost column only when a record has a cost: the log sheet asks for
+    // none, so most records carry none, and an empty column took the notes'
+    // room.
     const totalCost = history.reduce((sum, h) => sum + (h.cost || 0), 0);
+    const withCost = history.some((h) => !!h.cost);
+    const columns = [{ width: 24 }, { width: 50 }, { width: 20 }, { width: 0 }, ...(withCost ? [{ width: 24 }] : [])];
+    columns[3].width = WIDTH - columns.reduce((sum, column) => sum + column.width, 0);
     const rows: Row[] = history.map((h, index) => ({
         fill: index % 2 === 1 ? ZEBRA : undefined,
         cells: [
-            { text: formatDate(h.completed_at), style: BODY_10 },
+            { text: pdfShortDate(h.completed_at), style: BODY_10 },
             { text: h.taskTitle || 'Unknown Task', style: TITLE_11 },
             { text: h.engine_hours_at_service?.toLocaleString() ?? '—', style: BODY_10, align: 'center' },
             { text: h.notes || '—', style: BODY_10 },
-            { text: formatCurrency(h.cost), style: BODY_10, align: 'right' },
+            ...(withCost ? [{ text: formatCost(h.cost), style: BODY_10, align: 'right' as const }] : []),
         ],
     }));
-    if (totalCost > 0) {
+    if (withCost && totalCost > 0) {
         const bold: PdfTextStyle = { size: fontPt(11), bold: true, color: INK };
         rows.push({
             fill: '#e3f2fd',
             cells: [
                 { text: 'TOTAL EXPENDITURE', style: bold, align: 'right', span: 4 },
-                { text: formatCurrency(totalCost), style: bold, align: 'right' },
+                { text: formatCost(totalCost), style: bold, align: 'right' },
             ],
         });
     }
@@ -466,7 +475,7 @@ function buildServiceHistoryPdf(
             { text: 'TASK PERFORMED', style: HEAD_9 },
             { text: 'ENGINE HRS', style: HEAD_9, align: 'center' },
             { text: 'NOTES / CONDITION', style: HEAD_9 },
-            { text: 'COST', style: HEAD_9, align: 'right' },
+            ...(withCost ? [{ text: 'COST', style: HEAD_9, align: 'right' as const }] : []),
         ],
         rows,
     );
@@ -477,41 +486,56 @@ function buildServiceHistoryPdf(
 // ── Public API ──────────────────────────────────────────────────
 
 /**
- * Export a blank maintenance checklist PDF (Template A).
- * For printing and taking to the engine room.
+ * Share or save the blank checklist (Template A), for printing and taking to
+ * the engine room: the active tasks R&M has on this phone, most urgent first.
+ * 'empty' with none: no blank checklist goes out.
  */
-export async function exportChecklist(engineHours: number | null, vesselName: string): Promise<void> {
-    const tasks = await MaintenanceService.getTasks();
+export async function exportChecklist(
+    tasks: MaintenanceTask[],
+    engineHours: number | null,
+    vesselName: string,
+): Promise<ShareOutcome | 'empty'> {
+    // A paused task is never due, so it has no place on the clipboard.
+    const active = tasks.filter((task) => task.is_active);
+    if (active.length === 0) return 'empty';
+    const now = new Date();
     const { default: JsPdf } = await import('jspdf');
-    const doc = buildChecklistPdf(tasks, engineHours, vesselName, JsPdf);
-    const dateSlug = new Date().toISOString().slice(0, 10);
-    const filename = `Maintenance_Checklist_${dateSlug}.pdf`;
-    await sharePdfFile(doc.output('blob'), filename, filename.replace('.pdf', ''));
+    const doc = buildChecklistPdf(active, engineHours, vesselName, JsPdf, now);
+    return sharePdfBlob(
+        doc.output('blob'),
+        `Maintenance_Checklist_${pdfFileDay(now)}.pdf`,
+        shareTitle('Maintenance checklist', vesselName),
+    );
 }
 
 /**
- * Export the formal service history PDF (Template B).
- * A permanent ledger of all completed maintenance work.
+ * Share or save the service history (Template B), the ledger of completed
+ * work: every record R&M has on this phone, newest first, with its task's
+ * title (`tasks`, paused ones included). 'empty' with no records.
  */
-export async function exportServiceHistory(vesselName: string): Promise<void> {
-    // Fetch history + join with task titles
-    const [history, tasks] = await Promise.all([
-        MaintenanceService.getAllHistory(500),
-        MaintenanceService.getAllTasks(),
-    ]);
-
+export async function exportServiceHistory(
+    history: MaintenanceHistory[],
+    tasks: MaintenanceTask[],
+    vesselName: string,
+): Promise<ShareOutcome | 'empty'> {
+    if (history.length === 0) return 'empty';
     const taskMap = new Map(tasks.map((t) => [t.id, t]));
-    const enriched = history.map((h) => ({
-        ...h,
-        taskTitle: taskMap.get(h.task_id)?.title,
-        taskCategory: taskMap.get(h.task_id)?.category,
-    }));
+    const enriched = [...history]
+        .sort((a, b) => Date.parse(b.completed_at) - Date.parse(a.completed_at))
+        .map((h) => ({
+            ...h,
+            taskTitle: taskMap.get(h.task_id)?.title,
+            taskCategory: taskMap.get(h.task_id)?.category,
+        }));
 
+    const now = new Date();
     const { default: JsPdf } = await import('jspdf');
-    const doc = buildServiceHistoryPdf(enriched, vesselName, JsPdf);
-    const dateSlug = new Date().toISOString().slice(0, 10);
-    const filename = `Service_History_${dateSlug}.pdf`;
-    await sharePdfFile(doc.output('blob'), filename, filename.replace('.pdf', ''));
+    const doc = buildServiceHistoryPdf(enriched, vesselName, JsPdf, now);
+    return sharePdfBlob(
+        doc.output('blob'),
+        `Service_History_${pdfFileDay(now)}.pdf`,
+        shareTitle('Service history', vesselName),
+    );
 }
 
 export const __testing = { buildChecklistPdf, buildServiceHistoryPdf, checklistRows, PAGE_BOTTOM, CONTINUED_TOP };

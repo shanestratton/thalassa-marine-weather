@@ -1,9 +1,9 @@
 /**
  * pdfFixtures — the made-up boats, crews and logbooks the PDF tests print.
  *
- * Shared by the float plan and maintenance PDF tests and by the before/after
- * page renders of package 129-10, so both sides of the comparison print the
- * same documents. Every name, number and identifier here is invented (the
+ * Shared by the float plan, maintenance, Stores and Equipment PDF tests and
+ * by the before/after page renders of package 129-10, so both sides of the
+ * comparison print the same documents. Every name, number and identifier here is invented (the
  * repo is public): MMSIs are 503000000-style, phones are 0400 000 00x, hex
  * IDs are zero-filled.
  *
@@ -14,7 +14,7 @@
  * types is dropped or turned into "?".
  */
 import type { FloatPlanInput } from '../../services/floatPlan';
-import type { MaintenanceHistory, MaintenanceTask } from '../../types';
+import type { EquipmentItem, InventoryItem, MaintenanceHistory, MaintenanceTask } from '../../types';
 
 /** 08:00 on Tuesday 13 October 2026 in Brisbane (UTC+10). */
 export const PDF_FIXTURE_NOW = Date.UTC(2026, 9, 12, 22, 0, 0);
@@ -265,3 +265,149 @@ export function maintenanceHistory(): (MaintenanceHistory & { taskTitle?: string
 
 export const MAINTENANCE_VESSEL = 'Southerly Spirit';
 export const MAINTENANCE_ENGINE_HOURS = 1198;
+
+// ── Ship's Stores and the Equipment Register (130-B8) ───────────
+
+/** A long name with spaces: the old tables cut it at 30-odd characters without a mark. */
+export const LONG_STORES_NAME = 'Long-life milk, full cream, one litre cartons bought for the Coral Sea crossing';
+export const LONG_MODEL = 'Axiom+ 12 RV multifunction display with RealVision 3D sonar';
+
+function storesItem(
+    overrides: Partial<InventoryItem> & Pick<InventoryItem, 'id' | 'item_name' | 'category'>,
+): InventoryItem {
+    return {
+        user_id: 'user-fixture',
+        barcode: null,
+        description: null,
+        quantity: 4,
+        min_quantity: 0,
+        unit: 'each',
+        location_zone: 'Galley',
+        location_specific: null,
+        expiry_date: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        ...overrides,
+    };
+}
+
+/** A boat's stores: low stock, part units, every expiry state, a long name and every script. */
+export function storesItems(): InventoryItem[] {
+    return [
+        storesItem({ id: 's1', item_name: LONG_STORES_NAME, category: 'Provisions', quantity: 12, min_quantity: 6 }),
+        storesItem({ id: 's2', item_name: 'Basmati rice', category: 'Dry', quantity: 2.5, unit: 'kg' }),
+        storesItem({
+            id: 's3',
+            item_name: 'Seasickness tablets',
+            category: 'Medical',
+            quantity: 1,
+            min_quantity: 4,
+            location_zone: 'Nav station',
+            location_specific: 'Top drawer, red first-aid box behind the chart folio',
+            expiry_date: isoDay(-3),
+        }),
+        storesItem({
+            id: 's4',
+            item_name: 'Handheld flares',
+            category: 'Safety',
+            quantity: 6,
+            min_quantity: 4,
+            location_zone: 'Cockpit locker',
+            expiry_date: isoDay(40),
+        }),
+        storesItem({
+            id: 's5',
+            item_name: 'Engine oil 15W-40',
+            category: 'Engine',
+            quantity: 10,
+            expiry_date: isoDay(400),
+            location_zone: null,
+            location_specific: 'Under the saloon sole',
+        }),
+        storesItem({ id: 's6', item_name: `Ouzo — ${GLOBAL_PLACES.greek}`, category: 'Booze', quantity: 2 }),
+        storesItem({
+            id: 's7',
+            item_name: `味噌 miso from ${GLOBAL_PLACES.japanese}`,
+            category: 'Pantry',
+            quantity: 1,
+        }),
+        storesItem({ id: 's8', item_name: `Za'atar — ${GLOBAL_PLACES.arabic}`, category: 'Pantry', quantity: 3 }),
+    ];
+}
+
+/** Ninety items in one category: the table runs over pages. */
+export function longStoresItems(): InventoryItem[] {
+    return [
+        ...storesItems(),
+        ...Array.from({ length: 90 }, (_, index) =>
+            storesItem({
+                id: `p${index}`,
+                item_name: `Tinned tomatoes, batch ${index + 1}${index % 7 ? '' : ` — ${LONG_STORES_NAME}`}`,
+                category: 'Provisions',
+                quantity: index % 5,
+                min_quantity: 2,
+                expiry_date: isoDay(index * 9 - 30),
+            }),
+        ),
+    ];
+}
+
+function equipmentItem(
+    overrides: Partial<EquipmentItem> & Pick<EquipmentItem, 'id' | 'equipment_name' | 'category'>,
+): EquipmentItem {
+    return {
+        user_id: 'user-fixture',
+        make: '',
+        model: '',
+        serial_number: '',
+        installation_date: null,
+        warranty_expiry: null,
+        manual_uri: null,
+        notes: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        ...overrides,
+    };
+}
+
+/** A register with long makes, models and serials, every warranty state, and a category the app no longer has. */
+export function equipmentItems(): EquipmentItem[] {
+    return [
+        equipmentItem({
+            id: 'e1',
+            equipment_name: 'Main engine',
+            category: 'Propulsion',
+            make: 'Yanmar',
+            model: '4JH57 common-rail turbo diesel, saildrive SD60',
+            serial_number: 'E000000-0000000000-SD60',
+            warranty_expiry: isoDay(-20),
+        }),
+        equipmentItem({
+            id: 'e2',
+            equipment_name: 'Chartplotter',
+            category: 'Electronics',
+            make: 'Raymarine',
+            model: LONG_MODEL,
+            serial_number: '0000000',
+            warranty_expiry: isoDay(60),
+        }),
+        equipmentItem({
+            id: 'e3',
+            equipment_name: `VHF — ${GLOBAL_PLACES.cyrillic}`,
+            category: 'Electronics',
+            make: 'Standard Horizon',
+            model: 'GX2400',
+            warranty_expiry: isoDay(700),
+        }),
+        equipmentItem({ id: 'e4', equipment_name: 'Watermaker', category: 'Plumbing', make: 'Spectra' }),
+        equipmentItem({
+            id: 'e5',
+            equipment_name: 'Liferaft',
+            // A category from an older build: it still prints, under Other.
+            category: 'Safety' as EquipmentItem['category'],
+            make: 'Example Rafts',
+        }),
+    ];
+}
+
+export const STORES_VESSEL = 'Serene Example';

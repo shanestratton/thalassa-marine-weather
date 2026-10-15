@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { jsPDF } from 'jspdf';
+import { Capacitor } from '@capacitor/core';
+import { Filesystem } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 
 import { __testing, clipboardDueText, exportChecklist, exportServiceHistory } from '../services/MaintenancePdfService';
 import { MaintenanceService } from '../services/MaintenanceService';
 import { PdfTextWriter } from '../services/pdf/pdfText';
+import { pdfFileDay, pdfLongDate, pdfShortDate } from '../services/pdf/pdfDates';
 import {
     GLOBAL_PLACES,
     GLOBAL_TEXT,
@@ -49,7 +53,10 @@ function expectOnPaper(doc: jsPDF): void {
     });
 }
 const NOW = new Date(PDF_FIXTURE_NOW);
-const LONG_DATE = NOW.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+// The phone's own date style (130-B8), whatever this machine's locale is.
+const LONG_DATE = pdfLongDate(NOW);
+const money = (value: number) =>
+    value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 let canvas: ReturnType<typeof installFakeCanvas>;
 beforeEach(() => {
@@ -74,9 +81,9 @@ describe('maintenance checklist PDF', () => {
         expect(pages).toHaveLength(1);
         const page = pages[0];
         const runs = cells(doc)[0];
-        // The anchor is a picture; the words are text.
-        expect(page).toContain(' VESSEL MAINTENANCE CHECKLIST');
-        expect(canvas.draws.map((draw) => draw.text)).toContain('⚓');
+        // No emoji (130-B8): the heading is all text, nothing drawn as a picture.
+        expect(page).toContain('VESSEL MAINTENANCE CHECKLIST');
+        expect(canvas.draws.map((draw) => draw.text)).not.toContain('⚓');
         expect(page).toContain(`${MAINTENANCE_VESSEL}  |  ${LONG_DATE}  |  Engine Hours: 1,198`);
         for (const label of ['TASK', 'NEXT DUE', 'NOTES / HOURS AT COMPLETION']) expect(runs).toContain(label);
 
@@ -103,6 +110,26 @@ describe('maintenance checklist PDF', () => {
     it('says "—" for engine hours not entered', () => {
         const page = read(buildChecklistPdf(maintenanceTasks(), null, MAINTENANCE_VESSEL, jsPDF, NOW))[0];
         expect(page).toContain(`${MAINTENANCE_VESSEL}  |  ${LONG_DATE}  |  Engine Hours: —`);
+    });
+
+    it('prints no stand-in name when the boat has none (130-B8)', () => {
+        const page = read(buildChecklistPdf(maintenanceTasks(), null, '  ', jsPDF, NOW))[0];
+        expect(page).toContain(`${LONG_DATE}  |  Engine Hours: —`);
+        expect(page.join('\n')).not.toMatch(/Vessel\s+\|/);
+        expect(page.join('\n')).not.toContain('|  |');
+    });
+
+    it("prints a due day as the phone's own date, on that local day (130-B8)", () => {
+        const doc = buildChecklistPdf(maintenanceTasks(), MAINTENANCE_ENGINE_HOURS, MAINTENANCE_VESSEL, jsPDF, NOW);
+        const winches = maintenanceTasks().find((task) => task.id === 't3');
+        expect(winches?.next_due_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        const [year, month, day] = (winches?.next_due_date ?? '').split('-').map(Number);
+        const localDay = new Date(year, month - 1, day).toLocaleDateString(undefined, {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+        });
+        expect(cells(doc)[0]).toContain(localDay);
     });
 
     it('runs forty jobs over two pages, repeats the column header, and keeps every row on the paper', () => {
@@ -155,8 +182,10 @@ describe('maintenance service history PDF', () => {
         const pages = read(doc);
         const runs = cells(doc);
         const all = runs.flat();
-        expect(pages[0]).toContain(' OFFICIAL VESSEL SERVICE HISTORY');
-        expect(canvas.draws.map((draw) => draw.text)).toContain('📋');
+        // No emoji, and no claim to be 'official' (130-B8).
+        expect(pages[0]).toContain('VESSEL SERVICE HISTORY');
+        expect(pages[0].join('\n')).not.toContain('OFFICIAL');
+        expect(canvas.draws.map((draw) => draw.text)).not.toContain('📋');
         expect(pages[0]).toContain(`${MAINTENANCE_VESSEL}  |  Generated: ${LONG_DATE}  |  Entries: ${history.length}`);
         for (const page of runs) {
             for (const label of ['DATE', 'COMPLETED', 'TASK PERFORMED', 'ENGINE', 'HRS', 'NOTES / CONDITION', 'COST']) {
@@ -166,32 +195,48 @@ describe('maintenance service history PDF', () => {
         // The first entry's row, cell by cell, in column order.
         const first = all.indexOf('Change engine oil and filter');
         expect(all.slice(first - 1, first + 4)).toEqual([
-            new Date(history[0].completed_at).toLocaleDateString('en-GB', {
-                day: '2-digit',
+            new Date(history[0].completed_at).toLocaleDateString(undefined, {
+                day: 'numeric',
                 month: 'short',
                 year: 'numeric',
             }),
             'Change engine oil and filter',
             '1,110',
             'Oil was clean; 7.5 L of 15W-40',
-            '$142.50',
+            // The figure typed, no '$' (130-B8): the records carry no currency.
+            money(142.5),
         ]);
         expect(all).toContain('Unknown Task');
-        expect(all).toContain('$25.00');
+        expect(all).toContain(money(25));
         expect(all.join(' ').replace(/\s+/g, ' ')).toContain('so a search should expect two beacons.');
         for (let index = 1; index <= 30; index++) {
             expect(all.filter((text) => text === `Inspect and grease seacock ${index}`)).toHaveLength(1);
         }
         const total = all.indexOf('TOTAL EXPENDITURE');
-        expect(all[total + 1]).toBe('$2692.00');
+        expect(all[total + 1]).toBe(money(2692));
+        expect(all.join(' ')).not.toContain('$');
         expect(pages[pages.length - 1]).toContain(`Generated by Thalassa Marine Weather — ${LONG_DATE}`);
         expectOnPaper(doc);
     });
 
-    it('prints no total row when nothing cost money', () => {
+    it('drops the cost column and the total when nothing cost money (130-B8)', () => {
         const history = maintenanceHistory().map((entry) => ({ ...entry, cost: null }));
-        const all = cells(buildServiceHistoryPdf(history, MAINTENANCE_VESSEL, jsPDF, NOW)).flat();
+        const doc = buildServiceHistoryPdf(history, MAINTENANCE_VESSEL, jsPDF, NOW);
+        const all = cells(doc).flat();
         expect(all).not.toContain('TOTAL EXPENDITURE');
+        expect(all).not.toContain('COST');
+        // The notes take the room: the long note's first line holds more words.
+        const withCost = cells(buildServiceHistoryPdf(maintenanceHistory(), MAINTENANCE_VESSEL, jsPDF, NOW)).flat();
+        const firstNoteLine = (runs: string[]) =>
+            runs.find((text) => text.startsWith('Carries a spare impeller')) ?? '';
+        expect(firstNoteLine(all).length).toBeGreaterThan(firstNoteLine(withCost).length);
+        expectOnPaper(doc);
+    });
+
+    it('writes each completed day as the phone writes dates', () => {
+        const history = maintenanceHistory();
+        const all = cells(buildServiceHistoryPdf(history, MAINTENANCE_VESSEL, jsPDF, NOW)).flat();
+        for (const entry of history.slice(0, 5)) expect(all).toContain(pdfShortDate(entry.completed_at));
     });
 });
 
@@ -208,28 +253,105 @@ describe('maintenance PDF exports', () => {
         return { file: () => shared };
     }
 
-    it('shares the checklist as a PDF file, without doc.html()', async () => {
+    afterEach(() => {
+        Reflect.deleteProperty(navigator, 'canShare');
+        Reflect.deleteProperty(navigator, 'share');
+        vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+    });
+
+    /** Nothing reaches for the server: the PDFs are printed from the rows passed in (130-B8). */
+    function forbidServer() {
+        return [
+            vi.spyOn(MaintenanceService, 'getTasks').mockRejectedValue(new Error('offline')),
+            vi.spyOn(MaintenanceService, 'getAllTasks').mockRejectedValue(new Error('offline')),
+            vi.spyOn(MaintenanceService, 'getAllHistory').mockRejectedValue(new Error('offline')),
+        ];
+    }
+
+    it("shares the checklist of the phone's own tasks as a PDF file, without doc.html() or the server", async () => {
         // jsPDF copies its API methods onto each document it creates, so this sees doc.html().
         const html = vi.spyOn(jsPDF.API as unknown as { html: () => void }, 'html');
-        vi.spyOn(MaintenanceService, 'getTasks').mockResolvedValue(maintenanceTasks());
-        const share = captureShare();
-        await exportChecklist(MAINTENANCE_ENGINE_HOURS, MAINTENANCE_VESSEL);
-        expect(share.file()?.type).toBe('application/pdf');
-        expect(share.file()?.name).toBe(`Maintenance_Checklist_${NOW.toISOString().slice(0, 10)}.pdf`);
-        expect(html).not.toHaveBeenCalled();
-    }, 10000);
-
-    it('shares the service history with task titles joined in', async () => {
-        const history = maintenanceHistory();
-        vi.spyOn(MaintenanceService, 'getAllHistory').mockResolvedValue(history);
-        vi.spyOn(MaintenanceService, 'getAllTasks').mockResolvedValue(
-            maintenanceTasks().map((task, index) => ({ ...task, id: history[index]?.task_id ?? task.id })),
-        );
+        const server = forbidServer();
         const draw = vi.spyOn(PdfTextWriter.prototype, 'draw');
         const share = captureShare();
-        await exportServiceHistory(MAINTENANCE_VESSEL);
-        expect(share.file()?.name).toBe(`Service_History_${NOW.toISOString().slice(0, 10)}.pdf`);
+        const outcome = await exportChecklist(maintenanceTasks(), MAINTENANCE_ENGINE_HOURS, MAINTENANCE_VESSEL);
+        expect(outcome).toBe('shared');
+        expect(share.file()?.type).toBe('application/pdf');
+        // The local day, not the UTC one.
+        expect(share.file()?.name).toBe(`Maintenance_Checklist_${pdfFileDay(NOW)}.pdf`);
+        expect(draw.mock.calls.map((call) => call[0] as string)).toContain(maintenanceTasks()[0].title);
+        expect(html).not.toHaveBeenCalled();
+        for (const spy of server) expect(spy).not.toHaveBeenCalled();
+    }, 10000);
+
+    it('leaves paused tasks off the checklist', async () => {
+        const draw = vi.spyOn(PdfTextWriter.prototype, 'draw');
+        captureShare();
+        const tasks = maintenanceTasks().map((task) => (task.id === 't5' ? { ...task, is_active: false } : task));
+        await exportChecklist(tasks, MAINTENANCE_ENGINE_HOURS, MAINTENANCE_VESSEL);
+        const drawn = draw.mock.calls.map((call) => call[0] as string);
+        expect(drawn).toContain('Change engine oil and filter');
+        expect(drawn).not.toContain('Liferaft service');
+    }, 10000);
+
+    it('makes no PDF at all from no tasks, or only paused ones', async () => {
+        const share = captureShare();
+        const draw = vi.spyOn(PdfTextWriter.prototype, 'draw');
+        expect(await exportChecklist([], MAINTENANCE_ENGINE_HOURS, MAINTENANCE_VESSEL)).toBe('empty');
+        const paused = maintenanceTasks().map((task) => ({ ...task, is_active: false }));
+        expect(await exportChecklist(paused, null, MAINTENANCE_VESSEL)).toBe('empty');
+        expect(share.file()).toBeUndefined();
+        expect(draw).not.toHaveBeenCalled();
+    });
+
+    it("shares the phone's service history with task titles joined in, newest first", async () => {
+        const history = maintenanceHistory();
+        const server = forbidServer();
+        const tasks = maintenanceTasks().map((task, index) => ({ ...task, id: history[index]?.task_id ?? task.id }));
+        const draw = vi.spyOn(PdfTextWriter.prototype, 'draw');
+        const share = captureShare();
+        // Handed over oldest first: the ledger still reads newest first.
+        const outcome = await exportServiceHistory([...history].reverse(), tasks, MAINTENANCE_VESSEL);
+        expect(outcome).toBe('shared');
+        expect(share.file()?.name).toBe(`Service_History_${pdfFileDay(NOW)}.pdf`);
         const drawn = draw.mock.calls.map((call) => call[0] as string);
         expect(drawn).toContain(maintenanceTasks()[0].title);
+        expect(drawn.indexOf('Change engine oil and filter')).toBeLessThan(drawn.indexOf('Replace raw water impeller'));
+        for (const spy of server) expect(spy).not.toHaveBeenCalled();
+    }, 10000);
+
+    it('makes no service history PDF from no records', async () => {
+        const share = captureShare();
+        expect(await exportServiceHistory([], maintenanceTasks(), MAINTENANCE_VESSEL)).toBe('empty');
+        expect(share.file()).toBeUndefined();
+    });
+
+    it("opens the iPhone's share sheet, titled with the boat's name", async () => {
+        vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+        vi.mocked(Filesystem.writeFile).mockClear();
+        vi.mocked(Share.share).mockClear();
+        const outcome = await exportChecklist(maintenanceTasks(), MAINTENANCE_ENGINE_HOURS, MAINTENANCE_VESSEL);
+        expect(outcome).toBe('shared');
+        expect(Filesystem.writeFile).toHaveBeenCalledWith(
+            expect.objectContaining({ path: `Maintenance_Checklist_${pdfFileDay(NOW)}.pdf` }),
+        );
+        expect(Share.share).toHaveBeenCalledWith(
+            expect.objectContaining({ title: `Maintenance checklist - ${MAINTENANCE_VESSEL}` }),
+        );
+    }, 10000);
+
+    it('says cancelled, and downloads nothing, when the share sheet is dismissed', async () => {
+        Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => true });
+        Object.defineProperty(navigator, 'share', {
+            configurable: true,
+            value: vi.fn(async () => {
+                throw Object.assign(new Error('Share canceled'), { name: 'AbortError' });
+            }),
+        });
+        const click = vi.spyOn(HTMLAnchorElement.prototype, 'click');
+        expect(await exportServiceHistory(maintenanceHistory(), maintenanceTasks(), MAINTENANCE_VESSEL)).toBe(
+            'cancelled',
+        );
+        expect(click).not.toHaveBeenCalled();
     }, 10000);
 });

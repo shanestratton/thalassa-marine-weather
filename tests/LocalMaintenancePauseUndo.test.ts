@@ -369,3 +369,24 @@ describe('Remove a mistaken record', () => {
         expect(LocalMaintenanceService.getHistory('t-impeller')).toHaveLength(3);
     });
 });
+
+/**
+ * Every record on the phone, for the service history PDF (130-B8): it was
+ * fetched from the server, so offline at sea it came out blank.
+ */
+describe('The whole service history, from the phone', () => {
+    it("lists every task's records, newest first, and only the binder's", async () => {
+        await signInSkipper();
+        await mergePulledRecords('maintenance_history', [
+            record('h-antifoul', SKIPPER, 't-antifoul', '2026-09-20T10:00:00.000Z'),
+            record('h-stranger', 'someone-else', 't-impeller', '2026-09-30T10:00:00.000Z'),
+        ]);
+        expect(LocalMaintenanceService.getAllHistory().map((h) => h.id)).toEqual(['h-antifoul', 'h-3', 'h-2', 'h-1']);
+        expect(queued()).toEqual([]);
+    });
+
+    it("gives crew on a shared R&M the skipper's ledger", async () => {
+        await signInCrew(false);
+        expect(LocalMaintenanceService.getAllHistory().map((h) => h.id)).toEqual(['h-3', 'h-2', 'h-1']);
+    });
+});

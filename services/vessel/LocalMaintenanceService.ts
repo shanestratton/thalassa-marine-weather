@@ -296,6 +296,12 @@ export class LocalMaintenanceService {
         return items.sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
     }
 
+    /** Every service record of the binder, newest first: the service history PDF (130-B8). */
+    static getAllHistory(): MaintenanceHistory[] {
+        const items = query<MaintenanceHistory>(HISTORY_TABLE, binderRowFilter(REGISTER));
+        return items.sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
+    }
+
     /**
      * Remove one mistaken record (126-B7a). The task's next due is left as it
      * is. Owner only: crew are refused before anything is queued.
