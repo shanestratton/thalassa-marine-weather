@@ -1,64 +1,59 @@
 /**
- * InventoryScanner — Full-screen barcode scanning view with bottom sheet.
+ * InventoryScanner — the Add item sheet for Ship's Stores, with Scan.
  *
- * Uses the device camera via BarcodeDetector API (or fallback manual entry).
- * On scan:
- *   - If barcode exists → show item details with quantity ± controls
- *   - If barcode is new → show "Add New Item" form with barcode pre-filled
+ * Scan reads a barcode (services/native/scanBarcode: the iPhone's scanner, or
+ * the camera in a browser). A code already in Stores opens that item to change
+ * its count, on the page's own ± path, instead of making a second one; a new
+ * code fills the Barcode field. A camera Thalassa may not use, or a scanner
+ * that isn't there, is said in the sheet (131-B13).
+ *
+ * 131-B13: the full-screen camera this file used to open was never shown (the
+ * one place that opens it went straight to this form), and the only "found it,
+ * change the count" view went with it, so a scanned item already in Stores was
+ * made again.
  */
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../../utils/createLogger';
-
-const log = createLogger('InventoryScanner');
 import type { InventoryItem, InventoryCategory, StoresBox } from '../../types';
 import { LocalInventoryService as InventoryService } from '../../services/vessel/LocalInventoryService';
+import { isLowStock } from '../../services/vessel/inventoryStats';
+import { scanBarcode, type BarcodeScan } from '../../services/native/scanBarcode';
 import { triggerHaptic } from '../../utils/system';
-import { Capacitor } from '@capacitor/core';
 import { toast } from '../Toast';
 import { FormField } from '../ui/FormField';
 import { ModalSheet } from '../ui/ModalSheet';
-import { OverlayPortal } from '../ui/OverlayPortal';
-import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { Button } from '../ui/Button';
 import { AlertTriangleIcon, MapPinIcon } from '../Icons';
+import { StoresCategoryGrid } from './inventory/StoresCategoryGrid';
+
+const log = createLogger('InventoryScanner');
 
 interface InventoryScannerProps {
     onClose: () => void;
     onItemSaved: () => void; // Refresh parent list
-    startInManualMode?: boolean; // Skip camera and go straight to add form
     /** "New item here" on a box page (126-11a): born in this box, at its place. */
     box?: StoresBox;
+    /**
+     * The Stores page's ± (131-B13): a delta, one at a time, with the shopping
+     * list for low stock as on the cards and the box page. Resolves the row as
+     * it now stands (null when nothing changed).
+     */
+    onAdjust: (id: string, delta: number) => Promise<InventoryItem | null>;
 }
 
-import { StoresCategoryGrid } from './inventory/StoresCategoryGrid';
-import { Button } from '../ui/Button';
+/** A count typed into the form: a number, never below nothing (131-B13). */
+const count = (typed: string) => Math.max(0, parseInt(typed) || 0);
 
-export const InventoryScanner: React.FC<InventoryScannerProps> = ({
-    onClose,
-    onItemSaved,
-    startInManualMode = false,
-    box,
-}) => {
-    // ── Scanner state ──
-    const [scanning, setScanning] = useState(!startInManualMode);
-    const scanningRef = useRef(scanning);
-    const [cameraError, setCameraError] = useState<string | null>(null);
+export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onItemSaved, box, onAdjust }) => {
+    // ── Scan ──
+    /** What the last scan could not do, in words, under the Barcode field. */
+    const [scanProblem, setScanProblem] = useState<string | null>(null);
+    /** The browser's camera, in the sheet (the iPhone's scanner is its own screen). */
+    const [webCamera, setWebCamera] = useState(false);
     const videoRef = useRef<HTMLVideoElement>(null);
-    const streamRef = useRef<MediaStream | null>(null);
-    const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    const cameraCloseRef = useRef<HTMLButtonElement>(null);
-
-    // ── Inline barcode scanner (manual mode) ──
-    const [showInlineScanner, setShowInlineScanner] = useState(false);
-    const inlineVideoRef = useRef<HTMLVideoElement>(null);
-    const inlineStreamRef = useRef<MediaStream | null>(null);
-    const inlineScanRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-    // ── Bottom sheet state ──
-    const [sheetMode, setSheetMode] = useState<'hidden' | 'existing' | 'new'>(startInManualMode ? 'new' : 'hidden');
-    const [scannedBarcode, setScannedBarcode] = useState('');
-    const [foundItem, setFoundItem] = useState<InventoryItem | null>(null);
-    const [saving, setSaving] = useState(false);
+    /** The item a scanned code is already on: the sheet shows its count to change. */
+    const [found, setFound] = useState<InventoryItem | null>(null);
 
     // ── New item form ──
     const [newItem, setNewItem] = useState({
@@ -73,303 +68,56 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
         description: '',
         expiry_date: '',
     });
+    // One Add at a time: state lands a render late, so the ref is the guard.
+    const savingRef = useRef(false);
+    const [saving, setSaving] = useState(false);
 
-    // ── Camera setup (skip if starting in manual mode) ──
-    useEffect(() => {
-        if (!startInManualMode) {
-            startCamera();
-        }
-        return () => stopCamera();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    const startCamera = async () => {
-        // On native: use ML Kit scanner instead of camera stream
-        if (Capacitor.isNativePlatform()) {
-            try {
-                const { BarcodeScanner, BarcodeFormat } = await import('../../services/native/dataScanner');
-
-                const { camera } = await BarcodeScanner.checkPermissions();
-                if (camera !== 'granted') {
-                    const result = await BarcodeScanner.requestPermissions();
-                    if (result.camera !== 'granted') {
-                        setCameraError('Camera permission denied. Please enable in Settings.');
-                        return;
-                    }
-                }
-
-                const { barcodes } = await BarcodeScanner.scan({
-                    formats: [
-                        BarcodeFormat.Ean13,
-                        BarcodeFormat.Ean8,
-                        BarcodeFormat.UpcA,
-                        BarcodeFormat.UpcE,
-                        BarcodeFormat.Code128,
-                        BarcodeFormat.Code39,
-                        BarcodeFormat.QrCode,
-                    ],
-                });
-
-                if (barcodes.length > 0 && barcodes[0].rawValue) {
-                    handleBarcodeScan(barcodes[0].rawValue);
-                } else {
-                    // User cancelled
-                    handleManualEntry();
-                }
-            } catch (err: unknown) {
-                const msg = err instanceof Error ? err.message : '';
-                if (msg.includes('canceled') || msg.includes('cancelled')) {
-                    handleManualEntry();
-                } else {
-                    setCameraError('Scanner unavailable. Use manual entry below.');
-                }
-            }
+    /** A scanned code: the item it is already on, or the Barcode field. */
+    const take = async (result: BarcodeScan) => {
+        if (!result.code) {
+            setScanProblem(result.problem);
             return;
         }
-
-        // Web: use camera stream + BarcodeDetector API
+        const code = result.code;
+        triggerHaptic('medium');
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    facingMode: 'environment', // Rear camera
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 },
-                },
-            });
-            streamRef.current = stream;
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-                await videoRef.current.play();
-            }
-            startBarcodeDetection();
-        } catch (err) {
-            setCameraError('Camera access denied. Use manual entry below.');
-        }
-    };
-
-    const stopCamera = () => {
-        if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
-        if (streamRef.current) {
-            for (const track of streamRef.current.getTracks()) track.stop();
-            streamRef.current = null;
-        }
-        // The INLINE scanner's stream + 500 ms detect interval too — this is
-        // the unmount cleanup's only teardown, and since the sole production
-        // mount uses startInManualMode, the inline path is the only web
-        // camera actually exercised. Cancel/save/tab-away all unmount without
-        // closeInlineScanner(), leaving the camera indicator lit and the
-        // interval firing at a null video ref for the session (audit
-        // 2026-08-02).
-        if (inlineScanRef.current) {
-            clearInterval(inlineScanRef.current);
-            inlineScanRef.current = null;
-        }
-        if (inlineStreamRef.current) {
-            for (const track of inlineStreamRef.current.getTracks()) track.stop();
-            inlineStreamRef.current = null;
-        }
-    };
-
-    // ── Inline scanner for manual mode ──
-    const openInlineScanner = async () => {
-        // Native platform: use Capacitor ML Kit barcode scanner
-        if (Capacitor.isNativePlatform()) {
-            try {
-                const { BarcodeScanner, BarcodeFormat } = await import('../../services/native/dataScanner');
-
-                // Check & request camera permission
-                const { camera } = await BarcodeScanner.checkPermissions();
-                if (camera !== 'granted') {
-                    const result = await BarcodeScanner.requestPermissions();
-                    if (result.camera !== 'granted') {
-                        setCameraError('Camera permission denied. Please enable in Settings.');
-                        return;
-                    }
-                }
-
-                // Launch native scanner
-                const { barcodes } = await BarcodeScanner.scan({
-                    formats: [
-                        BarcodeFormat.Ean13,
-                        BarcodeFormat.Ean8,
-                        BarcodeFormat.UpcA,
-                        BarcodeFormat.UpcE,
-                        BarcodeFormat.Code128,
-                        BarcodeFormat.Code39,
-                        BarcodeFormat.QrCode,
-                    ],
-                });
-
-                if (barcodes.length > 0 && barcodes[0].rawValue) {
-                    const code = barcodes[0].rawValue;
-                    setNewItem((prev) => ({ ...prev, barcode: code }));
-                    triggerHaptic('medium');
-                }
-            } catch (err: unknown) {
-                // User cancelled or error
-                const msg = err instanceof Error ? err.message : '';
-                if (msg.includes('canceled') || msg.includes('cancelled')) {
-                    // User pressed back — that's fine
-                } else {
-                    setCameraError('Scanner unavailable. Enter barcode manually.');
-                }
-            }
-            return;
-        }
-
-        // Web fallback: use BarcodeDetector API + camera stream
-        setShowInlineScanner(true);
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-            });
-            inlineStreamRef.current = stream;
-            // Wait for the video element to mount
-            await new Promise((r) => setTimeout(r, 100));
-            if (inlineVideoRef.current) {
-                inlineVideoRef.current.srcObject = stream;
-                await inlineVideoRef.current.play();
-            }
-            // Start detection
-            if (!('BarcodeDetector' in window)) {
-                setCameraError('Barcode detection not supported on this device.');
-                closeInlineScanner();
+            const existing = await InventoryService.findByBarcode(code);
+            if (existing) {
+                setFound(existing);
                 return;
             }
-            const detector = new (
-                window as unknown as {
-                    BarcodeDetector: new (opts: { formats: string[] }) => {
-                        detect: (src: HTMLVideoElement) => Promise<{ rawValue: string }[]>;
-                    };
-                }
-            ).BarcodeDetector({
-                formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'],
-            });
-            inlineScanRef.current = setInterval(async () => {
-                if (!inlineVideoRef.current) return;
-                try {
-                    const barcodes = await detector.detect(inlineVideoRef.current);
-                    if (barcodes.length > 0 && barcodes[0].rawValue.length > 3) {
-                        const code = barcodes[0].rawValue;
-                        setNewItem((prev) => ({ ...prev, barcode: code }));
-                        triggerHaptic('medium');
-                        closeInlineScanner();
-                    }
-                } catch (e) {
-                    log.warn(' frame failed:', e);
-                }
-            }, 500);
         } catch (e) {
-            log.warn(e);
-            setCameraError('Camera access denied.');
-            setShowInlineScanner(false);
+            log.warn(' barcode look-up failed:', e);
         }
+        setNewItem((prev) => ({ ...prev, barcode: code }));
     };
 
-    const closeInlineScanner = () => {
-        if (inlineScanRef.current) {
-            clearInterval(inlineScanRef.current);
-            inlineScanRef.current = null;
-        }
-        if (inlineStreamRef.current) {
-            for (const track of inlineStreamRef.current.getTracks()) track.stop();
-            inlineStreamRef.current = null;
-        }
-        setShowInlineScanner(false);
-    };
+    // The browser's camera runs while its <video> is in the sheet; closing it,
+    // or the sheet, aborts the scan and puts the camera out.
+    useEffect(() => {
+        if (!webCamera) return;
+        const stop = new AbortController();
+        void scanBarcode({ video: videoRef.current, signal: stop.signal }).then((result) => {
+            if (stop.signal.aborted) return;
+            setWebCamera(false);
+            void take(result);
+        });
+        return () => stop.abort();
+    }, [webCamera]);
 
-    const startBarcodeDetection = () => {
-        // Use BarcodeDetector API if available (Chrome, Safari 17.2+)
-        if (!('BarcodeDetector' in window)) {
-            setCameraError('Barcode detection not supported. Use manual entry.');
+    const scan = async () => {
+        setScanProblem(null);
+        if (!Capacitor.isNativePlatform()) {
+            setWebCamera(true);
             return;
         }
-
-        const detector = new (
-            window as unknown as {
-                BarcodeDetector: new (opts: { formats: string[] }) => {
-                    detect: (src: HTMLVideoElement) => Promise<{ rawValue: string }[]>;
-                };
-            }
-        ).BarcodeDetector({
-            formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'],
-        });
-
-        scanIntervalRef.current = setInterval(async () => {
-            if (!videoRef.current || !scanningRef.current) return;
-            try {
-                const barcodes = await detector.detect(videoRef.current);
-                if (barcodes.length > 0) {
-                    const code = barcodes[0].rawValue;
-                    if (code && code.length > 3) {
-                        handleBarcodeScan(code);
-                    }
-                }
-            } catch (e) {
-                log.warn(e);
-                // Detection frame failed — continue
-            }
-        }, 500); // Scan every 500ms
-    };
-
-    // ── Barcode scan handler ──
-    const handleBarcodeScan = useCallback(
-        async (barcode: string) => {
-            // BarcodeDetector calls can overlap when a slow frame takes longer
-            // than the polling interval. Claim the scan synchronously so a
-            // second in-flight result cannot open or save the same item again.
-            if (sheetMode !== 'hidden' || !scanningRef.current) return;
-            scanningRef.current = false;
-            setScanning(false);
-            setScannedBarcode(barcode);
-            triggerHaptic('medium');
-
-            try {
-                const existing = await InventoryService.findByBarcode(barcode);
-                if (existing) {
-                    setFoundItem(existing);
-                    setSheetMode('existing');
-                } else {
-                    setNewItem((prev) => ({ ...prev, barcode }));
-                    setSheetMode('new');
-                }
-            } catch (e) {
-                log.warn(e);
-                setNewItem((prev) => ({ ...prev, barcode }));
-                setSheetMode('new');
-            }
-        },
-        [sheetMode],
-    );
-
-    // ── Manual barcode entry ──
-    const handleManualEntry = () => {
-        scanningRef.current = false;
-        setScanning(false);
-        setSheetMode('new');
-        setNewItem((prev) => ({ ...prev, barcode: '' }));
-    };
-
-    // ── Quantity adjustment for existing item ──
-    const handleQuantityAdjust = async (delta: number) => {
-        if (!foundItem) return;
-        setSaving(true);
-        try {
-            const updated = await InventoryService.adjustQuantity(foundItem.id, delta);
-            setFoundItem(updated);
-            triggerHaptic('light');
-            onItemSaved();
-            toast.success(`Quantity ${delta > 0 ? 'increased' : 'decreased'}`);
-        } catch (e) {
-            log.warn(' qty adjust failed:', e);
-            toast.error('Failed to update quantity');
-        }
-        setSaving(false);
+        await take(await scanBarcode());
     };
 
     // ── Save new item ──
     const handleSaveNew = async () => {
-        if (!newItem.item_name.trim()) return;
+        if (!newItem.item_name.trim() || savingRef.current) return;
+        savingRef.current = true;
         setSaving(true);
         try {
             await InventoryService.create({
@@ -384,35 +132,18 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
             triggerHaptic('medium');
             onItemSaved();
             toast.success("Item added to Ship's Stores");
-            // In manual mode, close entirely instead of showing camera
-            if (startInManualMode) {
-                onClose();
-            } else {
-                dismissSheet();
-            }
+            onClose();
         } catch (e) {
             log.warn(' save failed:', e);
             toast.error('Failed to save item');
+        } finally {
+            savingRef.current = false;
+            setSaving(false);
         }
-        setSaving(false);
     };
 
-    const dismissSheet = () => {
-        setSheetMode('hidden');
-        setFoundItem(null);
-        setScannedBarcode('');
-        scanningRef.current = true;
-        setScanning(true);
-    };
-    const cameraDialogRef = useFocusTrap<HTMLDivElement>(!startInManualMode && sheetMode === 'hidden', {
-        initialFocusRef: cameraCloseRef,
-        onEscape: onClose,
-    });
-    // The camera-mode sheets render through ModalSheet, which owns their
-    // focus trap and Escape handling.
-
-    // ── Manual mode: Add Item form via ModalSheet (keyboard-aware) ──
-    if (startInManualMode && sheetMode === 'new') {
+    // ── Add item form via ModalSheet (keyboard-aware) ──
+    if (!found) {
         return (
             <ModalSheet isOpen={true} onClose={onClose} title={box ? `Add to ${box.name}` : 'Add item'} zIndex="z-2000">
                 <div className="space-y-2">
@@ -448,8 +179,9 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                             <button
                                 aria-label="Scan barcode"
                                 type="button"
-                                onClick={openInlineScanner}
-                                className="flex-1 min-h-11 flex items-center justify-center gap-1.5 bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 text-xs font-bold hover:bg-sky-600/30 transition-colors active:scale-95"
+                                onClick={() => void scan()}
+                                disabled={webCamera}
+                                className="flex-1 min-h-11 flex items-center justify-center gap-1.5 bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 text-xs font-bold hover:bg-sky-600/30 transition-colors active:scale-95 disabled:opacity-50"
                             >
                                 <svg
                                     className="w-4 h-4"
@@ -472,18 +204,19 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 Scan
                             </button>
                         </div>
+                        {/* The camera refused, or no scanner here: said where the skipper is looking. */}
+                        {scanProblem && (
+                            <p role="alert" className="flex items-start gap-1.5 mt-1 text-xs font-bold text-amber-400">
+                                <AlertTriangleIcon className="w-3.5 h-3.5 shrink-0 mt-px" />
+                                <span>{scanProblem}</span>
+                            </p>
+                        )}
                     </div>
 
-                    {/* Inline camera scanner overlay */}
-                    {showInlineScanner && (
+                    {/* The browser's camera, in the sheet */}
+                    {webCamera && (
                         <div className="relative w-full h-40 rounded-xl overflow-hidden border border-sky-500/30 bg-black">
-                            <video
-                                ref={inlineVideoRef}
-                                className="w-full h-full object-cover"
-                                playsInline
-                                muted
-                                autoPlay
-                            />
+                            <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                 <div className="w-3/4 h-12 border-2 border-sky-400/60 rounded-lg">
                                     <div
@@ -498,7 +231,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 </span>
                             </div>
                             <button
-                                onClick={closeInlineScanner}
+                                onClick={() => setWebCamera(false)}
                                 className="hit-target-44 absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white/70 hover:text-white"
                                 aria-label="Close scanner"
                             >
@@ -521,14 +254,14 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                             label="Quantity"
                             type="number"
                             value={newItem.quantity}
-                            onChange={(v) => setNewItem((prev) => ({ ...prev, quantity: parseInt(v) || 0 }))}
+                            onChange={(v) => setNewItem((prev) => ({ ...prev, quantity: count(v) }))}
                             min={0}
                         />
                         <FormField
                             label="Min alert"
                             type="number"
                             value={newItem.min_quantity}
-                            onChange={(v) => setNewItem((prev) => ({ ...prev, min_quantity: parseInt(v) || 0 }))}
+                            onChange={(v) => setNewItem((prev) => ({ ...prev, min_quantity: count(v) }))}
                             min={0}
                         />
                     </div>
@@ -588,331 +321,73 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
         );
     }
 
-    // ── Camera scanner mode (original layout) ──
+    // ── A scanned code already in Stores: its count, to change (131-B13) ──
+    const adjust = async (delta: number) => {
+        const updated = await onAdjust(found.id, delta);
+        if (updated) setFound(updated);
+    };
     return (
-        <OverlayPortal
-            ref={cameraDialogRef}
-            role={sheetMode === 'hidden' ? 'dialog' : 'presentation'}
-            aria-modal={sheetMode === 'hidden' ? 'true' : undefined}
-            aria-label={sheetMode === 'hidden' ? 'Inventory barcode scanner' : undefined}
-            className="bg-black flex flex-col"
-        >
-            {/* ── Camera View ── */}
-            <div className="relative flex-1 overflow-hidden">
-                <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
-
-                {/* Targeting reticle overlay */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    {/* Darkened corners */}
-                    <div className="absolute inset-0 bg-black/40" />
-                    <div className="relative w-64 h-40 z-10">
-                        {/* Clear scanning area */}
-                        <div className="absolute inset-0 bg-transparent border-2 border-sky-400 rounded-xl shadow-[0_0_30px_rgba(56,189,248,0.3)]" />
-                        {/* Corner marks */}
-                        <div className="absolute -top-0.5 -left-0.5 w-6 h-6 border-t-4 border-l-4 border-sky-400 rounded-tl-lg" />
-                        <div className="absolute -top-0.5 -right-0.5 w-6 h-6 border-t-4 border-r-4 border-sky-400 rounded-tr-lg" />
-                        <div className="absolute -bottom-0.5 -left-0.5 w-6 h-6 border-b-4 border-l-4 border-sky-400 rounded-bl-lg" />
-                        <div className="absolute -bottom-0.5 -right-0.5 w-6 h-6 border-b-4 border-r-4 border-sky-400 rounded-br-lg" />
-                        {/* Scan line animation */}
-                        {scanning && (
-                            <div
-                                className="absolute inset-x-2 h-0.5 bg-linear-to-r from-transparent via-sky-400 to-transparent animate-pulse"
-                                style={{ top: '50%' }}
-                            />
-                        )}
-                    </div>
+        <ModalSheet isOpen={true} onClose={onClose} title={found.item_name} zIndex="z-2000">
+            <p className="text-xs font-bold text-emerald-400">Already in Ship&apos;s Stores: change the count here.</p>
+            <div className="flex items-start justify-between gap-3 mt-2">
+                <div className="flex-1 min-w-0">
+                    <p className="text-label font-bold text-sky-400 uppercase tracking-widest">{found.category}</p>
+                    {found.location_zone && (
+                        <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                            <MapPinIcon className="w-3.5 h-3.5 shrink-0" />
+                            <span>
+                                {found.location_zone}
+                                {found.location_specific ? ` — ${found.location_specific}` : ''}
+                            </span>
+                        </p>
+                    )}
                 </div>
-
-                {/* Header bar */}
-                <div className="absolute top-0 left-0 right-0 z-20 bg-linear-to-b from-black/80 to-transparent pt-[max(1rem,env(safe-area-inset-top))] px-4 pb-8">
-                    <div className="flex items-center justify-between">
-                        <button
-                            ref={cameraCloseRef}
-                            onClick={onClose}
-                            aria-label="Close camera"
-                            className="p-2 rounded-xl bg-white/10"
-                        >
-                            <svg
-                                className="w-6 h-6 text-white"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                        <span className="text-sm font-black text-white uppercase tracking-widest">Scan item</span>
-                        <button
-                            onClick={handleManualEntry}
-                            className="min-h-[44px] px-3 py-2 rounded-xl bg-white/10 text-xs font-bold text-white"
-                        >
-                            Type it in
-                        </button>
-                    </div>
-                </div>
-
-                {/* Camera error */}
-                {cameraError && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-30">
-                        <div className="text-center px-8">
-                            <p className="text-amber-400 text-sm font-bold mb-4">{cameraError}</p>
-                            <button
-                                onClick={handleManualEntry}
-                                className="min-h-[44px] px-6 py-3 bg-sky-600 text-white rounded-xl text-sm font-bold"
-                            >
-                                Type it in instead
-                            </button>
-                        </div>
-                    </div>
+                {found.barcode && (
+                    <span className="text-label font-mono text-gray-400 bg-white/5 px-2 py-1 rounded-lg">
+                        {found.barcode}
+                    </span>
                 )}
-
-                {/* Scanning indicator */}
-                <div className="absolute bottom-4 left-0 right-0 text-center z-20">
-                    <p
-                        className={`text-xs font-bold uppercase tracking-widest ${scanning ? 'text-sky-400 animate-pulse' : 'text-emerald-400'}`}
-                    >
-                        {scanning ? 'Scanning for barcode…' : `Scanned: ${scannedBarcode}`}
-                    </p>
-                </div>
             </div>
 
-            {/* ═══════════════════════════════════════════ */}
-            {/* Existing Item — centred ModalSheet over the camera (house rule:
-                no bottom sheets). z-2000 clears the scanner's own z-1100 layer. */}
-            {/* ═══════════════════════════════════════════ */}
-            {sheetMode === 'existing' && foundItem && (
-                <ModalSheet isOpen={true} onClose={dismissSheet} title={foundItem.item_name} zIndex="z-2000">
-                    <div className="flex items-start justify-between gap-3 mb-4">
-                        <div className="flex-1 min-w-0">
-                            <p className="text-label font-bold text-sky-400 uppercase tracking-widest">
-                                {foundItem.category}
-                            </p>
-                            {foundItem.location_zone && (
-                                <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                                    <MapPinIcon className="w-3.5 h-3.5 shrink-0" />
-                                    <span>
-                                        {foundItem.location_zone}
-                                        {foundItem.location_specific ? ` — ${foundItem.location_specific}` : ''}
-                                    </span>
-                                </p>
-                            )}
-                        </div>
-                        <span className="text-label font-mono text-gray-400 bg-white/5 px-2 py-1 rounded-lg">
-                            {scannedBarcode}
-                        </span>
-                    </div>
-
-                    {/* Quantity controls */}
-                    <div className="flex items-center justify-center gap-6 py-4 bg-white/3 border border-white/6 rounded-2xl mb-4">
-                        <button
-                            aria-label="Decrease quantity"
-                            onClick={() => handleQuantityAdjust(-1)}
-                            disabled={saving || foundItem.quantity <= 0}
-                            className="w-14 h-14 rounded-2xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 text-2xl font-black hover:bg-red-500/30 transition-all active:scale-90 disabled:opacity-30"
-                        >
-                            −
-                        </button>
-                        <div className="text-center">
-                            <p className="text-4xl font-black text-white tabular-nums">{foundItem.quantity}</p>
-                            <p className="text-label text-gray-400 uppercase tracking-widest">In stock</p>
-                        </div>
-                        <button
-                            aria-label="Increase quantity"
-                            onClick={() => handleQuantityAdjust(1)}
-                            disabled={saving}
-                            className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-2xl font-black hover:bg-emerald-500/30 transition-all active:scale-90"
-                        >
-                            +
-                        </button>
-                    </div>
-
-                    {/* Low stock warning */}
-                    {foundItem.quantity <= foundItem.min_quantity && foundItem.min_quantity > 0 && (
-                        <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl mb-4">
-                            <p className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
-                                <AlertTriangleIcon className="w-3.5 h-3.5 shrink-0" />
-                                <span>Low stock — minimum is {foundItem.min_quantity}</span>
-                            </p>
-                        </div>
-                    )}
-
-                    <button
-                        aria-label="Done reviewing inventory item"
-                        onClick={dismissSheet}
-                        className="w-full py-3 bg-white/5 text-gray-400 rounded-xl text-sm font-bold"
+            {/* The page's ± path: a delta, so the crew's counts made meanwhile add up */}
+            <div className="flex items-center justify-center gap-6 py-4 my-4 bg-white/3 border border-white/6 rounded-2xl">
+                <button
+                    aria-label={`Take one ${found.item_name}`}
+                    onClick={() => void adjust(-1)}
+                    disabled={found.quantity <= 0}
+                    className="w-14 h-14 rounded-2xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 text-2xl font-black hover:bg-red-500/30 transition-all active:scale-90 disabled:opacity-30"
+                >
+                    −
+                </button>
+                <div className="text-center">
+                    <p
+                        role="status"
+                        aria-label={`${found.item_name}: ${found.quantity}`}
+                        className="text-4xl font-black text-white tabular-nums"
                     >
-                        Done
-                    </button>
-                </ModalSheet>
+                        {found.quantity}
+                    </p>
+                    <p className="text-label text-gray-400 uppercase tracking-widest">In stock</p>
+                </div>
+                <button
+                    aria-label={`Add one ${found.item_name}`}
+                    onClick={() => void adjust(1)}
+                    className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-2xl font-black hover:bg-emerald-500/30 transition-all active:scale-90"
+                >
+                    +
+                </button>
+            </div>
+
+            {isLowStock(found) && (
+                <p className="flex items-center gap-1.5 p-3 mb-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs font-bold text-amber-400">
+                    <AlertTriangleIcon className="w-3.5 h-3.5 shrink-0" />
+                    <span>Low stock: the minimum is {found.min_quantity}</span>
+                </p>
             )}
 
-            {/* ═══════════════════════════════════════════ */}
-            {/* New Item Form (camera mode) — centred ModalSheet, as above */}
-            {/* ═══════════════════════════════════════════ */}
-            {sheetMode === 'new' && (
-                <ModalSheet isOpen={true} onClose={dismissSheet} title="Add new item" zIndex="z-2000">
-                    <div className="space-y-3">
-                        {/* Category — first */}
-                        <div>
-                            <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
-                                Category
-                            </label>
-                            <StoresCategoryGrid
-                                value={newItem.category}
-                                onChange={(category) => setNewItem((prev) => ({ ...prev, category }))}
-                            />
-                        </div>
-
-                        {/* Item name */}
-                        <div>
-                            <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
-                                Item Name *
-                            </label>
-                            <input
-                                aria-label="Item name"
-                                type="text"
-                                value={newItem.item_name}
-                                onChange={(e) => setNewItem((prev) => ({ ...prev, item_name: e.target.value }))}
-                                placeholder="e.g. Racor 2010PM-OR Fuel Filter"
-                                className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-sky-500 transition-colors placeholder:text-gray-400"
-                            />
-                        </div>
-
-                        {/* Barcode (pre-filled if scanned) */}
-                        <div>
-                            <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
-                                Barcode
-                            </label>
-                            <input
-                                aria-label="Barcode"
-                                type="text"
-                                value={newItem.barcode}
-                                onChange={(e) => setNewItem((prev) => ({ ...prev, barcode: e.target.value }))}
-                                placeholder="(auto-filled from scan)"
-                                className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-mono outline-hidden focus:border-sky-500 transition-colors placeholder:text-gray-400"
-                            />
-                        </div>
-
-                        {/* Quantity + Min */}
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
-                                    Quantity
-                                </label>
-                                <input
-                                    aria-label="Quantity"
-                                    type="number"
-                                    min="0"
-                                    value={newItem.quantity}
-                                    onChange={(e) =>
-                                        setNewItem((prev) => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))
-                                    }
-                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-sky-500 transition-colors"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
-                                    Min Alert
-                                </label>
-                                <input
-                                    aria-label="Minimum quantity alert"
-                                    type="number"
-                                    min="0"
-                                    value={newItem.min_quantity}
-                                    onChange={(e) =>
-                                        setNewItem((prev) => ({ ...prev, min_quantity: parseInt(e.target.value) || 0 }))
-                                    }
-                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-sky-500 transition-colors"
-                                />
-                            </div>
-                        </div>
-
-                        {/* Location */}
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
-                                    Zone
-                                </label>
-                                <input
-                                    aria-label="Location zone"
-                                    type="text"
-                                    value={newItem.location_zone}
-                                    onChange={(e) => setNewItem((prev) => ({ ...prev, location_zone: e.target.value }))}
-                                    placeholder="Engine Room"
-                                    onFocus={scrollInputAboveKeyboard}
-                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-sky-500 transition-colors placeholder:text-gray-400"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
-                                    Exact Spot
-                                </label>
-                                <input
-                                    aria-label="Exact storage location"
-                                    type="text"
-                                    value={newItem.location_specific}
-                                    onChange={(e) =>
-                                        setNewItem((prev) => ({ ...prev, location_specific: e.target.value }))
-                                    }
-                                    placeholder="Stbd drawer"
-                                    onFocus={scrollInputAboveKeyboard}
-                                    className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-sky-500 transition-colors placeholder:text-gray-400"
-                                />
-                            </div>
-                        </div>
-
-                        {/* Description */}
-                        <div>
-                            <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
-                                Notes
-                            </label>
-                            <input
-                                aria-label="Item notes"
-                                type="text"
-                                value={newItem.description}
-                                onChange={(e) => setNewItem((prev) => ({ ...prev, description: e.target.value }))}
-                                placeholder="Part number, batch, etc."
-                                onFocus={scrollInputAboveKeyboard}
-                                className="w-full mt-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-hidden focus:border-sky-500 transition-colors placeholder:text-gray-400"
-                            />
-                        </div>
-
-                        {/* Expiry / Service Date — full width */}
-                        <div className="min-w-0 max-w-full overflow-hidden">
-                            <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
-                                Expiry / Service Date
-                            </label>
-                            <input
-                                aria-label="Expiry or service date"
-                                type="date"
-                                value={newItem.expiry_date}
-                                onChange={(e) => setNewItem((prev) => ({ ...prev, expiry_date: e.target.value }))}
-                                className="w-full max-w-full min-w-0 mt-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-hidden focus:border-sky-500 transition-colors scheme-dark box-border"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex gap-3 mt-5">
-                        <button
-                            aria-label="Cancel adding item"
-                            onClick={dismissSheet}
-                            className="flex-1 min-h-[44px] py-3 bg-white/5 text-gray-300 rounded-xl text-sm font-bold"
-                        >
-                            Cancel
-                        </button>
-                        <Button
-                            variant="primary"
-                            onClick={handleSaveNew}
-                            disabled={!newItem.item_name.trim() || saving}
-                            className="flex-1"
-                        >
-                            {saving ? 'Adding…' : 'Add item'}
-                        </Button>
-                    </div>
-                </ModalSheet>
-            )}
-        </OverlayPortal>
+            <Button variant="primary" onClick={onClose} className="w-full">
+                Done
+            </Button>
+        </ModalSheet>
     );
 };

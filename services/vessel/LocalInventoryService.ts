@@ -109,10 +109,12 @@ export class LocalInventoryService {
         return query<InventoryItem>(TABLE, (item) => inBinder(item) && item.quantity <= item.min_quantity);
     }
 
-    /** Create a new inventory item */
+    /** Create a new inventory item. A count or minimum below nothing is refused (131-B13). */
     static async create(
         item: Omit<InventoryItem, 'id' | 'user_id' | 'created_at' | 'updated_at'>,
     ): Promise<InventoryItem> {
+        requireNonNegativeAmount(item.quantity, 'Quantity');
+        requireNonNegativeAmount(item.min_quantity, 'Minimum quantity');
         // The skipper's id in a shared binder (refused when it is view only),
         // the sailor's own otherwise; '' only while signed out.
         const owner = binderInsertOwner(REGISTER);
@@ -128,8 +130,10 @@ export class LocalInventoryService {
         return await insertLocal<InventoryItem>(TABLE, record);
     }
 
-    /** Update an existing item */
+    /** Update an existing item. A count or minimum below nothing is refused (131-B13). */
     static async update(id: string, updates: Partial<InventoryItem>): Promise<InventoryItem | null> {
+        if (updates.quantity !== undefined) requireNonNegativeAmount(updates.quantity, 'Quantity');
+        if (updates.min_quantity !== undefined) requireNonNegativeAmount(updates.min_quantity, 'Minimum quantity');
         writableRow(id);
         return await updateLocal<InventoryItem>(TABLE, id, updates);
     }

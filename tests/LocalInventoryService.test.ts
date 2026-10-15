@@ -35,6 +35,7 @@ vi.mock('../services/vessel/LocalDatabase', () => ({
 }));
 
 import { LocalInventoryService } from '../services/vessel/LocalInventoryService';
+import { insertLocal, updateLocal } from '../services/vessel/LocalDatabase';
 
 function inventoryItem(id: string, overrides: Partial<InventoryItem> = {}): InventoryItem {
     return {
@@ -85,6 +86,25 @@ describe('LocalInventoryService quantity integrity', () => {
         await expect(LocalInventoryService.decrementQuantity('rice', Number.NaN)).rejects.toThrow(/decrement amount/i);
         await expect(LocalInventoryService.adjustQuantity('rice', Number.POSITIVE_INFINITY)).rejects.toThrow(/finite/i);
         expect(database.deltaLocal).not.toHaveBeenCalled();
+    });
+
+    it('refuses a count or minimum below nothing before anything is written (131-B13)', async () => {
+        database.rows.set('rice', inventoryItem('rice'));
+        vi.mocked(insertLocal).mockClear();
+        vi.mocked(updateLocal).mockClear();
+        const fields: Omit<InventoryItem, 'id' | 'user_id' | 'created_at' | 'updated_at'> = inventoryItem('new');
+
+        await expect(LocalInventoryService.create({ ...fields, quantity: -1 })).rejects.toThrow(/quantity/i);
+        await expect(LocalInventoryService.create({ ...fields, min_quantity: -2 })).rejects.toThrow(/minimum/i);
+        await expect(LocalInventoryService.create({ ...fields, quantity: Number.NaN })).rejects.toThrow(/quantity/i);
+        await expect(LocalInventoryService.update('rice', { min_quantity: -1 })).rejects.toThrow(/minimum/i);
+        await expect(LocalInventoryService.update('rice', { quantity: -3 })).rejects.toThrow(/quantity/i);
+        expect(insertLocal).not.toHaveBeenCalled();
+        expect(updateLocal).not.toHaveBeenCalled();
+
+        // Nothing at all is still a count.
+        await LocalInventoryService.create({ ...fields, quantity: 0, min_quantity: 0 });
+        expect(insertLocal).toHaveBeenCalledTimes(1);
     });
 
     it('merges only semantically identical rows and preserves purchase receipts', async () => {

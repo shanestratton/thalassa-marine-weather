@@ -9,6 +9,10 @@
  */
 import type { InventoryItem } from '../../types';
 
+/** Low: at or under a minimum that is set. */
+export const isLowStock = (item: Pick<InventoryItem, 'quantity' | 'min_quantity'>): boolean =>
+    item.min_quantity > 0 && item.quantity <= item.min_quantity;
+
 export interface InventoryStats {
     totalItems: number;
     totalQuantity: number;

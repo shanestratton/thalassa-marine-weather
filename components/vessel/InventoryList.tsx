@@ -18,7 +18,7 @@ import { InventoryScanner } from './InventoryScanner';
 import { shareInventoryPdf } from '../../utils/inventoryPdfExport';
 import { triggerHaptic } from '../../utils/system';
 import { TapToAction } from '../ui/TapToAction';
-import { Capacitor } from '@capacitor/core';
+import { scanBarcode } from '../../services/native/scanBarcode';
 import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/EmptyState';
 import { LoadErrorState } from '../ui/LoadErrorState';
@@ -335,6 +335,8 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [editExpiry, setEditExpiry] = useState('');
     const [editBarcode, setEditBarcode] = useState('');
     const [editBoxId, setEditBoxId] = useState('');
+    /** What the camera button could not do, under the Barcode field (131-B13). */
+    const [editScanProblem, setEditScanProblem] = useState<string | null>(null);
     // One Save at a time: a count edit is a delta, so a second tap while the
     // first is still writing would take the count twice.
     const savingEditRef = useRef(false);
@@ -383,6 +385,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         setEditExpiry(item.expiry_date || '');
         setEditBarcode(item.barcode || '');
         setEditBoxId(boxOf(item));
+        setEditScanProblem(null);
     };
 
     /** The item's box, if this phone knows it ('' otherwise: "not in a box"). */
@@ -478,20 +481,32 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
     // ── Quick quantity adjustment ──
     // One at a time, so each − reads the count the last one left: a quick
-    // double tap on the last spare puts it on the shopping list once.
-    const adjustQueueRef = useRef<Promise<void>>(Promise.resolve());
-    const handleQuantityAdjust = (id: string, delta: number, identity: AuthIdentityScope = getAuthIdentityScope()) => {
-        if (!isAuthIdentityScopeCurrent(identity)) return;
+    // double tap on the last spare puts it on the shopping list once. The
+    // cards, the box page and a scanned item's sheet (131-B13) all come here;
+    // it resolves the row as it now stands (null when nothing changed).
+    const adjustQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+    const handleQuantityAdjust = (
+        id: string,
+        delta: number,
+        identity: AuthIdentityScope = getAuthIdentityScope(),
+    ): Promise<InventoryItem | null> => {
+        if (!isAuthIdentityScopeCurrent(identity)) return Promise.resolve(null);
         triggerHaptic('light');
-        adjustQueueRef.current = adjustQueueRef.current.then(() => adjustQuantityNow(id, delta, identity));
+        const adjusted = adjustQueueRef.current.then(() => adjustQuantityNow(id, delta, identity));
+        adjustQueueRef.current = adjusted;
+        return adjusted;
     };
-    const adjustQuantityNow = async (id: string, delta: number, identity: AuthIdentityScope) => {
-        if (!isAuthIdentityScopeCurrent(identity)) return;
+    const adjustQuantityNow = async (
+        id: string,
+        delta: number,
+        identity: AuthIdentityScope,
+    ): Promise<InventoryItem | null> => {
+        if (!isAuthIdentityScopeCurrent(identity)) return null;
         try {
             // Low stock goes on the shopping list (126-11a): own Stores only.
             const before = delta < 0 ? InventoryService.getItem(id) : null;
             const updated = await InventoryService.adjustQuantity(id, delta);
-            if (!isAuthIdentityScopeCurrent(identity)) return;
+            if (!isAuthIdentityScopeCurrent(identity)) return null;
             const restock = before && updated ? restockFor(before, updated) : null;
             if (updated && restock) {
                 void addRestock(updated, restock)
@@ -511,9 +526,11 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         : previous,
                 );
             }
+            return updated;
         } catch (e) {
             log.warn(' qty adjust failed:', e);
             if (isAuthIdentityScopeCurrent(identity)) toast.error('Failed to update quantity');
+            return null;
         }
     };
 
@@ -529,7 +546,8 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 onItemSaved={() => {
                     void loadItems(scannerIdentity);
                 }}
-                startInManualMode
+                // A scanned item already in Stores changes its count here (131-B13).
+                onAdjust={(id, delta) => handleQuantityAdjust(id, delta, scannerIdentity)}
                 box={boxes.find((box) => box.id === scanBox)}
             />
         );
@@ -799,6 +817,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             </label>
                             <div className="flex gap-1.5 mt-0.5">
                                 <input
+                                    aria-label="Barcode"
                                     type="text"
                                     value={editBarcode}
                                     onChange={(e) => setEditBarcode(e.target.value)}
@@ -809,39 +828,18 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                     aria-label="Scan barcode with camera"
                                     type="button"
                                     onClick={async () => {
+                                        // The Add sheet's scanner (131-B13): a refused camera
+                                        // is said here, not swallowed.
                                         const identity = editItem.identity;
                                         if (!isAuthIdentityScopeCurrent(identity)) return;
-                                        if (Capacitor.isNativePlatform()) {
-                                            try {
-                                                const { BarcodeScanner, BarcodeFormat } =
-                                                    await import('../../services/native/dataScanner');
-                                                if (!isAuthIdentityScopeCurrent(identity)) return;
-                                                const { camera } = await BarcodeScanner.checkPermissions();
-                                                if (!isAuthIdentityScopeCurrent(identity)) return;
-                                                if (camera !== 'granted') {
-                                                    const r = await BarcodeScanner.requestPermissions();
-                                                    if (r.camera !== 'granted' || !isAuthIdentityScopeCurrent(identity))
-                                                        return;
-                                                }
-                                                const { barcodes } = await BarcodeScanner.scan({
-                                                    formats: [
-                                                        BarcodeFormat.Ean13,
-                                                        BarcodeFormat.Ean8,
-                                                        BarcodeFormat.UpcA,
-                                                        BarcodeFormat.UpcE,
-                                                        BarcodeFormat.Code128,
-                                                        BarcodeFormat.Code39,
-                                                        BarcodeFormat.QrCode,
-                                                    ],
-                                                });
-                                                if (!isAuthIdentityScopeCurrent(identity)) return;
-                                                if (barcodes.length > 0 && barcodes[0].rawValue) {
-                                                    setEditBarcode(barcodes[0].rawValue);
-                                                    triggerHaptic('medium');
-                                                }
-                                            } catch (e) {
-                                                log.warn(' cancelled:', e);
-                                            }
+                                        setEditScanProblem(null);
+                                        const result = await scanBarcode();
+                                        if (!isAuthIdentityScopeCurrent(identity)) return;
+                                        if (result.code) {
+                                            setEditBarcode(result.code);
+                                            triggerHaptic('medium');
+                                        } else {
+                                            setEditScanProblem(result.problem);
                                         }
                                     }}
                                     className="px-3 flex items-center justify-center bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 hover:bg-sky-600/30 transition-colors active:scale-95"
@@ -866,6 +864,11 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                     </svg>
                                 </button>
                             </div>
+                            {editScanProblem && (
+                                <p role="alert" className="mt-1 text-xs font-bold text-amber-400">
+                                    {editScanProblem}
+                                </p>
+                            )}
                         </div>
 
                         {/* Quantity + Min */}
