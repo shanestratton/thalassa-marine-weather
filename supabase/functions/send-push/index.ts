@@ -249,7 +249,19 @@ serve(async (req: Request) => {
             return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
         }
 
-        const { record: webhookRecord } = await req.json();
+        const requestBody = await req.json();
+        if (requestBody?.action === 'capabilities') {
+            // Service-role authenticated above; no queue claim, APNs request
+            // or secret is returned. The Pi relay must verify this deployed
+            // delivery contract before advertising its new alarm family.
+            const configured = ['APNS_KEY_P8', 'APNS_KEY_ID', 'APNS_TEAM_ID']
+                .every((name) => Boolean(Deno.env.get(name)));
+            return new Response(JSON.stringify({ underway_alarm: configured ? 1 : 0 }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+            });
+        }
+        const { record: webhookRecord } = requestBody;
 
         if (!webhookRecord?.id) {
             return new Response(JSON.stringify({ error: 'Missing queue record id' }), {

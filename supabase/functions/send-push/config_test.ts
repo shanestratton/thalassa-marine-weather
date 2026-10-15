@@ -29,6 +29,27 @@ function assertEquals(actual: unknown, expected: unknown, note = ''): void {
 const NOW = Date.UTC(2026, 9, 9, 16, 14, 0);
 const NOW_S = Math.floor(NOW / 1000);
 
+Deno.test('underway alarms are immediate safety pushes, bounded and grouped without chart evidence', () => {
+    assertEquals(isCriticalType('underway_alarm'), true);
+    assertEquals(getAlertSound('underway_alarm'), PI_ALARM_SOUND);
+    assertEquals(getThreadId('underway_alarm'), 'thalassa-underway');
+    assertEquals(getApnsExpiration('underway_alarm', true, NOW), '0');
+    assertEquals(isStaleForDelivery('underway_alarm', new Date(NOW - 180_001).toISOString(), NOW), true);
+    assertEquals(isStaleForDelivery('underway_alarm', new Date(NOW - 180_000).toISOString(), NOW), false);
+    assertEquals(getCollapseId('underway_alarm', { kind: 'off-route' }), 'underway-off-route');
+    assertEquals(getCollapseId('underway_alarm', { kind: 'chart-ahead' }), 'underway-chart-ahead');
+    assertEquals(getCollapseId('underway_alarm', { kind: 'anything', mmsi: 211000001 }), null);
+    const aps = buildAps({
+        title: 'Off route',
+        body: 'Check aboard',
+        type: 'underway_alarm',
+        isCritical: true,
+        threadId: 'thalassa-underway',
+    }, false);
+    assertEquals(aps['interruption-level'], 'time-sensitive');
+    assertEquals(aps.sound, PI_ALARM_SOUND);
+});
+
 Deno.test('the two Pi alarms are safety types; the Pi notice is not', () => {
     assertEquals(isCriticalType('collision_alarm'), true);
     assertEquals(isCriticalType('distress_alarm'), true);

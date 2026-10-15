@@ -29,6 +29,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { authenticatePiRelay, touchPiRelay } from '../_shared/pi-relay-auth.ts';
 import type { PiAlarmKind, PiAlarmPayload } from './parse.ts';
 import { handlePiAlarmRelay, type PiAlarmEvent, type PiAlarmStore } from './relay.ts';
+import { underwayCapabilityReady } from './underway-capability.ts';
 
 declare const Deno: {
     serve: (handler: (req: Request) => Promise<Response> | Response) => void;
@@ -39,8 +40,9 @@ declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | unde
 
 const COLUMNS =
     'id, owner_id, relay_id, alarm_key, kind, mmsi, payload, raised_at, last_seen_at, last_pushed_at, pushed_count, acked_at, acked_by, resolved_at';
-const ALARM_KINDS = ['collision', 'close-quarters', 'distress'];
-const ALARM_TYPES = ['collision_alarm', 'distress_alarm'];
+const AIS_ALARM_KINDS = ['collision', 'close-quarters', 'distress'];
+const UNDERWAY_ALARM_KINDS = ['off-route', 'chart-ahead'];
+const ALARM_TYPES = ['collision_alarm', 'distress_alarm', 'underway_alarm'];
 
 // deno-lint-ignore no-explicit-any
 type Admin = any;
@@ -125,9 +127,12 @@ function supabaseStore(admin: Admin): PiAlarmStore {
             ) as Record<string, unknown>[] | null;
             return (rows ?? []).map(fromRow);
         },
-        async openEvents(relayId) {
+        async openEvents(relayId, family = 'ais') {
             const rows = must(
-                await events().select(COLUMNS).eq('relay_id', relayId).is('resolved_at', null).in('kind', ALARM_KINDS)
+                await events().select(COLUMNS).eq('relay_id', relayId).is('resolved_at', null).in(
+                    'kind',
+                    family === 'underway' ? UNDERWAY_ALARM_KINDS : AIS_ALARM_KINDS,
+                )
                     .limit(100),
                 'open',
             ) as Record<string, unknown>[] | null;
@@ -217,5 +222,16 @@ Deno.serve((req) => {
                 ? authenticatePiRelay(admin, credential)
                 : Promise.resolve({ status: 503 as const, error: 'unavailable' }),
         store: admin ? supabaseStore(admin) : null,
+        underwayEnabled: async () => {
+            if (!admin) return false;
+            return await underwayCapabilityReady(
+                async () => {
+                    const result = await admin.rpc('pi_alarm_underway_capability');
+                    return result.error ? null : result.data;
+                },
+                Deno.env.get('SUPABASE_URL'),
+                Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+            );
+        },
     });
 });

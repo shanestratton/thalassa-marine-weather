@@ -63,6 +63,7 @@ export const PI_ALARM_SOUND = 'thalassa-anchor-alarm.wav';
 const PI_ALARM_DELIVERY_WINDOW_MS: Record<string, number> = {
     collision_alarm: 3 * 60_000,
     distress_alarm: 10 * 60_000,
+    underway_alarm: 3 * 60_000,
 };
 
 export function isCriticalType(type: string): boolean {
@@ -75,6 +76,7 @@ export function isCriticalType(type: string): boolean {
         'severe_weather_alert', // 50kt+ wind / extreme conditions — safety critical
         'collision_alarm', // The Pi's night watch: a ship closing on the boat (126-04b)
         'distress_alarm', // The Pi's radio hears an active distress beacon (126-04b)
+        'underway_alarm', // Pi off-route/chart-ahead watch; evidence stays aboard (133-04)
         'cyclone_urgent', // A cyclone within 300 NM, or its track within 72 h (129-09)
     ].includes(type);
 }
@@ -99,6 +101,8 @@ export function getThreadId(type: string): string {
             return 'thalassa-collision';
         case 'distress_alarm':
             return 'thalassa-distress';
+        case 'underway_alarm':
+            return 'thalassa-underway';
         case 'cyclone_notice':
         case 'cyclone_urgent':
             return 'thalassa-cyclone';
@@ -139,6 +143,9 @@ export function getCollapseId(type: string, data: Record<string, unknown>): stri
     // The Pi's alarms: one on the lock screen per vessel, the newest numbers (126-04b)
     if (type === 'collision_alarm' && isMmsi(data?.mmsi)) return `collision-${data.mmsi}`;
     if (type === 'distress_alarm' && isMmsi(data?.mmsi)) return `distress-${data.mmsi}`;
+    if (type === 'underway_alarm' && (data.kind === 'off-route' || data.kind === 'chart-ahead')) {
+        return `underway-${data.kind}`;
+    }
     // One per storm: cyclone-watch's basin-and-number key, "SH37" (129-09).
     if ((type === 'cyclone_notice' || type === 'cyclone_urgent') && isStormKey(data?.storm_key)) {
         return `cyclone-${data.storm_key}`;
@@ -154,7 +161,9 @@ export function getCollapseId(type: string, data: Record<string, unknown>): stri
 
 /** The two Pi alarms sound like the anchor alarm; everything else keeps the system sound. */
 export function getAlertSound(type: string): string {
-    return type === 'collision_alarm' || type === 'distress_alarm' ? PI_ALARM_SOUND : 'default';
+    return type === 'collision_alarm' || type === 'distress_alarm' || type === 'underway_alarm'
+        ? PI_ALARM_SOUND
+        : 'default';
 }
 
 /**
