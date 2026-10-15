@@ -426,6 +426,25 @@ describe('Split panes', () => {
             expect(footer).not.toContain('4rem + env(safe-area-inset-bottom) + 8px');
         }
     });
+
+    it("ends Skipper's Reference 16 pt above the pane's edge, clearing the band the page hangs below it", () => {
+        // App.tsx hangs the page --split-page-overhang below the frame. Padded a
+        // bare 16 px, the hub's cards filled that band and the last ran ~55 px
+        // under the edge at 1024x768 (132-B23 follow-up); its fade sat out of
+        // sight below. The geometry is measured in menu-pages-fit.spec.ts.
+        const app = readFileSync('App.tsx', 'utf8');
+        expect(app).toContain("height: 'calc(100% + var(--split-page-overhang))'");
+        expect(value(css, "[data-split-pane='page'] .skipper-ref-scroll > .skipper-ref-body", 'padding-bottom')).toBe(
+            'calc(var(--split-page-overhang, 0px) + 16px)',
+        );
+        expect(value(css, "[data-split-pane='page'] .skipper-ref-scroll", '--thalassa-scroll-fade-inset')).toBe(
+            'var(--split-page-overhang, 0px)',
+        );
+        // The phone keeps its own clearance over the tab bar.
+        expect(value(css, '.skipper-ref-scroll > .skipper-ref-body', 'padding-bottom')).toBe(
+            'calc(var(--thalassa-tabbar-height) + 16px)',
+        );
+    });
 });
 
 describe('Plan page fits and fills its screen', () => {
