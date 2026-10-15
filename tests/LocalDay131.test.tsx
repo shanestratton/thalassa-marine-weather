@@ -190,14 +190,14 @@ describe.each(ZONES)('on a phone in %s', (zone) => {
         it.each([BARE, SYNCED])('counts down to %s in local days and shows that day', (expiry) => {
             // 20:00 on Friday 30 October: two days to go, wherever the phone is.
             vi.setSystemTime(local(10, 30, 20));
-            render(<SwipeableInventoryCard item={flares(expiry)} isExpanded onTap={vi.fn()} />);
+            render(<SwipeableInventoryCard item={flares(expiry)} isExpanded onTap={vi.fn()} units="metric" />);
             expect(screen.getByText('Expires in 2 days')).toBeInTheDocument();
             expect(screen.getByText('1 Nov 2026')).toBeInTheDocument();
         });
 
         it('reads Expired from the day itself, as the Stores PDF reds it', () => {
             vi.setSystemTime(local(11, 1, 8));
-            render(<SwipeableInventoryCard item={flares(SYNCED)} isExpanded={false} onTap={vi.fn()} />);
+            render(<SwipeableInventoryCard item={flares(SYNCED)} isExpanded={false} onTap={vi.fn()} units="metric" />);
             expect(screen.getByText('Expired')).toBeInTheDocument();
         });
     });
