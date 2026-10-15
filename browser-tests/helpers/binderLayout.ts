@@ -89,25 +89,28 @@ export async function expectNoClippedText(scope: Locator, what: string, skip = '
 }
 
 /**
- * The page header's words whole: its crumb, subtitle and status. The title
- * itself is only noted: in wide fonts the column beside '‹ BOAT BINDER' and
- * the ⋮ is narrower than a long title at PageHeader's 14 px floor, so
- * 'EQUIPMENT' is cut at 320 px and 'MAINTENANCE' by a few pixels at 390.
- * PageHeader's layout is 132-B20's (binder accessibility), so the cut is
- * recorded on the test as a known issue, not failed here.
+ * The page header's words whole: its crumb, subtitle, status and title. In
+ * wide fonts the column beside '‹ BOAT BINDER' and the ⋮ was narrower than a
+ * long title at PageHeader's 14 px floor ('EQUIPMENT' cut at 320 px,
+ * 'MAINTENANCE' by a few pixels at 390), and was only noted here. Since
+ * 132-B20 the parent's name gives way to the title, so a cut title fails;
+ * whether the name stayed is noted.
  */
 export async function expectHeaderWhole(page: Page, size: Size) {
     const header = page.locator('[data-page-header]');
     const title = await header.getByRole('heading', { level: 1 }).evaluate((h1) => ({
         text: h1.textContent,
         cut: h1.scrollWidth - h1.clientWidth,
+        lost: h1.scrollHeight - h1.clientHeight,
+        parentShown: !!document.querySelector('[data-page-back] button span'),
     }));
-    if (title.cut > 1)
-        test.info().annotations.push({
-            type: 'known issue (132-B20)',
-            description: `"${title.text}" is cut by ${title.cut} px at ${size.name} in wide fonts`,
-        });
-    await expectNoClippedText(header, 'the header', 'h1');
+    test.info().annotations.push({
+        type: 'header',
+        description: `"${title.text}" at ${size.name}: the parent's name ${title.parentShown ? 'beside the chevron' : 'gave way'}`,
+    });
+    expect(title.cut, `"${title.text}" is cut across at ${size.name}`).toBeLessThanOrEqual(1);
+    expect(title.lost, `"${title.text}" loses lines at ${size.name}`).toBeLessThanOrEqual(1);
+    await expectNoClippedText(header, 'the header');
 }
 
 /**

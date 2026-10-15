@@ -15,7 +15,7 @@
  * 131-B14: the found item's count reads in units and steps to suit them; the
  * form has a unit picker in the skipper's units, and takes a decimal quantity.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../../utils/createLogger';
 import type { InventoryItem, InventoryCategory, StoresBox } from '../../types';
@@ -62,6 +62,7 @@ interface InventoryScannerProps {
 }
 
 export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onItemSaved, box, onAdjust, units }) => {
+    const barcodeFieldId = useId();
     // ── Scan ──
     /** What the last scan could not do, in words, under the Barcode field. */
     const [scanProblem, setScanProblem] = useState<string | null>(null);
@@ -211,25 +212,35 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         required
                     />
 
-                    {/* Barcode + Scan button */}
+                    {/* Barcode + Scan button. The label names the field: it was
+                        a lone 'edit text' to VoiceOver (132-B20). */}
                     <div>
-                        <label className="text-label font-bold text-gray-400 uppercase tracking-widest">Barcode</label>
+                        <label
+                            htmlFor={barcodeFieldId}
+                            className="text-label font-bold text-gray-400 uppercase tracking-widest"
+                        >
+                            Barcode
+                        </label>
                         <div className="flex gap-2 mt-0.5">
                             <input
+                                id={barcodeFieldId}
                                 type="text"
                                 value={newItem.barcode}
                                 onChange={(e) => setNewItem((prev) => ({ ...prev, barcode: e.target.value }))}
                                 placeholder="Optional"
-                                className="flex-2 min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm font-mono outline-hidden focus:border-sky-500/30 transition-colors placeholder:text-gray-400"
+                                className="flex-2 min-w-0 min-h-[44px] bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm font-mono outline-hidden focus:border-sky-500/30 transition-colors placeholder:text-gray-400"
                             />
+                            {/* 44 px, not min-h-11: the root font is fluid, so
+                                2.75rem was 36 px on a 320 pt phone (132-B20). */}
                             <button
                                 aria-label="Scan barcode"
                                 type="button"
                                 onClick={() => void scan()}
                                 disabled={webCamera}
-                                className="flex-1 min-h-11 flex items-center justify-center gap-1.5 bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 text-xs font-bold hover:bg-sky-600/30 transition-colors active:scale-95 disabled:opacity-50"
+                                className="flex-1 min-h-[44px] flex items-center justify-center gap-1.5 bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 text-xs font-bold hover:bg-sky-600/30 transition-colors active:scale-95 disabled:opacity-50"
                             >
                                 <svg
+                                    aria-hidden="true"
                                     className="w-4 h-4"
                                     fill="none"
                                     viewBox="0 0 24 24"

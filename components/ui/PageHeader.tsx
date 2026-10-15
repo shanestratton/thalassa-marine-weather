@@ -17,7 +17,7 @@
  * subtitle, optional status pills UNDER the title, and at most one 44 px
  * control in the action slot.
  */
-import React from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BackButton } from './BackButton';
 
 interface PageHeaderProps {
@@ -80,9 +80,58 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
     const inlineParent =
         onBack && breadcrumbs && lastCrumb === 1 && isTitleCrumb(breadcrumbs[1], 1) ? breadcrumbs[0] : undefined;
 
+    // The title comes before the parent's name (132-B20): where the name beside
+    // the chevron leaves the title's column narrower than its longest word at
+    // the 14 px floor ('MAINTENANCE' read 'MAINTENA' beside '‹ BOAT BINDER' at
+    // 320 pt), the name gives way and the chevron goes back alone. Its spoken
+    // name still says where ('Back to Boat Binder'). Measured, not guessed: the
+    // room depends on the face, the words and the width, so a new width, a new
+    // title or the app's font arriving tries the name again. Layout effects, so
+    // neither try is ever painted.
+    const headerRef = useRef<HTMLDivElement>(null);
+    const titleRef = useRef<HTMLHeadingElement>(null);
+    /** Bumped when the header's width changes or the fonts have loaded: measure again. */
+    const [remeasure, setRemeasure] = useState(0);
+    /** The width and title the parent's name gave way at; null while it shows. */
+    const [squeezedAt, setSqueezedAt] = useState<string | null>(null);
+    useEffect(() => {
+        const header = headerRef.current;
+        if (!inlineParent || !header) return;
+        let live = true;
+        const again = () => live && setRemeasure((n) => n + 1);
+        void document.fonts?.ready.then(again);
+        let width = header.clientWidth;
+        const observer =
+            typeof ResizeObserver === 'undefined'
+                ? null
+                : new ResizeObserver(() => {
+                      if (header.clientWidth === width) return;
+                      width = header.clientWidth;
+                      again();
+                  });
+        observer?.observe(header);
+        return () => {
+            live = false;
+            observer?.disconnect();
+        };
+    }, [inlineParent]);
+    useLayoutEffect(() => {
+        const header = headerRef.current;
+        const h1 = titleRef.current;
+        if (!inlineParent || !header || !h1) return;
+        const at = `${header.clientWidth}:${title}`;
+        if (squeezedAt !== null) {
+            if (squeezedAt !== at) setSqueezedAt(null);
+            return;
+        }
+        // Cut across (a word wider than the column) or down (a name past its two lines).
+        if (h1.scrollWidth > h1.clientWidth + 1 || h1.scrollHeight > h1.clientHeight + 1) setSqueezedAt(at);
+    }, [inlineParent, title, squeezedAt, remeasure]);
+    const parentBeside = squeezedAt === null ? inlineParent : undefined;
+
     return (
         // data-page-header: toasts anchor below it (components/Toast.tsx).
-        <div data-page-header className="shrink-0 px-4 pt-4 pb-3">
+        <div ref={headerRef} data-page-header className="shrink-0 px-4 pt-4 pb-3">
             {/* Breadcrumb trail */}
             {breadcrumbs && breadcrumbs.length > 0 && !inlineParent && (
                 // The gap under the trail is the crumb's reach below its line
@@ -156,12 +205,13 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                     `contents` keeps the button itself the flex item. */}
                 {onBack && (
                     <span data-page-back className="contents">
-                        <BackButton onClick={onBack} label={chevronLabel} text={inlineParent} />
+                        <BackButton onClick={onBack} label={chevronLabel} text={parentBeside} />
                     </span>
                 )}
 
                 <div className="flex min-h-11 min-w-0 flex-1 flex-col justify-center [container-type:inline-size]">
                     <h1
+                        ref={titleRef}
                         className="ui-page-title line-clamp-2 text-xl font-extrabold leading-tight text-white uppercase tracking-wider [overflow-wrap:normal] [word-break:normal] [hyphens:manual]"
                         style={{ fontSize: titleFontSize }}
                     >

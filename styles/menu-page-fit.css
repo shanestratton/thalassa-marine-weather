@@ -402,8 +402,9 @@
         white-space: nowrap;
     }
     /* The Boat Binder screen is the same page container: its nine rows take
-       the same 44 pt rhythm and its two sub-labels close up. */
-    .vessel-binder-header {
+       the same 44 pt rhythm and its two sub-labels close up. Its header is
+       PageHeader inside .vessel-binder-header (132-B20). */
+    .vessel-binder-header > [data-page-header] {
         padding-top: 0.5rem;
         padding-bottom: 0.5rem;
     }
@@ -442,7 +443,7 @@
         padding-top: 0.25rem;
         scroll-padding-top: 0.25rem !important;
     }
-    .vessel-binder-header {
+    .vessel-binder-header > [data-page-header] {
         padding-top: 0.125rem;
         padding-bottom: 0.125rem;
     }

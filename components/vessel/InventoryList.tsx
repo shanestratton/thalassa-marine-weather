@@ -4,7 +4,7 @@
  * Sub-components extracted to ./inventory/:
  *   - SwipeableInventoryCard: swipeable card with quantity controls and expiry status
  */
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useId, useRef } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('InventoryList');
@@ -32,6 +32,7 @@ import { toast } from '../Toast';
 import { SwipeableInventoryCard } from './inventory/SwipeableInventoryCard';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useUndoDelete } from '../../hooks/useUndoDelete';
+import { useMenuNavigation } from '../../hooks/useMenuNavigation';
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
@@ -129,10 +130,18 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     // Amounts and steps in the skipper's units: Settings' liquid volume (131-B14).
     const units = storesUnitSystem(useSettingsStore((state) => state.settings.units?.volume));
 
-    // Header 3-dot menu
+    // Header 3-dot menu: Diary's menu (132-B20). Named a menu with its state,
+    // focus goes into it, the arrows move through it and Escape closes it.
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-    const headerMenuRef = useRef<HTMLDivElement>(null);
+    const headerMenuButtonRef = useRef<HTMLButtonElement>(null);
+    const headerMenuId = useId();
+    const closeHeaderMenu = useCallback(() => setHeaderMenuOpen(false), []);
+    const headerMenuRef = useMenuNavigation<HTMLDivElement>(headerMenuOpen, {
+        triggerRef: headerMenuButtonRef,
+        onClose: closeHeaderMenu,
+    });
     const loadRequestRef = useRef(0);
+    const barcodeFieldId = useId();
 
     // Category export picker: one 'Share or save' (130-B8). The ref is the
     // double-tap guard: state lands a render late.
@@ -626,11 +635,16 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         </p>
                     }
                     action={
-                        <div className="relative" ref={headerMenuRef}>
+                        <div className="relative">
                             <button
+                                type="button"
+                                ref={headerMenuButtonRef}
                                 onClick={() => setHeaderMenuOpen(!headerMenuOpen)}
                                 className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                                 aria-label="Page actions"
+                                aria-expanded={headerMenuOpen}
+                                aria-haspopup="menu"
+                                aria-controls={headerMenuOpen ? headerMenuId : undefined}
                             >
                                 <svg
                                     aria-hidden="true"
@@ -645,13 +659,25 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             </button>
                             {headerMenuOpen && (
                                 <>
-                                    <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
-                                    <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                    <div
+                                        role="presentation"
+                                        aria-hidden="true"
+                                        className="fixed inset-0 z-40"
+                                        onClick={closeHeaderMenu}
+                                    />
+                                    <div
+                                        ref={headerMenuRef}
+                                        id={headerMenuId}
+                                        role="menu"
+                                        aria-label="Stores actions"
+                                        className="absolute right-0 top-full mt-1 z-50 w-72 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+                                    >
                                         {/* One row (130-B8): the share sheet it opens offers
                                             Save to Files, Mail, AirDrop and Print. Named by
                                             its visible words, for Voice Control. */}
                                         <button
                                             type="button"
+                                            role="menuitem"
                                             disabled={items.length === 0}
                                             onClick={() => {
                                                 setHeaderMenuOpen(false);
@@ -884,19 +910,23 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             )}
                         </div>
 
-                        {/* Barcode */}
+                        {/* Barcode: the label names the field (132-B20), and the
+                            field and the camera are 44 pt, at every root size. */}
                         <div>
-                            <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
+                            <label
+                                htmlFor={barcodeFieldId}
+                                className="text-label font-bold text-gray-400 uppercase tracking-widest"
+                            >
                                 Barcode
                             </label>
                             <div className="flex gap-1.5 mt-0.5">
                                 <input
-                                    aria-label="Barcode"
+                                    id={barcodeFieldId}
                                     type="text"
                                     value={editBarcode}
                                     onChange={(e) => setEditBarcode(e.target.value)}
                                     onFocus={scrollInputAboveKeyboard}
-                                    className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-hidden focus:border-sky-500 transition-colors"
+                                    className="min-w-0 flex-1 min-h-[44px] bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-hidden focus:border-sky-500 transition-colors"
                                 />
                                 <button
                                     aria-label="Scan barcode with camera"
@@ -916,9 +946,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                             setEditScanProblem(result.problem);
                                         }
                                     }}
-                                    className="px-3 flex items-center justify-center bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 hover:bg-sky-600/30 transition-colors active:scale-95"
+                                    className="shrink-0 min-h-[44px] min-w-[44px] px-3 flex items-center justify-center bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 hover:bg-sky-600/30 transition-colors active:scale-95"
                                 >
                                     <svg
+                                        aria-hidden="true"
                                         className="w-4 h-4"
                                         fill="none"
                                         viewBox="0 0 24 24"
@@ -1023,6 +1054,27 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
                         {/* Expiry — full width to prevent date picker overflow */}
                         <FormField label="Expiry / service" type="date" value={editExpiry} onChange={setEditExpiry} />
+
+                        {/* Delete, with its Undo, for VoiceOver and the keyboard
+                            too (132-B20): a swipe on the card was the only way,
+                            and neither can swipe. Last, under the fields, as
+                            Checklists' Edit sheet has it. Never on a skipper's
+                            shared Stores, as the swipe is not: deletes there are
+                            the skipper's. */}
+                        {!sharedBinder && (
+                            <Button
+                                variant="danger"
+                                disabled={savingEdit}
+                                onClick={() => {
+                                    const { identity, item } = editItem;
+                                    setEditItem(null);
+                                    handleDelete(item.id, identity);
+                                }}
+                                className="w-full mt-2"
+                            >
+                                Delete item
+                            </Button>
+                        )}
                     </div>
                 </ModalSheet>
             )}

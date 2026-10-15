@@ -924,7 +924,9 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
 
 // ── Stat card sub-component ──
 // A line icon (aria-hidden, currentColor) in place of the emoji, which
-// VoiceOver read before every label ('stopwatch Duration').
+// VoiceOver read before every label ('stopwatch Duration'). The label is in
+// the card's full colour (132-B20): at 60% the 11 px words measured 3.2 to
+// 4.5:1 on their tinted cards, under the 4.5:1 floor; now 6.7 to 10.5:1.
 const StatCard: React.FC<{
     label: string;
     value: string;
@@ -942,7 +944,7 @@ const StatCard: React.FC<{
         <div className={`rounded-xl border p-3 ${colorMap[color]}`}>
             <div className="flex items-center gap-2 mb-1">
                 <Icon className="w-4 h-4 shrink-0" />
-                <p className="text-[11px] font-bold uppercase tracking-widest opacity-60">{label}</p>
+                <p className="text-[11px] font-bold uppercase tracking-widest">{label}</p>
             </div>
             <p className="text-lg font-extrabold">{value}</p>
         </div>

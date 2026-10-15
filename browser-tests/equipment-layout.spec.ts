@@ -83,4 +83,39 @@ for (const size of SIZES) {
         await expect(sheet.getByLabel('Notes (optional)')).toHaveValue(/Oil and filter every 150 h/);
         expect(errors).toEqual([]);
     });
+
+    // The item's own page is on PageHeader (132-B20): its name whole as the
+    // h1, Edit the one 44 pt control in the header, and no floating Edit over
+    // the page's last rows, which now scroll clear of the tab bar.
+    test(`Equipment at ${size.name}: the item's page has its name whole and Edit in the header`, async ({ page }) => {
+        const errors = await openBinder(page, 'equipment', size);
+        await page.getByRole('button', { name: 'Options for Main engine' }).click({ timeout: 25_000 });
+        await page.getByRole('button', { name: 'View details for Main engine' }).click();
+        await expect(page.getByRole('heading', { level: 1, name: 'Main engine' })).toBeVisible();
+        await expectHeaderWhole(page, size);
+
+        const edit = page.locator('[data-page-header]').getByRole('button', { name: 'Edit equipment' });
+        const box = (await edit.boundingBox())!;
+        expect(box.width, 'Edit is 44 pt wide').toBeGreaterThanOrEqual(43.5);
+        expect(box.height, 'Edit is 44 pt tall').toBeGreaterThanOrEqual(43.5);
+        await expect(page.getByRole('button', { name: 'Edit equipment' })).toHaveCount(1);
+
+        // Scrolled to its end, the last row ends above the tab bar, reached by a tap.
+        const last = page.getByRole('button', { name: 'Delete Main engine' });
+        await last.evaluate((button) => button.closest('.overflow-y-auto')!.scrollTo({ top: 1e6 }));
+        await expect
+            .poll(() =>
+                last.evaluate((button) => {
+                    const r = button.getBoundingClientRect();
+                    const nav = document.querySelector('nav[aria-label="Main"]')!.getBoundingClientRect().top;
+                    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                    return r.bottom <= nav + 0.5 && !!hit && (hit === button || button.contains(hit));
+                }),
+            )
+            .toBe(true);
+        await edit.click();
+        await expect(page.getByRole('dialog', { name: 'Edit equipment' })).toBeVisible();
+        await expectNothingSideways(page);
+        expect(errors).toEqual([]);
+    });
 }

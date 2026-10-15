@@ -101,6 +101,13 @@ function deferred<T>() {
 }
 
 const runDialog = () => screen.queryByRole('dialog', { name: 'Run checklist' });
+/** Whether the ⋮ offers Past runs (it also holds Reorder items, 132-B20); leaves the menu closed. */
+const pastRunsInMenu = () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
+    const offered = !!screen.queryByRole('menuitem', { name: 'Past runs' });
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    return offered;
+};
 const tick = (text: string, from: 'not checked' | 'passed' | 'failed') => {
     const to = from === 'not checked' ? 'passed' : from === 'passed' ? 'failed' : 'not checked';
     fireEvent.click(screen.getByRole('button', { name: `${text}: ${from}. Change status to ${to}` }));
@@ -125,8 +132,9 @@ describe('Run: one checklist at a time (CHK-03)', () => {
         expect(screen.getByRole('button', { name: 'Run Pre-departure' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Run Heavy weather' })).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Run Anchoring' })).not.toBeInTheDocument();
-        // The ⋮'s run-everything is gone; with no past runs there is no ⋮ at all.
-        expect(screen.queryByRole('button', { name: 'Page actions' })).not.toBeInTheDocument();
+        // The ⋮'s run-everything is gone; with no past runs it holds Reorder
+        // items alone (132-B20), never Past runs.
+        expect(pastRunsInMenu()).toBe(false);
     });
 
     it('a run holds that list only, under its name', () => {
@@ -497,7 +505,7 @@ describe('Past runs: when each list was last run, and what failed (CHK-10)', () 
         getRunsMock.mockReturnValue(RUNS);
         render(<ChecklistsPage onBack={vi.fn()} />);
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Past runs' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: 'Past runs' }));
 
         const sheet = await screen.findByRole('dialog', { name: 'Past runs' });
         const pre = within(sheet).getByRole('region', { name: 'Pre-departure' });
@@ -554,12 +562,18 @@ describe('Past runs: when each list was last run, and what failed (CHK-10)', () 
     it('a run in progress on another device is not a past run', () => {
         getRunsMock.mockReturnValue([{ ...RUNS[0], id: 'r-open', completed_at: null }]);
         render(<ChecklistsPage onBack={vi.fn()} />);
+        expect(pastRunsInMenu()).toBe(false);
+    });
+
+    it('with nothing to reorder, the ⋮ waits for the first completed run', () => {
+        getAllMock.mockReturnValue(LISTS.filter((e) => e.id !== 'i-seacocks'));
+        render(<ChecklistsPage onBack={vi.fn()} />);
         expect(screen.queryByRole('button', { name: 'Page actions' })).not.toBeInTheDocument();
     });
 
-    it('the ⋮ appears once the first run is completed', async () => {
+    it('Past runs joins the ⋮ once the first run is completed', async () => {
         render(<ChecklistsPage onBack={vi.fn()} />);
-        expect(screen.queryByRole('button', { name: 'Page actions' })).not.toBeInTheDocument();
+        expect(pastRunsInMenu()).toBe(false);
         fireEvent.click(screen.getByRole('button', { name: 'Run Pre-departure' }));
         tick('Bilge pump', 'not checked');
         saveRun.mockImplementationOnce(async (run) => {
@@ -571,6 +585,6 @@ describe('Past runs: when each list was last run, and what failed (CHK-10)', () 
             fireEvent.click(screen.getByRole('button', { name: 'Complete checklist run' }));
         });
 
-        await waitFor(() => expect(screen.getByRole('button', { name: 'Page actions' })).toBeInTheDocument());
+        await waitFor(() => expect(pastRunsInMenu()).toBe(true));
     });
 });

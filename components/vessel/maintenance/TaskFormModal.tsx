@@ -2,7 +2,7 @@
  * TaskFormModal — Add/Edit task form for MaintenanceHub.
  * Extracted from MaintenanceHub to reduce component size.
  */
-import React from 'react';
+import React, { useId } from 'react';
 import type { MaintenanceTriggerType } from '../../../types';
 import { FormField } from '../../ui/FormField';
 import { ModalSheet } from '../../ui/ModalSheet';
@@ -52,6 +52,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     onClose,
 }) => {
     const isAdd = mode === 'add';
+    const typeLabelId = useId();
     // What a blank 'Next due' saves (taskSchedule): the reading plus the
     // interval. With no engine hours entered, it would be counted from an
     // invented 0, so it waits for the first reading instead.
@@ -88,12 +89,17 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 }
             >
                 <div className="flex flex-col gap-2">
-                    {/* Task Type Selector */}
+                    {/* Task Type Selector: a named group (132-B20). Its 'Type'
+                        was a label tied to nothing, so VoiceOver heard
+                        Maintenance and Repair with no question over them. */}
                     <div>
-                        <label className="text-label text-gray-400 font-bold uppercase tracking-wider block mb-1">
+                        <p
+                            id={typeLabelId}
+                            className="text-label text-gray-400 font-bold uppercase tracking-wider block mb-1"
+                        >
                             Type
-                        </label>
-                        <div className="grid grid-cols-2 gap-2">
+                        </p>
+                        <div role="group" aria-labelledby={typeLabelId} className="grid grid-cols-2 gap-2">
                             <button
                                 type="button"
                                 aria-pressed={form.taskType === 'maintenance'}

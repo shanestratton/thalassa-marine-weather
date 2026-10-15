@@ -6,7 +6,7 @@
  *   - ServiceLogSheet: bottom sheet for logging maintenance
  *   - TaskFormModal: add/edit task form
  */
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useId, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { createLogger } from '../../utils/createLogger';
 
@@ -45,6 +45,7 @@ import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { useMaintenanceForm } from '../../hooks/useMaintenanceForm';
 import { useRealtimeSyncMulti } from '../../hooks/useRealtimeSync';
 import { useUndoDelete } from '../../hooks/useUndoDelete';
+import { useMenuNavigation } from '../../hooks/useMenuNavigation';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { CATEGORIES } from './maintenance/constants';
 import { ServiceLogSheet, clockTime } from './maintenance/ServiceLogSheet';
@@ -124,6 +125,10 @@ const CATEGORY_ORDER: MaintenanceCategory[] = ['Repair', 'Engine', 'Safety', 'Hu
 // A group's heading and count: each category, and Paused.
 const GROUP_LABEL = 'text-label font-black text-gray-400 uppercase tracking-widest';
 const GROUP_COUNT = 'text-micro text-gray-400 font-bold';
+/** The engine-hours card with a figure, as a button and as the field it opens into (132-B20). */
+const HOURS_CARD = 'w-full bg-linear-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl p-5';
+/** Its label: full-strength sky, 4.5:1 and over on the card (sky-400 at 70% read 4.48:1). */
+const HOURS_LABEL = 'block text-label text-sky-400 font-bold uppercase tracking-widest';
 
 export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // ── State ──
@@ -248,6 +253,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const [menuOpen, setMenuOpen] = useState(false);
     const [exporting, setExporting] = useState(false);
     const exportingRef = useRef(false);
+    // The ⋮ is Diary's menu (132-B20): named a menu with its state, focus goes
+    // into it, the arrows move through it and Escape closes it.
+    const menuButtonRef = useRef<HTMLButtonElement>(null);
+    const menuId = useId();
+    const closeMenu = useCallback(() => setMenuOpen(false), []);
+    const menuRef = useMenuNavigation<HTMLDivElement>(menuOpen, { triggerRef: menuButtonRef, onClose: closeMenu });
+    const hoursLabelId = useId();
     // No name set: the PDF prints none, rather than 'Vessel'.
     const ownVesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || '');
 
@@ -988,106 +1000,19 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <>
                             <OfflineBadge />
                             <SharedBinderLine register="maintenance" source={binder} />
-                            {countsSummary && <span className="sr-only">{countsSummary}</span>}
-                            {/* 12 px chips on 6 px sides, so '3 due soon · 36 ok · 1 needs
-                                hours' is one row at 393 pt instead of two (UX scorecard
-                                run 9: the chips were half of what pushed the first task
-                                to mid-screen). */}
-                            {/* The chip row runs the header's full width, under the ⋮
-                                (UX scorecard run 10, maint-chips-375): at 375 pt the
-                                title column alone wrapped the chips onto a second row
-                                and pushed the first task ~24 pt down. PageHeader sets
-                                the ⋮ at the top of its row (items-start), so the chips
-                                always sit below it; -mr-14 is its 44 pt plus the 12 pt
-                                gap. Rendered only with a chip in it, so the status row
-                                still collapses (empty:hidden) when there are no tasks. */}
-                            {(tasksWithStatus.length > 0 || counts.paused > 0) && (
-                                <span
-                                    aria-hidden="true"
-                                    data-testid="maintenance-status-chips"
-                                    className="-mr-14 flex flex-wrap items-center gap-1.5"
-                                >
-                                    {counts.red > 0 && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-xs font-black"
-                                            title="Overdue"
-                                        >
-                                            {counts.red} overdue
-                                        </span>
-                                    )}
-                                    {/* Open repairs: to fix, not due (132-B15). */}
-                                    {counts.toFix > 0 && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black"
-                                            title="Repairs to fix"
-                                        >
-                                            {counts.toFix} to fix
-                                        </span>
-                                    )}
-                                    {counts.yellow > 0 && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black"
-                                            title="Due soon"
-                                        >
-                                            {/* 'due soon', as the rows and the spoken summary
-                                        say it; a bare '3 due' read as overdue (UX
-                                        scorecard run 8). */}
-                                            {counts.yellow} due soon
-                                        </span>
-                                    )}
-                                    {tasksWithStatus.length > counts.toFix && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-black"
-                                            title={anyServiceLogged ? 'Up to date' : 'Not yet due'}
-                                        >
-                                            {counts.green} {anyServiceLogged ? 'ok' : 'not due'}
-                                        </span>
-                                    )}
-                                    {/* '1 by hours', not '1 needs hours' (UX scorecard run 10,
-                                maint-chips-375): the three chips wrapped to two rows
-                                at 375 pt. The title and the spoken summary keep the
-                                full reason. */}
-                                    {counts.needsHours > 0 && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
-                                            title="Due by engine hours — enter current engine hours"
-                                        >
-                                            {counts.needsHours} by hours
-                                        </span>
-                                    )}
-                                    {counts.unscheduled > 0 && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
-                                            title="No due date or engine hours set"
-                                        >
-                                            {counts.unscheduled} unscheduled
-                                        </span>
-                                    )}
-                                    {counts.paused > 0 && (
-                                        <span
-                                            aria-hidden="true"
-                                            className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
-                                            title="Paused"
-                                        >
-                                            {counts.paused} paused
-                                        </span>
-                                    )}
-                                </span>
-                            )}
                         </>
                     }
                     action={
                         <div className="relative">
                             <button
+                                type="button"
+                                ref={menuButtonRef}
                                 onClick={() => setMenuOpen(!menuOpen)}
                                 className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                                 aria-label="Page actions"
+                                aria-expanded={menuOpen}
+                                aria-haspopup="menu"
+                                aria-controls={menuOpen ? menuId : undefined}
                             >
                                 <svg
                                     aria-hidden="true"
@@ -1106,8 +1031,19 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             </button>
                             {menuOpen && (
                                 <>
-                                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                                    <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                    <div
+                                        role="presentation"
+                                        aria-hidden="true"
+                                        className="fixed inset-0 z-40"
+                                        onClick={closeMenu}
+                                    />
+                                    <div
+                                        ref={menuRef}
+                                        id={menuId}
+                                        role="menu"
+                                        aria-label="Maintenance actions"
+                                        className="absolute right-0 top-full mt-1 z-50 w-72 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+                                    >
                                         {/* Named by their visible words (the glyphs are
                                             decoration), so Voice Control's "Tap Share or
                                             save blank checklist" finds them. One row per
@@ -1115,6 +1051,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                             Files, Mail, AirDrop and Print. */}
                                         <button
                                             type="button"
+                                            role="menuitem"
                                             disabled={exporting}
                                             onClick={() => {
                                                 handleExport('checklist', taskData.identity);
@@ -1140,6 +1077,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         </button>
                                         <button
                                             type="button"
+                                            role="menuitem"
                                             disabled={exporting}
                                             onClick={() => {
                                                 handleExport('history', taskData.identity);
@@ -1169,6 +1107,96 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         </div>
                     }
                 />
+
+                {/* The status chips on one wrapping row under the header, the
+                    page's full width (132-B20). Inside the title's column, beside
+                    '‹ BOAT BINDER' and the ⋮, five chips stood one to a line at
+                    320 pt and the header was 193 px, room for one task. Each
+                    chip keeps its words, and VoiceOver hears them as one sentence
+                    (UX scorecard run 7). 12 px chips on 6 px sides (UX scorecard
+                    run 9); rendered only with a chip in it. */}
+                {(tasksWithStatus.length > 0 || counts.paused > 0) && (
+                    <div className="shrink-0 px-4 pb-3 -mt-1">
+                        {countsSummary && <p className="sr-only">{countsSummary}</p>}
+                        <span
+                            aria-hidden="true"
+                            data-testid="maintenance-status-chips"
+                            className="flex flex-wrap items-center gap-1.5"
+                        >
+                            {counts.red > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-xs font-black"
+                                    title="Overdue"
+                                >
+                                    {counts.red} overdue
+                                </span>
+                            )}
+                            {/* Open repairs: to fix, not due (132-B15). */}
+                            {counts.toFix > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black"
+                                    title="Repairs to fix"
+                                >
+                                    {counts.toFix} to fix
+                                </span>
+                            )}
+                            {counts.yellow > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black"
+                                    title="Due soon"
+                                >
+                                    {/* 'due soon', as the rows and the spoken summary
+                                        say it; a bare '3 due' read as overdue (UX
+                                        scorecard run 8). */}
+                                    {counts.yellow} due soon
+                                </span>
+                            )}
+                            {tasksWithStatus.length > counts.toFix && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-black"
+                                    title={anyServiceLogged ? 'Up to date' : 'Not yet due'}
+                                >
+                                    {counts.green} {anyServiceLogged ? 'ok' : 'not due'}
+                                </span>
+                            )}
+                            {/* '1 by hours', not '1 needs hours' (UX scorecard run 10,
+                                maint-chips-375): the three chips wrapped to two rows
+                                at 375 pt. The title and the spoken summary keep the
+                                full reason. */}
+                            {counts.needsHours > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
+                                    title="Due by engine hours — enter current engine hours"
+                                >
+                                    {counts.needsHours} by hours
+                                </span>
+                            )}
+                            {counts.unscheduled > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
+                                    title="No due date or engine hours set"
+                                >
+                                    {counts.unscheduled} unscheduled
+                                </span>
+                            )}
+                            {counts.paused > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
+                                    title="Paused"
+                                >
+                                    {counts.paused} paused
+                                </span>
+                            )}
+                        </span>
+                    </div>
+                )}
 
                 {/* ═══ ENGINE HOURS CARD ═══
                     Unset, it is one 56 pt row: a 110 pt card holding a dash
@@ -1251,66 +1279,61 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 </svg>
                             </span>
                         </button>
+                    ) : isEditingHours ? (
+                        // The field in a plain card, named by its label (132-B20):
+                        // it sat inside the card's button, a text field within
+                        // a button, which VoiceOver and the keyboard could not
+                        // reach as a field. Enter or leaving it saves, as before.
+                        <div data-testid="engine-hours-field" className={`${HOURS_CARD} flex items-center gap-4`}>
+                            <span aria-hidden="true" className="p-3 rounded-xl bg-sky-500/20">
+                                <svg
+                                    className="w-6 h-6 text-sky-400"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                                    />
+                                </svg>
+                            </span>
+                            <span className="min-w-0">
+                                <label htmlFor={hoursLabelId} className={HOURS_LABEL}>
+                                    Current engine hours
+                                </label>
+                                <input
+                                    id={hoursLabelId}
+                                    ref={hoursInputRef}
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={engineHoursInput}
+                                    onChange={(e) => setEngineHoursInput(e.target.value)}
+                                    onBlur={saveEngineHours}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') saveEngineHours();
+                                    }}
+                                    placeholder="--"
+                                    className="block min-h-[44px] bg-transparent border-b-2 border-sky-400 text-3xl font-black text-white tracking-wider outline-hidden w-40"
+                                    autoFocus
+                                />
+                            </span>
+                        </div>
                     ) : (
+                        // Unset hours never reach here: they are the one-row
+                        // button above until the field opens.
                         <button
-                            aria-label={
-                                engineHours === null
-                                    ? 'Engine hours not set — enter engine hours'
-                                    : `Edit engine hours, currently ${engineHours.toLocaleString()}`
-                            }
+                            type="button"
+                            aria-label={`Edit engine hours, currently ${engineHours?.toLocaleString() ?? 'not set'}`}
                             onClick={startEditingHours}
-                            className="w-full bg-linear-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl p-5 text-left group hover:from-sky-500/20 hover:to-sky-500/20 transition-all active:scale-[0.98]"
+                            className={`${HOURS_CARD} flex items-center justify-between text-left group hover:from-sky-500/20 hover:to-sky-500/20 transition-all active:scale-[0.98]`}
                         >
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-4">
-                                    <div className="p-3 rounded-xl bg-sky-500/20">
-                                        <svg
-                                            className="w-6 h-6 text-sky-400"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={1.5}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
-                                            />
-                                        </svg>
-                                    </div>
-                                    <div>
-                                        <p className="text-label text-sky-400/70 font-bold uppercase tracking-widest">
-                                            Current engine hours
-                                        </p>
-                                        {isEditingHours ? (
-                                            <input
-                                                ref={hoursInputRef}
-                                                type="text"
-                                                inputMode="numeric"
-                                                value={engineHoursInput}
-                                                onChange={(e) => setEngineHoursInput(e.target.value)}
-                                                onBlur={saveEngineHours}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') saveEngineHours();
-                                                }}
-                                                onClick={(e) => e.stopPropagation()}
-                                                aria-label="Current engine hours"
-                                                placeholder="--"
-                                                className="bg-transparent border-b-2 border-sky-400 text-3xl font-black text-white tracking-wider outline-hidden w-40"
-                                                autoFocus
-                                            />
-                                        ) : (
-                                            // Unset hours never reach here: they are the one-row
-                                            // button above until the field opens.
-                                            <p className="text-3xl font-black text-white tracking-wider">
-                                                {engineHours?.toLocaleString() ?? '--'}
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                                {!isEditingHours && (
+                            <span className="flex items-center gap-4">
+                                <span aria-hidden="true" className="p-3 rounded-xl bg-sky-500/20">
                                     <svg
-                                        className="w-5 h-5 text-sky-400/50"
+                                        className="w-6 h-6 text-sky-400"
                                         fill="none"
                                         viewBox="0 0 24 24"
                                         stroke="currentColor"
@@ -1319,11 +1342,31 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         <path
                                             strokeLinecap="round"
                                             strokeLinejoin="round"
-                                            d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
+                                            d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
                                         />
                                     </svg>
-                                )}
-                            </div>
+                                </span>
+                                <span>
+                                    <span className={HOURS_LABEL}>Current engine hours</span>
+                                    <span className="block text-3xl font-black text-white tracking-wider">
+                                        {engineHours?.toLocaleString() ?? '--'}
+                                    </span>
+                                </span>
+                            </span>
+                            <svg
+                                aria-hidden="true"
+                                className="w-5 h-5 text-sky-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
+                                />
+                            </svg>
                         </button>
                     )}
                 </div>

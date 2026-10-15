@@ -390,3 +390,84 @@ describe('engine hours schedule the hour tasks from the first reading', () => {
         );
     });
 });
+
+/**
+ * Maintenance with VoiceOver and a keyboard (132-B20): the engine-hours field
+ * is a field of its own, never inside the card's button; the ⋮ is Diary's
+ * menu; and the status chips sit on one row under the header, the page's
+ * full width, each with its words.
+ */
+describe('Maintenance with VoiceOver and a keyboard (132-B20)', () => {
+    it('the engine-hours field is named by its label and sits in no button, before and after a figure', async () => {
+        signIn('skipper-1');
+        render(<MaintenanceHub onBack={vi.fn()} />);
+        await screen.findByText(engineService.title);
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Engine hours not set — enter engine hours' }));
+        let field = screen.getByRole('textbox', { name: 'Current engine hours' });
+        expect(field.closest('button')).toBeNull();
+        expect(screen.getByText('Current engine hours').tagName).toBe('LABEL');
+        fireEvent.change(field, { target: { value: '1,250' } });
+        fireEvent.keyDown(field, { key: 'Enter' });
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Edit engine hours, currently 1,250' }));
+        field = screen.getByRole('textbox', { name: 'Current engine hours' });
+        expect(field).toHaveValue('1,250');
+        expect(field.closest('button')).toBeNull();
+        // While it is open there is no button wrapped round it to press instead.
+        expect(screen.queryByRole('button', { name: /^Edit engine hours/ })).not.toBeInTheDocument();
+    });
+
+    it('the ⋮ is a menu: named with its state, focus inside, Escape closes it and returns to the ⋮', async () => {
+        signIn('skipper-1');
+        render(<MaintenanceHub onBack={vi.fn()} />);
+        await screen.findByText(engineService.title);
+
+        const trigger = screen.getByRole('button', { name: 'Page actions' });
+        expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+        expect(trigger).toHaveAttribute('aria-expanded', 'false');
+        fireEvent.click(trigger);
+        expect(trigger).toHaveAttribute('aria-expanded', 'true');
+        const menu = screen.getByRole('menu', { name: 'Maintenance actions' });
+        expect(trigger).toHaveAttribute('aria-controls', menu.id);
+        const items = screen.getAllByRole('menuitem');
+        expect(items.map((item) => item.textContent?.trim())).toEqual([
+            'Share or save blank checklist',
+            'Share or save service history',
+        ]);
+        expect(items[0]).toHaveFocus();
+        fireEvent.keyDown(menu, { key: 'ArrowDown' });
+        expect(items[1]).toHaveFocus();
+        fireEvent.keyDown(menu, { key: 'Escape' });
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+        expect(trigger).toHaveFocus();
+        expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('the status chips are one row under the header, every chip with its words, and one spoken sentence', async () => {
+        signIn('skipper-1');
+        mocks.tasks = [
+            { ...engineService, next_due_hours: null },
+            {
+                ...engineService,
+                id: 'task-paused',
+                title: 'Antifoul the hull',
+                trigger_type: 'annual',
+                next_due_hours: null,
+                is_active: false,
+            },
+        ];
+        render(<MaintenanceHub onBack={vi.fn()} />);
+        await screen.findByText(engineService.title);
+
+        const chips = await screen.findByTestId('maintenance-status-chips');
+        // Out of the title's column: not inside the page header at all.
+        expect(chips.closest('[data-page-header]')).toBeNull();
+        expect(chips).toHaveTextContent('1 by hours');
+        expect(chips).toHaveTextContent('1 paused');
+        expect(chips).toHaveAttribute('aria-hidden', 'true');
+        expect(screen.getByText(/^Tasks: .*1 needs engine hours, 1 paused\.$/)).toBeInTheDocument();
+        // No pull to the right under the ⋮ any more: the row is the page's width.
+        expect(chips.className).not.toContain('-mr-14');
+    });
+});

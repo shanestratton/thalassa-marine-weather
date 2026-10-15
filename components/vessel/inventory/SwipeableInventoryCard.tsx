@@ -8,7 +8,7 @@
  * carries a small chip instead of its machine line in the notes.
  */
 
-import React from 'react';
+import React, { useId } from 'react';
 import type { InventoryItem } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
@@ -52,6 +52,7 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
         onSwipeComplete: () => void triggerHaptic('light'),
     });
+    const detailId = useId();
 
     // The one low-stock rule the header, the box page and the PDF ask (131-B14).
     const isLow = isLowStock(item);
@@ -115,32 +116,46 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                 {/* Main row */}
                 <div className="px-3 py-3">
                     <div className="flex items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-bold text-white truncate">{item.item_name}</h4>
+                        {/* The card opens from the keyboard and VoiceOver too
+                            (132-B20): its words are a button that shows and
+                            hides the detail, and says which. A tap anywhere
+                            on the card still does the same; the tap here
+                            stops at the button, so it toggles once. */}
+                        <button
+                            type="button"
+                            aria-expanded={isExpanded}
+                            aria-controls={isExpanded ? detailId : undefined}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (swipeOffset === 0) onTap();
+                            }}
+                            className="flex min-h-[44px] min-w-0 flex-1 flex-col justify-center text-left"
+                        >
+                            <span className="block w-full text-sm font-bold text-white truncate">{item.item_name}</span>
                             {item.location_zone && (
-                                <p className="flex items-center gap-1 text-label text-gray-400">
+                                <span className="flex w-full items-center gap-1 text-label text-gray-400">
                                     <MapPinIcon className="h-3 w-3 shrink-0" />
                                     <span className="truncate">
                                         {item.location_zone}
                                         {item.location_specific ? ` — ${item.location_specific}` : ''}
                                     </span>
-                                </p>
+                                </span>
                             )}
                             {bought && <GroceryChip kind={bought} className="mt-0.5" />}
                             {/* Line icons, not ⚠️ ⏳ (UX scorecard run 7). */}
                             {isExpired && (
-                                <p className="flex items-center gap-1 text-label font-bold text-red-400 mt-0.5">
+                                <span className="flex items-center gap-1 text-label font-bold text-red-400 mt-0.5">
                                     <AlertTriangleIcon className="h-3 w-3 shrink-0" />
                                     Expired
-                                </p>
+                                </span>
                             )}
                             {isExpiringSoon && (
-                                <p className="flex items-center gap-1 text-label font-bold text-amber-400 mt-0.5">
+                                <span className="flex items-center gap-1 text-label font-bold text-amber-400 mt-0.5">
                                     <ClockIcon className="h-3 w-3 shrink-0" />
                                     Expires in {daysUntilExpiry} {daysUntilExpiry === 1 ? 'day' : 'days'}
-                                </p>
+                                </span>
                             )}
-                        </div>
+                        </button>
                         <div
                             className={`px-2.5 py-1 rounded-lg text-center min-w-12 ${isLow ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-white/5'}`}
                         >
@@ -182,7 +197,10 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
 
                 {/* Expanded detail */}
                 {isExpanded && (
-                    <div className="px-4 pb-4 pt-1 border-t border-white/5 animate-in fade-in duration-200">
+                    <div
+                        id={detailId}
+                        className="px-4 pb-4 pt-1 border-t border-white/5 animate-in fade-in duration-200"
+                    >
                         <div className="grid grid-cols-2 gap-2 text-label mb-3">
                             <div>
                                 <span className="text-gray-400">Category</span>
@@ -213,7 +231,8 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                         </div>
 
                         {/* Quantity controls only: a weight or a volume steps a
-                            sensible amount, said under the count (131-B14). */}
+                            sensible amount, said under the count (131-B14).
+                            44 px at every root size (132-B20): w-11 was 36. */}
                         {onQuantityAdjust && (
                             <div className="flex items-center justify-center gap-4 py-2 bg-white/3 border border-white/6 rounded-xl">
                                 <button
@@ -223,7 +242,7 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                                         onQuantityAdjust(item.id, storesStepDelta(item.quantity, item.unit, -1, units));
                                     }}
                                     disabled={!hasStock(item.quantity)}
-                                    className="w-11 h-11 rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center text-red-400 font-bold hover:bg-red-500/25 transition-all active:scale-90 disabled:opacity-30"
+                                    className="w-[44px] h-[44px] rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center text-red-400 font-bold hover:bg-red-500/25 transition-all active:scale-90 disabled:opacity-30"
                                 >
                                     −
                                 </button>
@@ -241,7 +260,7 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                                         e.stopPropagation();
                                         onQuantityAdjust(item.id, storesStepDelta(item.quantity, item.unit, 1, units));
                                     }}
-                                    className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold hover:bg-emerald-500/25 transition-all active:scale-90"
+                                    className="w-[44px] h-[44px] rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold hover:bg-emerald-500/25 transition-all active:scale-90"
                                 >
                                     +
                                 </button>
