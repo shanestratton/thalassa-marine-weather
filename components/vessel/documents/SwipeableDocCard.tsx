@@ -10,29 +10,25 @@ import type { DocUpload } from '../../../services/vessel/DocumentSyncService';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
 import { formatDisplayDate } from '../../../utils/displayDate';
-import { localDaysUntil } from '../../../utils/localDate';
+import { documentExpiryStatus, type ExpiryStatus } from '../../../services/vessel/binderDue';
 import { AlertTriangleIcon, CheckIcon, ClipboardIcon } from '../../icons/UIIcons';
 import { CloudIcon } from '../../icons/WeatherIcons';
 import { CATEGORIES } from './DocumentForm';
 
 // ── Expiry logic ──
 
-export type ExpiryStatus = 'valid' | 'warning' | 'expired' | 'none';
+export type { ExpiryStatus };
 
 export function getExpiryStatus(expiryDate: string | null): ExpiryStatus {
-    if (!expiryDate) return 'none';
     // A date-only string ("2026-09-02") parses as UTC MIDNIGHT, which is 10:00
     // that morning in Queensland — so a document read "Expired" while it was
     // still valid for the rest of the day, and the badge showed the previous
     // day west of UTC (audit 2026-09-02). The synced form of the same day,
     // "2026-09-02T00:00:00+00:00", did both still (131-B11, DOC-5). The expiry
     // is the local day either names, valid through the end of it, amber for
-    // the 30 days before.
-    const days = localDaysUntil(expiryDate);
-    if (days === null) return 'none';
-    if (days < 0) return 'expired';
-    if (days < 30) return 'warning';
-    return 'valid';
+    // the 30 days before. One rule with the Boat Binder's Documents badge
+    // (services/vessel/binderDue, 131-B12), so the two never disagree.
+    return documentExpiryStatus(expiryDate);
 }
 
 const EXPIRY_COLORS: Record<ExpiryStatus, { dot: string; text: string; border: string; label: string }> = {

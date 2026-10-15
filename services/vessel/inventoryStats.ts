@@ -8,9 +8,9 @@
  * wholesale keep the real arithmetic.
  *
  * One low-stock rule (131-B14): at or under a minimum that is set. The header,
- * the box page, a scanned item's sheet and the PDF ask isLowStock; the card's
- * own line is the same test. The header used to count every empty row with no
- * minimum as low, while the cards did not.
+ * the box page, a scanned item's sheet, the PDF and each Stores card (131-B12)
+ * ask isLowStock. The header used to count every empty row with no minimum as
+ * low, while the cards did not.
  */
 import type { InventoryItem } from '../../types';
 
