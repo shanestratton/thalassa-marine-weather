@@ -87,14 +87,25 @@ vi.mock('../services/vessel', () => ({
     watchSharedBinderLoss: boot.watchSharedBinderLoss,
     onSyncComplete: boot.onSyncComplete,
 }));
+// The Sign in with Apple check at launch (131-01): the plugin's monitor, and the signed-in
+// account's Apple subjects (fictional) that its own Keychain binding is checked against.
+const apple = vi.hoisted(() => ({
+    subjects: ['000000.zzfictionalapplesubject.0001'] as string[],
+    start: vi.fn(),
+    stop: vi.fn(),
+    revoked: vi.fn(),
+}));
+vi.mock('../services/auth/appleCredentialState', () => ({ startAppleCredentialRevocationMonitoring: apple.start }));
 vi.mock('../stores/authStore', () => ({
     useAuthStore: (selector: (state: { authChecked: boolean; user: { id: string } | null }) => unknown) =>
         selector({
             authChecked: boot.authChecked,
             user: boot.authUserId ? { id: boot.authUserId } : null,
         }),
-    // The Apple credential check's account (131-01); this harness signs in no Apple user.
-    currentAppleCredentialAccount: () => null,
+    // As the real store answers it: the signed-in account and its Apple subjects, or null.
+    currentAppleCredentialAccount: () =>
+        boot.authUserId ? { accountId: boot.authUserId, appleUserIds: apple.subjects } : null,
+    handleNativeAppleCredentialRevocation: apple.revoked,
 }));
 vi.mock('../services/PushNotificationService', () => ({ PushNotificationService: pushService }));
 // The Pi's cloud alarm link (126-04b), started by a push from the Pi.
@@ -123,6 +134,7 @@ import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { AisGuardAlertStore } from '../services/aisGuardAlertStore';
 import { PiNightWatchStatus } from '../services/piNightWatchStatus';
 import { peekOfficialPushPin, takeOfficialPushPin } from '../services/officialPushPin';
+import type { AppleCredentialRevokedEvent } from '../services/auth/appleCredentialState';
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -145,6 +157,9 @@ beforeEach(() => {
     });
     underway.start.mockImplementation(() => underway.stop);
     watchCheck.start.mockImplementation(() => watchCheck.stop);
+    apple.start.mockImplementation(async () => apple.stop);
+    apple.stop.mockResolvedValue(undefined);
+    apple.revoked.mockResolvedValue(undefined);
     boot.appAddListener.mockImplementation((_event: string, handler: (state: { isActive: boolean }) => void) => {
         // Keep the FIRST registration. Two things listen for appStateChange
         // now — the bootstrap itself and webContentKill's session watch — and
@@ -483,5 +498,57 @@ describe('useAppBootstrap', () => {
             resolveOldInit();
         });
         expect(boot.startSyncEngine).toHaveBeenCalledOnce();
+    });
+
+    it("checks the signed-in account's own Apple binding at launch, naming its Apple subjects (131-01)", async () => {
+        // Before the session is restored there is no account to name, so no check yet.
+        boot.authChecked = false;
+        boot.authUserId = null;
+        setAuthIdentityScope(null);
+        const { rerender, unmount } = renderHook(() => useAppBootstrap());
+        await waitFor(() => expect(boot.initGlobalKeyboardScroll).toHaveBeenCalledOnce());
+        expect(apple.start).not.toHaveBeenCalled();
+
+        // The session comes back: the store sets the user, then marks the check done.
+        act(() => {
+            setAuthIdentityScope('bootstrap-user');
+            boot.authUserId = 'bootstrap-user';
+            boot.authChecked = true;
+        });
+        rerender();
+
+        // The only launch check of the account's own Keychain item (the native cold start checks
+        // only build 130's single item), and the only path that moves that item to its account.
+        await waitFor(() => expect(apple.start).toHaveBeenCalledOnce());
+        expect(apple.start).toHaveBeenCalledWith(expect.any(Function), {
+            accountId: 'bootstrap-user',
+            appleUserIds: ['000000.zzfictionalapplesubject.0001'],
+        });
+
+        // A revocation the plugin reports goes to the auth store with its Apple subject,
+        // which signs out only the account that subject belongs to.
+        const onRevoked = apple.start.mock.calls[0][0] as (event: AppleCredentialRevokedEvent) => Promise<void>;
+        const event: AppleCredentialRevokedEvent = {
+            state: 'revoked',
+            reason: 'cold_start',
+            userId: '000000.zzfictionalapplesubject.0001',
+        };
+        await act(() => onRevoked(event));
+        expect(apple.revoked).toHaveBeenCalledWith('000000.zzfictionalapplesubject.0001');
+
+        unmount();
+        expect(apple.stop).toHaveBeenCalledOnce();
+        // A report that lands after teardown signs nobody out.
+        apple.revoked.mockClear();
+        await onRevoked(event);
+        expect(apple.revoked).not.toHaveBeenCalled();
+    });
+
+    it('names no account to the Apple check when nobody is signed in (131-01)', async () => {
+        boot.authUserId = null;
+        setAuthIdentityScope(null);
+        renderHook(() => useAppBootstrap());
+        await waitFor(() => expect(apple.start).toHaveBeenCalledOnce());
+        expect(apple.start).toHaveBeenCalledWith(expect.any(Function), null);
     });
 });
