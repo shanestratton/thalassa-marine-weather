@@ -1,21 +1,23 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1';
 
 Deno.test('all new native model IDs pass but the eight-model cap holds', () => {
-    for (const model of [
-        'ecmwf_ifs',
-        'meteofrance_arome_france_hd',
-        'meteofrance_arome_france',
-        'dwd_icon_d2',
-        'dwd_icon_eu',
-        'ukmo_uk_deterministic_2km',
-        'knmi_harmonie_arome_netherlands',
-        'knmi_harmonie_arome_europe',
-        'dmi_harmonie_arome_europe',
-        'metno_nordic',
-        'ncep_hrrr_conus',
-        'cmc_gem_hrdps',
-        'jma_msm',
-    ])
+    for (
+        const model of [
+            'ecmwf_ifs',
+            'meteofrance_arome_france_hd',
+            'meteofrance_arome_france',
+            'dwd_icon_d2',
+            'dwd_icon_eu',
+            'ukmo_uk_deterministic_2km',
+            'knmi_harmonie_arome_netherlands',
+            'knmi_harmonie_arome_europe',
+            'dmi_harmonie_arome_europe',
+            'metno_nordic',
+            'ncep_hrrr_conus',
+            'cmc_gem_hrdps',
+            'jma_msm',
+        ]
+    ) {
         assert(
             validateRequest('forecast', {
                 latitude: 50,
@@ -26,19 +28,27 @@ Deno.test('all new native model IDs pass but the eight-model cap holds', () => {
             }),
             model,
         );
+    }
     assertEquals(
         validateRequest('forecast', {
             latitude: 50,
             longitude: 1,
             hourly: 'wind_speed_10m',
-            models: 'ecmwf_ifs,dwd_icon,jma_gsm,gfs_seamless,gem_seamless,ecmwf_ifs025,ecmwf_aifs025_single,best_match,dwd_icon_eu',
+            models:
+                'ecmwf_ifs,dwd_icon,jma_gsm,gfs_seamless,gem_seamless,ecmwf_ifs025,ecmwf_aifs025_single,best_match,dwd_icon_eu',
         }),
         null,
     );
 });
 
 Deno.test('LI/CIN and tertiary swell are endpoint-specific and secondary peak period is refused', () => {
-    assert(validateRequest('forecast', { latitude: 1, longitude: 2, hourly: 'lifted_index,convective_inhibition' }));
+    assert(
+        validateRequest('forecast', {
+            latitude: 1,
+            longitude: 2,
+            hourly: 'lifted_index,convective_inhibition',
+        }),
+    );
     for (const block of ['current', 'hourly']) {
         assert(
             validateRequest('marine', {
@@ -48,15 +58,30 @@ Deno.test('LI/CIN and tertiary swell are endpoint-specific and secondary peak pe
             }),
         );
         assertEquals(
-            validateRequest('marine', { latitude: 1, longitude: 2, [block]: 'secondary_swell_wave_peak_period' }),
+            validateRequest('marine', {
+                latitude: 1,
+                longitude: 2,
+                [block]: 'secondary_swell_wave_peak_period',
+            }),
             null,
         );
     }
     assertEquals(
-        validateRequest('forecast', { latitude: 1, longitude: 2, hourly: 'tertiary_swell_wave_height' }),
+        validateRequest('forecast', {
+            latitude: 1,
+            longitude: 2,
+            hourly: 'tertiary_swell_wave_height',
+        }),
         null,
     );
-    assertEquals(validateRequest('marine', { latitude: 1, longitude: 2, hourly: 'convective_inhibition' }), null);
+    assertEquals(
+        validateRequest('marine', {
+            latitude: 1,
+            longitude: 2,
+            hourly: 'convective_inhibition',
+        }),
+        null,
+    );
 });
 import {
     FORECAST_HOURLY,
@@ -74,12 +99,29 @@ import {
  * request in two), and everything else stays refused.
  */
 const LEVELS = [1000, 925, 850, 700, 500, 300, 250];
-const VARIABLES = ['temperature', 'relative_humidity', 'geopotential_height', 'wind_speed', 'wind_direction'];
+const VARIABLES = [
+    'temperature',
+    'relative_humidity',
+    'geopotential_height',
+    'wind_speed',
+    'wind_direction',
+];
 const EXPECTED = LEVELS.flatMap((p) => VARIABLES.map((v) => `${v}_${p}hPa`));
 
-const SURFACE = ['temperature_2m', 'dew_point_2m', 'pressure_msl', 'wind_speed_10m', 'wind_direction_10m', 'cape'];
+const SURFACE = [
+    'temperature_2m',
+    'dew_point_2m',
+    'pressure_msl',
+    'wind_speed_10m',
+    'wind_direction_10m',
+    'cape',
+];
 const atLevels = (names: string[]) => LEVELS.flatMap((p) => names.map((v) => `${v}_${p}hPa`));
-const THERMO = atLevels(['temperature', 'relative_humidity', 'geopotential_height']);
+const THERMO = atLevels([
+    'temperature',
+    'relative_humidity',
+    'geopotential_height',
+]);
 const WIND = atLevels(['wind_speed', 'wind_direction']);
 
 function sounding(hourly: string[], extra: Record<string, unknown> = {}) {
@@ -114,26 +156,51 @@ Deno.test("the sounding's two calls pass as the app sends them", () => {
 });
 
 Deno.test('other pressure-level names, levels and spellings are still refused', () => {
-    for (const name of [
-        'temperature_600hPa',
-        'temperature_200hPa',
-        'wind_u_component_850hPa',
-        'wind_v_component_850hPa',
-        'vertical_velocity_500hPa',
-        'cloud_cover_850hPa',
-        'temperature_850hpa',
-        'Temperature_850hPa',
-        'surface_pressure_850hPa',
-    ]) {
-        assertEquals(validateRequest('forecast', sounding(['temperature_2m', name])), null, name);
+    for (
+        const name of [
+            'temperature_600hPa',
+            'temperature_200hPa',
+            'wind_u_component_850hPa',
+            'wind_v_component_850hPa',
+            'vertical_velocity_500hPa',
+            'cloud_cover_850hPa',
+            'temperature_850hpa',
+            'Temperature_850hPa',
+            'surface_pressure_850hPa',
+        ]
+    ) {
+        assertEquals(
+            validateRequest('forecast', sounding(['temperature_2m', name])),
+            null,
+            name,
+        );
     }
     // Hourly only: the current block and the marine endpoint never take them.
-    assertEquals(validateRequest('forecast', { latitude: 1, longitude: 2, current: 'temperature_850hPa' }), null);
-    assertEquals(validateRequest('marine', sounding(['temperature_850hPa'], { models: 'ecmwf_wam025' })), null);
+    assertEquals(
+        validateRequest('forecast', {
+            latitude: 1,
+            longitude: 2,
+            current: 'temperature_850hPa',
+        }),
+        null,
+    );
+    assertEquals(
+        validateRequest(
+            'marine',
+            sounding(['temperature_850hPa'], { models: 'ecmwf_wam025' }),
+        ),
+        null,
+    );
 });
 
 Deno.test('the 32-name cap per call still holds', () => {
-    assertEquals(validateRequest('forecast', sounding([...SURFACE, ...THERMO, ...WIND.slice(0, 6)])), null);
+    assertEquals(
+        validateRequest(
+            'forecast',
+            sounding([...SURFACE, ...THERMO, ...WIND.slice(0, 6)]),
+        ),
+        null,
+    );
 });
 
 Deno.test('the requests the app already sends are unchanged', () => {
@@ -146,7 +213,10 @@ Deno.test('the requests the app already sends are unchanged', () => {
         timezone: 'auto',
     });
     assert(point);
-    assertEquals(point.hourly, 'temperature_2m,wind_speed_10m,wind_gusts_10m,pressure_msl');
+    assertEquals(
+        point.hourly,
+        'temperature_2m,wind_speed_10m,wind_gusts_10m,pressure_msl',
+    );
     assertEquals(validateRequest('forecast', sounding(['not_a_variable'])), null);
 });
 
@@ -156,7 +226,12 @@ Deno.test('the requests the app already sends are unchanged', () => {
  * operation takes exactly four names and no coordinates; the upstream host and
  * the key stay server-owned.
  */
-const WHITEHAVEN = { name: 'Whitehaven Beach', count: 1, language: 'en', format: 'json' };
+const WHITEHAVEN = {
+    name: 'Whitehaven Beach',
+    count: 1,
+    language: 'en',
+    format: 'json',
+};
 
 Deno.test('geocode accepts the request Calypso sends, anywhere in the world', () => {
     assertEquals(validateRequest('geocode', WHITEHAVEN), {
@@ -166,12 +241,29 @@ Deno.test('geocode accepts the request Calypso sends, anywhere in the world', ()
         format: 'json',
     });
     assertEquals(
-        validateRequest('geocode', { ...WHITEHAVEN, name: 'Ponta Delgada', language: 'pt' })?.name,
+        validateRequest('geocode', {
+            ...WHITEHAVEN,
+            name: 'Ponta Delgada',
+            language: 'pt',
+        })?.name,
         'Ponta Delgada',
     );
-    assertEquals(validateRequest('geocode', { ...WHITEHAVEN, name: 'Île d’Exemple', count: 10 })?.count, '10');
-    assertEquals(validateRequest('geocode', { name: 'Porto Ficticio' }), { name: 'Porto Ficticio' });
-    assertEquals(validateRequest('geocode', { ...WHITEHAVEN, name: 'x'.repeat(100) })?.name.length, 100);
+    assertEquals(
+        validateRequest('geocode', {
+            ...WHITEHAVEN,
+            name: 'Île d’Exemple',
+            count: 10,
+        })?.count,
+        '10',
+    );
+    assertEquals(validateRequest('geocode', { name: 'Porto Ficticio' }), {
+        name: 'Porto Ficticio',
+    });
+    assertEquals(
+        validateRequest('geocode', { ...WHITEHAVEN, name: 'x'.repeat(100) })?.name
+            .length,
+        100,
+    );
 });
 
 Deno.test('geocode refuses everything else', () => {
@@ -194,13 +286,22 @@ Deno.test('geocode refuses everything else', () => {
         ['models', { ...WHITEHAVEN, models: 'ecmwf_ifs025' }],
         ['countryCode', { ...WHITEHAVEN, countryCode: 'AU' }],
     ];
-    for (const [label, params] of refused) assertEquals(validateRequest('geocode', params), null, label);
+    for (const [label, params] of refused) {
+        assertEquals(validateRequest('geocode', params), null, label);
+    }
 });
 
 Deno.test('forecast and marine never take a geocode request, and geocode never takes theirs', () => {
     assertEquals(validateRequest('forecast', WHITEHAVEN), null);
     assertEquals(validateRequest('marine', WHITEHAVEN), null);
-    assertEquals(validateRequest('geocode', { latitude: '38.5', longitude: '-28.6', current: 'temperature_2m' }), null);
+    assertEquals(
+        validateRequest('geocode', {
+            latitude: '38.5',
+            longitude: '-28.6',
+            current: 'temperature_2m',
+        }),
+        null,
+    );
 });
 
 Deno.test('the upstreams are three fixed customer hosts', () => {
@@ -211,7 +312,16 @@ Deno.test('the upstreams are three fixed customer hosts', () => {
     });
     assertEquals(OPERATIONS, ['forecast', 'marine', 'geocode']);
     for (const operation of OPERATIONS) assert(isOperation(operation), operation);
-    for (const operation of ['search', 'archive', 'Forecast', '', 'constructor', 'toString']) {
+    for (
+        const operation of [
+            'search',
+            'archive',
+            'Forecast',
+            '',
+            'constructor',
+            'toString',
+        ]
+    ) {
         assert(!isOperation(operation), operation);
     }
 });
