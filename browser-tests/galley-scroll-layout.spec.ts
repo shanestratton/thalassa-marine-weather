@@ -99,7 +99,8 @@ for (const size of SIZES) {
         await expect(page.getByRole('tab', { name: /Saved recipes/ })).toHaveAttribute('aria-selected', 'true');
         // Ten recipes: the eight in the library and the two the meals saved.
         await expect(page.getByText('Pancakes at anchor')).toBeAttached();
-        const cards = page.locator('#galley-recipes-panel > div').filter({ hasText: /ingredients/ });
+        // Each card is a button that opens the recipe (132-B18).
+        const cards = page.locator('#galley-recipes-panel > button').filter({ hasText: /ingredients/ });
         await expect(cards).toHaveCount(10);
         const lastCard = cards.last();
         await expectClearOfTabBar(lastCard, 'the last recipe card');

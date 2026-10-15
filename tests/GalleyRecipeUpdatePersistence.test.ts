@@ -120,11 +120,12 @@ vi.mock('../services/OwnedMediaCleanupService', () => ({
 
 vi.mock('../services/ProfilePhotoService', () => ({ compressImage: vi.fn() }));
 
-vi.mock('../utils/createLogger', () => ({
+vi.mock('../utils/createLogger', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../utils/createLogger')>()),
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
-import { createCustomRecipe, updateCustomRecipe } from '../services/GalleyRecipeService';
+import { createCustomRecipe, recipeEditNeedsConnection, updateCustomRecipe } from '../services/GalleyRecipeService';
 
 const localRecipe = (imagePath = OWNER_PATH, visibility: StoredRecipe['visibility'] = 'shared'): StoredRecipe => ({
     id: RECIPE_ID,
@@ -163,6 +164,8 @@ function cloudRow(table: 'recipes' | 'community_recipes', imagePath = OWNER_PATH
 
 beforeEach(() => {
     vi.clearAllMocks();
+    // The Captain's Table copies waiting for an edit (132-B18) are per test.
+    localStorage.clear();
     supabaseMocks.state.rows.recipes = cloudRow('recipes');
     supabaseMocks.state.rows.community_recipes = cloudRow('community_recipes');
     supabaseMocks.state.events.splice(0);
@@ -328,14 +331,61 @@ describe('custom recipe update persistence', () => {
         );
     });
 
+    // 132-B18 (GAL-04), changed on purpose: a text edit no longer asks the
+    // server for the owner's authority (offline it could not), so "another
+    // account's recipe" is the signed-in account on this phone, not a media
+    // capture that failed. A stored photo change still needs that authority.
     it("does not write a missing recipe or another account owner's recipe", async () => {
         databaseMocks.query.mockReturnValue([]);
         await expect(updateCustomRecipe('missing-recipe', { title: 'Nope' })).resolves.toBeNull();
 
         databaseMocks.query.mockReturnValue([localRecipe()]);
-        mediaMocks.capture.mockResolvedValue(null);
+        setAuthIdentityScope(OTHER_USER_ID);
         await expect(updateCustomRecipe(RECIPE_ID, { title: 'Nope' })).resolves.toBeNull();
 
+        setAuthIdentityScope(OWNER_ID);
+        mediaMocks.capture.mockResolvedValue(null);
+        await expect(updateCustomRecipe(RECIPE_ID, { image_url: '', title: 'Nope' })).resolves.toBeNull();
+
         expect(databaseMocks.updateLocal).not.toHaveBeenCalled();
+        expect(supabaseMocks.state.events).not.toContain('recipes:update');
+    });
+
+    it('a text edit saves on the phone first, with no server write and no media work (GAL-04)', async () => {
+        supabaseMocks.getSession.mockRejectedValue(new Error('offline'));
+        supabaseMocks.getUser.mockRejectedValue(new Error('offline'));
+
+        await expect(
+            updateCustomRecipe(RECIPE_ID, { title: 'Offshore Curry', instructions: 'Warm the pan\nAdd the fish' }),
+        ).resolves.toEqual(expect.objectContaining({ title: 'Offshore Curry' }));
+
+        expect(databaseMocks.updateLocal).toHaveBeenCalledWith(
+            'recipes',
+            RECIPE_ID,
+            expect.objectContaining({ title: 'Offshore Curry', instructions: 'Warm the pan\nAdd the fish' }),
+        );
+        expect(supabaseMocks.state.events).toEqual(['local:update']);
+        expect(mediaMocks.capture).not.toHaveBeenCalled();
+        expect(mediaMocks.retire).not.toHaveBeenCalled();
+    });
+
+    it('a stored photo change offline fails without a local write, and says so through recipeEditNeedsConnection', async () => {
+        supabaseMocks.getUser.mockRejectedValue(new Error('offline'));
+
+        await expect(updateCustomRecipe(RECIPE_ID, { image_url: '', visibility: 'shared' })).resolves.toBeNull();
+
+        expect(databaseMocks.updateLocal).not.toHaveBeenCalled();
+        expect(recipeEditNeedsConnection(localRecipe(), { image_url: '' })).toBe(true);
+        expect(recipeEditNeedsConnection(localRecipe(), { visibility: 'personal' })).toBe(true);
+        expect(recipeEditNeedsConnection(localRecipe(), { image_url: photoUrl(OWNER_PATH) })).toBe(false);
+        expect(recipeEditNeedsConnection(localRecipe(), { image_url: 'https://images.example.test/curry.jpg' })).toBe(
+            true,
+        );
+        expect(
+            recipeEditNeedsConnection(
+                { image_url: 'https://images.example.test/a.jpg', visibility: 'shared' },
+                { image_url: 'https://images.example.test/b.jpg' },
+            ),
+        ).toBe(false);
     });
 });

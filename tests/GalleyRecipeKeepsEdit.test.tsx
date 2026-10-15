@@ -123,6 +123,7 @@ afterEach(() => {
 });
 
 describe('a pulled Galley recipe keeps its Edit button', () => {
+    // Edit is in the recipe's sheet since 132-B18 (GAL-08): a card opens it.
     it('is_custom from the server (the outbox INSERT) shows Edit; the old direct-upsert row did not', async () => {
         await mergePulledRecords('recipes', [
             serverRecipe('6c7d8e9f-0a1b-4c2d-8e3f-4a5b6c7d8e9f', 'Tarte Tatin', true),
@@ -134,9 +135,17 @@ describe('a pulled Galley recipe keeps its Edit button', () => {
         fireEvent.click(await screen.findByRole('tab', { name: /Saved recipes/ }));
         const panel = await screen.findByRole('tabpanel');
 
-        expect(await within(panel).findByRole('button', { name: 'Edit Tarte Tatin' })).toBeInTheDocument();
-        expect(within(panel).getByText('Pão de queijo')).toBeInTheDocument();
-        expect(within(panel).queryByRole('button', { name: 'Edit Pão de queijo' })).not.toBeInTheDocument();
+        fireEvent.click(await within(panel).findByRole('button', { name: 'Open Tarte Tatin' }));
+        const tarte = await screen.findByRole('dialog', { name: 'Tarte Tatin' });
+        expect(within(tarte).getByRole('button', { name: 'Edit Tarte Tatin' })).toBeInTheDocument();
+        fireEvent.click(within(tarte).getByRole('button', { name: 'Close recipe' }));
+
+        fireEvent.click(within(panel).getByRole('button', { name: 'Open Pão de queijo' }));
+        const pao = await screen.findByRole('dialog', { name: 'Pão de queijo' });
+        expect(within(pao).queryByRole('button', { name: 'Edit Pão de queijo' })).not.toBeInTheDocument();
+        // Still the skipper's: it can be deleted, and the sheet says it cannot be edited.
+        expect(within(pao).getByRole('button', { name: 'Delete Pão de queijo' })).toBeInTheDocument();
+        expect(within(pao).getByText('This recipe can’t be edited here.')).toBeInTheDocument();
     });
 });
 

@@ -8,6 +8,8 @@
  *  - Recipe detail modal with ingredients, directions, photo
  *  - Upload new recipes via CustomRecipeForm
  *  - Quality gate: poorly-rated recipes naturally sink
+ *  - Recipes shared from the Galley show here too, and a heart here is the
+ *    Galley's Favourite star (132-B18): one recipe, one list
  */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
@@ -199,11 +201,15 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
         [],
     );
 
+    // A recipe shared from the Galley cannot be rated until the one recipe
+    // store is on the server (132-B18): ratings point at the other store.
+    const canRate = recipe.canRate !== false;
+
     useEffect(() => {
-        if (recipe.supabaseId) {
+        if (recipe.supabaseId && canRate) {
             getUserRating(recipe.supabaseId).then(setUserRating);
         }
-    }, [recipe.supabaseId]);
+    }, [recipe.supabaseId, canRate]);
 
     // Lazy-load channels the first time the share panel opens — avoids
     // the network roundtrip on every recipe view.
@@ -387,8 +393,19 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                         <p className="text-[11px] text-amber-400/80 font-bold uppercase tracking-wider mb-2">
                             Your Rating
                         </p>
-                        <WheelRating rating={userRating ?? 0} interactive={!submitting} onRate={handleRate} size={22} />
-                        {userRating && (
+                        {canRate ? (
+                            <WheelRating
+                                rating={userRating ?? 0}
+                                interactive={!submitting}
+                                onRate={handleRate}
+                                size={22}
+                            />
+                        ) : (
+                            <p className="text-[11px] text-gray-400">
+                                Shared from a sailor&rsquo;s Galley. It can&rsquo;t be rated yet.
+                            </p>
+                        )}
+                        {canRate && userRating && (
                             <p className="text-[11px] text-amber-400/60 mt-1">
                                 You gave this {userRating} wheel{userRating !== 1 ? 's' : ''} ☸
                             </p>
@@ -402,8 +419,10 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                                 <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">
                                     Ingredients
                                 </p>
+                                {/* A Galley recipe is written for its servings, a Captain's
+                                    Table one per person (132-B18). */}
                                 <span className="text-[11px] text-sky-400/60 bg-sky-500/10 px-1.5 py-0.5 rounded-full">
-                                    per person
+                                    {recipe.servings > 1 ? `serves ${recipe.servings}` : 'per person'}
                                 </span>
                             </div>
                             <div className="space-y-1">
