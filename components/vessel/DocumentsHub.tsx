@@ -12,6 +12,7 @@ const log = createLogger('DocumentsHub');
 import type { ShipDocument, DocumentCategory } from '../../types';
 import { LocalDocumentService } from '../../services/vessel/LocalDocumentService';
 import { DocumentSyncService, type DocUpload } from '../../services/vessel/DocumentSyncService';
+import type { SyncResult } from '../../services/vessel/SyncService';
 import { triggerHaptic } from '../../utils/system';
 import { TapToAction } from '../ui/TapToAction';
 import { PageHeader } from '../ui/PageHeader';
@@ -743,16 +744,23 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         const scope = getAuthIdentityScope();
         triggerHaptic('light');
         setRetryingUploads(true);
+        let cycle: SyncResult | null = null;
         try {
-            await DocumentSyncService.retryUploads();
+            cycle = await DocumentSyncService.retryUploads();
         } catch (e) {
             log.warn('documents: retry-upload-failed', e);
         }
         if (!currentOperation(scope)) return;
         setRetryingUploads(false);
         const after = refreshUploads()[doc.id];
-        if (!after) toast.success(`"${doc.document_name}" uploaded`);
-        else if (after.failed) toast.error(`Still not uploaded: ${after.reason}`);
+        // Gone from the outbox is not proof it uploaded: on a fresh share
+        // snapshot the engine drops a change to a skipper's paper this sailor
+        // can no longer edit, or moves an add into their own binder, and
+        // sharedBinderNotice says so. "Uploaded" only after a cycle that pushed
+        // and dropped or moved nothing; otherwise that notice speaks alone.
+        const uploaded = !after && !!cycle && cycle.pushed > 0 && !cycle.discardedShared && !cycle.rehomedShared;
+        if (after?.failed) toast.error(`Still not uploaded: ${after.reason}`);
+        else if (uploaded) toast.success(`"${doc.document_name}" uploaded`);
     };
 
     // ── Expiry and upload stats ──

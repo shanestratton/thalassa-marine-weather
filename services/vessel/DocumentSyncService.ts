@@ -24,7 +24,7 @@
 
 import { supabase } from '../supabase';
 import { getFullQueue, onOutboxAppended } from './LocalDatabase';
-import { getSyncStatus, onSyncComplete, syncNow } from './SyncService';
+import { getSyncStatus, onSyncComplete, syncNow, type SyncResult } from './SyncService';
 import { safeDocumentNavigationUrl } from '../../utils/safeUrl';
 
 const TABLE = 'ship_documents';
@@ -111,10 +111,26 @@ class DocumentSyncServiceClass {
      * Try refused uploads again now. Every cycle puts refused changes back in
      * line before it pushes, so this is one cycle that starts after the tap:
      * one already under way read the outbox before it, and is waited out.
+     *
+     * Returns what the cycle did, so the page can tell a paper that uploaded
+     * from one the engine dropped or moved (a skipper's paper this sailor can
+     * no longer edit): either way it leaves the outbox. A cycle waited out may
+     * already have put the change back in line, so its pushed, dropped and
+     * moved counts are added in; if it failed outright, what it did is
+     * unknown, and this throws once the retry has run.
      */
-    async retryUploads(): Promise<void> {
-        if (getSyncStatus() === 'syncing') await syncNow().catch(() => undefined);
-        await syncNow();
+    async retryUploads(): Promise<SyncResult> {
+        const running = getSyncStatus() === 'syncing' ? syncNow() : null;
+        await running?.catch(() => undefined);
+        const result = await syncNow();
+        if (!running) return result;
+        const earlier = await running;
+        return {
+            ...result,
+            pushed: earlier.pushed + result.pushed,
+            discardedShared: (earlier.discardedShared ?? 0) + (result.discardedShared ?? 0),
+            rehomedShared: (earlier.rehomedShared ?? 0) + (result.rehomedShared ?? 0),
+        };
     }
 
     // ── Download URL refresh ───────────────────────────────────

@@ -150,7 +150,7 @@ beforeEach(() => {
     mocks.checklistRows = checklistA;
     mocks.equipmentCreate.mockResolvedValue({ id: 'equipment-new' });
     mocks.documentUploads = {};
-    mocks.retryUploads.mockResolvedValue(undefined);
+    mocks.retryUploads.mockResolvedValue({ pushed: 0, pulled: 0, errors: [] });
     mocks.checklistSaveRun.mockResolvedValue({});
     mocks.maintenanceCreate.mockResolvedValue({});
 });
@@ -180,7 +180,7 @@ describe('vessel office identity boundary', () => {
     });
 
     it("clears A documents/selections and A's refused upload, and suppresses a deferred A retry in B", async () => {
-        const retry = deferred<void>();
+        const retry = deferred<{ pushed: number; pulled: number; errors: string[] }>();
         mocks.retryUploads.mockReturnValueOnce(retry.promise);
         mocks.documentUploads = { 'document-a': { failed: true, reason: 'the connection dropped' } };
         render(<DocumentsHub onBack={vi.fn()} />);
@@ -196,7 +196,8 @@ describe('vessel office identity boundary', () => {
         expect(screen.queryByText('A private insurance policy')).not.toBeInTheDocument();
         expect(screen.queryByText(/upload failed/i)).not.toBeInTheDocument();
 
-        retry.resolve();
+        // A clean push: only the account switch keeps A's "uploaded" out of B.
+        retry.resolve({ pushed: 1, pulled: 0, errors: [] });
         await act(async () => Promise.resolve());
         expect(mocks.toastSuccess).not.toHaveBeenCalled();
         expect(mocks.toastError).not.toHaveBeenCalled();

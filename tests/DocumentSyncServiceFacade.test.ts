@@ -294,10 +294,12 @@ describe('DocumentSyncService upload states', () => {
         expect(mocks.outboxListeners).toHaveLength(0);
     });
 
-    it('retry runs one sync cycle now, through the engine', async () => {
+    it('retry runs one sync cycle now, through the engine, and returns what it did', async () => {
+        const cycle = { pushed: 1, pulled: 0, errors: [], discardedShared: 1, rehomedShared: 0 };
+        mocks.syncNow.mockResolvedValueOnce(cycle);
         const service = await loadService();
 
-        await service.retryUploads();
+        await expect(service.retryUploads()).resolves.toEqual(cycle);
 
         expect(mocks.syncNow).toHaveBeenCalledTimes(1);
         expect(mocks.cloudFrom).not.toHaveBeenCalled();
@@ -315,6 +317,33 @@ describe('DocumentSyncService upload states', () => {
 
         running.resolve({ pushed: 0, pulled: 0, errors: ['ship_documents/doc-1: Failed to fetch'] });
         await retry;
+        expect(mocks.syncNow).toHaveBeenCalledTimes(2);
+    });
+
+    // Review fix: the cycle waited out may already have put the refused change
+    // back in line and dropped or moved it, so the page must hear of that too.
+    it("a cycle waited out adds its pushed, dropped and moved counts to the retry's", async () => {
+        mocks.getSyncStatus.mockReturnValue('syncing');
+        mocks.syncNow
+            .mockResolvedValueOnce({ pushed: 0, pulled: 2, errors: [], discardedShared: 1, rehomedShared: 0 })
+            .mockResolvedValueOnce({ pushed: 1, pulled: 0, errors: [], discardedShared: 0, rehomedShared: 1 });
+        const service = await loadService();
+
+        await expect(service.retryUploads()).resolves.toMatchObject({
+            pushed: 1,
+            discardedShared: 1,
+            rehomedShared: 1,
+        });
+    });
+
+    it('a cycle waited out that failed outright still lets the retry run, then throws: what it did is unknown', async () => {
+        mocks.getSyncStatus.mockReturnValue('syncing');
+        mocks.syncNow
+            .mockRejectedValueOnce(new Error('listener failed'))
+            .mockResolvedValueOnce({ pushed: 1, pulled: 0, errors: [] });
+        const service = await loadService();
+
+        await expect(service.retryUploads()).rejects.toThrow('listener failed');
         expect(mocks.syncNow).toHaveBeenCalledTimes(2);
     });
 });

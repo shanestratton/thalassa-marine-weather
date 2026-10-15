@@ -20,7 +20,15 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ShipDocument } from '../types';
 
-type CycleResult = { pushed: number; pulled: number; errors: string[]; pruned?: number };
+type CycleResult = {
+    pushed: number;
+    pulled: number;
+    errors: string[];
+    pruned?: number;
+    discardedShared?: number;
+    rehomedShared?: number;
+    sharedOwnerIds?: string[];
+};
 
 const sync = vi.hoisted(() => ({
     listeners: [] as ((result: CycleResult) => void)[],
@@ -119,6 +127,15 @@ const cycleEnds = (result: CycleResult = { pushed: 0, pulled: 0, errors: [] }) =
 async function uploads(id: string): Promise<void> {
     await removeSynced(queued(id).map((item) => item.id));
     cycleEnds({ pushed: 1, pulled: 0, errors: [] });
+}
+
+/**
+ * The engine dropped this paper's change instead of pushing it (SyncService
+ * pushMutations on a fresh share snapshot: a skipper's paper this sailor can
+ * no longer edit). It leaves the outbox all the same.
+ */
+async function dropped(id: string): Promise<void> {
+    await removeSynced(queued(id).map((item) => item.id));
 }
 
 /** The cloud refused this paper's change, with the engine's own message. */
@@ -339,6 +356,72 @@ describe('Documents: a refused upload says so, with the reason and a Retry butto
 
         await waitFor(() => expect(sync.syncNow).toHaveBeenCalledTimes(2));
         await waitFor(() => expect(toast.success).toHaveBeenCalledWith('"Hull insurance, Horta to Papeete" uploaded'));
+    });
+
+    // Review fix: gone from the outbox is not proof it uploaded. A crew edit
+    // refused while the share snapshot was stale is dropped by the cycle a
+    // Retry runs once the snapshot is fresh (or an add is moved into the
+    // sailor's own binder); sharedBinderNotice's central toast says so, and
+    // this page must not contradict it with "uploaded".
+    it.each([
+        ['dropped, while another paper pushed', { pushed: 1, discardedShared: 1 }],
+        ["moved into the sailor's own binder", { pushed: 1, rehomedShared: 1 }],
+    ])('a Retry whose change the engine %s never says it uploaded', async (_case, counts) => {
+        await insertLocal('ship_documents', paper(INSURANCE, 'Hull insurance, Horta to Papeete'));
+        await insertLocal('ship_documents', paper(LICENCE, 'Ship radio licence', 'Radio/MMSI'));
+        await refuses(INSURANCE, 'Record not found or update not authorized');
+        render(<DocumentsHub onBack={vi.fn()} />);
+        const insurance = await findCard('Hull insurance, Horta to Papeete');
+        expect(within(insurance).getByText("Upload failed: the cloud didn't accept it")).toBeInTheDocument();
+
+        sync.syncNow.mockImplementationOnce(async () => {
+            await dropped(INSURANCE);
+            await removeSynced(queued(LICENCE).map((item) => item.id));
+            const result: CycleResult = { pulled: 0, errors: [], sharedOwnerIds: [SKIPPER], ...counts };
+            cycleEnds(result);
+            return result;
+        });
+        await act(async () => {
+            fireEvent.click(within(insurance).getByRole('button', { name: /Retry uploading/ }));
+        });
+
+        await waitFor(() => expect(within(insurance).queryByText(/Upload failed/)).not.toBeInTheDocument());
+        expect(within(insurance).queryByRole('button', { name: /Retry|Trying again/ })).not.toBeInTheDocument();
+        expect(sync.syncNow).toHaveBeenCalledTimes(1);
+        expect(toast.success).not.toHaveBeenCalled();
+        expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it('a cycle already under way that dropped the change counts too, though the one after the tap pushed', async () => {
+        await insertLocal('ship_documents', paper(INSURANCE, 'Hull insurance, Horta to Papeete'));
+        await insertLocal('ship_documents', paper(LICENCE, 'Ship radio licence', 'Radio/MMSI'));
+        await refuses(INSURANCE, 'new row violates row-level security policy for table "ship_documents"');
+        render(<DocumentsHub onBack={vi.fn()} />);
+
+        const running = deferred<CycleResult>();
+        sync.getSyncStatus.mockReturnValue('syncing');
+        sync.syncNow.mockReturnValueOnce(running.promise).mockImplementationOnce(async () => {
+            await uploads(LICENCE);
+            return { pushed: 1, pulled: 0, errors: [] };
+        });
+        fireEvent.click(
+            within(await findCard('Hull insurance, Horta to Papeete')).getByRole('button', { name: /Retry/ }),
+        );
+        await waitFor(() => expect(sync.syncNow).toHaveBeenCalledTimes(1));
+
+        // The cycle under way put the refused change back in line, and dropped it.
+        sync.getSyncStatus.mockReturnValue('idle');
+        await dropped(INSURANCE);
+        await act(async () => {
+            running.resolve({ pushed: 0, pulled: 0, errors: [], discardedShared: 1, sharedOwnerIds: [SKIPPER] });
+        });
+
+        await waitFor(() => expect(sync.syncNow).toHaveBeenCalledTimes(2));
+        await waitFor(() =>
+            expect(screen.queryByRole('button', { name: /Trying again/ })).not.toBeInTheDocument(),
+        );
+        expect(within(card('Hull insurance, Horta to Papeete')).queryByText(/Upload failed/)).not.toBeInTheDocument();
+        expect(toast.success).not.toHaveBeenCalled();
     });
 
     it('Retry with no signal says it goes by itself once back online, and runs nothing', async () => {
