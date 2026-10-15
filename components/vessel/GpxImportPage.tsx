@@ -5,7 +5,7 @@
  *   - File picker (native + web fallback)
  *   - GPX 1.1 routes (<rte>), tracks (<trk>), and waypoints (<wpt>)
  *   - Preview before import (map + summary stats)
- *   - Import into Ship's Log as a new voyage
+ *   - Import into Ship's Log as a new voyage, with progress, Cancel and Retry
  *   - Re-export as Thalassa GPX with weather extensions
  */
 
@@ -15,8 +15,10 @@ import { createLogger } from '../../utils/createLogger';
 const log = createLogger('GpxImport');
 import {
     readGPXFile,
-    importGPXToEntries,
+    parseGPXTrack,
     extractGPXRouteWaypoints,
+    GPX_IMPORT_MAX_TRACK_POINTS,
+    type GpxBounds,
     type GpxRouteData,
 } from '../../services/gpxService';
 import { ShipLogService } from '../../services/ShipLogService';
@@ -26,9 +28,17 @@ import { useUI } from '../../context/UIContext';
 import { requestPassageMode, stagePassageRequest, type PassageHandoffDetail } from '../../services/passageHandoff';
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/Button';
-import { AlertTriangleIcon, ClockIcon, FlagIcon, MapIcon, MapPinIcon, RouteIcon, WaveIcon } from '../Icons';
+import { AlertTriangleIcon, ClockIcon, FlagIcon, InfoIcon, MapIcon, MapPinIcon, RouteIcon, WaveIcon } from '../Icons';
 import { getAuthIdentityScope } from '../../services/authIdentityScope';
 import { openedFromBinder } from '../vesselHub/binderReturn';
+import {
+    classifyImportSaveFailure,
+    formatCoord,
+    formatImportDuration,
+    gpxImportNotes,
+    importSaveFailureMessage,
+    spokenCoord,
+} from './gpxImportPreview';
 
 interface GpxImportPageProps {
     onBack: () => void;
@@ -48,15 +58,28 @@ interface GpxPreview {
         waypoints: number;
         totalDistanceNM: number;
         duration: string;
-        bounds: {
-            minLat: number;
-            maxLat: number;
-            minLon: number;
-            maxLon: number;
-        } | null;
+        bounds: GpxBounds | null;
     };
+    /** What the import decided that the file didn't say: thinning, untimed points, segments (132-B21). */
+    notes: string[];
+    /** One voyage id per preview, so Retry saves into the same voyage and never doubles it. */
+    voyageId?: string;
     rawXml: string;
 }
+
+/** A fresh voyage id for a preview, when this WebView can make one; else the import makes its own. */
+function newImportVoyageId(): string | undefined {
+    try {
+        return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/** The phone's own online flag; assume online where there is none. */
+const isOnline = () => (typeof navigator === 'undefined' ? true : navigator.onLine !== false);
 
 type ImportState = 'idle' | 'reading' | 'previewing' | 'importing' | 'success' | 'error';
 
@@ -85,9 +108,8 @@ const IMPORTED_ITEMS: { Icon: React.FC<{ className?: string }>; label: string; d
  * file: <parsererror dump>') went straight to the page (UX scorecard run 7);
  * it still goes to the log.
  */
-function importErrorMessage(err: unknown, stage: 'read' | 'import'): string {
+function readErrorMessage(err: unknown): string {
     const raw = err instanceof Error ? err.message : '';
-    if (stage === 'import') return "The voyage couldn't be saved to the Ship's Log. Try again.";
     if (raw.startsWith('Invalid file type')) return "That isn't a GPX file. Choose a file ending in .gpx or .xml.";
     if (raw.startsWith('Invalid GPX file'))
         return "This file couldn't be read as GPX. It may be damaged, or saved in another format. Export it again as GPX and try once more.";
@@ -110,10 +132,11 @@ function readParentCrumb(arrivedFrom: string | undefined): string {
  * Height of the fixed preview CTA stack, from the page bottom: the 4rem +
  * safe-area + 8px pad under it, then Route (h-14) + gap, Import (h-14) + gap,
  * Cancel (h-11, floored to 44px in index.css). The scroller masks this band
- * so content never shows through the translucent buttons.
+ * so content never shows through the translucent buttons. A route-only file
+ * has nothing for the log, so it has no Import button (132-B21).
  */
-const previewCtaFootprint = (hasRoute: boolean) =>
-    `calc(4rem + env(safe-area-inset-bottom) + 8px + ${hasRoute ? '8rem' : '4rem'} + max(44px, 2.75rem))`;
+const previewCtaFootprint = (hasRoute: boolean, hasEntries: boolean) =>
+    `calc(4rem + env(safe-area-inset-bottom) + 8px + ${(hasRoute ? 4 : 0) + (hasEntries ? 4 : 0)}rem + max(44px, 2.75rem))`;
 
 export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
     const [state, setState] = useState<ImportState>('idle');
@@ -126,6 +149,17 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
     const [parentCrumb] = useState(() => readParentCrumb(previousView));
     const [importResult, setImportResult] = useState<{ voyageId: string; savedCount: number } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    // A failed or cancelled save keeps the preview, with the reason and a
+    // Retry (132-B21). Read errors still use `error`: there is no preview.
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const [notice, setNotice] = useState<string | null>(null);
+    const [progress, setProgress] = useState<{ saved: number; total: number }>({ saved: 0, total: 0 });
+    const [cancelling, setCancelling] = useState(false);
+    const importAbortRef = useRef<AbortController | null>(null);
+    // What VoiceOver hears at each step. Failures are role="alert" banners
+    // instead, so they are not said twice.
+    const [announcement, setAnnouncement] = useState('');
+    const announcedQuarterRef = useRef(0);
 
     // ── Parse GPX metadata from raw XML ──
     const parseMetadata = useCallback((xml: string) => {
@@ -156,10 +190,17 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
             try {
                 setState('reading');
                 setError(null);
+                setSaveError(null);
+                setNotice(null);
+                setAnnouncement(`Reading ${file.name}.`);
                 triggerHaptic('light');
 
                 const rawXml = await readGPXFile(file);
-                const entries = importGPXToEntries(rawXml);
+                // True times, segment-by-segment distance through the voyage
+                // gate, and a long track thinned after its distance is known
+                // (132-B21).
+                const parsed = parseGPXTrack(rawXml, { maxTrackPoints: GPX_IMPORT_MAX_TRACK_POINTS });
+                const entries = parsed.entries;
 
                 // Extract the navigable route FIRST. A route-only file (<rte>/
                 // <rtept>, the kind a chartplotter exports) has no track points
@@ -181,36 +222,15 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
 
                 const metadata = parseMetadata(rawXml);
 
-                // Calculate stats — from TRACK points only. Waypoints sort by
-                // position, so the last entry could be an untimed <wpt> and the
-                // distance read "0 NM" with a duration of hours-since-recording.
-                const track = entries.filter((e) => e.entryType === 'auto');
-                const trackPoints = track.length;
+                // Stats come from the TRACK, as the parser measured it over
+                // every point before thinning: distance through the voyage
+                // gate, duration between the file's own first and last times
+                // (never a waypoint's, never the import time), and bounds by
+                // a loop that handles the 180° line.
+                const trackPoints = parsed.trackPoints;
                 const waypoints = entries.filter((e) => e.entryType === 'waypoint' || e.entryType === 'manual').length;
-
-                const lastEntry = track[track.length - 1];
-                const totalDistanceNM = lastEntry?.cumulativeDistanceNM || 0;
-
-                // Calculate duration
-                const firstTime = track[0]?.timestamp ? new Date(track[0].timestamp).getTime() : 0;
-                const lastTime = lastEntry?.timestamp ? new Date(lastEntry.timestamp).getTime() : 0;
-                const durationMs = lastTime - firstTime;
-                const hours = Math.floor(durationMs / 3600000);
-                const minutes = Math.floor((durationMs % 3600000) / 60000);
-                const duration = hours > 0 ? `${hours}h ${minutes}m` : minutes > 0 ? `${minutes}m` : 'Unknown';
-
-                // Calculate bounds
-                const lats = entries.filter((e) => e.latitude !== undefined).map((e) => e.latitude!);
-                const lons = entries.filter((e) => e.longitude !== undefined).map((e) => e.longitude!);
-                const bounds =
-                    lats.length > 0
-                        ? {
-                              minLat: Math.min(...lats),
-                              maxLat: Math.max(...lats),
-                              minLon: Math.min(...lons),
-                              maxLon: Math.max(...lons),
-                          }
-                        : null;
+                const totalDistanceNM = Math.round(parsed.totalDistanceNM * 10) / 10;
+                const notes = gpxImportNotes(parsed);
 
                 setPreview({
                     filename: file.name,
@@ -219,14 +239,21 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                     stats: {
                         trackPoints,
                         waypoints,
-                        totalDistanceNM: Math.round(totalDistanceNM * 10) / 10,
-                        duration,
-                        bounds,
+                        totalDistanceNM,
+                        duration: formatImportDuration(parsed.firstTimeMs, parsed.lastTimeMs),
+                        bounds: parsed.bounds,
                     },
+                    notes,
+                    voyageId: newImportVoyageId(),
                     rawXml,
                 });
 
                 setState('previewing');
+                setAnnouncement(
+                    `Preview ready. ${metadata.name}: ${trackPoints.toLocaleString()} track points, ` +
+                        `${totalDistanceNM} nautical miles.` +
+                        (notes.length > 0 ? ` ${notes.length} ${notes.length === 1 ? 'note' : 'notes'} below.` : ''),
+                );
                 triggerHaptic('light');
 
                 // Hand the route (extracted above) to the Passage Planner path.
@@ -238,11 +265,12 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                 }
 
                 log.info(
-                    `[Import] Parsed ${file.name}: ${trackPoints} track points, ${waypoints} waypoints, ${totalDistanceNM.toFixed(1)} NM`,
+                    `[Import] Parsed ${file.name}: ${trackPoints} track points (${parsed.savedTrackPoints} kept), ${waypoints} waypoints, ${totalDistanceNM.toFixed(1)} NM`,
                 );
             } catch (err) {
-                setError(importErrorMessage(err, 'read'));
+                setError(readErrorMessage(err));
                 setState('error');
+                setAnnouncement('');
                 triggerHaptic('heavy');
                 log.error('[Import] Parse error:', err);
             }
@@ -251,25 +279,73 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
     );
 
     // ── Import into Ship's Log ──
+    // Progress after every chunk, a Cancel that stops it, and a failure that
+    // keeps the preview with the reason and a Retry (132-B21). The same
+    // voyage id every attempt, so a retry never doubles the voyage.
     const handleImport = useCallback(async () => {
-        if (!preview) return;
+        if (!preview || preview.entries.length === 0) return;
+        const controller = new AbortController();
+        importAbortRef.current = controller;
+        announcedQuarterRef.current = 0;
+        const total = preview.entries.length;
+
+        setSaveError(null);
+        setNotice(null);
+        setCancelling(false);
+        setProgress({ saved: 0, total });
+        setState('importing');
+        setAnnouncement(`Saving ${total.toLocaleString()} entries to the Ship's Log.`);
+        triggerHaptic('medium');
 
         try {
-            setState('importing');
-            triggerHaptic('medium');
-
-            const result = await ShipLogService.importGPXVoyage(preview.entries);
+            const result = await ShipLogService.importGPXVoyage(preview.entries, {
+                voyageId: preview.voyageId,
+                signal: controller.signal,
+                onProgress: (saved, of) => {
+                    setProgress({ saved, total: of });
+                    // A quarter at a time, so VoiceOver isn't talking over every chunk.
+                    const quarter = Math.floor((saved / of) * 4);
+                    if (saved < of && quarter > announcedQuarterRef.current) {
+                        announcedQuarterRef.current = quarter;
+                        setAnnouncement(`Saved ${saved.toLocaleString()} of ${of.toLocaleString()} entries.`);
+                    }
+                },
+            });
             setImportResult(result);
             setState('success');
+            setAnnouncement(`Import complete. ${result.savedCount.toLocaleString()} entries saved.`);
             triggerHaptic('light');
             log.info(`[Import] ✓ Imported ${result.savedCount} entries as voyage ${result.voyageId}`);
         } catch (err) {
-            setError(importErrorMessage(err, 'import'));
-            setState('error');
+            if (controller.signal.aborted) {
+                const message = "Import cancelled. Nothing was added to the Ship's Log.";
+                setNotice(message);
+                setState('previewing');
+                setAnnouncement(message);
+                log.info('[Import] Cancelled by the skipper');
+                return;
+            }
+            setSaveError(importSaveFailureMessage(classifyImportSaveFailure(err, isOnline())));
+            setState('previewing');
+            setAnnouncement('');
             triggerHaptic('heavy');
             log.error('[Import] Import error:', err);
+        } finally {
+            if (importAbortRef.current === controller) importAbortRef.current = null;
+            setCancelling(false);
         }
     }, [preview]);
+
+    // ── Cancel a save in progress ──
+    // The import stops between chunks; what it saved is removed by the voyage
+    // fence before the promise settles, so "Cancelling…" holds until then.
+    const handleCancelImport = useCallback(() => {
+        if (!importAbortRef.current) return;
+        setCancelling(true);
+        setAnnouncement('Cancelling.');
+        triggerHaptic('light');
+        importAbortRef.current.abort();
+    }, []);
 
     // ── Reset state ──
     const handleReset = useCallback(() => {
@@ -277,7 +353,10 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
         setPreview(null);
         setRouteData(null);
         setError(null);
+        setSaveError(null);
+        setNotice(null);
         setImportResult(null);
+        setAnnouncement('');
         if (fileInputRef.current) fileInputRef.current.value = '';
     }, []);
 
@@ -326,14 +405,8 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
         }, 300);
     }, [routeData, setPage]);
 
-    // ── DMS formatter ──
-    const formatCoord = (value: number, posChar: string, negChar: string): string => {
-        const absVal = Math.abs(value);
-        const degrees = Math.floor(absVal);
-        const minutes = ((absVal - degrees) * 60).toFixed(1);
-        const dir = value >= 0 ? posChar : negChar;
-        return `${degrees}°${minutes}'${dir}`;
-    };
+    const hasEntries = (preview?.entries.length ?? 0) > 0;
+    const progressPct = progress.total > 0 ? Math.round((progress.saved / progress.total) * 100) : 0;
 
     return (
         // h-full: the page is exactly the view's height, so the list below is
@@ -342,6 +415,12 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
         // for the fixed CTA (slide-up-enter keeps a transform), which now sits
         // at the bottom of the screen instead of the bottom of the content.
         <div className="relative flex h-full flex-1 flex-col overflow-hidden bg-slate-950 slide-up-enter">
+            {/* Each step, said once: reading, preview ready, saving by the
+                quarter, done or cancelled (132-B21). Always mounted, so
+                VoiceOver hears the text change. */}
+            <p className="sr-only" role="status" aria-live="polite">
+                {announcement}
+            </p>
             {/* No brand names in the subtitle: PageHeader uppercases it (ISAILOR,
                 QTVLM), and the app list below names them properly. */}
             <PageHeader
@@ -367,7 +446,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                 style={
                     state === 'previewing'
                         ? ({
-                              '--thalassa-scroll-fade-inset': previewCtaFootprint(!!routeData),
+                              '--thalassa-scroll-fade-inset': previewCtaFootprint(!!routeData, hasEntries),
                               paddingBottom: 'calc(var(--thalassa-scroll-fade-inset) + 1rem)',
                           } as React.CSSProperties)
                         : undefined
@@ -425,7 +504,10 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
 
                             {/* Error display */}
                             {error && (
-                                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start gap-3">
+                                <div
+                                    role="alert"
+                                    className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start gap-3"
+                                >
                                     <AlertTriangleIcon className="w-5 h-5 mt-0.5 shrink-0 text-red-400" />
                                     <div className="flex-1">
                                         <p className="text-[13px] font-bold text-red-300">Import failed</p>
@@ -509,6 +591,27 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                     {/* ── PREVIEWING: Show parsed data ── */}
                     {state === 'previewing' && preview && (
                         <>
+                            {/* A failed save says why, and the preview stays for
+                                Retry (the Import button below) (132-B21). */}
+                            {saveError && (
+                                <div
+                                    role="alert"
+                                    className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start gap-3"
+                                >
+                                    <AlertTriangleIcon className="w-5 h-5 mt-0.5 shrink-0 text-red-400" />
+                                    <div className="flex-1">
+                                        <p className="text-[13px] font-bold text-red-300">Not saved</p>
+                                        <p className="text-xs text-red-300/90 mt-1">{saveError}</p>
+                                    </div>
+                                </div>
+                            )}
+                            {notice && (
+                                <div className="bg-sky-500/10 border border-sky-500/20 rounded-xl p-4 flex items-start gap-3">
+                                    <InfoIcon className="w-5 h-5 mt-0.5 shrink-0 text-sky-400" />
+                                    <p className="flex-1 text-xs text-sky-200">{notice}</p>
+                                </div>
+                            )}
+
                             {/* File info card */}
                             <div className="rounded-2xl bg-white/3 border border-white/10 p-4">
                                 <div className="flex items-start gap-3">
@@ -572,37 +675,57 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                 />
                             </div>
 
-                            {/* Bounds display */}
+                            {/* What the import decided that the file didn't say:
+                                thinning, untimed points, segments (132-B21). */}
+                            {preview.notes.length > 0 && (
+                                <div className="rounded-2xl bg-white/2 border border-white/5 p-4">
+                                    <h2 className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-2">
+                                        Before you import
+                                    </h2>
+                                    <ul role="list" className="space-y-2">
+                                        {preview.notes.map((note) => (
+                                            <li key={note} className="flex items-start gap-2">
+                                                <InfoIcon className="w-3.5 h-3.5 mt-0.5 shrink-0 text-sky-400" />
+                                                <p className="text-[12px] leading-relaxed text-white/75">{note}</p>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Bounds display. The edges come from the parser, which
+                                handles the 180° line: across it, W reads an east
+                                longitude and E a west one, as on the chart. Each
+                                edge is spoken in words, not ° and ' (132-B21). */}
                             {preview.stats.bounds && (
                                 <div className="rounded-2xl bg-white/2 border border-white/5 p-4">
                                     <h2 className="text-[11px] font-bold text-white/60 uppercase tracking-widest mb-2">
                                         Coverage area
                                     </h2>
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[11px] text-gray-500 w-8">N:</span>
-                                            <span className="text-[12px] font-mono text-white/80">
-                                                {formatCoord(preview.stats.bounds.maxLat, 'N', 'S')}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[11px] text-gray-500 w-8">E:</span>
-                                            <span className="text-[12px] font-mono text-white/80">
-                                                {formatCoord(preview.stats.bounds.maxLon, 'E', 'W')}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[11px] text-gray-500 w-8">S:</span>
-                                            <span className="text-[12px] font-mono text-white/80">
-                                                {formatCoord(preview.stats.bounds.minLat, 'N', 'S')}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[11px] text-gray-500 w-8">W:</span>
-                                            <span className="text-[12px] font-mono text-white/80">
-                                                {formatCoord(preview.stats.bounds.minLon, 'E', 'W')}
-                                            </span>
-                                        </div>
+                                        {(
+                                            [
+                                                ['N', 'North', preview.stats.bounds.maxLat, 'N', 'S'],
+                                                ['E', 'East', preview.stats.bounds.maxLon, 'E', 'W'],
+                                                ['S', 'South', preview.stats.bounds.minLat, 'N', 'S'],
+                                                ['W', 'West', preview.stats.bounds.minLon, 'E', 'W'],
+                                            ] as const
+                                        ).map(([edge, edgeWord, value, pos, neg]) => (
+                                            <div key={edge} className="flex items-center gap-2">
+                                                <span className="sr-only">
+                                                    {`${edgeWord} edge: ${spokenCoord(value, pos, neg)}`}
+                                                </span>
+                                                <span aria-hidden="true" className="text-[11px] text-gray-500 w-8">
+                                                    {edge}:
+                                                </span>
+                                                <span
+                                                    aria-hidden="true"
+                                                    className="text-[12px] font-mono text-white/80"
+                                                >
+                                                    {formatCoord(value, pos, neg)}
+                                                </span>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             )}
@@ -645,14 +768,42 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                         </>
                     )}
 
-                    {/* ── IMPORTING: Progress ── */}
+                    {/* ── IMPORTING: Progress ──
+                        Entries saved so far, and a Cancel. A long track used
+                        to sit on a spinner with no way out (132-B21). */}
                     {state === 'importing' && (
                         <div className="py-20 flex flex-col items-center gap-4">
                             <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
                                 <div className="w-6 h-6 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
                             </div>
-                            <p className="text-sm font-bold text-white/60">Importing voyage…</p>
-                            <p className="text-[11px] text-gray-500">{preview?.entries.length} entries</p>
+                            <p className="text-sm font-bold text-white/60">
+                                {cancelling ? 'Cancelling…' : "Saving to the Ship's Log…"}
+                            </p>
+                            <div
+                                role="progressbar"
+                                aria-label="Saving voyage"
+                                aria-valuemin={0}
+                                aria-valuemax={progress.total}
+                                aria-valuenow={progress.saved}
+                                aria-valuetext={`${progress.saved.toLocaleString()} of ${progress.total.toLocaleString()} entries saved`}
+                                className="h-2 w-full max-w-xs overflow-hidden rounded-full bg-white/10"
+                            >
+                                <div
+                                    className="h-full rounded-full bg-emerald-400 transition-[width] duration-300"
+                                    style={{ width: `${progressPct}%` }}
+                                />
+                            </div>
+                            <p className="text-[11px] text-gray-500" aria-hidden="true">
+                                {progress.saved.toLocaleString()} of {progress.total.toLocaleString()} entries
+                            </p>
+                            {/* h-11: a 44 pt target, like the preview's Cancel. */}
+                            <button
+                                onClick={handleCancelImport}
+                                disabled={cancelling}
+                                className="h-11 px-6 rounded-xl text-gray-400 hover:text-gray-200 text-sm font-bold transition-colors disabled:opacity-50"
+                            >
+                                {cancelling ? 'Cancelling…' : 'Cancel import'}
+                            </button>
                         </div>
                     )}
 
@@ -732,25 +883,30 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                 </span>
                             </button>
                         )}
-                        <button
-                            onClick={handleImport}
-                            className="w-full h-14 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-white font-extrabold text-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-                        >
-                            <svg
-                                className="w-5 h-5 text-emerald-400"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
+                        {/* A route-only file has nothing for the log: no button
+                            that can only fail. After a failed save it reads
+                            Retry; the banner above says why (132-B21). */}
+                        {hasEntries && (
+                            <button
+                                onClick={handleImport}
+                                className="w-full h-14 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-white font-extrabold text-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                             >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
-                                />
-                            </svg>
-                            Import to Ship's Log
-                        </button>
+                                <svg
+                                    className="w-5 h-5 text-emerald-400"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
+                                    />
+                                </svg>
+                                {saveError ? 'Retry import' : "Import to Ship's Log"}
+                            </button>
+                        )}
                         {/* h-11: a 44 pt target (h-10 was 40px, 33px at the smallest
                             root size). previewCtaFootprint counts this height. */}
                         <button

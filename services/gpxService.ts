@@ -11,6 +11,15 @@ import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { createLogger } from '../utils/createLogger';
 import { isTrackworthyEntry } from './shiplog/helpers';
+import {
+    accrualFields,
+    accrueDistance,
+    distanceAccrualGateM,
+    freshAccrual,
+    type AccrualCarry,
+    type AccrualResult,
+    type GeoPoint,
+} from './shiplog/distanceAccrual';
 import { calculateDistance as haversineNM, formatDMS } from '../utils/navigationCalculations';
 
 const log = createLogger('GPX');
@@ -32,6 +41,19 @@ export function exportVoyageAsGPX(entries: ShipLogEntry[], voyageName: string, v
 
     const _firstEntry = sorted[0];
     const totalDistanceNM = sorted.reduce((acc, e) => Math.max(acc, e.cumulativeDistanceNM || 0), 0);
+
+    // A loop, not Math.min over a spread: spreading a long voyage's positions
+    // overflowed the call stack, the same crash as the import preview (132-B21).
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLon = Infinity;
+    let maxLon = -Infinity;
+    for (const e of sorted) {
+        if (e.latitude < minLat) minLat = e.latitude;
+        if (e.latitude > maxLat) maxLat = e.latitude;
+        if (e.longitude < minLon) minLon = e.longitude;
+        if (e.longitude > maxLon) maxLon = e.longitude;
+    }
 
     // Build trackpoints — trackworthy entries only. Turn pins (past
     // positions) and (0,0) placeholders become <wpt> markers below, not
@@ -100,10 +122,10 @@ ${extensions}
     </author>
     <time>${new Date().toISOString()}</time>
     <keywords>marine,sailing,navigation,voyage</keywords>
-    <bounds minlat="${Math.min(...sorted.map((e) => e.latitude)).toFixed(6)}"
-            minlon="${Math.min(...sorted.map((e) => e.longitude)).toFixed(6)}"
-            maxlat="${Math.max(...sorted.map((e) => e.latitude)).toFixed(6)}"
-            maxlon="${Math.max(...sorted.map((e) => e.longitude)).toFixed(6)}" />
+    <bounds minlat="${minLat.toFixed(6)}"
+            minlon="${minLon.toFixed(6)}"
+            maxlat="${maxLat.toFixed(6)}"
+            maxlon="${maxLon.toFixed(6)}" />
   </metadata>
 ${waypoints ? waypoints + '\n' : ''}  <trk>
     <name>${escapeXml(voyageName)}</name>
@@ -121,11 +143,244 @@ ${trackpoints}
 // --- GPX IMPORT ---
 
 /**
- * Parse a GPX XML string into an array of partial ShipLogEntry objects.
- * Handles <trk>/<trkseg>/<trkpt> and <wpt> elements.
- * Calculates distance and speed between consecutive points.
+ * The most track points an import saves (132-B21). A 1 Hz logger writes
+ * 50,000 points in fourteen hours; saving each one took 500 requests and drew
+ * no better than one in ten. A longer track is thinned evenly to about this
+ * many, AFTER its distance and times are worked out from every point.
  */
-export function importGPXToEntries(gpxXml: string): Partial<ShipLogEntry>[] {
+export const GPX_IMPORT_MAX_TRACK_POINTS = 5_000;
+
+/** The area a file covers. When it crosses the 180° line the west edge (minLon) is east of the east edge. */
+export interface GpxBounds {
+    minLat: number;
+    maxLat: number;
+    /** West edge. */
+    minLon: number;
+    /** East edge. */
+    maxLon: number;
+}
+
+/** A GPX track import: the entries to save, and what the preview should tell the skipper. */
+export interface GpxTrackImport {
+    /** Track points (thinned when asked) and waypoints, oldest first. */
+    entries: Partial<ShipLogEntry>[];
+    /** Track points in the file with a usable position. */
+    trackPoints: number;
+    /** Track points in `entries`: fewer than trackPoints when the track was thinned. */
+    savedTrackPoints: number;
+    /** Track segments with at least one point. Each starts fresh: gaps between them are not distance. */
+    segments: number;
+    /** Track points with no usable <time>. They get a placed time and never a speed. */
+    untimedTrackPoints: number;
+    /** Waypoints with no usable <time>. */
+    untimedWaypoints: number;
+    /** Points left out because their position was missing, impossible or the 0,0 placeholder. */
+    skippedPoints: number;
+    /** First and last time the file gives a track point, in ms, or null when it gives none. */
+    firstTimeMs: number | null;
+    lastTimeMs: number | null;
+    /** Distance sailed, through the same gate as a recorded voyage. */
+    totalDistanceNM: number;
+    bounds: GpxBounds | null;
+    /**
+     * Set when the file had no times to date some points by: the date they
+     * were logged under, from the file's own <metadata><time>, else the import.
+     */
+    fallbackDate: { source: 'file' | 'import'; timeMs: number } | null;
+}
+
+/** One track point as the file gives it. */
+interface FileTrackPoint {
+    lat: number;
+    lon: number;
+    /** The file's own time, or null. Never the import time (132-B21). */
+    timeMs: number | null;
+    fileSpeedKts?: number;
+    courseDeg?: number;
+    extensions: Partial<ShipLogEntry>;
+}
+
+/** A direct child's text, so a <time> or <name> inside <extensions> is never read as the point's own. */
+function childText(el: Element, localName: string): string | undefined {
+    const children = el.children;
+    for (let i = 0; i < children.length; i++) {
+        if (children[i].localName === localName) return children[i].textContent?.trim() || undefined;
+    }
+    return undefined;
+}
+
+/** The first <speed> or <course> at any depth: GPX 1.0 puts it on the point, Garmin inside <extensions>. */
+function anyDepthText(el: Element, localName: string): string | undefined {
+    return el.getElementsByTagNameNS('*', localName)[0]?.textContent?.trim() || undefined;
+}
+
+/** A date and clock time with no Z or ±hh:mm after it, as some loggers write: 2026-08-01T10:00:00. */
+const ZONELESS_DATE_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/i;
+
+/**
+ * A GPX <time> in ms, or null when it is missing or unreadable. GPX times are
+ * UTC. JavaScript reads a time with no zone as the phone's own clock, which
+ * logged every point of such a file 10 hours early on a Brisbane phone, so a
+ * zoneless time is read as UTC, as the Ship's Log database read it before 132-B21.
+ */
+function parseGpxTime(text: string | undefined): number | null {
+    if (!text) return null;
+    const utc = ZONELESS_DATE_TIME.test(text) ? `${text.slice(0, 10)}T${text.slice(11)}Z` : text;
+    const ms = Date.parse(utc);
+    return Number.isFinite(ms) ? ms : null;
+}
+
+/** A number from the file, or undefined when it is missing or not a number. */
+function parseFileNumber(text: string | undefined): number | undefined {
+    if (!text) return undefined;
+    const n = parseFloat(text);
+    return Number.isFinite(n) ? n : undefined;
+}
+
+/** Longitude folded into −180…180, so a file that writes 0…360 still lands on the right side of the 180° line. */
+export function normalizeLongitude(lon: number): number {
+    if (lon >= -180 && lon <= 180) return lon;
+    return ((((lon + 180) % 360) + 360) % 360) - 180;
+}
+
+/** A point's position, or null when it is missing, impossible, or the 0,0 "no fix" placeholder. */
+function readPosition(el: Element): { lat: number; lon: number } | null {
+    const lat = parseFileNumber(el.getAttribute('lat') ?? undefined);
+    const lon = parseFileNumber(el.getAttribute('lon') ?? undefined);
+    if (lat === undefined || lon === undefined || Math.abs(lat) > 90 || Math.abs(lon) > 540) return null;
+    if (lat === 0 && lon === 0) return null;
+    return { lat, lon: normalizeLongitude(lon) };
+}
+
+/**
+ * The smallest box around a set of positions, across the 180° line when that
+ * box is the narrower one (132-B21). A running loop, never Math.min over a spread:
+ * spreading a 50,000-point track's latitudes overflowed the call stack and
+ * took the preview down with it.
+ */
+function boundsAccumulator() {
+    let count = 0;
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLon = Infinity;
+    let maxLon = -Infinity;
+    // The same longitudes measured 0…360, where a track across 180° is narrow.
+    let minLon360 = Infinity;
+    let maxLon360 = -Infinity;
+    return {
+        add(lat: number, lon: number) {
+            count++;
+            if (lat < minLat) minLat = lat;
+            if (lat > maxLat) maxLat = lat;
+            if (lon < minLon) minLon = lon;
+            if (lon > maxLon) maxLon = lon;
+            const lon360 = lon < 0 ? lon + 360 : lon;
+            if (lon360 < minLon360) minLon360 = lon360;
+            if (lon360 > maxLon360) maxLon360 = lon360;
+        },
+        result(): GpxBounds | null {
+            if (count === 0) return null;
+            if (maxLon360 - minLon360 < maxLon - minLon) {
+                const fold = (lon: number) => (lon > 180 ? lon - 360 : lon);
+                return { minLat, maxLat, minLon: fold(minLon360), maxLon: fold(maxLon360) };
+            }
+            return { minLat, maxLat, minLon, maxLon };
+        },
+    };
+}
+
+/** The box around these positions (see boundsAccumulator). Safe for any number of points. */
+export function positionBounds(points: Iterable<{ latitude?: number; longitude?: number }>): GpxBounds | null {
+    const bounds = boundsAccumulator();
+    for (const p of points) {
+        if (Number.isFinite(p.latitude) && Number.isFinite(p.longitude)) bounds.add(p.latitude!, p.longitude!);
+    }
+    return bounds.result();
+}
+
+/**
+ * A stored time for every track point. The file's own time where it has one.
+ * An untimed point between two timed ones is placed evenly between them; one
+ * before the first or after the last sits a millisecond outside it, so the
+ * log keeps the file's order. Untimed points used to take the import time,
+ * so two of them a few milliseconds apart read 36,000 kn and the voyage ended
+ * today (132-B21). With no times at all, points run a millisecond apart from
+ * the fallback start.
+ */
+function placeTrackTimes(times: (number | null)[], fallbackStartMs: number): number[] {
+    const timed: number[] = [];
+    for (let i = 0; i < times.length; i++) if (times[i] !== null) timed.push(i);
+    if (timed.length === 0) return times.map((_, i) => fallbackStartMs + i);
+
+    const placed = new Array<number>(times.length);
+    const first = timed[0];
+    const last = timed[timed.length - 1];
+    for (let i = 0; i < first; i++) placed[i] = (times[first] as number) - (first - i);
+    for (let i = last + 1; i < times.length; i++) placed[i] = (times[last] as number) + (i - last);
+    for (let t = 0; t < timed.length; t++) {
+        const a = timed[t];
+        const ta = times[a] as number;
+        placed[a] = ta;
+        if (t + 1 === timed.length) break;
+        const b = timed[t + 1];
+        const tb = times[b] as number;
+        for (let i = a + 1; i < b; i++) {
+            placed[i] = tb > ta ? Math.round(ta + ((tb - ta) * (i - a)) / (b - a)) : ta;
+        }
+    }
+    return placed;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Keep about one track point in every `stride`, plus each segment's first and
+ * last and any point carrying the skipper's notes. Each kept point's leg is
+ * the distance since the previous kept point, so the legs still add up to the
+ * full track's distance.
+ */
+function thinTrack(
+    entries: Partial<ShipLogEntry>[],
+    cumulativeNM: number[],
+    segmentStarts: number[],
+    maxPoints: number,
+): Partial<ShipLogEntry>[] {
+    const stride = Math.ceil(entries.length / maxPoints);
+    const kept: Partial<ShipLogEntry>[] = [];
+    for (let s = 0; s < segmentStarts.length; s++) {
+        const start = segmentStarts[s];
+        const end = s + 1 < segmentStarts.length ? segmentStarts[s + 1] : entries.length;
+        let lastKept = -1;
+        for (let i = start; i < end; i++) {
+            const keep = i === start || i === end - 1 || (i - start) % stride === 0 || Boolean(entries[i].notes);
+            if (!keep) continue;
+            const legNM = lastKept < 0 ? entries[i].distanceNM || 0 : cumulativeNM[i] - cumulativeNM[lastKept];
+            kept.push({ ...entries[i], distanceNM: round2(legNM) });
+            lastKept = i;
+        }
+    }
+    return kept;
+}
+
+/**
+ * Parse a GPX file's tracks and waypoints for the Ship's Log (132-B21).
+ *
+ * - Times are the file's own, and UTC when the file gives no zone. An untimed
+ *   point is placed between its timed neighbours (see placeTrackTimes) and
+ *   never gets a speed; an untimed waypoint is logged when the track passed
+ *   closest to it.
+ * - Each <trkseg> starts fresh: the gap to the next segment, or the next
+ *   <trk>, is not distance sailed and makes no speed.
+ * - Distance runs through the recorded-voyage gate (distanceAccrual), so GPS
+ *   jitter at anchor adds nothing here either; a sparse track's legs still
+ *   all count (see the loop below). Speed still uses the raw leg.
+ * - Longitudes fold into −180…180 and the bounds handle the 180° line.
+ * - `maxTrackPoints` thins a long track after distance and times are known.
+ */
+export function parseGPXTrack(
+    gpxXml: string,
+    options: { maxTrackPoints?: number; nowMs?: number } = {},
+): GpxTrackImport {
     const parser = new DOMParser();
     const doc = parser.parseFromString(gpxXml, 'application/xml');
 
@@ -135,103 +390,229 @@ export function importGPXToEntries(gpxXml: string): Partial<ShipLogEntry>[] {
         throw new Error(`Invalid GPX file: ${parseError.textContent}`);
     }
 
-    const entries: Partial<ShipLogEntry>[] = [];
+    let skippedPoints = 0;
+    const bounds = boundsAccumulator();
 
-    // Parse track points
+    // Track points, grouped by their segment (a <trkseg>, or a <trk>'s loose
+    // points) in file order.
+    const segmentsByParent = new Map<Element, FileTrackPoint[]>();
     const trkpts = doc.querySelectorAll('trkpt');
-    let prevLat: number | undefined;
-    let prevLon: number | undefined;
-    let prevTime: number | undefined;
-    let cumulativeDistanceNM = 0;
+    for (let i = 0; i < trkpts.length; i++) {
+        const trkpt = trkpts[i];
+        const position = readPosition(trkpt);
+        if (!position) {
+            skippedPoints++;
+            continue;
+        }
+        bounds.add(position.lat, position.lon);
+        const fileSpeedMs = parseFileNumber(anyDepthText(trkpt, 'speed'));
+        const point: FileTrackPoint = {
+            ...position,
+            timeMs: parseGpxTime(childText(trkpt, 'time')),
+            // GPX speed is m/s
+            fileSpeedKts: fileSpeedMs !== undefined ? fileSpeedMs / 0.514444 : undefined,
+            courseDeg: parseFileNumber(anyDepthText(trkpt, 'course')),
+            extensions: parseThalassaExtensions(trkpt),
+        };
+        const parent = trkpt.parentElement ?? doc.documentElement;
+        const segment = segmentsByParent.get(parent);
+        if (segment) segment.push(point);
+        else segmentsByParent.set(parent, [point]);
+    }
+    let segments = [...segmentsByParent.values()];
 
-    trkpts.forEach((trkpt) => {
-        const lat = parseFloat(trkpt.getAttribute('lat') || '0');
-        const lon = parseFloat(trkpt.getAttribute('lon') || '0');
-        const timeEl = trkpt.querySelector('time');
-        const timestamp = timeEl?.textContent || new Date().toISOString();
-        const speedEl = trkpt.querySelector('speed');
-        const courseEl = trkpt.querySelector('course');
+    // Segments in time order when every one says when it started; a file
+    // that lists its newest track first still runs oldest first.
+    const segmentStartMs = segments.map((seg) => seg.find((p) => p.timeMs !== null)?.timeMs ?? null);
+    if (segments.length > 1 && segmentStartMs.every((t) => t !== null)) {
+        segments = segments
+            .map((seg, i) => ({ seg, start: segmentStartMs[i] as number }))
+            .sort((a, b) => a.start - b.start)
+            .map(({ seg }) => seg);
+    }
 
-        // Calculate distance from previous point
-        let distanceNM = 0;
-        let speedKts: number | undefined;
+    const fileTimeMs = parseGpxTime(doc.querySelector('metadata > time')?.textContent?.trim());
+    const fallbackStartMs = fileTimeMs ?? options.nowMs ?? Date.now();
+    let fallbackUsed = false;
 
-        if (prevLat !== undefined && prevLon !== undefined) {
-            distanceNM = haversineNM(prevLat, prevLon, lat, lon);
-            cumulativeDistanceNM += distanceNM;
+    const flat = segments.flat();
+    let untimedTrackPoints = 0;
+    let firstTimeMs: number | null = null;
+    let lastTimeMs: number | null = null;
+    for (const p of flat) {
+        if (p.timeMs === null) {
+            untimedTrackPoints++;
+            continue;
+        }
+        if (firstTimeMs === null || p.timeMs < firstTimeMs) firstTimeMs = p.timeMs;
+        if (lastTimeMs === null || p.timeMs > lastTimeMs) lastTimeMs = p.timeMs;
+    }
+    const placedMs = placeTrackTimes(
+        flat.map((p) => p.timeMs),
+        fallbackStartMs,
+    );
+    if (flat.length > 0 && firstTimeMs === null) fallbackUsed = true;
 
-            // Calculate speed if we have timestamps
-            if (prevTime !== undefined) {
-                const currentTime = new Date(timestamp).getTime();
-                const timeDiffHours = (currentTime - prevTime) / (1000 * 60 * 60);
-                if (timeDiffHours > 0) {
-                    speedKts = distanceNM / timeDiffHours;
-                }
+    // Distance, speed and the entry for every track point, segment by segment.
+    // The recorded-voyage gate decides what is movement. A fix it holds as a
+    // candidate (the first beyond the gate after a standstill) counts from the
+    // anchor to itself once the next fix confirms it, or when its segment
+    // ends with no next fix to confirm it. The gate alone measures a confirmed
+    // move straight from the anchor to the confirming fix and drops a candidate
+    // left at the end: a few metres on a recorded voyage, but a 2-point,
+    // 24 NM track read 0 NM and a sparse dogleg lost its corner.
+    const gateM = distanceAccrualGateM(null);
+    const trackEntries: Partial<ShipLogEntry>[] = [];
+    const cumulativeNM: number[] = [];
+    const segmentStarts: number[] = [];
+    let cumulative = 0;
+    let k = 0;
+    /** The leg from the anchor to a candidate, counted on the candidate's own entry. */
+    const settleCandidate = (index: number, anchor: GeoPoint, candidate: GeoPoint) => {
+        const legNM = haversineNM(anchor.latitude, anchor.longitude, candidate.latitude, candidate.longitude);
+        cumulative += legNM;
+        trackEntries[index].distanceNM = round2(legNM);
+        trackEntries[index].cumulativeDistanceNM = round2(cumulative);
+        cumulativeNM[index] = cumulative;
+    };
+    for (const segment of segments) {
+        segmentStarts.push(trackEntries.length);
+        let carry: (AccrualCarry & GeoPoint) | null = null;
+        let prev: FileTrackPoint | null = null;
+        for (const p of segment) {
+            const fix = { latitude: p.lat, longitude: p.lon };
+            const accrual: AccrualResult = carry ? accrueDistance(carry, fix, gateM) : freshAccrual(fix, cumulative);
+            let accruedNM = accrual.accruedNM;
+            const candidate = carry?.moveCandidate;
+            if (carry && candidate && accrual.moving) {
+                // Confirmed: the candidate (the previous fix) sailed from the
+                // anchor, and this fix sailed on from the candidate.
+                settleCandidate(trackEntries.length - 1, carry.accrualAnchor ?? carry, candidate);
+                accruedNM = haversineNM(candidate.latitude, candidate.longitude, fix.latitude, fix.longitude);
+            }
+            cumulative += accruedNM;
+            carry = { ...fix, ...accrualFields(accrual), cumulativeDistanceNM: cumulative };
+
+            // A speed only between two points the file timed, in one segment.
+            let speedKts: number | undefined;
+            if (prev && prev.timeMs !== null && p.timeMs !== null && p.timeMs > prev.timeMs) {
+                const legNM = haversineNM(prev.lat, prev.lon, p.lat, p.lon);
+                speedKts = legNM / ((p.timeMs - prev.timeMs) / 3_600_000);
+            }
+            if (p.fileSpeedKts !== undefined) speedKts = p.fileSpeedKts;
+
+            trackEntries.push({
+                timestamp: new Date(placedMs[k]).toISOString(),
+                latitude: p.lat,
+                longitude: p.lon,
+                positionFormatted: formatDMS(p.lat, p.lon),
+                distanceNM: round2(accruedNM),
+                cumulativeDistanceNM: round2(cumulative),
+                speedKts: speedKts !== undefined ? Math.round(speedKts * 10) / 10 : undefined,
+                courseDeg: p.courseDeg,
+                entryType: 'auto',
+                source: 'gpx_import',
+                ...p.extensions,
+            });
+            cumulativeNM.push(cumulative);
+            prev = p;
+            k++;
+        }
+        // The segment ends on a candidate: no next fix will confirm it, so its leg counts.
+        if (carry?.moveCandidate) {
+            settleCandidate(trackEntries.length - 1, carry.accrualAnchor ?? carry, carry.moveCandidate);
+        }
+    }
+
+    const maxTrackPoints = options.maxTrackPoints;
+    const savedTrack =
+        maxTrackPoints && maxTrackPoints > 0 && trackEntries.length > maxTrackPoints
+            ? thinTrack(trackEntries, cumulativeNM, segmentStarts, maxTrackPoints)
+            : trackEntries;
+
+    // Waypoints. An untimed one is logged when the track passed closest to
+    // it; with no track, it takes the fallback date like an untimed track.
+    // The nearest search samples at most ~5,000 track points.
+    const candidateStep = Math.max(1, Math.ceil(flat.length / 5_000));
+    const nearestTrackTime = (lat: number, lon: number): number => {
+        const cosLat = Math.cos((lat * Math.PI) / 180);
+        let best = Infinity;
+        let bestIndex = 0;
+        for (let i = 0; i < flat.length; i += candidateStep) {
+            let dLon = Math.abs(flat[i].lon - lon);
+            if (dLon > 180) dLon = 360 - dLon;
+            const dLat = flat[i].lat - lat;
+            const d = dLat * dLat + dLon * cosLat * (dLon * cosLat);
+            if (d < best) {
+                best = d;
+                bestIndex = i;
             }
         }
-
-        // Override with GPX speed if available (convert from m/s to knots)
-        if (speedEl?.textContent) {
-            speedKts = parseFloat(speedEl.textContent) / 0.514444;
-        }
-
-        let courseDeg: number | undefined;
-        if (courseEl?.textContent) {
-            courseDeg = parseFloat(courseEl.textContent);
-        }
-
-        // Parse Thalassa extensions
-        const extensions = parseThalassaExtensions(trkpt);
-
-        const entry: Partial<ShipLogEntry> = {
-            timestamp,
-            latitude: lat,
-            longitude: lon,
-            positionFormatted: formatDMS(lat, lon),
-            distanceNM: Math.round(distanceNM * 100) / 100,
-            cumulativeDistanceNM: Math.round(cumulativeDistanceNM * 100) / 100,
-            speedKts: speedKts !== undefined ? Math.round(speedKts * 10) / 10 : undefined,
-            courseDeg,
-            entryType: 'auto',
-            source: 'gpx_import',
-            ...extensions,
-        };
-
-        entries.push(entry);
-
-        prevLat = lat;
-        prevLon = lon;
-        prevTime = new Date(timestamp).getTime();
-    });
-
-    // Parse waypoints
+        return placedMs[bestIndex];
+    };
+    const waypointEntries: Partial<ShipLogEntry>[] = [];
+    let untimedWaypoints = 0;
     const wpts = doc.querySelectorAll('wpt');
-    wpts.forEach((wpt) => {
-        const lat = parseFloat(wpt.getAttribute('lat') || '0');
-        const lon = parseFloat(wpt.getAttribute('lon') || '0');
-        const timeEl = wpt.querySelector('time');
-        const nameEl = wpt.querySelector('name');
-        const descEl = wpt.querySelector('desc');
-        const typeEl = wpt.querySelector('type');
-
-        const entry: Partial<ShipLogEntry> = {
-            timestamp: timeEl?.textContent || new Date().toISOString(),
-            latitude: lat,
-            longitude: lon,
-            positionFormatted: formatDMS(lat, lon),
-            entryType: typeEl?.textContent === 'manual' ? 'manual' : 'waypoint',
+    for (let i = 0; i < wpts.length; i++) {
+        const wpt = wpts[i];
+        const position = readPosition(wpt);
+        if (!position) {
+            skippedPoints++;
+            continue;
+        }
+        bounds.add(position.lat, position.lon);
+        let timeMs = parseGpxTime(childText(wpt, 'time'));
+        if (timeMs === null) {
+            untimedWaypoints++;
+            if (flat.length > 0) {
+                timeMs = nearestTrackTime(position.lat, position.lon);
+            } else {
+                timeMs = fallbackStartMs + i;
+                fallbackUsed = true;
+            }
+        }
+        waypointEntries.push({
+            timestamp: new Date(timeMs).toISOString(),
+            latitude: position.lat,
+            longitude: position.lon,
+            positionFormatted: formatDMS(position.lat, position.lon),
+            entryType: childText(wpt, 'type') === 'manual' ? 'manual' : 'waypoint',
             source: 'gpx_import',
-            waypointName: nameEl?.textContent || undefined,
-            notes: descEl?.textContent || undefined,
-        };
+            waypointName: childText(wpt, 'name'),
+            notes: childText(wpt, 'desc'),
+        });
+    }
 
-        entries.push(entry);
-    });
+    // Oldest first. The sort is stable, so equal times keep the file's order.
+    const entries = [...savedTrack, ...waypointEntries]
+        .map((entry) => ({ entry, ms: Date.parse(entry.timestamp as string) }))
+        .sort((a, b) => a.ms - b.ms)
+        .map(({ entry }) => entry);
 
-    // Sort all entries by timestamp
-    entries.sort((a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime());
+    return {
+        entries,
+        trackPoints: flat.length,
+        savedTrackPoints: savedTrack.length,
+        segments: segments.length,
+        untimedTrackPoints,
+        untimedWaypoints,
+        skippedPoints,
+        firstTimeMs,
+        lastTimeMs,
+        totalDistanceNM: cumulative,
+        bounds: bounds.result(),
+        fallbackDate: fallbackUsed
+            ? { source: fileTimeMs !== null ? 'file' : 'import', timeMs: fallbackStartMs }
+            : null,
+    };
+}
 
-    return entries;
+/**
+ * Parse a GPX XML string into an array of partial ShipLogEntry objects:
+ * every track point and waypoint, oldest first (see parseGPXTrack).
+ */
+export function importGPXToEntries(gpxXml: string): Partial<ShipLogEntry>[] {
+    return parseGPXTrack(gpxXml).entries;
 }
 
 // --- GPX ROUTE EXTRACTION (for Passage Planner) ---
