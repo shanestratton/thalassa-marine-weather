@@ -93,8 +93,9 @@ function zoneFormat(tz?: string): Intl.DateTimeFormat | null {
     return f;
 }
 
-/** Wall-clock [year, month, day, hour, minute, second] of an instant in `tz`. */
-function wallClock(ms: number, tz?: string): number[] {
+/** Wall-clock [year, month, day, hour, minute, second] of an instant in `tz`
+ *  (the phone's clock without one). Shared with the meteogram (131-02). */
+export function wallClock(ms: number, tz?: string): number[] {
     const f = zoneFormat(tz);
     // An invalid date stays invalid (formatToParts would throw on it).
     if (!Number.isFinite(ms)) return [NaN, NaN, NaN, NaN, NaN, NaN];
@@ -109,7 +110,7 @@ function wallClock(ms: number, tz?: string): number[] {
 
 /** The instant a wall-clock hour on a calendar day occurs in `tz`. Where the
  *  hour does not exist (a daylight-saving jump), the first instant after it. */
-function wallToInstant(y: number, mo: number, d: number, h: number, tz?: string): number {
+export function wallToInstant(y: number, mo: number, d: number, h: number, tz?: string): number {
     if (!zoneFormat(tz)) return new Date(y, mo - 1, d, h).getTime();
     const target = Date.UTC(y, mo - 1, d, h);
     const offset = (ms: number) => {
