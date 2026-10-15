@@ -16,7 +16,12 @@ vi.mock('../../services/MealPlanService', () => ({
         deleteMeal: vi.fn().mockResolvedValue(undefined),
     },
 }));
-vi.mock('../../utils/system', () => ({ triggerHaptic: vi.fn() }));
+// Keeps getSystemUnits (settingsStore calls it at module init, reached through
+// the grocery currency since 132-B17): the bare mock failed the whole file.
+vi.mock('../../utils/system', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../utils/system')>()),
+    triggerHaptic: vi.fn(),
+}));
 
 import { GalleyCard } from '../../components/chat/GalleyCard';
 import type { PassageStatus } from '../../services/PassagePlanService';

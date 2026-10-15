@@ -12,8 +12,12 @@
  * shows and uses the SKIPPER's galley (recipes, and the meals and grocery list
  * kept with no passage) in place of the sailor's own, live, with the
  * "Shared from <boat> — you're crew" line under the title.
+ *
+ * Saved recipes (132-B18, binder audit GAL-08): a card opens the recipe in a
+ * read-only sheet (RecipeSheet, loaded when first opened) with Cook/Plan,
+ * Edit and Delete, and the Favourite star works (the Captain's Table's list).
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import { EmptyState } from '../ui/EmptyState';
@@ -53,9 +57,21 @@ import { isGalleyShareLive } from '../../services/vessel/sharedBinders';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import { createLogger, getErrorMessage } from '../../utils/createLogger';
 import { activeMealSections, mealWhenLine } from '../../services/galley/activeMeals';
+import { getFavouriteIds, toggleFavourite } from '../../services/galley/recipeFavourites';
+import { recipesOneStore, recipesOneStoreKnown } from '../../services/galley/recipeStoreColumn';
+import { flushCommunityCopies } from '../../services/galley/recipeCommunityCopy';
+import { savedRecipeRights } from '../../services/galley/recipeRights';
+import { supabase } from '../../services/supabase';
+import { lazyRetry } from '../../utils/lazyRetry';
 
 // A device-log trace (GAL-13): a reason and the error message, never an id.
 const log = createLogger('Galley');
+
+// The saved recipe sheet loads the first time a card is opened (132-B18).
+const RecipeSheet = lazyRetry(
+    () => import('../galley/RecipeSheet').then((module) => ({ default: module.RecipeSheet })),
+    'RecipeSheet',
+);
 
 interface GalleyPageProps {
     onBack: () => void;
@@ -107,6 +123,13 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
     const [shoppingSummary, setShoppingSummary] = useState<ShoppingListSummary | null>(null);
     const [activeCookingMeal, setActiveCookingMeal] = useState<MealPlan | null>(null);
     const [editorRecipe, setEditorRecipe] = useState<StoredRecipe | 'new' | null>(null);
+    /** The saved recipe open in the sheet, by id: the sheet shows it as it is now. */
+    const [sheetRecipeId, setSheetRecipeId] = useState<string | null>(null);
+    const [favouriteIds, setFavouriteIds] = useState<Set<string>>(() => getFavouriteIds());
+    /** The one recipe store is on the server (recipeStoreColumn.ts): crew may edit. */
+    const [oneStore, setOneStore] = useState(recipesOneStoreKnown);
+    /** What the last recipe delete did, said under the library heading. */
+    const [recipeNotice, setRecipeNotice] = useState<string | null>(null);
     const [showGroceryList, setShowGroceryList] = useState(false);
     const [showSignIn, setShowSignIn] = useState(false);
     /** Which reads failed, kept apart from an empty galley (132-B17). */
@@ -152,6 +175,9 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
         setShoppingSummary(null);
         setActiveCookingMeal(null);
         setEditorRecipe(null);
+        setSheetRecipeId(null);
+        setRecipeNotice(null);
+        setFavouriteIds(getFavouriteIds());
         setShowGroceryList(false);
         setLoadErrors(NO_LOAD_ERRORS);
         // Mid Apple sign-in the account changes before its last steps run: the
@@ -292,6 +318,27 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
     // Once per install, at idle: throwaway recipe photo copies go (126-B2a, GAL-12).
     useEffect(() => purgeOrphanRecipeImagesWhenIdle(), []);
 
+    // An edit saved offline sends its Captain's Table copy once the phone can
+    // (132-B18, GAL-04): nothing waits, nothing is sent.
+    useEffect(() => {
+        if (currentUserId) void flushCommunityCopies();
+    }, [currentUserId]);
+
+    // Crew may change a personal recipe in the skipper's galley once the one
+    // recipe store is on the server (132-B18). Asked only in a shared galley;
+    // it never throws, and offline it says no.
+    const galleyShared = galley.mode === 'shared';
+    useEffect(() => {
+        if (!galleyShared) return;
+        let live = true;
+        void recipesOneStore(supabase).then((present) => {
+            if (live) setOneStore(present);
+        });
+        return () => {
+            live = false;
+        };
+    }, [galleyShared]);
+
     // A sync that brought rows in, or the galley changing hands, reloads all three.
     reloadGalleyRef.current = () => {
         refreshActiveMeals();
@@ -348,6 +395,28 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
 
     const storesAvail = getStoresAvailability(visiblePassageStatus.voyageId, visiblePassageStatus.ownerUserId);
     const reservedCount = storesAvail.filter((s) => s.reserved > 0).length;
+
+    // The saved recipe sheet (132-B18): the recipe as it is now (an edit or a
+    // sync changes it underneath), what this sailor may do with it, and where
+    // Cook/Plan puts the meal: the meals this page shows.
+    const sheetRecipe = sheetRecipeId
+        ? (visibleSavedRecipes.find((recipe) => recipe.id === sheetRecipeId) ?? null)
+        : null;
+    const sheetRights = sheetRecipe ? savedRecipeRights(sheetRecipe, currentUserId, galley, oneStore) : null;
+    const planTarget =
+        visiblePassageAccessLoaded &&
+        visiblePassageStatus.visible &&
+        visiblePassageStatus.canViewMeals &&
+        (galley.mode !== 'shared' || galley.canWrite || visiblePassageStatus.voyageId !== null)
+            ? { voyageId: visiblePassageStatus.voyageId, ownerUserId: visiblePassageStatus.ownerUserId }
+            : null;
+    const planNote = !currentUserId
+        ? 'Sign in to plan meals.'
+        : !visiblePassageAccessLoaded
+          ? 'Checking the passage…'
+          : galley.mode === 'shared' && !galley.canWrite && !visiblePassageStatus.voyageId
+            ? 'The galley is shared with you to look at, not change.'
+            : 'This passage does not share its meals with you.';
 
     if (identityOwnsRenderedData && showGroceryList) {
         const groceryList = (
@@ -760,7 +829,10 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                 <p className="text-xs font-bold text-white">
                                     {galley.mode === 'shared' ? "The skipper's recipe library" : 'Your recipe library'}
                                 </p>
-                                <p className="text-xs text-gray-400">Saved recipes open offline</p>
+                                <p className="text-xs text-gray-400">
+                                    Saved recipes open offline. Tap one to{' '}
+                                    {galley.mode === 'shared' ? 'cook or plan it.' : 'cook, plan or change it.'}
+                                </p>
                             </div>
                             <Button
                                 variant="secondary"
@@ -784,6 +856,12 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                             </Button>
                         </div>
 
+                        {recipeNotice && (
+                            <p role="status" className="text-xs text-emerald-300">
+                                {recipeNotice}
+                            </p>
+                        )}
+
                         {visibleLoadErrors.recipes ? (
                             // A failed read, not "No saved recipes" (132-B17).
                             <LoadErrorState
@@ -802,46 +880,44 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                 subtitle="Create your own recipe or save one when you schedule a meal plan."
                             />
                         ) : (
+                            // Each card opens the recipe (132-B18, GAL-08): a saved
+                            // or imported recipe was a dead end before.
                             visibleSavedRecipes.map((recipe) => (
-                                <div
+                                <button
                                     key={recipe.id}
-                                    className="p-3 rounded-xl bg-white/3 border border-white/6 space-y-2"
+                                    type="button"
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        setRecipeNotice(null);
+                                        setSheetRecipeId(recipe.id);
+                                    }}
+                                    aria-label={`Open ${recipe.title}${favouriteIds.has(recipe.id) ? ', favourite' : ''}`}
+                                    className="block w-full space-y-2 rounded-xl border border-white/6 bg-white/3 p-3 text-left transition-colors hover:bg-white/5 active:scale-[0.99]"
                                 >
-                                    <div className="flex items-start gap-3">
-                                        <div className="w-12 h-12 rounded-lg bg-linear-to-br from-amber-800/40 to-orange-700/40 flex items-center justify-center shrink-0">
+                                    <span className="flex items-start gap-3">
+                                        <span className="w-12 h-12 rounded-lg bg-linear-to-br from-amber-800/40 to-orange-700/40 flex items-center justify-center shrink-0">
                                             <FoodIcon className="h-6 w-6 text-amber-300" />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-bold text-white truncate">{recipe.title}</p>
-                                            <p className="text-[11px] text-gray-500">
+                                        </span>
+                                        <span className="block flex-1 min-w-0">
+                                            <span className="block text-xs font-bold text-white truncate">
+                                                {recipe.title}
+                                            </span>
+                                            <span className="block text-[11px] text-gray-500">
                                                 {recipe.ready_in_minutes} min · {recipe.servings} serves ·{' '}
                                                 {recipe.ingredients.length} ingredients
-                                            </p>
-                                            {recipe.is_favorite && (
+                                            </span>
+                                            {/* The Captain's Table's heart, one list (132-B18). */}
+                                            {favouriteIds.has(recipe.id) && (
                                                 <span className="inline-flex items-center gap-1 text-[11px] text-amber-400">
                                                     <StarIcon filled className="h-3 w-3" />
                                                     Favourite
                                                 </span>
                                             )}
-                                        </div>
-                                        {recipe.is_custom &&
-                                            (recipe.user_id === null || recipe.user_id === currentUserId) && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        triggerHaptic('light');
-                                                        setEditorRecipe(recipe);
-                                                    }}
-                                                    aria-label={`Edit ${recipe.title}`}
-                                                    className="shrink-0 min-h-[44px] rounded-lg border border-white/8 bg-white/4 px-2.5 py-1.5 text-[11px] font-bold text-gray-300 transition-colors hover:bg-white/8"
-                                                >
-                                                    Edit
-                                                </button>
-                                            )}
-                                    </div>
+                                        </span>
+                                    </span>
 
                                     {/* Ingredients preview */}
-                                    <div className="flex flex-wrap gap-1">
+                                    <span className="flex flex-wrap gap-1">
                                         {recipe.ingredients.slice(0, 4).map((ing, i) => (
                                             <span
                                                 key={i}
@@ -855,12 +931,14 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                                 +{recipe.ingredients.length - 4}
                                             </span>
                                         )}
-                                    </div>
+                                    </span>
 
                                     {recipe.source_url && (
-                                        <p className="text-[11px] text-gray-500">Imported recipe · available offline</p>
+                                        <span className="block text-[11px] text-gray-500">
+                                            Imported recipe · available offline
+                                        </span>
                                     )}
-                                </div>
+                                </button>
                             ))
                         )}
                     </div>
@@ -872,6 +950,42 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                 onClose={() => setShowSignIn(false)}
                 prompt="Sign in to plan meals for a passage on Crew & Float Plan."
             />
+
+            {identityOwnsRenderedData && sheetRecipe && sheetRights && (
+                // The editor opens over the sheet, and the sheet shows the
+                // saved change when it closes.
+                <Suspense fallback={null}>
+                    <RecipeSheet
+                        key={sheetRecipe.id}
+                        recipe={sheetRecipe}
+                        favourite={favouriteIds.has(sheetRecipe.id)}
+                        onToggleFavourite={() => {
+                            toggleFavourite(sheetRecipe.id);
+                            setFavouriteIds(getFavouriteIds());
+                        }}
+                        canEdit={sheetRights.edit}
+                        editNote={sheetRights.editNote}
+                        canDelete={sheetRights.delete}
+                        plan={planTarget}
+                        planNote={planNote}
+                        onEdit={() => setEditorRecipe(sheetRecipe)}
+                        onCook={(meal) => {
+                            setSheetRecipeId(null);
+                            handleCookNow(meal);
+                        }}
+                        onPlanned={() => {
+                            refreshActiveMeals();
+                            refreshShoppingSummary();
+                        }}
+                        onDeleted={(message) => {
+                            setSheetRecipeId(null);
+                            setRecipeNotice(message);
+                            refreshSavedRecipes();
+                        }}
+                        onClose={() => setSheetRecipeId(null)}
+                    />
+                </Suspense>
+            )}
 
             {identityOwnsRenderedData && editorRecipe && (
                 <RecipeEditor

@@ -7,10 +7,13 @@
  *  3. Calculates shortfalls (what you need to buy)
  *  4. Learns ingredient aliases from user corrections
  *
- * All operations are offline-first via LocalDatabase.
+ * Reads only. saveProvisions and getProvisions are gone (132-B18, binder
+ * audit GAL-16): nothing called them, and saveProvisions queued
+ * passage_provisions rows with no owner (no user_id). Passage provisions
+ * reach the grocery list through ShoppingListService.
  */
 
-import { getAll, query, insertLocal, generateUUID } from './vessel/LocalDatabase';
+import { getAll, generateUUID } from './vessel/LocalDatabase';
 import { scaleIngredient, type RecipeIngredient, type GalleyPlan } from './GalleyRecipeService';
 import { convertQuantity } from './PurchaseUnits';
 import type { StoresItem } from '../types';
@@ -149,8 +152,6 @@ export function findStoreMatch(ingredientName: string, storeItems: StoresItem[])
 
 // ── Provisioning Calculator ────────────────────────────────────────────────
 
-const PROVISION_TABLE = 'passage_provisions';
-
 /**
  * Calculate provisions for an entire meal plan.
  * Compares scaled recipe ingredients against Ship's Stores.
@@ -251,28 +252,4 @@ export function calculateProvisions(
         fullyStocked,
         items,
     };
-}
-
-/**
- * Persist provision items to LocalDatabase for offline tracking.
- */
-export async function saveProvisions(items: ProvisionItem[]): Promise<void> {
-    for (const item of items) {
-        const now = new Date().toISOString();
-        await insertLocal(PROVISION_TABLE, {
-            ...item,
-            created_at: now,
-            updated_at: now,
-        });
-    }
-}
-
-/**
- * Get saved provisions for a passage.
- */
-export function getProvisions(passageName?: string): ProvisionItem[] {
-    if (passageName) {
-        return query<ProvisionItem>(PROVISION_TABLE, (p) => p.passage_name === passageName);
-    }
-    return getAll<ProvisionItem>(PROVISION_TABLE);
 }

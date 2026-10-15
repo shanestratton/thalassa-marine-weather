@@ -8,16 +8,11 @@
  *  - Ready-in-minutes prominently tracked for galley timing
  */
 
-import { getById, getFullQueue, insertLocal, query, updateLocal, generateUUID } from './vessel/LocalDatabase';
+import { getById, insertLocal, query, updateLocal, generateUUID } from './vessel/LocalDatabase';
 import { supabase } from './supabase';
 import { compressImage } from './ProfilePhotoService';
-import { createLogger } from '../utils/createLogger';
-import {
-    authScopedStorageKey,
-    getAuthIdentityScope,
-    isAuthIdentityScopeCurrent,
-    type AuthIdentityScope,
-} from './authIdentityScope';
+import { createLogger, getErrorMessage } from '../utils/createLogger';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 import {
     captureOwnedMediaAuthorization,
     retainUncertainOwnedMedia,
@@ -37,6 +32,12 @@ import {
     uiKeyFromUuid,
 } from './galley/recipeRefs';
 import { RECIPE_IMAGE_CACHE_PREFIX } from './galley/recipeImagePurge';
+import { isManagedRecipePhotoUrl, managedPhotoPathFromUrl, RECIPE_PHOTO_BUCKET } from './galley/recipePhotoUrls';
+import { recipesOneStore, recipesOneStoreKnown } from './galley/recipeStoreColumn';
+import { flushCommunityCopies, markCommunityCopyPending } from './galley/recipeCommunityCopy';
+
+// One favourites list for the Galley and the Captain's Table (132-B18).
+export { getFavouriteIds, toggleFavourite } from './galley/recipeFavourites';
 
 const log = createLogger('GalleyRecipe');
 
@@ -75,6 +76,7 @@ export interface StoredRecipe {
     source_url: string;
     instructions: string;
     ingredients: RecipeIngredient[];
+    /** The server's column, never set. Favourites are recipeFavourites.ts (132-B18). */
     is_favorite: boolean;
     is_custom: boolean;
     visibility: RecipeVisibility;
@@ -477,14 +479,37 @@ export async function persistRecipe(meal: GalleyMeal, owner?: string | null): Pr
  * The recipe library of the galley this account is using. While a skipper
  * shares their galley it is the skipper's recipes only (the sailor's own stay
  * on the device, hidden, and come back when the share ends). Otherwise it is
- * every recipe on the device, as before, except another sailor's personal
- * recipe left behind by a galley share that has ended: only a share brings
- * those, and they go at the next full sync.
+ * the sailor's own recipes: the ones they wrote, shared or not, and the
+ * copies saved when they planned a meal. Other sailors' shared recipes are on
+ * the Captain's Table, not under 'Your recipe library' (132-B18, GAL-16).
+ * The sync still brings them, and a planned meal still cooks from one
+ * (persistRecipe), so they stay on the device, unlisted.
  */
 export function getStoredRecipes(): StoredRecipe[] {
     const galleyOwner = galleyShareOwner();
     if (galleyOwner) return query<StoredRecipe>(RECIPE_TABLE, (recipe) => recipe.user_id === galleyOwner);
-    return query<StoredRecipe>(RECIPE_TABLE, (recipe) => isOwnBinderRow(recipe) || recipe.visibility === 'shared');
+    return query<StoredRecipe>(RECIPE_TABLE, isOwnBinderRow);
+}
+
+/**
+ * A library recipe as a meal to plan or cook (132-B18): the search's
+ * fallback and the saved recipe sheet's Cook/Plan. `recipeId` links the
+ * planned meal to this row (persistRecipe (a)).
+ */
+export function storedRecipeToMeal(recipe: StoredRecipe): GalleyMeal {
+    const spoonacularId = realSpoonacularId(recipe);
+    return {
+        id: spoonacularId ?? uiKeyFromUuid(recipe.id),
+        title: recipe.title,
+        readyInMinutes: recipe.ready_in_minutes,
+        servings: recipe.servings,
+        image: recipe.image_url,
+        sourceUrl: recipe.source_url,
+        ingredients: recipe.ingredients,
+        instructions: parseRecipeSteps(recipe.instructions),
+        source: spoonacularId ? 'spoonacular' : 'private',
+        recipeId: recipe.id,
+    };
 }
 
 /**
@@ -554,11 +579,6 @@ export async function getMealSteps(meal: {
     if (typeof meal.spoonacular_id !== 'number') return [];
     const legacy = query<StoredRecipe>(RECIPE_TABLE, (r) => r.spoonacular_id === meal.spoonacular_id)[0];
     return parseRecipeSteps(legacy?.instructions);
-}
-
-/** Get favorite recipes */
-export function getFavoriteRecipes(): StoredRecipe[] {
-    return query<StoredRecipe>(RECIPE_TABLE, (r) => r.is_favorite);
 }
 
 // ── Parse Spoonacular Ingredients ──────────────────────────────────────────
@@ -841,7 +861,6 @@ export interface CustomRecipeInput {
     tags?: string[];
 }
 
-const RECIPE_PHOTO_BUCKET = 'recipe-photos';
 const STORAGE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
@@ -875,36 +894,6 @@ function recipePhotoStoragePath(ownerId: string, recipeId: string): string {
     return `${ownerId}/${recipeId}.jpg`;
 }
 
-function isManagedRecipePhotoUrl(value: string | null | undefined): boolean {
-    if (!value) return false;
-    try {
-        const url = new URL(value);
-        return url.pathname.includes(`/recipe-photos/`);
-    } catch {
-        return false;
-    }
-}
-
-function managedPhotoPathFromUrl(value: string | null | undefined, ownerId: string, recipeId: string): string | null {
-    if (!value) return null;
-    try {
-        const url = new URL(value);
-        const markers = [
-            `/storage/v1/object/public/${RECIPE_PHOTO_BUCKET}/`,
-            `/storage/v1/object/sign/${RECIPE_PHOTO_BUCKET}/`,
-        ];
-        const marker = markers.find((candidate) => url.pathname.includes(candidate));
-        if (!marker) return null;
-        const path = decodeURIComponent(url.pathname.slice(url.pathname.indexOf(marker) + marker.length));
-        if (path.includes('..') || path.includes('\\')) return null;
-        const ownerPath = `${ownerId}/${recipeId}.jpg`;
-        const legacyPath = `${recipeId}.jpg`;
-        return path === ownerPath || path === legacyPath ? path : null;
-    } catch {
-        return null;
-    }
-}
-
 function managedPhotoPathsForRecipe(recipe: Pick<StoredRecipe, 'id' | 'image_url'>, ownerId: string): string[] {
     const path = managedPhotoPathFromUrl(recipe.image_url, ownerId, recipe.id);
     return path ? [path] : [];
@@ -915,24 +904,35 @@ interface RecipeOwnerAuthorization {
     authorization: OwnedMediaAuthorization;
 }
 
-async function captureRecipeOwnerAuthorization(ownerId: string): Promise<RecipeOwnerAuthorization | null> {
-    if (!supabase) return null;
+/**
+ * The owner's verified authority for a server-first recipe change, or why
+ * not: another account's recipe, or a server that could not be asked
+ * (offline, or the session would not verify). The two read differently to
+ * the sailor (132-B18, GAL-04): offline is not "only the owner can".
+ */
+async function captureRecipeOwnerAuthorization(
+    ownerId: string,
+): Promise<RecipeOwnerAuthorization | 'not-owner' | 'unreachable'> {
     const scope = getAuthIdentityScope();
-    if (!scope.userId || scope.userId !== ownerId || !isAuthIdentityScopeCurrent(scope)) return null;
+    if (!scope.userId || scope.userId !== ownerId || !isAuthIdentityScopeCurrent(scope)) return 'not-owner';
+    if (!supabase) return 'unreachable';
 
-    const authorization = await captureOwnedMediaAuthorization(scope);
-    if (!authorization || !isAuthIdentityScopeCurrent(scope)) return null;
-
+    let verifiedUserId: string | null;
     try {
         const {
             data: { user },
             error,
         } = await supabase.auth.getUser();
-        if (error || user?.id !== ownerId || !isAuthIdentityScopeCurrent(scope)) return null;
-        return { scope, authorization };
+        if (error) return 'unreachable';
+        verifiedUserId = user?.id ?? null;
     } catch {
-        return null;
+        return 'unreachable';
     }
+    if (verifiedUserId !== ownerId || !isAuthIdentityScopeCurrent(scope)) return 'not-owner';
+
+    const authorization = await captureOwnedMediaAuthorization(scope);
+    if (!authorization || !isAuthIdentityScopeCurrent(scope)) return 'unreachable';
+    return { scope, authorization };
 }
 
 async function retireRecipePhotoPath(
@@ -1254,12 +1254,18 @@ export async function saveCustomRecipe(input: CustomRecipeInput): Promise<Galley
             /* use default */
         }
 
+        // One store once the held migration is live (132-B18): the recipe is
+        // a `recipes` row, shared as visibility 'shared', and its outbox
+        // twin below lands on it as a duplicate. Until then (or if the probe
+        // cannot answer) the Captain's Table copy, as before.
+        const oneStore = await recipesOneStore(supabase);
+        const visibility = oneStore ? (input.visibility === 'community' ? 'shared' : 'personal') : input.visibility;
         if (!isAuthIdentityScopeCurrent(scope)) return null;
         databaseOutcome = 'ambiguous';
         let result;
         try {
             result = await supabase
-                .from('community_recipes')
+                .from(oneStore ? RECIPE_TABLE : 'community_recipes')
                 .insert({
                     id: recipeId,
                     user_id: user.id,
@@ -1268,10 +1274,11 @@ export async function saveCustomRecipe(input: CustomRecipeInput): Promise<Galley
                     ready_in_minutes: input.readyInMinutes,
                     servings: input.servings,
                     ingredients: input.ingredients,
-                    instructions: input.instructions,
-                    visibility: input.visibility,
+                    instructions: oneStore ? JSON.stringify(input.instructions) : input.instructions,
+                    visibility,
                     tags: input.tags || [],
                     author_name: authorName,
+                    ...(oneStore ? { is_custom: true } : {}),
                 })
                 .select('*')
                 .maybeSingle();
@@ -1292,7 +1299,7 @@ export async function saveCustomRecipe(input: CustomRecipeInput): Promise<Galley
         if (
             !isExactOwnedCloudRecipeRow(data, recipeId, user.id) ||
             (data.image_url ?? '') !== imageUrl ||
-            data.visibility !== input.visibility
+            data.visibility !== visibility
         ) {
             // A mutation without the exact returned owner row is not proof of
             // failure or success. Reconciliation must decide before bytes move.
@@ -1336,7 +1343,9 @@ export async function saveCustomRecipe(input: CustomRecipeInput): Promise<Galley
             image: data.image_url || '',
             sourceUrl: '',
             ingredients: (data.ingredients as RecipeIngredient[]) || [],
-            instructions: (data.instructions as RecipeStep[]) || [],
+            instructions: Array.isArray(data.instructions)
+                ? (data.instructions as RecipeStep[])
+                : parseRecipeSteps(data.instructions as string | null),
             source: 'private',
             supabaseId: recipeId,
             recipeId,
@@ -1361,7 +1370,34 @@ export async function saveCustomRecipe(input: CustomRecipeInput): Promise<Galley
 const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
- * Search user's private recipes from Supabase.
+ * A server recipe row as a search result or Captain's Table card: a
+ * community_recipes row (steps as JSON) or, in the one store, a `recipes` row
+ * (steps as text, plain or JSON) (132-B18).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function cloudRecipeMeal(r: any, source: RecipeSource, fallbackAuthor: string): GalleyMeal {
+    return {
+        id: uiKeyFromUuid(r.id),
+        title: r.title,
+        readyInMinutes: r.ready_in_minutes || 30,
+        servings: r.servings || 1,
+        image: r.image_url || '',
+        sourceUrl: '',
+        ingredients: (r.ingredients as RecipeIngredient[]) || [],
+        instructions: Array.isArray(r.instructions)
+            ? (r.instructions as RecipeStep[])
+            : parseRecipeSteps(r.instructions as string | null),
+        source,
+        supabaseId: r.id,
+        authorName: r.author_name || fallbackAuthor,
+        ratingAvg: r.rating_avg || 0,
+        ratingCount: r.rating_count || 0,
+    };
+}
+
+/**
+ * Search user's private recipes from Supabase: their Captain's Table recipes,
+ * or every recipe of theirs once the one store is live (132-B18).
  */
 async function searchPrivateRecipes(query: string, maxResults = 8): Promise<GalleyMeal[]> {
     if (!supabase) return [];
@@ -1371,36 +1407,24 @@ async function searchPrivateRecipes(query: string, maxResults = 8): Promise<Gall
     } = await supabase.auth.getUser();
     if (!user) return [];
 
-    const { data, error } = await supabase
-        .from('community_recipes')
+    const oneStore = await recipesOneStore(supabase);
+    let q = supabase
+        .from(oneStore ? RECIPE_TABLE : 'community_recipes')
         .select('*')
         .eq('user_id', user.id)
-        .ilike('title', `%${query}%`)
-        .order('created_at', { ascending: false })
-        .limit(maxResults);
+        .ilike('title', `%${query}%`);
+    if (oneStore) q = q.eq('is_custom', true);
+    const { data, error } = await q.order('created_at', { ascending: false }).limit(maxResults);
 
     if (error || !data) return [];
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return data.map((r: any) => ({
-        id: uiKeyFromUuid(r.id),
-        title: r.title,
-        readyInMinutes: r.ready_in_minutes || 30,
-        servings: r.servings || 1,
-        image: r.image_url || '',
-        sourceUrl: '',
-        ingredients: (r.ingredients as RecipeIngredient[]) || [],
-        instructions: (r.instructions as RecipeStep[]) || [],
-        source: 'private' as RecipeSource,
-        supabaseId: r.id,
-        authorName: r.author_name || 'You',
-        ratingAvg: r.rating_avg || 0,
-        ratingCount: r.rating_count || 0,
-    }));
+    return data.map((r: any) => cloudRecipeMeal(r, 'private', 'You'));
 }
 
 /**
- * Search community recipes from Supabase.
+ * Search community recipes from Supabase: the Captain's Table's, from the one
+ * store once it is live (132-B18).
  */
 async function searchCommunityRecipes(query: string, maxResults = 8): Promise<GalleyMeal[]> {
     if (!supabase) return [];
@@ -1411,12 +1435,13 @@ async function searchCommunityRecipes(query: string, maxResults = 8): Promise<Ga
     } = await supabase.auth.getUser();
     const userId = user?.id;
 
+    const oneStore = await recipesOneStore(supabase);
     let q = supabase
-        .from('community_recipes')
+        .from(oneStore ? RECIPE_TABLE : 'community_recipes')
         .select('*')
-        .eq('visibility', 'community')
+        .eq('visibility', oneStore ? 'shared' : 'community')
         .ilike('title', `%${query}%`)
-        .order('like_count', { ascending: false })
+        .order(oneStore ? 'rating_avg' : 'like_count', { ascending: false })
         .limit(maxResults);
 
     // Exclude own recipes (they're already in the private tier)
@@ -1428,21 +1453,7 @@ async function searchCommunityRecipes(query: string, maxResults = 8): Promise<Ga
     if (error || !data) return [];
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return data.map((r: any) => ({
-        id: uiKeyFromUuid(r.id),
-        title: r.title,
-        readyInMinutes: r.ready_in_minutes || 30,
-        servings: r.servings || 1,
-        image: r.image_url || '',
-        sourceUrl: '',
-        ingredients: (r.ingredients as RecipeIngredient[]) || [],
-        instructions: (r.instructions as RecipeStep[]) || [],
-        source: 'community' as RecipeSource,
-        supabaseId: r.id,
-        authorName: r.author_name || 'A Fellow Sailor',
-        ratingAvg: r.rating_avg || 0,
-        ratingCount: r.rating_count || 0,
-    }));
+    return data.map((r: any) => cloudRecipeMeal(r, 'community', 'A Fellow Sailor'));
 }
 
 /**
@@ -1561,21 +1572,7 @@ export async function searchRecipes(searchQuery: string, mealType?: string, maxR
         return stored
             .filter((r) => r.title.toLowerCase().includes(trimmed))
             .slice(0, maxResults)
-            .map((r) => {
-                const spoonacularId = realSpoonacularId(r);
-                return {
-                    id: spoonacularId ?? uiKeyFromUuid(r.id),
-                    title: r.title,
-                    readyInMinutes: r.ready_in_minutes,
-                    servings: r.servings,
-                    image: r.image_url,
-                    sourceUrl: r.source_url,
-                    ingredients: r.ingredients,
-                    instructions: parseRecipeSteps(r.instructions),
-                    source: (spoonacularId ? 'spoonacular' : 'private') as RecipeSource,
-                    recipeId: r.id,
-                };
-            });
+            .map(storedRecipeToMeal);
     }
 
     return merged;
@@ -2053,38 +2050,6 @@ export function bilgeDiveSearch(
     return results.sort((a, b) => b.matchPercent - a.matchPercent || b.recipe.ratingAvg - a.recipe.ratingAvg);
 }
 
-// ── Favourites (Local-Only) ────────────────────────────────────────────────
-
-const FAVOURITES_KEY = `${CACHE_PREFIX}favourites`;
-
-/** Get set of favourite recipe IDs from localStorage */
-export function getFavouriteIds(): Set<string> {
-    try {
-        const raw = localStorage.getItem(authScopedStorageKey(FAVOURITES_KEY));
-        if (raw) return new Set(JSON.parse(raw) as string[]);
-    } catch {
-        /* ignore */
-    }
-    return new Set();
-}
-
-/** Toggle a recipe as favourite. Returns new favourite state. */
-export function toggleFavourite(recipeId: string): boolean {
-    const favs = getFavouriteIds();
-    const isFav = favs.has(recipeId);
-    if (isFav) {
-        favs.delete(recipeId);
-    } else {
-        favs.add(recipeId);
-    }
-    try {
-        localStorage.setItem(authScopedStorageKey(FAVOURITES_KEY), JSON.stringify([...favs]));
-    } catch {
-        /* storage full */
-    }
-    return !isFav;
-}
-
 // ── Custom Recipe CRUD ─────────────────────────────────────────────────────
 
 export interface CreateRecipeInput {
@@ -2143,49 +2108,95 @@ export async function createCustomRecipe(input: CreateRecipeInput): Promise<Stor
     return recipe;
 }
 
+export type RecipeEditPatch = Partial<
+    Pick<
+        StoredRecipe,
+        'title' | 'instructions' | 'image_url' | 'ready_in_minutes' | 'servings' | 'ingredients' | 'tags' | 'visibility'
+    >
+>;
+
 /**
- * Update a custom recipe (only user-created recipes).
+ * Does this edit change a stored recipe photo (one in the recipe-photos
+ * bucket)? Only such an edit goes to the server before the phone (132-B18,
+ * GAL-04): the old photo is taken down before the phone stops pointing at it.
+ * A personal recipe never keeps a photo, so making a shared recipe with a
+ * stored photo personal is one. Every other edit saves on the phone first.
  */
-export async function updateCustomRecipe(
-    recipeId: string,
-    patch: Partial<
-        Pick<
-            StoredRecipe,
-            | 'title'
-            | 'instructions'
-            | 'image_url'
-            | 'ready_in_minutes'
-            | 'servings'
-            | 'ingredients'
-            | 'tags'
-            | 'visibility'
-            | 'is_favorite'
-        >
-    >,
-): Promise<StoredRecipe | null> {
+export function recipeEditNeedsConnection(
+    recipe: Pick<StoredRecipe, 'image_url' | 'visibility'>,
+    patch: Pick<RecipeEditPatch, 'image_url' | 'visibility'>,
+): boolean {
+    const visibility = patch.visibility ?? recipe.visibility;
+    const current = recipe.image_url || '';
+    const next = visibility === 'personal' ? '' : (patch.image_url ?? current);
+    return next !== current && (isManagedRecipePhotoUrl(current) || isManagedRecipePhotoUrl(next));
+}
+
+/**
+ * May this account change another owner's recipe? Only crew in a skipper's
+ * galley they may write, only a personal recipe, and only once the held
+ * one-store migration has been seen (its policy lets the change through;
+ * before it, the server refuses it and the outbox would hold it for good).
+ */
+export function crewMayEditRecipe(recipe: Pick<StoredRecipe, 'user_id' | 'visibility' | 'is_custom'>): boolean {
+    const owner = recipe.user_id;
+    return (
+        !!owner &&
+        recipe.is_custom &&
+        recipe.visibility === 'personal' &&
+        owner !== getAuthIdentityScope().userId &&
+        galleyShareOwner() === owner &&
+        binderWriteGranted('galley', owner) &&
+        recipesOneStoreKnown()
+    );
+}
+
+/**
+ * Update a custom recipe (only user-created recipes). It saves on the phone
+ * first and syncs later (132-B18, binder audit GAL-04): the outbox takes the
+ * change to the server, and to the recipe's Captain's Table copy when it has
+ * one (recipeCommunityCopy.ts). Offline, a recipe still waiting to sync, and
+ * crew changing a personal recipe in a skipper's galley they may write (once
+ * the one store is live) all save. Only a change to a stored photo goes to
+ * the server first, as before, and fails (null) when it cannot.
+ */
+export async function updateCustomRecipe(recipeId: string, patch: RecipeEditPatch): Promise<StoredRecipe | null> {
     const existing = query<StoredRecipe>(RECIPE_TABLE, (r) => r.id === recipeId && r.is_custom);
     if (existing.length === 0) return null;
 
     const currentRecipe = existing[0];
     const ownerId = currentRecipe.user_id;
+    const crewEdit = !!ownerId && ownerId !== getAuthIdentityScope().userId;
+    if (crewEdit && !crewMayEditRecipe(currentRecipe)) return null;
     const now = new Date().toISOString();
-    const targetVisibility = patch.visibility ?? currentRecipe.visibility;
-    const effectivePatch =
+    // Crew keep a skipper's recipe personal: sharing it is the skipper's call.
+    const targetVisibility = crewEdit ? 'personal' : (patch.visibility ?? currentRecipe.visibility);
+    const effectivePatch: RecipeEditPatch =
         targetVisibility === 'personal'
             ? // A personal recipe has no public-photo delivery mechanism in
               // this beta. Clear every image before the local UI can call it
               // personal, including legacy rows already pointing at Storage.
-              { ...patch, image_url: '' }
+              { ...patch, ...(crewEdit ? { visibility: 'personal' as const } : {}), image_url: '' }
             : patch;
-
-    // Anonymous/offline-only recipes have no cloud ownership or public
-    // Storage contract. Preserve their established local-only behaviour.
-    if (!ownerId) {
-        return updateLocal<StoredRecipe>(RECIPE_TABLE, recipeId, {
+    const saveOnPhone = () =>
+        updateLocal<StoredRecipe>(RECIPE_TABLE, recipeId, {
             ...effectivePatch,
             updated_at: now,
         } as Partial<StoredRecipe>);
+
+    // Anonymous/offline-only recipes have no cloud ownership or public
+    // Storage contract. Preserve their established local-only behaviour.
+    if (!ownerId) return saveOnPhone();
+
+    if (!recipeEditNeedsConnection(currentRecipe, effectivePatch)) {
+        const saved = await saveOnPhone();
+        if (saved && !crewEdit) {
+            markCommunityCopyPending(recipeId);
+            void flushCommunityCopies();
+        }
+        return saved;
     }
+    if (crewEdit) return null;
 
     if (!supabase) return null;
     if (
@@ -2198,30 +2209,12 @@ export async function updateCustomRecipe(
     }
 
     const owner = await captureRecipeOwnerAuthorization(ownerId);
-    if (!owner) return null;
+    if (typeof owner === 'string') return null;
 
     const before = await readOwnedCloudRecipeRows(recipeId, ownerId, owner.scope);
-    if (!before) return null;
-    if (!before.recipes && !before.community_recipes) {
-        // Not on the server yet: a recipe written in the Galley moments ago,
-        // its INSERT still in the outbox. A text edit queues behind that
-        // INSERT (FIFO). Clearing the photo is fine too (a personal recipe's
-        // edit always clears it), since a queued recipe has no stored photo
-        // of its own to retire. A new photo still needs the cloud rows.
-        const insertQueued = getFullQueue().some(
-            (item) =>
-                item.table_name === RECIPE_TABLE && item.record_id === recipeId && item.mutation_type === 'INSERT',
-        );
-        const photoOk =
-            effectivePatch.image_url === undefined ||
-            effectivePatch.image_url === (currentRecipe.image_url || '') ||
-            (effectivePatch.image_url === '' && !managedPhotoPathFromUrl(currentRecipe.image_url, ownerId, recipeId));
-        if (!insertQueued || !photoOk || !isAuthIdentityScopeCurrent(owner.scope)) return null;
-        return updateLocal<StoredRecipe>(RECIPE_TABLE, recipeId, {
-            ...effectivePatch,
-            updated_at: now,
-        } as Partial<StoredRecipe>);
-    }
+    // A stored photo exists only on a recipe the server has: nothing to
+    // change while it is not there.
+    if (!before || (!before.recipes && !before.community_recipes)) return null;
 
     const patches: OwnedCloudRecipePatches = {
         recipes: {
@@ -2235,7 +2228,6 @@ export async function updateCustomRecipe(
             ...(effectivePatch.ingredients !== undefined ? { ingredients: effectivePatch.ingredients } : {}),
             ...(effectivePatch.tags !== undefined ? { tags: effectivePatch.tags } : {}),
             ...(effectivePatch.visibility !== undefined ? { visibility: effectivePatch.visibility } : {}),
-            ...(effectivePatch.is_favorite !== undefined ? { is_favorite: effectivePatch.is_favorite } : {}),
             updated_at: now,
         },
         community_recipes: {
@@ -2253,13 +2245,7 @@ export async function updateCustomRecipe(
                   }
                 : {}),
             ...(effectivePatch.instructions !== undefined
-                ? {
-                      instructions: effectivePatch.instructions
-                          .split(/\r?\n/)
-                          .map((step) => step.trim())
-                          .filter(Boolean)
-                          .map((step, index) => ({ number: index + 1, step })),
-                  }
+                ? { instructions: parseRecipeSteps(effectivePatch.instructions) }
                 : {}),
             updated_at: now,
         },
@@ -2292,8 +2278,41 @@ export async function updateCustomRecipe(
 }
 
 export type RecipeDeleteResult =
-    | { status: 'deleted'; scope: 'local' | 'cloud-and-local'; message: string }
+    | { status: 'deleted'; scope: 'local' | 'queued' | 'cloud-and-local'; message: string }
     | { status: 'not-found' | 'not-owner' | 'pending'; message: string };
+
+/**
+ * Delete a saved recipe from the Galley's Saved recipes (132-B18, binder
+ * audit GAL-08: there was no delete anywhere). A recipe the sailor wrote goes
+ * server-first (deleteCustomRecipe), so it leaves every device and the
+ * Captain's Table together, with its photo. A recipe saved when a meal was
+ * planned (a Spoonacular recipe, or a copy of another sailor's) has neither a
+ * photo of its own nor a Captain's Table copy: it goes from the phone now and
+ * from the server through the outbox, offline too. Only the owner deletes;
+ * crew in a skipper's galley do not (the server refuses it).
+ */
+export async function deleteSavedRecipe(recipeId: string): Promise<RecipeDeleteResult> {
+    const recipe = query<StoredRecipe>(RECIPE_TABLE, (r) => r.id === recipeId)[0];
+    if (!recipe) return { status: 'not-found', message: 'This recipe is no longer on this phone.' };
+    if (recipe.is_custom) return deleteCustomRecipe(recipeId);
+    if (!isOwnBinderRow(recipe)) {
+        return { status: 'not-owner', message: 'Only the skipper can delete a recipe from their galley.' };
+    }
+    try {
+        const { deleteLocal: del } = await import('./vessel/LocalDatabase');
+        await del(RECIPE_TABLE, recipeId);
+    } catch (error) {
+        log.warn('galley: recipe-delete', getErrorMessage(error));
+        return { status: 'pending', message: 'The recipe could not be deleted on this phone. Try again.' };
+    }
+    return recipe.user_id
+        ? {
+              status: 'deleted',
+              scope: 'queued',
+              message: 'Recipe deleted. It goes from your other devices once this phone syncs.',
+          }
+        : { status: 'deleted', scope: 'local', message: 'Recipe deleted from this device.' };
+}
 
 /**
  * Delete a custom recipe without stranding a compatible cloud row or public
@@ -2340,10 +2359,18 @@ export async function deleteCustomRecipe(recipeId: string): Promise<RecipeDelete
 
     const ownerId = recipe.user_id;
     const owner = await captureRecipeOwnerAuthorization(ownerId);
-    if (!owner) {
+    if (owner === 'not-owner') {
         return {
             status: 'not-owner',
             message: 'Only the recipe owner can delete this synced recipe.',
+        };
+    }
+    if (owner === 'unreachable') {
+        // Offline is not "only the owner can" (132-B18, GAL-04).
+        return {
+            status: 'pending',
+            message:
+                'The server could not be reached, so nothing was deleted. A recipe is deleted there first, so it goes from every device. Try again once you are online.',
         };
     }
 
@@ -2468,7 +2495,9 @@ export async function deleteCustomRecipe(recipeId: string): Promise<RecipeDelete
         return {
             status: 'deleted',
             scope: 'cloud-and-local',
-            message: 'Recipe and its photo were deleted everywhere.',
+            // Says "its photo" only when it had one (132-B18).
+            message:
+                mediaPaths.size > 0 ? 'Recipe and its photo were deleted everywhere.' : 'Recipe deleted everywhere.',
         };
     } catch (error) {
         log.warn('deleteCustomRecipe failed:', error);
@@ -2476,119 +2505,6 @@ export async function deleteCustomRecipe(recipeId: string): Promise<RecipeDelete
             status: 'pending',
             message: 'The recipe could not be fully deleted. The local copy was kept so you can retry.',
         };
-    }
-}
-
-/**
- * Get all custom recipes created by the current user.
- * Merges local + Supabase (cloud takes precedence if newer).
- */
-export async function getMyRecipes(): Promise<StoredRecipe[]> {
-    // Local-first
-    const local = query<StoredRecipe>(RECIPE_TABLE, (r) => r.is_custom);
-
-    // Try to hydrate from Supabase
-    if (supabase) {
-        try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
-            if (user) {
-                const { data } = await supabase
-                    .from('recipes')
-                    .select('*')
-                    .eq('user_id', user.id)
-                    .order('created_at', { ascending: false });
-
-                if (data && data.length > 0) {
-                    // Merge: cloud recipes not in local → insert locally
-                    const localIds = new Set(local.map((r) => r.id));
-                    for (const cloudRecipe of data) {
-                        if (!localIds.has(cloudRecipe.id)) {
-                            const mapped: StoredRecipe = {
-                                id: cloudRecipe.id,
-                                spoonacular_id: null,
-                                user_id: cloudRecipe.user_id,
-                                title: cloudRecipe.title,
-                                image_url: cloudRecipe.image_url || '',
-                                ready_in_minutes: cloudRecipe.ready_in_minutes,
-                                servings: cloudRecipe.servings,
-                                source_url: '',
-                                instructions: cloudRecipe.instructions || '',
-                                ingredients: cloudRecipe.ingredients || [],
-                                is_favorite: cloudRecipe.is_favorite || false,
-                                is_custom: true,
-                                visibility: cloudRecipe.visibility || 'personal',
-                                tags: cloudRecipe.tags || [],
-                                created_at: cloudRecipe.created_at,
-                                updated_at: cloudRecipe.updated_at,
-                            };
-                            await insertLocal(RECIPE_TABLE, mapped);
-                            local.push(mapped);
-                        }
-                    }
-                }
-            }
-        } catch {
-            // Offline — return local only
-        }
-    }
-
-    return local.sort((a, b) => b.created_at.localeCompare(a.created_at));
-}
-
-/**
- * Get shared recipes from the community (Supabase only).
- * Excludes the current user's own recipes.
- */
-export async function getSharedRecipes(limit = 50): Promise<StoredRecipe[]> {
-    if (!supabase) return [];
-
-    try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-        const userId = user?.id;
-
-        let q = supabase
-            .from('recipes')
-            .select('*')
-            .eq('visibility', 'shared')
-            .order('created_at', { ascending: false })
-            .limit(limit);
-
-        // Exclude own recipes from shared feed
-        if (userId) {
-            q = q.neq('user_id', userId);
-        }
-
-        const { data } = await q;
-        if (!data) return [];
-
-        return data.map(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (r: any) =>
-                ({
-                    id: r.id,
-                    spoonacular_id: null,
-                    user_id: r.user_id,
-                    title: r.title,
-                    image_url: r.image_url || '',
-                    ready_in_minutes: r.ready_in_minutes,
-                    servings: r.servings,
-                    source_url: '',
-                    instructions: r.instructions || '',
-                    ingredients: r.ingredients || [],
-                    is_favorite: false,
-                    is_custom: true,
-                    visibility: r.visibility,
-                    tags: r.tags || [],
-                    created_at: r.created_at,
-                    updated_at: r.updated_at,
-                }) as StoredRecipe,
-        );
-    } catch {
-        return [];
     }
 }
 
@@ -2802,11 +2718,41 @@ export interface CommunityRecipe extends GalleyMeal {
     nauticalTags: NauticalTag[];
     /** Manual tags from the recipe author */
     manualTags: string[];
+    /**
+     * False for a recipe shared from the Galley while the Captain's Table
+     * still has two stores: ratings point at community_recipes until the
+     * one-store migration is pushed (132-B18).
+     */
+    canRate?: boolean;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function communityRecipeFromRow(r: any, fallbackAuthor: string, canRate: boolean): CommunityRecipe {
+    const meal = cloudRecipeMeal(r, 'community', fallbackAuthor);
+    const manualTags = (r.tags as string[]) || [];
+    return {
+        ...meal,
+        supabaseId: r.id,
+        authorName: meal.authorName ?? fallbackAuthor,
+        ratingAvg: meal.ratingAvg ?? 0,
+        ratingCount: meal.ratingCount ?? 0,
+        createdAt: r.created_at,
+        nauticalTags: deriveNauticalTags(r.title, meal.ingredients, r.ready_in_minutes, manualTags),
+        manualTags,
+        canRate,
+    };
 }
 
 /**
  * Browse community recipes — sorted by rating, recency, or prep time.
  * Loads 50 recipes for client-side filtering. Used by The Captain's Table.
+ *
+ * One recipe shows in both the Galley and here (132-B18, GAL-06): once the
+ * one store is live every shared `recipes` row is read, ratings and author
+ * included. Until then the Captain's Table's own rows, joined by the recipes
+ * shared from the Galley (same id: the Captain's Table row wins, it carries
+ * the ratings), which show without ratings. A copy waiting for an edit made
+ * on this phone is sent first, so the table shows the recipe as it is now.
  */
 export async function browseCommunityRecipes(
     limit = 50,
@@ -2814,42 +2760,63 @@ export async function browseCommunityRecipes(
     sortBy: CaptainsTableSort = 'top_rated',
 ): Promise<CommunityRecipe[]> {
     if (!supabase) return [];
+    await flushCommunityCopies();
 
     const orderCol = sortBy === 'top_rated' ? 'rating_avg' : sortBy === 'prep_time' ? 'ready_in_minutes' : 'created_at';
     const ascending = sortBy === 'prep_time'; // fastest first
 
-    const { data, error } = await supabase
-        .from('community_recipes')
-        .select('*')
-        .eq('visibility', 'community')
-        .order(orderCol, { ascending })
-        .range(offset, offset + limit - 1);
+    if (await recipesOneStore(supabase)) {
+        const { data, error } = await supabase
+            .from(RECIPE_TABLE)
+            .select('*')
+            .eq('visibility', 'shared')
+            .order(orderCol, { ascending })
+            .range(offset, offset + limit - 1);
+        if (error || !data) return [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return data.map((r: any) => communityRecipeFromRow(r, 'A Fellow Sailor', true));
+    }
 
-    if (error || !data) return [];
+    const client = supabase;
+    // The first page only: the Galley's shared recipes ride along once. A
+    // signed-out reader may not read `recipes`: then only the Captain's Table's.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const readGalleyShared = async (): Promise<any[]> => {
+        if (offset !== 0) return [];
+        try {
+            const { data, error } = await client
+                .from(RECIPE_TABLE)
+                .select('*')
+                .eq('visibility', 'shared')
+                .order('created_at', { ascending: false })
+                .limit(limit);
+            return error || !data ? [] : data;
+        } catch {
+            return [];
+        }
+    };
+    const [community, galleyShared] = await Promise.all([
+        client
+            .from('community_recipes')
+            .select('*')
+            .eq('visibility', 'community')
+            .order(orderCol, { ascending })
+            .range(offset, offset + limit - 1),
+        readGalleyShared(),
+    ]);
+
+    if (community.error || !community.data) return [];
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return data.map((r: any) => {
-        const ingredients = (r.ingredients as RecipeIngredient[]) || [];
-        const manualTags = (r.tags as string[]) || [];
-        return {
-            id: uiKeyFromUuid(r.id),
-            title: r.title,
-            readyInMinutes: r.ready_in_minutes || 30,
-            servings: r.servings || 1,
-            image: r.image_url || '',
-            sourceUrl: '',
-            ingredients,
-            instructions: (r.instructions as RecipeStep[]) || [],
-            source: 'community' as RecipeSource,
-            supabaseId: r.id,
-            authorName: r.author_name || 'A Fellow Sailor',
-            ratingAvg: r.rating_avg || 0,
-            ratingCount: r.rating_count || 0,
-            createdAt: r.created_at,
-            nauticalTags: deriveNauticalTags(r.title, ingredients, r.ready_in_minutes, manualTags),
-            manualTags,
-        };
-    });
+    const recipes = community.data.map((r: any) => communityRecipeFromRow(r, 'A Fellow Sailor', true));
+    const self = getAuthIdentityScope().userId;
+    const seen = new Set(recipes.map((recipe) => recipe.supabaseId));
+    for (const r of galleyShared) {
+        if (seen.has(r.id)) continue;
+        seen.add(r.id);
+        recipes.push(communityRecipeFromRow(r, self && r.user_id === self ? 'You' : 'A Fellow Sailor', false));
+    }
+    return recipes;
 }
 
 /**

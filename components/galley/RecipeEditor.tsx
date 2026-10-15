@@ -9,10 +9,13 @@
  *   5. Visibility (personal / shared)
  *
  * Saves via createCustomRecipe()/updateCustomRecipe() → LocalDB + Supabase.
+ * An edit saves on the phone first, offline too (132-B18, GAL-04); only a
+ * change to a stored photo needs the server first, and its failure says so.
  */
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
     createCustomRecipe,
+    recipeEditNeedsConnection,
     updateCustomRecipe,
     type RecipeIngredient,
     type RecipeVisibility,
@@ -34,12 +37,20 @@ interface RecipeEditorProps {
     onSaved: () => void;
     recipe?: StoredRecipe;
     /**
-     * Set while a new recipe goes into a skipper's shared galley: the boat's
-     * name, or null when unknown. The recipe stays personal to the skipper's
-     * galley (createCustomRecipe), so the community choice is not offered.
+     * Set while the recipe is in a skipper's shared galley (a new one going
+     * in, or crew changing one, 132-B18): the boat's name, or null when
+     * unknown. The recipe stays personal to the skipper's galley
+     * (createCustomRecipe, updateCustomRecipe), so the community choice is
+     * not offered.
      */
     sharedGalleyBoat?: string | null;
 }
+
+/** What a failed save says. Only a stored photo change waits on the server. */
+const SAVE_FAILED_STORAGE = 'The recipe could not be saved. Check your storage and try again.';
+const SAVE_FAILED_PHOTO =
+    'This photo change has to reach the server first, and it could not. Nothing was changed. Try again once you are online.';
+const SAVE_FAILED_EDIT = 'The recipe could not be saved on this phone. Close the editor and try again.';
 
 const MEAL_TAGS = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Dessert', 'Sea-Friendly', 'Quick'];
 
@@ -77,7 +88,7 @@ function instructionsForEditing(instructions: string): string {
 }
 
 export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, recipe, sharedGalleyBoat }) => {
-    const intoSharedGalley = !recipe && sharedGalleyBoat !== undefined;
+    const intoSharedGalley = sharedGalleyBoat !== undefined;
     const isEditing = Boolean(recipe);
     const [step, setStep] = useState(1);
     const [saving, setSaving] = useState(false);
@@ -175,15 +186,19 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
         };
 
         try {
-            const result = recipe
-                ? await updateCustomRecipe(recipe.id, {
-                      ...input,
-                      image_url: input.image_url ?? '',
-                  })
-                : await createCustomRecipe(input);
+            const patch = { ...input, image_url: input.image_url ?? '' };
+            const result = recipe ? await updateCustomRecipe(recipe.id, patch) : await createCustomRecipe(input);
             if (!mountedRef.current) return;
             if (!result) {
-                setSaveError('The recipe could not be saved. Check your storage and try again.');
+                // An edit saves on the phone (132-B18): "check your storage"
+                // was untrue for an offline edit, which never failed for space.
+                setSaveError(
+                    !recipe
+                        ? SAVE_FAILED_STORAGE
+                        : recipeEditNeedsConnection(recipe, patch)
+                          ? SAVE_FAILED_PHOTO
+                          : SAVE_FAILED_EDIT,
+                );
                 return;
             }
             triggerHaptic('heavy');
@@ -192,7 +207,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
         } catch (error) {
             log.warn('galley: recipe-save', getErrorMessage(error));
             if (mountedRef.current) {
-                setSaveError('The recipe could not be saved. Check your storage and try again.');
+                setSaveError(SAVE_FAILED_STORAGE);
             }
         } finally {
             saveLockRef.current = false;
@@ -498,8 +513,9 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                         {/* Visibility toggle */}
                         {intoSharedGalley ? (
                             <p style={GLASS} className="p-4 text-xs font-semibold text-sky-200">
-                                This recipe goes into {sharedGalleyBoat ? `${sharedGalleyBoat}'s` : "your skipper's"}{' '}
-                                galley, where the crew can see it. Only the skipper can share it with the community.
+                                This recipe {isEditing ? 'stays in' : 'goes into'}{' '}
+                                {sharedGalleyBoat ? `${sharedGalleyBoat}'s` : "your skipper's"} galley, where the crew
+                                can see it. Only the skipper can share it with the community.
                             </p>
                         ) : (
                             <div style={GLASS} role="group" aria-labelledby={visibilityLabelId} className="p-4">

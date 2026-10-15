@@ -278,10 +278,12 @@ describe('a shared galley shows the skipper’s galley in place of the crew memb
         ]);
     });
 
+    // 132-B18 (GAL-16), changed on purpose: another sailor's shared recipe
+    // ('Community damper') is on the Captain's Table, not in this library.
     it('unshared, the crew member’s own galley shows as before, and it comes back when a share ends', async () => {
         await pullBothGalleys();
         noShares();
-        expect(titles(getStoredRecipes())).toEqual(['Community damper', 'Crew curry']);
+        expect(titles(getStoredRecipes())).toEqual(['Crew curry']);
         expect(titles(getMealsByStatus('reserved', null))).toContain('Crew noodles');
         expect(names(getShoppingList(null, CREW))).toEqual(['Chillies']);
 
@@ -289,8 +291,10 @@ describe('a shared galley shows the skipper’s galley in place of the crew memb
         expect(titles(getStoredRecipes())).toEqual(['Skipper chowder']);
 
         noShares();
-        expect(titles(getStoredRecipes())).toEqual(['Community damper', 'Crew curry']);
+        expect(titles(getStoredRecipes())).toEqual(['Crew curry']);
         expect(names(getShoppingList(null, CREW))).toEqual(['Chillies']);
+        // On the device still, unlisted: a planned meal may cook from it.
+        expect(getById('recipes', 'r-community')).not.toBeNull();
     });
 
     it('before the server can share a galley, a ticked Galley shares nothing (the app behaves as before)', async () => {
@@ -298,7 +302,7 @@ describe('a shared galley shows the skipper’s galley in place of the crew memb
         share({ galley: true, live: false });
 
         expect(isGalleyShareLive()).toBe(false);
-        expect(titles(getStoredRecipes())).toEqual(['Community damper', 'Crew curry']);
+        expect(titles(getStoredRecipes())).toEqual(['Crew curry']);
         expect(names(getShoppingList(null, CREW))).toEqual(['Chillies']);
         await addManualItem({ name: 'Mint', qty: 1, unit: 'bunch', voyageId: null, ownerUserId: CREW });
         expect(JSON.parse(queued('shopping_list')[0].payload)).toMatchObject({ user_id: CREW });
@@ -419,15 +423,24 @@ describe('a recipe written in the Galley keeps its Edit (126-B2a, GAL-03)', () =
         expect(JSON.parse(queued('recipes')[1].payload)).toMatchObject({ title: 'Tarte Tatin aux poires' });
     });
 
-    it('a photo change while queued still waits for the cloud rows (unchanged from before)', async () => {
+    // 132-B18 (GAL-04), changed on purpose: a photo LINK is text, and saves on
+    // the phone like the rest; only a stored photo (the recipe-photos bucket)
+    // still waits for the cloud rows.
+    it('a photo link while queued saves on the phone; a stored photo still waits for the cloud rows', async () => {
         noShares();
         const created = await tarteTatin('shared');
 
         await expect(
             updateCustomRecipe(created!.id, { image_url: 'https://images.example.test/tarte-tatin.jpg' }),
-        ).resolves.toBeNull();
-        expect(getById<StoredRecipe>('recipes', created!.id)?.image_url).toBe('');
-        expect(queued('recipes').map((item) => item.mutation_type)).toEqual(['INSERT']);
+        ).resolves.toMatchObject({ image_url: 'https://images.example.test/tarte-tatin.jpg' });
+        expect(queued('recipes').map((item) => item.mutation_type)).toEqual(['INSERT', 'UPDATE']);
+
+        const stored = `https://project.example.test/storage/v1/object/public/recipe-photos/${CREW}/${created!.id}.jpg`;
+        await expect(updateCustomRecipe(created!.id, { image_url: stored })).resolves.toBeNull();
+        expect(getById<StoredRecipe>('recipes', created!.id)?.image_url).toBe(
+            'https://images.example.test/tarte-tatin.jpg',
+        );
+        expect(queued('recipes').map((item) => item.mutation_type)).toEqual(['INSERT', 'UPDATE']);
     });
 
     it('a personal recipe with a photo URL: a text edit while queued is applied (the photo clears, as on every personal edit)', async () => {
@@ -451,15 +464,20 @@ describe('a recipe written in the Galley keeps its Edit (126-B2a, GAL-03)', () =
         expect(queued('recipes').map((item) => item.mutation_type)).toEqual(['INSERT', 'UPDATE']);
     });
 
-    it('a recipe neither on the server nor still queued is refused, and nothing is queued for it', async () => {
+    // 132-B18 (GAL-04), changed on purpose: an edit no longer asks the server
+    // first, so the phone cannot tell a pushed recipe from one deleted on
+    // another device. The edit saves and queues, as every binder's does; the
+    // outbox learns the rest when it pushes.
+    it('a recipe already pushed saves an edit on the phone and queues it', async () => {
         noShares();
         const created = await tarteTatin();
-        // Pushed, then deleted on the server from another device: no cloud row, no queued INSERT.
         await removeSynced(queued('recipes').map((item) => item.id));
 
-        await expect(updateCustomRecipe(created!.id, { title: 'Tarte Tatin aux poires' })).resolves.toBeNull();
-        expect(getById<StoredRecipe>('recipes', created!.id)?.title).toBe('Tarte Tatin');
-        expect(queued('recipes')).toEqual([]);
+        await expect(updateCustomRecipe(created!.id, { title: 'Tarte Tatin aux poires' })).resolves.toMatchObject({
+            title: 'Tarte Tatin aux poires',
+        });
+        expect(getById<StoredRecipe>('recipes', created!.id)?.title).toBe('Tarte Tatin aux poires');
+        expect(queued('recipes').map((item) => item.mutation_type)).toEqual(['UPDATE']);
     });
 });
 

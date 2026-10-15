@@ -165,12 +165,15 @@ describe('Galley recipe editor integration', () => {
         expect(openEditor).toHaveFocus();
     });
 
+    // Edit is in the recipe's sheet since 132-B18 (GAL-08): the card opens it,
+    // the editor opens over it, and the sheet shows the saved change.
     it('opens authored recipes in edit mode, normalizes legacy instructions, and persists changes', async () => {
         storedRecipes = [baseRecipe];
         render(<GalleyPage onBack={vi.fn()} />);
         openRecipeLibrary();
 
-        const editButton = screen.getByRole('button', { name: 'Edit Sea Curry' });
+        fireEvent.click(screen.getByRole('button', { name: 'Open Sea Curry' }));
+        const editButton = await screen.findByRole('button', { name: 'Edit Sea Curry' });
         editButton.focus();
         fireEvent.click(editButton);
 
@@ -199,16 +202,20 @@ describe('Galley recipe editor integration', () => {
             );
         });
         expect(screen.queryByRole('dialog', { name: 'EDIT RECIPE' })).not.toBeInTheDocument();
-        expect(screen.getByText('Harbour Curry')).toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: 'Harbour Curry' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Open Harbour Curry' })).toBeInTheDocument();
         expect(editButton).toHaveFocus();
     });
 
-    it("does not offer editing for another sailor's saved community recipe", () => {
+    it("does not offer editing for another sailor's saved community recipe", async () => {
         storedRecipes = [{ ...baseRecipe, user_id: 'another-user' }];
         render(<GalleyPage onBack={vi.fn()} />);
         openRecipeLibrary();
 
-        expect(screen.getByText('Sea Curry')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Open Sea Curry' }));
+        const sheet = await screen.findByRole('dialog', { name: 'Sea Curry' });
         expect(screen.queryByRole('button', { name: 'Edit Sea Curry' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Delete Sea Curry' })).not.toBeInTheDocument();
+        expect(sheet).toBeInTheDocument();
     });
 });
