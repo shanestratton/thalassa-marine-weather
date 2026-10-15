@@ -15,8 +15,18 @@ const paneCode = pane.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, 
 
 describe('the passage pane on the Obs chart', () => {
     it('mounts inside the chart main, never over the picker or the route tracer', () => {
-        expect(app).toContain("import { PassageHudPane } from './components/passage/PassageHudPane';");
-        expect(app).toMatch(/\{chartVisible && !mapPickerActive && !tracerActive &&\s*<PassageHudPane \/>\}/);
+        // Loaded on demand (131-01): the shell names it only through lazyRetry,
+        // and mounts it only while it has something to show — a followed route,
+        // an Obs preview (build 124) or a recording — with nothing drawn while
+        // its chunk arrives.
+        expect(app).not.toContain("import { PassageHudPane } from './components/passage/PassageHudPane';");
+        expect(app.replace(/\s+/g, ' ')).toContain(
+            "const PassageHudPane = lazyRetry( () => import('./components/passage/PassageHudPane').then((m) => ({ default: m.PassageHudPane })), 'PassageHudPane', );",
+        );
+        expect(app).toMatch(
+            /\{chartVisible && passageHudShown && !mapPickerActive && !tracerActive && \(\s*<Suspense fallback=\{null\}>\s*<PassageHudPane \/>\s*<\/Suspense>\s*\)\}/,
+        );
+        expect(app).toContain('const passageHudShown = usePassageHudAvailable();');
         expect(paneCode).not.toContain('onBack');
         // Inside the chart <main> (after MapHub, before the offline chip), so it
         // rides with the split frame instead of the device viewport.

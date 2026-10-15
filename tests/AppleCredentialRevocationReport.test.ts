@@ -10,6 +10,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
     listener: null as null | ((event: unknown) => void),
     log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    plugin: {
+        checkCredentialState: vi.fn(async (_options: unknown) => ({ state: 'authorized' })),
+        bindCredential: vi.fn(async (_options: unknown) => ({ state: 'authorized' })),
+        clearCredential: vi.fn(async (_options: unknown) => undefined),
+    },
 }));
 
 vi.mock('@capacitor/core', () => ({
@@ -19,14 +24,18 @@ vi.mock('@capacitor/core', () => ({
             m.listener = listener;
             return { remove: vi.fn(async () => undefined) };
         }),
-        checkCredentialState: vi.fn(async () => ({ state: 'authorized' })),
-        bindCredential: vi.fn(),
-        clearCredential: vi.fn(),
+        checkCredentialState: m.plugin.checkCredentialState,
+        bindCredential: m.plugin.bindCredential,
+        clearCredential: m.plugin.clearCredential,
     }),
 }));
 vi.mock('../utils/createLogger', () => ({ createLogger: () => m.log }));
 
-import { startAppleCredentialRevocationMonitoring } from '../services/auth/appleCredentialState';
+import {
+    bindAppleCredentialUser,
+    clearBoundAppleCredential,
+    startAppleCredentialRevocationMonitoring,
+} from '../services/auth/appleCredentialState';
 
 const APPLE_USER = '001234.SENTINELAPPLEUSER.0099';
 
@@ -80,5 +89,65 @@ describe('Apple credential revocation report', () => {
 
         expect(onRevoked).toHaveBeenCalledOnce();
         expect(m.log.error).toHaveBeenCalledOnce();
+    });
+
+    it('hands on another Apple user’s event delivered meanwhile once the first is handled, never dropping it (131-01)', async () => {
+        const finish: Array<() => void> = [];
+        const onRevoked = vi.fn(
+            () =>
+                new Promise<void>((resolve) => {
+                    finish.push(resolve);
+                }),
+        );
+        await startAppleCredentialRevocationMonitoring(onRevoked);
+
+        // An older build's binding and the signed-in account's, reported together.
+        m.listener!({ state: 'revoked', reason: 'cold_start', userId: 'apple-old' });
+        m.listener!({ state: 'revoked', reason: 'explicit_check', userId: APPLE_USER });
+        expect(onRevoked).toHaveBeenCalledOnce();
+
+        finish[0]();
+        await vi.waitFor(() => expect(onRevoked).toHaveBeenCalledTimes(2));
+        expect(onRevoked.mock.calls[1]).toEqual([{ state: 'revoked', reason: 'explicit_check', userId: APPLE_USER }]);
+        finish[1]();
+        expect(m.log.error).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('one Keychain binding per account (131-01)', () => {
+    it('checks the signed-in account’s own binding, naming its Apple subjects for the one-time move', async () => {
+        await startAppleCredentialRevocationMonitoring(
+            vi.fn(async () => undefined),
+            {
+                accountId: 'account-a',
+                appleUserIds: [APPLE_USER],
+            },
+        );
+        expect(m.plugin.checkCredentialState).toHaveBeenCalledWith({ accountId: 'account-a', userIds: [APPLE_USER] });
+    });
+
+    it('with nobody signed in, checks the one binding an older build kept, as before', async () => {
+        await startAppleCredentialRevocationMonitoring(vi.fn(async () => undefined));
+        expect(m.plugin.checkCredentialState).toHaveBeenCalledWith({});
+    });
+
+    it('binds and clears by account, and clears nothing without one', async () => {
+        await bindAppleCredentialUser(APPLE_USER, 'account-a');
+        expect(m.plugin.bindCredential).toHaveBeenCalledWith({ userId: APPLE_USER, accountId: 'account-a' });
+
+        await clearBoundAppleCredential('account-a');
+        expect(m.plugin.clearCredential).toHaveBeenCalledWith({ accountId: 'account-a' });
+
+        m.plugin.clearCredential.mockClear();
+        await clearBoundAppleCredential(null);
+        await clearBoundAppleCredential('');
+        expect(m.plugin.clearCredential).not.toHaveBeenCalled();
+    });
+
+    it('still refuses a binding Apple does not call authorized', async () => {
+        m.plugin.bindCredential.mockResolvedValueOnce({ state: 'revoked' });
+        await expect(bindAppleCredentialUser(APPLE_USER, 'account-a')).rejects.toThrow(
+            'Apple credential is not authorized',
+        );
     });
 });

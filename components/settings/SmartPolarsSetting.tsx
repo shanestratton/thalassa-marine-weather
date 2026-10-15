@@ -17,7 +17,7 @@
 import React, { useEffect, useId, useState } from 'react';
 import { InstrumentSourcePolicy } from '../../services/InstrumentSourcePolicy';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
-import { getPairing } from '../../services/PiPairingService';
+import { boatLinkConfigured } from '../../services/boatLink/boatLinkGate';
 import { SmartPolarService } from '../../services/SmartPolarService';
 import { learnerFeedState, subscribeLearnerFeedState } from '../../services/smartPolarFeed';
 import { Row, Toggle } from './SettingsPrimitives';
@@ -37,13 +37,6 @@ export function applySmartPolars(enabled: boolean): void {
     }
 }
 
-/**
- * Any way to the boat's instruments: a Pi paired or a gateway saved. 126-10a's
- * boatLinkConfigured() (services/boatLink/boatLinkGate) answers the same
- * question; use it once it lands.
- */
-const hasBoatLink = (): boolean => getPairing() !== null || NmeaListenerService.getSavedConfig() !== null;
-
 const openNmeaGateway = () => window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'nmea' } }));
 
 export const SmartPolarsSetting: React.FC<{
@@ -59,8 +52,9 @@ export const SmartPolarsSetting: React.FC<{
         return subscribeLearnerFeedState(setFeed);
     }, []);
     const captionId = useId();
-    // Off, with no way to the boat's instruments, it cannot turn on.
-    const blocked = !enabled && !hasBoatLink();
+    // Off, with no way to the boat's instruments, it cannot turn on: the boat
+    // link's own set-up check, a Pi paired or a gateway saved (131-01).
+    const blocked = !enabled && !boatLinkConfigured();
 
     return (
         <Row>

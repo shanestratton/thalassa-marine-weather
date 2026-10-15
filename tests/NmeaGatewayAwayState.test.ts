@@ -26,7 +26,8 @@ describe('the gateway surfaces say how the boat is being read', () => {
         // Since 2026-10-07 both come from services/boatLink, which decides
         // where the phone is by position: "Aboard" whenever the Pi answered
         // directly was false over a VPN that carries the boat's network.
-        expect(hub).toContain('const boatLink = useBoatLink();');
+        // 'Checking…' while the boat link loads (131-01), never 'Not connected'.
+        expect(hub).toContain('const boatLink = useBoatLink() ?? BOAT_LINK_CHECKING;');
         expect(hub).toContain('const gatewayStatus = boatLink.hub.status;');
         expect(hub).toContain('const gatewayState = boatLink.hub.value;');
         expect(hub).not.toMatch(/remote\?\.via === 'lan'/);
@@ -39,7 +40,8 @@ describe('the gateway surfaces say how the boat is being read', () => {
 
     it('the gateway page says where and how fresh in one pill, from the shared boat link', () => {
         const page = read('components/vessel/NmeaPage.tsx');
-        expect(page).toContain('const link = useBoatLink();');
+        expect(page).toContain('const snapshot = useBoatLink();');
+        expect(page).toContain('const link = snapshot ?? BOAT_LINK_CHECKING;');
         expect(page).toContain('status={<BoatLinkPill pill={link.pill}');
         expect(page).not.toContain('Away · via the Pi');
         expect(page).not.toContain('Aboard · via the Pi');

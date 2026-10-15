@@ -11,7 +11,11 @@ import { supabase } from '../services/supabase';
 import { PushNotificationService } from '../services/PushNotificationService';
 import { setUser as setSentryUser } from '../services/sentry';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
-import { bindAppleCredentialUser, clearBoundAppleCredential } from '../services/auth/appleCredentialState';
+import {
+    bindAppleCredentialUser,
+    clearBoundAppleCredential,
+    type AppleCredentialAccount,
+} from '../services/auth/appleCredentialState';
 import { clearAnchorPiConfig } from '../services/anchorPiPush';
 import { initLocalDatabase } from '../services/vessel/LocalDatabase';
 
@@ -50,7 +54,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
             const previousAppleSubject = appleSubjects(previousUser)[0];
             if (previousAppleSubject) {
                 try {
-                    await bindAppleCredentialUser(previousAppleSubject);
+                    await bindAppleCredentialUser(previousAppleSubject, previousUserId);
                 } catch (bindingError) {
                     // Do not make a Supabase session visible again when Apple
                     // says its credential is no longer authorized (or the
@@ -75,7 +79,9 @@ export const useAuthStore = create<AuthState>()((set) => ({
         const isolationResults = await Promise.allSettled([
             PushNotificationService.clearUser(),
             initLocalDatabase(null),
-            clearBoundAppleCredential(),
+            // This account's binding only (131-01): another account's on the
+            // same phone keeps working.
+            clearBoundAppleCredential(previousUserId),
         ]);
         for (const result of isolationResults) {
             if (result.status === 'rejected') {
@@ -140,6 +146,17 @@ function appleSubjects(user: User): string[] {
 }
 
 /**
+ * The signed-in account and its Apple subjects, for the native credential
+ * check at launch (131-01): its own Keychain binding is the one checked, and
+ * an older build's single binding moves to it when it is this account's.
+ * Null when nobody is signed in.
+ */
+export function currentAppleCredentialAccount(): AppleCredentialAccount | null {
+    const user = useAuthStore.getState().user;
+    return user ? { accountId: user.id, appleUserIds: appleSubjects(user) } : null;
+}
+
+/**
  * Fence a natively-revoked Apple identity without ever mutating a different
  * current account. Remote account deletion is handled independently by the
  * signed Apple server-notification lifecycle; this client response removes
@@ -152,8 +169,10 @@ export function handleNativeAppleCredentialRevocation(appleUserId: string): Prom
         const currentUser = useAuthStore.getState().user;
         if (!currentUser || !appleSubjects(currentUser).includes(appleUserId)) {
             // A retained event from an earlier logout/account switch must not
-            // sign out or delete the currently active identity.
-            await clearBoundAppleCredential().catch(() => undefined);
+            // sign out or delete the currently active identity. It used to
+            // clear the phone's one binding here, which by then was the new
+            // account's (131-01); the plugin has already dropped the binding
+            // it reported, and every other account's stays as it is.
             return;
         }
 
@@ -167,7 +186,7 @@ export function handleNativeAppleCredentialRevocation(appleUserId: string): Prom
 
         const results = await Promise.allSettled([
             PushNotificationService.clearUser(),
-            clearBoundAppleCredential(),
+            clearBoundAppleCredential(revokedUserId),
             (supabase?.auth.signOut({ scope: 'local' }) ?? Promise.resolve({ error: null })).then((result) => {
                 if (!result?.error) signedInEventsAfterSignOut = signedInEvents;
                 return result;
@@ -246,10 +265,11 @@ function initAuth() {
         const identityReady = initLocalDatabase(u?.id ?? null);
         useAuthStore.setState({ user: u });
         const hasAppleIdentity = u?.identities?.some((identity) => identity.provider === 'apple') === true;
-        if (!hasAppleIdentity) {
-            // Prevent a Keychain binding from an old Apple session from being
-            // applied to a later email or different-provider account.
-            void clearBoundAppleCredential().catch((error) => {
+        if (u && !hasAppleIdentity) {
+            // An account with no Apple identity keeps no Apple binding of its
+            // own. Bindings are per account (131-01), so no other account's
+            // can apply to it, and none is touched here.
+            void clearBoundAppleCredential(u.id).catch((error) => {
                 console.error('[Auth] Could not clear stale Apple credential binding:', error);
             });
         }

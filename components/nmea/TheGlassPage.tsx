@@ -720,6 +720,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
     const crewShare = useCrewInstrumentShare();
     // Where this phone is and how the boat reaches it: the pill says what the
     // NMEA Gateway page and the System status box say (services/boatLink).
+    // Null while it loads (131-01): the panel's own words then, never a place.
     const boatLink = useBoatLink();
     const deviceClass = useDeviceClass();
     // 0 (no DOM) reads as a tall phone, as the hook documents.
@@ -1270,7 +1271,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
     const panelStatus = diagnosis.label;
     // When the panel's words are the boat link's ('Away · Live'), draw them as
     // the same WHERE and DATA chips the NMEA Gateway page uses.
-    const linkPill = diagnosis.label === boatLink.pill.text && boatLink.pill.place ? boatLink.pill : null;
+    const linkPill = boatLink && diagnosis.label === boatLink.pill.text && boatLink.pill.place ? boatLink.pill : null;
     // No gateway ever set up is how a phone-only skipper uses the app, not a
     // fault: neutral grey, the same 'No gateway' the NMEA Gateway page shows.
     // Red stays for a configured gateway that has dropped (UX scorecard run 7).

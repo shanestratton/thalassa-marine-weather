@@ -97,6 +97,8 @@ describe('authStore logout isolation', () => {
         expect(authMocks.signOut).toHaveBeenCalledOnce();
         expect(useAuthStore.getState().user).toBeNull();
         expect(identity.getAuthIdentityScope().key).toBe('anonymous');
+        // Its own Apple binding only (131-01): another account's on this phone stays.
+        expect(authMocks.clearAppleBinding.mock.calls).toEqual([['account-a']]);
     });
 
     it('fully restores the previous account when Supabase rejects sign-out', async () => {
@@ -111,7 +113,7 @@ describe('authStore logout isolation', () => {
 
         expect(authMocks.initLocalDatabase.mock.calls.map(([owner]) => owner)).toEqual([null, 'account-a']);
         expect(authMocks.setPushUser).toHaveBeenCalledWith('account-a');
-        expect(authMocks.bindAppleCredential).toHaveBeenCalledWith('apple-sub-account-a');
+        expect(authMocks.bindAppleCredential).toHaveBeenCalledWith('apple-sub-account-a', 'account-a');
         expect(authMocks.setSentryUser).toHaveBeenLastCalledWith({ id: 'account-a' });
         expect(identity.getAuthIdentityScope().userId).toBe('account-a');
         expect(useAuthStore.getState().user?.id).toBe('account-a');
@@ -158,7 +160,7 @@ describe('authStore logout isolation', () => {
         expect(identity.getAuthIdentityScope().userId).toBe('account-a');
         expect(useAuthStore.getState().user?.id).toBe('account-a');
         expect(authMocks.setPushUser).toHaveBeenCalledWith('account-a');
-        expect(authMocks.bindAppleCredential).toHaveBeenCalledWith('apple-sub-account-a');
+        expect(authMocks.bindAppleCredential).toHaveBeenCalledWith('apple-sub-account-a', 'account-a');
     });
 
     it('keeps the app fenced when an Apple binding cannot be restored after logout rollback', async () => {
@@ -168,7 +170,7 @@ describe('authStore logout isolation', () => {
 
         await expect(useAuthStore.getState().logout()).rejects.toThrow('network refused sign-out');
 
-        expect(authMocks.bindAppleCredential).toHaveBeenCalledWith('apple-sub-account-a');
+        expect(authMocks.bindAppleCredential).toHaveBeenCalledWith('apple-sub-account-a', 'account-a');
         expect(useAuthStore.getState().user).toBeNull();
         expect(identity.getAuthIdentityScope().userId).toBeNull();
     });
@@ -187,13 +189,16 @@ describe('authStore logout isolation', () => {
         expect(authMocks.signOut).toHaveBeenCalledWith({ scope: 'local' });
         expect(authMocks.clearPushUser).toHaveBeenCalledOnce();
         expect(authMocks.initLocalDatabase).toHaveBeenCalledWith(null);
+        // The revoked account's own binding (131-01).
+        expect(authMocks.clearAppleBinding.mock.calls).toEqual([['account-a']]);
     });
 
-    it('ignores a retained Apple revocation event from a different account', async () => {
+    it('ignores a retained Apple revocation event from a different account, and leaves this account’s binding alone', async () => {
         const { identity, useAuthStore } = await loadAuthenticatedStore();
         const { handleNativeAppleCredentialRevocation } = await import('../stores/authStore');
         authMocks.signOut.mockClear();
         authMocks.clearPushUser.mockClear();
+        authMocks.clearAppleBinding.mockClear();
 
         await handleNativeAppleCredentialRevocation('apple-sub-old-account');
 
@@ -201,7 +206,41 @@ describe('authStore logout isolation', () => {
         expect(identity.getAuthIdentityScope().userId).toBe('account-a');
         expect(authMocks.signOut).not.toHaveBeenCalled();
         expect(authMocks.clearPushUser).not.toHaveBeenCalled();
-        expect(authMocks.clearAppleBinding).toHaveBeenCalled();
+        // It used to clear the phone's one binding, which was account A's by
+        // then: A's revocation monitoring went dark (131-01). The plugin has
+        // already dropped the stale binding it reported.
+        expect(authMocks.clearAppleBinding).not.toHaveBeenCalled();
+    });
+});
+
+describe('one Keychain binding per account (131-01)', () => {
+    type AuthCallback = (event: string, session: { user: unknown } | null) => void;
+    const authCallback = () => authMocks.onAuthStateChange.mock.calls[0][0] as AuthCallback;
+
+    it('names the signed-in account and its Apple subjects for the launch check', async () => {
+        await loadAuthenticatedStore();
+        const { currentAppleCredentialAccount } = await import('../stores/authStore');
+        const account = currentAppleCredentialAccount();
+        expect(account?.accountId).toBe('account-a');
+        expect(account?.appleUserIds).toContain('apple-sub-account-a');
+    });
+
+    it('names no account when nobody is signed in', async () => {
+        authMocks.getSession.mockResolvedValue({ data: { session: null } });
+        const { useAuthStore, currentAppleCredentialAccount } = await import('../stores/authStore');
+        await vi.waitFor(() => expect(useAuthStore.getState().authChecked).toBe(true));
+        expect(currentAppleCredentialAccount()).toBeNull();
+    });
+
+    it('an email account signing in clears only its own binding, never the Apple account’s before it', async () => {
+        await loadAuthenticatedStore();
+        authMocks.clearAppleBinding.mockClear();
+        authCallback()('SIGNED_OUT', null);
+        expect(authMocks.clearAppleBinding).not.toHaveBeenCalled();
+
+        authCallback()('SIGNED_IN', { user: { id: 'account-b', email: 'b@example.com', identities: [] } });
+
+        expect(authMocks.clearAppleBinding.mock.calls).toEqual([['account-b']]);
     });
 });
 

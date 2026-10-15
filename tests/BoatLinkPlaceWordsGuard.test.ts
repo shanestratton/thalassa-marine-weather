@@ -89,7 +89,8 @@ describe('only services/boatLink says where the phone is', () => {
 
     it('the phone stands in for the boat only by the boat link’s rule (by position, or a GPS-less bus on her own network)', () => {
         const overlay = readFileSync('components/map/MapboxVelocityOverlay.tsx', 'utf8');
-        expect(overlay).toContain('const aboard = BoatLinkService.phoneStandsInForBoat();');
+        // Through the gate (131-01): no boat link loaded, or still loading, is never "with her".
+        expect(overlay).toContain('const aboard = boatLinkIfConfigured()?.phoneStandsInForBoat() ?? false;');
         expect(code(overlay)).not.toMatch(/const aboard = NmeaStore\.isBoatFeed\(\)/);
     });
 });

@@ -98,6 +98,7 @@ import {
 } from '../services/PiTelemetryService';
 import { FLAP_GUARD_MS, InstrumentSourcePolicy, PI_SILENT_MS } from '../services/InstrumentSourcePolicy';
 import { readRegisteredSocketOwner } from '../services/boatLink/socketOwner';
+import { loadedBoatLink, resetBoatLinkGateForTests } from '../services/boatLink/boatLinkGate';
 
 const T0 = Date.parse('2026-10-07T03:00:00Z');
 /** Let the policy's cloud check (a dynamic import and one read) settle. */
@@ -248,6 +249,44 @@ describe('InstrumentSourcePolicy: where the phone is decides the fallback', () =
         pairing.record = null;
         InstrumentSourcePolicy.boot(T0);
         expect(readRegisteredSocketOwner()).toBe('boot');
+    });
+
+    it('loads the boat link for a Pi-first boot only: a boat with no Pi has no use for it here (131-01)', async () => {
+        resetBoatLinkGateForTests();
+        pairing.record = null;
+        listener.saved = null;
+        expect(InstrumentSourcePolicy.boot(T0)).toBe('idle');
+        await settle();
+        expect(loadedBoatLink()).toBeNull();
+
+        InstrumentSourcePolicy.resetForTests();
+        listener.saved = { host: '192.0.2.151', port: 1457 };
+        expect(InstrumentSourcePolicy.boot(T0)).toBe('direct');
+        await settle();
+        expect(loadedBoatLink()).toBeNull();
+
+        InstrumentSourcePolicy.resetForTests();
+        pairing.record = { deviceId: 'fixture-pi' };
+        expect(InstrumentSourcePolicy.boot(T0)).toBe('pi-first');
+        await settle();
+        expect(loadedBoatLink()).not.toBeNull();
+    });
+
+    it('while the boat link is still loading the place is unknown: no fallback restarts, none is closed, the ladder keeps its pace', async () => {
+        placement.where = 'aboard';
+        placement.fallbackPermitted = true;
+        InstrumentSourcePolicy.boot(T0);
+        await runTicks(T0 + 5_000, T0 + PI_SILENT_MS);
+        expect(InstrumentSourcePolicy.mode()).toBe('pi-silent-direct');
+        // As though it had not landed yet: "checking", never "ashore".
+        resetBoatLinkGateForTests();
+        placement.where = 'ashore';
+        expect(listener.gate!('retry')).toBe(false);
+        expect(listener.gate!('parked')).toBe(false);
+        expect(listener.gate!('rung')).toBe(true);
+        InstrumentSourcePolicy.tick(T0 + PI_SILENT_MS + 5_000);
+        expect(listener.stop).not.toHaveBeenCalled();
+        expect(InstrumentSourcePolicy.mode()).toBe('pi-silent-direct');
     });
 });
 

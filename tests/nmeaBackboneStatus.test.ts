@@ -314,3 +314,30 @@ describe('the phone’s direct NMEA gateway socket', () => {
         });
     });
 });
+
+describe('no boat-link snapshot yet (131-01)', () => {
+    it('a boat with a Pi or a gateway, her boat link still loading: Checking…, never Not connected', () => {
+        expect(derive({ linkAbsent: 'checking' })).toEqual({
+            active: false,
+            detail: 'Checking…',
+            faulted: false,
+            showRates: false,
+        });
+    });
+
+    it('a phone with neither: Not set up', () => {
+        expect(derive({ linkAbsent: 'not-set-up' }).detail).toBe('Not set up');
+    });
+
+    it('what the feed itself says still stands: a live Pi, a connecting socket, a real fault', () => {
+        expect(derive({ store: piStore('cloud'), linkAbsent: 'checking' })).toMatchObject({
+            active: true,
+            detail: 'Receiving instruments via the Pi · cloud',
+        });
+        expect(derive({ directStatus: 'connecting', linkAbsent: 'checking' }).detail).toBe('Connecting to YDWG-02');
+        expect(derive({ directStatus: 'error', linkAbsent: 'checking' })).toMatchObject({
+            detail: 'Gateway connection failed',
+            faulted: true,
+        });
+    });
+});

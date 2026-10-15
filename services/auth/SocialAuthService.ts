@@ -125,6 +125,7 @@ function bindFailureReason(error: unknown): string {
     if (message.includes('secure the Apple credential binding')) return 'keychain';
     if (message.includes('verify the Apple credential state')) return 'state_check';
     if (message.includes('valid Apple user identifier')) return 'invalid_user';
+    if (message.includes('valid account identifier')) return 'invalid_account';
     return 'unknown';
 }
 
@@ -174,9 +175,10 @@ interface LocalSessionRemoval {
     _removeSession?: () => Promise<void>;
 }
 
-async function discardUnsecuredAppleSession(): Promise<void> {
+/** accountId: the Supabase user the failed sign-in made; only its own Apple binding is cleared (131-01). */
+async function discardUnsecuredAppleSession(accountId: string): Promise<void> {
     if (!supabase) return;
-    await clearBoundAppleCredential().catch((error) => {
+    await clearBoundAppleCredential(accountId).catch((error) => {
         log.warn(
             'Could not clear the unsecured Apple credential binding:',
             error instanceof Error ? error.name : 'unknown error',
@@ -309,9 +311,10 @@ export async function signInWithApple(): Promise<Session> {
     // Secure and verify the opaque Apple user binding before consuming the
     // one-time authorization code. This remains after Supabase auth, and means
     // a Keychain failure cannot leave a server-side refresh token for a sign-in
-    // the client reports as failed.
+    // the client reports as failed. The binding is this account's own (131-01).
+    const accountId = data.session.user.id;
     try {
-        await bindAppleCredentialUser(appleUserId);
+        await bindAppleCredentialUser(appleUserId, accountId);
     } catch (bindingError) {
         const failure = appleSignInFailure(
             'bind_credential',
@@ -319,7 +322,7 @@ export async function signInWithApple(): Promise<Session> {
             bindFailureReason(bindingError),
             "Apple Sign-In couldn't finish securely on this device. Try again.",
         );
-        await discardUnsecuredAppleSession();
+        await discardUnsecuredAppleSession(accountId);
         throw failure;
     }
 
@@ -331,7 +334,7 @@ export async function signInWithApple(): Promise<Session> {
     });
     if (registrationError || registration?.registered !== true) {
         const failure = await registrationFailure(registrationError);
-        await discardUnsecuredAppleSession();
+        await discardUnsecuredAppleSession(accountId);
         throw failure;
     }
 
