@@ -19,7 +19,8 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  * line fits without a scroll at 375 x 667, 390 x 844 and 430 x 932 as the
  * app draws them, and so does a reviewed stop with one of Auto's long
  * refusals (to 205 characters) at 375 x 667; at 320 x 568 it may scroll inside the card
- * with its first three rows in view. The draft modal, when it asks, sits on
+ * with its level, route row and times in view (132-PYD-8: the stop page is a plan, the
+ * route row under its level). The draft modal, when it asks, sits on
  * top of the stop page, centred clear of the tab bar. A tester sees no route
  * row anywhere. Nouméa and Tromsø say why there is no route in global words,
  * never a blank row, never "Pi". The routing cases of 127-PYD-2, 3 and 11 live
@@ -77,7 +78,8 @@ async function openStop(page: Page) {
     await expect(first.locator('.today-stop-l2')).toHaveText(/^\d\d:\d\d → \d\d:\d\d · /);
     await first.click();
     const detail = page.locator('.today-detail');
-    await expect(detail.getByRole('list', { name: 'How the day goes' })).toBeVisible();
+    // The way: the distance, and the route row where routing is offered (132-PYD-8 puts it under the level).
+    await expect(detail.getByRole('list', { name: 'The way' })).toBeVisible();
     return detail;
 }
 
@@ -147,7 +149,7 @@ for (const size of [AS_DRAWN.se2, AS_DRAWN.mid, AS_DRAWN.shane])
         expect(errors).toEqual([]);
     });
 
-test('at 320 x 568 as drawn the routed stop page may scroll inside its card, its first three rows in view', async ({
+test('at 320 x 568 as drawn the routed stop page may scroll inside its card, its level, route row and times in view', async ({
     page,
 }) => {
     const errors = await open(page, AS_DRAWN.se, `&mode=routed&owner=1${AS_DRAWN.se.query}`);
@@ -155,10 +157,11 @@ test('at 320 x 568 as drawn the routed stop page may scroll inside its card, its
     const detail = await routeIt(page);
     await expect(detail.locator('li[data-route]')).toHaveText(ROUTED, { timeout: 10_000 });
     expect(await layoutIssues(page, true)).toEqual([]);
+    // The plan (132-PYD-8): its level, the route row and the times big, as it opens.
     const inView = await page.evaluate(() => {
         const body = document.querySelector('.today-detail .today-body')!.getBoundingClientRect();
-        return [...document.querySelectorAll('.today-detail .today-rows li')].slice(0, 3).map((li) => {
-            const r = li.getBoundingClientRect();
+        return ['.today-level', 'li[data-route]', '.today-times'].map((sel) => {
+            const r = document.querySelector(`.today-detail ${sel}`)!.getBoundingClientRect();
             return r.top >= body.top - 0.5 && r.bottom <= body.bottom + 0.5;
         });
     });
@@ -573,8 +576,12 @@ test("Nouméa: the leave window's times are on the place's clock, not the phone'
     const errors = await open(page, AS_DRAWN.mid, `&mode=routed-tide&owner=1&place=noumea${AS_DRAWN.mid.query}`);
     const detail = await openStop(page);
     await routeForLeave(page, DAY_TRIP);
-    // Her chosen leave in the row is the stop page's own "Leave HH:MM →", which is on Nouméa's clock.
-    const leaveAt = (await detail.getByText(/^Leave \d\d:\d\d → there /).textContent())!.slice(6, 11);
+    // Her chosen leave in the row is the stop page's own big "LEAVE HH:MM" (132-PYD-8), on Nouméa's clock.
+    const leaveAt = (await detail
+        .getByRole('list', { name: 'Times' })
+        .locator('.today-times-at')
+        .first()
+        .textContent())!;
     const said = (await page.locator(LEAVE_ROW).textContent())!.match(DAY_TRIP)!;
     expect(said[1]).toBe(leaveAt);
     // Nouméa's morning (UTC+11), never London's evening before.

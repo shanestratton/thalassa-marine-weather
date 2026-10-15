@@ -2617,12 +2617,28 @@ export interface StopDetailArgs {
     updating?: boolean | 'estimate';
 }
 
+/** One time on the stop page's timeline (132-PYD-8): "LEAVE 07:00 · 3 h 28 there". */
+export interface StopTime {
+    label: string;
+    at: string;
+    note: string;
+}
+
 export interface StopDetail {
     title: string;
     sub: string;
+    /** Every row in words; the page shows its plan and keeps the rest a tap away (132-PYD-8). */
     rows: string[];
+    /** What is not checked, and "Not a clearance"; `how` says how the times were worked out. */
     footnote: string;
+    how: string;
     chips: { ms: number; label: string; best: boolean }[];
+    /** The plan at a glance (132-PYD-8): its level in words, Inside too ("✓ Inside your limits"). */
+    verdict: string | null;
+    /** Leave, ashore (or at anchor) and home, big. */
+    times: StopTime[];
+    /** Shelter, sea and the light to spare, a few words each; the page adds its local notes. */
+    facts: string[];
 }
 
 /**
@@ -2655,7 +2671,7 @@ export function timesBasis(
         : `${base} (Smart Polars still learning: ${cells(polar.learnedCells)})`;
 }
 
-/** §7's rows, in order, as plain strings. */
+/** §7's rows, in order, as plain strings, and the plan they make, read at a glance (132-PYD-8). */
 export function stopDetail(args: StopDetailArgs): StopDetail {
     const { plan, stay, window, speed } = args;
     const zone = window.zone;
@@ -2663,19 +2679,39 @@ export function stopDetail(args: StopDetailArgs): StopDetail {
     const d = args.departure ?? plan.best;
     const t = (ms: number | null) => (ms === null ? '--:--' : hhmm(ms, zone));
     const rows: string[] = [];
+    const times: StopTime[] = [];
+    const facts: string[] = [];
+    let verdict: string | null = null;
     const legWind = (leg: LegSummary) => {
         const span = windSpan(leg.dirDeg, leg.loKts, leg.hiKts);
         return span ? `, ${span} kn` : '';
     };
+    const legTime = (leg: LegSummary) => (leg.durationMs === null ? 'over 12 h' : durationLabel(leg.durationMs));
     if (d) {
         // It opens on its verdict (127-PYD-1): a ✕ or ≈ stop never opens onto an ordinary-looking plan,
         // and a row below that would say the same (the stay's reason, the light) leaves it to the verdict.
-        if (d.reason) rows.push(stopVerdict(d.level, d.reason));
+        verdict = stopVerdict(d.level, d.reason);
+        if (d.reason) rows.push(verdict);
         if (args.why) rows.push(args.why);
         const said = capital(d.reason ?? '');
         rows.push(
-            `Leave ${t(d.departureMs)} → there ${t(d.arriveMs)} (${args.updating === 'estimate' ? "estimate: route weather didn't load" : args.updating ? 'updating for the route' : `${d.out.durationMs === null ? 'over 12 h' : durationLabel(d.out.durationMs)}, ${d.out.how}${legWind(d.out)}`})`,
+            `Leave ${t(d.departureMs)} → there ${t(d.arriveMs)} (${args.updating === 'estimate' ? "estimate: route weather didn't load" : args.updating ? 'updating for the route' : `${legTime(d.out)}, ${d.out.how}${legWind(d.out)}`})`,
         );
+        // The timeline (132-PYD-8): what each leg takes, or that the times are about to change.
+        times.push(
+            {
+                label: 'Leave',
+                at: t(d.departureMs),
+                note:
+                    args.updating === 'estimate' ? 'estimate' : args.updating ? 'updating…' : `${legTime(d.out)} there`,
+            },
+            {
+                label: stay === 'overnight' ? 'At anchor' : 'Ashore',
+                at: t(d.arriveMs),
+                note: `to ${t(d.stayEndMs)}${stay === 'overnight' ? ' tomorrow' : ''}`,
+            },
+        );
+        if (d.home) times.push({ label: 'Home', at: t(d.homeMs), note: `${legTime(d.home)} back` });
         const shelter = shelterWord(d.stay, !!c.fetchLandNM);
         const why = d.stay?.reasons[0] && d.stay.reasons[0] !== said ? `: ${d.stay.reasons[0]}` : '';
         rows.push(
@@ -2699,7 +2735,7 @@ export function stopDetail(args: StopDetailArgs): StopDetail {
                     ? `, ${d.home.spreadLevel === 'split' ? 'models split' : 'some spread'}: ${d.home.members} of ${d.home.of} models`
                     : '';
             rows.push(
-                `Home ${t(d.stayEndMs)} → ${t(d.homeMs)} (${d.home.durationMs === null ? 'over 12 h' : durationLabel(d.home.durationMs)}, ${d.home.how}${legWind(d.home)}${spreadNote})`,
+                `Home ${t(d.stayEndMs)} → ${t(d.homeMs)} (${legTime(d.home)}, ${d.home.how}${legWind(d.home)}${spreadNote})`,
             );
         }
         const last = window.lastLightMs;
@@ -2715,28 +2751,49 @@ export function stopDetail(args: StopDetailArgs): StopDetail {
         const legs = d.home ? [d.out, d.home] : [d.out];
         const lo = Math.min(...legs.flatMap((l) => (l.waveLoM === null ? [] : [l.waveLoM])));
         const hi = Math.max(...legs.flatMap((l) => (l.waveHiM === null ? [] : [l.waveHiM])));
+        const sea =
+            Number.isFinite(lo) && Number.isFinite(hi)
+                ? lo.toFixed(1) === hi.toFixed(1)
+                    ? lo.toFixed(1)
+                    : `${lo.toFixed(1)}–${hi.toFixed(1)}`
+                : null;
         rows.push(
             plan.area
                 ? 'Sea: not checked on the area wind'
                 : !plan.seaLoaded
                   ? "Sea: not checked, the wave forecast didn't load"
-                  : Number.isFinite(lo) && Number.isFinite(hi)
-                    ? `Sea on the way ${lo.toFixed(1) === hi.toFixed(1) ? lo.toFixed(1) : `${lo.toFixed(1)}–${hi.toFixed(1)}`} m (Météo-France)${d.stopSeaInshore ? ` · no reading inside ${c.name.split(' · ')[0]}` : ''}`
+                  : sea
+                    ? `Sea on the way ${sea} m (Météo-France)${d.stopSeaInshore ? ` · no reading inside ${c.name.split(' · ')[0]}` : ''}`
                     : 'Sea: no wave model this close inshore',
+        );
+        // Its facts (132-PYD-8), each a few words, nothing more known than the rows above say: the light to
+        // spare is the same minutes (under 30 in the last of the light), never claimed after dark.
+        facts.push(
+            shelter,
+            plan.area || !plan.seaLoaded ? 'Sea not checked' : sea ? `Sea ${sea} m` : 'No sea reading',
+            window.light === 'no-true-night'
+                ? '☀ Light all day'
+                : end !== null && last !== null && end <= last
+                  ? `☀ ${durationLabel(last - end)} to spare`
+                  : `☀ ${word} after dark`,
         );
     }
     if (!d) rows.push(...[args.why, args.place].filter((x): x is string => !!x), ...parksNotes(c));
     // Routed, the route row is the distance row (the page draws it): the distance is said once.
     if (!args.routed) rows.push(distanceLine(c.distance));
     if (args.leavingMarina) rows.push(LEAVING_MARINA);
-    const how = `${timesBasis(speed, args.polar, args.polarIsOwn)} ${plan.area ? `on the area wind (${plan.headlineModel})` : `in ${plan.headlineModel} wind`}. No current.`;
     return {
         title: c.name,
         sub: `${shortDate(window.date, zone)} · times in ${zoneAbbrev(window.firstLightMs ?? atNoon(window.date, zone), zone)}`,
         rows,
+        // How the times were worked out goes with the rows (132-PYD-8); what is not checked stays on the page.
         footnote: args.routed
-            ? `Route from your charts: draft ${args.routed.draftM.toFixed(2)} m + 0.5 m under the keel at chart datum; tide shown, never assumed.${stay === 'overnight' ? '' : ' Home is the same route turned round.'} ${how} Not a clearance.`
-            : `${how} Depth and tide over the route are not checked. Not a clearance.`,
+            ? `Route from your charts: draft ${args.routed.draftM.toFixed(2)} m + 0.5 m under the keel at chart datum; tide shown, never assumed.${stay === 'overnight' ? '' : ' Home is the same route turned round.'} Not a clearance.`
+            : 'Depth and tide over the route are not checked. Not a clearance.',
+        how: `${timesBasis(speed, args.polar, args.polarIsOwn)} ${plan.area ? `on the area wind (${plan.headlineModel})` : `in ${plan.headlineModel} wind`}. No current.`,
         chips: plan.window.map((w) => ({ ms: w.departureMs, label: hhmm(w.departureMs, zone), best: w === plan.best })),
+        verdict,
+        times,
+        facts,
     };
 }
