@@ -3,7 +3,7 @@
  */
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock service dependencies
 vi.mock('../services/MealPlanService', () => ({
@@ -509,5 +509,139 @@ describe('MealCalendar', () => {
             expect(getAll('recipes')).toEqual([]);
             expect(scheduleMeal).not.toHaveBeenCalled();
         });
+    });
+
+    // 131-B11: the grid is this phone's days, and a meal saved on any other
+    // day still shows, on a row of its own. A 07:00 Saturday departure from
+    // Brisbane, in on Monday evening: Friday 21:00 to Monday 08:00 in UTC.
+    describe('a planned meal never drops out of the grid (131-B11)', () => {
+        const DEPARTS = '2026-10-16T21:00:00+00:00';
+        const ARRIVES = '2026-10-19T08:00:00+00:00';
+        const was = process.env.TZ;
+        afterEach(() => {
+            if (was === undefined) delete process.env.TZ;
+            else process.env.TZ = was;
+        });
+
+        /** The passage's days on a phone in this zone, from the real calculateMealDays. */
+        async function passageOn(zone: string, eta = ARRIVES) {
+            process.env.TZ = zone;
+            const actual =
+                await vi.importActual<typeof import('../services/MealPlanService')>('../services/MealPlanService');
+            return actual.calculateMealDays(DEPARTS, eta);
+        }
+        const meal = (id: string, title: string, planned_date: string, meal_slot: MealPlan['meal_slot']): MealPlan => ({
+            id,
+            user_id: 'owner-1',
+            voyage_id: 'v1',
+            recipe_id: null,
+            spoonacular_id: null,
+            title,
+            planned_date,
+            meal_slot,
+            servings_planned: 4,
+            ingredients: [],
+            status: 'reserved',
+            cook_started_at: null,
+            completed_at: null,
+            leftovers_saved: false,
+            notes: null,
+            created_at: '2026-10-10T00:00:00Z',
+            updated_at: '2026-10-10T00:00:00Z',
+        });
+        /** A day as the grid writes it. */
+        const day = (key: string) =>
+            new Intl.DateTimeFormat(undefined, {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                timeZone: 'UTC',
+            }).format(new Date(`${key}T12:00:00Z`));
+        /** Each day row's label, top to bottom. */
+        const rows = () => screen.getAllByRole('row').map((row) => row.getAttribute('aria-label'));
+
+        it("shows an old plan's first-day meals, saved on the UTC Friday, above Saturday's Day 1 in Brisbane", async () => {
+            const mealDays = await passageOn('Australia/Brisbane');
+            expect(mealDays.dates).toEqual(['2026-10-17', '2026-10-18', '2026-10-19']);
+            // Planned before 131-B11, when Day 1 of this passage was the UTC Friday.
+            const old = [
+                meal('m-porridge', 'Porridge', '2026-10-16', 'breakfast'),
+                meal('m-wrap', 'Chicken Wrap', '2026-10-16', 'lunch'),
+                meal('m-stew', 'Beef Stew', '2026-10-17', 'dinner'),
+            ];
+            render(<MealCalendar {...baseProps} mealDays={mealDays} activeMeals={old} />);
+
+            expect(rows()).toEqual([
+                day('2026-10-16'),
+                `Day 1 — ${day('2026-10-17')}`,
+                `Day 2 — ${day('2026-10-18')}`,
+                `Day 3 — ${day('2026-10-19')}`,
+            ]);
+            const friday = screen.getAllByRole('row')[0];
+            expect(within(friday).getByRole('button', { name: /^Brekky: Porridge/ })).toBeInTheDocument();
+            expect(within(friday).getByRole('button', { name: /^Lunch: Chicken Wrap/ })).toBeInTheDocument();
+            expect(
+                within(friday).getByRole('button', { name: `Add Dinner meal for ${day('2026-10-16')}` }),
+            ).toBeInTheDocument();
+            expect(within(friday).queryByText(/^Day /)).not.toBeInTheDocument();
+
+            // The cook can move it onto Day 1 from the same list of days.
+            fireEvent.touchStart(screen.getByRole('button', { name: /^Brekky: Porridge/ }));
+            const dialog = await screen.findByRole('dialog', { name: 'Copy Porridge' }, { timeout: 2000 });
+            const targets = within(dialog)
+                .getAllByRole('button')
+                .filter((b) => !/Copy|Move|Cancel/.test(b.textContent ?? ''));
+            expect(targets.map((b) => b.textContent)).toEqual([
+                `${day('2026-10-16')}current`,
+                `Day 1${day('2026-10-17')}`,
+                `Day 2${day('2026-10-18')}`,
+                `Day 3${day('2026-10-19')}`,
+            ]);
+            expect(targets[0]).toBeDisabled();
+            expect(targets[1]).toBeEnabled();
+        });
+
+        it("shows the skipper's Monday dinner, saved on a Brisbane phone, after Sunday on a phone in Los Angeles", async () => {
+            const mealDays = await passageOn('America/Los_Angeles');
+            expect(mealDays.dates).toEqual(['2026-10-16', '2026-10-17', '2026-10-18']);
+            const shared = [
+                meal('m-curry', 'Fish Curry', '2026-10-17', 'dinner'),
+                // The skipper's Day 3, Monday in Brisbane: past this phone's grid.
+                meal('m-chilli', 'Chilli Con Carne', '2026-10-19', 'dinner'),
+            ];
+            render(<MealCalendar {...baseProps} mealDays={mealDays} activeMeals={shared} />);
+
+            expect(rows()).toEqual([
+                `Day 1 — ${day('2026-10-16')}`,
+                `Day 2 — ${day('2026-10-17')}`,
+                `Day 3 — ${day('2026-10-18')}`,
+                day('2026-10-19'),
+            ]);
+            const monday = screen.getAllByRole('row')[3];
+            expect(within(monday).getByRole('button', { name: /^Dinner: Chilli Con Carne/ })).toBeInTheDocument();
+            expect(
+                within(screen.getAllByRole('row')[1]).getByRole('button', { name: /^Dinner: Fish Curry/ }),
+            ).toBeInTheDocument();
+        });
+
+        it.each(['America/Los_Angeles', 'Australia/Brisbane'])(
+            'a plan with every meal on a passage day shows exactly the passage days, on a phone in %s',
+            async (zone) => {
+                // In on Wednesday: five passage days and two buffer days.
+                const mealDays = await passageOn(zone, '2026-10-21T08:00:00+00:00');
+                expect(mealDays).toMatchObject({ passageDays: 5, emergencyDays: 2 });
+                const plan = [
+                    meal('m-eggs', 'Scrambled Eggs', mealDays.dates[0], 'breakfast'),
+                    meal('m-pad', 'Pad Thai', mealDays.dates[2], 'dinner'),
+                    meal('m-beans', 'Baked Beans on Toast', mealDays.dates[6], 'lunch'),
+                ];
+                render(<MealCalendar {...baseProps} mealDays={mealDays} activeMeals={plan} />);
+
+                expect(rows()).toEqual(
+                    mealDays.dates.map((d, i) => `Day ${i + 1} — ${day(d)}${i >= 5 ? ' (buffer day)' : ''}`),
+                );
+                expect(screen.getAllByText('Buffer')).toHaveLength(2);
+            },
+        );
     });
 });

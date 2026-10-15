@@ -9,8 +9,10 @@
  *  5. Leftover management → creates new Fridge/Prepared stores entry
  *
  * All operations go through LocalDatabase for offline-first sync.
- * A meal's day is 'YYYY-MM-DD', a calendar day of the passage on this phone's
- * clock (calculateMealDays; UTC days until 131-B11).
+ * A meal's day is 'YYYY-MM-DD', a calendar day of the passage on the clock of
+ * the phone that planned it (calculateMealDays; UTC days until 131-B11). Stored
+ * days are never moved: MealCalendar shows any meal's day that falls outside
+ * this phone's days as a row of its own.
  */
 
 import { atomicLocalTransaction, getAll, query, insertLocal, generateUUID } from './vessel/LocalDatabase';
@@ -41,7 +43,7 @@ export interface MealPlan {
     recipe_id: string | null;
     spoonacular_id: number | null;
     title: string;
-    planned_date: string; // 'YYYY-MM-DD', one of calculateMealDays' local days
+    planned_date: string; // 'YYYY-MM-DD', a grid day of the phone that planned it (UTC before 131-B11)
     meal_slot: MealSlot;
     servings_planned: number;
     ingredients: RecipeIngredient[];
@@ -652,8 +654,13 @@ export interface MealDayInfo {
  * A shared galley seen on a phone set to another time zone gets that phone's
  * days: the skipper's Brisbane Sat–Mon is Fri–Sun on a phone in Los Angeles.
  * UTC days matched on every phone, but were the wrong day for hours of each
- * day anywhere off UTC. One agreed zone for every phone (the skipper's, or
- * the departure's) waits on Shane.
+ * day anywhere off UTC. No meal drops out of sight between grids:
+ * MealCalendar adds a row for any other day that holds one of the plan's
+ * meals, in date order, so the LA phone shows the skipper's Monday dinner
+ * after its Sunday, and a plan saved on UTC days before 131-B11 keeps its
+ * Friday. Those rows carry their date but no Day number. One agreed zone for
+ * every phone (the skipper's, or the departure's) would give every phone the
+ * same grid; that waits on Shane.
  */
 export function calculateMealDays(departureTime: string, eta: string): MealDayInfo {
     const dep = new Date(departureTime);

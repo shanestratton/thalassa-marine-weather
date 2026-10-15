@@ -1,7 +1,8 @@
 /**
  * MealCalendar — Multi-day meal calendar grid with recipe picker.
  *
- * Renders a day-by-day grid of breakfast/lunch/dinner slots.
+ * Renders a day-by-day grid of breakfast/lunch/dinner slots: the passage's
+ * days, plus any other day that holds a planned meal (gridDates).
  * Includes SlotPicker for recipe search, Provision Passage CTA,
  * crew stepper, and copy/move context menu.
  */
@@ -39,9 +40,10 @@ const log = createLogger('MealCalendar');
 
 // Hoisted formatters: constructing an Intl.DateTimeFormat is the expensive
 // half of toLocaleDateString(locale, options), and the grid did it per day
-// per render. The key is a calendar day, 'YYYY-MM-DD' (this phone's local day
-// since 131-B11): its noon written with timeZone: 'UTC' is that very day in
-// every zone, UTC+12…+14 included (audit 2026-09-02).
+// per render. The key is a calendar day, 'YYYY-MM-DD' (a local day since
+// 131-B11; an older meal's UTC day or another phone's day reads the same): its
+// noon written with timeZone: 'UTC' is that very day in every zone, UTC+12…+14
+// included (audit 2026-09-02).
 const DAY_SHORT_FMT = new Intl.DateTimeFormat(undefined, {
     weekday: 'short',
     month: 'short',
@@ -96,6 +98,22 @@ const suggestionsFor = (slot: MealSlot): readonly string[] =>
         : slot === 'lunch'
           ? MEAL_SUGGESTIONS.lunch
           : MEAL_SUGGESTIONS.dinner;
+
+/**
+ * The days the grid shows: this phone's passage days, plus any other day that
+ * holds one of the plan's meals, in date order (131-B11). So no planned meal
+ * is ever out of sight: a plan made before 131-B11 sits on UTC days (a 07:00
+ * Saturday departure from Brisbane had its first meals on the Friday), and in
+ * a shared galley each meal sits on the days of the phone that planned it.
+ * Stored meals keep their days; nothing is moved.
+ */
+const gridDates = (passageDates: readonly string[], meals: readonly MealPlan[]): string[] => {
+    const days = new Set(passageDates);
+    for (const meal of meals) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(meal.planned_date)) days.add(meal.planned_date);
+    }
+    return [...days].sort();
+};
 
 export interface MealCalendarProps {
     mealDays: MealDayInfo | null;
@@ -359,6 +377,13 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
     for (const m of activeMeals) {
         mealMap.set(`${m.planned_date}_${m.meal_slot}`, m);
     }
+    const dates = gridDates(mealDays.dates, activeMeals);
+    // Day N counts from the day the boat leaves; a day shown only for its
+    // meals has its date alone.
+    const dayLabelOf = (date: string) => {
+        const idx = mealDays.dates.indexOf(date);
+        return idx >= 0 ? `Day ${idx + 1}` : null;
+    };
 
     return (
         <div className="p-3 space-y-1" role="grid" aria-label="Meal calendar">
@@ -441,9 +466,9 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                 ))}
 
             {/* Day rows */}
-            {mealDays.dates.map((date, dayIdx) => {
+            {dates.map((date) => {
                 const isEmergency = mealDays.emergencyDates.has(date);
-                const dayLabel = `Day ${dayIdx + 1}`;
+                const dayLabel = dayLabelOf(date);
                 const dateLabel = DAY_SHORT_FMT.format(new Date(date + 'T12:00:00Z'));
 
                 return (
@@ -455,16 +480,20 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                 : 'border-white/6 bg-white/2'
                         }`}
                         role="row"
-                        aria-label={`${dayLabel} — ${dateLabel}${isEmergency ? ' (buffer day)' : ''}`}
+                        aria-label={
+                            dayLabel ? `${dayLabel} — ${dateLabel}${isEmergency ? ' (buffer day)' : ''}` : dateLabel
+                        }
                     >
                         {/* Day label */}
                         <div className="flex items-center gap-2 px-1 pb-1.5">
-                            <span
-                                className={`text-[11px] font-black uppercase tracking-widest ${isEmergency ? 'text-amber-400' : 'text-gray-500'}`}
-                            >
-                                {isEmergency ? '📦 ' : ''}
-                                {dayLabel}
-                            </span>
+                            {dayLabel && (
+                                <span
+                                    className={`text-[11px] font-black uppercase tracking-widest ${isEmergency ? 'text-amber-400' : 'text-gray-500'}`}
+                                >
+                                    {isEmergency ? '📦 ' : ''}
+                                    {dayLabel}
+                                </span>
+                            )}
                             <span className="text-[11px] text-gray-500">{dateLabel}</span>
                             {isEmergency && (
                                 <span className="ml-auto text-[11px] font-bold text-amber-400/60 uppercase tracking-wider">
@@ -669,7 +698,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                 Select target day
                             </p>
                             <div className="max-h-[200px] overflow-y-auto space-y-1.5">
-                                {mealDays.dates.map((date, idx) => {
+                                {dates.map((date) => {
                                     const isSource = date === contextMenu.meal.planned_date;
                                     const existing = mealMap.get(`${date}_${contextMenu.meal.meal_slot}`);
                                     const occupied = !!existing && existing.id !== contextMenu.meal.id;
@@ -688,7 +717,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                             }`}
                                         >
                                             <span className="text-[11px] font-black text-gray-500 w-12">
-                                                Day {idx + 1}
+                                                {dayLabelOf(date)}
                                             </span>
                                             <span className="text-xs text-white flex-1 text-left">{dateLabel}</span>
                                             {isSource && <span className="text-[11px] text-gray-500">current</span>}
