@@ -451,16 +451,18 @@ describe.each(CASES)('$label: after the delete is made', (c) => {
 });
 
 describe("Ship's Stores header", () => {
+    // Items, not 'units': litres of milk and kilos of rice don't add up (131-B14).
     it('counts what is on screen: "2 items" while UHT milk waits to be deleted', async () => {
         await open(CASES[0]);
-        expect(screen.getByText(/^3 items · 6 units/)).toBeInTheDocument();
+        expect(screen.getByText('3 items')).toBeInTheDocument();
+        expect(screen.queryByText(/\d units?\b/)).not.toBeInTheDocument();
 
         CASES[0].remove('UHT milk');
         await settle();
-        expect(screen.getByText(/^2 items · 4 units/)).toBeInTheDocument();
+        expect(screen.getByText('2 items')).toBeInTheDocument();
 
         await clickUndo();
-        expect(screen.getByText(/^3 items · 6 units/)).toBeInTheDocument();
+        expect(screen.getByText('3 items')).toBeInTheDocument();
     });
 });
 

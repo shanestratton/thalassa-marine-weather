@@ -340,6 +340,7 @@ describe("Ship's Stores: Share or save", () => {
             items: [expect.objectContaining({ id: 'a-item' })],
             categories: new Set(),
             vesselName: 'Account A Vessel',
+            units: 'metric',
         });
         expect(within(picker).getByRole('button', { name: 'Making the PDF…' })).toBeDisabled();
         await act(async () => shared.resolve('shared'));
@@ -375,6 +376,7 @@ describe("Ship's Stores: Share or save", () => {
                 items: [expect.objectContaining({ id: 'a-item' })],
                 categories: new Set(),
                 vesselName: 'Wind Dancer',
+                units: 'metric',
             }),
         );
     });
