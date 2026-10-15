@@ -18,10 +18,10 @@
  * the chart store (encChartStore.publishChartDelivery); never the reverse.
  *   2 — BRIDGE / PONTON / CBLOHD / PIPOHD / CONVYR, always emitted (CONVYR
  *       joined in round 2, 2026-09-30, before anything deployed). */
-export const ENC_CONVERSION_SCHEMA = 2;
+export const ENC_CONVERSION_SCHEMA = 3;
 
 /** Mirrors ALWAYS_EMITTED_CLASSES in the extractor. */
-export const ENC_ALWAYS_EMITTED_LAYERS = ['BRIDGE', 'PONTON', 'CBLOHD', 'PIPOHD', 'CONVYR'] as const;
+export const ENC_ALWAYS_EMITTED_LAYERS = ['BRIDGE', 'PONTON', 'CBLOHD', 'PIPOHD', 'CONVYR', 'M_SDAT'] as const;
 
 type FeatureCollectionLike = { type: 'FeatureCollection'; features: unknown[] };
 
@@ -125,4 +125,19 @@ export function chartBlobExtractorSchema(raw: string | Buffer): number | null {
     const schema = (cells[0] as { extractorSchema?: unknown }).extractorSchema;
     if (schema === undefined) return 1;
     return Number.isSafeInteger(schema) && (schema as number) >= 1 ? (schema as number) : null;
+}
+
+/** DSPM datum codes use IHO VERDAT enumeration; preserve unknown positive
+ * codes too, so the app refuses them rather than assuming a producer default. */
+export function dsidDatum(
+    colIdx: Record<string, number>,
+    values: readonly string[],
+    field: 'SDAT' | 'VDAT',
+): number | undefined {
+    const i = colIdx[`DSPM_${field}`] ?? colIdx[field];
+    if (i === undefined) return undefined;
+    const raw = (values[i] ?? '').trim();
+    if (raw === '') return undefined;
+    const code = Number(raw);
+    return Number.isSafeInteger(code) && code >= 0 && code <= 65535 ? code : 0;
 }

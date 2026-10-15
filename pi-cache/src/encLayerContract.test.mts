@@ -25,9 +25,16 @@ after(async () => {
 
 const fc = (n = 0) => ({ type: 'FeatureCollection' as const, features: Array.from({ length: n }, () => ({})) });
 
-test('the always-emitted set is the five structure layers, and the ogr2ogr path extracts them', async () => {
+test('the always-emitted set includes structures and complete sounding-datum coverage, and the ogr2ogr path extracts them', async () => {
     // CONVYR (overhead conveyor) joined in round 2 (2026-09-30).
-    assert.deepEqual([...ENC_ALWAYS_EMITTED_LAYERS].sort(), ['BRIDGE', 'CBLOHD', 'CONVYR', 'PIPOHD', 'PONTON']);
+    assert.deepEqual([...ENC_ALWAYS_EMITTED_LAYERS].sort(), [
+        'BRIDGE',
+        'CBLOHD',
+        'CONVYR',
+        'M_SDAT',
+        'PIPOHD',
+        'PONTON',
+    ]);
     const { ENC_LAYERS } = await import('./routes/enc.js');
     for (const layer of ENC_ALWAYS_EMITTED_LAYERS) assert.ok(ENC_LAYERS.includes(layer), layer);
 });

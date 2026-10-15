@@ -95,11 +95,12 @@ export function classRecord(code: number): S57Class | undefined {
  * stores (piCacheStore here, pi-cache/src/encChartStore.ts on the Pi) let a
  * NEWER schema replace an older one at the same chart revision — and never
  * the reverse. Absent on a cell: schema 1 (everything before this field).
+ *   3 — additional navaids, raw cell datums and complete M_SDAT coverage.
  *   2 — BRIDGE / PONTON / CBLOHD / PIPOHD / CONVYR, always emitted (Part B,
  *       2026-09-30; CONVYR joined in round 2 before anything deployed, so the
  *       schema stays 2).
  */
-export const EXTRACTOR_SCHEMA = 2;
+export const EXTRACTOR_SCHEMA = 3;
 
 /**
  * Classes every cell carries even when it charts none of them — as an EMPTY
@@ -109,7 +110,14 @@ export const EXTRACTOR_SCHEMA = 2;
  * a bridge the owner said must BLOCK when its clearance is unknown could be
  * on it. Mirrored in pi-cache/src/encLayerContract.ts for the ogr2ogr path.
  */
-export const ALWAYS_EMITTED_CLASSES: ReadonlySet<string> = new Set(['BRIDGE', 'PONTON', 'CBLOHD', 'PIPOHD', 'CONVYR']);
+export const ALWAYS_EMITTED_CLASSES: ReadonlySet<string> = new Set([
+    'BRIDGE',
+    'PONTON',
+    'CBLOHD',
+    'PIPOHD',
+    'CONVYR',
+    'M_SDAT',
+]);
 
 // NOTE: pi-cache/src/routes/enc.ts duplicates this list as ENC_LAYERS for
 // the ogr2ogr (.000 upload) path — pi-cache deploys standalone to the Pi so
@@ -134,6 +142,15 @@ export const ROUTING_CLASSES = new Set([
     'BOYCAR',
     'BCNCAR',
     'LIGHTS',
+    'LITFLT',
+    'LITVES',
+    'BOYINB',
+    'MORFAC',
+    'FOGSIG',
+    'TOPMAR',
+    'DAYMAR',
+    'M_SDAT',
+    'M_VDAT',
     // Leading lines / transits (masterplan Phase 6 — offline leads):
     // NAVLNE = navigation line (the charted lead), RECTRC = recommended
     // track. RECTRC is known-empty in the current AU SENC set

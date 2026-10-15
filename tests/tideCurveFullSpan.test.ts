@@ -10,6 +10,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../services/enc/readChartDatum', () => ({ readChartDatumForBounds: vi.fn(async () => 'LAT') }));
+
 const wt = vi.hoisted(() => ({ days: [] as number[], at: [] as [number, number][] }));
 vi.mock('../services/weather/api/worldtides', () => ({
     fetchWorldTides: vi.fn(async (lat: number, lon: number, days: number) => {

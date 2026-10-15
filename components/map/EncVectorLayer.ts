@@ -532,7 +532,11 @@ function mountPointMarkLayers(
                 type: 'symbol',
                 source: ENC_VEC_SRC.NAVAIDS,
                 minzoom: minZoom,
-                filter: scaminAwareMark(['==', ['get', '_kind'], kind]),
+                filter: scaminAwareMark(
+                    kind === 'MORFAC'
+                        ? ['all', ['==', ['get', '_kind'], kind], ['==', ['geometry-type'], 'Point']]
+                        : ['==', ['get', '_kind'], kind],
+                ),
                 layout: {
                     'icon-image': ['get', '_icon'],
                     'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.45, 15, 0.9],
@@ -548,6 +552,26 @@ function mountPointMarkLayers(
             beforeIdFor(layerId),
         );
     };
+
+    // Mooring facilities may be charted as lines/areas. Draw their actual
+    // outline rather than inventing a buoy at every line vertex.
+    if (!map.getLayer(ENC_VEC_LAYERS.MORFAC_GEOMETRY)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.MORFAC_GEOMETRY,
+                type: 'line',
+                source: ENC_VEC_SRC.NAVAIDS,
+                minzoom: minZoom,
+                filter: scaminAwareMark([
+                    'all',
+                    ['==', ['get', '_kind'], 'MORFAC'],
+                    ['!=', ['geometry-type'], 'Point'],
+                ]),
+                paint: { 'line-color': '#17212b', 'line-width': 2, 'line-opacity': opacity },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.MORFAC_GEOMETRY),
+        );
+    }
 
     // Driven by the canonical buoy/beacon registry (#2a full bind) — a new
     // class in S57_BUOY_BEACON_CLASSES mounts here automatically.

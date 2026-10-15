@@ -1,4 +1,4 @@
-import { HeaderInfo, SencFeature } from './featureParser.js';
+import type { HeaderInfo, SencFeature } from './featureParser.js';
 import { ALWAYS_EMITTED_CLASSES, EXTRACTOR_SCHEMA, ROUTING_CLASSES } from './s57Classes.js';
 
 /**

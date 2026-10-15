@@ -59,6 +59,8 @@ const BASE_LAYER_NAMES = [
     'SOUNDG',
     'DEPCNT',
     'M_QUAL',
+    'M_SDAT',
+    'M_VDAT',
     'FAIRWY',
     'RECTRC',
     'NAVLNE',
@@ -330,6 +332,31 @@ function validateCell(value: unknown, index: number, budget: ValidationBudget): 
         }
         validateFeatureCollection(collection, `${cellId}.layers.${layer}`, bounds);
     }
+    const { soundingDatum, verticalDatum, extractorSchema } = value;
+    if (
+        soundingDatum !== undefined &&
+        !(
+            (typeof soundingDatum === 'string' && soundingDatum.trim().length > 0 && soundingDatum.length <= 120) ||
+            (typeof soundingDatum === 'number' &&
+                Number.isSafeInteger(soundingDatum) &&
+                soundingDatum >= 0 &&
+                soundingDatum <= 65535)
+        )
+    )
+        throw new Error(`${cellId}: sounding datum is invalid.`);
+    for (const [name, code] of Object.entries({ verticalDatum, extractorSchema })) {
+        if (
+            code !== undefined &&
+            !(
+                typeof code === 'number' &&
+                Number.isSafeInteger(code) &&
+                code >= (name === 'extractorSchema' ? 1 : 0) &&
+                code <= 65535
+            )
+        ) {
+            throw new Error(`${cellId}: ${name} is invalid.`);
+        }
+    }
     const layers = value.layers as EncConversionResult['layers'];
     const depthAreaCount = (layers.DEPARE?.features.length ?? 0) + (layers.DRGARE?.features.length ?? 0);
     if (depthAreaCount === 0) {
@@ -354,6 +381,9 @@ function validateCell(value: unknown, index: number, budget: ValidationBudget): 
         ...(updateNumber !== undefined ? { updateNumber: updateNumber as number } : {}),
         issued,
         bbox,
+        ...(soundingDatum !== undefined ? { soundingDatum } : {}),
+        ...(verticalDatum !== undefined ? { verticalDatum: verticalDatum as number } : {}),
+        ...(extractorSchema !== undefined ? { extractorSchema: extractorSchema as number } : {}),
         layers,
     };
 }

@@ -383,7 +383,14 @@ export async function accumulateCellLayers(
                 target === 'BOYSAW' ||
                 target === 'BCNSAW' ||
                 target === 'BOYISD' ||
-                target === 'BCNISD'
+                target === 'BCNISD' ||
+                target === 'LITFLT' ||
+                target === 'LITVES' ||
+                target === 'BOYINB' ||
+                target === 'MORFAC' ||
+                target === 'FOGSIG' ||
+                target === 'TOPMAR' ||
+                target === 'DAYMAR'
             ) {
                 const featProps = (feat.properties ?? {}) as Record<string, unknown>;
                 props._icon = encNavaidIconId(target, featProps, ialaRegion);

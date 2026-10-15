@@ -33,11 +33,18 @@ const line = (acronym: string, attributes: SencFeature['attributes'], rcid = 1):
 });
 
 describe('structure layers (BRIDGE, PONTON, CBLOHD, PIPOHD, CONVYR)', () => {
-    it('are routing classes, and the always-emitted set is exactly the five the lead review requires', () => {
+    it('are routing classes, and the always-emitted set is the five structure layers plus the sounding-datum coverage', () => {
         // CONVYR (overhead conveyor) joined in round 2 (2026-09-30), before
         // anything deployed: the schema stays 2.
-        assert.deepEqual([...ALWAYS_EMITTED_CLASSES].sort(), ['BRIDGE', 'CBLOHD', 'CONVYR', 'PIPOHD', 'PONTON']);
-        assert.equal(EXTRACTOR_SCHEMA, 2);
+        assert.deepEqual([...ALWAYS_EMITTED_CLASSES].sort(), [
+            'BRIDGE',
+            'CBLOHD',
+            'CONVYR',
+            'M_SDAT',
+            'PIPOHD',
+            'PONTON',
+        ]);
+        assert.equal(EXTRACTOR_SCHEMA, 3);
         for (const c of ALWAYS_EMITTED_CLASSES) assert.ok(ROUTING_CLASSES.has(c), c);
     });
 
