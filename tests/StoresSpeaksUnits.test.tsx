@@ -241,6 +241,52 @@ describe('the Edit sheet', () => {
         await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit item' })).not.toBeInTheDocument());
         expect(queued(SHACKLE)).toEqual([]);
     });
+
+    it('after two + on 1.5 kg of sugar, Edit says 1.7, not float dust, and Save adds no change', async () => {
+        await mergePulledRecords('inventory_items', [stores(SUGAR, 'Raw sugar', 1.5, 0, 'kg')]);
+        render(<InventoryList onBack={vi.fn()} />);
+        fireEvent.click(await screen.findByText('Raw sugar'));
+        // Two steps of 0.1 kg on the delta path: the row holds 1.5 + 0.1 + 0.1.
+        fireEvent.click(within(card('Raw sugar')).getByRole('button', { name: 'Increase quantity' }));
+        await waitFor(() => expect(stored(SUGAR)?.quantity).toBeCloseTo(1.6, 9));
+        fireEvent.click(within(card('Raw sugar')).getByRole('button', { name: 'Increase quantity' }));
+        await waitFor(() => expect(stored(SUGAR)?.quantity).toBeCloseTo(1.7, 9));
+
+        fireEvent.click(screen.getByRole('button', { name: 'Edit Raw sugar' }));
+        const sheet = await screen.findByRole('dialog', { name: 'Edit item' });
+        expect((within(sheet).getByLabelText('Quantity') as HTMLInputElement).value).toBe('1.7');
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Save inventory item changes' }));
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit item' })).not.toBeInTheDocument());
+        // Only the two + went out, as DELTAs: the rounded field is not a change.
+        const changes = queued(SUGAR);
+        expect(changes.every((change) => change.type === 'DELTA' && change.delta > 0)).toBe(true);
+        expect(changes.reduce((sum, change) => sum + change.delta, 0)).toBeCloseTo(0.2, 9);
+    });
+
+    // inventory_items.min_quantity is a whole number on the server: a 0.5 would
+    // fail its push and hold up every later change to the row.
+    it('keeps the minimum whole: a keypad with no point, and a typed 0.5 kg saves as 1 kg', async () => {
+        await mergePulledRecords('inventory_items', [stores(SUGAR, 'Raw sugar', 2, 0, 'kg')]);
+        const sheet = await openEdit('Raw sugar');
+        const minimum = within(sheet).getByLabelText('Min qty');
+        expect(minimum).toHaveAttribute('inputmode', 'numeric');
+        fireEvent.change(minimum, { target: { value: '0.5' } });
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Save inventory item changes' }));
+        await waitFor(() => expect(stored(SUGAR)?.min_quantity).toBe(1));
+        expect(queued(SUGAR)).toEqual([{ type: 'UPDATE', min_quantity: 1, updated_at: expect.any(String) }]);
+    });
+
+    it('a 500 g minimum carried to kg is 1 kg on the row, never 0.5', async () => {
+        await mergePulledRecords('inventory_items', [stores(SUGAR, 'Raw sugar', 1000, 500, 'g')]);
+        const sheet = await openEdit('Raw sugar');
+        fireEvent.change(within(sheet).getByRole('combobox', { name: 'Unit' }), { target: { value: 'kg' } });
+        expect(within(sheet).getByLabelText('Quantity')).toHaveValue(1);
+        expect(within(sheet).getByLabelText('Min qty')).toHaveValue(1);
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Save inventory item changes' }));
+        await waitFor(() => expect(stored(SUGAR)).toMatchObject({ quantity: 1, min_quantity: 1, unit: 'kg' }));
+        const minimums = queued(SUGAR).filter((change) => 'min_quantity' in change);
+        expect(minimums).toEqual([expect.objectContaining({ type: 'UPDATE', min_quantity: 1 })]);
+    });
 });
 
 describe('a Grocery List buy in Stores', () => {

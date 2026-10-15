@@ -107,6 +107,24 @@ describe('LocalInventoryService quantity integrity', () => {
         expect(insertLocal).toHaveBeenCalledTimes(1);
     });
 
+    it('refuses a minimum that is not whole: the server keeps min_quantity as a whole number (131-B14)', async () => {
+        database.rows.set('rice', inventoryItem('rice'));
+        vi.mocked(insertLocal).mockClear();
+        vi.mocked(updateLocal).mockClear();
+        const fields: Omit<InventoryItem, 'id' | 'user_id' | 'created_at' | 'updated_at'> = inventoryItem('new');
+
+        await expect(LocalInventoryService.create({ ...fields, min_quantity: 0.5 })).rejects.toThrow(/whole number/i);
+        await expect(LocalInventoryService.update('rice', { min_quantity: 1.5 })).rejects.toThrow(/whole number/i);
+        expect(insertLocal).not.toHaveBeenCalled();
+        expect(updateLocal).not.toHaveBeenCalled();
+
+        // A decimal count is fine: quantity is NUMERIC on the server.
+        await LocalInventoryService.create({ ...fields, quantity: 2.5, min_quantity: 1 });
+        await LocalInventoryService.update('rice', { quantity: 0.75, min_quantity: 2 });
+        expect(insertLocal).toHaveBeenCalledTimes(1);
+        expect(updateLocal).toHaveBeenCalledTimes(1);
+    });
+
     it('merges only semantically identical rows and preserves purchase receipts', async () => {
         database.rows.set('manual-a', inventoryItem('manual-a', { quantity: 2 }));
         database.rows.set('manual-b', inventoryItem('manual-b', { quantity: 3 }));

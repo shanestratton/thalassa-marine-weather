@@ -269,18 +269,45 @@ describe('units (131-B14)', () => {
         expect(found).toHaveTextContent('Low stock: the minimum is 2.2 lb');
     });
 
-    it('the Add form takes a unit and a decimal: 2.5 kg of rice', async () => {
+    it('the Add form takes a unit and a decimal quantity: 2.5 kg of rice', async () => {
         const { form } = sheet();
         fireEvent.change(within(form).getByLabelText(/Item name/), { target: { value: 'Basmati rice' } });
         fireEvent.change(within(form).getByRole('combobox', { name: 'Unit' }), { target: { value: 'kg' } });
         fireEvent.change(within(form).getByLabelText('Quantity'), { target: { value: '2.5' } });
+        fireEvent.change(within(form).getByLabelText('Min alert'), { target: { value: '1' } });
+        fireEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+        await waitFor(() =>
+            expect(LocalInventoryService.create).toHaveBeenCalledWith(
+                expect.objectContaining({ item_name: 'Basmati rice', quantity: 2.5, min_quantity: 1, unit: 'kg' }),
+            ),
+        );
+    });
+
+    // The server keeps min_quantity as a whole number: a 0.5 would never sync.
+    it('the minimum is whole: a keypad with no point, and a pasted 0.5 kg saves as 1 kg', async () => {
+        const { form } = sheet();
+        expect(within(form).getByLabelText('Min alert')).toHaveAttribute('inputmode', 'numeric');
+        expect(within(form).getByLabelText('Quantity')).toHaveAttribute('inputmode', 'decimal');
+        fireEvent.change(within(form).getByLabelText(/Item name/), { target: { value: 'Basmati rice' } });
+        fireEvent.change(within(form).getByRole('combobox', { name: 'Unit' }), { target: { value: 'kg' } });
         fireEvent.change(within(form).getByLabelText('Min alert'), { target: { value: '0.5' } });
         fireEvent.click(within(form).getByRole('button', { name: 'Add item' }));
         await waitFor(() =>
             expect(LocalInventoryService.create).toHaveBeenCalledWith(
-                expect.objectContaining({ item_name: 'Basmati rice', quantity: 2.5, min_quantity: 0.5, unit: 'kg' }),
+                expect.objectContaining({ item_name: 'Basmati rice', min_quantity: 1, unit: 'kg' }),
             ),
         );
+    });
+
+    it('a 500 g minimum carried to kg is 1 kg, never 0.5', () => {
+        const { form } = sheet();
+        const unit = within(form).getByRole('combobox', { name: 'Unit' });
+        fireEvent.change(unit, { target: { value: 'g' } });
+        fireEvent.change(within(form).getByLabelText('Quantity'), { target: { value: '1500' } });
+        fireEvent.change(within(form).getByLabelText('Min alert'), { target: { value: '500' } });
+        fireEvent.change(unit, { target: { value: 'kg' } });
+        expect(within(form).getByLabelText('Quantity')).toHaveValue(1.5);
+        expect(within(form).getByLabelText('Min alert')).toHaveValue(1);
     });
 
     it('offers Count and the metric units; picking kg after g carries the number', () => {

@@ -55,7 +55,14 @@ import { scanBoxTag } from '../../services/native/nfcTags';
 import { useNfcTags } from './inventory/useNfcTags';
 import { UnitSelect } from './inventory/UnitSelect';
 import { GroceryChip } from './inventory/GroceryChip';
-import { retypedAmount, storesUnitSystem, typedAmount } from '../../services/vessel/storesUnits';
+import {
+    fieldAmount,
+    retypedAmount,
+    retypedMinimum,
+    storesUnitSystem,
+    typedAmount,
+    typedMinimum,
+} from '../../services/vessel/storesUnits';
 import { GROCERY_LOCKED, groceryProvenance } from '../../services/vessel/storesProvenance';
 
 interface InventoryListProps {
@@ -334,9 +341,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [editItem, setEditItem] = useState<{ identity: AuthIdentityScope; item: InventoryItem } | null>(null);
     const [editName, setEditName] = useState('');
     const [editCategory, setEditCategory] = useState<InventoryCategory>('Provisions');
-    // As typed: decimals allowed (2.5 kg), read on Save (131-B14).
-    const [editQty, setEditQty] = useState('1');
-    const [editMinQty, setEditMinQty] = useState('0');
+    // As typed, read on Save (131-B14): the quantity takes decimals (2.5 kg),
+    // the minimum is a whole number of its unit, as the server keeps it.
+    const [editQtyText, setEditQtyText] = useState('1');
+    const [editMinQtyText, setEditMinQtyText] = useState('0');
     const [editZone, setEditZone] = useState('');
     const [editSpecific, setEditSpecific] = useState('');
     const [editDescription, setEditDescription] = useState('');
@@ -369,8 +377,8 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 setEditItem(null);
                 setEditName('');
                 setEditCategory('Provisions');
-                setEditQty('1');
-                setEditMinQty('0');
+                setEditQtyText('1');
+                setEditMinQtyText('0');
                 setEditUnit('');
                 setEditZone('');
                 setEditSpecific('');
@@ -387,8 +395,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         setEditItem({ identity, item });
         setEditName(item.item_name);
         setEditCategory(item.category);
-        setEditQty(String(item.quantity));
-        setEditMinQty(String(item.min_quantity));
+        // Rounded as Save reads it: ± steps of 0.1 kg can leave float dust on the row.
+        setEditQtyText(fieldAmount(item.quantity));
+        setEditMinQtyText(String(item.min_quantity));
         setEditZone(item.location_zone || '');
         setEditSpecific(item.location_specific || '');
         setEditDescription(item.description || '');
@@ -398,10 +407,13 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         setEditScanProblem(null);
         setEditUnit(item.unit ?? '');
     };
-    /** A unit picked in the Edit sheet: 1000 g becomes 1 kg; a count picked as kg keeps its number. */
+    /**
+     * A unit picked in the Edit sheet: 1000 g becomes 1 kg; a count picked as
+     * kg keeps its number. The minimum stays whole: 500 g becomes 1 kg.
+     */
     const pickUnit = (unit: string) => {
-        setEditQty((typed) => retypedAmount(typed, editUnit, unit));
-        setEditMinQty((typed) => retypedAmount(typed, editUnit, unit));
+        setEditQtyText((typed) => retypedAmount(typed, editUnit, unit));
+        setEditMinQtyText((typed) => retypedMinimum(typed, editUnit, unit));
         setEditUnit(unit);
     };
 
@@ -431,17 +443,19 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         const { identity, item } = editItem;
         if (!isAuthIdentityScopeCurrent(identity)) return;
         const itemId = item.id;
+        // The fields as typed (131-B14). One left blank keeps what the row
+        // has, so a cleared box never empties a count; a minimum is whole.
+        const editQty = typedAmount(editQtyText) ?? item.quantity;
+        const editMinQty = typedMinimum(editMinQtyText) ?? item.min_quantity;
         // Only what was changed against the item as the sheet opened, so the
         // crew's ± and the Galley's deductions made meanwhile survive. A count
         // edit is a delta against that count ("took 2", not "set to 10"), on
         // the same delta path as ±, so changes made at once add up (STORES-04).
-        // A field left blank keeps what the row has: a cleared box never empties a count.
-        const qty = typedAmount(editQty) ?? item.quantity;
-        const delta = countDelta(item.quantity, qty);
+        const delta = countDelta(item.quantity, editQty);
         const updates = changedFields(item, {
             item_name: editName,
             category: editCategory,
-            min_quantity: typedAmount(editMinQty) ?? item.min_quantity,
+            min_quantity: editMinQty,
             barcode: editBarcode || null,
             location_zone: editZone || null,
             location_specific: editSpecific || null,
@@ -483,7 +497,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 // twice; only the count, so other fields still diff against
                 // the item as it opened.
                 put(updated);
-                setEditItem({ identity, item: { ...item, quantity: qty } });
+                setEditItem({ identity, item: { ...item, quantity: editQty } });
             }
             if (updated && changed) updated = await InventoryService.update(itemId, updates);
             if (!isAuthIdentityScopeCurrent(identity)) return;
@@ -906,15 +920,16 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             )}
                         </div>
 
-                        {/* Quantity, unit and min: decimals allowed, never below
-                            nothing, read on Save (131-B14) */}
+                        {/* Quantity, unit and min, never below nothing, read on
+                            Save (131-B14). The quantity takes decimals; the
+                            minimum stays whole, on a keypad with no point. */}
                         <div className="grid grid-cols-3 gap-2">
                             <FormField
                                 label="Quantity"
                                 type="number"
                                 inputMode="decimal"
-                                value={editQty}
-                                onChange={setEditQty}
+                                value={editQtyText}
+                                onChange={setEditQtyText}
                                 min={0}
                             />
                             <UnitSelect
@@ -927,9 +942,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             <FormField
                                 label="Min qty"
                                 type="number"
-                                inputMode="decimal"
-                                value={editMinQty}
-                                onChange={setEditMinQty}
+                                inputMode="numeric"
+                                value={editMinQtyText}
+                                onChange={setEditMinQtyText}
                                 min={0}
                             />
                         </div>

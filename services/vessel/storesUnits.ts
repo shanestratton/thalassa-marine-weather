@@ -11,6 +11,9 @@
  * − and + step a sensible amount of what is there: 100 g or 100 ml (10 under
  * 100), an ounce (a quarter pound from a pound up), 4 fl oz (a quarter gallon
  * from a gallon up); one of a count. A − never takes more than is there.
+ *
+ * A count takes decimals (2.5 kg); a minimum is a whole number of its unit,
+ * because the server's min_quantity is a whole number.
  */
 import { convertQuantity } from '../PurchaseUnits';
 import type { UnitPreferences } from '../../types';
@@ -209,3 +212,26 @@ export function retypedAmount(typed: string, from: string, to: string): string {
     const converted = convertQuantity(value, SPELLINGS[normal(from)] ?? from, SPELLINGS[normal(to)] ?? to);
     return converted === null ? typed : String(Math.round(converted * 1000) / 1000);
 }
+
+/**
+ * A minimum typed into a Stores form: a whole number of its unit, as the
+ * server keeps it (a decimal one would never sync). Rounded up, so the low
+ * alert comes no later than asked: 0.5 kg is 1 kg. Null when it isn't a number.
+ */
+export function typedMinimum(typed: string): number | null {
+    const value = typedAmount(typed);
+    return value === null ? null : Math.ceil(value);
+}
+
+/** A minimum carried to another unit, still whole: 1 kg is 1000 g, 500 g is 1 kg. */
+export function retypedMinimum(typed: string, from: string, to: string): string {
+    const whole = typedMinimum(retypedAmount(typed, from, to));
+    return whole === null ? typed : String(whole);
+}
+
+/**
+ * A row's amount in a form field, rounded as typedAmount reads it back: a few
+ * ± steps of 0.1 kg leave 1.7000000000000002 on the row, and the field says 1.7.
+ */
+export const fieldAmount = (amount: number): string =>
+    Number.isFinite(amount) ? String(Math.round(amount * 1000) / 1000) : '';

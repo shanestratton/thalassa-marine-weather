@@ -9,14 +9,17 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+    fieldAmount,
     hasStock,
     isCountUnit,
     retypedAmount,
+    retypedMinimum,
     storesAmount,
     storesStep,
     storesStepDelta,
     storesUnitSystem,
     typedAmount,
+    typedMinimum,
     unitChoices,
 } from '../services/vessel/storesUnits';
 import { convertQuantity } from '../services/PurchaseUnits';
@@ -159,5 +162,49 @@ describe('typed amounts', () => {
         expect(retypedAmount('3', 'whole', 'kg')).toBe('3');
         expect(retypedAmount('500', 'g', 'ml')).toBe('500');
         expect(retypedAmount('', 'g', 'kg')).toBe('');
+    });
+
+    it('fill a form field without float dust: 1.7, not 1.7000000000000002', () => {
+        // What a few ± steps of 0.1 kg, 1 oz or 100 ml leave on a row.
+        expect(fieldAmount(1.5 + 0.1 + 0.1)).toBe('1.7');
+        expect(fieldAmount(28.35 + 28.35 + 28.35)).toBe('85.05');
+        expect(fieldAmount(0.3 - 0.1)).toBe('0.2');
+        expect(fieldAmount(1000)).toBe('1000');
+        expect(fieldAmount(2.5)).toBe('2.5');
+        expect(fieldAmount(Number.NaN)).toBe('');
+        // And reads back as the same number, so Save sends no change.
+        expect(typedAmount(fieldAmount(1.5 + 0.1 + 0.1))).toBe(1.7);
+    });
+});
+
+describe('a minimum is whole, as the server keeps it', () => {
+    // inventory_items.min_quantity is an integer column: a 0.5 would fail its
+    // push and hold up every later change to the row.
+    it('a typed minimum rounds up to a whole number, so the alert comes no later than asked', () => {
+        expect(typedMinimum('2')).toBe(2);
+        expect(typedMinimum('0.5')).toBe(1);
+        expect(typedMinimum('1,2')).toBe(2);
+        expect(typedMinimum('2.0000001')).toBe(2);
+        expect(typedMinimum('-3')).toBe(0);
+        expect(typedMinimum('')).toBeNull();
+        expect(typedMinimum('lots')).toBeNull();
+    });
+
+    it('a minimum carried to another unit stays whole: 500 g is 1 kg, 1 kg is 1000 g', () => {
+        expect(retypedMinimum('500', 'g', 'kg')).toBe('1');
+        expect(retypedMinimum('1500', 'g', 'kg')).toBe('2');
+        expect(retypedMinimum('1', 'kg', 'g')).toBe('1000');
+        expect(retypedMinimum('8', 'oz', 'lb')).toBe('1');
+        expect(retypedMinimum('1', 'L', 'ml')).toBe('1000');
+        expect(retypedMinimum('3', 'whole', 'kg')).toBe('3');
+        expect(retypedMinimum('', 'g', 'kg')).toBe('');
+        for (const [typed, from, to] of [
+            ['750', 'ml', 'L'],
+            ['5', 'oz', 'lb'],
+            ['3', 'lb', 'kg'],
+            ['250', 'g', 'oz'],
+        ]) {
+            expect(Number.isInteger(Number(retypedMinimum(typed, from, to))), `${typed} ${from} to ${to}`).toBe(true);
+        }
     });
 });

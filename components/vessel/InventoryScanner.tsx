@@ -13,7 +13,7 @@
  * made again.
  *
  * 131-B14: the found item's count reads in units and steps to suit them; the
- * form has a unit picker in the skipper's units, and takes decimals.
+ * form has a unit picker in the skipper's units, and takes a decimal quantity.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
@@ -24,10 +24,12 @@ import { isLowStock } from '../../services/vessel/inventoryStats';
 import {
     hasStock,
     retypedAmount,
+    retypedMinimum,
     storesAmount,
     storesStep,
     storesStepDelta,
     typedAmount,
+    typedMinimum,
     type StoresUnitSystem,
 } from '../../services/vessel/storesUnits';
 import { scanBarcode, type BarcodeScan } from '../../services/native/scanBarcode';
@@ -70,8 +72,9 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
     const [found, setFound] = useState<InventoryItem | null>(null);
 
     // ── New item form ──
-    // Quantity and minimum as typed: decimals allowed (2.5 kg), read on Add
-    // and never below nothing (131-B13, 131-B14).
+    // Quantity and minimum as typed, read on Add and never below nothing
+    // (131-B13): the quantity takes decimals (2.5 kg), the minimum is a whole
+    // number of its unit, as the server keeps it (131-B14).
     const [newItem, setNewItem] = useState({
         item_name: '',
         barcode: '',
@@ -139,7 +142,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
             await InventoryService.create({
                 ...newItem,
                 quantity: typedAmount(newItem.quantity) ?? 0,
-                min_quantity: typedAmount(newItem.min_quantity) ?? 0,
+                min_quantity: typedMinimum(newItem.min_quantity) ?? 0,
                 ...(box && { box_id: box.id }),
                 barcode: newItem.barcode || null,
                 location_zone: newItem.location_zone || null,
@@ -267,7 +270,8 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                     )}
 
                     {/* Quantity, unit and min: a weight or a volume in the
-                        skipper's units, decimals allowed (131-B14) */}
+                        skipper's units (131-B14). The quantity takes decimals;
+                        the minimum stays whole, on a keypad with no point. */}
                     <div className="grid grid-cols-3 gap-2">
                         <FormField
                             label="Quantity"
@@ -285,14 +289,14 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                                     ...prev,
                                     unit,
                                     quantity: retypedAmount(prev.quantity, prev.unit, unit),
-                                    min_quantity: retypedAmount(prev.min_quantity, prev.unit, unit),
+                                    min_quantity: retypedMinimum(prev.min_quantity, prev.unit, unit),
                                 }))
                             }
                         />
                         <FormField
                             label="Min alert"
                             type="number"
-                            inputMode="decimal"
+                            inputMode="numeric"
                             value={newItem.min_quantity}
                             onChange={(v) => setNewItem((prev) => ({ ...prev, min_quantity: v }))}
                             min={0}

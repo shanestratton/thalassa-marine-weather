@@ -44,6 +44,16 @@ function requireNonNegativeAmount(amount: number, label: string): void {
     }
 }
 
+/**
+ * A minimum is a whole number, as the server's min_quantity column is: a
+ * decimal one would fail its push and hold up every later change to the row
+ * (131-B14). The forms round a typed minimum up before it gets here.
+ */
+function requireMinimum(amount: number): void {
+    requireNonNegativeAmount(amount, 'Minimum quantity');
+    if (!Number.isInteger(amount)) throw new RangeError('Minimum quantity must be a whole number.');
+}
+
 function normalizedText(value: string | null | undefined): string {
     return (value ?? '').trim().toLowerCase();
 }
@@ -109,12 +119,15 @@ export class LocalInventoryService {
         return query<InventoryItem>(TABLE, (item) => inBinder(item) && isLowStock(item));
     }
 
-    /** Create a new inventory item. A count or minimum below nothing is refused (131-B13). */
+    /**
+     * Create a new inventory item. A count or minimum below nothing is refused
+     * (131-B13), and a minimum that isn't whole (131-B14).
+     */
     static async create(
         item: Omit<InventoryItem, 'id' | 'user_id' | 'created_at' | 'updated_at'>,
     ): Promise<InventoryItem> {
         requireNonNegativeAmount(item.quantity, 'Quantity');
-        requireNonNegativeAmount(item.min_quantity, 'Minimum quantity');
+        requireMinimum(item.min_quantity);
         // The skipper's id in a shared binder (refused when it is view only),
         // the sailor's own otherwise; '' only while signed out.
         const owner = binderInsertOwner(REGISTER);
@@ -130,10 +143,13 @@ export class LocalInventoryService {
         return await insertLocal<InventoryItem>(TABLE, record);
     }
 
-    /** Update an existing item. A count or minimum below nothing is refused (131-B13). */
+    /**
+     * Update an existing item. A count or minimum below nothing is refused
+     * (131-B13), and a minimum that isn't whole (131-B14).
+     */
     static async update(id: string, updates: Partial<InventoryItem>): Promise<InventoryItem | null> {
         if (updates.quantity !== undefined) requireNonNegativeAmount(updates.quantity, 'Quantity');
-        if (updates.min_quantity !== undefined) requireNonNegativeAmount(updates.min_quantity, 'Minimum quantity');
+        if (updates.min_quantity !== undefined) requireMinimum(updates.min_quantity);
         writableRow(id);
         return await updateLocal<InventoryItem>(TABLE, id, updates);
     }
