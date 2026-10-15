@@ -97,7 +97,22 @@ module.exports = {
                 // an accidental 100 KB failing. Ratchet back once the boat link
                 // loads only for a phone with a Pi or gateway configured
                 // (queued for build 124). TARGET 524288 stands as the aspiration.
-                'total-byte-weight': ['error', { maxNumericValue: 900000 }],
+                //
+                // 800000, was 900000 (2026-10-15, build 131, 131-04). Release
+                // 128 measured 891,486 on CI. Build 131 starts without the boat
+                // link and the passage pane (131-01), and now without the
+                // routing engine (router-engine, ~120 KB gzipped) and the route
+                // tracer's own code (~52 KB gzipped, it sat in ApplicationShell):
+                // they load when a route is planned or checked (131-04). NOT
+                // measured by Lighthouse yet: the PC this was built on runs no
+                // audit. From production builds, gzipped as the preview serves
+                // it, the start-up's JavaScript and CSS went 906,864 B (release
+                // 128) -> 860,910 (build 131 before 131-04) -> 688,408 (after);
+                // applied to CI's 891,486 that predicts about 673,000. 800000
+                // sits well above that estimate on purpose until CI has measured
+                // it, and the engine coming back to start-up (+172,502) still
+                // fails it. Ratchet to the first CI measurement + ~10%.
+                'total-byte-weight': ['error', { maxNumericValue: 800000 }],
             },
         },
     },

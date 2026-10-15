@@ -742,7 +742,9 @@ export default defineConfig(({ mode }) => {
                     manualChunks(id, meta) {
                         const moduleId = id.replaceAll('\\', '/');
                         // The router: one chunk that is also the route worker's
-                        // script (routeEngineLogger, above).
+                        // script (routeEngineLogger, above). What the app's
+                        // start-up also imports of it is `engine-leaf`, so the
+                        // router loads when a route is planned or checked (131-04).
                         const engineChunk = routeEngineChunkOf(id, meta);
                         if (engineChunk) return engineChunk;
                         // Vite's dynamic-import preload helper and modulepreload

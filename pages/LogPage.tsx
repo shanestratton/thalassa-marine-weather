@@ -8,14 +8,21 @@
  * This file is ONLY responsible for JSX layout.
  */
 
-import React, { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
+import React, { Suspense, useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 import { Preferences } from '@capacitor/preferences';
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 import { triggerHaptic } from '../utils/system';
+import { lazyRetry } from '../utils/lazyRetry';
 
 const log = createLogger('LogPage');
-import { TraceReportModal } from '../components/map/TraceReportModal';
+// The route report brings the route tracer and, through it, the routing
+// engine. It opens only once a Review's check has run (which loads both
+// anyway), so it loads then, not with the Log (131-04).
+const TraceReportModal = lazyRetry(
+    () => import('../components/map/TraceReportModal').then((m) => ({ default: m.TraceReportModal })),
+    'TraceReportModal_Log',
+);
 import { AddEntryModal } from '../components/AddEntryModal';
 import { useToast } from '../components/Toast';
 import { followCastOffRoute } from '../services/shiplog/followCastOffRoute';
@@ -2736,22 +2743,24 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 moving a waypoint is an EDIT and still belongs in the editor,
                 which is why land-crossing legs never reach this modal. */}
             {ackReport && (
-                <TraceReportModal
-                    open
-                    onClose={() => {
-                        setAckReport(null);
-                        setAckedLegs(new Set());
-                    }}
-                    pins={ackReport.points}
-                    routeName={ackReport.name}
-                    verdicts={ackReport.report.verdicts}
-                    tideLabels={{}}
-                    departureLabel={ackReport.report.tideWindowLabel}
-                    ackedLegs={ackedLegs}
-                    releaseGate={{ allowed: false, reason: '', verification: null }}
-                    fixBusy={null}
-                    onAckLeg={acknowledgeLeg}
-                />
+                <Suspense fallback={null}>
+                    <TraceReportModal
+                        open
+                        onClose={() => {
+                            setAckReport(null);
+                            setAckedLegs(new Set());
+                        }}
+                        pins={ackReport.points}
+                        routeName={ackReport.name}
+                        verdicts={ackReport.report.verdicts}
+                        tideLabels={{}}
+                        departureLabel={ackReport.report.tideWindowLabel}
+                        ackedLegs={ackedLegs}
+                        releaseGate={{ allowed: false, reason: '', verification: null }}
+                        fixBusy={null}
+                        onAckLeg={acknowledgeLeg}
+                    />
+                </Suspense>
             )}
 
             {/* "Follow a route?" sheet — TWO doors. Pre-start: opens the
