@@ -76,7 +76,8 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 /** The raw great-circle length of a run of positions. */
 function pathNM(pts: Pt[]): number {
     let nm = 0;
-    for (let i = 1; i < pts.length; i++) nm += calculateDistance(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon);
+    for (let i = 1; i < pts.length; i++)
+        nm += calculateDistance(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon);
     return nm;
 }
 

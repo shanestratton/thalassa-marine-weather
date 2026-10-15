@@ -42,7 +42,7 @@ vi.mock('../../services/vessel/LocalChecklistService', () => ({
     },
 }));
 vi.mock('../../services/vessel/LocalMaintenanceService', () => ({
-    LocalMaintenanceService: { createTask: vi.fn().mockResolvedValue({ id: 'maintenance-task' }) },
+    LocalMaintenanceService: { createRepair: vi.fn().mockResolvedValue({ id: 'maintenance-task' }) },
 }));
 vi.mock('../../services/vessel/LocalDatabase', () => ({ generateUUID: vi.fn(() => 'run-1') }));
 vi.mock('../../components/ui/PageHeader', () => ({
@@ -90,7 +90,7 @@ const LISTS = [
 const DRAFT_KEY = () => authScopedStorageKey('thalassa_checklist_run_draft_v1');
 const saveRun = vi.mocked(LocalChecklistService.saveRun);
 const create = vi.mocked(LocalChecklistService.create);
-const createTask = vi.mocked(LocalMaintenanceService.createTask);
+const createRepair = vi.mocked(LocalMaintenanceService.createRepair);
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -336,8 +336,8 @@ describe('Complete: saves the run once, with when it began (CHK-04, CHK-06)', ()
     });
 
     it('a tick while Complete saves is not taken, and the saved run never comes back to be completed again', async () => {
-        const repair = deferred<Awaited<ReturnType<typeof createTask>>>();
-        createTask.mockReturnValueOnce(repair.promise);
+        const repair = deferred<Awaited<ReturnType<typeof createRepair>>>();
+        createRepair.mockReturnValueOnce(repair.promise);
         const first = render(<ChecklistsPage onBack={vi.fn()} />);
         fireEvent.click(screen.getByRole('button', { name: 'Run Pre-departure' }));
         tick('Bilge pump', 'not checked');
@@ -364,7 +364,7 @@ describe('Complete: saves the run once, with when it began (CHK-04, CHK-06)', ()
         expect(localStorage.getItem(DRAFT_KEY())).toBeNull();
 
         await act(async () => {
-            repair.resolve({ id: 'maintenance-task' } as Awaited<ReturnType<typeof createTask>>);
+            repair.resolve({ id: 'maintenance-task' } as Awaited<ReturnType<typeof createRepair>>);
         });
         expect(runDialog()).not.toBeInTheDocument();
         expect(localStorage.getItem(DRAFT_KEY())).toBeNull();
@@ -379,7 +379,7 @@ describe('Complete: saves the run once, with when it began (CHK-04, CHK-06)', ()
         expect(runDialog()).not.toBeInTheDocument();
         expect(toast.info).not.toHaveBeenCalledWith('Your “Pre-departure” run is back where you left it');
         expect(saveRun).toHaveBeenCalledTimes(1);
-        expect(createTask).toHaveBeenCalledTimes(1);
+        expect(createRepair).toHaveBeenCalledTimes(1);
     });
 });
 
