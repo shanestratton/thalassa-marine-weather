@@ -337,6 +337,11 @@ const control = {
     /** ?scene=archipelago: the OSM water the boat Pi would hand back for the scene
      *  (the long-task spec serves it as the OSM overlay). */
     osm: archipelago ? syntheticArchipelago().osm : null,
+    /** The dev server has a Mapbox token, so the router asks for its two
+     *  satellite crops (the long-task spec serves their tiles; 131-05). */
+    mapboxToken: Boolean(
+        (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_MAPBOX_ACCESS_TOKEN,
+    ),
     /** When the probe button's clicks were handled (performance.now()). */
     probeClicks: [] as number[],
 };

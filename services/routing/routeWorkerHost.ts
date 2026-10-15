@@ -31,7 +31,11 @@
  * Nothing here reads or writes a chart: the job's layers live in the worker's
  * memory while it routes and are dropped when it answers (o-charts,
  * 2026-10-10).
+ *
+ * The satellite water check's pictures (131-05) are read by the route
+ * instance too, in the route's prep, before its job (runWaterJobHosted).
  */
+import type { FeatureCollection } from 'geojson';
 import {
     ROUTE_ENGINE,
     type NavGridJobArgs,
@@ -40,6 +44,7 @@ import {
     type RouteWorkerReply,
     type RouteWorkerRequest,
 } from './routeJob';
+import type { SatelliteCrop } from './satelliteWaterJob';
 import type { NavGrid } from '../engine/types';
 import { createLogger } from '../../utils/createLogger';
 
@@ -95,6 +100,17 @@ let mainOnly = false;
 let seq = 0;
 const queue: PendingJob[] = [];
 let running: PendingJob | null = null;
+
+/** A satellite crop given to the route instance (131-05). */
+interface WaterJob {
+    id: number;
+    crop: SatelliteCrop;
+    resolve: (water: FeatureCollection) => void;
+    reject: (err: Error) => void;
+    posted: boolean;
+}
+/** The crops the route instance holds, not yet answered. */
+const waterJobs = new Map<number, WaterJob>();
 
 /** The error a stopped route rejects with: the signal's own reason, or an AbortError. */
 export const routeStopped = (signal?: AbortSignal): unknown =>
@@ -163,11 +179,17 @@ function stopInstance(w: RouteWorker): void {
     }
 }
 
-/** Ends the worker. A crash counts toward the cap; a deliberate stop never does. */
-function endWorker(crashed: boolean): void {
+/**
+ * Ends the worker. A crash counts toward the cap; a deliberate stop never
+ * does. Each satellite crop it held is read on the main thread by its caller.
+ */
+function endWorker(crashed: boolean, why = 'ended'): void {
     if (!instance) return;
     stopInstance(instance);
     instance = null;
+    const crops = [...waterJobs.values()];
+    waterJobs.clear();
+    for (const j of crops) j.reject(new Error(`route worker ${why}`));
     if (crashed && ++crashes >= MAX_CRASHES) {
         mainOnly = true;
         log.warn(`route worker failed ${crashes}× — main thread from now on`);
@@ -185,18 +207,28 @@ function backToMain(p: PendingJob, why: string): void {
 /** The worker could not take the running job: end it (a crash) and run that job here. */
 function workerFailed(why: string): void {
     const p = running?.onWorker ? running : null;
-    endWorker(true);
+    endWorker(true, why);
     if (p) backToMain(p, `route worker ${why}`);
 }
 
 function onReply(d: RouteWorkerReply, from: RouteWorker): void {
     if (from !== instance) return;
     if (d.type === 'ready') {
+        // The crops first: they are short, and their route's prep waits on them.
+        for (const j of waterJobs.values()) postWater(j);
         if (running?.onWorker && running.postedAt === undefined) post(running);
         return;
     }
     if (d.type === 'init-error') {
         workerFailed(`failed to start (${d.message})`);
+        return;
+    }
+    // A satellite crop's water, or why the worker could not read it.
+    if ((d.type === 'water' || d.type === 'error') && waterJobs.has(d.id)) {
+        const crop = waterJobs.get(d.id)!;
+        waterJobs.delete(d.id);
+        if (d.type === 'water') crop.resolve(d.water);
+        else crop.reject(new Error(d.message || 'satellite crop error'));
         return;
     }
     const p = running;
@@ -304,6 +336,45 @@ export function runRouteJobHosted(
     });
 }
 
+// ── The satellite water check's pictures, in the route instance (131-05) ──
+
+function postWater(j: WaterJob): void {
+    if (j.posted || !instance) return;
+    j.posted = true;
+    try {
+        instance.worker.postMessage({ type: 'water', id: j.id, crop: j.crop } satisfies RouteWorkerRequest);
+    } catch (err) {
+        // A DataCloneError: the worker is fine; only this crop is read on the main thread.
+        waterJobs.delete(j.id);
+        j.reject(err instanceof Error ? err : new Error(String(err)));
+    }
+}
+
+/**
+ * Read one satellite crop's pictures in the route worker (131-05): decoded,
+ * classified and outlined there, so the chart keeps moving while Auto reads
+ * the land and water at each end of a route. The crops go to the route
+ * instance (started for them if need be, and kept for the route's job): they
+ * come in the route's prep, before its job, and run as they come; one asked
+ * for while another route's job runs is read after that job. Resolves with
+ * the water; rejects when the worker cannot read it (a crash, a start that
+ * fails, a stop or a memory warning that ends the worker, a worker with no
+ * picture decoder, a crop that cannot be posted), and the caller reads it on
+ * the main thread. Null where no worker can take it at all: no Worker
+ * (vitest, an old webview), a spawn that throws, or three crashes this
+ * session.
+ */
+export function runWaterJobHosted(crop: SatelliteCrop): Promise<FeatureCollection> | null {
+    const w = spawn();
+    if (!w) return null;
+    return new Promise<FeatureCollection>((resolve, reject) => {
+        const j: WaterJob = { id: ++seq, crop, resolve, reject, posted: false };
+        waterJobs.set(j.id, j);
+        if (w.ready) postWater(j);
+        // …else it is posted when the worker says it is ready (onReply).
+    });
+}
+
 // ── The tracer's grids: a second instance of the same script ───────
 
 interface GridJob {
@@ -407,11 +478,12 @@ function trimOrEnd(w: RouteWorker, busy: boolean, end: () => void): void {
  * told the same. A busy worker trims after its job; an idle one is simply
  * ended (the next job starts a fresh one), also while a route that could not
  * be posted runs on the main thread. A worker still starting for its job
- * holds no grids and is left to start.
+ * holds no grids and is left to start. A worker reading a satellite crop
+ * (131-05) is busy: it trims, and the crop is read there still.
  */
 export function trimRouteWorkers(): void {
     if (instance && !(running?.onWorker && running.postedAt === undefined))
-        trimOrEnd(instance, !!running?.onWorker, () => endWorker(false));
+        trimOrEnd(instance, !!running?.onWorker || waterJobs.size > 0, () => endWorker(false));
     if (gridInstance) {
         const jobs = [...gridJobs.values()];
         if (jobs.length === 0 || jobs.some((g) => g.posted))
@@ -436,6 +508,7 @@ export function __resetRouteWorkerHostForTest(): void {
     gridInstance = null;
     gridCrashes = 0;
     gridJobs.clear();
+    waterJobs.clear();
     crashes = 0;
     mainOnly = false;
     queue.length = 0;
