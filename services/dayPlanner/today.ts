@@ -2629,7 +2629,7 @@ export interface StopDetail {
     sub: string;
     /** Every row in words; the page shows its plan and keeps the rest a tap away (132-PYD-8). */
     rows: string[];
-    /** What is not checked, and "Not a clearance"; `how` says how the times were worked out. */
+    /** What is not checked ("No current."), and "Not a clearance"; `how` says how the times were worked out. */
     footnote: string;
     how: string;
     chips: { ms: number; label: string; best: boolean }[];
@@ -2786,11 +2786,12 @@ export function stopDetail(args: StopDetailArgs): StopDetail {
         title: c.name,
         sub: `${shortDate(window.date, zone)} · times in ${zoneAbbrev(window.firstLightMs ?? atNoon(window.date, zone), zone)}`,
         rows,
-        // How the times were worked out goes with the rows (132-PYD-8); what is not checked stays on the page.
+        // How the times were worked out goes with the rows (132-PYD-8); what is not checked stays on the page, under
+        // the big times, "No current." with it: in a tidal passage the current can move those times a long way.
         footnote: args.routed
-            ? `Route from your charts: draft ${args.routed.draftM.toFixed(2)} m + 0.5 m under the keel at chart datum; tide shown, never assumed.${stay === 'overnight' ? '' : ' Home is the same route turned round.'} Not a clearance.`
-            : 'Depth and tide over the route are not checked. Not a clearance.',
-        how: `${timesBasis(speed, args.polar, args.polarIsOwn)} ${plan.area ? `on the area wind (${plan.headlineModel})` : `in ${plan.headlineModel} wind`}. No current.`,
+            ? `Route from your charts: draft ${args.routed.draftM.toFixed(2)} m + 0.5 m under the keel at chart datum; tide shown, never assumed.${stay === 'overnight' ? '' : ' Home is the same route turned round.'} No current. Not a clearance.`
+            : 'No current. Depth and tide over the route are not checked. Not a clearance.',
+        how: `${timesBasis(speed, args.polar, args.polarIsOwn)} ${plan.area ? `on the area wind (${plan.headlineModel})` : `in ${plan.headlineModel} wind`}.`,
         chips: plan.window.map((w) => ({ ms: w.departureMs, label: hhmm(w.departureMs, zone), best: w === plan.best })),
         verdict,
         times,

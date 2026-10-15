@@ -523,8 +523,10 @@ for (const size of [sizes[0], sizes[1], AS_DRAWN.se, AS_DRAWN.se2, AS_DRAWN.shan
                 'Home',
             ]);
             await expect(detail.getByRole('list', { name: 'At a glance' })).toBeVisible();
-            // The prose is not on the page until she asks for it.
+            // The prose is not on the page until she asks for it; what is not checked is, the current with it.
             await expect(detail.getByRole('list', { name: 'How the day goes' })).toBeHidden();
+            await expect(detail.locator('.today-footnote')).toBeVisible();
+            await expect(detail.locator('.today-footnote')).toHaveText(/^No current\. .+ Not a clearance\./);
             const reviewed = mode === 'default-boat';
             // A stop with no local notes fits from 320 x 568; a reviewed one from 375 x 667 (at 320 x 568 its first
             // note in view, above); anything may scroll at large text and in phone landscape.
@@ -537,7 +539,7 @@ for (const size of [sizes[0], sizes[1], AS_DRAWN.se, AS_DRAWN.se2, AS_DRAWN.shan
             await expect(rows).toBeVisible();
             await expect(rows.getByRole('listitem').first()).toHaveAttribute('data-why', 'true');
             await expect(rows.getByText(/^Leave \d\d:\d\d → there \d\d:\d\d \(/)).toHaveCount(1);
-            await expect(rows.getByText(/^Times from .+ No current\.$/)).toHaveCount(1);
+            await expect(rows.getByText(/^Times from .+ wind\.$/)).toHaveCount(1);
             // Opened, the page may scroll; nothing is cut sideways, and the buttons stay whole.
             expect(await layoutIssues(page, true)).toEqual([]);
             await summary.click();

@@ -2209,18 +2209,21 @@ describe('a routed stop (127-PYD-2): its times walk the routed line, and the pic
         };
         const detail = stopDetail(args);
         expect(detail.rows.some((r) => /NM each way/.test(r))).toBe(false);
+        // "No current." stays in the footnote, on the page under the big times (132-PYD-8 review).
         expect(detail.footnote).toBe(
             'Route from your charts: draft 2.40 m + 0.5 m under the keel at chart datum; tide shown, never assumed. ' +
-                'Home is the same route turned round. Not a clearance.',
+                'Home is the same route turned round. No current. Not a clearance.',
         );
         // How the times were worked out is with the rows, a tap away (132-PYD-8).
-        expect(detail.how).toBe('Times from a typical cruising polar at 6.0 kn in ECMWF wind. No current.');
-        // One way overnight: no home to turn round.
-        expect(stopDetail({ ...args, stay: 'overnight' }).footnote).not.toMatch(/turned round/);
+        expect(detail.how).toBe('Times from a typical cruising polar at 6.0 kn in ECMWF wind.');
+        // One way overnight: no home to turn round; the current is still not modelled.
+        const overnight = stopDetail({ ...args, stay: 'overnight' }).footnote;
+        expect(overnight).not.toMatch(/turned round/);
+        expect(overnight).toMatch(/ No current\. Not a clearance\.$/);
         // Unrouted, the estimate and today's footnote stay.
         const plain = stopDetail({ ...args, routed: null });
         expect(plain.rows.some((r) => /^About \d+ NM each way/.test(r))).toBe(true);
-        expect(plain.footnote).toMatch(/Depth and tide over the route are not checked\. Not a clearance\.$/);
+        expect(plain.footnote).toBe('No current. Depth and tide over the route are not checked. Not a clearance.');
     });
 
     it('while the routed wind loads, the leave row says it is updating for the route', () => {
@@ -2383,7 +2386,8 @@ describe('every place opens (127-PYD-5): any place she opens is planned, the are
             });
             expect(page.rows[0]).toBe(`✕ Over your limits: ${row.reason}`);
             expect(page.rows.some((t) => /^Leave \d\d:\d\d → there \d\d:\d\d/.test(t))).toBe(true);
-            expect(page.how).toMatch(/ on the area wind \(.+\)\. No current\.$/);
+            expect(page.how).toMatch(/ on the area wind \(.+\)\.$/);
+            expect(page.footnote).toMatch(/^No current\. /);
         }
         // Light misses, closures and no-anchoring places have nothing to plan: no row.
         for (const r of view.notToday.filter((x) => !view.ranked.some((p) => p.candidate.id === x.id)))
@@ -2631,9 +2635,12 @@ describe('the stop page as a plan (132-PYD-8)', () => {
                 expect(detail.facts, mode).toHaveLength(3);
                 // A chip, never a sentence: the widest is "Shelter not known" or "☀ 10 h 05 to spare".
                 for (const fact of detail.facts) expect(fact.length, `${mode}: ${fact}`).toBeLessThanOrEqual(20);
-                // What is not checked stays on the page; how the times were worked out goes with the rows.
-                expect(detail.footnote, mode).toBe('Depth and tide over the route are not checked. Not a clearance.');
-                expect(detail.how, mode).toMatch(/^Times from .+ wind\. No current\.$/);
+                // What is not checked stays on the page, the current with it; how the times were worked out goes
+                // with the rows.
+                expect(detail.footnote, mode).toBe(
+                    'No current. Depth and tide over the route are not checked. Not a clearance.',
+                );
+                expect(detail.how, mode).toMatch(/^Times from .+ wind\.$/);
             }
         }
     });

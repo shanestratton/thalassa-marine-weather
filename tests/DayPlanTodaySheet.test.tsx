@@ -544,15 +544,18 @@ describe('Screen 2: a stop, and Plot by hand', () => {
             true,
         );
         expect(text.some((t) => /^Sea/.test(t))).toBe(true);
-        expect(text.at(-1)).toMatch(/^Times from .+ wind\. No current\.$/);
+        expect(text.at(-1)).toMatch(/^Times from .+ wind\.$/);
         // Each thing once: the level, the distance and the marina line are not repeated in the details.
         expect(text).not.toContain(level.textContent);
         expect(detail.textContent!.match(/NM each way \(/g)).toHaveLength(1);
         expect(detail.textContent!.match(/Leaving a marina/g)).toHaveLength(1);
-        // What is not checked stays on the page.
-        expect(detail.querySelector('.today-footnote')).toHaveTextContent(
-            /^Depth and tide over the route are not checked\. Not a clearance\.$/,
+        // What is not checked stays on the page, with the details closed: the current too, as the times are big.
+        const footnote = detail.querySelector('.today-footnote')!;
+        expect(footnote).toHaveTextContent(
+            /^No current\. Depth and tide over the route are not checked\. Not a clearance\.$/,
         );
+        expect(more.contains(footnote)).toBe(false);
+        expect(more.textContent).not.toMatch(/No current/);
 
         // The leave chips: the window's departures, the best one marked.
         const leave = within(within(detail).getByRole('group', { name: 'Leave at' })).getAllByRole('button');
@@ -619,7 +622,7 @@ describe('Screen 2: a stop, and Plot by hand', () => {
         const detail = await screen.findByRole('dialog', {
             name: new RegExp(`^${first.querySelector('.today-stop-name')!.textContent}`),
         });
-        expect(within(detail).getByText(/^Times from your polar's own figures in .+ wind\. No current\./)).toBeTruthy();
+        expect(within(detail).getByText(/^Times from your polar's own figures in .+ wind\.$/)).toBeTruthy();
     });
 
     it("a reviewed stop keeps its own Parks notes whole on the page, one per line, never folded away: Cid Harbour's sharks", async () => {
@@ -869,13 +872,13 @@ describe('Every place opens (127-PYD-5)', () => {
         expect(within(detail).getByText('Checking the weather along the way…')).toBeTruthy();
         expect(within(detail).getByText(/^Leave \d\d:\d\d → there \d\d:\d\d \(/)).toBeTruthy();
         expect(within(detail).getByText('Sea: not checked on the area wind')).toBeTruthy();
-        expect(within(detail).getByText(/ on the area wind \(.+\)\. No current\./)).toBeTruthy();
+        expect(within(detail).getByText(/ on the area wind \(.+\)\.$/)).toBeTruthy();
         await waitFor(() => expect(sheetIo.loader.loadRouteSpread).toHaveBeenCalledTimes(6));
         expect(sheetIo.loader.loadRouteSea).toHaveBeenCalledTimes(6);
         await act(async () => release());
         await waitFor(() => expect(within(detail).queryByText('Checking the weather along the way…')).toBeNull());
         expect(within(detail).queryByText(/on the area wind/)).toBeNull();
-        expect(within(detail).getByText(/ in .+ wind\. No current\./)).toBeTruthy();
+        expect(within(detail).getByText(/^Times .+ in .+ wind\.$/)).toBeTruthy();
         // Back is the list she came from, focus on her place, now checked along the way.
         fireEvent.click(within(detail).getByRole('button', { name: 'Back' }));
         places = await screen.findByRole('dialog', { name: /^Places near / });
