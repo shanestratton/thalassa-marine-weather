@@ -658,6 +658,90 @@ test.describe('other menu pages', () => {
 });
 
 /*
+ * Skipper's Reference (132-B23, binder audit SR-3, SR-4) is in the house
+ * shell: PageHeader with the Boat Binder crumb, inside the GPX import page's
+ * shell. Its hub is a menu page: the intro and four cards fit one screen and
+ * fill it, the last card ending 16 px above the tab bar (or the pane's edge);
+ * Back is the 44 pt chevron named for the binder, straight under the app
+ * header with no band of its own. A card page scrolls, and its last line,
+ * the sources, scrolls clear of the bar and its fade instead of sitting under
+ * them.
+ */
+const REFERENCE_CARDS = [
+    'GRIB in 60 Seconds',
+    'Synoptic Chart Decoder',
+    'Marine Forecast Decoder',
+    'Squalls & Cyclone-Season Rules',
+];
+
+async function openReference(page: Page) {
+    await page.getByRole('button', { name: 'Boat Binder', exact: true }).click({ timeout: 25_000 });
+    await page.getByRole('button', { name: "Skipper's Reference", exact: true }).click();
+    await expect(page.getByRole('heading', { level: 1, name: "Skipper's Reference" })).toBeVisible();
+}
+
+test.describe("Skipper's Reference", () => {
+    for (const size of [...PHONES, ...PANES.slice(0, 3)]) {
+        test(`the hub fits one screen at ${size.name}`, async ({ page, baseURL }) => {
+            await open(page, baseURL, { ...size, view: 'vessel', split: size.width >= 1024 });
+            await openReference(page);
+            await settle(page);
+            await noScroll(page, '.skipper-ref-hub');
+            const limit = await floor(page);
+            const cards = await wholeRows(page, '.skipper-ref-card', limit);
+            expect(cards.map((card) => card.name)).toEqual(REFERENCE_CARDS);
+            const gap = limit - cards.at(-1)!.bottom;
+            expect(gap, `the last card ends ${gap}px above the floor`).toBeGreaterThanOrEqual(-0.5);
+            expect(gap, `the last card ends ${gap}px above the floor`).toBeLessThanOrEqual(18.5);
+            const back = (await page.getByRole('button', { name: 'Back to Boat Binder', exact: true }).boundingBox())!;
+            expect(back.height, 'Back is a 44 pt target').toBeGreaterThanOrEqual(44 - 0.5);
+            expect(back.width, 'Back is a 44 pt target').toBeGreaterThanOrEqual(44 - 0.5);
+            // The page's header starts where the app header (or the pane's
+            // frame, inside its 1 px border) ends: no notch band of its own.
+            const band = await page.evaluate(() => {
+                const pane = document.querySelector('[data-split-pane="page"]');
+                const top = (pane ?? document.querySelector('header')!).getBoundingClientRect()[
+                    pane ? 'top' : 'bottom'
+                ];
+                return document.querySelector('[data-page-header]')!.getBoundingClientRect().top - top;
+            });
+            expect(band, `the page header sits ${band}px under the app header`).toBeGreaterThanOrEqual(-0.5);
+            expect(band, `the page header sits ${band}px under the app header`).toBeLessThanOrEqual(1.5);
+        });
+    }
+
+    for (const size of [
+        { name: 'SE +insets', width: 375, height: 662 },
+        { name: '6.1in Display Zoom +insets', width: 320, height: 627 },
+        { name: 'Pro Max +insets', width: 430, height: 856 },
+        { name: '1080x810 split +insets', width: 1080, height: 782, split: true },
+    ]) {
+        test(`a card's last line scrolls clear of the tab bar at ${size.name}`, async ({ page, baseURL }) => {
+            await open(page, baseURL, { ...size, view: 'vessel' });
+            await openReference(page);
+            const title = 'Squalls & Cyclone-Season Rules';
+            await page.getByRole('button', { name: title, exact: true }).click();
+            await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible();
+            await settle(page);
+            await page
+                .locator('.skipper-ref-scroll')
+                .evaluate((scroller) => scroller.scrollTo({ top: scroller.scrollHeight }));
+            const limit = await floor(page);
+            // Clear of the floor and of the 14 px fade above it.
+            await expect
+                .poll(async () => {
+                    const box = (await page.locator('.skipper-ref-body > p').last().boundingBox())!;
+                    return box.y + box.height;
+                })
+                .toBeLessThanOrEqual(limit - 14 + 0.5);
+            // Back goes to the hub, and its chevron says so.
+            await page.getByRole('button', { name: "Back to Skipper's Reference", exact: true }).click();
+            await expect(page.getByRole('heading', { level: 1, name: "Skipper's Reference" })).toBeVisible();
+        });
+    }
+});
+
+/*
  * The Boat Binder and the Settings menu FILL their screen, and their words grow
  * with the room (Shane 2026-10-09, with a screenshot of the Binder on his
  * phone: "i think the words can be bigger also and take up the whole screen

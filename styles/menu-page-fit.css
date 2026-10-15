@@ -797,3 +797,73 @@
         letter-spacing: -0.01em;
     }
 }
+
+/*
+ * Skipper's Reference (132-B23, binder audit SR-4): its hub is a menu page
+ * too, so it fits one screen and fills it, as the Boat Binder does. The page
+ * is the GPX import page's shell: its list is the scroller and runs under the
+ * tab bar, faded there (.thalassa-scroll-fade--nav) and padded 16 px clear of
+ * it, so the last line ends above the bar on a card page as long as the
+ * cyclone card. On the hub that padding is the room under the last card: the
+ * intro and the four cards fill the rest, the cards sharing the height left.
+ *
+ * The cards' subtitles take the lines the page has room for, measured on the
+ * list's own height (it includes the band under the tab bar): one line, cut
+ * with an ellipsis, under 460 px (an SE, a 6.1-inch iPhone at Display Zoom:
+ * about 430-485 px); two from 460 px; three from 560 px (a 13 mini, ~560 px,
+ * and up). The four cards at three lines need about 450 px on a 320 pt phone,
+ * at two about 405, so each tier has 50 px or more to spare. A subtitle cut to
+ * one line is still the card's whole description for VoiceOver.
+ */
+.skipper-ref-scroll > .skipper-ref-body {
+    padding-bottom: calc(var(--thalassa-tabbar-height) + 16px);
+}
+.skipper-ref-hub {
+    container: skipper-ref / size;
+}
+.skipper-ref-hub > .skipper-ref-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 100%;
+}
+.skipper-ref-hub > .skipper-ref-body > * {
+    flex-shrink: 0;
+}
+.skipper-ref-cards {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 auto;
+    gap: 0.5rem;
+}
+.skipper-ref-card {
+    flex: 1 0 auto;
+    min-height: 44px;
+}
+.skipper-ref-card-sub {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+@container skipper-ref (min-height: 460px) {
+    .skipper-ref-card-sub {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        white-space: normal;
+    }
+}
+@container skipper-ref (min-height: 560px) {
+    .skipper-ref-card-sub {
+        -webkit-line-clamp: 3;
+    }
+}
+/* In an iPad's split pane the pane already ends above the tab bar (as the
+   Route Planner's CTA finds, styles/split-pane.css): no band to clear. */
+[data-split-pane='page'] .skipper-ref-scroll {
+    --thalassa-scroll-fade-inset: 0px;
+}
+[data-split-pane='page'] .skipper-ref-scroll > .skipper-ref-body {
+    padding-bottom: 16px;
+}

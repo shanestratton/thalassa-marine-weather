@@ -24,7 +24,6 @@ const VESSEL_CHILDREN = new Set([
     'chat',
     'sightings',
     'compass',
-    'weatherWindow',
     'skipperReference',
     'inventory',
     'maintenance',

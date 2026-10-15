@@ -65,7 +65,7 @@
         },
         "tests/fixtures/customs-same-country-baseline.json": {
             "licence": "own",
-            "source": "A snapshot of Thalassa's own customs guide (data/customsDb.ts at 058ba16e), kept as a regression baseline; its answers re-baselined on purpose from data/customsPortIndex.ts when names began to match as whole words (130-09)."
+            "source": "A snapshot of Thalassa's own customs guide (data/customsDb.ts at 058ba16e), kept as a regression baseline; its answers re-baselined on purpose from data/customsPortIndex.ts when names began to match as whole words (130-09), and again when the US states' full names began to find the United States (132)."
         },
         "tests/fixtures/cyclone/adeck-atlantic.dat": {
             "licence": "synthetic",
