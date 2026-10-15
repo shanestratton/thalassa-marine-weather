@@ -26,6 +26,7 @@ import { getCachedActiveVoyage } from './VoyageService';
 import { triggerHaptic } from '../utils/system';
 import { convertQuantity, toPurchasable } from './PurchaseUnits';
 import { binderWriteGranted, galleyShareOwner } from './vessel/sharedBinders';
+import { GROCERY_BOUGHT_PREFIX, GROCERY_RETAINED_PREFIX } from './vessel/storesProvenance';
 import { createLogger, getErrorMessage } from '../utils/createLogger';
 
 const log = createLogger('Galley');
@@ -304,12 +305,14 @@ function nextPurchaseRevision(item: ShoppingItem): number {
     return current + 1;
 }
 
+// The Stores row's notes name its purchase: Stores shows a chip for them and
+// keeps the row's name and unit as bought (storesProvenance, 131-B14).
 function purchaseProvenance(shoppingItemId: string): string {
-    return `Added from Grocery List purchase ${shoppingItemId}`;
+    return `${GROCERY_BOUGHT_PREFIX}${shoppingItemId}`;
 }
 
 function reversedPurchaseProvenance(shoppingItemId: string): string {
-    return `Stock retained after undoing Grocery List purchase ${shoppingItemId}`;
+    return `${GROCERY_RETAINED_PREFIX}${shoppingItemId}`;
 }
 
 function stripPurchaseReceipt(notes: string | null): string | null {

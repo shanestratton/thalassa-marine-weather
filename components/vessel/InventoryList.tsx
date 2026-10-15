@@ -53,6 +53,10 @@ import { openBox, registerBoxOpener } from './inventory/openBox';
 import { OPEN_BOX_EVENT, consumePendingBox } from '../../services/boxLinks';
 import { scanBoxTag } from '../../services/native/nfcTags';
 import { useNfcTags } from './inventory/useNfcTags';
+import { UnitSelect } from './inventory/UnitSelect';
+import { GroceryChip } from './inventory/GroceryChip';
+import { retypedAmount, storesUnitSystem, typedAmount } from '../../services/vessel/storesUnits';
+import { GROCERY_LOCKED, groceryProvenance } from '../../services/vessel/storesProvenance';
 
 interface InventoryListProps {
     onBack: () => void;
@@ -114,6 +118,8 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [showScanner, setShowScanner] = useState(false);
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const ownVesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || undefined);
+    // Amounts and steps in the skipper's units: Settings' liquid volume (131-B14).
+    const units = storesUnitSystem(useSettingsStore((state) => state.settings.units?.volume));
 
     // Header 3-dot menu
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -266,6 +272,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     items: exportItems,
                     categories: exportCategorySnapshot,
                     vesselName,
+                    units,
                 });
                 if (!isAuthIdentityScopeCurrent(identity)) return;
                 if (outcome === 'empty') {
@@ -285,7 +292,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 if (isAuthIdentityScopeCurrent(identity)) setExporting(false);
             }
         },
-        [items, vesselName],
+        [items, vesselName, units],
     );
     /** Items the picker's choice would list: with none, its button says so and waits. */
     const exportCount = useMemo(
@@ -327,8 +334,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [editItem, setEditItem] = useState<{ identity: AuthIdentityScope; item: InventoryItem } | null>(null);
     const [editName, setEditName] = useState('');
     const [editCategory, setEditCategory] = useState<InventoryCategory>('Provisions');
-    const [editQty, setEditQty] = useState(1);
-    const [editMinQty, setEditMinQty] = useState(0);
+    // As typed: decimals allowed (2.5 kg), read on Save (131-B14).
+    const [editQty, setEditQty] = useState('1');
+    const [editMinQty, setEditMinQty] = useState('0');
     const [editZone, setEditZone] = useState('');
     const [editSpecific, setEditSpecific] = useState('');
     const [editDescription, setEditDescription] = useState('');
@@ -337,6 +345,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [editBoxId, setEditBoxId] = useState('');
     /** What the camera button could not do, under the Barcode field (131-B13). */
     const [editScanProblem, setEditScanProblem] = useState<string | null>(null);
+    const [editUnit, setEditUnit] = useState('');
     // One Save at a time: a count edit is a delta, so a second tap while the
     // first is still writing would take the count twice.
     const savingEditRef = useRef(false);
@@ -360,8 +369,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 setEditItem(null);
                 setEditName('');
                 setEditCategory('Provisions');
-                setEditQty(1);
-                setEditMinQty(0);
+                setEditQty('1');
+                setEditMinQty('0');
+                setEditUnit('');
                 setEditZone('');
                 setEditSpecific('');
                 setEditDescription('');
@@ -377,8 +387,8 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         setEditItem({ identity, item });
         setEditName(item.item_name);
         setEditCategory(item.category);
-        setEditQty(item.quantity);
-        setEditMinQty(item.min_quantity);
+        setEditQty(String(item.quantity));
+        setEditMinQty(String(item.min_quantity));
         setEditZone(item.location_zone || '');
         setEditSpecific(item.location_specific || '');
         setEditDescription(item.description || '');
@@ -386,6 +396,13 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         setEditBarcode(item.barcode || '');
         setEditBoxId(boxOf(item));
         setEditScanProblem(null);
+        setEditUnit(item.unit ?? '');
+    };
+    /** A unit picked in the Edit sheet: 1000 g becomes 1 kg; a count picked as kg keeps its number. */
+    const pickUnit = (unit: string) => {
+        setEditQty((typed) => retypedAmount(typed, editUnit, unit));
+        setEditMinQty((typed) => retypedAmount(typed, editUnit, unit));
+        setEditUnit(unit);
     };
 
     /** The item's box, if this phone knows it ('' otherwise: "not in a box"). */
@@ -418,11 +435,13 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         // crew's ± and the Galley's deductions made meanwhile survive. A count
         // edit is a delta against that count ("took 2", not "set to 10"), on
         // the same delta path as ±, so changes made at once add up (STORES-04).
-        const delta = countDelta(item.quantity, editQty);
+        // A field left blank keeps what the row has: a cleared box never empties a count.
+        const qty = typedAmount(editQty) ?? item.quantity;
+        const delta = countDelta(item.quantity, qty);
         const updates = changedFields(item, {
             item_name: editName,
             category: editCategory,
-            min_quantity: editMinQty,
+            min_quantity: typedAmount(editMinQty) ?? item.min_quantity,
             barcode: editBarcode || null,
             location_zone: editZone || null,
             location_specific: editSpecific || null,
@@ -430,6 +449,14 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
             expiry_date: editExpiry || null,
         });
         if (editBoxId !== boxOf(item)) updates.box_id = editBoxId || null;
+        // A Grocery List row keeps its name, unit and notes as bought, so
+        // un-ticking it there still finds it (131-B14).
+        if (groceryProvenance(item)) {
+            delete updates.item_name;
+            delete updates.description;
+        } else if (editUnit !== (item.unit ?? '')) {
+            updates.unit = editUnit;
+        }
         const changed = Object.keys(updates).length > 0;
         if (!delta && !changed) {
             setEditItem(null);
@@ -456,7 +483,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 // twice; only the count, so other fields still diff against
                 // the item as it opened.
                 put(updated);
-                setEditItem({ identity, item: { ...item, quantity: editQty } });
+                setEditItem({ identity, item: { ...item, quantity: qty } });
             }
             if (updated && changed) updated = await InventoryService.update(itemId, updates);
             if (!isAuthIdentityScopeCurrent(identity)) return;
@@ -534,6 +561,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         }
     };
 
+    /** The Edit sheet's row came from the Grocery List: its name, unit and notes stay (131-B14). */
+    const editBought = editItem ? groceryProvenance(editItem.item) : null;
+
     if (showScanner && inventoryDataIsCurrent && !viewOnly) {
         const scannerIdentity = inventoryData.identity;
         return (
@@ -548,6 +578,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 }}
                 // A scanned item already in Stores changes its count here (131-B13).
                 onAdjust={(id, delta) => handleQuantityAdjust(id, delta, scannerIdentity)}
+                units={units}
                 box={boxes.find((box) => box.id === scanBox)}
             />
         );
@@ -567,14 +598,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         </>
                     }
                     subtitle={
-                        // One count while the stores are empty: '0 items · 0 units'
-                        // said the zero twice (UX scorecard run 7).
+                        // Items, not 'units': a sum of grams, litres and tins
+                        // said nothing (131-B14). Low by the one rule.
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
-                            {stats
-                                ? stats.totalItems === 0
-                                    ? '0 items'
-                                    : `${stats.totalItems} ${stats.totalItems === 1 ? 'item' : 'items'} · ${Math.round(stats.totalQuantity * 10) / 10} ${Math.round(stats.totalQuantity * 10) / 10 === 1 ? 'unit' : 'units'}`
-                                : 'Loading…'}
+                            {stats ? `${stats.totalItems} ${stats.totalItems === 1 ? 'item' : 'items'}` : 'Loading…'}
                             {stats && stats.lowStock > 0 && (
                                 <span className="text-amber-400"> · {stats.lowStock} low</span>
                             )}
@@ -727,6 +754,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                             <SwipeableInventoryCard
                                                 key={item.id}
                                                 item={item}
+                                                units={units}
                                                 isExpanded={expandedId === item.id}
                                                 onTap={() => setExpandedId(expandedId === item.id ? null : item.id)}
                                                 onDelete={
@@ -799,15 +827,22 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             <StoresCategoryGrid value={editCategory} onChange={setEditCategory} />
                         </div>
 
-                        {/* Name */}
+                        {/* Name: kept as bought on a Grocery List row (131-B14) */}
                         <div>
                             <FormField
                                 label="Item name"
                                 value={editName}
                                 onChange={setEditName}
                                 required
+                                disabled={!!editBought}
                                 error={!editName.trim() && editName !== '' ? 'Item name is required' : undefined}
                             />
+                            {editBought && (
+                                <div className="mt-1 space-y-0.5">
+                                    <GroceryChip kind={editBought} />
+                                    <p className="text-micro text-gray-400">{GROCERY_LOCKED}</p>
+                                </div>
+                            )}
                         </div>
 
                         {/* Barcode */}
@@ -871,20 +906,30 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             )}
                         </div>
 
-                        {/* Quantity + Min */}
-                        <div className="grid grid-cols-2 gap-2">
+                        {/* Quantity, unit and min: decimals allowed, never below
+                            nothing, read on Save (131-B14) */}
+                        <div className="grid grid-cols-3 gap-2">
                             <FormField
                                 label="Quantity"
                                 type="number"
+                                inputMode="decimal"
                                 value={editQty}
-                                onChange={(v) => setEditQty(Math.max(0, parseInt(v) || 0))}
+                                onChange={setEditQty}
                                 min={0}
+                            />
+                            <UnitSelect
+                                units={units}
+                                value={editUnit}
+                                current={editItem.item.unit ?? ''}
+                                onChange={pickUnit}
+                                disabled={!!editBought}
                             />
                             <FormField
                                 label="Min qty"
                                 type="number"
+                                inputMode="decimal"
                                 value={editMinQty}
-                                onChange={(v) => setEditMinQty(Math.max(0, parseInt(v) || 0))}
+                                onChange={setEditMinQty}
                                 min={0}
                             />
                         </div>
@@ -926,13 +971,15 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             </label>
                         )}
 
-                        {/* Notes */}
-                        <FormField
-                            label="Notes"
-                            value={editDescription}
-                            onChange={setEditDescription}
-                            placeholder="Part no, batch"
-                        />
+                        {/* Notes: none to edit on a Grocery List row, whose notes are its purchase (131-B14) */}
+                        {!editBought && (
+                            <FormField
+                                label="Notes"
+                                value={editDescription}
+                                onChange={setEditDescription}
+                                placeholder="Part no, batch"
+                            />
+                        )}
 
                         {/* Expiry — full width to prevent date picker overflow */}
                         <FormField label="Expiry / service" type="date" value={editExpiry} onChange={setEditExpiry} />
@@ -967,6 +1014,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 live={boxesLive}
                 editable={!viewOnly}
                 canDelete={!sharedBinder}
+                units={units}
                 onAdjust={viewOnly ? undefined : (id, delta) => handleQuantityAdjust(id, delta, inventoryData.identity)}
                 onNewItem={(box) => {
                     undoDelete.commitNow();

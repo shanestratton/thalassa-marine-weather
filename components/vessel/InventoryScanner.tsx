@@ -11,6 +11,9 @@
  * one place that opens it went straight to this form), and the only "found it,
  * change the count" view went with it, so a scanned item already in Stores was
  * made again.
+ *
+ * 131-B14: the found item's count reads in units and steps to suit them; the
+ * form has a unit picker in the skipper's units, and takes decimals.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
@@ -18,6 +21,15 @@ import { createLogger } from '../../utils/createLogger';
 import type { InventoryItem, InventoryCategory, StoresBox } from '../../types';
 import { LocalInventoryService as InventoryService } from '../../services/vessel/LocalInventoryService';
 import { isLowStock } from '../../services/vessel/inventoryStats';
+import {
+    hasStock,
+    retypedAmount,
+    storesAmount,
+    storesStep,
+    storesStepDelta,
+    typedAmount,
+    type StoresUnitSystem,
+} from '../../services/vessel/storesUnits';
 import { scanBarcode, type BarcodeScan } from '../../services/native/scanBarcode';
 import { triggerHaptic } from '../../utils/system';
 import { toast } from '../Toast';
@@ -26,6 +38,9 @@ import { ModalSheet } from '../ui/ModalSheet';
 import { Button } from '../ui/Button';
 import { AlertTriangleIcon, MapPinIcon } from '../Icons';
 import { StoresCategoryGrid } from './inventory/StoresCategoryGrid';
+import { UnitSelect } from './inventory/UnitSelect';
+import { GroceryChip } from './inventory/GroceryChip';
+import { groceryProvenance } from '../../services/vessel/storesProvenance';
 
 const log = createLogger('InventoryScanner');
 
@@ -40,12 +55,11 @@ interface InventoryScannerProps {
      * it now stands (null when nothing changed).
      */
     onAdjust: (id: string, delta: number) => Promise<InventoryItem | null>;
+    /** The skipper's unit system (131-B14): the unit picker and the found item's count. */
+    units: StoresUnitSystem;
 }
 
-/** A count typed into the form: a number, never below nothing (131-B13). */
-const count = (typed: string) => Math.max(0, parseInt(typed) || 0);
-
-export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onItemSaved, box, onAdjust }) => {
+export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onItemSaved, box, onAdjust, units }) => {
     // ── Scan ──
     /** What the last scan could not do, in words, under the Barcode field. */
     const [scanProblem, setScanProblem] = useState<string | null>(null);
@@ -56,12 +70,14 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
     const [found, setFound] = useState<InventoryItem | null>(null);
 
     // ── New item form ──
+    // Quantity and minimum as typed: decimals allowed (2.5 kg), read on Add
+    // and never below nothing (131-B13, 131-B14).
     const [newItem, setNewItem] = useState({
         item_name: '',
         barcode: '',
         category: 'Provisions' as InventoryCategory,
-        quantity: 1,
-        min_quantity: 0,
+        quantity: '1',
+        min_quantity: '0',
         unit: 'whole',
         location_zone: box?.location_zone ?? '',
         location_specific: box?.name ?? '',
@@ -122,6 +138,8 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
         try {
             await InventoryService.create({
                 ...newItem,
+                quantity: typedAmount(newItem.quantity) ?? 0,
+                min_quantity: typedAmount(newItem.min_quantity) ?? 0,
                 ...(box && { box_id: box.id }),
                 barcode: newItem.barcode || null,
                 location_zone: newItem.location_zone || null,
@@ -248,20 +266,35 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                         </div>
                     )}
 
-                    {/* Quantity + Min */}
-                    <div className="grid grid-cols-2 gap-2">
+                    {/* Quantity, unit and min: a weight or a volume in the
+                        skipper's units, decimals allowed (131-B14) */}
+                    <div className="grid grid-cols-3 gap-2">
                         <FormField
                             label="Quantity"
                             type="number"
+                            inputMode="decimal"
                             value={newItem.quantity}
-                            onChange={(v) => setNewItem((prev) => ({ ...prev, quantity: count(v) }))}
+                            onChange={(v) => setNewItem((prev) => ({ ...prev, quantity: v }))}
                             min={0}
+                        />
+                        <UnitSelect
+                            units={units}
+                            value={newItem.unit}
+                            onChange={(unit) =>
+                                setNewItem((prev) => ({
+                                    ...prev,
+                                    unit,
+                                    quantity: retypedAmount(prev.quantity, prev.unit, unit),
+                                    min_quantity: retypedAmount(prev.min_quantity, prev.unit, unit),
+                                }))
+                            }
                         />
                         <FormField
                             label="Min alert"
                             type="number"
+                            inputMode="decimal"
                             value={newItem.min_quantity}
-                            onChange={(v) => setNewItem((prev) => ({ ...prev, min_quantity: count(v) }))}
+                            onChange={(v) => setNewItem((prev) => ({ ...prev, min_quantity: v }))}
                             min={0}
                         />
                     </div>
@@ -322,10 +355,14 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
     }
 
     // ── A scanned code already in Stores: its count, to change (131-B13) ──
-    const adjust = async (delta: number) => {
-        const updated = await onAdjust(found.id, delta);
+    // In units, stepped to suit them (131-B14).
+    const adjust = async (direction: 1 | -1) => {
+        const updated = await onAdjust(found.id, storesStepDelta(found.quantity, found.unit, direction, units));
         if (updated) setFound(updated);
     };
+    const amount = storesAmount(found.quantity, found.unit, units);
+    const step = storesStep(found.quantity, found.unit, units).label;
+    const bought = groceryProvenance(found);
     return (
         <ModalSheet isOpen={true} onClose={onClose} title={found.item_name} zIndex="z-2000">
             <p className="text-xs font-bold text-emerald-400">Already in Ship&apos;s Stores: change the count here.</p>
@@ -341,6 +378,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
                             </span>
                         </p>
                     )}
+                    {bought && <GroceryChip kind={bought} className="mt-1" />}
                 </div>
                 {found.barcode && (
                     <span className="text-label font-mono text-gray-400 bg-white/5 px-2 py-1 rounded-lg">
@@ -352,27 +390,28 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
             {/* The page's ± path: a delta, so the crew's counts made meanwhile add up */}
             <div className="flex items-center justify-center gap-6 py-4 my-4 bg-white/3 border border-white/6 rounded-2xl">
                 <button
-                    aria-label={`Take one ${found.item_name}`}
+                    aria-label={`Take ${step ?? 'one'} ${found.item_name}`}
                     onClick={() => void adjust(-1)}
-                    disabled={found.quantity <= 0}
-                    className="w-14 h-14 rounded-2xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 text-2xl font-black hover:bg-red-500/30 transition-all active:scale-90 disabled:opacity-30"
+                    disabled={!hasStock(found.quantity)}
+                    className="w-14 h-14 shrink-0 rounded-2xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 text-2xl font-black hover:bg-red-500/30 transition-all active:scale-90 disabled:opacity-30"
                 >
                     −
                 </button>
-                <div className="text-center">
+                <div className="min-w-0 text-center">
                     <p
                         role="status"
-                        aria-label={`${found.item_name}: ${found.quantity}`}
-                        className="text-4xl font-black text-white tabular-nums"
+                        aria-label={`${found.item_name}: ${amount}`}
+                        className="text-3xl font-black text-white tabular-nums whitespace-nowrap"
                     >
-                        {found.quantity}
+                        {amount}
                     </p>
                     <p className="text-label text-gray-400 uppercase tracking-widest">In stock</p>
+                    {step && <p className="text-micro text-gray-400">Steps of {step}</p>}
                 </div>
                 <button
-                    aria-label={`Add one ${found.item_name}`}
+                    aria-label={`Add ${step ?? 'one'} ${found.item_name}`}
                     onClick={() => void adjust(1)}
-                    className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-2xl font-black hover:bg-emerald-500/30 transition-all active:scale-90"
+                    className="w-14 h-14 shrink-0 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-2xl font-black hover:bg-emerald-500/30 transition-all active:scale-90"
                 >
                     +
                 </button>
@@ -381,7 +420,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({ onClose, onI
             {isLowStock(found) && (
                 <p className="flex items-center gap-1.5 p-3 mb-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs font-bold text-amber-400">
                     <AlertTriangleIcon className="w-3.5 h-3.5 shrink-0" />
-                    <span>Low stock: the minimum is {found.min_quantity}</span>
+                    <span>Low stock: the minimum is {storesAmount(found.min_quantity, found.unit, units)}</span>
                 </p>
             )}
 

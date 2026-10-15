@@ -11,22 +11,29 @@
  * as garbage); titled Ship's Stores, as the screen is. It goes out through
  * sharePdfBlob: the old 'Download' called jsPDF's save(), which does nothing
  * in the iPhone app, and then said the PDF was downloaded.
+ *
+ * 131-B14: quantities print in units, as the screen shows them (1 kg of
+ * sugar, not '1000'), in the skipper's unit system; Low is the screen's one
+ * rule; the totals count items, not a sum of grams, litres and tins.
  */
 import type { jsPDF } from 'jspdf';
 import type { InventoryItem, InventoryCategory } from '../types';
 import { INVENTORY_CATEGORIES } from '../types';
 import { RegisterPdf, REGISTER_COLOURS, type JsPdfConstructor, type RegisterCell } from '../services/pdf/registerPdf';
 import { pdfDaysUntil, pdfFileDay, pdfLongDate, pdfShortDate } from '../services/pdf/pdfDates';
+import { isLowStock } from '../services/vessel/inventoryStats';
+import { storesAmount, type StoresUnitSystem } from '../services/vessel/storesUnits';
 import { sharePdfBlob, shareTitle, type ShareOutcome } from './sharePdf';
 
 export const STORES_PDF_TITLE = "Ship's Stores";
 
+/** Wider QTY and MIN than a bare count needed: '33.8 fl oz' fits on one line. */
 const COLUMNS = [
-    { label: 'ITEM', width: 52 },
-    { label: 'QTY', width: 16 },
-    { label: 'MIN', width: 16 },
-    { label: 'LOCATION', width: 48 },
-    { label: 'EXPIRY', width: 48 },
+    { label: 'ITEM', width: 50 },
+    { label: 'QTY', width: 24 },
+    { label: 'MIN', width: 20 },
+    { label: 'LOCATION', width: 44 },
+    { label: 'EXPIRY', width: 42 },
 ];
 
 export interface InventoryPdfOptions {
@@ -34,6 +41,8 @@ export interface InventoryPdfOptions {
     /** None or empty: every category. */
     categories?: Set<InventoryCategory>;
     vesselName?: string;
+    /** The skipper's unit system (131-B14); metric when not given. */
+    units?: StoresUnitSystem;
 }
 
 /** A count as the phone writes numbers: '2.5' or '2,5', never '2.5000000001'. */
@@ -44,8 +53,6 @@ function formatCount(value: number): string {
 function plural(count: number, word: string): string {
     return `${formatCount(count)} ${word}${count === 1 ? '' : 's'}`;
 }
-
-const isLow = (item: InventoryItem) => item.quantity <= item.min_quantity && item.min_quantity > 0;
 
 /** The categories the PDF lists, in the screen's order. */
 function chosenCategories(categories?: Set<InventoryCategory>): InventoryCategory[] {
@@ -63,8 +70,8 @@ export function storesPdfItems({
     return items.filter((item) => cats.includes(item.category));
 }
 
-function itemRow(item: InventoryItem, now: Date): RegisterCell[] {
-    const low = isLow(item);
+function itemRow(item: InventoryItem, now: Date, units: StoresUnitSystem): RegisterCell[] {
+    const low = isLowStock(item);
     const location = [item.location_zone, item.location_specific].filter((part) => part?.trim()).join(' — ');
     const days = pdfDaysUntil(item.expiry_date, now);
     const expiryColour =
@@ -78,12 +85,15 @@ function itemRow(item: InventoryItem, now: Date): RegisterCell[] {
     return [
         { text: item.item_name },
         {
-            text: formatCount(item.quantity),
+            text: storesAmount(item.quantity, item.unit, units),
             bold: true,
             color: low ? REGISTER_COLOURS.red : undefined,
             tag: low ? { text: 'LOW', color: REGISTER_COLOURS.red } : undefined,
         },
-        { text: item.min_quantity > 0 ? formatCount(item.min_quantity) : '—', color: REGISTER_COLOURS.muted },
+        {
+            text: item.min_quantity > 0 ? storesAmount(item.min_quantity, item.unit, units) : '—',
+            color: REGISTER_COLOURS.muted,
+        },
         { text: location || '—' },
         { text: pdfShortDate(item.expiry_date), color: expiryColour },
     ];
@@ -93,12 +103,12 @@ function buildStoresPdf(options: InventoryPdfOptions, JsPdf: JsPdfConstructor, n
     const page = new RegisterPdf(JsPdf);
     const cats = chosenCategories(options.categories);
     const listed = storesPdfItems(options);
-    const totalQty = Math.round(listed.reduce((sum, item) => sum + item.quantity, 0) * 100) / 100;
-    const lowStock = listed.filter(isLow).length;
+    const units = options.units ?? 'metric';
+    const lowStock = listed.filter(isLowStock).length;
     const date = pdfLongDate(now);
     const vessel = options.vesselName?.trim();
     const catLabel = options.categories && options.categories.size > 0 ? cats.join(', ') : 'All Categories';
-    const stats = [plural(listed.length, 'Item'), plural(totalQty, 'Unit')];
+    const stats = [plural(listed.length, 'Item')];
     if (lowStock > 0) stats.push(`${formatCount(lowStock)} Low Stock`);
 
     // No name set: no stand-in 'Vessel' on the paper, just the rest of the line.
@@ -112,7 +122,6 @@ function buildStoresPdf(options: InventoryPdfOptions, JsPdf: JsPdfConstructor, n
     );
     page.boxes([
         { label: 'TOTAL ITEMS', value: formatCount(listed.length), color: REGISTER_COLOURS.navy },
-        { label: 'TOTAL UNITS', value: formatCount(totalQty), color: REGISTER_COLOURS.navy },
         {
             label: 'LOW STOCK',
             value: lowStock > 0 ? formatCount(lowStock) : 'OK',
@@ -128,7 +137,7 @@ function buildStoresPdf(options: InventoryPdfOptions, JsPdf: JsPdfConstructor, n
         page.section(
             `${cat} (${catItems.length})`,
             COLUMNS,
-            catItems.map((item) => itemRow(item, now)),
+            catItems.map((item) => itemRow(item, now, units)),
         );
     }
     return page.finish(date);

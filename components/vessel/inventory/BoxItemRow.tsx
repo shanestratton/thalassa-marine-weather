@@ -2,16 +2,24 @@
  * One item on a box page (126-11a): its name, a Low chip at or under its
  * minimum, and − count + with 44 pt targets. Taking an impeller is one tap on
  * −. View-only crew get the count alone.
+ *
+ * 131-B14: the count reads in units, a weight or a volume steps a sensible
+ * amount ('Take 100 g'), and Low is the one rule the whole of Stores uses.
  */
 import React from 'react';
 import type { InventoryItem, StoresBox } from '../../../types';
-
-/** Low as the Stores card and header count it: at or under a minimum that is set. */
-export const isLow = (item: InventoryItem) => item.min_quantity > 0 && item.quantity <= item.min_quantity;
+import { isLowStock } from '../../../services/vessel/inventoryStats';
+import {
+    hasStock,
+    storesAmount,
+    storesStep,
+    storesStepDelta,
+    type StoresUnitSystem,
+} from '../../../services/vessel/storesUnits';
 
 /** "Engine room · 7 items · 1 low". */
 export function boxLine(box: StoresBox, items: InventoryItem[]): string {
-    const low = items.filter(isLow).length;
+    const low = items.filter(isLowStock).length;
     return [box.location_zone, `${items.length} item${items.length === 1 ? '' : 's'}`, low && `${low} low`]
         .filter(Boolean)
         .join(' · ');
@@ -34,37 +42,41 @@ export const ListRow: React.FC<{ title: string; line?: string | null; on?: boole
     </button>
 );
 
-export const BoxItemRow: React.FC<{ item: InventoryItem; onAdjust?: (id: string, delta: number) => void }> = ({
-    item,
-    onAdjust,
-}) => {
+export const BoxItemRow: React.FC<{
+    item: InventoryItem;
+    units: StoresUnitSystem;
+    onAdjust?: (id: string, delta: number) => void;
+}> = ({ item, units, onAdjust }) => {
+    const amount = storesAmount(item.quantity, item.unit, units);
+    /** "one" for a count, "100 g" for a weight. */
+    const size = storesStep(item.quantity, item.unit, units).label ?? 'one';
     /** − or + at 44 pt; − is off at nothing left. */
-    const step = (delta: number, label: string, colour: string) =>
+    const step = (direction: 1 | -1, label: string, colour: string) =>
         onAdjust && (
             <button
-                aria-label={`${label} ${item.item_name}`}
-                disabled={delta < 0 && item.quantity <= 0}
-                onClick={() => onAdjust(item.id, delta)}
+                aria-label={`${label} ${size} ${item.item_name}`}
+                disabled={direction < 0 && !hasStock(item.quantity)}
+                onClick={() => onAdjust(item.id, storesStepDelta(item.quantity, item.unit, direction, units))}
                 className={`size-[44px] shrink-0 rounded-xl font-bold disabled:opacity-30 ${colour}`}
             >
-                {delta < 0 ? '−' : '+'}
+                {direction < 0 ? '−' : '+'}
             </button>
         );
     return (
         <li className="flex min-h-[44px] items-center gap-2 py-1 text-white">
             <span className="min-w-0 flex-1 text-sm font-bold [overflow-wrap:anywhere]">
                 <span>{item.item_name}</span>
-                {isLow(item) && <span className="ml-2 text-micro font-black uppercase text-amber-400">Low</span>}
+                {isLowStock(item) && <span className="ml-2 text-micro font-black uppercase text-amber-400">Low</span>}
             </span>
-            {step(-1, 'Take one', 'bg-red-500/15 text-red-400')}
+            {step(-1, 'Take', 'bg-red-500/15 text-red-400')}
             <span
                 role="status"
-                aria-label={`${item.item_name}: ${item.quantity}`}
-                className="min-w-8 text-center text-lg font-black tabular-nums"
+                aria-label={`${item.item_name}: ${amount}`}
+                className="min-w-8 text-center text-lg font-black tabular-nums whitespace-nowrap"
             >
-                {item.quantity}
+                {amount}
             </span>
-            {step(1, 'Add one', 'bg-emerald-500/15 text-emerald-400')}
+            {step(1, 'Add', 'bg-emerald-500/15 text-emerald-400')}
         </li>
     );
 };

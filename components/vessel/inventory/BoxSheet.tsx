@@ -17,6 +17,7 @@ import { toast } from '../../Toast';
 import { writeBoxTag } from '../../../services/native/nfcTags';
 import { BoxItemRow, boxLine } from './BoxItemRow';
 import { useNfcTags } from './useNfcTags';
+import type { StoresUnitSystem } from '../../../services/vessel/storesUnits';
 
 export const BoxSheet: React.FC<{
     box: StoresBox | null;
@@ -24,12 +25,14 @@ export const BoxSheet: React.FC<{
     items: InventoryItem[];
     /** May add to and change this Stores (false for view-only crew). */
     editable: boolean;
+    /** The skipper's unit system (131-B14). */
+    units: StoresUnitSystem;
     onAdjust?: (id: string, delta: number) => void;
     onClose: () => void;
     onPut: () => void;
     onEdit: () => void;
     onNewItem: () => void;
-}> = ({ box, items, editable, onAdjust, onClose, onPut, onEdit, onNewItem }) => {
+}> = ({ box, items, editable, units, onAdjust, onClose, onPut, onEdit, onNewItem }) => {
     const nfc = useNfcTags();
     const [writing, setWriting] = useState(false);
     if (!box) {
@@ -67,7 +70,7 @@ export const BoxSheet: React.FC<{
                         {[...items]
                             .sort((a, b) => a.item_name.localeCompare(b.item_name))
                             .map((item) => (
-                                <BoxItemRow key={item.id} item={item} onAdjust={onAdjust} />
+                                <BoxItemRow key={item.id} item={item} units={units} onAdjust={onAdjust} />
                             ))}
                     </ul>
                 ) : (

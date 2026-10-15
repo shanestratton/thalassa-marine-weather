@@ -23,7 +23,8 @@ import {
     isRowInBinder,
 } from './sharedBinders';
 import type { InventoryItem, InventoryCategory } from '../../types';
-import { inventoryStats, type InventoryStats } from './inventoryStats';
+import { inventoryStats, isLowStock, type InventoryStats } from './inventoryStats';
+import { groceryProvenance } from './storesProvenance';
 
 const TABLE = 'inventory_items';
 // Whose stores these are: the skipper's while the sailor is crew on a boat
@@ -36,7 +37,6 @@ function writableRow(id: string): InventoryItem | null {
     assertBinderWritable(REGISTER, row);
     return row;
 }
-const GROCERY_RECEIPT_PREFIX = 'Added from Grocery List purchase ';
 
 function requireNonNegativeAmount(amount: number, label: string): void {
     if (!Number.isFinite(amount) || amount < 0) {
@@ -103,10 +103,10 @@ export class LocalInventoryService {
         return query<InventoryItem>(TABLE, (item) => inBinder(item) && item.category === category);
     }
 
-    /** Get items below minimum quantity (alerts) */
+    /** Get items at or under a minimum that is set: the one low-stock rule (131-B14) */
     static getLowStock(): InventoryItem[] {
         const inBinder = binderRowFilter(REGISTER);
-        return query<InventoryItem>(TABLE, (item) => inBinder(item) && item.quantity <= item.min_quantity);
+        return query<InventoryItem>(TABLE, (item) => inBinder(item) && isLowStock(item));
     }
 
     /** Create a new inventory item. A count or minimum below nothing is refused (131-B13). */
@@ -197,11 +197,7 @@ export class LocalInventoryService {
         let merged = 0;
 
         for (const item of items) {
-            if (
-                item.description?.startsWith(GROCERY_RECEIPT_PREFIX) ||
-                !Number.isFinite(item.quantity) ||
-                item.quantity < 0
-            ) {
+            if (groceryProvenance(item) === 'bought' || !Number.isFinite(item.quantity) || item.quantity < 0) {
                 continue;
             }
 

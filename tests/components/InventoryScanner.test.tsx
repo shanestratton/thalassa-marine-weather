@@ -75,8 +75,8 @@ function flares(extra: Partial<InventoryItem> = {}): InventoryItem {
     };
 }
 
-function sheet(onAdjust = vi.fn().mockResolvedValue(null), onClose = vi.fn()) {
-    render(<InventoryScanner onClose={onClose} onItemSaved={vi.fn()} onAdjust={onAdjust} />);
+function sheet(onAdjust = vi.fn().mockResolvedValue(null), onClose = vi.fn(), units: 'metric' | 'imperial' = 'metric') {
+    render(<InventoryScanner onClose={onClose} onItemSaved={vi.fn()} onAdjust={onAdjust} units={units} />);
     return { onAdjust, onClose, form: screen.getByRole('dialog', { name: 'Add item' }) };
 }
 
@@ -218,6 +218,94 @@ describe('Scan on the iPhone', () => {
         await act(async () => Promise.resolve());
         expect(within(form).queryByRole('alert')).not.toBeInTheDocument();
         expect(LocalInventoryService.findByBarcode).not.toHaveBeenCalled();
+    });
+});
+
+describe('units (131-B14)', () => {
+    const sugar = (extra: Partial<InventoryItem> = {}) =>
+        flares({
+            id: 'item-sugar',
+            item_name: 'Raw sugar',
+            category: 'Provisions',
+            quantity: 1000,
+            min_quantity: 500,
+            unit: 'g',
+            ...extra,
+        });
+
+    it('a scanned 1000 g of sugar reads 1 kg, and − takes 100 g on the delta path', async () => {
+        onIphone(CODE);
+        vi.mocked(LocalInventoryService.findByBarcode).mockReturnValue(sugar());
+        const onAdjust = vi.fn().mockResolvedValue(sugar({ quantity: 900 }));
+        const { form } = sheet(onAdjust);
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        const found = await screen.findByRole('dialog', { name: 'Raw sugar' });
+        expect(within(found).getByLabelText('Raw sugar: 1 kg')).toBeInTheDocument();
+        expect(found).toHaveTextContent('Steps of 100 g');
+        fireEvent.click(within(found).getByRole('button', { name: 'Take 100 g Raw sugar' }));
+        await waitFor(() => expect(within(found).getByLabelText('Raw sugar: 900 g')).toBeInTheDocument());
+        expect(onAdjust).toHaveBeenCalledWith('item-sugar', -100);
+    });
+
+    it('the last 35 g is taken in 10 g steps, never more than is there', async () => {
+        onIphone(CODE);
+        vi.mocked(LocalInventoryService.findByBarcode).mockReturnValue(sugar({ quantity: 35, min_quantity: 0 }));
+        const onAdjust = vi.fn().mockResolvedValue(sugar({ quantity: 25, min_quantity: 0 }));
+        const { form } = sheet(onAdjust);
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        const found = await screen.findByRole('dialog', { name: 'Raw sugar' });
+        fireEvent.click(within(found).getByRole('button', { name: 'Take 10 g Raw sugar' }));
+        await waitFor(() => expect(onAdjust).toHaveBeenCalledWith('item-sugar', -10));
+    });
+
+    it('in US units the same sugar reads 2.2 lb and steps a quarter pound; Low says its minimum in lb', async () => {
+        onIphone(CODE);
+        vi.mocked(LocalInventoryService.findByBarcode).mockReturnValue(sugar({ min_quantity: 1000 }));
+        const { form } = sheet(vi.fn().mockResolvedValue(null), vi.fn(), 'imperial');
+        fireEvent.click(within(form).getByRole('button', { name: 'Scan barcode' }));
+        const found = await screen.findByRole('dialog', { name: 'Raw sugar' });
+        expect(within(found).getByLabelText('Raw sugar: 2.2 lb')).toBeInTheDocument();
+        expect(found).toHaveTextContent('Steps of 0.25 lb');
+        expect(found).toHaveTextContent('Low stock: the minimum is 2.2 lb');
+    });
+
+    it('the Add form takes a unit and a decimal: 2.5 kg of rice', async () => {
+        const { form } = sheet();
+        fireEvent.change(within(form).getByLabelText(/Item name/), { target: { value: 'Basmati rice' } });
+        fireEvent.change(within(form).getByRole('combobox', { name: 'Unit' }), { target: { value: 'kg' } });
+        fireEvent.change(within(form).getByLabelText('Quantity'), { target: { value: '2.5' } });
+        fireEvent.change(within(form).getByLabelText('Min alert'), { target: { value: '0.5' } });
+        fireEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+        await waitFor(() =>
+            expect(LocalInventoryService.create).toHaveBeenCalledWith(
+                expect.objectContaining({ item_name: 'Basmati rice', quantity: 2.5, min_quantity: 0.5, unit: 'kg' }),
+            ),
+        );
+    });
+
+    it('offers Count and the metric units; picking kg after g carries the number', () => {
+        const { form } = sheet();
+        const unit = within(form).getByRole('combobox', { name: 'Unit' });
+        expect(
+            within(unit)
+                .getAllByRole('option')
+                .map((option) => option.textContent),
+        ).toEqual(['Count', 'g', 'kg', 'ml', 'L']);
+        expect(unit).toHaveValue('whole');
+        fireEvent.change(unit, { target: { value: 'g' } });
+        fireEvent.change(within(form).getByLabelText('Quantity'), { target: { value: '1500' } });
+        fireEvent.change(unit, { target: { value: 'kg' } });
+        expect(within(form).getByLabelText('Quantity')).toHaveValue(1.5);
+    });
+
+    it('in US units the picker offers oz, lb, fl oz and gal', () => {
+        const { form } = sheet(vi.fn(), vi.fn(), 'imperial');
+        const unit = within(form).getByRole('combobox', { name: 'Unit' });
+        expect(
+            within(unit)
+                .getAllByRole('option')
+                .map((option) => option.textContent),
+        ).toEqual(['Count', 'oz', 'lb', 'fl oz', 'gal']);
     });
 });
 
