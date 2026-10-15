@@ -209,7 +209,6 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
         onToggleAnchorage: () => setAnchorageVisible((v) => !v),
         mooringsVisible,
         onToggleMoorings: setMooringsVisible ? () => setMooringsVisible((v) => !v) : undefined,
-        onOpenWeatherWindow: () => setPage('weatherWindow'),
         mobActive,
         onOpenMob: () => setPage('mob'),
         // Marine Protected Areas — only surface in the
