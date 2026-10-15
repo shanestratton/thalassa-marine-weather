@@ -350,9 +350,11 @@ function planIssues(page: Page, largeText = false) {
  * The stop page's route picture (132-PYD-9), measured in the page where it is drawn: 2 : 1 and at least 72 px
  * tall, inside its column, under the facts and notes and over the details, its words whole in its band and
  * clear of her start and the stop, and no line before the stop is routed. Returns what broke, and its height
- * (0: not drawn, the plan having left it too little room).
+ * (0: not drawn, the plan having left it too little room). Measured once its drawing is in: the box is sized as
+ * the page opens, the drawing comes in its own lazy chunk (on a cold dev server, after the first measure).
  */
-function pictureIssues(page: Page) {
+async function pictureIssues(page: Page) {
+    await expect(page.locator('.today-detail .today-pic:not(:has(svg, .today-pic-band))')).toHaveCount(0);
     return page.evaluate(() => {
         const issues: string[] = [];
         const box = document.querySelector<HTMLElement>('.today-detail .today-pic');
@@ -601,9 +603,11 @@ for (const size of [sizes[0], sizes[1], AS_DRAWN.se, AS_DRAWN.se2, AS_DRAWN.shan
             await expect(detail.locator('.today-footnote')).toHaveText(/^No current\. .+ Not a clearance\./);
             const reviewed = mode === 'default-boat';
             // A stop with no local notes fits from 320 x 568; a reviewed one from 375 x 667 (at 320 x 568 its first
-            // note in view, above); anything may scroll at large text and in phone landscape.
+            // note in view, above); anything may scroll at large text and in phone landscape. As the app draws it, a
+            // page that fills its room (its picture in the room left, or its details open) sits the overlay's 1rem
+            // over the tab bar, 13-15 px on an SE: nestedIssues measures that 1rem there, 16 px on the fixed root.
             const fits = !size.mayScroll && !size.landscape && (!reviewed || size.height >= 640);
-            expect(await layoutIssues(page, !fits)).toEqual([]);
+            expect(await nestedIssues(page, size, !fits)).toEqual([]);
             expect(await planIssues(page, size.mayScroll)).toEqual([]);
             expect((await pictureIssues(page)).issues).toEqual([]);
             const summary = detail.getByText('How each time was worked out', { exact: true });
@@ -614,10 +618,10 @@ for (const size of [sizes[0], sizes[1], AS_DRAWN.se, AS_DRAWN.se2, AS_DRAWN.shan
             await expect(rows.getByText(/^Leave \d\d:\d\d → there \d\d:\d\d \(/)).toHaveCount(1);
             await expect(rows.getByText(/^Times from .+ wind\.$/)).toHaveCount(1);
             // Opened, the page may scroll; nothing is cut sideways, and the buttons stay whole.
-            expect(await layoutIssues(page, true)).toEqual([]);
+            expect(await nestedIssues(page, size)).toEqual([]);
             await summary.click();
             await expect(rows).toBeHidden();
-            expect(await layoutIssues(page, !fits)).toEqual([]);
+            expect(await nestedIssues(page, size, !fits)).toEqual([]);
             expect(errors).toEqual([]);
         });
 
@@ -1882,8 +1886,14 @@ for (const display of ['dark', 'light'] as const)
             color: display === 'dark' ? 'rgb(252, 211, 77)' : amber,
             fill: 'rgba(0, 0, 0, 0)',
         });
-        // Its stop page says so among its facts (132-PYD-8), in the same amber outline.
-        await dialog.getByRole('list', { name: 'Stops' }).getByRole('button').filter({ has: tag }).first().click();
+        // Its stop page says so among its facts (132-PYD-8), in the same amber outline. (`has` is looked for inside
+        // each row, so the row's own tag, not `tag`, which starts from the dialog and is never inside a row.)
+        await dialog
+            .getByRole('list', { name: 'Stops' })
+            .getByRole('button')
+            .filter({ has: page.locator('.today-tag', { hasText: 'Local notes' }) })
+            .first()
+            .click();
         const chip = page.locator('.today-detail .today-glance li[data-notes]');
         await expect(chip).toHaveText('Local notes');
         expect(
@@ -2017,10 +2027,12 @@ function placesIssues(page: Page, largeText = false) {
 /**
  * The house rules for a nested card, as layoutIssues measures them, less one: drawn on the app's fluid root
  * (13-15 px on an SE), the overlay keeps a list that fills the room its 1rem over the tab bar, as All places
- * always sat there and the tall narrow windows' lists do (above). That 1rem is measured instead.
+ * always sat there and the tall narrow windows' lists do (above). That 1rem is measured instead. A stop page whose
+ * picture takes the room its plan leaves (132-PYD-9), or whose details are open, fills it too; it is held to
+ * `mayScroll` as layoutIssues holds it (day-planner-route.spec.ts measures the stop page's 1rem the same way).
  */
-async function nestedIssues(page: Page, size: Size) {
-    const issues = await layoutIssues(page, true);
+async function nestedIssues(page: Page, size: Size, mayScroll = true) {
+    const issues = await layoutIssues(page, mayScroll);
     if (!size.query.includes('root=app')) return issues;
     const gap = await page.evaluate(() => {
         const card = [...document.querySelectorAll<HTMLElement>('.today-card')].at(-1)!.getBoundingClientRect();
