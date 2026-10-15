@@ -110,10 +110,28 @@ export async function expectHeaderWhole(page: Page, size: Size) {
     await expectNoClippedText(header, 'the header', 'h1');
 }
 
+/**
+ * The page's entrance over: binder pages slide up 12 px as they open
+ * (index.css .slide-up-enter, 350 ms), and a measure taken in its first frames
+ * put Checklists' Add 12 px under the tab bar on a cold run. Endless
+ * animations (a spinner) are left running.
+ */
+export async function pageSettled(page: Page) {
+    await page.evaluate(async () => {
+        await Promise.all(
+            document
+                .getAnimations()
+                .filter((animation) => animation.effect?.getTiming().iterations !== Infinity)
+                .map((animation) => animation.finished.catch(() => undefined)),
+        );
+    });
+}
+
 /** The page's bottom call to action (its TapToAction) ends above the tab bar, on screen, reached by a tap. */
 export async function expectCtaAboveTabBar(page: Page, name: string) {
     const cta = page.getByRole('button', { name, exact: true });
     await expect(cta).toBeVisible();
+    await pageSettled(page);
     const m = await cta.evaluate((button) => {
         const r = button.getBoundingClientRect();
         const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);

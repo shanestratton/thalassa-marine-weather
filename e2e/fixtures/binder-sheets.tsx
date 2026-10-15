@@ -316,7 +316,16 @@ const PAGES: Record<Binder, () => Promise<React.FC<{ onBack: () => void }>>> = {
 };
 const Page = await PAGES[binder]();
 
-/** App.tsx's header on a portrait phone, as e2e/fixtures/documents.tsx copies it. */
+/**
+ * App.tsx's header on a portrait phone (showHeader), with App.tsx's own
+ * classes, as e2e/fixtures/skipper-takeover.tsx copies it: the 64 px mark (48
+ * under 390), the wordmark and the SKIPPER · BETA badge every skipper sees
+ * while the public beta is on (PUBLIC_BETA_ACCESS), the tagline and the 48 px
+ * status button. In Verdana the badge wraps under the wordmark, and the
+ * header is 19 px taller at 320 px and 18 at 375 than without it (86 and 91
+ * px): every page here is measured under that, as a skipper's phone draws
+ * it. Only the top pad is inline: max(1rem, the device's top inset).
+ */
 const AppHeader: React.FC = () => (
     <header
         data-testid="app-header"
@@ -333,16 +342,28 @@ const AppHeader: React.FC = () => (
                     className="thalassa-header-logo w-[64px] h-[64px] max-[389px]:w-12 max-[389px]:h-12 rounded-lg"
                 />
                 <div className="min-w-0">
-                    <p className="shrink-0 whitespace-nowrap text-xl font-bold tracking-wider uppercase">Thalassa</p>
-                    <p className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px] uppercase tracking-widest text-sky-200">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
+                        <p className="shrink-0 whitespace-nowrap text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
+                            Thalassa
+                        </p>
+                        <span className="thalassa-beta-badge flex shrink-0 items-center whitespace-nowrap rounded-sm border border-amber-300/30 bg-amber-400/15 px-1.5 py-0.5 text-amber-100 shadow-lg">
+                            <span className="text-[11px] font-bold uppercase leading-none tracking-wider">
+                                Skipper
+                                <span className="font-semibold text-amber-200/70"> · Beta</span>
+                            </span>
+                        </span>
+                    </div>
+                    <p className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px] uppercase tracking-widest text-sky-200 shadow-black drop-shadow-md">
                         <span className="min-w-0 flex-1 truncate">Keeps watch with you</span>
                     </p>
                 </div>
             </div>
-            <span
-                aria-hidden="true"
-                className="relative w-12 h-12 rounded-2xl border border-white/10 bg-slate-900/90"
-            />
+            <div className="flex shrink-0 items-center gap-2 pointer-events-auto">
+                <span
+                    aria-hidden="true"
+                    className="relative w-12 h-12 rounded-2xl border border-white/10 bg-slate-900/90"
+                />
+            </div>
         </div>
     </header>
 );

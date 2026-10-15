@@ -52,8 +52,16 @@ for (const size of SIZES) {
                 searchBelowHours: input.getBoundingClientRect().top >= hours.bottom - 0.5,
                 firstShows: first.top >= box.top - 0.5 && first.bottom <= box.bottom - inset + 0.5,
                 list: Math.round(box.height - inset),
+                spare: Math.round(box.bottom - inset - first.bottom),
             };
         }, size.insets.bottom);
+        // Under the real header (its SKIPPER · BETA badge wraps in wide fonts)
+        // the list is tight at 320 x 568: 64 px, the first name 8 px clear in
+        // Verdana. Noted on every run so CI's DejaVu Sans figure is on record.
+        test.info().annotations.push({
+            type: 'list room',
+            description: `${m.list} px at ${size.name}, the first task's name ${m.spare} px clear`,
+        });
         expect(m.searchBelowHours, 'the search sits under the engine-hours row').toBe(true);
         expect(m.firstShows, `the first task's name shows whole (list ${m.list} px)`).toBe(true);
         await expectNothingSideways(page);

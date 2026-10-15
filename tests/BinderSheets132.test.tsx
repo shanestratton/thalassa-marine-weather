@@ -61,6 +61,7 @@ import { TaskFormModal } from '../components/vessel/maintenance/TaskFormModal';
 import { DEFAULT_MAINTENANCE_TASKS } from '../components/vessel/maintenance/defaultTasks';
 import { useMaintenanceForm } from '../hooks/useMaintenanceForm';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 import { GearIcon } from '../components/icons/UIIcons';
 
 // The sheets' keyboard scroll calls window.scrollBy, which jsdom lacks.
@@ -434,5 +435,35 @@ describe('a browser spec for every binder page and sheet, run in CI', () => {
         expect(fixture).toMatch(/if \(!import\.meta\.env\.DEV\)\s+throw new Error\(/);
         expect(fixture).toMatch(/window\.fetch = async \(\) =>/);
         expect(read('e2e/fixtures/binder-sheets.html')).toContain("connect-src 'self' ws://127.0.0.1:*");
+    });
+
+    it("the binder pages are measured under the app's own header, SKIPPER · BETA badge and all", () => {
+        // In wide fonts the badge wraps under the wordmark at 320 and 375 px:
+        // without it the header was ~19 px short and every page check had
+        // room a skipper's phone does not (132-B19 review).
+        const app = read('App.tsx');
+        const fixture = read('e2e/fixtures/binder-sheets.tsx');
+        const badge = app.match(/<span className="(thalassa-beta-badge [^"]+)">/)![1];
+        const header = [
+            // The 64 px mark, 48 under 390.
+            'thalassa-header-logo',
+            'w-[64px] h-[64px] max-[389px]:w-12 max-[389px]:h-12',
+            // The wordmark and the badge in a row that wraps.
+            'flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5',
+            'shrink-0 whitespace-nowrap text-xl font-bold tracking-wider uppercase',
+            'text-[11px] font-bold uppercase leading-none tracking-wider',
+            // The tagline, and the status button's cluster.
+            'flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px] uppercase tracking-widest text-sky-200',
+            'flex shrink-0 items-center gap-2 pointer-events-auto',
+        ];
+        for (const classes of header) {
+            expect(app, classes).toContain(classes);
+            expect(fixture, classes).toContain(classes);
+        }
+        // Every skipper sees the badge while the public beta is on.
+        expect(PUBLIC_BETA_ACCESS.enabled).toBe(true);
+        expect(app).toMatch(/\{PUBLIC_BETA_ACCESS\.enabled \? \(/);
+        expect(fixture).toContain(`<span className="${badge}">`);
+        expect(fixture).toMatch(/Skipper\s+<span className="font-semibold text-amber-200\/70"> · Beta<\/span>/);
     });
 });

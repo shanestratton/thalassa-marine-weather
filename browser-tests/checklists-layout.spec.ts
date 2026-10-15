@@ -8,6 +8,7 @@ import {
     expectNothingSideways,
     expectSheetFits,
     openBinder,
+    pageSettled,
 } from './helpers/binderLayout';
 
 /**
@@ -60,6 +61,7 @@ for (const size of SIZES) {
         await page.getByRole('button', { name: 'Run Leaving the mooring at Ponta Delgada' }).click({ timeout: 25_000 });
         const complete = page.getByRole('button', { name: 'Complete checklist run' });
         await expect(complete).toBeVisible();
+        await pageSettled(page);
         await complete.scrollIntoViewIfNeeded();
         const m = await complete.evaluate((button, inset) => {
             const r = button.getBoundingClientRect();
