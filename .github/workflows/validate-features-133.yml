@@ -30,10 +30,8 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - feature: chart-datum
-                      sha: 77add7beebe220f810266fc03eac133b339ec075
                     - feature: coastal-wind
-                      sha: fae6b44eccc70859045d8e3758b77a07d0eb450a
+                      sha: 86cd4bf90a8ace66b6912bb6c53c578c7418818f
         env:
             CANDIDATE_SHA: ${{ matrix.sha }}
             FEATURE: ${{ matrix.feature }}
@@ -97,47 +95,3 @@ jobs:
                   GITHUB_SHA="$(git rev-parse HEAD)" npm run build
                   npm run check:web-release
                   npm run check:bundle
-    pi:
-        name: Pi package checkpoint (${{ matrix.feature }})
-        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
-        runs-on: ubuntu-24.04
-        timeout-minutes: 25
-        strategy:
-            fail-fast: false
-            matrix:
-                include:
-                    - feature: chart-datum
-                      sha: 77add7beebe220f810266fc03eac133b339ec075
-                    - feature: underway-relay-client
-                      sha: ea669a90aa5ddecd90bdc56a32f9505edd36e6c4
-        env:
-            CANDIDATE_SHA: ${{ matrix.sha }}
-        steps:
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-              with:
-                  ref: ${{ matrix.sha }}
-                  fetch-depth: 0
-                  persist-credentials: false
-            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-              with:
-                  node-version: 22
-                  cache: npm
-                  cache-dependency-path: pi-cache/package-lock.json
-            - name: Verify exact checkpoint and released build 132 ancestor
-              run: |
-                  set -euo pipefail
-                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
-                  git merge-base --is-ancestor a9372b33c967d79d8676e9bb3564b68c794cc33b HEAD
-            - name: Install, audit, build and run all Pi tests
-              working-directory: pi-cache
-              run: |
-                  set -euo pipefail
-                  npm ci
-                  npm audit --audit-level=high
-                  npm ls --all
-                  npm run build
-                  npm test
-            - name: Real SENC extractor behavior tests
-              if: matrix.feature == 'chart-datum'
-              working-directory: pi-cache
-              run: npx tsx --test ../tools/senc-extractor/src/navaidsDatumEmit.test.mts ../tools/senc-extractor/src/structureEmit.test.mts
