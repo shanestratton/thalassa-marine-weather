@@ -39,6 +39,7 @@ import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
 import { piCache } from '../services/PiCacheService';
 import { useCloudTelemetry } from '../hooks/useCloudTelemetry';
 import { useBoatLink } from '../hooks/useBoatLink';
+import { BOAT_LINK_CHECKING } from '../services/boatLink/boatLinkGate';
 import type { Tone } from '../services/boatLink/boatLinkModel';
 import { refreshSkipperClaim } from '../stores/settingsStore';
 import { useWeather } from '../context/WeatherContext';
@@ -299,7 +300,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // The state sits in the right-hand slot, as the Settings rows show
     // theirs, and the subtitle names the route ('Through the Pi · Tailscale')
     // or what the row is for (UX scorecard run 10, vessel-row-status-slot).
-    const boatLink = useBoatLink();
+    // 'Checking…' while the boat link loads (131-01), never 'Not connected'.
+    const boatLink = useBoatLink() ?? BOAT_LINK_CHECKING;
     const gatewayStatus = boatLink.hub.status;
     const gatewayState = boatLink.hub.value;
     const gatewayStatusColor = HUB_TONE_COLOUR[boatLink.hub.tone];

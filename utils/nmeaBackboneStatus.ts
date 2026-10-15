@@ -24,6 +24,12 @@ export interface NmeaBackboneStatusInput {
      * VPN, and so read as aboard from 900 km away (Shane 2026-10-07).
      */
     link?: { statusRow: string; data: { state: DataState } } | null;
+    /**
+     * Why there is no `link` (131-01): 'checking' while it loads for a boat
+     * with a Pi or a gateway, 'not-set-up' for a phone with neither. The row
+     * then says so, never 'Not connected', which reads as a boat gone quiet.
+     */
+    linkAbsent?: 'checking' | 'not-set-up';
     now?: number;
 }
 
@@ -106,6 +112,7 @@ export function deriveNmeaBackboneStatus({
     deviceLabel,
     lastError,
     link = null,
+    linkAbsent,
     now = Date.now(),
 }: NmeaBackboneStatusInput): NmeaBackboneStatus {
     const usableReading = hasUsableReading(store, now);
@@ -186,9 +193,10 @@ export function deriveNmeaBackboneStatus({
             showRates: false,
         };
     }
+    const idle = linkAbsent === 'checking' ? 'Checking…' : linkAbsent === 'not-set-up' ? 'Not set up' : 'Not connected';
     return {
         active: false,
-        detail: fault ?? (directStatus === 'error' ? 'Gateway connection failed' : 'Not connected'),
+        detail: fault ?? (directStatus === 'error' ? 'Gateway connection failed' : idle),
         faulted: directStatus === 'error' || fault !== null,
         showRates: false,
     };

@@ -40,7 +40,7 @@ import type { WindGrid } from '../../services/weather/windGridEncoding';
 import { createLogger } from '../../utils/createLogger';
 import { particleScale } from '../../utils/deviceTier';
 import { NmeaStore, type TimestampedMetric } from '../../services/NmeaStore';
-import { BoatLinkService } from '../../services/boatLink/BoatLinkService';
+import { boatLinkIfConfigured } from '../../services/boatLink/boatLinkGate';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 import { LocationStore } from '../../stores/LocationStore';
 import { WEATHER_FOLLOW_TARGET_EVENT } from '../../services/weatherPosition';
@@ -477,11 +477,13 @@ function prefersReducedMotion(): boolean {
  * over a VPN that carries her network (Shane 2026-10-07), and the phone's fix
  * then is the kitchen table's. The one exception is a bus with wind but no
  * GPS, where "aboard" can never be decided: a live direct feed with this
- * phone on the boat's own network and no VPN up stands in.
+ * phone on the boat's own network and no VPN up stands in. With no Pi and no
+ * gateway the boat link is not loaded (131-01), and while it loads nothing
+ * says she is with this phone.
  */
 function boatPosition(): { lat: number; lon: number } | null {
     const location = LocationStore.getState();
-    const aboard = BoatLinkService.phoneStandsInForBoat();
+    const aboard = boatLinkIfConfigured()?.phoneStandsInForBoat() ?? false;
     const fix = resolveOwnshipPosition(NmeaStore.getState(), aboard ? location : { ...location, source: 'initial' });
     return fix ? { lat: fix.lat, lon: fix.lon } : null;
 }

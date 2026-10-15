@@ -13,7 +13,6 @@ import { useHudRecordingActivation } from './hooks/useHudRecording';
 import { Dashboard } from './components/Dashboard';
 import { SearchIcon, MapIcon, RouteIcon, ClipboardIcon, SailBoatIcon } from './components/Icons';
 import { AisGuardAlert } from './components/map/AisGuardAlert';
-import { PassageHudPane } from './components/passage/PassageHudPane';
 import { usePassageHudOpen } from './stores/passageHudStore';
 import { usePassageHudAvailable } from './hooks/usePassageHudAvailable';
 import { LocationStarMenu } from './components/LocationStarMenu';
@@ -100,6 +99,14 @@ const DeparturePrompts = lazyRetry(
 const PassageKitPrompt = lazyRetry(
     () => import('./components/vessel/PassageKitPrompt').then((m) => ({ default: m.PassageKitPrompt })),
     'PassageKitPrompt',
+);
+// The passage pane, loaded when it has something to show (131-01): a route
+// followed or previewed on Obs, or a track recording (usePassageHudAvailable).
+// Until then its 2,000 lines and their forecast, sea and plan code stay out
+// of the shell every launch pays for.
+const PassageHudPane = lazyRetry(
+    () => import('./components/passage/PassageHudPane').then((m) => ({ default: m.PassageHudPane })),
+    'PassageHudPane',
 );
 // SignInScreen is no longer lazy-imported here — it's rendered by
 // the save-point sheets and the Settings → Account entry in their
@@ -1717,8 +1724,15 @@ const App: React.FC = () => {
                             split frame; never over the location picker or the route
                             tracer, which own the whole chart while they are up. The
                             passage planner and the consensus matrix hide it from CSS
-                            (index.css, main:has(...)), because only MapHub knows them. */}
-                            {chartVisible && !mapPickerActive && !tracerActive && <PassageHudPane />}
+                            (index.css, main:has(...)), because only MapHub knows them.
+                            Mounted, and so loaded, only when it has something to show:
+                            a followed route, an Obs preview (build 124) or a recording
+                            (131-01); nothing is drawn while its chunk arrives. */}
+                            {chartVisible && passageHudShown && !mapPickerActive && !tracerActive && (
+                                <Suspense fallback={null}>
+                                    <PassageHudPane />
+                                </Suspense>
+                            )}
                             {/* OBS is a top-level tab, not a Back destination.
                             Only the temporary location-picking workflow needs
                             a cancel action so a tap is never compulsory. */}

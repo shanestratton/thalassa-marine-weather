@@ -64,6 +64,12 @@ const link = vi.hoisted(() => ({
     facts: { where: 'aboard', live: false, lastLive: { at: Date.UTC(2026, 9, 14, 21, 0, 0), lane: 'socket' } },
 }));
 vi.mock('../services/boatLink/BoatLinkService', () => ({ BoatLinkService: { boatFeedFacts: () => link.facts } }));
+/** The boat link's gate asks these (131-01): a Pi paired or a gateway saved. */
+const boatLinkSetUp = vi.hoisted(() => ({ saved: null as null | { host: string; port: number } }));
+vi.mock('../services/PiPairingService', () => ({ getPairing: () => null }));
+vi.mock('../services/NmeaListenerService', () => ({
+    NmeaListenerService: { getSavedConfig: () => boatLinkSetUp.saved },
+}));
 
 import { AlarmAudioService } from '../services/AlarmAudioService';
 import {
@@ -76,6 +82,7 @@ import {
 } from '../services/underway/UnderwayAlarmWatch';
 import { UnderwayAlarmStore } from '../services/underway/underwayAlarmStore';
 import { sanitiseUnderwayPrefs } from '../services/underway/underwayRule';
+import { loadedBoatLink, resetBoatLinkGateForTests } from '../services/boatLink/boatLinkGate';
 
 const T0 = Date.UTC(2026, 9, 14, 21, 0, 0);
 const MIN = 60_000;
@@ -252,13 +259,31 @@ describe('the aboard GPS/instruments-silent alarm', () => {
         expect(kinds()).toEqual(['instruments']);
     });
 
+    it('with no Pi and no gateway the watch never loads the boat link: the alarm hears only her socket or her Pi (131-01)', async () => {
+        resetBoatLinkGateForTests();
+        boatLinkSetUp.saved = null;
+        startUnderwayAlarmWatch();
+        try {
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            expect(readUnderwayInputs(clock).boat).toBeNull();
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            expect(loadedBoatLink()).toBeNull();
+        } finally {
+            stopUnderwayAlarmWatch();
+        }
+    });
+
     it('reads where the phone is and the last live reading from BoatLink once the watch runs', async () => {
+        resetBoatLinkGateForTests();
         expect(readUnderwayInputs(clock).boat).toBeNull();
+        // A boat with a gateway saved (131-01 loads the boat link only for one, or a Pi).
+        boatLinkSetUp.saved = { host: '192.0.2.151', port: 1457 };
         startUnderwayAlarmWatch();
         try {
             await vi.waitFor(() => expect(readUnderwayInputs(clock).boat).toEqual({ ...link.facts, tracking: false }));
         } finally {
             stopUnderwayAlarmWatch();
+            boatLinkSetUp.saved = null;
         }
     });
 

@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, useId } from 'react';
+import React, { Suspense, useState, useEffect, useRef, useCallback, useMemo, useId } from 'react';
 import { createLogger } from '../utils/createLogger';
+import { lazyRetry } from '../utils/lazyRetry';
 const log = createLogger('DiaryPage');
 import { DiaryService, DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
 import {
@@ -27,7 +28,6 @@ import { SwipeableDiaryCard } from './diary/SwipeableDiaryCard';
 import { toast } from './Toast';
 import { DiaryEntryView } from './diary/DiaryEntryView';
 import { DiaryComposeForm } from './diary/DiaryComposeForm';
-import { VideoTrimmer } from './diary/VideoTrimmer';
 import { DiaryPublishModal } from './diary/DiaryPublishModal';
 import { useDiaryState } from '../hooks/useDiaryState';
 import { useDiaryPendingComments } from '../hooks/useDiaryPendingComments';
@@ -42,6 +42,12 @@ import {
     isAuthIdentityScopeCurrent,
     subscribeAuthIdentityScope,
 } from '../services/authIdentityScope';
+// The minute-long trimmer, loaded when a longer movie asks for it (131-01):
+// it brings the MP4 demuxer and remuxer (mp4box) that nothing else uses.
+const VideoTrimmer = lazyRetry(
+    () => import('./diary/VideoTrimmer').then((m) => ({ default: m.VideoTrimmer })),
+    'VideoTrimmer',
+);
 interface DiaryPageProps {
     onBack: () => void;
 }
@@ -1495,18 +1501,20 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     </div>
                 )}
                 {trimRequest && (
-                    <VideoTrimmer
-                        file={trimRequest.file}
-                        durationSec={trimRequest.durationSec}
-                        onCancel={() => setTrimRequest(null)}
-                        onDone={(blob) => {
-                            // The cut can finish after its compose is gone;
-                            // it then clears nothing newer and adopts nothing.
-                            const request = trimRequest;
-                            setTrimRequest((current) => (current === request ? null : current));
-                            void adoptVideoBlob(blob, request.operationIsCurrent);
-                        }}
-                    />
+                    <Suspense fallback={null}>
+                        <VideoTrimmer
+                            file={trimRequest.file}
+                            durationSec={trimRequest.durationSec}
+                            onCancel={() => setTrimRequest(null)}
+                            onDone={(blob) => {
+                                // The cut can finish after its compose is gone;
+                                // it then clears nothing newer and adopts nothing.
+                                const request = trimRequest;
+                                setTrimRequest((current) => (current === request ? null : current));
+                                void adoptVideoBlob(blob, request.operationIsCurrent);
+                            }}
+                        />
+                    </Suspense>
                 )}
                 <DiaryComposeForm
                     isEditing={!!editingId}

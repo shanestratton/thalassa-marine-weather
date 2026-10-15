@@ -20,6 +20,7 @@ import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services
 import { PageHeader } from '../ui/PageHeader';
 import { useKeyboardScroll } from '../../hooks/useKeyboardScroll';
 import { useBoatLink } from '../../hooks/useBoatLink';
+import { BOAT_LINK_CHECKING } from '../../services/boatLink/boatLinkGate';
 import type { Tone } from '../../services/boatLink/boatLinkModel';
 import { BoatLinkPill } from './BoatLinkPill';
 import { Button } from '../ui/Button';
@@ -212,8 +213,10 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     // answer for every screen (services/boatLink). Shane 2026-10-07, at home
     // with the boat 900 km away over Tailscale: this page said "Aboard",
     // "Away" and "Connected" in turn while nobody moved, because it read the
-    // place off whichever transport had answered last.
-    const link = useBoatLink();
+    // place off whichever transport had answered last. 'Checking…' while the
+    // boat link loads (131-01), never 'No gateway' on a boat that has one.
+    const snapshot = useBoatLink();
+    const link = snapshot ?? BOAT_LINK_CHECKING;
     // Shane 2026-09-07: "no more signal k or ydwg-02 on the actual phone unless
     // there is no pi available." With a Pi paired the policy keeps this socket
     // shut and the phone reads her through the Pi; Connect here is the
@@ -280,7 +283,8 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     // and Cancel whenever the policy's fallback socket was mid-attempt, and
     // back again when it failed — "gateway settings, sometime take over"
     // (Shane 2026-10-07). A fallback socket is one line on the Pi card now.
-    const skipperSocket = link.socketOwner === 'skipper';
+    // The policy knows who opened it while the boat link loads.
+    const skipperSocket = (snapshot?.socketOwner ?? InstrumentSourcePolicy.socketOwner()) === 'skipper';
     const piMode = piPaired && !skipperSocket;
     const rolledUp = piMode && !showDirect;
     // The socket's own controls belong to a socket this page answers for: the
@@ -407,7 +411,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                     // Said as WHERE and DATA chips (BoatLinkPill), so the
                     // pair wraps at 320 pt rather than clipping; one reading
                     // for a screen reader: link.pill.text.
-                    status={<BoatLinkPill pill={link.pill} pulse={link.data.state === 'connecting'} />}
+                    status={<BoatLinkPill pill={link.pill} pulse={snapshot?.data.state === 'connecting'} />}
                 />
 
                 {/* Content — fills viewport */}

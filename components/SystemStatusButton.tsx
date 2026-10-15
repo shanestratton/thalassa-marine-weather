@@ -16,7 +16,7 @@ import { NmeaListenerService } from '../services/NmeaListenerService';
 import { NmeaStore } from '../services/NmeaStore';
 import { CloudTelemetryService } from '../services/CloudTelemetryService';
 import { deriveNmeaBackboneStatus } from '../utils/nmeaBackboneStatus';
-import { BoatLinkService } from '../services/boatLink/BoatLinkService';
+import { boatLinkConfigured, boatLinkIfConfigured, watchBoatLink } from '../services/boatLink/boatLinkGate';
 import { GpsPrecision } from '../services/shiplog/GpsPrecisionTracker';
 import { GpsReceiverStatusService, type GpsReceiverStatus } from '../services/GpsReceiverStatusService';
 import { NmeaRateSparkline } from './NmeaRateSparkline';
@@ -637,15 +637,19 @@ const SystemStatusModal: React.FC<{
 /**
  * Read the instrument route, not just the intentionally-idle phone socket —
  * in the words every screen uses for where this phone is and how the boat
- * reaches it (services/boatLink).
+ * reaches it (services/boatLink). The boat link loads at start-up only for a
+ * boat with a Pi or a gateway (131-01); until it has, her row says
+ * 'Checking…', and a phone with neither says 'Not set up'.
  */
 function readNmeaBackboneStatus(): SystemState['nmea'] {
+    const link = boatLinkIfConfigured()?.getSnapshot() ?? null;
     return deriveNmeaBackboneStatus({
         store: NmeaStore.getState(),
         directStatus: NmeaListenerService.getStatus(),
         deviceLabel: NmeaListenerService.getConnectionInfo().deviceLabel,
         lastError: NmeaListenerService.getLastError(),
-        link: BoatLinkService.getSnapshot(),
+        link,
+        linkAbsent: link ? undefined : boatLinkConfigured() ? 'checking' : 'not-set-up',
     });
 }
 
@@ -807,6 +811,24 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
 
     // ── NMEA state ──
     const [nmeaStatus, setNmeaStatus] = useState(readNmeaBackboneStatus);
+    const refreshNmea = useCallback(() => {
+        const next = readNmeaBackboneStatus();
+        setNmeaStatus((prev) =>
+            prev.active === next.active &&
+            prev.detail === next.detail &&
+            prev.faulted === next.faulted &&
+            prev.showRates === next.showRates
+                ? prev
+                : next,
+        );
+    }, []);
+    // The boat link is watched while this phone has one — a Pi paired or a
+    // gateway saved, re-read on the poll — or while the box is open, where a
+    // phone with neither (a crew phone reading her through the cloud) still
+    // hears where it is. A phone with no boat never loads it at start-up (131-01).
+    const [linkConfigured, setLinkConfigured] = useState(boatLinkConfigured);
+    const watchLink = linkConfigured || showModal;
+    useEffect(() => (watchLink ? watchBoatLink(refreshNmea) : undefined), [watchLink, refreshNmea]);
 
     // ── GPS receiver identity + feed state ──
     // This is intentionally not inferred from accuracy alone. The service
@@ -885,20 +907,8 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
     // every instrument sample when the displayed diagnosis is unchanged.
     useEffect(() => {
         const unsub = AnchorWatchService.subscribe(setAnchorSnapshot);
-        const refreshNmea = () => {
-            const next = readNmeaBackboneStatus();
-            setNmeaStatus((prev) =>
-                prev.active === next.active &&
-                prev.detail === next.detail &&
-                prev.faulted === next.faulted &&
-                prev.showRates === next.showRates
-                    ? prev
-                    : next,
-            );
-        };
         const nmeaUnsub = NmeaListenerService.onStatusChange(refreshNmea);
         const instrumentsUnsub = NmeaStore.subscribe(refreshNmea);
-        const linkUnsub = BoatLinkService.subscribe(refreshNmea);
 
         let disposed = false;
         const refresh = () => {
@@ -919,7 +929,8 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
             const nav = ShipLogService.getGpsNavData();
             setIsMoving(nav.sogKts !== null && nav.sogKts > 0.5);
 
-            // NMEA
+            // NMEA, and whether this phone has a boat link to watch.
+            setLinkConfigured(boatLinkConfigured());
             refreshNmea();
 
             // Anchor watch kept by the Pi (a string, so an unchanged code is
@@ -966,11 +977,10 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
             unsub();
             nmeaUnsub();
             instrumentsUnsub();
-            linkUnsub();
             clearInterval(id);
             document.removeEventListener('visibilitychange', onVisibility);
         };
-    }, []);
+    }, [refreshNmea]);
 
     // ── Build system state ──
     const systemState: SystemState = useMemo(

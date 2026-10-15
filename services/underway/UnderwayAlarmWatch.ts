@@ -135,28 +135,34 @@ export interface UnderwayInputs {
 }
 
 /**
- * BoatLink, loaded with the watch: it is on the boot path already, and a
- * static import would bring the Pi and gateway services into this module's
- * own graph. Until it has loaded the aboard alarm has no facts, and says nothing.
+ * BoatLink, through its gate, loaded with the watch: a static import would
+ * bring the Pi and gateway services into this module's own graph. The gate
+ * loads the boat link only for a boat with a Pi paired or a gateway saved
+ * (131-01): the alarm hears only her socket or her Pi direct, so with neither
+ * it can never sound, and a phone with no boat does not load it at start-up.
+ * Until it has loaded the aboard alarm has no facts, and says nothing.
  */
-let boatLink: Pick<typeof import('../boatLink/BoatLinkService').BoatLinkService, 'boatFeedFacts'> | null = null;
-let boatLinkLoading = false;
+let gate: Pick<typeof import('../boatLink/boatLinkGate'), 'boatLinkIfConfigured'> | null = null;
+let gateLoading = false;
 
 function loadBoatLink(): void {
-    if (boatLink || boatLinkLoading) return;
-    boatLinkLoading = true;
-    void import('../boatLink/BoatLinkService')
-        .then(({ BoatLinkService }) => {
-            boatLink = BoatLinkService;
+    if (gate || gateLoading) return;
+    gateLoading = true;
+    void import('../boatLink/boatLinkGate')
+        .then((module) => {
+            gate = module;
+            // A boat that has a link starts loading it now, not on the first pass.
+            module.boatLinkIfConfigured();
         })
         .catch((error) => log.warn('boat link could not load for the instruments-silent alarm:', error))
         .finally(() => {
-            boatLinkLoading = false;
+            gateLoading = false;
         });
 }
 
 /** BoatLink's facts for the aboard alarm, or null when they cannot be read. */
 function readBoatFacts(nowMs: number): UnderwayInputs['boat'] {
+    const boatLink = gate?.boatLinkIfConfigured();
     if (!boatLink) return null;
     try {
         const tracking = ShipLogService.getTrackingStatus();

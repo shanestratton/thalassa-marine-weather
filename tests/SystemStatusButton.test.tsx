@@ -2,7 +2,7 @@
  * SystemStatusButton — smoke tests (631 LOC component)
  */
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
 import type { NmeaConnectionStatus } from '../services/NmeaListenerService';
@@ -30,6 +30,8 @@ const instruments = vi.hoisted(() => ({
     receiver: {} as GpsReceiverStatus,
     piStatus: null as null | Record<string, unknown>,
     piWatchSession: null as string | null,
+    /** The saved gateway: this phone's boat link (131-01 loads it at start-up only with one, or a Pi). */
+    saved: { host: '192.0.2.151', port: 1457 } as { host: string; port: number } | null,
 }));
 vi.mock('../services/anchorPiWatchKeeper', () => ({
     AnchorPiWatchKeeper: { keepingSessionCode: () => instruments.piWatchSession },
@@ -83,7 +85,7 @@ vi.mock('../services/NmeaListenerService', () => ({
             port: 1457,
             deviceLabel: 'Yacht Devices YDWG-02',
         }),
-        getSavedConfig: () => ({ host: '192.0.2.151', port: 1457 }),
+        getSavedConfig: () => instruments.saved,
         isReconnecting: () => false,
         onStatusChange: (cb: () => void) => {
             instruments.socketListeners.add(cb);
@@ -187,11 +189,16 @@ vi.mock('../stores/followRouteStore', () => ({
 
 import { SystemStatusButton, plainBuildLabel } from '../components/SystemStatusButton';
 import { BoatLinkService } from '../services/boatLink/BoatLinkService';
+import { loadBoatLink, loadedBoatLink, resetBoatLinkGateForTests } from '../services/boatLink/boatLinkGate';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
 
 describe('SystemStatusButton', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.clearAllMocks();
+        // A boat with a gateway, its boat link already loaded (131-01 loads it
+        // at start-up for her); the tests below that need otherwise say so.
+        instruments.saved = { host: '192.0.2.151', port: 1457 };
+        await loadBoatLink();
         shore.watch = {
             sessionCode: null,
             position: null,
@@ -864,6 +871,37 @@ describe('SystemStatusButton', () => {
         expect(plainBuildLabel('1.2.0 (106) · ios')).toBe('Version 1.2.0 (106)');
         expect(plainBuildLabel('1.2.0 (unknown) · web')).toBe('Version 1.2.0');
         expect(plainBuildLabel('1.2.0 (106) · ios')).not.toMatch(/browser|ios|Z\)/);
+    });
+
+    // 131-01: the boat link loads at start-up only with a Pi paired or a gateway saved.
+    it('a phone with no Pi and no gateway never loads the boat link from the header; the open box does', async () => {
+        resetBoatLinkGateForTests();
+        instruments.saved = null;
+        render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} alwaysShow />);
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        });
+        expect(loadedBoatLink()).toBeNull();
+
+        // Opened, it says where this phone is in the service's own words.
+        fireEvent.click(screen.getByRole('button', { name: /^System status/ }));
+        const row = () => within(screen.getByText('NMEA gateway').closest('li')!);
+        expect(row().getByText('Not set up')).toBeInTheDocument();
+        await waitFor(() => expect(loadedBoatLink()).not.toBeNull());
+        expect(row().getByText('Not set up')).toBeInTheDocument();
+        expect(row().queryByText('Checking…')).toBeNull();
+    });
+
+    it('a boat with a gateway says Checking… while her boat link loads, never Not connected', async () => {
+        resetBoatLinkGateForTests();
+        openStatus();
+        const row = () => within(screen.getByText('NMEA gateway').closest('li')!);
+        expect(row().getByText('Checking…')).toBeInTheDocument();
+        expect(row().queryByText('Not connected')).toBeNull();
+        // Loaded, the row is the service's: her socket is not connected.
+        await waitFor(() => expect(row().queryByText('Checking…')).toBeNull());
+        expect(loadedBoatLink()).not.toBeNull();
+        expect(row().getByText('Not connected')).toBeInTheDocument();
     });
 });
 
