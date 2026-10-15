@@ -13,24 +13,24 @@ const feature = (acronym: string, rcid = 1): SencFeature => ({
     attributes: { TOPSHP: 14, CATMOR: 7 },
     geometry: { type: 'Point', coordinates: [153, -27] },
 });
-const zone = (rcid = 10): SencFeature =>
-    ({
-        ...feature('M_SDAT', rcid),
-        primitive: 3,
-        attributes: { VERDAT: 23 },
-        geometry: {
-            type: 'Area',
-            rings: [
-                [
-                    [153, -27],
-                    [153.1, -27],
-                    [153.1, -27.1],
-                    [153, -27],
-                ],
+const zone = (rcid = 10): SencFeature => ({
+    ...feature('M_SDAT', rcid),
+    primitive: 3,
+    attributes: { VERDAT: 23 },
+    geometry: {
+        type: 'Area',
+        rings: [
+            [
+                [153, -27],
+                [153.1, -27],
+                [153.1, -27.1],
+                [153, -27],
             ],
-            triangles: [],
-        },
-    }) as SencFeature;
+        ],
+        triangles: [],
+        extent: { sLat: -27.1, nLat: -27, wLon: 153, eLon: 153.1 },
+    },
+});
 const opts = { cellId: 'AU5TEST1', sourceHO: 'AU' };
 
 test('schema3 extracts all seven additional navaids with original attributes', () => {

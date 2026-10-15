@@ -57,7 +57,9 @@ describe('cell sounding datum proof', () => {
             cell({ layers: { M_SDAT: { type: 'FeatureCollection', features } } });
         expect(cellSoundingDatum(withZones([zone(23)]))).toBe('LAT');
         for (const datum of [12, 27, 3, 0, undefined]) expect(cellSoundingDatum(withZones([zone(datum)]))).toBeNull();
-        expect(cellSoundingDatum(withZones([{ ...zone(23), geometry: null }]))).toBeNull();
+        const invalidZone = zone(23);
+        Reflect.set(invalidZone, 'geometry', null);
+        expect(cellSoundingDatum(withZones([invalidZone]))).toBeNull();
         expect(
             cellSoundingDatum(withZones([{ ...zone(23), geometry: { type: 'Polygon', coordinates: [] } }])),
         ).toBeNull();
