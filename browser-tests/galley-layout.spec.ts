@@ -21,7 +21,8 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  *    a working list on an SE with its status bar, wraps long names instead of
  *    clipping them, wears no emoji, and writes each price in its row's
  *    currency the phone's way (GAL-09); its ticks, tabs, shop picks and aisle
- *    choices are 44 pt targets; the price sheet and the Add form fit;
+ *    choices are 44 pt targets; the price sheet and the Add form fit, and a
+ *    name typed into the Add form is filed in its aisle (GAL-15);
  *  - the Recipe editor's title, Cancel and Continue are on screen;
  *  - Cooking Mode's title and Close clear the status bar, and Complete &
  *    Subtract clears the home indicator (GAL-10);
@@ -242,7 +243,8 @@ for (const size of SIZES) {
         }
         await expectTapTarget(list.getByRole('button', { name: 'Undo Milk' }), 'the tick for Milk');
 
-        // GAL-15: the audit's words in the right aisles.
+        // GAL-15: the audit's words in the right aisles, as the service files a row given no
+        // aisle (the fixture's seeds). A name typed into the Add form is checked in the next test.
         const aisleOf = (name: string) =>
             list
                 .getByText(name, { exact: true })
@@ -299,6 +301,18 @@ for (const size of SIZES) {
         await expectNoClippedText(form, 'the Add form');
         expect((await form.textContent()) ?? '', 'no emoji: line icons').not.toMatch(/\p{Extended_Pictographic}/u);
         await expectNothingSideways(page);
+
+        // GAL-15 by the skipper's own hand: a typed name lights its aisle and is filed there.
+        await form.getByRole('textbox', { name: 'Item name' }).fill('Japanese eggplants');
+        await expect(aisles.getByRole('button', { name: 'Produce' })).toHaveAttribute('aria-pressed', 'true');
+        await expect(aisles.getByRole('button', { name: 'Dairy' })).toHaveAttribute('aria-pressed', 'false');
+        await form.getByRole('button', { name: 'Add item to grocery list' }).click();
+        await expect(form).toHaveCount(0);
+        const added = list.getByText('Japanese eggplants', { exact: true });
+        await expect(added).toBeVisible();
+        expect(await added.evaluate((element) => element.closest('section')!.querySelector('h2')!.textContent)).toMatch(
+            /^Produce/,
+        );
         expect(errors).toEqual([]);
     });
 

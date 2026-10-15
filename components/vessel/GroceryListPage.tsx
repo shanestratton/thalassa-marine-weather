@@ -26,6 +26,7 @@ import {
     type ShoppingListSummary,
     type MarketZone,
 } from '../../services/ShoppingListService';
+import { detectMarketZone } from '../../services/galley/marketZones';
 import { toPurchasable } from '../../services/PurchaseUnits';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
@@ -171,7 +172,13 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
     const [addName, setAddName] = useState('');
     const [addQty, setAddQty] = useState('1');
     const [addUnit, setAddUnit] = useState('each');
-    const [addZone, setAddZone] = useState<MarketZone>('General');
+    /**
+     * The aisle the sailor tapped, or null while the name picks it (132-B17,
+     * GAL-15): typing 'Eggplant' lights Produce, as a meal's eggplant goes
+     * there. A tapped aisle stays put whatever the name becomes.
+     */
+    const [addZoneChoice, setAddZoneChoice] = useState<MarketZone | null>(null);
+    const addZone = useMemo(() => addZoneChoice ?? detectMarketZone(addName), [addName, addZoneChoice]);
     const [isAdding, setIsAdding] = useState(false);
     const [addError, setAddError] = useState<string | null>(null);
     const [addQuantityInvalid, setAddQuantityInvalid] = useState(false);
@@ -269,7 +276,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
         setAddName('');
         setAddQty('1');
         setAddUnit('each');
-        setAddZone('General');
+        setAddZoneChoice(null);
         setIsAdding(false);
         setAddError(null);
         setAddQuantityInvalid(false);
@@ -364,7 +371,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
         setAddName('');
         setAddQty('1');
         setAddUnit('each');
-        setAddZone('General');
+        setAddZoneChoice(null);
         setAddError(null);
         setAddQuantityInvalid(false);
     }, []);
@@ -1331,7 +1338,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                                         <button
                                             key={z}
                                             type="button"
-                                            onClick={() => setAddZone(z)}
+                                            onClick={() => setAddZoneChoice(z)}
                                             disabled={isAdding || !canManageShoppingList}
                                             aria-pressed={addZone === z}
                                             className={`inline-flex min-h-[44px] items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${

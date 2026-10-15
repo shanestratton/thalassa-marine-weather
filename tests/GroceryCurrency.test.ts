@@ -179,6 +179,16 @@ describe('amounts are written the phone’s way, never a bare $ for every curren
         expect(currencySymbol('NZD', 'en-US')).toBe('NZ$');
         expect(currencySymbol('EUR', 'en-US')).toBe('€');
     });
+
+    it('Pacific francs wear the CFP sign Intl gives the phone, never a bare F or $', () => {
+        // What utils/money's comments promise, and what a phone check expects to see.
+        for (const locale of ['en-AU', 'en-US', 'fr-PF']) {
+            const sign = currencySymbol('XPF', locale);
+            expect(sign).toMatch(/CFP|XPF/);
+            expect(formatMoney(450, 'XPF', locale)).toContain(sign);
+            expect(formatMoney(450, 'XPF', locale)).not.toMatch(/\$|^F\s|\sF$/);
+        }
+    });
 });
 
 describe('spend per currency: two currencies are never added together', () => {

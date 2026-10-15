@@ -9,6 +9,8 @@
  *  - each price in its row's currency, written the phone's way, and spend
  *    totalled per currency; quick picks from the shops this phone has used;
  *  - clear of the status bar and the home indicator, with Cooking Mode too;
+ *  - an item typed into Add item lands in the aisle its name says, unless the
+ *    sailor taps another (GAL-15);
  *  - every behaviour kept: ticking (with the shop), Add item, the voyage spend.
  *
  * The page is real; its services are stubs. Fictional data only: the
@@ -317,7 +319,8 @@ describe('money: each row in its own currency, written the phone’s way (GAL-09
         const euro = plain(formatMoney(4.5, 'EUR'));
         expect(screen.getByText(`· ${euro}`)).toHaveClass('tabular-nums');
         expect(screen.getByText('· Talamahu Market')).toBeInTheDocument();
-        // The header: 2 to buy · 2 bought · A$12.00 + €4.50 spent (the phone's way).
+        // The header, the phone's way: 2 to buy · 2 bought · $12.00 + EUR 4.50 spent on an
+        // Australian phone, A$12.00 + €4.50 spent on an American one.
         const spend = formatSpend([
             { currency: 'AUD', total: 12 },
             { currency: 'EUR', total: 4.5 },
@@ -398,6 +401,64 @@ describe('the quick picks are the shops this phone has used (GAL-09)', () => {
         await waitFor(() =>
             expect(screen.queryByRole('dialog', { name: /Mark as purchased/ })).not.toBeInTheDocument(),
         );
+    });
+});
+
+describe('an item typed into Add item goes to the aisle its name says (GAL-15)', () => {
+    /** Opens Add item and types a name; the form and its aisle choices. */
+    function typeItem(name: string) {
+        fireEvent.click(screen.getByRole('button', { name: 'Add item' }));
+        const form = screen.getByRole('dialog', { name: /Add to shopping list/ });
+        fireEvent.change(within(form).getByRole('textbox', { name: 'Item name' }), { target: { value: name } });
+        return { form, aisles: within(form).getByRole('group', { name: 'Aisle' }) };
+    }
+    const pressed = (aisles: HTMLElement) =>
+        within(aisles)
+            .getAllByRole('button')
+            .filter((choice) => choice.getAttribute('aria-pressed') === 'true')
+            .map((choice) => choice.textContent);
+
+    it.each([
+        ['Eggplant', 'Produce'],
+        ['Breadcrumbs', 'Bakery'],
+        ['Extra virgin olive oil', 'General'],
+        ['Toilet roll', 'General'],
+    ])('typing %s lights %s, and that is the aisle it is saved in', async (name, aisle) => {
+        render(<GroceryListPage onBack={vi.fn()} />);
+        const { form, aisles } = typeItem(name);
+        expect(pressed(aisles)).toEqual([aisle]);
+
+        await act(async () => {
+            fireEvent.click(within(form).getByRole('button', { name: 'Add item to grocery list' }));
+        });
+        expect(mocks.addManualItem).toHaveBeenCalledWith(expect.objectContaining({ name, zone: aisle }));
+    });
+
+    it('the aisle follows the name as it is typed, until the sailor taps one; a tapped aisle stays', async () => {
+        render(<GroceryListPage onBack={vi.fn()} />);
+        const { form, aisles } = typeItem('Ginger');
+        expect(pressed(aisles)).toEqual(['Produce']);
+        const name = within(form).getByRole('textbox', { name: 'Item name' });
+        fireEvent.change(name, { target: { value: 'Ginger beer' } });
+        expect(pressed(aisles)).toEqual(['General']);
+
+        // The skipper buys it at the bottle shop: that tap wins over the name.
+        fireEvent.click(within(aisles).getByRole('button', { name: 'Bottle Shop' }));
+        fireEvent.change(name, { target: { value: 'Ginger beer, 24 cans' } });
+        expect(pressed(aisles)).toEqual(['Bottle Shop']);
+        await act(async () => {
+            fireEvent.click(within(form).getByRole('button', { name: 'Add item to grocery list' }));
+        });
+        expect(mocks.addManualItem).toHaveBeenCalledWith(
+            expect.objectContaining({ name: 'Ginger beer, 24 cans', zone: 'Bottle Shop' }),
+        );
+
+        // The next item starts from its own name again.
+        await waitFor(() =>
+            expect(screen.queryByRole('dialog', { name: /Add to shopping list/ })).not.toBeInTheDocument(),
+        );
+        const next = typeItem('Eggplant');
+        expect(pressed(next.aisles)).toEqual(['Produce']);
     });
 });
 

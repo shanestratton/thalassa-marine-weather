@@ -174,9 +174,12 @@ function storedCode(currency: string | null | undefined): string {
 }
 
 /**
- * An amount as this phone writes it in that currency: '$12.50', 'A$12.50',
- * '12,50 €', 'F 1 200'. `locale` is for tests; the app passes none, so the
- * phone's own language and region decide.
+ * An amount as this phone writes it in that currency, as Intl gives it:
+ * Australian dollars are '$12.50' on an Australian phone and 'A$12.50' on an
+ * American one, euros '12,50 €' in France, and Pacific francs 'CFP 1,200' on
+ * an Australian phone or '1 200 FCFP' in Papeete (never 'F' or '$'; the exact
+ * sign is the phone's own ICU data). `locale` is for tests; the app passes
+ * none, so the phone's own language and region decide.
  */
 export function formatMoney(amount: number, currency: string | null | undefined, locale?: string): string {
     const code = storedCode(currency);
@@ -184,7 +187,11 @@ export function formatMoney(amount: number, currency: string | null | undefined,
     return format ? format.format(amount) : `${code} ${amount.toFixed(2)}`;
 }
 
-/** The sign this phone writes before (or after) an amount in that currency: '$', 'A$', '€', 'F'. */
+/**
+ * The sign this phone writes before (or after) an amount in that currency, as
+ * Intl gives it: '$' or 'A$' for Australian dollars, '€', and 'CFP', 'CFPF' or
+ * 'FCFP' for Pacific francs, by the phone's language.
+ */
 export function currencySymbol(currency: string | null | undefined, locale?: string): string {
     const code = storedCode(currency);
     const part = moneyFormat(code, locale)
@@ -209,7 +216,7 @@ export function spendByCurrency(
         .sort((a, b) => b.total - a.total);
 }
 
-/** Spend in one line: '$42.10', or '$42.10 + US$8.00' across currencies; '' for none. */
+/** Spend in one line: '$42.10', or on an Australian phone '$42.10 + USD 8.00' across currencies; '' for none. */
 export function formatSpend(totals: readonly { currency: string; total: number }[], locale?: string): string {
     return totals.map((entry) => formatMoney(entry.total, entry.currency, locale)).join(' + ');
 }
