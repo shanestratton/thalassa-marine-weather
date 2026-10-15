@@ -20,12 +20,23 @@ const AIS_LAYER_IDS = [
     AIS_SART_LAYER,
     'ais-targets-heading',
     'ais-targets-label',
+    'ais-stale-badge',
+    'ais-dr-ring',
+    'ais-dr-link',
+    'ais-dr-ghost',
+    'ais-target-trail',
     'ais-predicted-tracks-line',
     'ais-predicted-tracks-dots',
     'ais-guard-zone-fill',
     'ais-guard-zone-stroke',
 ] as const;
-const AIS_SOURCE_IDS = ['ais-targets', 'ais-predicted-tracks', 'ais-guard-zone'] as const;
+const AIS_SOURCE_IDS = [
+    'ais-targets',
+    'ais-predicted-tracks',
+    'ais-guard-zone',
+    'ais-dr-estimates',
+    'ais-target-trail',
+] as const;
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = {
     type: 'FeatureCollection',
     features: [],

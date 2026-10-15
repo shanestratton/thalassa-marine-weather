@@ -116,7 +116,7 @@ export const COLLISION_RULE = Object.freeze({
      */
     atAnchorUnderWayAboveKn: 2,
     muteMinutes: 30,
-    /** No CPA from a report older than this: she has moved on (dead reckoning is 128-01). */
+    /** No CPA, including the DR envelope, from a report older than this. */
     maxReportAgeSec: 600,
     /** Further ahead than this is SAFE, whatever the CPA. */
     horizonMin: 60,
@@ -377,6 +377,9 @@ export interface CollisionTarget extends CollisionVessel {
 export type CollisionBlindReason = 'target-motion-unknown' | 'own-motion-unknown' | 'report-too-old';
 
 export interface CollisionAssessment extends CollisionGrade {
+    /** The more conservative position used; absent for a fresh/range-only report. */
+    positionBasis?: 'report' | 'dead-reckoned';
+    uncertaintyNm?: number;
     rangeNm: number;
     bearingDeg: number;
     /** Null when range-only: never a CPA from an unknown speed, course or a stale report. */
@@ -398,7 +401,7 @@ export function collisionSourceCanAlarm(source: unknown): boolean {
 }
 
 /** Assess one target. Null only when either position is invalid. */
-export function assessCollision(
+function assessReportedCollision(
     own: CollisionOwnShip,
     target: CollisionTarget,
     prefs: CollisionPrefs = DEFAULT_COLLISION_PREFS,
@@ -479,6 +482,91 @@ export function assessCollision(
         reason: null,
         alarm: (grade.risk === 'DANGER' || grade.closeQuarters) && collisionSourceCanAlarm(target.source),
     };
+}
+
+/** Display estimate, bounded to the chart's one-hour stale-target window; CPA still stops at ten minutes. */
+export function deadReckonAis(
+    lat: number,
+    lon: number,
+    sog: unknown,
+    cog: unknown,
+    ageSec: number,
+): { lat: number; lon: number; uncertaintyNm: number } | null {
+    const speed = aisSogKn(sog);
+    const course = aisCogDeg(cog);
+    if (
+        !validPosition(lat, lon) ||
+        speed === null ||
+        speed <= 0 ||
+        course === null ||
+        !Number.isFinite(ageSec) ||
+        ageSec < 0 ||
+        ageSec > 3600
+    )
+        return null;
+    const distanceNm = (speed * ageSec) / 3600;
+    const angle = distanceNm / 3440.065;
+    const phi = lat * RAD;
+    const bearing = course * RAD;
+    const nextLat = Math.asin(Math.sin(phi) * Math.cos(angle) + Math.cos(phi) * Math.sin(angle) * Math.cos(bearing));
+    const nextLon =
+        lon * RAD +
+        Math.atan2(
+            Math.sin(bearing) * Math.sin(angle) * Math.cos(phi),
+            Math.cos(angle) - Math.sin(phi) * Math.sin(nextLat),
+        );
+    return { lat: nextLat / RAD, lon: ((nextLon / RAD + 540) % 360) - 180, uncertaintyNm: Math.min(5, distanceNm) };
+}
+
+/** The same report/DR envelope for the phone, popup and Pi. Display preferences never enter it. */
+export function assessCollision(
+    own: CollisionOwnShip,
+    target: CollisionTarget,
+    prefs: CollisionPrefs = DEFAULT_COLLISION_PREFS,
+): CollisionAssessment | null {
+    const report = assessReportedCollision(own, target, prefs);
+    const age = finite(target.reportAgeSec);
+    const dr = age !== null && age > 0 ? deadReckonAis(target.lat, target.lon, target.sogKn, target.cogDeg, age) : null;
+    if (!report || report.rangeOnly || !dr) return report;
+    const projected = assessReportedCollision(own, { ...target, lat: dr.lat, lon: dr.lon }, prefs);
+    if (!projected || projected.rangeOnly) return report;
+    const envelope = (a: CollisionAssessment, positionBasis: 'report' | 'dead-reckoned'): CollisionAssessment => {
+        // Keep the stationary rule exactly: two stopped boats cannot become an alarm through uncertainty.
+        if (
+            (aisSogKn(own.sogKn) ?? 0) < COLLISION_RULE.ownStoppedBelowKn &&
+            (aisSogKn(target.sogKn) ?? 0) < COLLISION_RULE.ownStoppedBelowKn
+        )
+            return a;
+        const cpaNm = Math.max(0, (a.cpaNm ?? 0) - dr.uncertaintyNm);
+        const grade = gradeCollisionRisk(
+            cpaNm,
+            a.tcpaMin ?? 0,
+            aisSogKn(own.sogKn) ?? 0,
+            aisSogKn(target.sogKn) ?? 0,
+            target.navStatus,
+            prefs,
+            a.pair,
+            own.atAnchor,
+        );
+        return {
+            ...a,
+            ...grade,
+            cpaNm,
+            positionBasis,
+            uncertaintyNm: dr.uncertaintyNm,
+            alarm: (grade.risk === 'DANGER' || grade.closeQuarters) && collisionSourceCanAlarm(target.source),
+        };
+    };
+    const reported = envelope(report, 'report');
+    const reckoned = envelope(projected, 'dead-reckoned');
+    const rank = (a: CollisionAssessment) =>
+        a.closeQuarters ? 5 : a.risk === 'DANGER' ? 4 : a.risk === 'CAUTION' ? 3 : a.risk === 'SAFE' ? 2 : 1;
+    if (rank(reckoned) !== rank(reported)) return rank(reckoned) > rank(reported) ? reckoned : reported;
+    if ((reckoned.cpaNm ?? Infinity) !== (reported.cpaNm ?? Infinity))
+        return (reckoned.cpaNm ?? Infinity) < (reported.cpaNm ?? Infinity) ? reckoned : reported;
+    return (reckoned.tcpaMin ?? Infinity) >= 0 && (reckoned.tcpaMin ?? Infinity) < (reported.tcpaMin ?? Infinity)
+        ? reckoned
+        : reported;
 }
 
 /**

@@ -1219,6 +1219,52 @@ export function useMapInit(opts: UseMapInitOptions) {
                 data: { type: 'FeatureCollection', features: [] },
             });
 
+            // DR estimates are presentation only, kept apart from the original sensor reports.
+            map.addSource('ais-dr-estimates', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addSource('ais-target-trail', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addLayer({
+                id: 'ais-target-trail',
+                type: 'line',
+                source: 'ais-target-trail',
+                paint: { 'line-color': '#38bdf8', 'line-width': 1.5, 'line-opacity': 0.3 },
+            });
+            map.addLayer({
+                id: 'ais-dr-ring',
+                type: 'line',
+                source: 'ais-dr-estimates',
+                filter: ['==', ['get', 'kind'], 'ring'],
+                paint: {
+                    'line-color': ['coalesce', ['get', 'typeColor'], '#94a3b8'],
+                    'line-width': 1,
+                    'line-opacity': 0.4,
+                },
+            });
+            map.addLayer({
+                id: 'ais-dr-link',
+                type: 'line',
+                source: 'ais-dr-estimates',
+                filter: ['==', ['get', 'kind'], 'link'],
+                paint: {
+                    'line-color': ['coalesce', ['get', 'typeColor'], '#94a3b8'],
+                    'line-width': 1.5,
+                    'line-opacity': 0.6,
+                    'line-dasharray': [3, 3],
+                },
+            });
+            map.addLayer({
+                id: 'ais-dr-ghost',
+                type: 'circle',
+                source: 'ais-dr-estimates',
+                filter: ['==', ['get', 'kind'], 'ghost'],
+                paint: {
+                    'circle-radius': 6,
+                    'circle-opacity': 0,
+                    'circle-stroke-width': 1.5,
+                    'circle-stroke-color': ['coalesce', ['get', 'typeColor'], '#94a3b8'],
+                    'circle-stroke-opacity': 0.8,
+                },
+            });
+
             // Predicted track lines source
             map.addSource('ais-predicted-tracks', {
                 type: 'geojson',
@@ -1248,7 +1294,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 },
             });
 
-            // Time tick dots along predicted tracks (5, 10, 15 min marks)
+            // Time ticks divide the selected vector length into thirds.
             map.addLayer({
                 id: 'ais-predicted-tracks-dots',
                 type: 'circle',
@@ -1353,6 +1399,22 @@ export function useMapInit(opts: UseMapInitOptions) {
                     'text-halo-color': 'rgba(0, 0, 0, 0.85)',
                     'text-halo-width': 1.5,
                 },
+            });
+
+            map.addLayer({
+                id: 'ais-stale-badge',
+                type: 'symbol',
+                source: 'ais-targets',
+                layout: {
+                    'text-field': ['coalesce', ['get', 'staleBadge'], ''],
+                    'text-size': 10,
+                    'text-offset': [0, -1.5],
+                    'text-anchor': 'bottom',
+                    'text-max-width': 9,
+                    'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+                    'text-allow-overlap': false,
+                },
+                paint: { 'text-color': '#f8fafc', 'text-halo-color': '#334155', 'text-halo-width': 2 },
             });
 
             // 'coastline-stroke' (second white land rim) REMOVED 2026-07-11 —

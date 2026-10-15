@@ -511,6 +511,27 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 makes the line red: blocked (owner decision 5). */}
             <Section title="Chart">
                 <Row>
+                    <label htmlFor="ais-vector-minutes" className="text-sm text-white font-medium">
+                        AIS vector length
+                    </label>
+                    <select
+                        id="ais-vector-minutes"
+                        className="min-h-[44px] rounded-lg bg-slate-800 px-3 text-white"
+                        value={
+                            settings.aisVectorMinutes === 6 || settings.aisVectorMinutes === 30
+                                ? settings.aisVectorMinutes
+                                : 12
+                        }
+                        onChange={(event) => onSave({ aisVectorMinutes: Number(event.target.value) as 6 | 12 | 30 })}
+                    >
+                        {[6, 12, 30].map((minutes) => (
+                            <option key={minutes} value={minutes}>
+                                {minutes} min
+                            </option>
+                        ))}
+                    </select>
+                </Row>
+                <Row>
                     <div className="flex-1 min-w-0">
                         <p className="text-sm text-white font-medium">Show charted leads</p>
                         <p className="text-xs text-gray-400">

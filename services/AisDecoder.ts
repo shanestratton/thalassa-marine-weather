@@ -117,13 +117,51 @@ function decodePositionReport(bits: Uint8Array): AisDecoded | null {
 
 /** Decode message type 5 — Class A Static and Voyage Data */
 function decodeStaticVoyage(bits: Uint8Array): Partial<AisTarget> | null {
+    if (bits.length < 424) return null;
     const mmsi = getUint(bits, 8, 30);
     const callSign = getString(bits, 70, 42);
     const name = getString(bits, 112, 120);
     const shipType = getUint(bits, 232, 8);
     const destination = getString(bits, 302, 120);
 
-    return { mmsi, callSign, name, shipType, destination, lastUpdated: Date.now() };
+    const month = getUint(bits, 274, 4);
+    const day = getUint(bits, 278, 5);
+    const hour = getUint(bits, 283, 5);
+    const minute = getUint(bits, 288, 6);
+    const eta =
+        month >= 1 &&
+        month <= 12 &&
+        day >= 1 &&
+        day <= [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1] &&
+        hour < 24 &&
+        minute < 60
+            ? `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} UTC`
+            : undefined;
+    const draught = getUint(bits, 294, 8) / 10;
+    return {
+        mmsi,
+        callSign,
+        name,
+        shipType,
+        destination,
+        ...decodeDimensions(bits, 240),
+        ...(draught > 0 ? { draught } : {}),
+        ...(eta ? { eta } : {}),
+        lastUpdated: Date.now(),
+    };
+}
+
+function decodeDimensions(bits: Uint8Array, start: number): Partial<AisTarget> {
+    if (bits.length < start + 30) return {};
+    const bow = getUint(bits, start, 9);
+    const stern = getUint(bits, start + 9, 9);
+    const port = getUint(bits, start + 18, 6);
+    const starboard = getUint(bits, start + 24, 6);
+    // A zero offset is 'not available'; do not turn a partial dimension into a real length.
+    return {
+        ...(bow > 0 && stern > 0 ? { length: bow + stern } : {}),
+        ...(port > 0 && starboard > 0 ? { beam: port + starboard } : {}),
+    };
 }
 
 /** Decode message type 14 — Safety-related broadcast: up to 161 six-bit characters from bit 40. */
@@ -179,7 +217,14 @@ function decodeClassBStatic(bits: Uint8Array): Partial<AisTarget> | null {
         // Part B — ship type, call sign
         const shipType = getUint(bits, 40, 8);
         const callSign = getString(bits, 90, 42);
-        return { mmsi, shipType, callSign, lastUpdated: Date.now() };
+        // 98-prefixed auxiliary craft use these bits for their mothership MMSI, never dimensions.
+        return {
+            mmsi,
+            shipType,
+            callSign,
+            ...(String(mmsi).startsWith('98') ? {} : decodeDimensions(bits, 132)),
+            lastUpdated: Date.now(),
+        };
     }
     return null;
 }

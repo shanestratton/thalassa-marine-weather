@@ -33,6 +33,11 @@ export interface AisSafetyText {
 }
 
 export type AisStoreListener = (targets: Map<number, AisTarget>) => void;
+export interface AisTrailFix {
+    lat: number;
+    lon: number;
+    at: number;
+}
 
 // ── GeoJSON Types ──
 interface AisGeoJSONFeature {
@@ -50,6 +55,10 @@ interface AisGeoJSONFeature {
         destination: string;
         statusColor: string;
         lastUpdated: number;
+        length?: number;
+        beam?: number;
+        draught?: number;
+        eta?: string;
         /** The MMSI's latest message 14 text (a beacon's 'SART ACTIVE' / 'SART TEST'), when one was heard. */
         safetyText?: string;
         safetyTextAt?: number;
@@ -62,6 +71,7 @@ interface AisGeoJSON {
 }
 
 class AisStoreClass {
+    private trails = new Map<number, AisTrailFix[]>();
     private targets = new Map<number, AisTarget>();
     private listeners = new Set<AisStoreListener>();
     private sweepTimer: ReturnType<typeof setInterval> | null = null;
@@ -92,6 +102,7 @@ class AisStoreClass {
             this.sweepTimer = null;
         }
         this.targets.clear();
+        this.trails.clear();
         this.safety.clear();
         this.lastHeardAt = 0;
         this.notify();
@@ -148,7 +159,9 @@ class AisStoreClass {
         const existing = this.targets.get(partial.mmsi);
         if (existing) {
             // Merge: position reports update kinematics, static reports update metadata
-            Object.assign(existing, partial);
+            // Static messages cannot refresh an old POSITION (or fabricate a new trail fix).
+            const positioned = Number.isFinite(partial.lat) && Number.isFinite(partial.lon);
+            Object.assign(existing, partial, { lastUpdated: positioned ? heardAt : existing.lastUpdated });
         } else {
             // New target — apply defaults. Course and speed a static message
             // did not carry are 'not available' (ITU 360 / 102.3), never 0: a
@@ -159,6 +172,7 @@ class AisStoreClass {
                 this.evictOldest();
             }
             const target: AisTarget = {
+                ...partial,
                 mmsi: partial.mmsi,
                 name: partial.name ?? '',
                 lat: partial.lat ?? 0,
@@ -179,6 +193,9 @@ class AisStoreClass {
             this.targets.set(partial.mmsi, target);
         }
 
+        if (typeof partial.lat === 'number' && typeof partial.lon === 'number')
+            this.recordTrail(partial.mmsi, partial.lat, partial.lon, heardAt);
+
         this.notify();
     }
 
@@ -190,6 +207,36 @@ class AisStoreClass {
     /** Get count of tracked vessels */
     getCount(): number {
         return this.targets.size;
+    }
+
+    /** Bounded, in-memory reports only: estimates never enter this history. */
+    recordTrail(mmsi: number, lat: number, lon: number, at: number, now = Date.now()): void {
+        if (
+            !Number.isFinite(mmsi) ||
+            mmsi <= 0 ||
+            !Number.isFinite(lat) ||
+            Math.abs(lat) > 90 ||
+            !Number.isFinite(lon) ||
+            Math.abs(lon) > 180 ||
+            (lat === 0 && lon === 0) ||
+            !Number.isFinite(at) ||
+            at > now ||
+            at < now - 30 * 60_000
+        )
+            return;
+        let fixes = this.trails.get(mmsi) ?? [];
+        fixes = fixes.filter((fix) => fix.at >= now - 30 * 60_000);
+        if (fixes.some((fix) => fix.at === at) || (fixes.length && at < fixes[fixes.length - 1].at)) return;
+        fixes.push({ lat, lon, at });
+        if (!this.trails.has(mmsi) && this.trails.size >= MAX_TARGETS)
+            this.trails.delete(this.trails.keys().next().value!);
+        this.trails.set(mmsi, fixes.slice(-60));
+    }
+
+    getTrail(mmsi: number, now = Date.now()): readonly AisTrailFix[] {
+        const fixes = (this.trails.get(mmsi) ?? []).filter((fix) => fix.at >= now - 30 * 60_000);
+        if (!fixes.length) this.trails.delete(mmsi);
+        return fixes.map((fix) => ({ ...fix }));
     }
 
     /** Subscribe to changes. Returns unsubscribe function. */
@@ -225,6 +272,10 @@ class AisStoreClass {
                     destination: target.destination,
                     statusColor: navStatusColor(target.navStatus),
                     lastUpdated: target.lastUpdated,
+                    length: target.length,
+                    beam: target.beam,
+                    draught: target.draught,
+                    eta: target.eta,
                     ...(safety ? { safetyText: safety.text, safetyTextAt: safety.at } : {}),
                 },
             });

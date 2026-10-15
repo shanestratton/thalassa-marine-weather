@@ -13,6 +13,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { AisStreamService } from '../../services/AisStreamService';
 import { AisStore } from '../../services/AisStore';
+import { aisReportAgeSec, aisVectorMinutes, buildAisDrFeatures, nearLongitude } from '../../services/ais/aisDeadReckon';
 import { supabase } from '../../services/supabase';
 import { onLocalAisChange } from './useAisLayer';
 import { AIS_SART_LAYER } from './aisDistressSymbol';
@@ -83,7 +84,6 @@ const OWNSHIP_FETCH_RADIUS_NM = 12;
 const OWNSHIP_COVERED_FRACTION = 0.5;
 const AIS_SOURCE_ID = 'ais-targets';
 const PREDICTED_TRACKS_SOURCE_ID = 'ais-predicted-tracks';
-const TRACK_INTERVALS_MIN = [5, 10, 15]; // Projected positions at 5, 10, 15 minutes
 
 /**
  * AIS names, callsigns, destinations, and registry fields are external input.
@@ -300,6 +300,7 @@ interface AisTargetPopupHtmlInput {
     loa: unknown;
     beam: unknown;
     draft: unknown;
+    eta?: unknown;
     /** Generated solely from finite CPA values and local label/colour tables. */
     trustedCpaHtml: string;
     mmsi: unknown;
@@ -319,7 +320,6 @@ interface AisTargetPopupHtmlInput {
  * handed to Mapbox, not merely the escaping helper in isolation.
  */
 export function buildAisTargetPopupHtml(input: AisTargetPopupHtmlInput): string {
-    const thumbnail = safeAisImageUrl(input.thumbnail);
     const navStatus = normaliseAisNavStatus(input.navStatus);
     const statusColor = navStatusColor(navStatus);
     const status = navStatusLabel(navStatus);
@@ -339,7 +339,7 @@ export function buildAisTargetPopupHtml(input: AisTargetPopupHtmlInput): string 
             : '';
     const upgradeBanner = !input.isPremium
         ? `<button type="button" id="${escapeAisPopupHtml(input.detailBtnId)}" style="width:100%;background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.15);border-radius:8px;padding:6px 10px;margin-bottom:10px;text-align:center;font-size:10px;color:var(--day-ui-accent, #38bdf8);cursor:pointer;">
-            🔒 Upgrade for vessel photo, dimensions &amp; registry data
+            🔒 Upgrade for registry data
            </button>`
         : '';
     const viewDetailsBtn =
@@ -352,11 +352,7 @@ export function buildAisTargetPopupHtml(input: AisTargetPopupHtmlInput): string 
     return `
         <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--day-ui-surface, rgba(15,23,42,0.95));backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--day-ui-border, rgba(255,255,255,0.1));border-radius:14px;padding:14px 16px;color:var(--day-ui-text, #e2e8f0);min-width:240px;max-width:300px;">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                ${
-                    thumbnail
-                        ? `<img src="${escapeAisPopupHtml(thumbnail)}" alt="" referrerpolicy="no-referrer" style="width:44px;height:44px;border-radius:10px;object-fit:cover;border:1px solid var(--day-ui-border, rgba(255,255,255,0.1));flex-shrink:0;" />`
-                        : `<div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,rgba(14,165,233,0.15),rgba(139,92,246,0.15));border:1px solid var(--day-ui-border, rgba(255,255,255,0.08));display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">${escapeAisPopupHtml(input.shipIcon)}</div>`
-                }
+                ${`<div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,rgba(14,165,233,0.15),rgba(139,92,246,0.15));border:1px solid var(--day-ui-border, rgba(255,255,255,0.08));display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">${escapeAisPopupHtml(input.shipIcon)}</div>`}
                 <div style="flex:1;min-width:0;">
                     <div data-vessel-name style="font-weight:800;font-size:14px;letter-spacing:0.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeAisPopupHtml(input.displayName)}</div>
                     <div style="font-size:10px;color:var(--day-ui-muted, #94a3b8);display:flex;align-items:center;gap:4px;">
@@ -396,6 +392,7 @@ export function buildAisTargetPopupHtml(input: AisTargetPopupHtmlInput): string 
                 <span>${escapeAisPopupHtml(input.cog)} / ${escapeAisPopupHtml(input.heading)}</span>
                 <span style="color:var(--day-ui-muted, #64748b);">Destination</span>
                 <span style="font-weight:600;color:var(--day-ui-text, #e2e8f0);">${escapeAisPopupHtml(input.destination)}</span>
+                ${input.eta ? `<span style="color:var(--day-ui-muted, #64748b);">AIS ETA</span><span>${escapeAisPopupHtml(input.eta)}</span>` : ''}
                 <span style="color:var(--day-ui-muted, #64748b);">Source</span>
                 <span style="font-size:10px;">${escapeAisPopupHtml(input.source)}</span>
                 ${input.imoNumber ? `<span style="color:var(--day-ui-muted, #64748b);">IMO</span><span style="font-family:monospace;font-size:10px;">${escapeAisPopupHtml(input.imoNumber)}</span>` : ''}
@@ -860,6 +857,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
     const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const requestGeneration = useRef(0);
     const popupRef = useRef<mapboxgl.Popup | null>(null);
+    const selectedMmsi = useRef<number | null>(null);
     const cachedServerFeatures = useRef<GeoJSON.Feature[]>([]);
     /** Kept separate from the viewport cache so neither overwrites the other. */
     const cachedOwnshipFeatures = useRef<GeoJSON.Feature[]>([]);
@@ -925,15 +923,41 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             feat.properties.iconKind = pres.iconKind;
             feat.properties.orientation = pres.orientation;
             if (pres.distressLabel) feat.properties.distressLabel = pres.distressLabel;
+            const age = aisReportAgeSec(feat.properties, now);
+            feat.properties.staleBadge =
+                age !== null && age > 60 && !pres.distressLabel ? `${Math.floor(age / 60)} min old` : '';
+            if (feat.geometry.type === 'Point' && age !== null) {
+                const [lon, lat] = feat.geometry.coordinates;
+                AisStore.recordTrail(Number(feat.properties.mmsi), lat, lon, now - age * 1000, now);
+            }
         }
 
         const source = map.getSource(AIS_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
         if (source) {
             source.setData(clipped);
         }
+        const drSource = map.getSource('ais-dr-estimates') as mapboxgl.GeoJSONSource | undefined;
+        drSource?.setData(buildAisDrFeatures(clipped.features, now));
+        const trail = selectedMmsi.current === null ? [] : AisStore.getTrail(selectedMmsi.current, now);
+        const trailCoords = trail.map((fix, i) => [i === 0 ? fix.lon : nearLongitude(fix.lon, trail[0].lon), fix.lat]);
+        const trailSource = map.getSource('ais-target-trail') as mapboxgl.GeoJSONSource | undefined;
+        trailSource?.setData({
+            type: 'FeatureCollection',
+            features:
+                trailCoords.length < 2
+                    ? []
+                    : [
+                          {
+                              type: 'Feature',
+                              properties: {},
+                              geometry: { type: 'LineString', coordinates: trailCoords },
+                          },
+                      ],
+        });
 
         // ── Generate predicted track lines for moving vessels ──
         const trackFeatures: GeoJSON.Feature[] = [];
+        const vectorMinutes = aisVectorMinutes(useSettingsStore.getState().settings.aisVectorMinutes);
         for (const feat of clipped.features) {
             const p = feat.properties;
             if (!p) continue;
@@ -952,9 +976,9 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             const [lon, lat] = normalisedCoords;
             const color = navStatusColor(normaliseAisNavStatus(p.navStatus ?? p.nav_status));
 
-            // Build projected line: current pos → 5 → 10 → 15 min
+            // Three ticks divide the chosen look-ahead; the icon remains on the real report.
             const lineCoords: [number, number][] = [[lon, lat]];
-            for (const minutes of TRACK_INTERVALS_MIN) {
+            for (const minutes of [vectorMinutes / 3, (vectorMinutes * 2) / 3, vectorMinutes]) {
                 const projected = projectPosition(lat, lon, cog, sog, minutes);
                 lineCoords.push(projected);
 
@@ -1010,6 +1034,19 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             }
         }
     }, [map, enabled]);
+
+    // Age and selected trails must advance even when a receiver/network is quiet.
+    useEffect(() => {
+        if (!map || !enabled) return;
+        const timer = setInterval(mergeAndWrite, 15_000);
+        const unsubscribe = useSettingsStore.subscribe?.((state, previous) => {
+            if (state.settings.aisVectorMinutes !== previous.settings.aisVectorMinutes) mergeAndWrite();
+        });
+        return () => {
+            clearInterval(timer);
+            unsubscribe?.();
+        };
+    }, [map, enabled, mergeAndWrite]);
 
     const fetchAndMerge = useCallback(
         async (expectedGeneration = requestGeneration.current) => {
@@ -1318,9 +1355,9 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             const flagCountry = intel?.metadata?.flag_country || intel?.country || null;
 
             // ── Dimensions — always show what we have ──
-            const loa = finiteAisDisplayNumber(intel?.metadata?.loa);
-            const beam = finiteAisDisplayNumber(intel?.metadata?.beam);
-            const draft = finiteAisDisplayNumber(intel?.metadata?.draft);
+            const loa = finiteAisDisplayNumber(p.length) ?? finiteAisDisplayNumber(intel?.metadata?.loa);
+            const beam = finiteAisDisplayNumber(p.beam) ?? finiteAisDisplayNumber(intel?.metadata?.beam);
+            const draft = finiteAisDisplayNumber(p.draught) ?? finiteAisDisplayNumber(intel?.metadata?.draft);
 
             // ── IMO + Data Source (premium) ──
             const imoNumber = intel?.metadata?.imo_number ?? null;
@@ -1411,6 +1448,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
 
                 cpaSection = `
                     ${banner}
+                    ${cpaResult.positionBasis ? `<div style="font-size:10px;margin-bottom:6px;color:var(--day-ui-muted, #64748b);">Worse CPA: ${cpaResult.positionBasis === 'dead-reckoned' ? 'estimated now' : 'last report'}; uncertainty ${cpaResult.uncertaintyNm?.toFixed(2)} NM allowed for</div>` : ''}
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid var(--day-ui-border, rgba(255,255,255,0.06));">
                         <div style="text-align:center;">
                             <div style="font-size:9px;color:var(--day-ui-muted, #64748b);text-transform:uppercase;letter-spacing:0.5px;">Distance</div>
@@ -1485,6 +1523,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                 loa,
                 beam,
                 draft,
+                eta: p.eta,
                 trustedCpaHtml: cpaSection,
                 mmsi,
                 callSign,
@@ -1508,6 +1547,15 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                 .setLngLat(coords)
                 .setHTML(html)
                 .addTo(map);
+            selectedMmsi.current = Number(mmsi);
+            mergeAndWrite();
+            popupRef.current.on?.('close', () => {
+                selectedMmsi.current = null;
+                (map.getSource('ais-target-trail') as mapboxgl.GeoJSONSource | undefined)?.setData({
+                    type: 'FeatureCollection',
+                    features: [],
+                });
+            });
 
             // ── Attach detail modal click handler ──
             if (isPremium && intel?.metadata && modalData) {

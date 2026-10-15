@@ -150,6 +150,41 @@ describe('AIS Message Type 24 (Class B Static Data)', () => {
         expect(result.mmsi).toBeDefined();
         expect(typeof result.name).toBe('string');
     });
+
+    const staticPartB = (mmsi: number, offsets: [number, number, number, number]): string => {
+        const bits = new Uint8Array(168);
+        const put = (start: number, width: number, value: number) => {
+            for (let i = 0; i < width; i++) bits[start + i] = (value >>> (width - 1 - i)) & 1;
+        };
+        put(0, 6, 24);
+        put(8, 30, mmsi);
+        put(38, 2, 1);
+        put(132, 9, offsets[0]);
+        put(141, 9, offsets[1]);
+        put(150, 6, offsets[2]);
+        put(156, 6, offsets[3]);
+        return Array.from({ length: bits.length / 6 }, (_, i) => {
+            const value = getUint(bits, i * 6, 6);
+            return String.fromCharCode(value + (value < 40 ? 48 : 56));
+        }).join('');
+    };
+
+    it('adds the available offsets into Class B length and beam', () => {
+        expect(decodePayload(staticPartB(232123456, [20, 10, 3, 4]))).toMatchObject({ length: 30, beam: 7 });
+    });
+
+    it('never reads an auxiliary craft mothership MMSI as dimensions', () => {
+        const auxiliary = decodePayload(staticPartB(982321234, [20, 10, 3, 4]))!;
+        expect(auxiliary.mmsi).toBe(982321234);
+        expect(auxiliary.length).toBeUndefined();
+        expect(auxiliary.beam).toBeUndefined();
+    });
+
+    it('does not invent a complete dimension from an unavailable offset', () => {
+        const incomplete = decodePayload(staticPartB(232123456, [20, 0, 0, 4]))!;
+        expect(incomplete.length).toBeUndefined();
+        expect(incomplete.beam).toBeUndefined();
+    });
 });
 
 // ── decodePayload isolation ──
