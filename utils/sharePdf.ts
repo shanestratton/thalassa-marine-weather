@@ -23,19 +23,23 @@ function blobToBase64(blob: Blob): Promise<string> {
     });
 }
 
+/** What became of a file handed over: only 'downloaded' is worth a toast, the share sheet speaks for itself. */
+export type ShareOutcome = 'shared' | 'downloaded' | 'cancelled';
+
 /**
  * Share (native) or download (web) ANY file blob. Returns 'shared' |
  * 'downloaded' | 'cancelled'. Throws only on an unexpected failure so the
  * caller can toast. `mimeType` is used for the web File wrapper (the native
  * path is mimetype-agnostic — the extension in fileName drives handler
- * selection). Used for the route-report PDF and the GPX route export.
+ * selection). Used for the route-report PDF, the GPX route export and the
+ * Stores, Equipment and Maintenance PDFs (130-B8).
  */
 export async function shareFileBlob(
     blob: Blob,
     fileName: string,
     title: string,
     mimeType: string,
-): Promise<'shared' | 'downloaded' | 'cancelled'> {
+): Promise<ShareOutcome> {
     if (Capacitor.isNativePlatform()) {
         const base64 = await blobToBase64(blob);
         const saved = await Filesystem.writeFile({ path: fileName, data: base64, directory: Directory.Cache });
@@ -60,8 +64,10 @@ export async function shareFileBlob(
         try {
             await nav.share({ files: [file], title });
             return 'shared';
-        } catch {
-            /* user cancelled or unsupported → fall through to download */
+        } catch (err) {
+            // A dismissed share sheet is a decision: no download behind it (130-B8).
+            if (err instanceof Error && err.name === 'AbortError') return 'cancelled';
+            /* unsupported → fall through to download */
         }
     }
     const url = URL.createObjectURL(blob);
@@ -75,11 +81,13 @@ export async function shareFileBlob(
     return 'downloaded';
 }
 
+/** A share sheet's title (a mail's subject): 'Ship's Stores - Serene Summer', or the title alone with no name. */
+export function shareTitle(title: string, name?: string | null): string {
+    const trimmed = name?.trim();
+    return trimmed ? `${title} - ${trimmed}` : title;
+}
+
 /** PDF convenience wrapper — the original signature, now atop shareFileBlob. */
-export function sharePdfBlob(
-    blob: Blob,
-    fileName: string,
-    title: string,
-): Promise<'shared' | 'downloaded' | 'cancelled'> {
+export function sharePdfBlob(blob: Blob, fileName: string, title: string): Promise<ShareOutcome> {
     return shareFileBlob(blob, fileName, title, 'application/pdf');
 }

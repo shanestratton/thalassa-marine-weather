@@ -227,11 +227,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const [showEditForm, setShowEditForm] = useState(false);
     const [editTask, setEditTask] = useState<{ identity: AuthIdentityScope; task: TaskWithStatus } | null>(null);
 
-    // Export
-    const [showExportModal, setShowExportModal] = useState(false);
+    // Share or save a PDF (130-B8). The ref is the double-tap guard: state
+    // lands a render late, so a second tap would start a second PDF.
     const [menuOpen, setMenuOpen] = useState(false);
     const [exporting, setExporting] = useState(false);
-    const vesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || 'Vessel');
+    const exportingRef = useRef(false);
+    // No name set: the PDF prints none, rather than 'Vessel'.
+    const ownVesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || '');
 
     const hoursInputRef = useRef<HTMLInputElement>(null);
     const loadRequestRef = useRef(0);
@@ -388,6 +390,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         rowCount: tasks.length,
     });
     const sharedBinder = binder.mode === 'shared';
+    // The boat's name on the PDFs (130-B8): the skipper's on his shared R&M,
+    // not the crew member's own boat from settings. None known: none printed.
+    const vesselName = binder.mode === 'shared' ? binder.vesselName?.trim() || '' : ownVesselName;
 
     // ── Engine Hours ──
     // Saved as the R&M binder's shared reading: every device of the skipper
@@ -697,30 +702,54 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         }
     }, []);
 
-    // ── Export PDF ──
+    // ── Share or save a PDF (130-B8) ──
+    // From the rows on this phone, as the list shows them: the server's copy
+    // left the PDFs blank offline at sea. A task or record waiting out its
+    // Undo is left out, as it is on screen.
     const handleExport = useCallback(
         async (type: 'checklist' | 'history', identity: AuthIdentityScope = getAuthIdentityScope()) => {
-            if (!isAuthIdentityScopeCurrent(identity)) return;
+            if (!isAuthIdentityScopeCurrent(identity) || exportingRef.current) return;
             const engineHoursSnapshot = engineHours;
             const vesselNameSnapshot = vesselName;
+            exportingRef.current = true;
             setExporting(true);
             try {
                 triggerHaptic('medium');
-                if (type === 'checklist') {
-                    await exportChecklist(engineHoursSnapshot, vesselNameSnapshot);
-                } else {
-                    await exportServiceHistory(vesselNameSnapshot);
-                }
+                const outcome =
+                    type === 'checklist'
+                        ? await exportChecklist(
+                              activeTasks.map((task) => ({ ...task })),
+                              engineHoursSnapshot,
+                              vesselNameSnapshot,
+                          )
+                        : await exportServiceHistory(
+                              MaintenanceService.getAllHistory().filter(
+                                  (record) => !recordUndo.hiddenIds.has(record.id) && !hiddenIds.has(record.task_id),
+                              ),
+                              // Every task, paused ones too, for the records' titles.
+                              taskData.tasks.map((task) => ({ ...task })),
+                              vesselNameSnapshot,
+                          );
                 if (!isAuthIdentityScopeCurrent(identity)) return;
-                setShowExportModal(false);
+                // The share sheet speaks for itself; only the web's download needs a word.
+                if (outcome === 'empty') {
+                    toast.info(
+                        type === 'checklist'
+                            ? 'No active tasks to put on a checklist yet.'
+                            : 'No services logged yet, so there is no history to share.',
+                    );
+                } else if (outcome === 'downloaded') {
+                    toast.success('PDF downloaded');
+                }
             } catch (e) {
                 log.error('Failed to export PDF:', e);
-                if (isAuthIdentityScopeCurrent(identity)) toast.error('PDF export failed');
+                if (isAuthIdentityScopeCurrent(identity)) toast.error('Could not make the PDF. Try again.');
             } finally {
+                exportingRef.current = false;
                 if (isAuthIdentityScopeCurrent(identity)) setExporting(false);
             }
         },
-        [engineHours, vesselName],
+        [engineHours, vesselName, activeTasks, taskData.tasks, hiddenIds, recordUndo.hiddenIds],
     );
 
     useEffect(
@@ -745,7 +774,6 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 setShowHistory(false);
                 setShowEditForm(false);
                 setEditTask(null);
-                setShowExportModal(false);
                 setMenuOpen(false);
                 setExporting(false);
 
@@ -989,19 +1017,20 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {menuOpen && (
                                 <>
                                     <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                                    <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                    <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                         {/* Named by their visible words (the glyphs are
-                                            decoration), so Voice Control's "Tap Blank
-                                            checklist PDF" finds them; "Export blank
-                                            maintenance checklist PDF" did not start with
-                                            them. */}
+                                            decoration), so Voice Control's "Tap Share or
+                                            save blank checklist" finds them. One row per
+                                            PDF (130-B8): the share sheet offers Save to
+                                            Files, Mail, AirDrop and Print. */}
                                         <button
                                             type="button"
+                                            disabled={exporting}
                                             onClick={() => {
                                                 handleExport('checklist', taskData.identity);
                                                 setMenuOpen(false);
                                             }}
-                                            className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3"
+                                            className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 disabled:opacity-40"
                                         >
                                             <svg
                                                 aria-hidden="true"
@@ -1017,15 +1046,16 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                     d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"
                                                 />
                                             </svg>
-                                            Blank checklist PDF
+                                            Share or save blank checklist
                                         </button>
                                         <button
                                             type="button"
+                                            disabled={exporting}
                                             onClick={() => {
                                                 handleExport('history', taskData.identity);
                                                 setMenuOpen(false);
                                             }}
-                                            className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 border-t border-white/5"
+                                            className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 border-t border-white/5 disabled:opacity-40"
                                         >
                                             <svg
                                                 aria-hidden="true"
@@ -1041,7 +1071,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                     d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
                                                 />
                                             </svg>
-                                            Service history PDF
+                                            Share or save service history
                                         </button>
                                     </div>
                                 </>
@@ -1459,93 +1489,6 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                         </div>
                                     );
                                 })}
-                            </div>
-                        )}
-                    </ModalSheet>
-                )}
-
-                {/* ═══════════════════════════════════════════ */}
-                {/* EXPORT PDF MODAL */}
-                {/* ═══════════════════════════════════════════ */}
-                {showExportModal && (
-                    <ModalSheet
-                        isOpen={true}
-                        onClose={() => setShowExportModal(false)}
-                        title="Export PDF"
-                        maxWidth="max-w-sm"
-                    >
-                        <p className="text-xs text-gray-400 mb-5">Choose a report format:</p>
-
-                        {/* Option A: Blank Checklist */}
-                        <button
-                            type="button"
-                            // Starts with the visible words, as the menu item does.
-                            aria-label="Print blank checklist PDF"
-                            onClick={() => handleExport('checklist', taskData.identity)}
-                            disabled={exporting}
-                            className="w-full mb-3 p-4 bg-linear-to-r from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl text-left hover:from-sky-500/25 hover:to-sky-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 bg-sky-500/20 rounded-xl">
-                                    <svg
-                                        className="w-5 h-5 text-sky-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={1.5}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"
-                                        />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <p className="text-sm font-black text-white">Print blank checklist</p>
-                                    <p className="text-label text-gray-400 mt-0.5">
-                                        Printable clipboard for the engine room
-                                    </p>
-                                </div>
-                            </div>
-                        </button>
-
-                        {/* Option B: Service History */}
-                        <button
-                            aria-label="Export service history PDF"
-                            onClick={() => handleExport('history', taskData.identity)}
-                            disabled={exporting}
-                            className="w-full p-4 bg-linear-to-r from-amber-500/15 to-amber-500/15 border border-amber-500/20 rounded-2xl text-left hover:from-amber-500/25 hover:to-amber-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 bg-amber-500/20 rounded-xl">
-                                    <svg
-                                        className="w-5 h-5 text-amber-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={1.5}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-                                        />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <p className="text-sm font-black text-white">Export service history</p>
-                                    <p className="text-label text-gray-400 mt-0.5">
-                                        Formal ledger of all completed work
-                                    </p>
-                                </div>
-                            </div>
-                        </button>
-
-                        {exporting && (
-                            <div className="flex items-center justify-center gap-2 mt-4">
-                                <div className="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-                                <span className="text-xs text-sky-400 font-bold">Generating PDF…</span>
                             </div>
                         )}
                     </ModalSheet>

@@ -15,7 +15,7 @@ import { StoresCategoryGrid } from './inventory/StoresCategoryGrid';
 import { LocalInventoryService as InventoryService } from '../../services/vessel/LocalInventoryService';
 import { inventoryStats } from '../../services/vessel/inventoryStats';
 import { InventoryScanner } from './InventoryScanner';
-import { downloadInventoryPdf, shareInventoryPdf } from '../../utils/inventoryPdfExport';
+import { shareInventoryPdf } from '../../utils/inventoryPdfExport';
 import { triggerHaptic } from '../../utils/system';
 import { TapToAction } from '../ui/TapToAction';
 import { Capacitor } from '@capacitor/core';
@@ -113,17 +113,19 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [showScanner, setShowScanner] = useState(false);
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const vesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || undefined);
+    const ownVesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || undefined);
 
     // Header 3-dot menu
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
     const headerMenuRef = useRef<HTMLDivElement>(null);
     const loadRequestRef = useRef(0);
 
-    // Category export picker
+    // Category export picker: one 'Share or save' (130-B8). The ref is the
+    // double-tap guard: state lands a render late.
     const [showExportPicker, setShowExportPicker] = useState(false);
     const [exportCategories, setExportCategories] = useState<Set<InventoryCategory>>(new Set());
-    const [exportMode, setExportMode] = useState<'download' | 'share'>('download');
+    const [exporting, setExporting] = useState(false);
+    const exportingRef = useRef(false);
 
     // ── Load data ──
     const loadItems = useCallback(async (identity: AuthIdentityScope = getAuthIdentityScope(), background = false) => {
@@ -184,6 +186,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     });
     const sharedBinder = binder.mode === 'shared';
     const viewOnly = binder.mode === 'shared' && !binder.canWrite;
+    // The boat's name on the PDF (130-B8): the skipper's on his shared stores,
+    // not the crew member's own boat from settings. None known: none printed.
+    const vesselName = binder.mode === 'shared' ? binder.vesselName?.trim() || undefined : ownVesselName;
 
     // Boxes (126-11a): written only once this phone has read stores_boxes from
     // the server, and opened by id through openBox() (126-11b's tag link).
@@ -245,38 +250,50 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         });
     }, [items, searchQuery]);
 
-    // ── Export/Share by category (PDF) ──
+    // ── Share or save by category (PDF, 130-B8) ──
+    // Through sharePdfBlob: the share sheet in the app (Save to Files, Mail,
+    // AirDrop, Print). The old Download called jsPDF's save(), which does
+    // nothing in the iPhone app, then said the PDF was downloaded.
     const handleExport = useCallback(
-        async (
-            mode: 'download' | 'share',
-            categories: Set<InventoryCategory>,
-            identity: AuthIdentityScope = getAuthIdentityScope(),
-        ) => {
-            if (!isAuthIdentityScopeCurrent(identity)) return;
+        async (categories: Set<InventoryCategory>, identity: AuthIdentityScope = getAuthIdentityScope()) => {
+            if (!isAuthIdentityScopeCurrent(identity) || exportingRef.current) return;
             const exportItems = items.map((item) => ({ ...item }));
             const exportCategorySnapshot = new Set(categories);
+            exportingRef.current = true;
+            setExporting(true);
             try {
-                const opts = {
+                const outcome = await shareInventoryPdf({
                     items: exportItems,
                     categories: exportCategorySnapshot,
                     vesselName,
-                };
-                if (mode === 'share') {
-                    await shareInventoryPdf(opts);
-                } else {
-                    await downloadInventoryPdf(opts);
-                    if (!isAuthIdentityScopeCurrent(identity)) return;
-                    toast.success('Stores PDF downloaded');
+                });
+                if (!isAuthIdentityScopeCurrent(identity)) return;
+                if (outcome === 'empty') {
+                    toast.info('Nothing in those categories yet.');
+                    return;
                 }
+                // A dismissed share sheet leaves the picker open, to choose again.
+                if (outcome === 'cancelled') return;
+                if (outcome === 'downloaded') toast.success('Stores PDF downloaded');
+                setShowExportPicker(false);
+                setExportCategories(new Set());
             } catch (e) {
                 log.warn(' Export failed:', e);
-                if (isAuthIdentityScopeCurrent(identity)) toast.error('Export failed');
+                if (isAuthIdentityScopeCurrent(identity)) toast.error('Could not make the PDF. Try again.');
+            } finally {
+                exportingRef.current = false;
+                if (isAuthIdentityScopeCurrent(identity)) setExporting(false);
             }
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            setShowExportPicker(false);
-            setExportCategories(new Set());
         },
         [items, vesselName],
+    );
+    /** Items the picker's choice would list: with none, its button says so and waits. */
+    const exportCount = useMemo(
+        () =>
+            exportCategories.size === 0
+                ? items.length
+                : items.filter((item) => exportCategories.has(item.category)).length,
+        [items, exportCategories],
     );
 
     const toggleExportCategory = useCallback((cat: InventoryCategory) => {
@@ -337,7 +354,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 setHeaderMenuOpen(false);
                 setShowExportPicker(false);
                 setExportCategories(new Set());
-                setExportMode('download');
+                setExporting(false);
                 setEditItem(null);
                 setEditName('');
                 setEditCategory('Provisions');
@@ -566,46 +583,22 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             {headerMenuOpen && (
                                 <>
                                     <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
-                                    <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                    <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                        {/* One row (130-B8): the share sheet it opens offers
+                                            Save to Files, Mail, AirDrop and Print. Named by
+                                            its visible words, for Voice Control. */}
                                         <button
-                                            aria-label="Download inventory as PDF"
+                                            type="button"
                                             disabled={items.length === 0}
                                             onClick={() => {
                                                 setHeaderMenuOpen(false);
-                                                setExportMode('download');
                                                 setExportCategories(new Set());
                                                 setShowExportPicker(true);
                                             }}
                                             className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
                                         >
                                             <svg
-                                                className="w-4 h-4 text-sky-400"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                                strokeWidth={2}
-                                            >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                                                />
-                                            </svg>
-                                            Download stores list
-                                        </button>
-                                        <div className="border-t border-white/5" />
-                                        <button
-                                            aria-label="Share stores list via email or AirDrop"
-                                            disabled={items.length === 0}
-                                            onClick={() => {
-                                                setHeaderMenuOpen(false);
-                                                setExportMode('share');
-                                                setExportCategories(new Set());
-                                                setShowExportPicker(true);
-                                            }}
-                                            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
-                                        >
-                                            <svg
+                                                aria-hidden="true"
                                                 className="w-4 h-4 text-emerald-400"
                                                 fill="none"
                                                 viewBox="0 0 24 24"
@@ -618,7 +611,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                     d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
                                                 />
                                             </svg>
-                                            Share stores list
+                                            Share or save stores list
                                         </button>
                                     </div>
                                 </>
@@ -983,11 +976,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
             {/* ═══ EXPORT CATEGORY PICKER ═══ */}
             {showExportPicker && (
-                <ModalSheet
-                    isOpen={true}
-                    onClose={() => setShowExportPicker(false)}
-                    title={exportMode === 'share' ? 'Share stores list' : 'Download stores list'}
-                >
+                <ModalSheet isOpen={true} onClose={() => setShowExportPicker(false)} title="Share or save stores list">
                     <p className="text-sm text-gray-400 mb-3">Select categories to include, or leave blank for all:</p>
                     <div className="grid grid-cols-2 gap-2 mb-4">
                         {CATEGORIES.map((cat) => {
@@ -1024,15 +1013,22 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             );
                         })}
                     </div>
+                    {/* Never a blank PDF: a choice with nothing in it says so and waits. */}
                     <Button
                         variant="primary"
-                        onClick={() => handleExport(exportMode, exportCategories, inventoryData.identity)}
+                        disabled={exporting || exportCount === 0}
+                        onClick={() => handleExport(exportCategories, inventoryData.identity)}
                         className="w-full"
                     >
-                        {exportMode === 'share' ? 'Share' : 'Download'}{' '}
-                        {exportCategories.size > 0
-                            ? `${exportCategories.size} ${exportCategories.size === 1 ? 'category' : 'categories'}`
-                            : 'all categories'}
+                        {exporting
+                            ? 'Making the PDF…'
+                            : exportCount === 0
+                              ? 'Nothing in those categories yet'
+                              : `Share or save ${
+                                    exportCategories.size > 0
+                                        ? `${exportCategories.size} ${exportCategories.size === 1 ? 'category' : 'categories'}`
+                                        : 'all categories'
+                                }`}
                     </Button>
                 </ModalSheet>
             )}
