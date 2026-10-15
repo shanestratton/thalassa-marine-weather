@@ -16,6 +16,8 @@
  * forecastDataCredit() for the providers actually on screen.
  */
 import type { OffshoreModel, WeatherModel } from '../../types';
+import { isModelLive } from './modelLiveness';
+import { ECMWF_9KM } from './regionalModels';
 
 /** Offshore sources supported by the marine forecast pipeline. These are source
  * keys, NOT Open-Meteo atmospheric model-domain ids. Keep the two preferences
@@ -176,6 +178,22 @@ export const SPREAD_EXTRA_MODELS: CompareModelInfo[] = [
 /** The seven models in the ten-day comparison, in legend order. */
 export const COMPARE_MODELS: CompareModelInfo[] = [...SELECTABLE_MODELS, ...SPREAD_EXTRA_MODELS];
 
+const ECMWF_FINE: ForecastModelInfo = {
+    id: ECMWF_9KM,
+    label: 'ECMWF 9 km',
+    provider: 'ECMWF',
+    blurb: 'European global model — 9 km grid',
+    hex: '#38bdf8',
+};
+
+/** A bundled allowlist is not deployment evidence. Keep the old catalogue
+ * until the paid proxy returns finite wind for the exact 9 km domain. */
+export function selectableForecastModels(): ForecastModelInfo[] {
+    return SELECTABLE_MODELS.map((model) =>
+        model.id === 'ecmwf_ifs025' && isModelLive(ECMWF_9KM) ? ECMWF_FINE : model,
+    );
+}
+
 /** Wave models for the spread chart's WAVE/PER. params. The marine endpoint
  *  has its own model set — atmospheric ids are meaningless there. Same ids
  *  on the wx server and the public/commercial marine APIs. */
@@ -251,7 +269,7 @@ export function isSpitfire(m: WeatherModel | undefined | null): boolean {
 }
 
 export function isConcreteModel(m: WeatherModel | undefined | null): m is WeatherModel {
-    return !!m && m !== AUTO_MODEL && SELECTABLE_MODELS.some((s) => s.id === m);
+    return !!m && m !== AUTO_MODEL && (m === ECMWF_9KM || SELECTABLE_MODELS.some((s) => s.id === m));
 }
 
 /** True when this model simply does not publish the metric (so the UI should
@@ -261,7 +279,7 @@ export function modelLacks(m: WeatherModel | undefined | null, metric: 'gust' | 
 }
 
 export function getForecastModelInfo(m: WeatherModel | undefined | null): ForecastModelInfo | null {
-    return SELECTABLE_MODELS.find((s) => s.id === m) ?? null;
+    return m === ECMWF_9KM ? ECMWF_FINE : (SELECTABLE_MODELS.find((s) => s.id === m) ?? null);
 }
 
 /** The effective model for the Glass fetch: the persisted choice when it's a
@@ -271,5 +289,6 @@ export function getForecastModelInfo(m: WeatherModel | undefined | null): Foreca
  *  rather than to a model with no wind. */
 export function resolveForecastModel(stored: WeatherModel | undefined): WeatherModel {
     if (isSpitfire(stored)) return SPITFIRE_MODEL;
+    if (stored === 'ecmwf_ifs025' || stored === ECMWF_9KM) return isModelLive(ECMWF_9KM) ? ECMWF_9KM : 'ecmwf_ifs025';
     return isConcreteModel(stored) ? stored : stored === AUTO_MODEL ? AUTO_MODEL : 'dwd_icon';
 }

@@ -27,6 +27,7 @@ vi.mock('@capacitor/app', () => ({
 }));
 
 import { fetchOpenMeteoProxy } from '../services/weather/openMeteoProxy';
+import { resetModelLivenessForTests } from '../services/weather/modelLiveness';
 import { HeroSlide } from '../components/dashboard/HeroSlide';
 import { useUIStore } from '../stores/uiStore';
 
@@ -87,11 +88,12 @@ function carousel(visible: number) {
 }
 
 beforeEach(() => {
+    resetModelLivenessForTests();
     useUIStore.setState({ isOffline: false });
 });
 
 describe('day swipes and a failing leg', () => {
-    it('cost one pair of requests across four days and back, with the marine leg refused', async () => {
+    it('cost one capability probe and one forecast pair across four days and back, with the marine leg refused', async () => {
         const proxy = vi.mocked(fetchOpenMeteoProxy);
         proxy.mockImplementation(((op: string, params: Record<string, string | number>) =>
             op === 'marine'
@@ -100,7 +102,8 @@ describe('day swipes and a failing leg', () => {
         const { rerender } = render(carousel(0));
         // The chip still shows: the wind leg answered.
         expect(await screen.findByRole('button', { name: /^Wind: models agree/ })).toBeInTheDocument();
-        expect(proxy).toHaveBeenCalledTimes(2);
+        expect(proxy).toHaveBeenCalledTimes(3);
+        expect(proxy.mock.calls.filter(([, params]) => params.forecast_hours === 24)).toHaveLength(1);
         // Each day keeps its chip once it has one: 2, 3, 4, then 4 again back on the first.
         for (const [visible, chips] of [
             [1, 2],
@@ -115,6 +118,6 @@ describe('day swipes and a failing leg', () => {
         }
         // Let any request a swipe started land before counting.
         await new Promise((r) => setTimeout(r, 0));
-        expect(proxy).toHaveBeenCalledTimes(2);
+        expect(proxy).toHaveBeenCalledTimes(3);
     });
 });

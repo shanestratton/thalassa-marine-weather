@@ -25,6 +25,36 @@ import {
 
 const H = 3600_000;
 
+describe('UKV raw display and derived metric isolation', () => {
+    it.each(['wind', 'dir', 'gust', 'pressure', 'temp', 'humidity', 'rain', 'vis', 'uv'] as const)(
+        'excludes display-only values from %s spread, agreement and member counts',
+        (param) => {
+            const models: HourlySeries[] = [
+                { id: 'a', label: 'A', provider: 'DWD', hex: '#fff', values: Array(24).fill(10) },
+                { id: 'b', label: 'B', provider: 'ECMWF', hex: '#fff', values: Array(24).fill(10) },
+                {
+                    id: 'ukv',
+                    label: 'UKV',
+                    provider: 'UK Met Office',
+                    hex: '#fff',
+                    values: Array(24).fill(90),
+                    displayOnly: true,
+                },
+            ];
+            expect(memberCounts(models, 24)).toEqual(Array(24).fill(2));
+            expect(
+                nearTermAgreement(
+                    models,
+                    Array.from({ length: 24 }, (_, i) => i * H),
+                    0,
+                    param,
+                ),
+            ).toMatchObject({ variance: 0, level: 'high' });
+            expect(agreementByDay(models, [], 24, param)[0]).toMatchObject({ members: 2, variance: 0, level: 'high' });
+        },
+    );
+});
+
 // ── Fictional ten-day spread: seven members, with each model's run
 // ending where it did through the proxy at Fiji on 2026-10-07 (ICON 167 h,
 // UKMO 155 h, GEM 227 h), and a ten-hour hole in GEM's run. ──

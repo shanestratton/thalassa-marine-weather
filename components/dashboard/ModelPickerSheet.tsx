@@ -16,7 +16,7 @@ import { usePanePortalTarget } from '../../context/PanePortalContext';
 import type { OffshoreModel, WeatherModel } from '../../types';
 import {
     AUTO_MODEL,
-    SELECTABLE_MODELS,
+    selectableForecastModels,
     MODEL_ATTRIBUTION_LINE,
     SPITFIRE_MODEL,
     OFFSHORE_MODELS,
@@ -60,6 +60,7 @@ interface ModelPickerSheetProps {
 const CREDIT_NAMES: Readonly<Record<string, string>> = {
     dwd_icon: 'DWD ICON',
     ecmwf_ifs025: 'ECMWF IFS',
+    ecmwf_ifs: 'ECMWF IFS 9 km',
     ecmwf_aifs025_single: 'ECMWF AIFS',
     ukmo_global_deterministic_10km: 'UK Met Office',
     jma_gsm: 'JMA GSM',
@@ -132,6 +133,7 @@ export function offshoreModelHelper(id: OffshoreModel): string {
 const MODEL_RANGE_DAYS: Readonly<Record<string, number>> = {
     dwd_icon: 7,
     ecmwf_ifs025: 14,
+    ecmwf_ifs: 15,
     ecmwf_aifs025_single: 15,
     ukmo_global_deterministic_10km: 6,
     jma_gsm: 10,
@@ -160,19 +162,14 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
     offshore,
     spitfireAvailable = false,
     spitfireLocationName,
-    publishedModels,
 }) => {
     const portalTarget = usePanePortalTarget();
     const titleId = useId();
     // Intersect, but never present an EMPTY picker: a publisher outage must
     // degrade to the built-in list, not to a sheet with nothing to choose.
-    const grids =
-        publishedModels && publishedModels.length > 0
-            ? (() => {
-                  const filtered = SELECTABLE_MODELS.filter((m) => publishedModels.includes(m.id));
-                  return filtered.length > 0 ? filtered : SELECTABLE_MODELS;
-              })()
-            : SELECTABLE_MODELS;
+    // Publisher rows do not prove the proxy's model vocabulary or a sea-cell
+    // request. In particular an ifs025 row must not hide the live 9 km pick.
+    const grids = selectableForecastModels();
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const dialogRef = useFocusTrap<HTMLDivElement>(visible, { initialFocusRef: closeButtonRef, onEscape: onClose });
 
