@@ -20,7 +20,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { VoyagePlan } from '../../types';
 import { PhoneIcon, RadioTowerIcon, AlertTriangleIcon, ExternalLinkIcon, MapPinIcon } from '../Icons';
 import { findCountryData, difficultyStyle, loadCustomsClearance, peekCustomsClearance } from '../../data/customsDb';
-import { CUSTOMS_PORT_INDEX, findCountryKey, isPortOfEntry } from '../../data/customsPortIndex';
+import { CUSTOMS_PORT_INDEX, findCountryKey, isPortOfEntry, placesNeither } from '../../data/customsPortIndex';
 import { useReadinessSync, useScopedReadinessStorageState } from '../../hooks/useReadinessSync';
 import { safeExternalHttpUrl } from '../../utils/safeUrl';
 
@@ -101,12 +101,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
         if (!onCheckedChange || !customsRequired) return;
         // Neither port is one the index can place, so there is no guide to
         // follow: the skipper's own border check is the one item (130-09).
-        if (
-            customsDepartCountry &&
-            customsArriveCountry &&
-            !findCountryKey(customsDepartCountry) &&
-            !findCountryKey(customsArriveCountry)
-        ) {
+        if (placesNeither(customsDepartCountry, customsArriveCountry)) {
             onCheckedChange(1, checkedDocs[BORDER_CHECK_KEY] ? 1 : 0);
             return;
         }
@@ -156,7 +151,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
     const arrivePortIsPOE = isPortOfEntry(arriveInput, arriveKey);
     // Neither port is one the index can place: we cannot tell whether this
     // passage crosses a border, and say so rather than guess (130-09).
-    const neitherPortKnown = Boolean(departInput && arriveInput) && !departKey && !arriveKey;
+    const neitherPortKnown = placesNeither(departInput, arriveInput);
     const borderChecked = !!checkedDocs[BORDER_CHECK_KEY];
 
     // Which clearance data to show

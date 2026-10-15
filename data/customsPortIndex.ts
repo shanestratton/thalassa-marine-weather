@@ -212,9 +212,8 @@ export const CUSTOMS_PORT_INDEX: Readonly<Record<string, CustomsCountry>> = {
 // match our keys. Each matches as whole words only (130-09): 'sa' is found in
 // 'Adelaide, SA', never inside 'Santa Cruz'.
 export const COUNTRY_ALIASES: Readonly<Record<string, string>> = {
-    // Australian states (so 'Newport, QLD' resolves to Australia).
-    // Without these, 'Newport' is a port the index cannot place, and the
-    // customs card can only say it cannot tell which country it is in.
+    // Australian states (so 'Newport, QLD' resolves to Australia; 'Newport'
+    // alone is a port the index cannot place).
     qld: 'australia',
     queensland: 'australia',
     nsw: 'australia',
@@ -266,12 +265,12 @@ const has = (record: object, key: string): boolean => Object.prototype.hasOwnPro
 
 /* ── Matching ─────────────────────────────────────────────────── */
 
-// Names match as whole words, never as letters inside a word (130-09). The
-// old lookup found 'us' inside 'Russell, NZ' (United States) and 'sa' inside
-// 'Santa Cruz' (Australia). Text is folded to plain lower-case words first:
-// accents and apostrophes dropped, anything else that is not a letter or a
-// digit a break between words. So 'Noumea' finds 'Nouméa', 'Saint Martin'
-// finds 'Saint-Martin' and 'St Johns' finds "St John's".
+// Names match as whole words, never as letters inside a word (130-09): the
+// old lookup found 'us' in 'Russell, NZ' and 'sa' in 'Santa Cruz'. Text is
+// folded to plain lower-case words first: accents and apostrophes dropped,
+// anything else that is not a letter or a digit a break between words. So
+// 'Noumea' finds 'Nouméa', 'Saint Martin' finds 'Saint-Martin' and 'St Johns'
+// finds "St John's".
 const FOLD: Record<string, string> = { ø: 'o', æ: 'ae', œ: 'oe', ß: 'ss', ł: 'l', đ: 'd', ı: 'i' };
 
 function nameWords(text: string): string[] {
@@ -336,8 +335,8 @@ const PORT_PHRASES: readonly Phrase[] = Object.entries(CUSTOMS_PORT_INDEX).flatM
         .filter((p) => p.words.length > 0 && !NOT_A_NAME.has(p.words.join(' '))),
 );
 
-// Words that are no place on their own, so a lone 'Harbour' or 'Port' is
-// not taken as part of some longer port's name.
+// Words that are no place on their own: a lone 'Harbour' or 'Port' is not
+// part of some longer port's name.
 const NO_PLACE = new Set(
     `port harbour harbor bay town road island isle marina docks grand coast
      st saint de la las los san van new key west`.split(/\s+/),
@@ -353,17 +352,31 @@ function portKey(words: readonly string[], ports: readonly Phrase[]): string | u
     return ports.find((p) => holdsPhrase(p.words, words))?.key;
 }
 
+// Each country's port-of-entry words: what a port's name may come with and
+// still mean that port ('Las Palmas, Canaries').
+const PORT_WORDS: Record<string, ReadonlySet<string>> = Object.fromEntries(
+    Object.entries(CUSTOMS_PORT_INDEX).map(([k, c]) => [k, new Set(c.portsOfEntry.flatMap(nameWords))]),
+);
+
+// Words that say where in a port, not which place ('Sydney Harbour').
+const IN_PORT = new Set(['harbour', 'harbor', 'marina', 'docks', 'wharf', 'quay', 'anchorage']);
+
 /**
  * The guide key for a country or port name, or undefined when the index
  * cannot place it. A country's name or an alias in the text comes first
  * ('Opua, NZ'), then a port of entry ('Opua'); of several, the longest
  * ('Marigot Bay' is Saint Lucia, 'Marigot' Sint Maarten). The customs card
  * and isSameCountry both read this, so they agree on the country (130-09).
+ * A port's name beside a place the index does not know ('St George's,
+ * Bermuda', 'Mare Island') may be another port of that name: unknown.
  */
 export function findCountryKey(name: string | undefined): string | undefined {
     if (!name) return undefined;
     const words = nameWords(name);
-    return longestIn(words, COUNTRY_PHRASES)?.key ?? portKey(words, PORT_PHRASES);
+    const country = longestIn(words, COUNTRY_PHRASES);
+    if (country) return country.key;
+    const key = portKey(words, PORT_PHRASES);
+    return key && words.every((w) => PORT_WORDS[key].has(w) || IN_PORT.has(w)) ? key : undefined;
 }
 
 /** The country a port or country name is in, or '' when the index cannot
@@ -385,11 +398,10 @@ export function isPortOfEntry(port: string | undefined, key: string | undefined)
 }
 
 /**
- * Whether two ports are in the same country. A missing port never is, and
- * nor is one the index cannot place, unless it is the same port at both ends
- * (a round trip). Two unknown ports used to count as one country, which hid
- * clearance on a passage between any two ports the index does not know
- * (130-09); the customs card now says it cannot tell instead.
+ * Whether two ports are in the same country. A missing port never is, nor
+ * one the index cannot place, unless it is the same port at both ends (a
+ * round trip). Two unknown ports used to count as one country, which hid
+ * clearance (130-09); the customs card now says it cannot tell.
  */
 export function isSameCountry(portA: string | undefined, portB: string | undefined): boolean {
     if (!portA || !portB) return false;
@@ -397,4 +409,11 @@ export function isSameCountry(portA: string | undefined, portB: string | undefin
     if (countryA) return countryA === resolveCountryName(portB);
     const wordsA = nameWords(portA).join(' ');
     return wordsA !== '' && wordsA === nameWords(portB).join(' ');
+}
+
+/** Both ports given, and neither one the index can place: the customs card
+ *  then has the skipper's one border check, no documents (130-09). */
+export function placesNeither(portA: string | null | undefined, portB: string | null | undefined): boolean {
+    if (!portA || !portB) return false;
+    return !findCountryKey(portA) && !findCountryKey(portB);
 }

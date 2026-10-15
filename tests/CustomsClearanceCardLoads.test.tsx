@@ -161,6 +161,24 @@ describe('130-09: the card picks the right country for a port, and says when it 
         expect(screen.getByText(CANNOT_TELL)).toBeInTheDocument();
     });
 
+    it("never names St George's, Bermuda as Grenada: the Bermuda run is a border check", async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        const onCheckedChange = vi.fn();
+        render(
+            <CustomsClearanceCard
+                voyagePlan={plan('Newport, RI', "St George's, Bermuda")}
+                onCheckedChange={onCheckedChange}
+            />,
+        );
+        expect(screen.getByRole('button', { name: "Arriving St George's, Bermuda" })).toBeInTheDocument();
+        expect(screen.queryByText(/Grenada/)).not.toBeInTheDocument();
+        expect(screen.getByText(CANNOT_TELL)).toBeInTheDocument();
+        await waitFor(() => expect(onCheckedChange).toHaveBeenLastCalledWith(1, 0));
+        fireEvent.click(screen.getByRole('button', { name: "Arriving St George's, Bermuda" }));
+        expect(screen.queryByText(/Grenada/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/is not a designated port of entry/)).not.toBeInTheDocument();
+    });
+
     it('keeps the document list when one port is known, and no border check', async () => {
         const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
         const onCheckedChange = vi.fn();

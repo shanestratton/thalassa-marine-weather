@@ -17,7 +17,7 @@ import { CommsPlanCard } from '../passage/CommsPlanCard';
 import { VesselCheckCard } from '../passage/VesselCheckCard';
 import { MedicalFirstAidCard } from '../passage/MedicalFirstAidCard';
 import { CustomsClearanceCard } from '../passage/CustomsClearanceCard';
-import { isSameCountry } from '../../data/customsPortIndex';
+import { isSameCountry, placesNeither } from '../../data/customsPortIndex';
 import { GalleyCard } from '../chat/GalleyCard';
 import { DelegationBadge } from './DelegationBadge';
 import { VesselProfileSummary, type VesselProfileOverride } from '../passage/VesselProfileSummary';
@@ -354,6 +354,9 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     // of the progress denominator rather than auto-ticking it: a new route
     // must begin with an honest 0/N in every readiness group.
     const isDomestic = !!(departPort && destPort && isSameCountry(departPort, destPort));
+    // Neither port is one the index can place: the customs card's one item is
+    // the skipper's own border check, so its row never counts documents (130-09).
+    const customsBorderCheckOnly = placesNeither(departPort, destPort);
 
     // Group readiness counters — one X/Y chip per group header. Vessel
     // Profile moved out of Passage Intelligence into Vessel Readiness
@@ -699,11 +702,17 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                             emoji="🛂"
                                             title="Customs & Immigration"
                                             subtitle={
-                                                customsProgress.total > 0
-                                                    ? `${customsProgress.checked}/${customsProgress.total} documents · ${departPort} → ${destPort}`
-                                                    : `${departPort} → ${destPort}`
+                                                customsBorderCheckOnly
+                                                    ? `Border check · ${departPort} → ${destPort}`
+                                                    : customsProgress.total > 0
+                                                      ? `${customsProgress.checked}/${customsProgress.total} documents · ${departPort} → ${destPort}`
+                                                      : `${departPort} → ${destPort}`
                                             }
-                                            readySubtitle="✅ All documents cleared"
+                                            readySubtitle={
+                                                customsBorderCheckOnly
+                                                    ? '✅ Border checked'
+                                                    : '✅ All documents cleared'
+                                            }
                                             cardKey="customs_clearance"
                                             {...delegationProps}
                                             {...cardAccordionProps('brief', 'customs_clearance')}

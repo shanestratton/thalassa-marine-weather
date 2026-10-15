@@ -31,6 +31,7 @@ import {
     findCountryKey,
     isPortOfEntry,
     isSameCountry,
+    placesNeither,
     resolveCountryName,
 } from '../data/customsPortIndex';
 import { joinClearance, type CountryClearanceDetails } from '../data/customsDb';
@@ -175,8 +176,42 @@ describe('130-09: a port matches its own country, worldwide', () => {
         ['the BVI', 'British Virgin Islands'],
         ['Nanny Cay, Tortola, BVI', 'British Virgin Islands'],
         ['Road Town', 'British Virgin Islands'],
+        // Bermuda and the Caymans are not in the index. Their ports share a
+        // name with Grenada's St George's and the Bahamas' George Town, and
+        // must not take those countries' documents.
+        ["St George's, Bermuda", ''],
+        ["St. George's, Bermuda", ''],
+        ['George Town, Cayman Islands', ''],
     ])('%s → %s', (port, country) => {
         expect(resolveCountryName(port)).toBe(country);
+    });
+
+    it("a port's name beside a place the index does not know is not that port", () => {
+        // Each was unknown before 130-09; splitting bracketed port names must
+        // not turn them into some other country.
+        for (const port of [
+            'George Town, Penang', // the Bahamas' 'George Town (Exumas)'
+            'Freeport, Texas', // the Bahamas' 'Freeport (Grand Bahama)'
+            'New London, CT', // the UK's 'London (St Katharine Docks)'
+            'Gold Coast, Ghana', // Australia's 'Gold Coast (Southport)'
+            'Mare Island', // New Caledonia's 'Wé (Maré)'
+            "St. John's, Newfoundland", // Antigua's "St John's"
+            'Las Palmas, Gran Canaria', // Gran Canaria is not a name the index holds
+        ]) {
+            expect(findCountryKey(port), port).toBeUndefined();
+        }
+        // Nelson Bay is in New South Wales, not at Nelson, New Zealand.
+        expect(resolveCountryName('Nelson Bay')).toBe('');
+        expect(resolveCountryName('Nelson Bay, NSW')).toBe('Australia');
+        // A port alone, with its other name, or with where in the port, still counts.
+        expect(resolveCountryName("St George's")).toBe('Grenada');
+        expect(resolveCountryName('George Town')).toBe('Bahamas');
+        expect(resolveCountryName('Gold Coast')).toBe('Australia');
+        expect(resolveCountryName('Las Palmas, Canaries')).toBe('Spain');
+        expect(resolveCountryName('Road Town, Tortola')).toBe('British Virgin Islands');
+        expect(resolveCountryName('Horta, Azores')).toBe('Portugal');
+        expect(resolveCountryName('Msida Marina, Valletta')).toBe('Malta');
+        expect(resolveCountryName('Sydney Harbour')).toBe('Australia');
     });
 
     it('still finds a short alias that stands as a word of its own', () => {
@@ -215,7 +250,7 @@ describe('130-09: a port matches its own country, worldwide', () => {
         expect(resolveCountryName('Southport')).toBe('Australia');
         expect(resolveCountryName('Coffs')).toBe('Australia');
         expect(resolveCountryName('Palma')).toBe('Spain');
-        expect(resolveCountryName('Las Palmas, Gran Canaria')).toBe('Spain');
+        expect(resolveCountryName('Las Palmas')).toBe('Spain');
         expect(resolveCountryName('Kusadasi')).toBe('Türkiye');
         // A port's name is a whole word: France's 'Nice' is not inside 'Venice'.
         expect(resolveCountryName('Venice')).toBe('Italy');
@@ -252,6 +287,19 @@ describe('130-09: a port matches its own country, worldwide', () => {
         expect(isSameCountry('Saint-Martin', 'Philipsburg')).toBe(true);
         expect(isSameCountry('Road Town, BVI', 'Tortola')).toBe(true);
         expect(isSameCountry('Santa Cruz de Tenerife, Spain', 'Las Palmas')).toBe(true);
+    });
+
+    it('the Bermuda run: neither port placed, so the card has a border check, never Grenada', () => {
+        expect(isSameCountry('Newport, RI', "St George's, Bermuda")).toBe(false);
+        expect(placesNeither('Newport, RI', "St George's, Bermuda")).toBe(true);
+        expect(isPortOfEntry("St George's, Bermuda", findCountryKey("St George's, Bermuda"))).toBe(false);
+        // Bermuda to Horta: the Azores end is placed, so its documents are listed.
+        expect(isSameCountry("St George's, Bermuda", 'Horta, Azores')).toBe(false);
+        expect(placesNeither("St George's, Bermuda", 'Horta, Azores')).toBe(false);
+        // A port the index can place on either end, or a missing one, is not "neither".
+        expect(placesNeither('Russell, NZ', 'Phuket')).toBe(false);
+        expect(placesNeither('Phuket', undefined)).toBe(false);
+        expect(placesNeither(null, 'Phuket')).toBe(false);
     });
 
     it('checks a port of entry by whole words, accents folded', () => {
@@ -301,7 +349,6 @@ describe('130-09: every recorded answer that changed, checked', () => {
         ['Venice', 'France', 'Italy'], // 'Nice' in Venice
         ['Valencia', 'New Caledonia', 'Spain'],
         ['Alicante', 'Australia', 'Spain'],
-        ['Las Palmas, Gran Canaria', '', 'Spain'], // the port's own name
         ['Bar', 'Antigua and Barbuda', 'Montenegro'], // Bar is Montenegro's port
         ['Kotor, Montenegro', 'Australia', 'Montenegro'],
         ['Gozo (Mġarr)', 'Australia', 'Malta'], // 'oz'
