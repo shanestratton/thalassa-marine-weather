@@ -425,6 +425,21 @@ function buildChecklistPdf(
 
 type HistoryEntry = MaintenanceHistory & { taskTitle?: string; taskCategory?: string };
 
+/**
+ * A record's task in the ledger: the task's name while it is there. Once the
+ * task is deleted and the server kept its records (131-B7), the name written
+ * onto the record as it went, marked '(task removed)'. Neither: undefined,
+ * which prints as before.
+ */
+export function historyTaskTitle(
+    record: Pick<MaintenanceHistory, 'task_title'>,
+    task: Pick<MaintenanceTask, 'title'> | undefined,
+): string | undefined {
+    if (task) return task.title;
+    const kept = record.task_title?.trim();
+    return kept ? `${kept} (task removed)` : undefined;
+}
+
 function buildServiceHistoryPdf(
     history: HistoryEntry[],
     vesselName: string,
@@ -511,7 +526,8 @@ export async function exportChecklist(
 /**
  * Share or save the service history (Template B), the ledger of completed
  * work: every record R&M has on this phone, newest first, with its task's
- * title (`tasks`, paused ones included). 'empty' with no records.
+ * title (`tasks`, paused ones included), or the name a deleted task left on
+ * its records (historyTaskTitle). 'empty' with no records.
  */
 export async function exportServiceHistory(
     history: MaintenanceHistory[],
@@ -522,11 +538,10 @@ export async function exportServiceHistory(
     const taskMap = new Map(tasks.map((t) => [t.id, t]));
     const enriched = [...history]
         .sort((a, b) => Date.parse(b.completed_at) - Date.parse(a.completed_at))
-        .map((h) => ({
-            ...h,
-            taskTitle: taskMap.get(h.task_id)?.title,
-            taskCategory: taskMap.get(h.task_id)?.category,
-        }));
+        .map((h) => {
+            const task = h.task_id ? taskMap.get(h.task_id) : undefined;
+            return { ...h, taskTitle: historyTaskTitle(h, task), taskCategory: task?.category };
+        });
 
     const now = new Date();
     const { default: JsPdf } = await import('jspdf');

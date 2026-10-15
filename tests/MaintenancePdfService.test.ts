@@ -4,7 +4,13 @@ import { Capacitor } from '@capacitor/core';
 import { Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 
-import { __testing, clipboardDueText, exportChecklist, exportServiceHistory } from '../services/MaintenancePdfService';
+import {
+    __testing,
+    clipboardDueText,
+    exportChecklist,
+    exportServiceHistory,
+    historyTaskTitle,
+} from '../services/MaintenancePdfService';
 import { MaintenanceService } from '../services/MaintenanceService';
 import { PdfTextWriter } from '../services/pdf/pdfText';
 import { pdfFileDay, pdfLongDate, pdfShortDate } from '../services/pdf/pdfDates';
@@ -318,6 +324,32 @@ describe('maintenance PDF exports', () => {
         expect(drawn).toContain(maintenanceTasks()[0].title);
         expect(drawn.indexOf('Change engine oil and filter')).toBeLessThan(drawn.indexOf('Replace raw water impeller'));
         for (const spy of server) expect(spy).not.toHaveBeenCalled();
+    }, 10000);
+
+    // 131-B7: once the server keeps a deleted task's records, they carry its
+    // name (task_title) and no task, and the ledger still says what was done.
+    it("prints a deleted task's kept records under its name, marked (task removed)", async () => {
+        const history = maintenanceHistory().slice(0, 4);
+        const tasks = maintenanceTasks().map((task, index) => ({ ...task, id: history[index]?.task_id ?? task.id }));
+        const kept = history.map((entry) =>
+            entry.id === 'h1' ? { ...entry, task_id: null, task_title: 'Replace raw water impeller' } : entry,
+        );
+        const draw = vi.spyOn(PdfTextWriter.prototype, 'draw');
+        captureShare();
+        // t1 deleted after the push (h1 kept its name); t3 deleted before it (h3 has none).
+        await exportServiceHistory(
+            kept,
+            tasks.filter((task) => task.id !== 't1' && task.id !== 't3'),
+            MAINTENANCE_VESSEL,
+        );
+        const drawn = draw.mock.calls.map((call) => call[0] as string);
+        // The task column wraps it over two lines.
+        expect(drawn.join(' ')).toContain('Replace raw water impeller (task removed)');
+        expect(drawn).toContain('Change engine oil and filter');
+        // A record with neither its task nor a kept name prints as it always did.
+        expect(drawn).toContain('Unknown Task');
+        expect(historyTaskTitle({ task_title: '  ' }, undefined)).toBeUndefined();
+        expect(historyTaskTitle({ task_title: 'Old name' }, { title: 'Bilge pump' })).toBe('Bilge pump');
     }, 10000);
 
     it('makes no service history PDF from no records', async () => {

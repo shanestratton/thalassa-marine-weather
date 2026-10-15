@@ -7,7 +7,7 @@
  * The "Log Service" action writes to BOTH local_maintenance_history
  * AND updates local_maintenance_tasks — then queues both mutations.
  */
-import { getById, query, insertLocal, updateLocal, deleteLocal, generateUUID } from './LocalDatabase';
+import { getById, query, insertLocal, updateLocal, deleteLocal, bulkUpsert, generateUUID } from './LocalDatabase';
 import {
     assertBinderDeletable,
     assertBinderWritable,
@@ -17,6 +17,7 @@ import {
 } from './sharedBinders';
 import { getAuthIdentityScope } from '../authIdentityScope';
 import { LocalEngineHoursService } from './LocalEngineHoursService';
+import { maintenanceHistoryKeptKnown } from './maintenanceHistoryColumn';
 import { DATA_EVENTS, dispatchDataChange } from '../../utils/dataChangeEvents';
 import { addLocalDays, toLocalDateString } from '../../utils/localDate';
 import type { MaintenanceTask, MaintenanceHistory } from '../../types';
@@ -125,10 +126,30 @@ export class LocalMaintenanceService {
         return setActive(id, true);
     }
 
-    /** Hard-delete a task */
+    /**
+     * Hard-delete a task. Its service records stay on this phone: nothing here
+     * ever deleted them. Before the server keeps them (the held 131-B7
+     * migration) its cascade deletes them there, and the next sync removes
+     * them here too, as it always has. Once R&M's column probe has seen the
+     * server keep them (maintenanceHistoryColumn), they are written here as
+     * the server writes them, with no task and the task's name in task_title,
+     * so the service history PDF names them at once, offline included. Not
+     * queued: the server's own trigger writes the same on the DELETE, and the
+     * pull that follows the push brings its copy.
+     */
     static async deleteTask(id: string): Promise<void> {
-        assertBinderDeletable(REGISTER, getById<MaintenanceTask>(TASKS_TABLE, id));
+        const task = getById<MaintenanceTask>(TASKS_TABLE, id);
+        assertBinderDeletable(REGISTER, task);
         await deleteLocal(TASKS_TABLE, id);
+        if (task && maintenanceHistoryKeptKnown()) {
+            const records = query<MaintenanceHistory>(HISTORY_TABLE, (h) => h.task_id === id);
+            if (records.length > 0) {
+                await bulkUpsert(
+                    HISTORY_TABLE,
+                    records.map((h) => ({ ...h, task_id: null, task_title: task.title })),
+                );
+            }
+        }
         dispatchDataChange(DATA_EVENTS.MAINTENANCE);
     }
 

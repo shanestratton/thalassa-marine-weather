@@ -65,6 +65,11 @@ import {
     type EngineHoursReading,
 } from '../../services/vessel/LocalEngineHoursService';
 import { useBinderSource } from '../../hooks/useBinderSource';
+import { supabase } from '../../services/supabase';
+import {
+    maintenanceHistoryKeepsRecords,
+    maintenanceHistoryKeptKnown,
+} from '../../services/vessel/maintenanceHistoryColumn';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import { addLocalDays, localDayString, toLocalDateString } from '../../utils/localDate';
 // 'Sun 28 Sep 2026', shared with the task cards (UX scorecard run 9).
@@ -182,6 +187,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         records: number;
     } | null>(null);
     const [showPaused, setShowPaused] = useState(false);
+    // Whether a deleted task's records stay (131-B7): only once the held
+    // migration's column has been seen; until then they go with it, and the
+    // question says so (126-B7a).
+    const [historyKept, setHistoryKept] = useState(maintenanceHistoryKeptKnown);
     const [sheetNotes, setSheetNotes] = useState('');
     const [sheetSaving, setSheetSaving] = useState(false);
 
@@ -337,6 +346,18 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         const identity = getAuthIdentityScope();
         void loadTasks(identity);
     }, [loadTasks]);
+
+    // Ask the server once per visit whether it keeps a deleted task's records
+    // (131-B7). It never throws; offline or signed out it says no.
+    useEffect(() => {
+        let live = true;
+        void maintenanceHistoryKeepsRecords(supabase).then((kept) => {
+            if (live) setHistoryKept(kept);
+        });
+        return () => {
+            live = false;
+        };
+    }, []);
 
     // The Service history sheet on show, so a background reload refreshes it
     // too: a service logged on another device belongs in it straight away.
@@ -703,6 +724,21 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         }
     }, []);
 
+    // The service history the PDF prints. A record waiting out its Undo is
+    // left out, as it is on screen. So are the records of a task waiting out
+    // its delete Undo while they would go with it; once the server keeps them
+    // (131-B7) they print as they will be, under its name, '(task removed)'.
+    const historyForPdf = useCallback((): MaintenanceHistory[] => {
+        const removed = new Map(taskData.tasks.filter((task) => hiddenIds.has(task.id)).map((t) => [t.id, t.title]));
+        const records = MaintenanceService.getAllHistory().filter((record) => !recordUndo.hiddenIds.has(record.id));
+        if (!historyKept) return records.filter((record) => !record.task_id || !removed.has(record.task_id));
+        return records.map((record) =>
+            record.task_id && removed.has(record.task_id)
+                ? { ...record, task_id: null, task_title: removed.get(record.task_id) }
+                : record,
+        );
+    }, [taskData.tasks, hiddenIds, recordUndo.hiddenIds, historyKept]);
+
     // ── Share or save a PDF (130-B8) ──
     // From the rows on this phone, as the list shows them: the server's copy
     // left the PDFs blank offline at sea. A task or record waiting out its
@@ -724,9 +760,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                               vesselNameSnapshot,
                           )
                         : await exportServiceHistory(
-                              MaintenanceService.getAllHistory().filter(
-                                  (record) => !recordUndo.hiddenIds.has(record.id) && !hiddenIds.has(record.task_id),
-                              ),
+                              historyForPdf(),
                               // Every task, paused ones too, for the records' titles.
                               taskData.tasks.map((task) => ({ ...task })),
                               vesselNameSnapshot,
@@ -750,7 +784,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 if (isAuthIdentityScopeCurrent(identity)) setExporting(false);
             }
         },
-        [engineHours, vesselName, activeTasks, taskData.tasks, hiddenIds, recordUndo.hiddenIds],
+        [engineHours, vesselName, activeTasks, taskData.tasks, historyForPdf],
     );
 
     useEffect(
@@ -801,9 +835,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             if (!task || !isAuthIdentityScopeCurrent(identity)) return;
             triggerHaptic('medium');
             setSheetTask(null);
-            // The server cascades a task's records with it (MAINT-02): when
-            // there are any, ask first, and offer Pause instead (126-B7a).
-            // A record waiting out its own Undo is already gone.
+            // When a task has records, ask first, and offer Pause instead
+            // (126-B7a): until the server keeps them (131-B7) they go with
+            // it (MAINT-02). A record waiting out its own Undo is already gone.
             const records = MaintenanceService.getHistory(task.id).filter(
                 (record) => !recordHiddenIds.has(record.id),
             ).length;
@@ -1503,13 +1537,18 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
             {/* Delete a task with service records? Pause is the gentler way
                 out, and the prominent one (126-B7a). A paused task is only
-                asked about its records. */}
+                asked about its records, which stay once the server keeps
+                them (131-B7) and go with it until then. */}
             {deleteAsk && (
                 <ConfirmDialog
                     isOpen={true}
                     title={`Delete “${deleteAsk.task.title}”?`}
-                    message={`Its ${deleteAsk.records} service record${deleteAsk.records === 1 ? ' goes' : 's go'} with it, on every device.`}
-                    confirmLabel="Delete task and records"
+                    message={
+                        historyKept
+                            ? `Its ${deleteAsk.records} service record${deleteAsk.records === 1 ? ' stays' : 's stay'} in your service history.`
+                            : `Its ${deleteAsk.records} service record${deleteAsk.records === 1 ? ' goes' : 's go'} with it, on every device.`
+                    }
+                    confirmLabel={historyKept ? 'Delete task' : 'Delete task and records'}
                     cancelLabel="Keep"
                     destructive
                     alternative={
