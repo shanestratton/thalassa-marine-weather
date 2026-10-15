@@ -606,7 +606,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
             void (async () => {
                 try {
-                    const { loadSavedTraces } = await import('../services/routeTracer');
+                    const { loadSavedTraces } = await import('../services/savedTraceStore');
                     if (cancelled || thisRequest !== requestId || !isAuthIdentityScopeCurrent(scope)) {
                         return;
                     }

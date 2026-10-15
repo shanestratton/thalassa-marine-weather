@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ShipLogEntry } from '../types';
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../services/authIdentityScope';
-import { loadSavedTraces } from '../services/routeTracer';
+import { loadSavedTraces } from '../services/savedTraceStore';
 import type { VoyageSummary } from '../services/shiplog/VoyageSummary';
 import {
     completePlannedRouteFingerprint,

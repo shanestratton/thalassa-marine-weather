@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { reversedLegName, reverseRouteName, stripRouteBadges } from '../services/routeNameParts';
-import type { NextLegSeed, SavedTrace } from '../services/routeTracer';
+import type { NextLegSeed, SavedTrace } from '../services/savedTraceStore';
 import {
     REVERSE_JOIN_NM,
     activeReversalNote,

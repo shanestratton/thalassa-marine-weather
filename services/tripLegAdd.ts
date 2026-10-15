@@ -25,6 +25,7 @@
  * Pure: no React, no storage writes. Every function here is a decision.
  */
 import { reversedLegName, stripRouteBadges } from './routeNameParts';
+import type { TracePoint } from './routeTracer';
 import {
     destNameFromRouteName,
     displayRouteLabel,
@@ -33,9 +34,8 @@ import {
     nextLegSeed,
     type NextLegSeed,
     type SavedTrace,
-    type TracePoint,
     type TripGroup,
-} from './routeTracer';
+} from './savedTraceStore';
 import { REVERSE_JOIN_NM, distanceNM, findTripGroup, isExactReverse, legInSlot, tripName } from './tripReverse';
 
 /** Furthest a source may start from the lock and still be offered. */

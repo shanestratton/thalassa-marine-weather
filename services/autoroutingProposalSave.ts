@@ -2,7 +2,8 @@ import type { AutoroutingTrialRoute } from '../types/autorouting';
 import { dangerWithoutChartedDepth } from '../components/map/inshoreRouteState';
 import { CAUTION_WHY, nearSpanBlocks } from './engine/types';
 import type { TrialRouteReview } from './autoroutingReview';
-import { saveTrace, type SavedTrace, type TracePoint } from './routeTracer';
+import type { TracePoint } from './routeTracer';
+import { saveTrace, type SavedTrace } from './savedTraceStore';
 import { getRegistryFingerprint } from './enc/EncCellMetadata';
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 import {

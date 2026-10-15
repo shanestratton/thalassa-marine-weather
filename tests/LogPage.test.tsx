@@ -134,8 +134,8 @@ vi.mock('../services/VoyageService', () => ({
     getActiveVoyage: vi.fn(async () => activeVoyageMock.value),
 }));
 
-vi.mock('../services/routeTracer', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('../services/routeTracer')>()),
+vi.mock('../services/savedTraceStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../services/savedTraceStore')>()),
     // The cast-off handoff resolves the planned-route mirror id from the
     // saved trace before publishing to the public page.
     loadSavedTraces: () => [
@@ -2081,7 +2081,7 @@ describe('LogPage', () => {
     it('Check now on a route only the account holds adopts it onto this phone first, then queues the check', async () => {
         linkedTraceVoyage();
         // The plan's link lives on its entries; the trace is NOT on this phone
-        // (the routeTracer mock's library holds only route-x).
+        // (the savedTraceStore mock's library holds only route-x).
         Object.assign(logPageStateOverrides.state, {
             entries: [
                 {

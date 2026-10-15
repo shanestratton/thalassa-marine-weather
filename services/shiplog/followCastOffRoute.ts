@@ -24,7 +24,7 @@
  */
 import { fetchVoyageAsTrack, type RouteOrTrack } from './RoutesAndTracks';
 import { buildFollowRoutePlan, buildFollowRoutePlanFromRoute } from './followRoutePlan';
-import { displayRouteLabel, loadSavedTraces } from '../routeTracer';
+import { displayRouteLabel, loadSavedTraces } from '../savedTraceStore';
 import { markRouteKitAnswered } from '../../utils/passageClass';
 import { publishFollowedRoute } from './publishFollowedRoute';
 import { useFollowRouteStore } from '../../stores/followRouteStore';

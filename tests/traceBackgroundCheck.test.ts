@@ -54,13 +54,8 @@ const setBoat = (state: typeof boat.state) => {
 };
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
-import {
-    bankTraceVerification,
-    loadSavedTraces,
-    saveTrace,
-    type TraceLegVerdict,
-    type TracePoint,
-} from '../services/routeTracer';
+import type { TraceLegVerdict, TracePoint } from '../services/routeTracer';
+import { bankTraceVerification, loadSavedTraces, saveTrace } from '../services/savedTraceStore';
 import { evaluateTraceRelease, traceFollowStatus } from '../services/traceVerification';
 import { getTraceCheckOutcome } from '../services/traceCheckOutcomes';
 import {

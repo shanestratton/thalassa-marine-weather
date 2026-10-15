@@ -39,8 +39,8 @@ const tripOverview = {
 
 // The real module, with the library fixed: the Trip sheet (126-16a) reads more
 // of it than the old modal did.
-vi.mock('../services/routeTracer', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('../services/routeTracer')>()),
+vi.mock('../services/savedTraceStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../services/savedTraceStore')>()),
     loadSavedTraces: vi.fn(() => tripGroup.legs),
     groupTracesByTrip: vi.fn(() => [tripGroup]),
     nextLegSeed: vi.fn(() => ({ ordinal: 2, fromName: 'Moreton' })),

@@ -8,7 +8,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { TracerReturnStrip } from '../components/map/tracer/TracerReturnStrip';
-import type { NextLegSeed, SavedTrace, TracePoint } from '../services/routeTracer';
+import type { TracePoint } from '../services/routeTracer';
+import type { NextLegSeed, SavedTrace } from '../services/savedTraceStore';
 import { nextLegOffer } from '../services/tripLegAdd';
 
 const LYMINGTON = { lat: 50.755, lon: -1.53 };

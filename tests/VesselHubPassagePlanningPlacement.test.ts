@@ -75,7 +75,9 @@ describe('VesselHub passage-planning placement', () => {
     });
 
     it('counts the canonical saved-route library and fences cloud refreshes to the active identity', () => {
-        expect(source).toContain("import('../services/routeTracer')");
+        // The library, not the tracer: the tracer brings the routing engine (131-04).
+        expect(source).toContain("import('../services/savedTraceStore')");
+        expect(source).not.toContain('services/routeTracer');
         expect(source).toContain('loadSavedTraces(scope).length');
         expect(source).toContain("import('../services/savedRoutesSync')");
         expect(source).toContain('const merged = await syncSavedRoutes()');

@@ -1,5 +1,5 @@
 import type { Voyage } from './VoyageService';
-import type { SavedTrace } from './routeTracer';
+import type { SavedTrace } from './savedTraceStore';
 import { buildTraceStubRows, TRACE_STUB_ID_PREFIX } from './savedRouteRows';
 
 const SETUP_ID_PREFIX = 'castoff-setup:';

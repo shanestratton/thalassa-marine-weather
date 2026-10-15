@@ -25,7 +25,7 @@
  */
 import { supabase } from './supabase';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
-import { bankTraceVerification, loadSavedTraces } from './routeTracer';
+import { bankTraceVerification, loadSavedTraces } from './savedTraceStore';
 import { pullSavedRouteVerifications } from './savedRoutesSync';
 import {
     normaliseTraceVerification,

@@ -26,7 +26,7 @@ vi.mock('../stores/followRouteStore', () => ({
 }));
 vi.mock('../services/shiplog/followCastOffRoute', () => ({ followCastOffRoute: harness.follow }));
 vi.mock('../services/shiplog/publishFollowedRoute', () => ({ publishFollowedRoute: harness.publish }));
-vi.mock('../services/routeTracer', () => ({
+vi.mock('../services/savedTraceStore', () => ({
     loadSavedTraces: () => [{ id: 'route-idle', name: 'Idle route', plannedRouteId: 'planned-idle' }],
     displayRouteLabel: (trace: { name: string }) => trace.name,
     linkTraceToPassage: vi.fn(),

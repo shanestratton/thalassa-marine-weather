@@ -19,7 +19,8 @@
  * Lady Musgrave retitles when its destination is dragged).
  */
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import type { NextLegSeed, TracePoint } from '../../services/routeTracer';
+import type { TracePoint } from '../../services/routeTracer';
+import type { NextLegSeed } from '../../services/savedTraceStore';
 
 export interface TracerAutoNameDeps {
     coordCaptureMode: boolean;

@@ -8,7 +8,9 @@
  */
 
 import type { TraceGrade, TraceLegVerdict, TracePoint } from './routeTracer';
-import { TRACE_LAND_CROSSING_MESSAGE } from './routeTracer';
+// From its home, not the tracer's re-export: importing a value from
+// routeTracer put the routing engine in the app shell's start-up (131-04).
+import { TRACE_LAND_CROSSING_MESSAGE } from './chartFacts';
 import type { TraceCheckOutcomeRecord } from './traceCheckOutcomes';
 import { boatChartsLine } from './enc/boatChartsWords';
 import { isProtectedChart } from './enc/chartLicence';

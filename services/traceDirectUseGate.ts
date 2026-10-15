@@ -11,7 +11,7 @@ import {
     loadSavedTraces,
     stripLegBadge,
     type SavedTrace,
-} from './routeTracer';
+} from './savedTraceStore';
 import {
     normaliseTraceVerification,
     traceFollowStatus,

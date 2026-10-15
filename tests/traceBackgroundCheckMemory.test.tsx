@@ -56,7 +56,8 @@ vi.mock('../services/enc/EncCellStore', async (importOriginal) => ({
 }));
 
 import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
-import { loadSavedTraces, saveTrace, type TraceLegVerdict, type TracePoint } from '../services/routeTracer';
+import type { TraceLegVerdict, TracePoint } from '../services/routeTracer';
+import { loadSavedTraces, saveTrace } from '../services/savedTraceStore';
 import { evaluateTraceRelease } from '../services/traceVerification';
 import * as queue from '../services/traceBackgroundCheck';
 import { useTraceBackgroundChecks } from '../pages/log/useTraceBackgroundChecks';

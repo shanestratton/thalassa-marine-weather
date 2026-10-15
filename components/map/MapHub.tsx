@@ -163,19 +163,11 @@ import { hazardDepthForDraft } from '../../services/HazardQueryService';
 import {
     traceHealth,
     pointInBbox,
-    loadSavedTraces,
-    linkTraceToPassage,
-    attachSavedTraceTombstoneLinks,
-    deleteTrace,
     tracePinBlocked,
     rdpTracePoints,
     bearingDegBetween,
     courseArrow,
     commonDepartureWindowLabel,
-    nextLegSeed,
-    ordinalLegLabel,
-    stripLegBadge,
-    buildTripPassageRollups,
     traceAsCuratedFairwaySnippet,
     traceAsVoyagePlan,
     splitLegForDepthGrid,
@@ -183,8 +175,18 @@ import {
     type TraceLegVerdict,
     type TracePoint,
     type TracerContext,
-    type SavedTrace,
 } from '../../services/routeTracer';
+import {
+    loadSavedTraces,
+    linkTraceToPassage,
+    attachSavedTraceTombstoneLinks,
+    deleteTrace,
+    nextLegSeed,
+    ordinalLegLabel,
+    stripLegBadge,
+    buildTripPassageRollups,
+    type SavedTrace,
+} from '../../services/savedTraceStore';
 import { tideCurveBucket } from '../../services/TideHeightService';
 import {
     consumeTracerOpenRequest,

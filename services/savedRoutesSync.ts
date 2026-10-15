@@ -10,6 +10,7 @@
  * an offline overwrite must beat the stale account copy, not revert to it.
  */
 import { supabase, isSupabaseConfigured } from './supabase';
+import type { TracePoint } from './routeTracer';
 import {
     clearSyncedSavedTraceTombstones,
     getSavedTraceTombstones,
@@ -18,8 +19,7 @@ import {
     persistSavedTraceLibrary,
     repairOrphanedSavedTraceChains,
     type SavedTrace,
-    type TracePoint,
-} from './routeTracer';
+} from './savedTraceStore';
 import { createLogger } from '../utils/createLogger';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 import {

@@ -42,7 +42,7 @@ vi.mock('../stores/settingsStore', () => ({
         selector({ settings: { vessel: mocks.vessel } }),
 }));
 
-vi.mock('../services/routeTracer', () => ({ loadSavedTraces: () => [] }));
+vi.mock('../services/savedTraceStore', () => ({ loadSavedTraces: () => [] }));
 
 vi.mock('../services/floatPlanCrew', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../services/floatPlanCrew')>()),

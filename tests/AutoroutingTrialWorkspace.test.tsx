@@ -2117,7 +2117,7 @@ describe('isolated autorouting trial workspace', () => {
     it('keeps save explicit through its card, without direct persistence, activation, GPS or planner dependencies', () => {
         const source = readFileSync('components/autorouting/AutoroutingTrialWorkspace.tsx', 'utf8');
         expect(source).not.toMatch(
-            /(?:localStorage|sessionStorage|dispatchEvent|passageHandoff|routeTracer|useVoyageForm|MapHub|GpsService|saveVoyagePlan)/,
+            /(?:localStorage|sessionStorage|dispatchEvent|passageHandoff|routeTracer|savedTraceStore|useVoyageForm|MapHub|GpsService|saveVoyagePlan)/,
         );
         expect(source).toContain('<AutoroutingProposalSaveCard');
     });
@@ -2493,7 +2493,7 @@ describe('explicit routing mode choice', () => {
     it('does not import planner, persistence, live GPS or route handoff machinery', () => {
         const source = readFileSync('components/autorouting/RoutingModeDialog.tsx', 'utf8');
         expect(source).not.toMatch(
-            /(?:localStorage|sessionStorage|dispatchEvent|passageHandoff|routeTracer|useVoyageForm|MapHub|GpsService|saveVoyagePlan|useWeather)/,
+            /(?:localStorage|sessionStorage|dispatchEvent|passageHandoff|routeTracer|savedTraceStore|useVoyageForm|MapHub|GpsService|saveVoyagePlan|useWeather)/,
         );
     });
 });

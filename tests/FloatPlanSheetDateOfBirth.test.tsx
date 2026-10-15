@@ -38,7 +38,7 @@ vi.mock('../stores/settingsStore', () => ({
     useSettingsStore: (selector: (state: { settings: { vessel: typeof mocks.vessel } }) => unknown) =>
         selector({ settings: { vessel: mocks.vessel } }),
 }));
-vi.mock('../services/routeTracer', () => ({ loadSavedTraces: () => [] }));
+vi.mock('../services/savedTraceStore', () => ({ loadSavedTraces: () => [] }));
 vi.mock('../services/floatPlanCrew', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../services/floatPlanCrew')>()),
     loadFloatPlanCrew: vi.fn(),

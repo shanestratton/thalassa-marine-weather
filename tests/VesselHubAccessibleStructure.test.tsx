@@ -64,7 +64,7 @@ vi.mock('../components/nmea/useNmeaStore', () => ({
 }));
 vi.mock('../services/NmeaGpsProvider', () => ({ NmeaGpsProvider: { getFeedStatus: () => 'unavailable' } }));
 vi.mock('../services/PiCacheService', () => ({ piCache: { isAvailable: () => false } }));
-vi.mock('../services/routeTracer', () => ({ loadSavedTraces: () => [] }));
+vi.mock('../services/savedTraceStore', () => ({ loadSavedTraces: () => [] }));
 vi.mock('../services/savedRoutesSync', () => ({ syncSavedRoutes: async () => [] }));
 vi.mock('../stores/PassageStore', () => ({
     PassageStore: {

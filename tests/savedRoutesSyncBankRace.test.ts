@@ -30,7 +30,8 @@ vi.mock('../services/supabase', () => ({
 vi.mock('../services/VoyageService', () => ({ refreshSavedRouteVoyageVerification: vi.fn(async () => ({})) }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
-import { bankTraceVerification, loadSavedTraces, saveTrace, type TraceLegVerdict } from '../services/routeTracer';
+import type { TraceLegVerdict } from '../services/routeTracer';
+import { bankTraceVerification, loadSavedTraces, saveTrace } from '../services/savedTraceStore';
 import { syncSavedRoutes } from '../services/savedRoutesSync';
 import { evaluateTraceRelease } from '../services/traceVerification';
 

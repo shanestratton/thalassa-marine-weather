@@ -73,7 +73,7 @@ import {
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
 import type { SavedRouteLibraryItem } from '../services/savedRouteLibrary';
-import { loadSavedTraces } from '../services/routeTracer';
+import { loadSavedTraces } from '../services/savedTraceStore';
 
 /** The Past voyages picker lists at most this many voyages. */
 const PAST_VOYAGE_PICKER_MAX = 8;
@@ -400,7 +400,7 @@ export const RoutePlanner: React.FC<{
                                 remove:
                                     route.source === 'saved-trace'
                                         ? async () => {
-                                              const { deleteTrace } = await import('../services/routeTracer');
+                                              const { deleteTrace } = await import('../services/savedTraceStore');
                                               if (!isAuthIdentityScopeCurrent(pickerScope)) return false;
                                               return deleteTrace(route.routeId, pickerScope);
                                           }

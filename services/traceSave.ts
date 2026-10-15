@@ -10,6 +10,7 @@
  * about the screen and the account: the release gate, the empty-name prompt,
  * the flash, the logbook mirror.
  */
+import type { TracePoint } from './routeTracer';
 import {
     destNameFromRouteName,
     healTripChainDetailed,
@@ -18,8 +19,7 @@ import {
     withLegBadge,
     type NextLegSeed,
     type SavedTrace,
-    type TracePoint,
-} from './routeTracer';
+} from './savedTraceStore';
 import type { TraceVerification } from './traceVerification';
 import { legInSlot, overwriteBlockReason } from './tripReverse';
 import { enqueueTraceChecks } from './traceBackgroundCheck';

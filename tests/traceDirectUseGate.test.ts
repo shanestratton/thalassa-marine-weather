@@ -10,7 +10,7 @@ vi.mock('../services/enc/EncCellMetadata', () => ({
 }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
-import { saveTrace } from '../services/routeTracer';
+import { saveTrace } from '../services/savedTraceStore';
 import { evaluateTraceRelease, traceGeometryKey } from '../services/traceVerification';
 import { recordTraceCheckOutcome } from '../services/traceCheckOutcomes';
 import {

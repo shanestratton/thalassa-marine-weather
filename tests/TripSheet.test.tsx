@@ -16,7 +16,8 @@ import {
     setAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
-import type { SavedTrace, TracePoint } from '../services/routeTracer';
+import type { TracePoint } from '../services/routeTracer';
+import type { SavedTrace } from '../services/savedTraceStore';
 
 const mocks = vi.hoisted(() => ({ requestTracerOpen: vi.fn() }));
 vi.mock('../services/deepLink', () => ({ requestTracerOpen: mocks.requestTracerOpen }));
