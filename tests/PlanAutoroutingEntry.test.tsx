@@ -83,8 +83,8 @@ vi.mock('../utils/keyboardScroll', () => ({
     scrollInputAboveKeyboard: vi.fn(),
     subscribeKeyboardHeight: vi.fn(() => () => {}),
 }));
-vi.mock('../services/routeTracer', async (original) => ({
-    ...(await original<typeof import('../services/routeTracer')>()),
+vi.mock('../services/savedTraceStore', async (original) => ({
+    ...(await original<typeof import('../services/savedTraceStore')>()),
     loadSavedTraces: () => [],
 }));
 vi.mock('../components/map/MapHub', () => ({ MapHub: () => <div>Manual chart</div> }));

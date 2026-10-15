@@ -28,7 +28,7 @@ vi.mock('../stores/settingsStore', () => ({
         selector({ settings: { vessel: mocks.vessel } }),
 }));
 
-vi.mock('../services/routeTracer', () => ({ loadSavedTraces: () => [] }));
+vi.mock('../services/savedTraceStore', () => ({ loadSavedTraces: () => [] }));
 
 // RELATIVE, deliberately. This was `2026-08-10T00:00Z` — and on 2026-08-12
 // five tests died at once with no relevant commit, because validateFloatPlan

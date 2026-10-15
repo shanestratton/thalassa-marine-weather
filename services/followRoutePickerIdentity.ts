@@ -4,7 +4,7 @@
  * matches PLAN's direction-sensitive fingerprint. No records are rewritten.
  */
 import type { ShipLogEntry } from '../types';
-import type { SavedTrace } from './routeTracer';
+import type { SavedTrace } from './savedTraceStore';
 import type { VoyageSummary } from './shiplog/VoyageSummary';
 import { savedRouteGeometryFingerprint } from './savedRouteLibrary';
 import { ROUTE_GEOMETRY_NOTES_PREFIX } from './shiplog/PassagePlanSave';

@@ -14,7 +14,8 @@
 
 import type { AuthIdentityScope } from './authIdentityScope';
 import { isAuthIdentityScopeCurrent } from './authIdentityScope';
-import { buildTripPassageRollups, displayRouteLabel, type SavedTrace, type TracePoint } from './routeTracer';
+import type { TracePoint } from './routeTracer';
+import { buildTripPassageRollups, displayRouteLabel, type SavedTrace } from './savedTraceStore';
 import type { RouteOrTrack } from './shiplog/RoutesAndTracks';
 import { withTimeout } from '../utils/deadline';
 
@@ -220,7 +221,7 @@ export async function loadSavedRouteLibrary(
 ): Promise<SavedRouteLibraryItem[]> {
     if (!isAuthIdentityScopeCurrent(expectedScope)) return [];
 
-    const { loadSavedTraces } = await import('./routeTracer');
+    const { loadSavedTraces } = await import('./savedTraceStore');
     if (!isAuthIdentityScopeCurrent(expectedScope)) return [];
 
     const canonical = loadSavedTraces(expectedScope);

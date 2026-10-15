@@ -21,7 +21,7 @@ import {
     type FloatPlanRoute,
 } from '../../services/floatPlan';
 import { shareFloatPlanPdf } from '../../services/floatPlanPdf';
-import { loadSavedTraces } from '../../services/routeTracer';
+import { loadSavedTraces } from '../../services/savedTraceStore';
 import type { Voyage } from '../../services/VoyageService';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { triggerHaptic } from '../../utils/system';
@@ -30,7 +30,7 @@ import {
     collapseGeneratedTraceEndpointPair,
     formatStoredPlannedRouteName,
 } from '../../services/shiplog/plannedRouteNaming';
-import { destNameFromRouteName, stripLegBadge } from '../../services/routeTracer';
+import { destNameFromRouteName, stripLegBadge } from '../../services/savedTraceStore';
 import { vesselCrewAboard } from '../../services/units';
 import {
     FLOAT_PLAN_ROLES,

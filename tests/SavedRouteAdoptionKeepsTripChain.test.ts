@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
  * passage's legs as unrelated day sails and the publish could not find the
  * mirror (2026-09-08). The fetch now carries the chain and adoption keeps it.
  */
-import { adoptServerRoute, loadSavedTraces } from '../services/routeTracer';
+import { adoptServerRoute, loadSavedTraces } from '../services/savedTraceStore';
 import { savedRouteFetchExtras } from '../services/savedRoutePoints';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 

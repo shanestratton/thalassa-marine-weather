@@ -40,7 +40,7 @@ import {
     stripLegBadge,
     type SavedTrace,
     type TripGroup,
-} from '../../services/routeTracer';
+} from '../../services/savedTraceStore';
 import { routeNameParts, stripRouteBadges } from '../../services/routeNameParts';
 import { REVERSE_JOIN_NM, findTripGroup, legInSlot, tripName } from '../../services/tripReverse';
 import {

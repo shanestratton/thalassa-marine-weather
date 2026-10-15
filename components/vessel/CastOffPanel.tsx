@@ -22,7 +22,7 @@ import {
     collapseGeneratedTraceEndpointPair,
     formatStoredPlannedRouteName,
 } from '../../services/shiplog/plannedRouteNaming';
-import { destNameFromRouteName, loadSavedTraces, stripLegBadge } from '../../services/routeTracer';
+import { destNameFromRouteName, loadSavedTraces, stripLegBadge } from '../../services/savedTraceStore';
 import { traceVerificationNote } from '../../services/savedRouteRows';
 import { castOffRouteChoices, createCastOffSetup, isUnsavedCastOffSetup } from '../../services/castOffSetup';
 import { vesselCrewAboard } from '../../services/units';
@@ -465,7 +465,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         // legs, so the NEXT "Arrive at Port" opens pre-filled too.
         let plannedDestination: string | null = null;
         try {
-            const { tripLegPlannedDestination, tripLegAnchorOrdinal } = await import('../../services/routeTracer');
+            const { tripLegPlannedDestination, tripLegAnchorOrdinal } = await import('../../services/savedTraceStore');
             // completedLegs counts THIS voyage's legs, but the trip ordinal
             // starts at the route's own position — a leg-2 voyage's first
             // in-voyage leg IS trip leg 2, so its next leg is anchor +

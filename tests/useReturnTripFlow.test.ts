@@ -24,6 +24,7 @@ vi.mock('../services/shiplog/publishFollowedRoute', async (importOriginal) => ({
 
 import { useTraceDraft } from '../components/map/useTraceDraft';
 import { useReturnTripFlow } from '../components/map/useReturnTripFlow';
+import { traceAsVoyagePlan, type TracePoint } from '../services/routeTracer';
 import {
     buildTripPassageRollups,
     deleteTrace,
@@ -31,10 +32,8 @@ import {
     loadSavedTraces,
     nextLegSeed,
     saveTrace,
-    traceAsVoyagePlan,
     type SavedTrace,
-    type TracePoint,
-} from '../services/routeTracer';
+} from '../services/savedTraceStore';
 import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
 import { commitTraceSave, decideTraceSave, type TraceSaveDecision } from '../services/traceSave';
 import { followedSavedRouteIds } from '../services/tripReverse';

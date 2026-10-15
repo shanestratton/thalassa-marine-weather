@@ -28,6 +28,7 @@
 import { calculateDistance } from '../utils/navigationCalculations';
 import { SAME_PLACE_NM } from './shiplog/collapseReversedRoutes';
 import { reversedLegName, stripRouteBadges } from './routeNameParts';
+import type { TracePoint } from './routeTracer';
 import {
     buildTripPassageRollups,
     destNameFromRouteName,
@@ -36,9 +37,8 @@ import {
     legBadgeOrdinal,
     type NextLegSeed,
     type SavedTrace,
-    type TracePoint,
     type TripGroup,
-} from './routeTracer';
+} from './savedTraceStore';
 
 /** A reversed leg joins the previous arrival when its end lands this close —
  *  the berth-scale "same place" the Log already uses for there-and-back pairs.

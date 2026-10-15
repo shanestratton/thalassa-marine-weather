@@ -8,7 +8,7 @@ import {
 } from '../services/autoroutingProposalEvidence';
 import { evaluateAutoroutingProposalSave, saveReviewedAutoroutingProposal } from '../services/autoroutingProposalSave';
 import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
-import { groupTracesByTrip, loadSavedTraces, saveTrace } from '../services/routeTracer';
+import { groupTracesByTrip, loadSavedTraces, saveTrace } from '../services/savedTraceStore';
 import { moveAutoroutingDisplayWaypoint } from '../services/autoroutingWaypointEdit';
 import { buildTrialWaypointPlan } from '../services/autoroutingDisplayWaypoints';
 import { traceRegistryScope } from '../services/traceRegistryScope';

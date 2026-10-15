@@ -39,7 +39,7 @@ vi.mock('../services/authIdentityScope', () => ({
     getAuthIdentityScope: () => ({ key: h.current, generation: 1 }),
     isAuthIdentityScopeCurrent: (s: { key: string }) => s.key === h.current,
 }));
-vi.mock('../services/routeTracer', () => ({ loadSavedTraces: () => [] }));
+vi.mock('../services/savedTraceStore', () => ({ loadSavedTraces: () => [] }));
 vi.mock('../services/savedRoutesSync', () => ({ syncSavedRoutes: () => h.pending() }));
 vi.mock('../services/enc/cloudCellSync', () => ({ registerCloudCells: () => Promise.resolve() }));
 

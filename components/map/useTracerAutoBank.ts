@@ -27,14 +27,13 @@
  * Every write logs with log.warn and why (log.info is a no-op in production).
  */
 import { useEffect, useRef } from 'react';
+import type { TraceLegVerdict, TracePoint } from '../../services/routeTracer';
 import {
     bankTraceVerification,
     loadSavedTraces,
     type NextLegSeed,
     type SavedTrace,
-    type TraceLegVerdict,
-    type TracePoint,
-} from '../../services/routeTracer';
+} from '../../services/savedTraceStore';
 import { traceAutoBankSignature, traceGeometryKey, type TraceReleaseGate } from '../../services/traceVerification';
 import { legInSlot } from '../../services/tripReverse';
 import { vesselDraftIsAssumed, vesselDraftMetres } from '../../services/units';

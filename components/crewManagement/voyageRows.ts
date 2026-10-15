@@ -6,7 +6,7 @@
  * paint (the cached fast paths included), which is why they live at module
  * scope rather than inside the component.
  */
-import { buildTripPassageRollups, loadSavedTraces } from '../../services/routeTracer';
+import { buildTripPassageRollups, loadSavedTraces } from '../../services/savedTraceStore';
 import { routeDistanceNm } from '../../services/passageSummarySchedule';
 import { vesselCrewAboard } from '../../services/units';
 import { type VoyageRow } from './types';

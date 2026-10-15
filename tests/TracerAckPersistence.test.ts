@@ -15,7 +15,7 @@
  */
 import { describe, expect, it, beforeEach } from 'vitest';
 import { traceGeometryKey } from '../services/traceVerification';
-import { adoptServerRoute, loadSavedTraces, saveTrace } from '../services/routeTracer';
+import { adoptServerRoute, loadSavedTraces, saveTrace } from '../services/savedTraceStore';
 import type { TraceVerification } from '../services/traceVerification';
 
 const POINTS = [

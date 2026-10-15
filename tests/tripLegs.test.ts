@@ -13,6 +13,14 @@ import { act, renderHook } from '@testing-library/react';
 const graph = vi.hoisted(() => ({ deleteSavedRoutePassageGraph: vi.fn(async () => undefined) }));
 vi.mock('../services/savedRouteGraph', () => graph);
 import {
+    traceToGpx,
+    traceGpxFileName,
+    persistLegVerdicts,
+    LEG_VERDICTS_KEY,
+    hydrateLegVerdicts,
+    type TracePoint,
+} from '../services/routeTracer';
+import {
     ordinalLegLabel,
     stripLegBadge,
     withLegBadge,
@@ -22,8 +30,6 @@ import {
     retroBadgeFirstLeg,
     healTripChain,
     groupTracesByTrip,
-    traceToGpx,
-    traceGpxFileName,
     saveTrace,
     loadSavedTraces,
     deleteTrace,
@@ -31,15 +37,11 @@ import {
     repairOrphanedSavedTraceChains,
     attachSavedTraceTombstoneLinks,
     getSavedTraceTombstones,
-    persistLegVerdicts,
-    LEG_VERDICTS_KEY,
-    hydrateLegVerdicts,
     tripLegAnchorOrdinal,
     tripLegPlannedDestination,
     buildTripPassageRollups,
     type SavedTrace,
-    type TracePoint,
-} from '../services/routeTracer';
+} from '../services/savedTraceStore';
 import { authScopedStorageKey } from '../services/authIdentityScope';
 import { useTraceDraft } from '../components/map/useTraceDraft';
 import { commitTraceSave, decideTraceSave, type TraceSaveDecision } from '../services/traceSave';

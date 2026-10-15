@@ -46,7 +46,8 @@ vi.mock('../stores/settingsStore', () => ({
 }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
-import { bankTraceVerification, loadSavedTraces, saveTrace, type TraceLegVerdict } from '../services/routeTracer';
+import type { TraceLegVerdict } from '../services/routeTracer';
+import { bankTraceVerification, loadSavedTraces, saveTrace } from '../services/savedTraceStore';
 import { recoverTraceChecks } from '../services/traceCheckRecovery';
 import { evaluateTraceRelease, serialiseTraceVerificationNote } from '../services/traceVerification';
 

@@ -1,12 +1,12 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ShipLogEntry } from '../types';
-import type { SavedTrace } from '../services/routeTracer';
+import type { SavedTrace } from '../services/savedTraceStore';
 import type { VoyageSummary } from '../services/shiplog/VoyageSummary';
 
 const world = vi.hoisted(() => ({ traces: [] as unknown[], getEntries: vi.fn(), offline: false }));
-vi.mock('../services/routeTracer', async (original) => ({
-    ...(await original<typeof import('../services/routeTracer')>()),
+vi.mock('../services/savedTraceStore', async (original) => ({
+    ...(await original<typeof import('../services/savedTraceStore')>()),
     loadSavedTraces: () => world.traces,
 }));
 vi.mock('../services/shiplog/VoyageSummary', () => ({ getVoyageEntries: world.getEntries }));

@@ -50,6 +50,13 @@ vi.mock('../services/routeTracer', async (importOriginal) => {
             if (h.realBank) real.persistLegVerdicts(...args);
         }),
         tideWindowLabelFor: vi.fn(async () => null),
+    };
+});
+// The bank is the saved-route library's (131-04), spied on, never stubbed.
+vi.mock('../services/savedTraceStore', async (importOriginal) => {
+    const real = await importOriginal<typeof import('../services/savedTraceStore')>();
+    return {
+        ...real,
         bankTraceVerification: vi.fn((...args: Parameters<typeof real.bankTraceVerification>) => {
             h.events.push('bank');
             h.banks.push({ id: args[0], draftM: args[1].draftM });
@@ -78,13 +85,8 @@ vi.mock('../services/enc/EncCellMetadata', () => ({
 }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
-import {
-    loadSavedTraces,
-    saveTrace,
-    type SavedTrace,
-    type TraceLegVerdict,
-    type TracePoint,
-} from '../services/routeTracer';
+import type { TraceLegVerdict, TracePoint } from '../services/routeTracer';
+import { loadSavedTraces, saveTrace, type SavedTrace } from '../services/savedTraceStore';
 import { evaluateTraceRelease } from '../services/traceVerification';
 import { vesselDraftIsAssumed, vesselDraftMetres } from '../services/units';
 import { useTracerGrading, type TracerStatus } from '../components/map/useTracerGrading';

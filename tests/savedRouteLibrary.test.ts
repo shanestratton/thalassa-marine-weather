@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SavedTrace } from '../services/routeTracer';
+import type { SavedTrace } from '../services/savedTraceStore';
 import type { RouteOrTrack } from '../services/shiplog/RoutesAndTracks';
 import {
     deleteLogbookRouteFromLibrary,
@@ -18,10 +18,10 @@ const mocks = vi.hoisted(() => ({
     deleteVoyageLogOnly: vi.fn(),
 }));
 
-vi.mock('../services/routeTracer', async (importOriginal) => {
+vi.mock('../services/savedTraceStore', async (importOriginal) => {
     // The library statically uses the pure label/rollup helpers — keep the
     // real implementations, mock only the storage read.
-    const actual = await importOriginal<typeof import('../services/routeTracer')>();
+    const actual = await importOriginal<typeof import('../services/savedTraceStore')>();
     return {
         ...actual,
         loadSavedTraces: mocks.loadSavedTraces,

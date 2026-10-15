@@ -10,7 +10,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const { loadSavedTraces } = vi.hoisted(() => ({ loadSavedTraces: vi.fn() }));
 
-vi.mock('../services/routeTracer', async (importOriginal) => {
+vi.mock('../services/savedTraceStore', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
     return { ...actual, loadSavedTraces };
 });

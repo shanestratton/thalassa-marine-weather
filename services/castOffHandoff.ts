@@ -395,7 +395,7 @@ async function resolvePlannedMirrorId(
 ): Promise<string | null> {
     const routeId = savedRouteId?.trim();
     try {
-        const { loadSavedTraces, displayRouteLabel } = await import('./routeTracer');
+        const { loadSavedTraces, displayRouteLabel } = await import('./savedTraceStore');
         const traces = loadSavedTraces();
         let trace = traces.find(
             (candidate) =>
@@ -535,7 +535,7 @@ async function runRetryPublicPublish(): Promise<void> {
         let mirror = await resolvePlannedMirrorId(handoff.savedRouteId, handoff.voyageId, handoff.voyageName);
         if (!mirror) {
             // Repair: find the trace, then a planned mirror that claims it.
-            const { loadSavedTraces, linkTraceToPassage } = await import('./routeTracer');
+            const { loadSavedTraces, linkTraceToPassage } = await import('./savedTraceStore');
             const traces = loadSavedTraces();
             const routeId = handoff.savedRouteId?.trim();
             const trace = traces.find(

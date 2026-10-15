@@ -10,7 +10,7 @@ const queue = vi.hoisted(() => ({ enqueue: vi.fn() }));
 vi.mock('../services/traceBackgroundCheck', () => ({ enqueueTraceChecks: queue.enqueue }));
 
 import { setAuthIdentityScope } from '../services/authIdentityScope';
-import { healTripChainDetailed, loadSavedTraces, saveTrace } from '../services/routeTracer';
+import { healTripChainDetailed, loadSavedTraces, saveTrace } from '../services/savedTraceStore';
 import { commitTraceSave } from '../services/traceSave';
 
 // Fictional: Chesapeake Bay, a two-leg trip (US).

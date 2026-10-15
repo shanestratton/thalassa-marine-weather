@@ -47,7 +47,7 @@
 import React from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { triggerHaptic } from '../../../utils/system';
-import { loadSavedTraces, groupTracesByTrip, type SavedTrace } from '../../../services/routeTracer';
+import { loadSavedTraces, groupTracesByTrip, type SavedTrace } from '../../../services/savedTraceStore';
 
 export interface TracerSavedRoutePickerProps {
     savedTraces: SavedTrace[];

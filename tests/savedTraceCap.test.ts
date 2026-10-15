@@ -19,15 +19,14 @@ vi.mock('../stores/settingsStore', () => ({
 vi.mock('../services/VoyageService', () => ({ refreshSavedRouteVoyageVerification: vi.fn(async () => ({})) }));
 
 import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
+import type { TraceLegVerdict, TracePoint } from '../services/routeTracer';
 import {
     bankTraceVerification,
     capSavedTracesPreservingTrips,
     loadSavedTraces,
     saveTrace,
     type SavedTrace,
-    type TraceLegVerdict,
-    type TracePoint,
-} from '../services/routeTracer';
+} from '../services/savedTraceStore';
 import { evaluateTraceRelease } from '../services/traceVerification';
 import { useFollowRouteStore } from '../stores/followRouteStore';
 import type { VoyagePlan } from '../types';

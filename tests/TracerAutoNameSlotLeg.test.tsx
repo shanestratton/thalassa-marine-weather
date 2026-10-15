@@ -12,7 +12,8 @@
 import { act, renderHook } from '@testing-library/react';
 import { useRef, useState } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { NextLegSeed, SavedTrace, TracePoint } from '../services/routeTracer';
+import type { TracePoint } from '../services/routeTracer';
+import type { NextLegSeed, SavedTrace } from '../services/savedTraceStore';
 
 vi.mock('../services/routeAutoName', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../services/routeAutoName')>()),

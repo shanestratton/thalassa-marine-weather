@@ -9,7 +9,7 @@ import {
     type Dispatch,
     type SetStateAction,
 } from 'react';
-import type { NextLegSeed, SavedTrace } from '../../services/routeTracer';
+import type { NextLegSeed, SavedTrace } from '../../services/savedTraceStore';
 import { reversedLegName, stripRouteBadges } from '../../services/routeNameParts';
 import {
     activeReversalNote,

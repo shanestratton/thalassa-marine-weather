@@ -52,7 +52,7 @@ import {
 import { FORECAST_TTL_MS, loadRouteForecast, type RouteForecast } from '../routeForecastSampler';
 import { loadRouteSpread, type RouteSpread } from '../routeForecastSpread';
 import { loadRouteSea, type RouteSea } from '../routeSeaSampler';
-import { loadSavedTraces } from '../routeTracer';
+import { loadSavedTraces } from '../savedTraceStore';
 import { TIDE_CURVE_MAX_DAYS, fetchTideCurve, type TideCurve } from '../TideHeightService';
 import { fetchActiveCyclones, type ActiveCyclone } from '../weather/CycloneTrackingService';
 import {

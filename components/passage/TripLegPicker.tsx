@@ -19,7 +19,7 @@
  * (components/map/useReturnTripFlow.ts). The outbound trip is never edited.
  */
 import React from 'react';
-import { loadSavedTraces, groupTracesByTrip } from '../../services/routeTracer';
+import { loadSavedTraces, groupTracesByTrip } from '../../services/savedTraceStore';
 import { triggerHaptic } from '../../utils/system';
 import { FlagIcon } from '../Icons';
 import { PLAN_TILE_CLASS, PLAN_TILE_STYLE, PlanTileFace } from './PlanTile';
