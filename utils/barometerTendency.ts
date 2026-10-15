@@ -134,6 +134,13 @@ function labelFor(direction: TendencyDirection, rate: TendencyRate): string {
     return tail ? `${head} ${tail}` : head;
 }
 
+/** The pill words for a 3-hour change ('Falling quickly'), in the same bands.
+ *  The meteogram (131-02) names the FORECAST's next three hours with them. */
+export function tendencyLabel(delta3h: number): string {
+    const { direction, rate } = bandTendency(delta3h);
+    return labelFor(direction, rate);
+}
+
 /**
  * Severity is asymmetric on purpose. A fast FALL is the dangerous one — it
  * is a deepening low or an approaching front, and the wind arrives with it.

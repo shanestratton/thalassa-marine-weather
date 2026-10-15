@@ -1278,6 +1278,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     hourly={hourly}
                                     forecast={data.forecast}
                                     coordinates={data.coordinates}
+                                    timeZone={data.timeZone}
+                                    utcOffset={data.utcOffset}
                                     spreadMetric={spreadMetric}
                                     onSpreadHandled={handleSpreadHandled}
                                     emptyDayNote={activeDay > 0 ? shownDayRangeNote : null}

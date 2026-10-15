@@ -138,6 +138,9 @@ interface HeroWidgetsProps {
     forecast?: ForecastDay[];
     /** Location — for the modal's WeatherKit historical (yesterday) fetch. */
     coordinates?: { lat: number; lon: number };
+    /** The report's zone and UTC offset — the meteogram's place clock (131-02). */
+    timeZone?: string;
+    utcOffset?: number;
     /** A grid metric the user long-pressed (detected at the DndContext level
      *  in Dashboard — a hold that ends without displacement). Opens the model
      *  convergence chart pre-tabbed to that metric. */
@@ -452,6 +455,8 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     hourly,
     forecast,
     coordinates,
+    timeZone,
+    utcOffset,
     spreadMetric,
     onSpreadHandled,
     emptyDayNote,
@@ -1018,6 +1023,9 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                         hourly={hourly || []}
                         forecast={forecast || []}
                         coordinates={coordinates}
+                        timeZone={timeZone}
+                        utcOffset={utcOffset}
+                        offshore={isOffshore}
                     />
                 </Suspense>
             )}
