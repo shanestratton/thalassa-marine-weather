@@ -22,6 +22,11 @@ export interface CustomsCountry {
     country: string;
     flag: string;
     portsOfEntry: readonly string[];
+    /** Set when portsOfEntry is only some of the country's ports of entry:
+     *  whom to ask about a port the list leaves out. The customs card then
+     *  says the guide cannot tell, rather than send the skipper elsewhere
+     *  to clear (132-B23 review). */
+    checkOtherPortsWith?: string;
 }
 
 export const CUSTOMS_PORT_INDEX: Readonly<Record<string, CustomsCountry>> = {
@@ -61,6 +66,9 @@ export const CUSTOMS_PORT_INDEX: Readonly<Record<string, CustomsCountry>> = {
         country: 'United States',
         flag: '🇺🇸',
         portsOfEntry: ['San Diego', 'Los Angeles', 'San Francisco', 'Honolulu', 'Miami', 'Key West', 'New York'],
+        // Seven of CBP's ports of entry, not all of them: Hilo, for one, is a
+        // CBP port of entry (port 3202, cbp.gov "Locate a Port of Entry").
+        checkOtherPortsWith: 'CBP',
     },
     // Pacific islands
     vanuatu: { country: 'Vanuatu', flag: '🇻🇺', portsOfEntry: ['Port Vila', 'Luganville (Santo)'] },

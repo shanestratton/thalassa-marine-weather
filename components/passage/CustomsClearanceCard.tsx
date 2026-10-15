@@ -203,31 +203,50 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                 they MUST clear at one of the country's POEs. Without
                 this banner the user sees Australia's clearance info
                 and assumes they can do it from Newport, when really
-                they need to detour to Brisbane / Bundaberg / etc. */}
+                they need to detour to Brisbane / Bundaberg / etc.
+                Where the guide lists only some of a country's ports of
+                entry (the United States), a port it leaves out may still
+                be one: the banner says the guide can't tell and whom to
+                ask, and sends the skipper nowhere (132-B23 review). */}
             {activeIndex && activePortInput && !activePortIsPOE && activeIndex.portsOfEntry.length > 0 && (
                 <div className="bg-amber-500/10 border border-amber-500/25 rounded-xl p-4">
                     <div className="flex items-start gap-3">
                         <span className="text-xl">⚠️</span>
-                        <div className="flex-1">
-                            <p className="text-xs font-bold text-amber-300 uppercase tracking-widest mb-1">
-                                {activePortInput} is not a designated port of entry
-                            </p>
-                            <p className="text-[11px] text-amber-200/90 leading-relaxed mb-2">
-                                {activeTab === 'depart'
-                                    ? `You'll need to clear out at one of ${activeIndex.country}'s designated ports of entry before departing internationally:`
-                                    : `You'll need to clear in at one of ${activeIndex.country}'s designated ports of entry on arrival — flying the Q flag until cleared:`}
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
-                                {activeIndex.portsOfEntry.map((port, i) => (
-                                    <span
-                                        key={i}
-                                        className="text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-full px-2.5 py-1"
-                                    >
-                                        {port}
-                                    </span>
-                                ))}
+                        {activeIndex.checkOtherPortsWith ? (
+                            <div className="flex-1">
+                                <p className="text-xs font-bold text-amber-300 uppercase tracking-widest mb-1">
+                                    {activePortInput} isn't one of the ports this guide lists
+                                </p>
+                                <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                                    {`This guide lists only some of this country's ports of entry, so ${activePortInput} may still be one. Check with ${activeIndex.checkOtherPortsWith} ${
+                                        activeTab === 'depart'
+                                            ? 'before you leave.'
+                                            : 'where to report when you arrive.'
+                                    }`}
+                                </p>
                             </div>
-                        </div>
+                        ) : (
+                            <div className="flex-1">
+                                <p className="text-xs font-bold text-amber-300 uppercase tracking-widest mb-1">
+                                    {activePortInput} is not a designated port of entry
+                                </p>
+                                <p className="text-[11px] text-amber-200/90 leading-relaxed mb-2">
+                                    {activeTab === 'depart'
+                                        ? `You'll need to clear out at one of ${activeIndex.country}'s designated ports of entry before departing internationally:`
+                                        : `You'll need to clear in at one of ${activeIndex.country}'s designated ports of entry on arrival — flying the Q flag until cleared:`}
+                                </p>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {activeIndex.portsOfEntry.map((port, i) => (
+                                        <span
+                                            key={i}
+                                            className="text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-full px-2.5 py-1"
+                                        >
+                                            {port}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

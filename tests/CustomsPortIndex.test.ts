@@ -457,6 +457,19 @@ describe('132: a US port by its state’s full name', () => {
         expect(isPortOfEntry('Annapolis, Maryland', 'united states')).toBe(false);
     });
 
+    it('marks the US list as some of CBP’s ports, not all (132-B23 review)', () => {
+        // A US port off the list may still be a port of entry (Hilo is one),
+        // so the customs card asks the skipper to check with CBP instead.
+        expect(CUSTOMS_PORT_INDEX['united states'].checkOtherPortsWith).toBe('CBP');
+        expect(isPortOfEntry('Hilo, Hawaii', 'united states')).toBe(false);
+        // Only the countries marked so far; the rest keep the firm banner.
+        expect(
+            Object.entries(CUSTOMS_PORT_INDEX)
+                .filter(([, c]) => c.checkOtherPortsWith)
+                .map(([k]) => k),
+        ).toEqual(['united states']);
+    });
+
     // [input, the answer before 132, the answer now]: every recorded input
     // whose answer the state names moved, checked by hand.
     const CHANGED_IN_132: [string, string, string][] = [['Annapolis, Maryland', '', 'United States']];
