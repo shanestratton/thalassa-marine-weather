@@ -2,8 +2,9 @@
  * Documents · layout fixture (126-B3b). The real DocumentsHub with the app's
  * CSS under a copy of App.tsx's header and tab bar, over the real local
  * database and the real vault (the browser's Filesystem), so each card's
- * "On this phone" / "Needs signal to open" line and the ⋮ menu's "Share or
- * save selected" are measured against the real chrome and index.css.
+ * "On this phone" / "Needs signal to open" line, the "Not uploaded yet" and
+ * "Upload failed" lines with Retry (131-B9), and the ⋮ menu's "Share or save
+ * selected" are measured against the real chrome and index.css.
  *
  * No account, network or boat: the skipper is signed in by hand, every fetch
  * is refused here (so Storage never answers and nothing downloads), storage
@@ -132,6 +133,16 @@ await vault.recordLocalCopy('4d5e6f7a-8b9c-4d0e-9f2a-3b4c5d6e7f8a', manual.uri, 
 await database.insertLocal(
     'ship_documents',
     row('5e6f7a8b-9c0d-4e1f-8a3b-4c5d6e7f8a9b', 'Crew list, Papeete', 'Customs Clearances', null),
+);
+// Its upload was refused on the last try (131-B9): its card says why, with
+// Retry. The other papers filed here say "Not uploaded yet": nothing runs the
+// sync engine in this fixture.
+await database.markFailed(
+    database
+        .getFullQueue()
+        .filter((item) => item.record_id === '5e6f7a8b-9c0d-4e1f-8a3b-4c5d6e7f8a9b')
+        .map((item) => item.id),
+    'TypeError: Load failed',
 );
 // The rest synced from the iPad, never opened here.
 await database.mergePulledRecords('ship_documents', [

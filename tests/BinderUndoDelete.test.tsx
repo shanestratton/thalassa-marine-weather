@@ -46,12 +46,11 @@ vi.mock('../services/vessel/SyncService', () => ({
 }));
 vi.mock('../services/vessel/DocumentSyncService', () => ({
     DocumentSyncService: {
-        pullFromCloud: vi.fn().mockResolvedValue(0),
         getDownloadUrl: vi.fn(async (uri: string) => uri),
         openDownload: vi.fn().mockResolvedValue(undefined),
-        markForSync: vi.fn(),
-        markDeleted: vi.fn(),
-        pendingCount: 0,
+        uploadStates: () => ({}),
+        onUploadsChanged: () => () => undefined,
+        retryUploads: vi.fn().mockResolvedValue(undefined),
     },
 }));
 // The swipe is a native touch gesture: every card here is swiped open, so its
@@ -77,7 +76,6 @@ import { LocalInventoryService } from '../services/vessel/LocalInventoryService'
 import { LocalEquipmentService } from '../services/vessel/LocalEquipmentService';
 import { LocalMaintenanceService } from '../services/vessel/LocalMaintenanceService';
 import { LocalDocumentService } from '../services/vessel/LocalDocumentService';
-import { DocumentSyncService } from '../services/vessel/DocumentSyncService';
 import { toast } from '../components/Toast';
 import { InventoryList } from '../components/vessel/InventoryList';
 import { EquipmentList } from '../components/vessel/EquipmentList';
@@ -308,7 +306,6 @@ beforeEach(() => {
     localStorage.setItem('thalassa_localdb_moved_to_library', '1');
     vi.mocked(Filesystem.readdir).mockResolvedValue({ files: [] });
     vi.mocked(Filesystem.writeFile).mockResolvedValue({ uri: 'mock://file' });
-    vi.mocked(DocumentSyncService.markDeleted).mockClear();
     vi.mocked(toast.success).mockClear();
     vi.mocked(toast.error).mockClear();
     rt.bindings.clear();
@@ -335,10 +332,13 @@ describe.each(CASES)('$label: a delete you can trust', (c) => {
         await settle();
         expect(deletedIds(spy)).toEqual([idOf(a)]);
         expect(c.stored()).not.toContain(a);
-        if (c.table === 'ship_documents') {
-            // The cloud copy is deleted too, though the page has gone.
-            expect(DocumentSyncService.markDeleted).toHaveBeenCalledWith(idOf(a));
-        }
+        // The cloud copy is deleted too, though the page has gone: its DELETE
+        // is in the outbox, which the engine pushes by itself (131-B9).
+        expect(
+            getFullQueue().some(
+                (item) => item.table_name === c.table && item.record_id === idOf(a) && item.mutation_type === 'DELETE',
+            ),
+        ).toBe(true);
     });
 
     it('a change saved on another device does not bring the deleted row back', async () => {

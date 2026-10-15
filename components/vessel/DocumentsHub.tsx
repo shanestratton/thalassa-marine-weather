@@ -11,7 +11,8 @@ import { createLogger } from '../../utils/createLogger';
 const log = createLogger('DocumentsHub');
 import type { ShipDocument, DocumentCategory } from '../../types';
 import { LocalDocumentService } from '../../services/vessel/LocalDocumentService';
-import { DocumentSyncService } from '../../services/vessel/DocumentSyncService';
+import { DocumentSyncService, type DocUpload } from '../../services/vessel/DocumentSyncService';
+import type { SyncResult } from '../../services/vessel/SyncService';
 import { triggerHaptic } from '../../utils/system';
 import { TapToAction } from '../ui/TapToAction';
 import { PageHeader } from '../ui/PageHeader';
@@ -146,6 +147,18 @@ const NEEDS_SIGNAL = "This file isn't on this phone yet. Open it once with signa
 
 const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
+/** Retry with no signal (131-B9): the engine sends it on its own once the phone is back online. */
+const RETRY_NEEDS_SIGNAL = "No signal. It uploads by itself once you're back online.";
+
+/** The same papers waiting or refused, for the same reasons: nothing to redraw. */
+function sameUploads(a: Readonly<Record<string, DocUpload>>, b: Readonly<Record<string, DocUpload>>): boolean {
+    const ids = Object.keys(a);
+    return (
+        ids.length === Object.keys(b).length &&
+        ids.every((id) => b[id]?.failed === a[id].failed && b[id]?.reason === a[id].reason)
+    );
+}
+
 /**
  * Write one paper's file into a share sheet's Cache folder: the copy on this
  * phone first (126-B3a; a native copy, no bytes through JS), else the cloud's,
@@ -274,6 +287,16 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     const [fileStates, setFileStates] = useState<Readonly<Record<string, PaperFileState>>>({});
     const [vaultTick, setVaultTick] = useState(0);
     const refreshFileStates = useCallback(() => setVaultTick((tick) => tick + 1), []);
+    // Which papers have not uploaded yet, and why one was refused (131-B9,
+    // binder audit DOC-8 and DOC-9): read from the outbox itself after every
+    // load and every sync cycle, so a card says so until it really has gone.
+    const [uploads, setUploads] = useState<Readonly<Record<string, DocUpload>>>({});
+    const [retryingUploads, setRetryingUploads] = useState(false);
+    const refreshUploads = useCallback(() => {
+        const next = DocumentSyncService.uploadStates();
+        setUploads((previous) => (sameUploads(previous, next) ? previous : next));
+        return next;
+    }, []);
     // Soft delete with undo (126-B10a): the document stays in state, hidden,
     // until its delete is committed. The commit is fenced on the account, not
     // on the page being open, so a delete flushed by Back or by the phone
@@ -283,9 +306,9 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         // Declared below; called only once a delete has landed.
         onCommitted: () => loadDocs(),
         commit: async (doc, scope) => {
+            // Queued for the cloud with it; the engine pushes it within seconds.
             await LocalDocumentService.delete(doc.id);
             if (!isAuthIdentityScopeCurrent(scope)) return;
-            DocumentSyncService.markDeleted(doc.id);
             // Its copy on this phone goes with it (126-B3a; the file an hour on).
             void loadVault()
                 .then((vault) => vault.recordLocalCopy(doc.id, null))
@@ -316,6 +339,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             if (!isAuthIdentityScopeCurrent(scope)) return;
             setDataScopeKey(scope.key);
             setDocuments(loaded);
+            refreshUploads();
         } catch (e) {
             log.error('Failed to load documents:', e);
             if (isAuthIdentityScopeCurrent(scope)) {
@@ -325,7 +349,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         } finally {
             if (isAuthIdentityScopeCurrent(scope)) setLoading(false);
         }
-    }, []);
+    }, [refreshUploads]);
 
     useEffect(() => {
         mountedRef.current = true;
@@ -351,6 +375,8 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             setFileState('idle');
             pickedRef.current = null;
             setFileStates({});
+            setUploads({});
+            setRetryingUploads(false);
             reloadTimerRef.current = setTimeout(() => {
                 if (isAuthIdentityScopeCurrent(next)) loadDocs();
             }, 0);
@@ -364,8 +390,14 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         };
     }, [loadDocs]);
 
-    // Realtime sync — crew edits appear instantly
+    // Realtime sync — crew edits appear instantly. The channel's join asks the
+    // engine to catch up on what changed while the page was closed, as Stores
+    // and Equipment do; until 131 every visit also forced a full pull of every
+    // binder (131-B9).
     useRealtimeSync('ship_documents', loadDocs);
+
+    // A sync cycle ended, or a change was queued: the cards follow (131-B9).
+    useEffect(() => DocumentSyncService.onUploadsChanged(refreshUploads), [refreshUploads]);
 
     // Where each paper's file is (126-B3b), from one read of the vault's index
     // after every load, open, share and Wi-Fi pass: no filesystem call per card.
@@ -414,18 +446,6 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
     const sharedBinder = binder.mode === 'shared';
 
     const { ref: listRef, flash } = useSuccessFlash();
-
-    // Cloud pull on mount (restore on new device)
-    useEffect(() => {
-        const scope = getAuthIdentityScope();
-        DocumentSyncService.pullFromCloud().then((restored) => {
-            if (!currentOperation(scope)) return;
-            if (restored > 0) {
-                loadDocs();
-                toast.success(`Restored ${restored} document${restored > 1 ? 's' : ''} from cloud`);
-            }
-        });
-    }, [currentOperation, loadDocs]);
 
     // ── Filtered ──
     // On screen, counted and selectable: a document waiting out its undo is
@@ -573,11 +593,11 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             }
             setShowForm(false);
             resetForm();
+            // Its card says "Not uploaded yet" until the engine, within
+            // seconds (or once there is signal), has pushed it (131-B9).
             loadDocs();
             toast.success(wasEditing ? 'Document updated' : 'Document filed');
             flash();
-            // Mark for cloud sync
-            DocumentSyncService.markForSync(savedId);
         } catch (e) {
             log.error('Failed to save document:', e);
             if (currentOperation(scope)) toast.error('Failed to save document');
@@ -711,20 +731,57 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         if (currentOperation(scope)) setSelectedIds(new Set());
     };
 
-    // ── Expiry stats ──
+    /**
+     * Try refused uploads again now (131-B9). The engine tries them again by
+     * itself at its next sync too; with no signal there is nothing to try yet.
+     */
+    const handleRetryUpload = async (doc: ShipDocument) => {
+        if (retryingUploads) return;
+        if (isOffline()) {
+            toast.info(RETRY_NEEDS_SIGNAL);
+            return;
+        }
+        const scope = getAuthIdentityScope();
+        triggerHaptic('light');
+        setRetryingUploads(true);
+        let cycle: SyncResult | null = null;
+        try {
+            cycle = await DocumentSyncService.retryUploads();
+        } catch (e) {
+            log.warn('documents: retry-upload-failed', e);
+        }
+        if (!currentOperation(scope)) return;
+        setRetryingUploads(false);
+        const after = refreshUploads()[doc.id];
+        // Gone from the outbox is not proof it uploaded: on a fresh share
+        // snapshot the engine drops a change to a skipper's paper this sailor
+        // can no longer edit, or moves an add into their own binder, and
+        // sharedBinderNotice says so. "Uploaded" only after a cycle that pushed
+        // and dropped or moved nothing; otherwise that notice speaks alone.
+        const uploaded = !after && !!cycle && cycle.pushed > 0 && !cycle.discardedShared && !cycle.rehomedShared;
+        if (after?.failed) toast.error(`Still not uploaded: ${after.reason}`);
+        else if (uploaded) toast.success(`"${doc.document_name}" uploaded`);
+    };
+
+    // ── Expiry and upload stats ──
     // One pass instead of two, and one getExpiryStatus (a `new Date`) per
-    // document instead of two.
-    const { expiredCount, warningCount } = useMemo(() => {
+    // document instead of two. Uploads (131-B9) are counted from the outbox,
+    // over the papers on screen: each has a card that says it.
+    const { expiredCount, warningCount, waitingCount, failedCount } = useMemo(() => {
         let expired = 0;
         let warning = 0;
+        let waiting = 0;
+        let failed = 0;
         for (const d of visibleDocuments) {
             const status = getExpiryStatus(d.expiry_date);
             if (status === 'expired') expired++;
             else if (status === 'warning') warning++;
+            const upload = uploads[d.id];
+            if (upload?.failed) failed++;
+            else if (upload) waiting++;
         }
-        return { expiredCount: expired, warningCount: warning };
-    }, [visibleDocuments]);
-    const pendingSyncCount = loading ? 0 : DocumentSyncService.pendingCount;
+        return { expiredCount: expired, warningCount: warning, waitingCount: waiting, failedCount: failed };
+    }, [uploads, visibleDocuments]);
 
     // ── Render ──
     return (
@@ -764,10 +821,16 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                     {warningCount} expiring
                                 </span>
                             )}
-                            {pendingSyncCount > 0 && (
+                            {waitingCount > 0 && (
                                 <span className="text-sky-400 ml-2 inline-flex items-center gap-1">
                                     <CloudIcon className="h-3 w-3 shrink-0" />
-                                    {pendingSyncCount} pending
+                                    {waitingCount} pending
+                                </span>
+                            )}
+                            {failedCount > 0 && (
+                                <span className="text-red-400 ml-2 inline-flex items-center gap-1">
+                                    <AlertTriangleIcon className="h-3 w-3 shrink-0" />
+                                    {failedCount} {failedCount === 1 ? 'upload' : 'uploads'} failed
                                 </span>
                             )}
                         </p>
@@ -928,6 +991,9 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                             selected={selectedIds.has(doc.id)}
                                             onToggleSelect={() => toggleSelectDoc(doc.id)}
                                             fileState={fileStates[doc.id]}
+                                            upload={uploads[doc.id]}
+                                            onRetryUpload={() => void handleRetryUpload(doc)}
+                                            retryingUpload={retryingUploads}
                                         />
                                     ))}
                                 </div>

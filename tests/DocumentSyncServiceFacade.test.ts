@@ -1,31 +1,37 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SyncQueueItem } from '../services/vessel/LocalDatabase';
 
 const mocks = vi.hoisted(() => ({
     syncNow: vi.fn(),
-    forceFullPull: vi.fn(),
-    getAll: vi.fn(),
+    getSyncStatus: vi.fn(),
+    syncListeners: [] as (() => void)[],
+    outboxListeners: [] as ((table: string) => void)[],
     getFullQueue: vi.fn(),
     cloudFrom: vi.fn(),
     storageFrom: vi.fn(),
     createSignedUrl: vi.fn(),
     removeStorageObject: vi.fn(),
-    identity: 'user-a' as string | null,
 }));
 
 vi.mock('../services/vessel/SyncService', () => ({
     syncNow: mocks.syncNow,
-    forceFullPull: mocks.forceFullPull,
-}));
-
-vi.mock('../services/vessel/LocalDocumentService', () => ({
-    LocalDocumentService: {
-        getAll: mocks.getAll,
+    getSyncStatus: mocks.getSyncStatus,
+    onSyncComplete: (listener: () => void) => {
+        mocks.syncListeners.push(listener);
+        return () => {
+            mocks.syncListeners = mocks.syncListeners.filter((candidate) => candidate !== listener);
+        };
     },
 }));
 
 vi.mock('../services/vessel/LocalDatabase', () => ({
     getFullQueue: mocks.getFullQueue,
-    getLocalDatabaseIdentity: () => mocks.identity,
+    onOutboxAppended: (listener: (table: string) => void) => {
+        mocks.outboxListeners.push(listener);
+        return () => {
+            mocks.outboxListeners = mocks.outboxListeners.filter((candidate) => candidate !== listener);
+        };
+    },
 }));
 
 vi.mock('../services/supabase', () => ({
@@ -51,16 +57,38 @@ function deferred<T>() {
     return { promise, resolve };
 }
 
+let queueSerial = 0;
+/** One outbox entry, as LocalDatabase keeps it. */
+function queued(
+    recordId: string,
+    status: SyncQueueItem['status'] = 'pending',
+    extra: Partial<SyncQueueItem> = {},
+): SyncQueueItem {
+    queueSerial += 1;
+    return {
+        id: `queue-${queueSerial}`,
+        table_name: 'ship_documents',
+        record_id: recordId,
+        mutation_type: 'UPDATE',
+        payload: '{}',
+        created_at: '2026-10-14T01:00:00.000Z',
+        status,
+        retry_count: status === 'failed' ? 1 : 0,
+        owner_user_id: 'user-a',
+        ...extra,
+    };
+}
+
 describe('DocumentSyncService canonical sync facade', () => {
     beforeEach(() => {
         localStorage.clear();
         vi.restoreAllMocks();
         vi.clearAllMocks();
         mocks.syncNow.mockResolvedValue({ pushed: 0, pulled: 0, errors: [] });
-        mocks.forceFullPull.mockResolvedValue(0);
-        mocks.getAll.mockReturnValue([]);
+        mocks.getSyncStatus.mockReturnValue('idle');
+        mocks.syncListeners = [];
+        mocks.outboxListeners = [];
         mocks.getFullQueue.mockReturnValue([]);
-        mocks.identity = 'user-a';
         mocks.createSignedUrl.mockResolvedValue({
             data: { signedUrl: 'https://signed.example/document.pdf' },
             error: null,
@@ -79,7 +107,8 @@ describe('DocumentSyncService canonical sync facade', () => {
         await Promise.resolve();
 
         expect(mocks.syncNow).not.toHaveBeenCalled();
-        expect(mocks.forceFullPull).not.toHaveBeenCalled();
+        expect(mocks.syncListeners).toHaveLength(0);
+        expect(mocks.outboxListeners).toHaveLength(0);
         expect(mocks.cloudFrom).not.toHaveBeenCalled();
         expect(mocks.storageFrom).not.toHaveBeenCalled();
         expect(addEventListener).not.toHaveBeenCalled();
@@ -183,145 +212,168 @@ describe('DocumentSyncService canonical sync facade', () => {
         expect(close).toHaveBeenCalledOnce();
     });
 
-    it('keeps document sync status isolated across account switches', async () => {
+    it('keeps no status of its own: nothing in localStorage, and no full pull to restore with', async () => {
         const service = await loadService();
-        service.markForSync('doc-a');
-        await vi.waitFor(() => expect(service.getStatus('doc-a')).toBe('synced'));
+        mocks.getFullQueue.mockReturnValue([queued('doc-a')]);
 
-        expect(localStorage.getItem('thalassa_doc_sync_status::user%3Auser-a')).not.toBeNull();
-        expect(localStorage.getItem('thalassa_doc_sync_status:user-a')).toBeNull();
+        service.uploadStates();
 
-        mocks.identity = 'user-b';
-        expect(service.getAllStatuses()).toEqual({});
-        service.markForSync('doc-b');
-        await vi.waitFor(() => expect(service.getStatus('doc-b')).toBe('synced'));
+        expect(localStorage.length).toBe(0);
+        expect('pullFromCloud' in service).toBe(false);
+        expect('pendingCount' in service).toBe(false);
+    });
+});
 
-        mocks.identity = 'user-a';
-        expect(service.getAllStatuses()).toEqual({
-            'doc-a': expect.objectContaining({ status: 'synced' }),
-        });
-        expect(service.getAllStatuses()).not.toHaveProperty('doc-b');
+/**
+ * What has not uploaded yet, from the outbox itself (131-B9, binder audit
+ * DOC-8 and DOC-9).
+ */
+describe('DocumentSyncService upload states', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.syncNow.mockResolvedValue({ pushed: 0, pulled: 0, errors: [] });
+        mocks.getSyncStatus.mockReturnValue('idle');
+        mocks.syncListeners = [];
+        mocks.outboxListeners = [];
+        mocks.getFullQueue.mockReturnValue([]);
     });
 
-    it('copy-before-removes the retired status key into the shared exact-owner namespace', async () => {
-        localStorage.setItem(
-            'thalassa_doc_sync_status:user-a',
-            JSON.stringify({
-                'legacy-doc': { status: 'uploading', lastAttempt: '2026-08-05T00:00:00.000Z' },
-            }),
-        );
-
+    it("lists each paper the outbox still holds, waiting (queued or being pushed), and no other table's", async () => {
         const service = await loadService();
-
-        expect(service.getStatus('legacy-doc')).toBe('pending');
-        expect(localStorage.getItem('thalassa_doc_sync_status:user-a')).toBeNull();
-        expect(JSON.parse(localStorage.getItem('thalassa_doc_sync_status::user%3Auser-a') ?? '{}')).toEqual({
-            'legacy-doc': { status: 'pending', lastAttempt: '2026-08-05T00:00:00.000Z' },
-        });
-    });
-
-    it('restores through the canonical full pull and counts newly materialized document IDs', async () => {
-        const service = await loadService();
-        const localDocument = { id: 'doc-local' };
-        const restoredDocument = { id: 'doc-cloud' };
-        mocks.getAll.mockReturnValueOnce([localDocument]).mockReturnValueOnce([localDocument, restoredDocument]);
-        // The generic engine may pull rows from many vessel tables. Its count
-        // must not be presented as the number of restored documents.
-        mocks.forceFullPull.mockResolvedValue(19);
-
-        await expect(service.pullFromCloud()).resolves.toBe(1);
-
-        expect(mocks.forceFullPull).toHaveBeenCalledTimes(1);
-        expect(mocks.getAll).toHaveBeenCalledTimes(2);
-        expect(service.getStatus('doc-cloud')).toBe('synced');
-        expect(mocks.cloudFrom).not.toHaveBeenCalled();
-    });
-
-    it('delegates pending writes to the generic engine and reflects a successful cycle', async () => {
-        const cycle = deferred<{ pushed: number; pulled: number; errors: string[] }>();
-        mocks.syncNow.mockReturnValueOnce(cycle.promise);
-        const service = await loadService();
-
-        service.markForSync('doc-1');
-
-        expect(mocks.syncNow).toHaveBeenCalledTimes(1);
-        expect(service.getStatus('doc-1')).toBe('uploading');
-
-        cycle.resolve({ pushed: 1, pulled: 0, errors: [] });
-        await vi.waitFor(() => expect(service.getStatus('doc-1')).toBe('synced'));
-        expect(service.pendingCount).toBe(0);
-    });
-
-    it('uses the document outbox rather than unrelated table errors for status', async () => {
-        mocks.syncNow.mockResolvedValue({
-            pushed: 0,
-            pulled: 0,
-            errors: ['maintenance_tasks: upstream unavailable'],
-        });
-        const service = await loadService();
-
-        service.markForSync('doc-1');
-
-        await vi.waitFor(() => expect(service.getStatus('doc-1')).toBe('synced'));
-    });
-
-    it('keeps a newer same-document generation pending when an older cycle finishes', async () => {
-        const firstCycle = deferred<{ pushed: number; pulled: number; errors: string[] }>();
-        const secondCycle = deferred<{ pushed: number; pulled: number; errors: string[] }>();
-        mocks.syncNow.mockReturnValueOnce(firstCycle.promise).mockReturnValueOnce(secondCycle.promise);
-        const service = await loadService();
-
-        service.markForSync('doc-1');
-        service.markForSync('doc-1');
-        mocks.getFullQueue.mockReturnValueOnce([
-            {
-                table_name: 'ship_documents',
-                record_id: 'doc-1',
-                status: 'pending',
-            },
+        mocks.getFullQueue.mockReturnValue([
+            queued('doc-new', 'pending', { mutation_type: 'INSERT' }),
+            queued('doc-new', 'pending'),
+            queued('doc-pushing', 'syncing'),
+            queued('stores-1', 'failed', { table_name: 'inventory_items', error_message: 'Failed to fetch' }),
         ]);
-        firstCycle.resolve({ pushed: 1, pulled: 0, errors: [] });
 
-        await vi.waitFor(() => expect(mocks.syncNow).toHaveBeenCalledTimes(2));
-        expect(service.getStatus('doc-1')).toBe('uploading');
-        secondCycle.resolve({ pushed: 1, pulled: 0, errors: [] });
-        await vi.waitFor(() => expect(service.getStatus('doc-1')).toBe('synced'));
+        expect(service.uploadStates()).toEqual({
+            'doc-new': { failed: false },
+            'doc-pushing': { failed: false },
+        });
     });
 
-    it('contains a local database bootstrap race during restore', async () => {
-        mocks.getAll.mockImplementationOnce(() => {
+    it('a refused paper is failed, with the first refusal as its reason in plain words', async () => {
+        const service = await loadService();
+        mocks.getFullQueue.mockReturnValue([
+            queued('doc-big', 'pending', { mutation_type: 'INSERT' }),
+            queued('doc-big', 'failed', {
+                error_message: 'File upload failed: The object exceeded the maximum allowed size',
+            }),
+            // Fenced behind the refusal: still pending, never the reason.
+            queued('doc-big', 'pending'),
+            queued('doc-big', 'failed', { error_message: 'Failed to fetch' }),
+        ]);
+
+        expect(service.uploadStates()).toEqual({
+            'doc-big': { failed: true, reason: 'the file is too big for the cloud' },
+        });
+    });
+
+    it('says nothing while the database is switching accounts', async () => {
+        const service = await loadService();
+        mocks.getFullQueue.mockImplementation(() => {
             throw new Error('LocalDB not initialized');
         });
-        const service = await loadService();
 
-        await expect(service.pullFromCloud()).resolves.toBe(0);
-        expect(mocks.forceFullPull).not.toHaveBeenCalled();
+        expect(service.uploadStates()).toEqual({});
     });
 
-    it('propagates only the explicit queued delete through the generic engine', async () => {
+    it("tells its listener when a cycle ends or a paper's change is queued, not another table's", async () => {
+        const service = await loadService();
+        const listener = vi.fn();
+        const stop = service.onUploadsChanged(listener);
+
+        mocks.syncListeners.forEach((notify) => notify());
+        mocks.outboxListeners.forEach((notify) => notify('ship_documents'));
+        mocks.outboxListeners.forEach((notify) => notify('inventory_items'));
+        expect(listener).toHaveBeenCalledTimes(2);
+
+        stop();
+        expect(mocks.syncListeners).toHaveLength(0);
+        expect(mocks.outboxListeners).toHaveLength(0);
+    });
+
+    it('retry runs one sync cycle now, through the engine, and returns what it did', async () => {
+        const cycle = { pushed: 1, pulled: 0, errors: [], discardedShared: 1, rehomedShared: 0 };
+        mocks.syncNow.mockResolvedValueOnce(cycle);
         const service = await loadService();
 
-        service.markDeleted('doc-absent-locally');
+        await expect(service.retryUploads()).resolves.toEqual(cycle);
 
-        await vi.waitFor(() => expect(mocks.syncNow).toHaveBeenCalledTimes(1));
+        expect(mocks.syncNow).toHaveBeenCalledTimes(1);
         expect(mocks.cloudFrom).not.toHaveBeenCalled();
-        expect(mocks.removeStorageObject).not.toHaveBeenCalled();
     });
 
-    it('serializes a mutation arriving during sync into one canonical follow-up cycle', async () => {
-        const firstCycle = deferred<{ pushed: number; pulled: number; errors: string[] }>();
+    it('retry during a cycle waits it out, then runs one that starts after the tap', async () => {
+        const running = deferred<{ pushed: number; pulled: number; errors: string[] }>();
+        mocks.getSyncStatus.mockReturnValue('syncing');
+        mocks.syncNow.mockReturnValueOnce(running.promise);
+        const service = await loadService();
+
+        const retry = service.retryUploads();
+        await Promise.resolve();
+        expect(mocks.syncNow).toHaveBeenCalledTimes(1);
+
+        running.resolve({ pushed: 0, pulled: 0, errors: ['ship_documents/doc-1: Failed to fetch'] });
+        await retry;
+        expect(mocks.syncNow).toHaveBeenCalledTimes(2);
+    });
+
+    // Review fix: the cycle waited out may already have put the refused change
+    // back in line and dropped or moved it, so the page must hear of that too.
+    it("a cycle waited out adds its pushed, dropped and moved counts to the retry's", async () => {
+        mocks.getSyncStatus.mockReturnValue('syncing');
         mocks.syncNow
-            .mockReturnValueOnce(firstCycle.promise)
+            .mockResolvedValueOnce({ pushed: 0, pulled: 2, errors: [], discardedShared: 1, rehomedShared: 0 })
+            .mockResolvedValueOnce({ pushed: 1, pulled: 0, errors: [], discardedShared: 0, rehomedShared: 1 });
+        const service = await loadService();
+
+        await expect(service.retryUploads()).resolves.toMatchObject({
+            pushed: 1,
+            discardedShared: 1,
+            rehomedShared: 1,
+        });
+    });
+
+    it('a cycle waited out that failed outright still lets the retry run, then throws: what it did is unknown', async () => {
+        mocks.getSyncStatus.mockReturnValue('syncing');
+        mocks.syncNow
+            .mockRejectedValueOnce(new Error('listener failed'))
             .mockResolvedValueOnce({ pushed: 1, pulled: 0, errors: [] });
         const service = await loadService();
 
-        service.markForSync('doc-1');
-        service.markForSync('doc-2');
+        await expect(service.retryUploads()).rejects.toThrow('listener failed');
+        expect(mocks.syncNow).toHaveBeenCalledTimes(2);
+    });
+});
 
-        expect(mocks.syncNow).toHaveBeenCalledTimes(1);
-
-        firstCycle.resolve({ pushed: 1, pulled: 0, errors: [] });
-        await vi.waitFor(() => expect(mocks.syncNow).toHaveBeenCalledTimes(2));
-        await vi.waitFor(() => expect(service.getStatus('doc-2')).toBe('synced'));
+describe('uploadFailureReason', () => {
+    it.each([
+        ['File upload failed: The object exceeded the maximum allowed size', 'the file is too big for the cloud'],
+        ['File upload failed: Payload too large', 'the file is too big for the cloud'],
+        ['Local attachment missing', 'its file is no longer on this phone'],
+        ['Could not read local attachment (404)', "its file on this phone couldn't be read"],
+        ['Local attachment was empty or unreadable', "its file on this phone couldn't be read"],
+        ['TypeError: Failed to fetch', 'the connection dropped'],
+        ['Load failed', 'the connection dropped'],
+        ['NetworkError when attempting to fetch resource.', 'the connection dropped'],
+        ['File upload failed: Failed to fetch', 'the connection dropped'],
+        ['JWT expired', 'you need to sign in again'],
+        ['Not authenticated', 'you need to sign in again'],
+        ['Auth session missing!', 'you need to sign in again'],
+        ['Authenticated user does not match the local database identity', 'you need to sign in again'],
+        [
+            'new row violates row-level security policy for table "ship_documents"',
+            "the cloud didn't allow it for this account",
+        ],
+        ['permission denied for table ship_documents', "the cloud didn't allow it for this account"],
+        ['Record not found or update not authorized', "the cloud didn't accept it"],
+        ['Attachment cleanup failed: Object not found', "the cloud's old copy of the file couldn't be cleared"],
+        ['invalid input value for enum document_category: "Manuals"', "the cloud didn't accept it"],
+        [undefined, "the cloud didn't accept it"],
+    ])('%s -> %s', async (message, reason) => {
+        const { uploadFailureReason } = await import('../services/vessel/DocumentSyncService');
+        expect(uploadFailureReason(message)).toBe(reason);
     });
 });

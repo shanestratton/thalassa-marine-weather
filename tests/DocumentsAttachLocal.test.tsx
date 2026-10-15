@@ -68,10 +68,9 @@ vi.mock('../services/vessel/DocumentSyncService', () => ({
     DocumentSyncService: {
         getDownloadUrl: hoisted.getDownloadUrl,
         openDownload: vi.fn(),
-        pullFromCloud: vi.fn().mockResolvedValue(0),
-        markForSync: vi.fn(),
-        markDeleted: vi.fn(),
-        pendingCount: 0,
+        uploadStates: () => ({}),
+        onUploadsChanged: () => () => undefined,
+        retryUploads: vi.fn().mockResolvedValue(undefined),
     },
 }));
 vi.mock('../hooks/useRealtimeSync', () => ({ useRealtimeSync: vi.fn(), useRealtimeSyncMulti: vi.fn() }));
