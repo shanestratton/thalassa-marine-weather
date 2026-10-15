@@ -45,8 +45,8 @@ export const TROMSO_NAMES = body([
     node(990000008, offset(TROMSO, 20, 0), { natural: 'bay', name: 'Fixturfjorden' }),
     // Beyond any day's reach.
     node(990000009, offset(TROMSO, 40, 0), { natural: 'bay', name: 'Fixture Langtvekk' }),
+    // Not what was asked for, or not usable: dropped by the parser (a hamlet is not asked for at all).
     node(990000010, offset(TROMSO, 5.5, 1), { place: 'hamlet', name: 'Fixture Grend' }),
-    // Not what was asked for, or not usable: dropped by the parser.
     node(990000011, offset(TROMSO, 3, 3), { natural: 'bay' }),
     {
         type: 'relation',
@@ -72,7 +72,7 @@ export const BRITTANY_NAMES = body([
     node(991000004, offset(BRITTANY, 0, -9), { natural: 'bay', name: 'Anse de Fixture' }),
     node(991000005, offset(BRITTANY, 0, 10), { natural: 'bay', name: 'Baie Interdite' }),
     node(991000006, offset(BRITTANY, -3, 5), { natural: 'bay', name: 'Passage du Fixture' }),
-    node(991000007, offset(BRITTANY, 14, 0), { place: 'hamlet', name: 'Hameau Fixture' }),
+    node(991000007, offset(BRITTANY, 14, 0), { place: 'village', name: 'Bourg Fixture' }),
 ]);
 
 export const BRITTANY_ANCHORAGES = body([
@@ -86,7 +86,7 @@ export const BRITTANY_ANCHORAGES = body([
         name: 'Mouillage Interdit Fixture',
         anchoring: 'no',
     }),
-    // Unnamed, half a mile off a hamlet and a mile from no bay.
+    // Unnamed, half a mile off a village and a mile from no bay.
     node(991100004, offset(BRITTANY, 14.5, 0), { 'seamark:type': 'anchorage' }),
     // Unnamed, and nothing named within a mile.
     node(991100005, offset(BRITTANY, 0, 20), { 'seamark:type': 'anchorage' }),

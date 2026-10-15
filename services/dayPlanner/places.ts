@@ -93,7 +93,7 @@ export const OFF_NM = 1;
 /** Named bays needing a ray-cast that are ranked, nearest first; the rest are named in All places (131-PYD-10). */
 export const BAY_LIMIT = 40;
 /** How far a settlement's name reaches for the start: a boat in the town's harbour is at the town (131-PYD-10). */
-export const SETTLEMENT_NM: Partial<Record<NamedPlaceKind, number>> = { city: 3, town: 2, village: 1, hamlet: 0.5 };
+export const SETTLEMENT_NM: Partial<Record<NamedPlaceKind, number>> = { city: 3, town: 2, village: 1 };
 /** The atlas's own rule for no place to stop (build-qld.mjs), and a fjord or sound by its Norwegian name. */
 const NOT_A_STOP = /passage|channel|sound|\bpass\b|flats|strait|fjord(?:en)?\b|sund(?:et)?\b/i;
 const sameNameKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -113,6 +113,9 @@ export interface NamedPoint extends LatLon {
     name: string;
     /** A settlement's name reaches further than half a mile for the start (131-PYD-10). */
     withinNm?: number;
+    /** "Anchorage off Baie du Dervin": a name borrowed from the bay or town beside it, which names the start
+     *  only when nothing else does, never before the town itself (131-PYD-10). */
+    borrowed?: boolean;
 }
 
 export interface SavedRouteLike {
@@ -433,18 +436,16 @@ function nearestWithin<P extends LatLon>(start: LatLon, points: readonly P[], wi
 
 /** The nearest named atlas or OSM point (marinas, bays and settlements
  *  included) within half a mile; else a saved place within half a mile; else
- *  a town or village within its reach (131-PYD-10); else the position. */
+ *  a town or village within its reach (131-PYD-10); else an anchorage's
+ *  borrowed name within half a mile ("Anchorage off …"); else the position. */
 export function nameStart(
     start: LatLon,
-    named: readonly (LatLon & { name: string; withinNm?: number })[],
+    named: readonly (LatLon & { name: string; withinNm?: number; borrowed?: boolean })[],
     savedPlaces: readonly (LatLon & { name: string })[],
 ): string {
+    const own = named.filter((p) => !!p.name?.trim() && !p.borrowed);
     const place =
-        nearestWithin(
-            start,
-            named.filter((p) => !!p.name?.trim()),
-            JOIN_NM,
-        ) ??
+        nearestWithin(start, own, JOIN_NM) ??
         nearestWithin(
             start,
             savedPlaces.filter((p) => !!p.name?.trim()),
@@ -452,8 +453,13 @@ export function nameStart(
         ) ??
         nearestWithin(
             start,
-            named.filter((p) => !!p.name?.trim() && !!p.withinNm && distanceNm(start, p) <= p.withinNm),
+            own.filter((p) => !!p.withinNm && distanceNm(start, p) <= p.withinNm),
             Infinity,
+        ) ??
+        nearestWithin(
+            start,
+            named.filter((p) => !!p.name?.trim() && p.borrowed),
+            JOIN_NM,
         );
     return place ? place.name.trim() : formatLatLon(start.lat, start.lon);
 }
@@ -610,7 +616,15 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
                 continue;
             const own = point.name.trim();
             const name = own && own !== 'Mapped anchorage' ? own : offName(point, bays, landmarks);
-            named.push({ id: point.id, name, lat: point.lat, lon: point.lon });
+            // A placeholder never names the start, and a borrowed name only when nothing else does (131-PYD-10).
+            if (name !== 'Mapped anchorage')
+                named.push({
+                    id: point.id,
+                    name,
+                    lat: point.lat,
+                    lon: point.lon,
+                    ...(name !== own ? { borrowed: true } : {}),
+                });
             // The atlas wins: same id, baked tables, GBRMPA areas (and its no-place-to-stop names).
             if (byId.has(point.id) || notPlaces.has(point.id)) continue;
             const retrievedAt = Date.parse(point.retrievedAt);

@@ -14,7 +14,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+    CrowdedCellError,
     NAMED_PLACES_MAX,
+    SETTLEMENTS_MAX,
     namedPlacesQuery,
     parseNamedPlaces,
     parseOsmReferences,
@@ -24,6 +26,7 @@ import { DEFAULT_CRUISING_POLAR } from '../services/defaultPolar';
 import {
     BAY_LIMIT,
     PLACE_LIMIT,
+    SETTLEMENT_NM,
     crossesCoastline,
     gatherPlaces,
     landFetchTableNm,
@@ -92,15 +95,25 @@ const bay = (n: number, name: string, at: LatLon): NamedPlace => ({ id: `osm-nod
 // ── The Overpass answer ────────────────────────────────────────
 
 describe('the named places query (one coarse cell, as the anchorages are asked)', () => {
-    it("asks for the cell's named bays, marinas and settlements, centres for ways, and caps the answer", () => {
-        const query = namedPlacesQuery({ key: '69:18', south: 69, west: 18, north: 70, east: 19 });
-        expect(query).toContain('nw["natural"="bay"]["name"](69,18,70,19)');
-        expect(query).toContain('nw["leisure"="marina"]["name"](69,18,70,19)');
-        expect(query).toContain('node["place"~"^(city|town|village|hamlet)$"]["name"](69,18,70,19)');
-        expect(query).toContain(`out tags center ${NAMED_PLACES_MAX + 1};`);
+    const query = namedPlacesQuery({ key: '69:18', south: 69, west: 18, north: 70, east: 19 });
+
+    it("asks for the cell's bays and marinas, then its towns and villages, each layer with its own cap", () => {
+        expect(query).toBe(
+            '[out:json][timeout:25];' +
+                '(nw["natural"="bay"](69,18,70,19);nw["leisure"="marina"](69,18,70,19););' +
+                `out tags center ${NAMED_PLACES_MAX + 1};` +
+                '(node["place"="city"](69,18,70,19);node["place"="town"](69,18,70,19);node["place"="village"](69,18,70,19););' +
+                `out tags center ${SETTLEMENTS_MAX + 1};`,
+        );
     });
 
-    it('keeps named bays, marinas and settlements; drops unnamed, relations and other places', () => {
+    it('asks only by key and value: no bare ["name"] filter, no regex, no hamlets (they took Overpass 51 s)', () => {
+        expect(query).not.toContain('["name"]');
+        expect(query).not.toContain('~');
+        expect(query).not.toContain('hamlet');
+    });
+
+    it('keeps named bays, marinas, towns and villages; drops unnamed, relations, hamlets and other places', () => {
         expect(tromsoNames.map((p) => [p.kind, p.name])).toEqual([
             ['city', 'Tromsø'],
             ['marina', 'Fixture Båthavn'],
@@ -111,16 +124,48 @@ describe('the named places query (one coarse cell, as the anchorages are asked)'
             ['bay', 'Fixture Sundet'],
             ['bay', 'Fixturfjorden'],
             ['bay', 'Fixture Langtvekk'],
-            ['hamlet', 'Fixture Grend'],
         ]);
         expect(tromsoNames.find((p) => p.name === 'Fixture Kjosen')?.id).toBe('osm-way990000006');
     });
 
-    it('never takes a cut-short answer as the whole cell', () => {
+    const bayAt = (id: number) => ({
+        type: 'node',
+        id,
+        lat: 69.7,
+        lon: 18.9,
+        tags: { natural: 'bay', name: `Vik ${id}` },
+    });
+    const villageAt = (id: number) => ({
+        type: 'node',
+        id,
+        lat: 69.6,
+        lon: 18.8,
+        tags: { place: 'village', name: `By ${id}` },
+    });
+    const range = (count: number, from: number) => Array.from({ length: count }, (_, i) => from + i);
+
+    it('never takes a cut-short answer as the whole cell: more bays than the cap is a crowded cell', () => {
         expect(() => parseNamedPlaces({ elements: [], remark: 'runtime error: timeout' })).toThrow(/Incomplete/);
-        const full = { elements: Array.from({ length: NAMED_PLACES_MAX + 1 }, () => TROMSO_NAMES.elements[2]) };
-        expect(() => parseNamedPlaces(full)).toThrow(/Incomplete/);
         expect(() => parseNamedPlaces(null)).toThrow();
+        expect(parseNamedPlaces({ elements: range(NAMED_PLACES_MAX, 1).map(bayAt) })).toHaveLength(NAMED_PLACES_MAX);
+        expect(() => parseNamedPlaces({ elements: range(NAMED_PLACES_MAX + 1, 1).map(bayAt) })).toThrow(
+            CrowdedCellError,
+        );
+        // The same bay twice is one bay.
+        const twice = range(NAMED_PLACES_MAX, 1).map(bayAt);
+        expect(parseNamedPlaces({ elements: [...twice, twice[0]] })).toHaveLength(NAMED_PLACES_MAX);
+    });
+
+    it('a dense layer of towns and villages can never sink the bays: cut short, the towns are left out whole', () => {
+        const bays = range(5, 1).map(bayAt);
+        const atCap = parseNamedPlaces({ elements: [...bays, ...range(SETTLEMENTS_MAX, 100).map(villageAt)] });
+        expect(atCap).toHaveLength(5 + SETTLEMENTS_MAX);
+        const over = parseNamedPlaces({ elements: [...bays, ...range(SETTLEMENTS_MAX + 1, 100).map(villageAt)] });
+        expect(over.map((p) => p.kind)).toEqual(['bay', 'bay', 'bay', 'bay', 'bay']);
+        // A bay that is also a village comes back in both layers, and counts in each once.
+        const both = { ...bayAt(9), tags: { natural: 'bay', place: 'village', name: 'Vik og By' } };
+        const villages = range(SETTLEMENTS_MAX - 1, 100).map(villageAt);
+        expect(parseNamedPlaces({ elements: [both, ...villages, both] })).toHaveLength(SETTLEMENTS_MAX);
     });
 });
 
@@ -188,8 +233,8 @@ describe('a French bay: unnamed anchorages, anchorage areas and the start', () =
         expect(byName('Baie du Dervin')).toBeUndefined();
     });
 
-    it('with no bay within a mile, a hamlet; with nothing named near, it stays a mapped anchorage', () => {
-        expect(byName('Anchorage off Hameau Fixture')?.id).toBe('osm-node991100004');
+    it('with no bay within a mile, a village; with nothing named near, it stays a mapped anchorage', () => {
+        expect(byName('Anchorage off Bourg Fixture')?.id).toBe('osm-node991100004');
         expect(byName('Mapped anchorage')?.id).toBe('osm-node991100005');
     });
 
@@ -226,18 +271,72 @@ describe('naming the start (131-PYD-10)', () => {
     const at = { lat: 47.585, lon: -3.03 };
     const named = [
         { name: 'Fixture City', lat: offset(at, 2.5, 0).lat, lon: at.lon, withinNm: 3 },
-        { name: 'Fixture Hamlet', lat: offset(at, 0.8, 0).lat, lon: at.lon, withinNm: 0.5 },
+        { name: 'Fixture Village', lat: offset(at, 1.3, 0).lat, lon: at.lon, withinNm: 1 },
     ];
 
-    it("a town's name reaches further than half a mile; a hamlet's does not", () => {
+    it("a town's name reaches further than half a mile; a village's only a mile", () => {
         expect(nameStart(at, named, [])).toBe('Fixture City');
         expect(nameStart(at, named.slice(1), [])).toBe('47.59°N 3.03°W');
+        expect(SETTLEMENT_NM).toEqual({ city: 3, town: 2, village: 1 });
     });
 
     it('anything named within half a mile, then a saved place, still come first', () => {
         const bayNear = { name: 'Fixture Cove', lat: offset(at, 0.3, 0).lat, lon: at.lon };
         expect(nameStart(at, [...named, bayNear], [])).toBe('Fixture Cove');
         expect(nameStart(at, named, [{ name: 'Her Mooring', lat: at.lat, lon: at.lon + 0.001 }])).toBe('Her Mooring');
+    });
+
+    // Review fix: an unnamed anchorage 0.3 NM off, the city 1.5 NM off, said "Plan from: Mapped anchorage".
+    describe('in Tromsø harbour, an unnamed anchorage close by never beats the town', () => {
+        const anchorage = (type: 'node' | 'way', id: number, at: LatLon) =>
+            parseOsmReferences(
+                {
+                    elements: [
+                        type === 'node'
+                            ? { type, id, ...at, tags: { 'seamark:type': 'anchorage' } }
+                            : { type, id, center: at, tags: { 'seamark:type': 'anchorage' } },
+                    ],
+                },
+                RETRIEVED,
+            );
+        const city: NamedPlace = { id: 'osm-node996000001', kind: 'city', name: 'Tromsø', ...offset(TROMSO, -1.5, 0) };
+        const vik = bay(996000002, 'Fixture Havnevik', offset(TROMSO, 1.2, 0));
+        const near = offset(TROMSO, 0.3, 0);
+        const startName = (osm: ReturnType<typeof anchorage>, names: NamedPlace[]) =>
+            nameStart(
+                TROMSO,
+                gather(TROMSO, { osm: [{ points: osm, stale: false }], names: [{ points: names }] }).named,
+                [],
+            );
+
+        it('"Mapped anchorage" names nothing: the start is Tromsø, for a charted point or an area', () => {
+            expect(startName(anchorage('node', 996100001, near), [city])).toBe('Tromsø');
+            expect(startName(anchorage('way', 996100002, near), [city])).toBe('Tromsø');
+            expect(startName(anchorage('node', 996100001, near), [])).toBe('69.65°N 18.96°E');
+        });
+
+        it('"Anchorage off …" gives way to the town, and names the start only before a latitude', () => {
+            const osm = anchorage('node', 996100003, near);
+            expect(startName(osm, [city, vik])).toBe('Tromsø');
+            expect(startName(osm, [vik])).toBe('Anchorage off Fixture Havnevik');
+        });
+
+        it('an anchorage with its own name, half a mile off, is still where she is', () => {
+            const own = parseOsmReferences(
+                {
+                    elements: [
+                        {
+                            type: 'node',
+                            id: 996100004,
+                            ...near,
+                            tags: { 'seamark:type': 'anchorage', name: 'Fixture Ankerplass' },
+                        },
+                    ],
+                },
+                RETRIEVED,
+            );
+            expect(startName(own, [city])).toBe('Fixture Ankerplass');
+        });
     });
 });
 

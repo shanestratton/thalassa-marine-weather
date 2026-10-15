@@ -1,6 +1,8 @@
 import { Preferences } from '@capacitor/preferences';
 import { validFetchTable } from './placeConditions';
 import {
+    CrowdedCellError,
+    NAMED_PLACES_CELL_MAX,
     namedPlacesQuery,
     parseNamedPlaces,
     parseOsmReferences,
@@ -79,24 +81,43 @@ function tileStore<P>(key: string, maxTiles: number, maxPoints: number, valid: (
 
 const references = tileStore('thalassa_cruising_reference_v1', 24, 6000, validCachedReference);
 let official: Promise<CruisingPoint[]> | null = null;
+const offline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
-/** The public Overpass mirrors, in turn; a cut-short or malformed answer fails over like an error. */
-async function askOverpass<T>(query: string, signal: AbortSignal, parse: (body: unknown) => T): Promise<T> {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('Offline');
+/**
+ * The public Overpass mirrors, in turn; a cut-short or malformed answer fails over like an error. `reached` is
+ * told when a mirror answers, or is still working when the wait runs out (131-PYD-10): only then did the ask
+ * reach Overpass. Offline, no signal, or the sheet closed first, it never left the phone.
+ */
+async function askOverpass<T>(
+    query: string,
+    signal: AbortSignal,
+    parse: (body: unknown) => T,
+    reached: () => void = () => {},
+    waitMs = 12_000,
+): Promise<T> {
+    if (offline()) throw new Error('Offline');
     for (const endpoint of [
         'https://overpass-api.de/api/interpreter',
         'https://overpass.kumi.systems/api/interpreter',
     ]) {
         try {
+            signal.throwIfAborted();
             const res = await fetch(`${endpoint}?data=${encodeURIComponent(query)}`, {
-                signal: AbortSignal.any([signal, AbortSignal.timeout(12_000)]),
+                signal: AbortSignal.any([signal, AbortSignal.timeout(waitMs)]),
+            }).catch((error: unknown) => {
+                // Not the sheet's signal, so the wait ran out (WebKit may call it an AbortError).
+                if (!signal.aborted && /^(?:Timeout|Abort)Error$/.test((error as Error)?.name)) reached();
+                throw error;
             });
+            reached();
             if (!res.ok) throw new Error(`Reference request failed (${res.status})`);
             const parsed = parse(await res.json());
             signal.throwIfAborted();
             return parsed;
-        } catch {
+        } catch (error) {
             signal.throwIfAborted();
+            // A whole answer with too much in it: the other mirror holds the same map.
+            if (error instanceof CrowdedCellError) throw error;
         }
     }
     throw new Error('Worldwide reference providers unavailable');
@@ -170,45 +191,89 @@ export const NAMED_PLACES_FRESH_MS = 30 * 24 * 60 * 60_000;
  * Public Overpass is shared, and its policy asks for light use: this phone asks
  * for at most this many cells of names in any 24 hours (a plan asks for up to
  * four), until our own OSM extract on the weather server replaces it (142-07).
+ * Only an ask that reached Overpass counts: one that never left the phone
+ * (offline, no signal, the sheet closed first) is given back, so a planner
+ * opened at sea leaves the day's names for when she is back in signal.
  */
 export const NAMED_PLACES_ASKS_PER_DAY = 12;
-const ASKS_KEY = 'thalassa_named_places_asks_v1';
-const names = tileStore('thalassa_named_places_v1', 12, 12_000, validNamedPlace);
+/** A cell with more bays and marinas than a plan takes is not asked again for as long as a full one is kept. */
+export const CROWDED_CELL_MS = NAMED_PLACES_FRESH_MS;
+const DAY_MS = 24 * 60 * 60_000;
+/** namedPlacesQuery's own [timeout:25]. */
+const NAMES_WAIT_MS = 25_000;
+const ALLOWANCE_KEY = 'thalassa_named_places_allowance_v1';
+// A plan's four cells, each at its caps, always fit: one dense plan never pushes out its own cells.
+const names = tileStore('thalassa_named_places_v1', 12, 4 * NAMED_PLACES_CELL_MAX, validNamedPlace);
+/** When each ask that reached Overpass went out, and the crowded cells with when they were found so. */
 let asks: number[] = [];
-let asksRead: Promise<void> | null = null;
+const crowded = new Map<string, number>();
+/** Asks out now, not yet answered: held against the day's allowance, so four cells at once hold four. */
+let out = 0;
+let allowanceRead: Promise<void> | null = null;
 
-/** One ask from today's allowance, or false when it is spent. Read once; four cells at once count four. */
-async function takeAsk(now: number): Promise<boolean> {
-    asksRead ??= Preferences.get({ key: ASKS_KEY })
+function readAllowance(): Promise<void> {
+    allowanceRead ??= Preferences.get({ key: ALLOWANCE_KEY })
         .then(({ value }) => {
-            const stored: unknown = value ? JSON.parse(value) : [];
-            if (Array.isArray(stored)) asks = stored.filter((t): t is number => Number.isFinite(t));
+            const stored = value ? JSON.parse(value) : null;
+            if (Array.isArray(stored?.asks)) asks = stored.asks.filter((t: unknown) => Number.isFinite(t));
+            for (const row of Array.isArray(stored?.crowded) ? stored.crowded : [])
+                if (Array.isArray(row) && typeof row[0] === 'string' && Number.isFinite(row[1]))
+                    crowded.set(row[0], row[1]);
         })
         .catch(() => {
             /* No record on the phone: the allowance starts afresh. */
         });
-    await asksRead;
-    asks = asks.filter((t) => now - t < 24 * 60 * 60_000 && t <= now + 300_000);
-    if (asks.length >= NAMED_PLACES_ASKS_PER_DAY) return false;
-    asks.push(now);
+    return allowanceRead;
+}
+
+async function saveAllowance(): Promise<void> {
     try {
-        await Preferences.set({ key: ASKS_KEY, value: JSON.stringify(asks) });
+        await Preferences.set({ key: ALLOWANCE_KEY, value: JSON.stringify({ asks, crowded: [...crowded] }) });
     } catch {
         /* The allowance still holds for this session. */
     }
-    return true;
 }
 
-/** A cell's named bays, marinas and settlements: cached per cell, capped per phone. */
+/** A cell's named bays, marinas, towns and villages: cached per cell, capped per phone. */
 export async function loadNamedPlaces(tile: ReferenceTile, signal: AbortSignal): Promise<NamedPlacesResult> {
     await names.restore();
     signal.throwIfAborted();
     const previous = names.cache.get(tile.key);
     if (previous && Date.now() - previous.at < NAMED_PLACES_FRESH_MS) return { points: previous.points, stale: false };
     try {
-        if (!(await takeAsk(Date.now()))) throw new Error("Today's allowance of place names is used up");
+        // Offline, nothing is held, asked or spent (131-PYD-10): at sea that is most of the time.
+        if (offline()) throw new Error('Offline');
+        await readAllowance();
         signal.throwIfAborted();
-        const points = await askOverpass(namedPlacesQuery(tile), signal, parseNamedPlaces);
+        const now = Date.now();
+        const recent = (at: number, ms: number) => now - at < ms && at <= now + 300_000;
+        asks = asks.filter((at) => recent(at, DAY_MS));
+        for (const [key, at] of crowded) if (!recent(at, CROWDED_CELL_MS)) crowded.delete(key);
+        if (crowded.has(tile.key)) throw new CrowdedCellError();
+        if (asks.length + out >= NAMED_PLACES_ASKS_PER_DAY)
+            throw new Error("Today's allowance of place names is used up");
+        out++;
+        let reached = false;
+        let points: NamedPlace[];
+        try {
+            // The phone waits as long as Overpass may work (a cold cell took 13 s), so its answer is not thrown away.
+            points = await askOverpass(
+                namedPlacesQuery(tile),
+                signal,
+                parseNamedPlaces,
+                () => (reached = true),
+                NAMES_WAIT_MS,
+            );
+        } catch (error) {
+            if (error instanceof CrowdedCellError) crowded.set(tile.key, now);
+            throw error;
+        } finally {
+            out--;
+            if (reached) {
+                asks.push(now);
+                await saveAllowance();
+            }
+        }
         await names.remember(tile.key, { at: Date.now(), points });
         return { points, stale: false };
     } catch (error) {
