@@ -512,5 +512,10 @@ describe('clear of the notch and the home indicator (GAL-10)', () => {
         const complete = await screen.findByRole('button', { name: /Complete & Subtract from Stores/ });
         const panel = complete.parentElement as HTMLElement;
         expect(panel.style.paddingBottom).toContain('safe-area-inset-bottom');
+
+        // Fewer served than planned: the Leftovers toggle keeps a 44 px floor in
+        // pixels, as the root font is fluid (38 px at 320 pt without it).
+        fireEvent.click(screen.getByRole('button', { name: 'Decrease servings consumed' }));
+        expect(screen.getByRole('button', { name: /Save 1 serves as Leftovers/ })).toHaveClass('min-h-[44px]');
     });
 });

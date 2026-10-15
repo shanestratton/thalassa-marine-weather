@@ -428,12 +428,13 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                         </div>
                     </div>
 
-                    {/* Leftovers toggle */}
+                    {/* Leftovers toggle: a 44 px floor in pixels, as the root font is
+                        fluid (132-B17): py-3 and a text-xs line made it 38 px at 320 pt. */}
                     {servingsConsumed < meal.servings_planned && (
                         <button
                             aria-pressed={showLeftovers}
                             onClick={() => setShowLeftovers(!showLeftovers)}
-                            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
+                            className={`w-full min-h-[44px] flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
                                 showLeftovers
                                     ? 'bg-blue-500/10 border-blue-500/20 text-blue-300'
                                     : 'bg-white/5 border-white/10 text-gray-400'

@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
+import { expectNoClippedText, expectNothingSideways, pageSettled } from './helpers/binderLayout';
 
 /**
  * The Galley fits every phone (132-B17, binder audit GAL-17: no browser spec
@@ -15,7 +16,8 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  *
  *  - Active meals: Today (the pot on the stove first), Next, Later, Earlier,
  *    in the order they are eaten, under plain dates, with no 112 px hero
- *    (GAL-11); "Open shopping list" scrolls clear of the tab bar;
+ *    (GAL-11); "Open shopping list", and a meal's Share brought into view,
+ *    clear the tab bar; the header's words stay on the screen;
  *  - the Grocery list covers the tab bar, pads its top with the status-bar
  *    inset and its Add item bar with the home-indicator inset (GAL-10), keeps
  *    a working list on an SE with its status bar, wraps long names instead of
@@ -30,7 +32,8 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  *
  * A browser draws env(safe-area-inset-*) as 0, so the insets are checked two
  * ways: the padding that must carry them names them, and what a phone's own
- * insets would add still leaves room (`insets` below).
+ * insets would add still leaves room (`insets` below), with a bottom control
+ * placed where the phone draws it (`bottomOnPhone`).
  */
 
 const SIZES = [
@@ -62,45 +65,41 @@ async function open(page: Page, size: { width: number; height: number }) {
     return errors;
 }
 
-async function expectNothingSideways(page: Page) {
-    const overflow = await page.evaluate(() => {
-        const doc = document.documentElement.scrollWidth - window.innerWidth;
-        const scrollers = [...document.querySelectorAll<HTMLElement>('*')]
-            .filter((el) => {
-                const s = getComputedStyle(el);
-                return (s.overflowX === 'auto' || s.overflowX === 'scroll') && el.clientWidth > 0;
-            })
-            .map((el) => el.scrollWidth - el.clientWidth);
-        return Math.max(doc, 0, ...scrollers);
-    });
-    expect(overflow, 'sideways overflow (px)').toBeLessThanOrEqual(1);
-}
+// No text cut off, and nothing scrolling sideways, by the Boat Binder specs'
+// own rules (helpers/binderLayout.ts; the Galley is a binder page). The copy
+// that stood here counted spoken-only text as cut: an .sr-only element is a
+// 1 px box with its overflow hidden on purpose, so VoiceOver reads it and the
+// screen does not. That failed the Grocery list on its header's crumb for the
+// page's own name ('Grocery list', PageHeader) and the price sheet on the
+// price's currency, read with the field ('In Pacific franc …').
 
 /**
- * No text cut off inside `scope`: an element that clips (overflow hidden or an
- * ellipsis) holds all of its words, a line-clamped one all of its lines, and
- * every line of text sits inside the screen's width.
+ * Where `target`'s bottom edge sits on a phone with a home indicator `inset` px
+ * tall. A browser draws env(safe-area-inset-bottom) as 0, so the padding on
+ * `bar` that carries the inset is drawn at its floor here (the Grocery list's
+ * max(0.75rem, inset): 11.7 px at 390 pt); on the phone it is that padding
+ * with the inset put in (34 px), and what sits above it rises by the
+ * difference. Adding the whole inset to the browser's figure instead, as this
+ * spec first did, put the button where neither a browser nor a phone draws it
+ * (Add item at 866 px on an 844 px screen); with the inset put in it ends at
+ * 810, on the home indicator's edge, where Chromium's own safe-area emulation
+ * (Emulation.setSafeAreaInsetsOverride, 34 px) draws it too.
  */
-async function expectNoClippedText(scope: Locator, what: string) {
-    const clipped = await scope.evaluate((root) => {
-        const issues: string[] = [];
-        const W = window.innerWidth;
-        for (const el of [root, ...root.querySelectorAll<HTMLElement>('*')] as HTMLElement[]) {
-            const own = [...el.childNodes].some((node) => node.nodeType === 3 && node.textContent!.trim());
-            if (!own || el.getClientRects().length === 0) continue;
-            const s = getComputedStyle(el);
-            if (s.visibility === 'hidden' || el.closest('[aria-hidden="true"]')) continue;
-            const name = el.textContent!.trim().slice(0, 40);
-            const clips = /hidden|clip/.test(s.overflowX) || s.textOverflow === 'ellipsis';
-            if (clips && el.scrollWidth > el.clientWidth + 1) issues.push(`"${name}" is cut off`);
-            if (s.webkitLineClamp !== 'none' && s.webkitLineClamp && el.scrollHeight > el.clientHeight + 1)
-                issues.push(`"${name}" loses lines`);
-            const r = el.getBoundingClientRect();
-            if (r.left < -0.5 || r.right > W + 0.5) issues.push(`"${name}" runs off the side`);
-        }
-        return issues;
-    });
-    expect(clipped, `${what}: text cut off`).toEqual([]);
+async function bottomOnPhone(target: Locator, bar: Locator, inset: number): Promise<number> {
+    const padded = await bar.elementHandle();
+    return target.evaluate(
+        (element, { bar, inset }) => {
+            const declared = (bar as HTMLElement).style.paddingBottom;
+            const probe = document.createElement('div');
+            probe.style.paddingBottom = declared.replaceAll('env(safe-area-inset-bottom)', `${inset}px`);
+            document.body.append(probe);
+            const onPhone = parseFloat(getComputedStyle(probe).paddingBottom);
+            probe.remove();
+            const here = parseFloat(getComputedStyle(bar as HTMLElement).paddingBottom);
+            return element.getBoundingClientRect().bottom - (onPhone - here);
+        },
+        { bar: padded, inset },
+    );
 }
 
 /** A 44 pt target (its ::before counts, index.css .hit-target-44), on screen, that a tap at its centre reaches. */
@@ -176,6 +175,8 @@ for (const size of SIZES) {
         await expect(panel.locator('.h-28')).toHaveCount(0);
 
         await expectNoClippedText(panel, 'Active meals');
+        // And its header: '1 reserved from stores', kept on one line, ran 15 to 74 px off the screen.
+        await expectNoClippedText(page.locator('[data-page-header]'), 'the Galley header');
         await expectTapTarget(panel.getByRole('button', { name: 'Resume cooking' }), 'Resume cooking');
         await expectTapTarget(panel.getByRole('button', { name: 'Share Kedgeree' }), 'Share Kedgeree');
         for (const tab of await page.getByRole('tab').all()) await expectTapTarget(tab, 'a Galley tab');
@@ -210,23 +211,23 @@ for (const size of SIZES) {
         // GAL-10: the top pads for the status bar, the Add item bar for the home indicator.
         await expectInsetPadding(list, 'top', 'the Grocery list');
         const add = list.getByRole('button', { name: 'Add item' });
-        await expectInsetPadding(
-            add.locator('xpath=ancestor::div[contains(@class,"shrink-0")][1]'),
-            'bottom',
-            'its bottom bar',
-        );
+        const bar = add.locator('xpath=ancestor::div[contains(@class,"shrink-0")][1]');
+        await expectInsetPadding(bar, 'bottom', 'its bottom bar');
         await expectTapTarget(add, 'Add item');
+        // Measured once the page has slid into place (index.css .slide-up-enter, 12 px over 350 ms).
+        await pageSettled(page);
         const room = await list.evaluate((dialog, insets) => {
-            const add = [...dialog.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add item')!;
             const panel = dialog.querySelector('#grocery-filter-panel')!.getBoundingClientRect();
             return {
-                addBottom: add.getBoundingClientRect().bottom + insets.bottom,
                 H: window.innerHeight,
                 // The status bar's inset pushes the page down by up to max(0, inset - 1rem).
                 listHeight: panel.height - Math.max(0, insets.top - 16) - insets.bottom,
             };
         }, size.insets);
-        expect(room.addBottom, 'Add item stays above the home indicator').toBeLessThanOrEqual(room.H + 0.5);
+        const addBottom = await bottomOnPhone(add, bar, size.insets.bottom);
+        expect(addBottom + size.insets.bottom, 'Add item stays above the home indicator').toBeLessThanOrEqual(
+            room.H + 0.5,
+        );
         expect(room.listHeight, 'the list keeps room for rows').toBeGreaterThanOrEqual(150);
 
         for (const tab of await list.getByRole('tab').all()) await expectTapTarget(tab, 'a list filter');
@@ -359,15 +360,12 @@ for (const size of SIZES) {
 
         const complete = cooking.getByRole('button', { name: /Complete & Subtract from Stores/ });
         await expect(complete).toBeVisible();
-        await expectInsetPadding(complete.locator('xpath=..'), 'bottom', 'the Complete & Subtract panel');
-        const m = await complete.evaluate(
-            (button, insets) => ({
-                bottom: button.getBoundingClientRect().bottom + insets.bottom,
-                H: window.innerHeight,
-            }),
-            size.insets,
+        const panel = complete.locator('xpath=..');
+        await expectInsetPadding(panel, 'bottom', 'the Complete & Subtract panel');
+        const bottom = await bottomOnPhone(complete, panel, size.insets.bottom);
+        expect(bottom + size.insets.bottom, 'Complete & Subtract stays above the home indicator').toBeLessThanOrEqual(
+            await page.evaluate(() => window.innerHeight + 0.5),
         );
-        expect(m.bottom, 'Complete & Subtract stays above the home indicator').toBeLessThanOrEqual(m.H + 0.5);
         await expectTapTarget(cooking.getByRole('button', { name: 'Decrease servings consumed' }), 'Fewer servings');
         await expectNothingSideways(page);
         expect(errors).toEqual([]);

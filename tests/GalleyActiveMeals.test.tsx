@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
     getMealsByStatus: vi.fn(),
     getStoredRecipes: vi.fn(),
     getShoppingList: vi.fn(),
+    getStoresAvailability: vi.fn(),
 }));
 
 vi.mock('../stores/authStore', async () => {
@@ -43,7 +44,7 @@ vi.mock('../services/ShoppingListService', () => ({
 vi.mock('../services/MealPlanService', () => ({
     getMealsByStatus: mocks.getMealsByStatus,
     getMealPlans: vi.fn(() => []),
-    getStoresAvailability: vi.fn(() => []),
+    getStoresAvailability: mocks.getStoresAvailability,
     startCooking: vi.fn(),
     completeMeal: vi.fn(),
     saveLeftovers: vi.fn(),
@@ -213,6 +214,7 @@ describe('the Galley page', () => {
         useAuthStore.setState({ user: SKIPPER });
         mocks.getMealsByStatus.mockImplementation((status: string) => SAVED_ORDER.filter((m) => m.status === status));
         mocks.getStoredRecipes.mockReturnValue([]);
+        mocks.getStoresAvailability.mockReturnValue([]);
         mocks.getShoppingList.mockReturnValue({
             total: 1,
             purchased: 0,
@@ -307,6 +309,30 @@ describe('the Galley page', () => {
         expect(warnings('galley: load-shopping')).not.toHaveLength(0);
         fireEvent.click(opener);
         expect(screen.getByRole('heading', { name: "Couldn't load the grocery list" })).toBeInTheDocument();
+    });
+
+    it('a button brought into view stops above the tab bar, not under it (132-B17)', () => {
+        render(<GalleyPage onBack={vi.fn()} />);
+        // The scroller's tab-bar band is scroll padding too, so a button brought into
+        // view stops above the bar (Kedgeree's Share sat behind VESSEL at 375 x 667).
+        const scroller = screen.getByRole('tabpanel', { name: /Active meals/ }).parentElement as HTMLElement;
+        expect(scroller).toHaveClass('overflow-y-auto');
+        expect(scroller.style.scrollPaddingBottom).toBe('calc(var(--thalassa-tabbar-height) + 16px)');
+        expect(scroller.style.scrollPaddingBottom).toBe(scroller.style.paddingBottom);
+    });
+
+    it('"1 reserved from stores" may wrap between its words, its number kept with them (132-B17)', () => {
+        mocks.getStoresAvailability.mockReturnValue([
+            { item_id: 'rice', item_name: 'Rice', on_hand: 4, reserved: 2, available: 2, unit: 'cup' },
+            { item_id: 'oats', item_name: 'Oats', on_hand: 1, reserved: 0, available: 1, unit: 'cup' },
+        ]);
+        render(<GalleyPage onBack={vi.fn()} />);
+        const subtitle = screen.getByText(/reserved from stores/);
+        // Whole on one line it ran off the screen beside '‹ BOAT BINDER' in wide fonts.
+        expect(subtitle.closest('.whitespace-nowrap')).toBeNull();
+        expect(subtitle.textContent).toContain('1 reserved from stores');
+        // The counts before it stay whole, the '·' with the one before it.
+        expect(within(subtitle).getByText(/recipes/)).toHaveClass('whitespace-nowrap');
     });
 
     it('an empty galley still says so, with no load error', () => {

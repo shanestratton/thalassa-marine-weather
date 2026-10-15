@@ -77,4 +77,23 @@ describe('RecipeEditor lifecycle', () => {
         expect(onSaved).toHaveBeenCalledOnce();
         expect(onClose).toHaveBeenCalledOnce();
     });
+
+    it('Back, Continue and Save keep a 44 px floor in pixels (132-B17)', () => {
+        // py-3.5 and text-sm are rem and the root font is fluid: Continue measured
+        // 39 px at 320 pt (browser-tests/galley-layout.spec.ts).
+        render(<RecipeEditor onClose={vi.fn()} onSaved={vi.fn()} />);
+        fireEvent.change(screen.getByRole('textbox', { name: 'Recipe Title' }), {
+            target: { value: 'Storm Stew' },
+        });
+        expect(screen.getByRole('button', { name: 'Continue to step 2' })).toHaveClass('min-h-[44px]');
+        fireEvent.click(screen.getByRole('button', { name: 'Continue to step 2' }));
+        expect(screen.getByRole('button', { name: 'Back to step 1' })).toHaveClass('min-h-[44px]');
+        fireEvent.click(screen.getByRole('button', { name: 'Continue to step 3' }));
+        fireEvent.change(screen.getByRole('textbox', { name: 'Ingredient 1 name' }), {
+            target: { value: 'Potato' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Continue to step 4' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Continue to step 5' }));
+        expect(screen.getByRole('button', { name: 'Save recipe' })).toHaveClass('min-h-[44px]');
+    });
 });
