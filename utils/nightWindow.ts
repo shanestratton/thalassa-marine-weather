@@ -19,7 +19,11 @@
  *
  * THE POLES. Where the sun never sinks 12° there is no night to go red for:
  * the state says 'no-true-night' and Settings says so. Where it never climbs
- * that high ('stays-dark', the polar winter) it is night all day.
+ * that high ('stays-dark', the polar winter) it is night all day. Either side
+ * of such a spell one night has only one end: the last dusk before it runs on
+ * into the dark days, and the first dawn after it ends a night that began
+ * before yesterday (131-03 review: above about 78.6° both were left out, and
+ * the screen stayed plain dark with the sun 12° to 34° down).
  */
 import { getFirstLight, getLastLight, localNoon, type LightState, type LightTime } from './celestial';
 
@@ -47,17 +51,19 @@ export function nightWindow(
     const today = dusk(noon);
     if (today.state === 'stays-dark') return { night: true, state: 'stays-dark' };
     // Last night (yesterday's dusk to this morning) and tonight (to tomorrow's
-    // dawn). A day without the event on either end has no such night.
-    const nights: [LightTime, LightTime][] = [
-        [dusk(noon - DAY_MS), dawn(noon)],
-        [today, dawn(noon + DAY_MS)],
+    // dawn). An end that is missing because that day stays dark is open: no
+    // dusk yesterday means the night had already begun, no dawn tomorrow means
+    // tonight runs on. A day missing the event for any other reason (a polar
+    // summer) has no such night.
+    const edge = (t: LightTime, open: number) => (t.at ? t.at.getTime() : t.state === 'stays-dark' ? open : null);
+    const nights = [
+        [edge(dusk(noon - DAY_MS), -Infinity), edge(dawn(noon), Infinity)],
+        [edge(today, -Infinity), edge(dawn(noon + DAY_MS), Infinity)],
     ];
     let night = false;
     let nearEdge = false;
-    for (const [from, to] of nights) {
-        if (!from.at || !to.at) continue;
-        const a = from.at.getTime();
-        const b = to.at.getTime();
+    for (const [a, b] of nights) {
+        if (a === null || b === null) continue;
         if (nowMs >= a && nowMs < b) night = true;
         if (Math.abs(nowMs - a) < NIGHT_HYSTERESIS_MS || Math.abs(nowMs - b) < NIGHT_HYSTERESIS_MS) nearEdge = true;
     }

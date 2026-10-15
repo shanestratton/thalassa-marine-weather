@@ -13,7 +13,7 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getFirstLight, getLastLight } from '../utils/celestial';
+import { getFirstLight, getLastLight, sunAltitudeDeg } from '../utils/celestial';
 import { NIGHT_HYSTERESIS_MS, nightWindow } from '../utils/nightWindow';
 import { useAutoNight, useAutoNightShown } from '../hooks/useAutoNight';
 import { DisplayModeSection } from '../components/settings/AestheticsTab';
@@ -90,6 +90,34 @@ describe('the night window: nautical dusk to dawn at the location', () => {
     it('in a polar winter where the sun stays 12° down all day, it is night all day', () => {
         const at = new Date('2026-12-21T12:00:00+01:00').getTime();
         expect(nightWindow(at, 81, 15, 'Arctic/Longyearbyen')).toEqual({ night: true, state: 'stays-dark' });
+    });
+
+    // 131-03 review: either side of the dark days one night has only one end.
+    // Ny-Ålesund (79°N) has its last nautical light on 11 Dec 2026, for about
+    // half an hour at midday, and its first again on 2 Jan 2027. Both nights
+    // used to be left out: plain dark, the sun 12° to 34° down.
+    it('runs on into the dark days from the last dusk, and out of them to the first dawn', () => {
+        const ny = { lat: 79, lon: 11.9, tz: 'Arctic/Longyearbyen' };
+        const at = (iso: string) => nightWindow(Date.parse(iso), ny.lat, ny.lon, ny.tz);
+        // The evening of the last day with light, and the small hours of the first.
+        expect(at('2026-12-11T18:00:00+01:00')).toEqual({ night: true, state: 'normal' });
+        expect(at('2027-01-02T03:00:00+01:00')).toEqual({ night: true, state: 'normal' });
+        // Their half hour of nautical light is still day.
+        expect(at('2026-12-11T12:10:00+01:00').night).toBe(false);
+        expect(at('2027-01-02T12:20:00+01:00').night).toBe(false);
+        // And across both edges, every five minutes, as the clock would carry it:
+        // red whenever the sun is clear of the line below (it grazes the line
+        // for an hour or more here, so the band either side is left to the edges).
+        for (const from of ['2026-12-09T00:00:00+01:00', '2026-12-31T00:00:00+01:00']) {
+            let was: boolean | null = null;
+            const start = Date.parse(from);
+            for (let ms = start; ms < start + 4 * 24 * 60 * MIN; ms += 5 * MIN) {
+                was = nightWindow(ms, ny.lat, ny.lon, ny.tz, was).night;
+                if (sunAltitudeDeg(new Date(ms), ny.lat, ny.lon) < -12.5) {
+                    expect(was, new Date(ms).toISOString()).toBe(true);
+                }
+            }
+        }
     });
 });
 
@@ -336,8 +364,8 @@ describe('the chart follows it', () => {
     });
 
     it('drives the ENC night dim only in this mode', () => {
-        expect(source('components/map/MapHub.tsx')).toContain(
-            "useTideDepthMode(mapRef, mapReady, planningSurface, nightMode && settings.displayMode === 'auto-night')",
+        expect(source('components/map/MapHub.tsx')).toMatch(
+            /useTideDepthMode\(\s*mapRef,\s*mapReady,\s*planningSurface,\s*nightMode && settings\.displayMode === 'auto-night',/,
         );
     });
 });
