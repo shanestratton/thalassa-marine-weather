@@ -76,14 +76,16 @@ describe('source-pinned fixes', () => {
         for (const tab of src.match(/tab: '([^']+)'/g)!.map((m) => m.slice(6, -1)))
             expect(app).toContain(`label="${tab.toLowerCase()}"`);
     });
-    it('the four binders share one undo slot, with no commit inside a state updater (126-B10a)', () => {
+    it('the binders share one undo slot, with no commit inside a state updater (126-B10a; Checklists 126-B10b)', () => {
         // The behaviour (commit on a newer delete, on unmount, on background;
-        // a fresh five seconds each) is in tests/BinderUndoDelete.test.tsx.
+        // a fresh five seconds each) is in tests/BinderUndoDelete.test.tsx
+        // and, for Checklists, tests/ChecklistUndoDelete.test.tsx.
         for (const page of [
             'components/vessel/MaintenanceHub.tsx',
             'components/vessel/InventoryList.tsx',
             'components/vessel/DocumentsHub.tsx',
             'components/vessel/EquipmentList.tsx',
+            'components/vessel/ChecklistsPage.tsx',
         ]) {
             const src = read(page);
             expect(src).toMatch(/import \{ useUndoDelete \} from '\.\.\/\.\.\/hooks\/useUndoDelete';/);
