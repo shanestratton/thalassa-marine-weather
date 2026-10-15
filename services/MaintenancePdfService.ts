@@ -24,7 +24,7 @@
  * the figure typed, with no '$' the app never asked for.
  */
 import type { jsPDF } from 'jspdf';
-import { calculateStatus, sortByUrgency, type TaskWithStatus, type TrafficLight } from './MaintenanceService';
+import { sortByUrgency, statusWithReading, type TaskWithStatus, type TrafficLight } from './MaintenanceService';
 import type { MaintenanceTask, MaintenanceHistory } from '../types';
 import { PdfTextWriter, PT_MM, type PdfTextStyle } from './pdf/pdfText';
 import { pdfFileDay, pdfLongDate, pdfShortDate } from './pdf/pdfDates';
@@ -49,6 +49,9 @@ function formatCost(val: number | null): string {
  * none: '100 hrs' beside a 3,512 reading would read as the schedule.
  */
 export function clipboardDueText(task: TaskWithStatus): string {
+    // No day for a pre-trip check or an open repair (132-B15), as on the card.
+    if (task.beforeTrip) return 'Before trip';
+    if (task.toFix) return 'To fix';
     if (task.trigger_type === 'engine_hours') {
         const hours = task.next_due_hours;
         return hours === null || hours === undefined || task.hoursUnanchored ? '—' : `${hours.toLocaleString()} hrs`;
@@ -58,16 +61,9 @@ export function clipboardDueText(task: TaskWithStatus): string {
 
 /** The clipboard's rows, most urgent first. */
 function checklistRows(tasks: MaintenanceTask[], engineHours: number | null): TaskWithStatus[] {
-    // Engine hours not entered: judge hour-based tasks on their date alone
-    // (as the Maintenance screen does) instead of counting from an invented 0.
-    return sortByUrgency(
-        tasks.map((t) => {
-            if (engineHours !== null || t.next_due_hours === null || t.next_due_hours === undefined) {
-                return calculateStatus(t, engineHours ?? 0);
-            }
-            return { ...calculateStatus({ ...t, next_due_hours: null }, 0), next_due_hours: t.next_due_hours };
-        }),
-    );
+    // Engine hours not entered: judge hour-based tasks on their date alone,
+    // by the Maintenance screen's own rule (132-B15), not from an invented 0.
+    return sortByUrgency(tasks.map((t) => statusWithReading(t, engineHours)));
 }
 
 // ── Page and table drawing ──────────────────────────────────────
@@ -425,6 +421,21 @@ function buildChecklistPdf(
 
 type HistoryEntry = MaintenanceHistory & { taskTitle?: string; taskCategory?: string };
 
+/**
+ * A record's task in the ledger: the task's name while it is there. Once the
+ * task is deleted and the server kept its records (131-B7), the name written
+ * onto the record as it went, marked '(task removed)'. Neither: undefined,
+ * which prints as before.
+ */
+export function historyTaskTitle(
+    record: Pick<MaintenanceHistory, 'task_title'>,
+    task: Pick<MaintenanceTask, 'title'> | undefined,
+): string | undefined {
+    if (task) return task.title;
+    const kept = record.task_title?.trim();
+    return kept ? `${kept} (task removed)` : undefined;
+}
+
 function buildServiceHistoryPdf(
     history: HistoryEntry[],
     vesselName: string,
@@ -511,7 +522,8 @@ export async function exportChecklist(
 /**
  * Share or save the service history (Template B), the ledger of completed
  * work: every record R&M has on this phone, newest first, with its task's
- * title (`tasks`, paused ones included). 'empty' with no records.
+ * title (`tasks`, paused ones included), or the name a deleted task left on
+ * its records (historyTaskTitle). 'empty' with no records.
  */
 export async function exportServiceHistory(
     history: MaintenanceHistory[],
@@ -522,11 +534,10 @@ export async function exportServiceHistory(
     const taskMap = new Map(tasks.map((t) => [t.id, t]));
     const enriched = [...history]
         .sort((a, b) => Date.parse(b.completed_at) - Date.parse(a.completed_at))
-        .map((h) => ({
-            ...h,
-            taskTitle: taskMap.get(h.task_id)?.title,
-            taskCategory: taskMap.get(h.task_id)?.category,
-        }));
+        .map((h) => {
+            const task = h.task_id ? taskMap.get(h.task_id) : undefined;
+            return { ...h, taskTitle: historyTaskTitle(h, task), taskCategory: task?.category };
+        });
 
     const now = new Date();
     const { default: JsPdf } = await import('jspdf');

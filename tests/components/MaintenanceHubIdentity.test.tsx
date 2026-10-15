@@ -49,15 +49,16 @@ vi.mock('../../services/vessel/LocalDatabase', () => ({
     getSyncMeta: () => ({ lastFullPullTimestamp: '2026-10-02T00:00:00.000Z' }),
 }));
 
-vi.mock('../../services/MaintenanceService', () => ({
-    calculateStatus: (task: MaintenanceTask) => ({
+vi.mock('../../services/MaintenanceService', () => {
+    const calculateStatus = (task: MaintenanceTask) => ({
         ...task,
         status: 'green',
         statusLabel: 'OK',
         daysRemaining: 30,
         hoursRemaining: null,
-    }),
-}));
+    });
+    return { calculateStatus, statusWithReading: calculateStatus, isFixedRepair: () => false };
+});
 
 vi.mock('../../services/MaintenancePdfService', () => ({
     exportChecklist: mocks.exportChecklist,

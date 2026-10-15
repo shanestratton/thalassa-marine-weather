@@ -126,7 +126,7 @@ export function useVesselReadinessCounts(): VesselReadinessCounts {
             try {
                 const [
                     { LocalMaintenanceService },
-                    { MaintenanceService, calculateStatus },
+                    { MaintenanceService, statusWithReading },
                     { LocalEngineHoursService },
                     localReady,
                 ] = await Promise.all([
@@ -137,22 +137,18 @@ export function useVesselReadinessCounts(): VesselReadinessCounts {
                 ]);
                 if (stale()) return;
 
-                // The same red R&M shows (calculateStatus): overdue by LOCAL
-                // calendar day, so a daily task due at 7:34 pm today is "Due
-                // today" in both places rather than overdue here from 7:35,
-                // and overdue by engine hours too, counted from the R&M
-                // binder's shared reading. With no reading, hour-based tasks
-                // are judged on their date alone, as R&M does.
+                // The same red R&M shows, by R&M's own rule (statusWithReading,
+                // 132-B15): overdue by LOCAL calendar day, so a task due at
+                // 7:34 pm today is "Due today" in both places rather than
+                // overdue here from 7:35, and overdue by engine hours too,
+                // counted from the R&M binder's shared reading. With no
+                // reading, hour-based tasks are judged on their date alone. A
+                // pre-trip check waits for a trip and an open repair is to
+                // fix: neither is ever overdue, so neither lights the badge.
                 const engineHours = LocalEngineHoursService.getReading(actionScope).hours;
                 const now = new Date();
                 const countOverdue = (tasks: MaintenanceTask[]) =>
-                    tasks.filter((t) => {
-                        if (!t.is_active) return false;
-                        const byHours =
-                            engineHours !== null && t.next_due_hours !== null && t.next_due_hours !== undefined;
-                        const judged = byHours ? t : { ...t, next_due_hours: null };
-                        return calculateStatus(judged, engineHours ?? 0, now).status === 'red';
-                    }).length;
+                    tasks.filter((t) => t.is_active && statusWithReading(t, engineHours, now).status === 'red').length;
 
                 // The phone's own count first (BH-3): it is there at once,
                 // offline included, where the cloud can take seconds or never

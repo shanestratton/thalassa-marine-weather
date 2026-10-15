@@ -9,7 +9,13 @@ import { ModalSheet } from '../../ui/ModalSheet';
 import { Button } from '../../ui/Button';
 import { RefreshIcon, WrenchIcon } from '../../icons/UIIcons';
 import { CATEGORIES, TRIGGER_LABELS, TRIGGER_PERIODS } from './constants';
+import { DEFAULT_HOURS_INTERVAL, wholeNumber } from './taskSchedule';
 import type { UseMaintenanceFormReturn } from '../../../hooks/useMaintenanceForm';
+
+/** A pre-trip check's line where a calendar task's day goes (132-B15). */
+const PreTripNote: React.FC = () => (
+    <p className="text-xs text-gray-400">Due before each trip, not by date, so it never shows as overdue.</p>
+);
 
 interface TaskFormModalProps {
     mode: 'add' | 'edit';
@@ -36,8 +42,15 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
     onClose,
 }) => {
     const isAdd = mode === 'add';
-    // With no engine hours entered, "200" would be counted from an invented 0.
-    const dueHoursPlaceholder = engineHours === null ? 'Hours at next service' : String(engineHours + 200);
+    // What a blank 'Next due' saves (taskSchedule): the reading plus the
+    // interval. With no engine hours entered, it would be counted from an
+    // invented 0, so it waits for the first reading instead.
+    const dueHoursPlaceholder =
+        engineHours === null
+            ? 'Hours at next service'
+            : String(engineHours + (wholeNumber(form.interval) || DEFAULT_HOURS_INTERVAL));
+    const repair = form.category === 'Repair';
+    const preTrip = form.trigger === 'daily';
 
     if (isAdd) {
         return (
@@ -179,18 +192,16 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                         </div>
                     )}
 
-                    {/* Next due — for time-based triggers */}
-                    {form.trigger !== 'engine_hours' && form.category !== 'Repair' && (
+                    {/* Next due — for calendar triggers. A pre-trip check has
+                        no day: it waits for a trip (132-B15). */}
+                    {!repair && preTrip && <PreTripNote />}
+                    {form.trigger !== 'engine_hours' && !repair && !preTrip && (
                         <FormField
                             label="First due"
                             type="date"
                             value={form.dueDate}
                             onChange={(v) => setField('dueDate', v)}
-                            hint={
-                                form.trigger === 'daily'
-                                    ? 'Checked before every trip'
-                                    : `Repeats every ${TRIGGER_PERIODS[form.trigger] ?? TRIGGER_LABELS[form.trigger].toLowerCase()}`
-                            }
+                            hint={`Repeats every ${TRIGGER_PERIODS[form.trigger] ?? TRIGGER_LABELS[form.trigger].toLowerCase()}`}
                         />
                     )}
                 </div>
@@ -258,28 +269,30 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 </div>
             </div>
 
-            {/* Trigger type */}
-            <div className="mb-4">
-                <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-2">
-                    Schedule
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                    {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map((t) => (
-                        <button
-                            type="button"
-                            aria-pressed={form.trigger === t}
-                            key={t}
-                            onClick={() => setTrigger(t)}
-                            className={`py-2 min-h-[44px] rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
-                        >
-                            {TRIGGER_LABELS[t]}
-                        </button>
-                    ))}
+            {/* Trigger type: a repair has no schedule (132-B15), as in Add */}
+            {!repair && (
+                <div className="mb-4">
+                    <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-2">
+                        Schedule
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                        {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map((t) => (
+                            <button
+                                type="button"
+                                aria-pressed={form.trigger === t}
+                                key={t}
+                                onClick={() => setTrigger(t)}
+                                className={`py-2 min-h-[44px] rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
+                            >
+                                {TRIGGER_LABELS[t]}
+                            </button>
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Engine hours interval */}
-            {form.trigger === 'engine_hours' && (
+            {form.trigger === 'engine_hours' && !repair && (
                 <>
                     <div className="mb-4">
                         <FormField
@@ -302,8 +315,13 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 </>
             )}
 
-            {/* Due date — for non-engine triggers */}
-            {form.trigger !== 'engine_hours' && (
+            {/* Due date — for calendar triggers; a pre-trip check waits for a trip */}
+            {!repair && preTrip && (
+                <div className="mb-6">
+                    <PreTripNote />
+                </div>
+            )}
+            {form.trigger !== 'engine_hours' && !repair && !preTrip && (
                 <div className="mb-6">
                     <FormField
                         label="Next due date"

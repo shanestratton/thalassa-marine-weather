@@ -288,7 +288,13 @@ export interface MaintenanceTask {
 export interface MaintenanceHistory {
     id: string;
     user_id: string;
-    task_id: string;
+    /**
+     * Null once its task is deleted, when the server keeps the record (131-B7,
+     * the held migration 20261015120000): task_title then names the task.
+     */
+    task_id: string | null;
+    /** The task's name, written onto the record as the task was deleted (131-B7); absent before that. */
+    task_title?: string | null;
     completed_at: string;
     engine_hours_at_service: number | null;
     notes: string | null;

@@ -17,6 +17,8 @@ import {
 } from '../../services/vessel/LocalMaintenanceService';
 import {
     calculateStatus,
+    isFixedRepair,
+    statusWithReading,
     type TaskWithStatus,
     type TrafficLight as _TrafficLight,
 } from '../../services/MaintenanceService';
@@ -47,7 +49,8 @@ import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { CATEGORIES } from './maintenance/constants';
 import { ServiceLogSheet, clockTime } from './maintenance/ServiceLogSheet';
 import { TaskFormModal } from './maintenance/TaskFormModal';
-import { SwipeableTaskCard, PERIOD_DAYS } from './maintenance/SwipeableTaskCard';
+import { SwipeableTaskCard } from './maintenance/SwipeableTaskCard';
+import { scheduleFromForm } from './maintenance/taskSchedule';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -65,8 +68,13 @@ import {
     type EngineHoursReading,
 } from '../../services/vessel/LocalEngineHoursService';
 import { useBinderSource } from '../../hooks/useBinderSource';
+import { supabase } from '../../services/supabase';
+import {
+    maintenanceHistoryKeepsRecords,
+    maintenanceHistoryKeptKnown,
+} from '../../services/vessel/maintenanceHistoryColumn';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
-import { addLocalDays, localDayString, toLocalDateString } from '../../utils/localDate';
+import { localDayString } from '../../utils/localDate';
 // 'Sun 28 Sep 2026', shared with the task cards (UX scorecard run 9).
 import { formatDisplayDate } from '../../utils/displayDate';
 
@@ -182,6 +190,11 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         records: number;
     } | null>(null);
     const [showPaused, setShowPaused] = useState(false);
+    const [showFixed, setShowFixed] = useState(false);
+    // Whether a deleted task's records stay (131-B7): only once the held
+    // migration's column has been seen; until then they go with it, and the
+    // question says so (126-B7a).
+    const [historyKept, setHistoryKept] = useState(maintenanceHistoryKeptKnown);
     const [sheetNotes, setSheetNotes] = useState('');
     const [sheetSaving, setSheetSaving] = useState(false);
 
@@ -338,6 +351,18 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         void loadTasks(identity);
     }, [loadTasks]);
 
+    // Ask the server once per visit whether it keeps a deleted task's records
+    // (131-B7). It never throws; offline or signed out it says no.
+    useEffect(() => {
+        let live = true;
+        void maintenanceHistoryKeepsRecords(supabase).then((kept) => {
+            if (live) setHistoryKept(kept);
+        });
+        return () => {
+            live = false;
+        };
+    }, []);
+
     // The Service history sheet on show, so a background reload refreshes it
     // too: a service logged on another device belongs in it straight away.
     const openHistoryRef = useRef<{ identity: AuthIdentityScope; taskId: string } | null>(null);
@@ -449,22 +474,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     }, [engineHours, engineHoursCanEdit]);
 
     const tasksWithStatus = useMemo(() => {
-        const withStatus = activeTasks.map((t) => {
-            const hasHours = t.next_due_hours !== null && t.next_due_hours !== undefined;
-            if (engineHours !== null || (!hasHours && t.trigger_type !== 'engine_hours')) {
-                return calculateStatus(t, engineHours ?? 0);
-            }
-            // Engine hours not entered yet: judge the task on its date alone
-            // rather than counting hours from an invented zero. An hour task
-            // with no hours due yet (the suggested engine service is seeded so
-            // since 126-B1) waits for the same first reading.
-            const byDate = calculateStatus({ ...t, next_due_hours: null }, 0);
-            return {
-                ...byDate,
-                next_due_hours: t.next_due_hours,
-                statusLabel: byDate.status === 'grey' ? 'Enter engine hours' : byDate.statusLabel,
-            };
-        });
+        // Engine hours not entered yet: judged on the date alone, never on
+        // hours counted from an invented zero (statusWithReading, the rule the
+        // Vessel page's overdue badge counts with too).
+        const withStatus = activeTasks.map((t) => statusWithReading(t, engineHours));
         // Sort: category order first, then alphabetical within each category
         return withStatus.sort((a, b) => {
             const catA = CATEGORY_ORDER.indexOf(a.category);
@@ -473,8 +486,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             return a.title.localeCompare(b.title);
         });
     }, [activeTasks, engineHours]);
-    // Paused: never due, so the card says 'Paused' (calculateStatus). By title.
-    const pausedTasks = useMemo(
+    // Off the list, by title: a repair marked fixed waits under Fixed
+    // (132-B15), any other task under Paused (126-B7a). Never due.
+    const inactiveTasks = useMemo(
         () =>
             visibleTasks
                 .filter((task) => !task.is_active)
@@ -482,6 +496,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 .sort((a, b) => a.title.localeCompare(b.title)),
         [visibleTasks, engineHours],
     );
+    const pausedTasks = useMemo(() => inactiveTasks.filter((task) => !isFixedRepair(task)), [inactiveTasks]);
+    const fixedRepairs = useMemo(() => inactiveTasks.filter(isFixedRepair), [inactiveTasks]);
 
     // Group tasks by category for rendering
     const groupedTasks = useMemo(() => {
@@ -512,9 +528,12 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         () =>
             tasksWithStatus.reduce(
                 (acc, t) => {
-                    // A due still counted from zero is amber (calculateStatus), so
-                    // it counts with the tasks that need attention.
-                    if (t.status !== 'grey') acc[t.status]++;
+                    // An open repair is counted as one to fix, not as due
+                    // (132-B15). A due still counted from zero is amber
+                    // (calculateStatus), so it counts with the tasks that need
+                    // attention.
+                    if (t.toFix) acc.toFix++;
+                    else if (t.status !== 'grey') acc[t.status]++;
                     else if (
                         engineHours === null &&
                         ((t.next_due_hours !== null && t.next_due_hours !== undefined) ||
@@ -524,7 +543,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     else acc.unscheduled++;
                     return acc;
                 },
-                { red: 0, yellow: 0, green: 0, needsHours: 0, paused: pausedTasks.length, unscheduled: 0 },
+                { red: 0, toFix: 0, yellow: 0, green: 0, needsHours: 0, paused: pausedTasks.length, unscheduled: 0 },
             ),
         [tasksWithStatus, engineHours, pausedTasks.length],
     );
@@ -539,8 +558,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const countsSummary = useMemo(() => {
         const parts: string[] = [];
         if (counts.red > 0) parts.push(`${counts.red} overdue`);
+        if (counts.toFix > 0) parts.push(`${counts.toFix} to fix`);
         if (counts.yellow > 0) parts.push(`${counts.yellow} due soon`);
-        if (tasksWithStatus.length > 0)
+        if (tasksWithStatus.length > counts.toFix)
             parts.push(`${counts.green} ${anyServiceLogged ? 'up to date' : 'not yet due'}`);
         if (counts.needsHours > 0)
             parts.push(`${counts.needsHours} ${counts.needsHours === 1 ? 'needs' : 'need'} engine hours`);
@@ -549,15 +569,17 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         return parts.length > 0 ? `Tasks: ${parts.join(', ')}.` : '';
     }, [counts, tasksWithStatus.length, anyServiceLogged]);
 
-    // ── Undo a logged service (126-B7a): the skipper's binder only ──
+    // ── Undo a logged service (126-B7a), or a repair marked fixed (132-B15):
+    // the skipper's binder only ──
     const undoLog = useCallback(
-        async (logged: LoggedService, identity: AuthIdentityScope) => {
+        async (logged: LoggedService, identity: AuthIdentityScope, fix = false) => {
             if (!isAuthIdentityScopeCurrent(identity)) return;
             try {
                 const { restored } = await MaintenanceService.undoLogService(logged);
                 if (!isAuthIdentityScopeCurrent(identity)) return;
                 reloadInBackground();
-                toast.success(restored ? 'Log undone' : 'Log undone. The later service still counts.');
+                if (fix) toast.success(restored ? 'Undone. It needs fixing again.' : 'Undone. It was changed since.');
+                else toast.success(restored ? 'Log undone' : 'Log undone. The later service still counts.');
             } catch (e) {
                 log.warn('Failed to undo the service log:', e);
                 if (isAuthIdentityScopeCurrent(identity)) {
@@ -606,6 +628,41 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sheetTask, engineHours, sheetNotes, loadTasks, sharedBinder, undoLog]);
 
+    // ── Mark a repair fixed (132-B15): it leaves the list for Fixed ──
+    // From its sheet, with what was done in the notes; or offered instead of
+    // deleting an open repair that has service records, which keeps them.
+    const markRepairFixed = useCallback(
+        async (task: MaintenanceTask, identity: AuthIdentityScope, notes: string | null) => {
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            setSheetSaving(true);
+            try {
+                triggerHaptic('medium');
+                const logged = await MaintenanceService.markFixed(task.id, notes);
+                if (!isAuthIdentityScopeCurrent(identity)) return;
+                setSheetTask(null);
+                setSheetNotes('');
+                await loadTasks(identity, true);
+                if (!isAuthIdentityScopeCurrent(identity)) return;
+                const message = `“${task.title}” fixed. It's under Fixed.`;
+                // As a logged service: Undo deletes the record, so crew get none.
+                if (sharedBinder) toast.success(message);
+                else toast.success(message, { label: 'Undo', onClick: () => void undoLog(logged, identity, true) });
+            } catch (e) {
+                log.error('Failed to mark the repair fixed:', e);
+                if (isAuthIdentityScopeCurrent(identity)) {
+                    toast.error(e instanceof SharedBinderReadOnlyError ? e.message : 'Could not mark it fixed');
+                }
+            } finally {
+                if (isAuthIdentityScopeCurrent(identity)) setSheetSaving(false);
+            }
+        },
+        [loadTasks, sharedBinder, undoLog],
+    );
+    const handleMarkFixed = useCallback(async () => {
+        if (!sheetTask) return;
+        await markRepairFixed(sheetTask.task, sheetTask.identity, sheetNotes.trim() || null);
+    }, [sheetTask, sheetNotes, markRepairFixed]);
+
     // ── Pause / Resume (126-B7a) ──
     const setTaskPaused = useCallback(
         async (task: MaintenanceTask, identity: AuthIdentityScope, pause: boolean) => {
@@ -617,7 +674,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 setSheetTask(null);
                 await loadTasks(identity, true);
                 if (!isAuthIdentityScopeCurrent(identity)) return;
-                toast.success(pause ? `“${task.title}” paused. It's under Paused.` : `“${task.title}” resumed`);
+                toast.success(
+                    pause
+                        ? `“${task.title}” paused. It's under Paused.`
+                        : isFixedRepair(task)
+                          ? `“${task.title}” reopened: it needs fixing again`
+                          : `“${task.title}” resumed`,
+                );
             } catch (e) {
                 log.warn('Failed to pause or resume a task:', e);
                 if (isAuthIdentityScopeCurrent(identity)) {
@@ -640,51 +703,38 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         try {
             triggerHaptic('medium');
 
-            // Repairs: auto-set to daily trigger with today's due date
-            // They'll go red almost immediately — fix it or delete it!
+            // A repair is the one shape the log and Checklists raise too: it
+            // needs fixing, with no schedule to roll on (132-B15). It was a
+            // daily task due today, rolled on to tomorrow by every log.
             const isRepair = form.category === 'Repair';
-            const triggerType = isRepair ? 'daily' : form.trigger;
-
-            // Auto-compute interval and due date for period-based triggers
-            const periodDays = isRepair ? 1 : PERIOD_DAYS[form.trigger];
-            const intervalValue =
-                triggerType === 'engine_hours'
-                    ? form.interval
-                        ? parseInt(form.interval, 10)
-                        : null
-                    : (periodDays ?? null);
-            const dueDate =
-                triggerType === 'engine_hours'
-                    ? null
-                    : isRepair
-                      ? toLocalDateString() // local calendar day, not the UTC one (audit 2026-09-02)
-                      : form.dueDate || toLocalDateString(addLocalDays(new Date(), periodDays || 30));
-
-            await MaintenanceService.createTask({
-                title: form.title.trim(),
-                description: form.description.trim() || null,
-                category: form.category,
-                trigger_type: triggerType,
-                interval_value: intervalValue,
-                next_due_date: dueDate,
-                next_due_hours: triggerType === 'engine_hours' && form.dueHours ? parseInt(form.dueHours, 10) : null,
-                last_completed: null,
-                is_active: true,
-            });
+            if (isRepair) {
+                await MaintenanceService.createRepair(form.title, form.description);
+            } else {
+                await MaintenanceService.createTask({
+                    title: form.title.trim(),
+                    description: form.description.trim() || null,
+                    category: form.category,
+                    // Blank fields save sensibly: a blank 'Next due' hours is
+                    // the reading plus the interval (132-B15, MAINT-17).
+                    ...scheduleFromForm(form, engineHours),
+                    last_completed: null,
+                    is_active: true,
+                });
+            }
             if (!isAuthIdentityScopeCurrent(identity)) return;
             setShowAddForm(false);
             setAddFormIdentity(null);
             resetForm();
             await loadTasks(identity);
             if (!isAuthIdentityScopeCurrent(identity)) return;
-            toast.success('Task created');
+            toast.success(isRepair ? 'Repair added' : 'Task created');
             flash();
         } catch (e) {
             log.error('Failed to create task:', e);
             if (isAuthIdentityScopeCurrent(identity)) toast.error('Failed to create task');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [form, resetForm, loadTasks, addFormIdentity]);
+    }, [form, resetForm, loadTasks, addFormIdentity, engineHours]);
 
     // ── Load History ──
     const loadHistory = useCallback(async (taskId: string, identity: AuthIdentityScope = getAuthIdentityScope()) => {
@@ -702,6 +752,21 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             }
         }
     }, []);
+
+    // The service history the PDF prints. A record waiting out its Undo is
+    // left out, as it is on screen. So are the records of a task waiting out
+    // its delete Undo while they would go with it; once the server keeps them
+    // (131-B7) they print as they will be, under its name, '(task removed)'.
+    const historyForPdf = useCallback((): MaintenanceHistory[] => {
+        const removed = new Map(taskData.tasks.filter((task) => hiddenIds.has(task.id)).map((t) => [t.id, t.title]));
+        const records = MaintenanceService.getAllHistory().filter((record) => !recordUndo.hiddenIds.has(record.id));
+        if (!historyKept) return records.filter((record) => !record.task_id || !removed.has(record.task_id));
+        return records.map((record) =>
+            record.task_id && removed.has(record.task_id)
+                ? { ...record, task_id: null, task_title: removed.get(record.task_id) }
+                : record,
+        );
+    }, [taskData.tasks, hiddenIds, recordUndo.hiddenIds, historyKept]);
 
     // ── Share or save a PDF (130-B8) ──
     // From the rows on this phone, as the list shows them: the server's copy
@@ -724,9 +789,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                               vesselNameSnapshot,
                           )
                         : await exportServiceHistory(
-                              MaintenanceService.getAllHistory().filter(
-                                  (record) => !recordUndo.hiddenIds.has(record.id) && !hiddenIds.has(record.task_id),
-                              ),
+                              historyForPdf(),
                               // Every task, paused ones too, for the records' titles.
                               taskData.tasks.map((task) => ({ ...task })),
                               vesselNameSnapshot,
@@ -750,7 +813,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 if (isAuthIdentityScopeCurrent(identity)) setExporting(false);
             }
         },
-        [engineHours, vesselName, activeTasks, taskData.tasks, hiddenIds, recordUndo.hiddenIds],
+        [engineHours, vesselName, activeTasks, taskData.tasks, historyForPdf],
     );
 
     useEffect(
@@ -767,6 +830,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 setSheetTask(null);
                 setDeleteAsk(null);
                 setShowPaused(false);
+                setShowFixed(false);
                 setSheetNotes('');
                 setSheetSaving(false);
                 resetForm();
@@ -801,9 +865,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             if (!task || !isAuthIdentityScopeCurrent(identity)) return;
             triggerHaptic('medium');
             setSheetTask(null);
-            // The server cascades a task's records with it (MAINT-02): when
-            // there are any, ask first, and offer Pause instead (126-B7a).
-            // A record waiting out its own Undo is already gone.
+            // When a task has records, ask first, and offer Pause instead
+            // (126-B7a), or Mark fixed for an open repair (132-B15): until
+            // the server keeps them (131-B7) they go with it (MAINT-02). A
+            // record waiting out its own Undo is already gone.
             const records = MaintenanceService.getHistory(task.id).filter(
                 (record) => !recordHiddenIds.has(record.id),
             ).length;
@@ -835,7 +900,11 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 // The local day the card shows: the UTC date of a logged
                 // service's due was a day early east of Greenwich (131-B11).
                 dueDate: localDayString(task.next_due_date),
-                dueHours: task.next_due_hours !== null ? String(task.next_due_hours) : '',
+                // A row with no hours field at all opened on 'undefined'.
+                dueHours:
+                    task.next_due_hours !== null && task.next_due_hours !== undefined
+                        ? String(task.next_due_hours)
+                        : '',
                 description: task.description || '',
             });
             setShowEditForm(true);
@@ -850,23 +919,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         if (!isAuthIdentityScopeCurrent(identity)) return;
         try {
             triggerHaptic('medium');
-            const periodDays = PERIOD_DAYS[form.trigger];
-            const intervalValue =
-                form.trigger === 'engine_hours'
-                    ? form.interval
-                        ? parseInt(form.interval, 10)
-                        : null
-                    : (periodDays ?? null);
-            const dueDate = form.trigger === 'engine_hours' ? null : form.dueDate || null;
-
             await MaintenanceService.updateTask(taskId, {
                 title: form.title.trim(),
                 description: form.description.trim() || null,
                 category: form.category,
-                trigger_type: form.trigger,
-                interval_value: intervalValue,
-                next_due_date: dueDate,
-                next_due_hours: form.trigger === 'engine_hours' && form.dueHours ? parseInt(form.dueHours, 10) : null,
+                // The same schedule rule as Add (132-B15). A repair has none
+                // to edit: the sheet hides it, and what the task held stays.
+                ...(form.category === 'Repair' ? {} : scheduleFromForm(form, engineHours)),
             });
             if (!isAuthIdentityScopeCurrent(identity)) return;
             setShowEditForm(false);
@@ -881,9 +940,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             if (isAuthIdentityScopeCurrent(identity)) toast.error('Failed to update task');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editTask, form, loadTasks]);
+    }, [editTask, form, loadTasks, engineHours]);
 
-    // One card for the category groups and the Paused group alike.
+    // One card for the category groups and the Paused and Fixed groups alike.
     const taskCard = (task: TaskWithStatus) => (
         <SwipeableTaskCard
             key={task.id}
@@ -939,6 +998,16 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                             {counts.red} overdue
                                         </span>
                                     )}
+                                    {/* Open repairs: to fix, not due (132-B15). */}
+                                    {counts.toFix > 0 && (
+                                        <span
+                                            aria-hidden="true"
+                                            className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black"
+                                            title="Repairs to fix"
+                                        >
+                                            {counts.toFix} to fix
+                                        </span>
+                                    )}
                                     {counts.yellow > 0 && (
                                         <span
                                             aria-hidden="true"
@@ -951,7 +1020,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                             {counts.yellow} due soon
                                         </span>
                                     )}
-                                    {tasksWithStatus.length > 0 && (
+                                    {tasksWithStatus.length > counts.toFix && (
                                         <span
                                             aria-hidden="true"
                                             className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-black"
@@ -1254,7 +1323,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         <p role="status" className="py-16 text-center text-sm font-semibold text-gray-400">
                             {bringingInCopy(binder)}
                         </p>
-                    ) : groupedTasks.length === 0 && pausedTasks.length === 0 ? (
+                    ) : groupedTasks.length === 0 && pausedTasks.length === 0 && fixedRepairs.length === 0 ? (
                         <EmptyState
                             icon={
                                 <svg
@@ -1316,6 +1385,25 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     {showPaused && <div className="space-y-2">{pausedTasks.map(taskCard)}</div>}
                                 </div>
                             )}
+                            {/* Repairs marked fixed (132-B15): last, collapsed, out of
+                                every count, each with its record in the history. */}
+                            {fixedRepairs.length > 0 && (
+                                <div>
+                                    <button
+                                        type="button"
+                                        aria-expanded={showFixed}
+                                        onClick={() => setShowFixed((open) => !open)}
+                                        className="flex min-h-[44px] w-full items-center gap-2 text-left"
+                                    >
+                                        <span className={GROUP_LABEL}>Fixed</span>{' '}
+                                        <span className={GROUP_COUNT}>({fixedRepairs.length})</span>
+                                        <ChevronRightIcon
+                                            className={`ml-auto h-4 w-4 text-gray-400 transition-transform ${showFixed ? '-rotate-90' : 'rotate-90'}`}
+                                        />
+                                    </button>
+                                    {showFixed && <div className="space-y-2">{fixedRepairs.map(taskCard)}</div>}
+                                </div>
+                            )}
                         </>
                     )}
                 </div>
@@ -1361,6 +1449,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         onNotesChange={setSheetNotes}
                         saving={sheetSaving}
                         onLog={handleLogService}
+                        onMarkFixed={handleMarkFixed}
                         onHistory={() => loadHistory(sheetTask.task.id, sheetTask.identity)}
                         onEdit={() => openEditForm(sheetTask.task, sheetTask.identity)}
                         onPause={() => void setTaskPaused(sheetTask.task, sheetTask.identity, true)}
@@ -1502,26 +1591,41 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             </div>
 
             {/* Delete a task with service records? Pause is the gentler way
-                out, and the prominent one (126-B7a). A paused task is only
-                asked about its records. */}
+                out, and the prominent one (126-B7a). A repair is never paused
+                (132-B15): an open one is offered Mark fixed instead, which
+                keeps its records too. A paused task, or a fixed repair, is
+                only asked about its records, which stay once the server keeps
+                them (131-B7) and go with it until then. */}
             {deleteAsk && (
                 <ConfirmDialog
                     isOpen={true}
                     title={`Delete “${deleteAsk.task.title}”?`}
-                    message={`Its ${deleteAsk.records} service record${deleteAsk.records === 1 ? ' goes' : 's go'} with it, on every device.`}
-                    confirmLabel="Delete task and records"
+                    message={
+                        historyKept
+                            ? `Its ${deleteAsk.records} service record${deleteAsk.records === 1 ? ' stays' : 's stay'} in your service history.`
+                            : `Its ${deleteAsk.records} service record${deleteAsk.records === 1 ? ' goes' : 's go'} with it, on every device.`
+                    }
+                    confirmLabel={historyKept ? 'Delete task' : 'Delete task and records'}
                     cancelLabel="Keep"
                     destructive
                     alternative={
-                        deleteAsk.task.is_active
-                            ? {
-                                  label: 'Pause instead',
-                                  onSelect: () => {
-                                      setDeleteAsk(null);
-                                      void setTaskPaused(deleteAsk.task, deleteAsk.identity, true);
-                                  },
-                              }
-                            : undefined
+                        !deleteAsk.task.is_active
+                            ? undefined
+                            : deleteAsk.task.category === 'Repair'
+                              ? {
+                                    label: 'Mark fixed instead',
+                                    onSelect: () => {
+                                        setDeleteAsk(null);
+                                        void markRepairFixed(deleteAsk.task, deleteAsk.identity, null);
+                                    },
+                                }
+                              : {
+                                    label: 'Pause instead',
+                                    onSelect: () => {
+                                        setDeleteAsk(null);
+                                        void setTaskPaused(deleteAsk.task, deleteAsk.identity, true);
+                                    },
+                                }
                     }
                     onConfirm={() => {
                         setDeleteAsk(null);

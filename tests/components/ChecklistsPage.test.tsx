@@ -63,7 +63,7 @@ vi.mock('../../services/vessel/LocalChecklistService', () => ({
 
 vi.mock('../../services/vessel/LocalMaintenanceService', () => ({
     LocalMaintenanceService: {
-        createTask: vi.fn().mockResolvedValue({ id: 'maintenance-task' }),
+        createRepair: vi.fn().mockResolvedValue({ id: 'maintenance-task' }),
     },
 }));
 
@@ -233,13 +233,13 @@ describe('ChecklistsPage: flagged repairs on Complete', () => {
             updated_at: at,
         },
     ];
-    const createTask = vi.mocked(LocalMaintenanceService.createTask);
+    const createRepair = vi.mocked(LocalMaintenanceService.createRepair);
     const saveRun = vi.mocked(LocalChecklistService.saveRun);
 
     beforeEach(() => {
         vi.clearAllMocks();
         getAllMock.mockReturnValue(twoLists);
-        createTask.mockReset().mockResolvedValue({ id: 'maintenance-task' } as never);
+        createRepair.mockReset().mockResolvedValue({ id: 'maintenance-task' } as never);
         saveRun.mockReset().mockResolvedValue({} as never);
     });
 
@@ -262,7 +262,7 @@ describe('ChecklistsPage: flagged repairs on Complete', () => {
     }
 
     it('counts only the repairs that were added, and says plainly which were not', async () => {
-        createTask
+        createRepair
             .mockResolvedValueOnce({ id: 'maintenance-task' } as never)
             .mockRejectedValueOnce(new Error('[LocalDB] Not initialized. Call initLocalDatabase() first.'));
         startRunWithBothFlagged();
@@ -271,7 +271,7 @@ describe('ChecklistsPage: flagged repairs on Complete', () => {
             fireEvent.click(screen.getByRole('button', { name: 'Complete checklist run' }));
         });
 
-        await waitFor(() => expect(createTask).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(createRepair).toHaveBeenCalledTimes(2));
         expect(toast.info).toHaveBeenCalledTimes(1);
         expect(toast.info).toHaveBeenCalledWith('1 repair added to Maintenance');
         const failures = vi.mocked(toast.error).mock.calls.map(([message]) => String(message));
@@ -284,14 +284,14 @@ describe('ChecklistsPage: flagged repairs on Complete', () => {
     });
 
     it('says nothing was added when every repair failed, and names a view-only R&M', async () => {
-        createTask.mockRejectedValue(new SharedBinderReadOnlyError('maintenance', 'R&M is view only on Kestrel'));
+        createRepair.mockRejectedValue(new SharedBinderReadOnlyError('maintenance', 'R&M is view only on Kestrel'));
         startRunWithBothFlagged();
 
         await act(async () => {
             fireEvent.click(screen.getByRole('button', { name: 'Complete checklist run' }));
         });
 
-        await waitFor(() => expect(createTask).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(createRepair).toHaveBeenCalledTimes(2));
         expect(toast.info).not.toHaveBeenCalled();
         const failures = vi.mocked(toast.error).mock.calls.map(([message]) => String(message));
         expect(failures).toContain(
@@ -322,31 +322,23 @@ describe('ChecklistsPage: flagged repairs on Complete', () => {
 
         await waitFor(() => expect(toast.info).toHaveBeenCalledWith('2 repairs added to Maintenance'));
         expect(saveRun).toHaveBeenCalledTimes(1);
-        expect(createTask).toHaveBeenCalledTimes(2);
+        expect(createRepair).toHaveBeenCalledTimes(2);
     });
 
-    it("a repair is due on the skipper's own calendar day, not the UTC one", async () => {
-        const was = process.env.TZ;
-        process.env.TZ = 'America/Los_Angeles';
-        try {
-            vi.useFakeTimers({ toFake: ['Date'] });
-            // 18:00 on Fri 9 Oct in Los Angeles is already Sat 10 Oct in UTC.
-            vi.setSystemTime(new Date(2026, 9, 9, 18, 0));
-            render(<ChecklistsPage onBack={vi.fn()} />);
-            openChecklistRun();
-            failAndFlag('Bilge pump test');
+    // The one repair shape (132-B15, CHK-12): no '[Checklist]' tag or 'Status:
+    // FAIL.', and its local day and schedule are createRepair's
+    // (tests/MaintenanceRepairs132.test.ts).
+    it("raises each repair the shared way: the item's words as its name, the checklist in its notes", async () => {
+        render(<ChecklistsPage onBack={vi.fn()} />);
+        openChecklistRun();
+        failAndFlag('Bilge pump test');
 
-            await act(async () => {
-                fireEvent.click(screen.getByRole('button', { name: 'Complete checklist run' }));
-            });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Complete checklist run' }));
+        });
 
-            await waitFor(() => expect(createTask).toHaveBeenCalledTimes(1));
-            expect(createTask.mock.calls[0][0].next_due_date).toBe('2026-10-09');
-        } finally {
-            vi.useRealTimers();
-            if (was === undefined) delete process.env.TZ;
-            else process.env.TZ = was;
-        }
+        await waitFor(() => expect(createRepair).toHaveBeenCalledTimes(1));
+        expect(createRepair).toHaveBeenCalledWith('Bilge pump test', 'Failed on the Pre-departure checklist.');
     });
 });
 
