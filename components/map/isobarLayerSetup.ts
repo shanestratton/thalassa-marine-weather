@@ -1123,6 +1123,16 @@ export const TRACE_LAYER_IDS = [
  * difference between "promoted, still buried" and "never promoted".
  */
 export function promoteTraceLayers(map: mapboxgl.Map): string[] {
+    // A deferred idle pass can run after sync() has already raised the stack.
+    // moveLayer writes even when the order is unchanged: leave a settled chart quiet.
+    try {
+        const order = map.getStyle().layers.map((layer) => layer.id);
+        const present = TRACE_LAYER_IDS.filter((id) => order.includes(id));
+        if (present.length === 0 || present.every((id, i) => order[order.length - present.length + i] === id))
+            return [];
+    } catch {
+        // During a style swap, retain the existing best-effort promotion below.
+    }
     for (const id of TRACE_LAYER_IDS) {
         try {
             if (map.getLayer(id)) map.moveLayer(id);
