@@ -23,6 +23,7 @@ import {
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
 import { writeScopedNativeDiagnostic } from '../services/nativeDiagnostic';
+import { useAutoNight } from './useAutoNight';
 // Sample/dummy location data removed 2026-05-17 — painting Sydney
 // weather for a Brisbane user (or Newport for a Boston user) is
 // actively misleading on a marine app, where mistaking demo
@@ -836,8 +837,15 @@ export const useAppController = () => {
     const handleTabSettings = useCallback(() => setPage('settings'), [setPage]);
 
     // Calculate Display Mode
+    // 'Auto with night' (131-03) is Auto, plus Night from nautical dusk to
+    // dawn at the forecast location. Null in every other mode.
+    const autoNight = useAutoNight(
+        settings.displayMode === 'auto-night',
+        weatherData?.coordinates,
+        weatherData?.timeZone,
+    );
     let effectiveMode: DisplayMode = settings.displayMode;
-    if (settings.displayMode === 'auto') {
+    if (settings.displayMode === 'auto' || settings.displayMode === 'auto-night') {
         const now = new Date();
         let isNight = false;
         if (weatherData && weatherData.coordinates) {
@@ -854,6 +862,7 @@ export const useAppController = () => {
         }
         effectiveMode = isNight ? 'dark' : 'light';
     }
+    if (autoNight?.night) effectiveMode = 'night';
 
     return {
         query,

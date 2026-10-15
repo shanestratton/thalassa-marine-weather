@@ -128,7 +128,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
     savedLocations: [],
     vessel: undefined,
     timeDisplay: 'location',
-    displayMode: 'dark',
+    // New installs open on 'Auto with night' (131-03). A saved blob without a
+    // display mode is an older install and keeps 'dark' (mergeSettings).
+    displayMode: 'auto-night',
     preferredModel: 'best_match',
     forecastModel: 'dwd_icon',
     offshoreModel: 'sg',
@@ -1512,6 +1514,9 @@ export function mergeSettings(parsed: Record<string, unknown>): UserSettings {
             waveHeight: p.units?.waveHeight || p.units?.length || 'm',
         },
         vessel: { ...DEFAULT_SETTINGS.vessel, ...(p.vessel || {}) },
+        // Saved settings are an existing install: the new default display mode
+        // is for new installs only (131-03), so a missing one stays the old 'dark'.
+        displayMode: p.displayMode ?? 'dark',
         // The old Satellite base left the Obs picker (125-13a, Shane
         // 2026-10-09): a saved one becomes Relief + Sat (useMapBase reads it so).
         ...(p.obsChartBase === 'satellite' ? { obsChartBase: 'reliefSat' as const } : {}),

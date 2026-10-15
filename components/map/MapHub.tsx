@@ -2680,18 +2680,30 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Charted depth + predicted tide plus the night-dim treatment, both in
     // components/map/useTideDepthMode.ts. VISUAL ONLY by hard rule: the
     // safety contour, tracer and router keep grading against chart datum.
+    // 'Auto with night' (131-03) drives the dim as well as the relief's night
+    // palette: App's nightMode is its dusk-to-dawn answer in that mode. The
+    // dim is drawn only while the chart is on screen (131-03 review: kept
+    // alive hidden, it covered every other page), and its switch is the
+    // Night dim row in the map-base menu.
     const {
         tideDepthMode,
         setTideDepthMode,
         nightDim,
         setNightDim,
+        nightDimRow,
         tideOffsetInfo,
         showTideAck,
         setShowTideAck,
         tideScrubQ,
         setTideScrubQ,
         onToggleTideDepth,
-    } = useTideDepthMode(mapRef, mapReady, planningSurface);
+    } = useTideDepthMode(
+        mapRef,
+        mapReady,
+        planningSurface,
+        nightMode && settings.displayMode === 'auto-night',
+        currentView === 'map',
+    );
     // Keel-honesty flag for the tap-the-water popup — a verdict against
     // the 2.5 m fallback draft must say so (mirrors the tracer).
     useEffect(() => {
@@ -4007,7 +4019,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
 
                 {/* The base beneath the ENC stack: Relief, Relief + Sat, Ocean
-                    or Hybrid. The pick is kept with the account. */}
+                    or Hybrid. The pick is kept with the account. Under the ENC
+                    row, the Night dim row whenever there is a dim to switch
+                    (131-03 review). */}
                 <MapBaseSelector
                     visible={!planningSurface && !embedded && !pickerMode && !isPinView}
                     value={mapBase}
@@ -4015,6 +4029,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     encCellCount={encCellCount}
                     encVisible={encVisible}
                     onToggleEnc={toggleEnc}
+                    toggles={nightDimRow ? [nightDimRow] : []}
                 />
                 {/* The planner's own menu, the same pill (127-DESKMAP A2/B1):
                     Light, Relief + Sat or Hybrid, then on the desk OpenSeaMap's
