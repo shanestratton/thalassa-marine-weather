@@ -45,6 +45,11 @@ export const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onT
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
         onSwipeComplete: () => void triggerHaptic('light'),
     });
+    const revealed = swipeOffset > 0;
+    const confirmDelete = () => {
+        resetSwipe();
+        onDelete?.();
+    };
     const CategoryIcon = CATEGORY_ICONS[item.category] ?? FALLBACK_CATEGORY_ICON;
     // Make and model, whichever are set; a lone ' — ' said nothing.
     const makeModel = [item.make, item.model].filter((part) => part && part.trim()).join(' — ') || '--';
@@ -53,16 +58,25 @@ export const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onT
 
     return (
         <div className="relative overflow-hidden rounded-lg">
-            {/* Delete button (revealed on swipe) */}
+            {/* Delete button (revealed on swipe). Hidden from assistive tech
+                until the swipe reveals it, then a named button, like the
+                maintenance cards (126-B10b): VoiceOver read an unnamed
+                "Delete" before every one of the register's items. */}
             {onDelete && (
                 <div
-                    className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                    onClick={() => {
-                        resetSwipe();
-                        onDelete();
+                    className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${revealed ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                    aria-hidden={revealed ? undefined : true}
+                    role={revealed ? 'button' : undefined}
+                    aria-label={revealed ? `Delete ${item.equipment_name}` : undefined}
+                    tabIndex={revealed ? 0 : -1}
+                    onClick={confirmDelete}
+                    onKeyDown={(e) => {
+                        if (!revealed || (e.key !== 'Enter' && e.key !== ' ')) return;
+                        e.preventDefault();
+                        confirmDelete();
                     }}
                 >
-                    <div className="text-center text-white">
+                    <div className="text-center text-white" aria-hidden="true">
                         <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path
                                 strokeLinecap="round"

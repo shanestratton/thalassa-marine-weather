@@ -26,6 +26,8 @@ import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { CheckIcon, WrenchIcon, XIcon } from '../Icons';
 import { ModalSheet } from '../ui/ModalSheet';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { UndoToast } from '../ui/UndoToast';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 import { LoadErrorState } from '../ui/LoadErrorState';
@@ -35,6 +37,7 @@ import { FormField } from '../ui/FormField';
 import { generateUUID } from '../../services/vessel/LocalDatabase';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useRealtimeSyncMulti } from '../../hooks/useRealtimeSync';
+import { useUndoDelete } from '../../hooks/useUndoDelete';
 import { onSyncComplete } from '../../services/vessel/SyncService';
 import { changedFields, REMOVED_ELSEWHERE, REMOVED_NOTHING_SAVED } from '../../utils/changedFields';
 import { SwipeableItemCard } from './checklists/SwipeableItemCard';
@@ -106,6 +109,12 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     const [loadError, setLoadError] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+    // A checklist that still has items waits for one question before it goes.
+    const [deleteAsk, setDeleteAsk] = useState<{
+        scope: AuthIdentityScope;
+        entry: ChecklistEntry;
+        items: number;
+    } | null>(null);
 
     // Add/Edit form state
     const [showForm, setShowForm] = useState(false);
@@ -169,6 +178,28 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     }, []);
     const reloadInBackground = useCallback(() => loadEntries(true), [loadEntries]);
 
+    // Soft delete with undo (126-B10b), as the other binders have had since
+    // 126-B10a: a deleted checklist or item stays in state, hidden, until its
+    // delete is committed (on Back too), so no reload brings it back and Undo
+    // returns it once, in its place. A checklist hides its items with it, and
+    // nothing leaves this device until the five seconds are up, so an Undo
+    // leaves no other device anything to bring back.
+    const undoDelete = useUndoDelete<ChecklistEntry>({
+        rows: entries,
+        // The service takes a checklist's items with it (the server cascades too).
+        commit: (entry) => LocalChecklistService.delete(entry.id),
+        onCommitted: () => reloadInBackground(),
+        onCommitFailed: () => toast.error('Failed to delete'),
+        onRestored: (entry) => toast.success(entry.type === 'heading' ? 'Checklist restored' : 'Item restored'),
+        describe: (entry) => `"${entry.text}" deleted`,
+        alsoHides: (entry) =>
+            entry.type === 'heading'
+                ? entries.filter((e) => e.type === 'detail' && e.heading_id === entry.id).map((e) => e.id)
+                : [],
+    });
+    const { hiddenIds } = undoDelete;
+    const { key: undoToastKey, ...undoToastProps } = undoDelete.toastProps;
+
     useEffect(() => {
         mountedRef.current = true;
         loadEntries();
@@ -179,6 +210,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
             setLoading(true);
             setSearchQuery('');
             setHeaderMenuOpen(false);
+            setDeleteAsk(null);
             setShowForm(false);
             setEditEntry(null);
             setFormType('heading');
@@ -213,10 +245,13 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
     );
 
     // ── Computed ──
-    const visibleEntries = useMemo(
-        () => (dataScopeKey === getAuthIdentityScope().key ? entries : []),
-        [dataScopeKey, entries],
-    );
+    // Without what waits out its Undo: an item added on another device to a
+    // checklist being deleted goes with it, so it is hidden with it too.
+    const visibleEntries = useMemo(() => {
+        if (dataScopeKey !== getAuthIdentityScope().key) return [];
+        if (hiddenIds.size === 0) return entries;
+        return entries.filter((e) => !hiddenIds.has(e.id) && !(e.heading_id && hiddenIds.has(e.heading_id)));
+    }, [dataScopeKey, entries, hiddenIds]);
 
     const headings = useMemo(() => visibleEntries.filter((e) => e.type === 'heading'), [visibleEntries]);
 
@@ -322,34 +357,25 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         }
     }, [currentOperation, editEntry, formText, formType, formHeadingId, loadEntries]);
 
+    // ── Delete, with its Undo (useUndoDelete above) ──
+    const { remove: removeEntry } = undoDelete;
     const handleDelete = useCallback(
-        async (id: string) => {
+        (id: string) => {
             const scope = getAuthIdentityScope();
             const entry = visibleEntries.find((e) => e.id === id);
-            if (!entry) return;
-
-            // Guard: don't delete headings that still have items
-            if (entry.type === 'heading') {
-                const children = visibleEntries.filter((e) => e.type === 'detail' && e.heading_id === id);
-                if (children.length > 0) {
-                    toast.error('Remove all items from this checklist first');
-                    return;
-                }
-            }
-
+            if (!entry || !currentOperation(scope)) return;
             triggerHaptic('medium');
-            try {
-                await LocalChecklistService.delete(id);
-                if (!currentOperation(scope)) return;
-                loadEntries();
-                const isH = entry.type === 'heading';
-                toast.success(isH ? 'Checklist deleted' : 'Item deleted');
-            } catch (e) {
-                log.error('Failed to delete:', e);
-                if (currentOperation(scope)) toast.error('Failed to delete');
-            }
+            // A checklist that still has items asks once and says how many go
+            // with it (126-B10b, CHK-05): it used to refuse with a toast, so a
+            // list of twenty items took twenty swipes to clear.
+            const items =
+                entry.type === 'heading'
+                    ? visibleEntries.filter((e) => e.type === 'detail' && e.heading_id === id).length
+                    : 0;
+            if (items > 0) setDeleteAsk({ scope, entry, items });
+            else removeEntry(entry);
         },
-        [currentOperation, loadEntries, visibleEntries],
+        [currentOperation, removeEntry, visibleEntries],
     );
 
     // ── Reorder items ──
@@ -863,38 +889,21 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             {editEntry ? 'Save changes' : formType === 'heading' ? 'Add checklist' : 'Add item'}
                         </Button>
 
-                        {/* Delete button — only in edit mode */}
-                        {editEntry &&
-                            (() => {
-                                const isHeading = editEntry.type === 'heading';
-                                const childCount = isHeading
-                                    ? visibleEntries.filter((e) => e.type === 'detail' && e.heading_id === editEntry.id)
-                                          .length
-                                    : 0;
-                                const canDelete = !isHeading || childCount === 0;
-
-                                return (
-                                    <>
-                                        <Button
-                                            variant="danger"
-                                            onClick={() => {
-                                                handleDelete(editEntry.id);
-                                                setShowForm(false);
-                                                resetForm();
-                                            }}
-                                            disabled={!canDelete}
-                                            className="w-full mt-2 disabled:opacity-30 disabled:cursor-not-allowed"
-                                        >
-                                            Delete {isHeading ? 'checklist' : 'item'}
-                                        </Button>
-                                        {isHeading && childCount > 0 && (
-                                            <p className="text-micro text-amber-400/80 text-center mt-1.5">
-                                                Remove all {childCount} item{childCount !== 1 ? 's' : ''} first
-                                            </p>
-                                        )}
-                                    </>
-                                );
-                            })()}
+                        {/* Delete button — only in edit mode. A checklist with
+                            items asks first, as its swipe does (126-B10b). */}
+                        {editEntry && (
+                            <Button
+                                variant="danger"
+                                onClick={() => {
+                                    handleDelete(editEntry.id);
+                                    setShowForm(false);
+                                    resetForm();
+                                }}
+                                className="w-full mt-2"
+                            >
+                                Delete {editEntry.type === 'heading' ? 'checklist' : 'item'}
+                            </Button>
+                        )}
                     </ModalSheet>
                 )}
 
@@ -1140,6 +1149,26 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         portalTarget!,
                     )}
             </div>
+
+            {/* Delete a checklist that still has items? One question, which
+                says what goes with it; Undo still follows (126-B10b). */}
+            {deleteAsk && (
+                <ConfirmDialog
+                    isOpen={true}
+                    title={`Delete “${deleteAsk.entry.text}”?`}
+                    message={`Its ${deleteAsk.items} item${deleteAsk.items === 1 ? ' goes' : 's go'} with it.`}
+                    confirmLabel={`Delete checklist and item${deleteAsk.items === 1 ? '' : 's'}`}
+                    cancelLabel="Keep"
+                    destructive
+                    onConfirm={() => {
+                        setDeleteAsk(null);
+                        if (currentOperation(deleteAsk.scope)) removeEntry(deleteAsk.entry);
+                    }}
+                    onCancel={() => setDeleteAsk(null)}
+                />
+            )}
+
+            <UndoToast key={undoToastKey} {...undoToastProps} />
         </div>
     );
 };

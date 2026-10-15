@@ -10,7 +10,7 @@
  * Fictional gear only, on no particular coast.
  */
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Filesystem } from '@capacitor/filesystem';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import type { EquipmentItem, InventoryItem, MaintenanceTask, ShipDocument } from '../types';
@@ -155,10 +155,8 @@ const CASES: BinderCase[] = [
         spy: () => vi.spyOn(LocalEquipmentService, 'delete'),
         stored: () => LocalEquipmentService.getAll().map((row) => row.equipment_name),
         restoredToast: 'Equipment restored',
-        remove: (name) => {
-            fireEvent.click(screen.getByRole('button', { name: `Options for ${name}` }));
-            fireEvent.click(screen.getByRole('button', { name: `Delete ${name}` }));
-        },
+        // A named button once swiped open, as the other three (126-B10b).
+        remove: swipeDelete,
     },
     {
         label: 'Maintenance',
@@ -481,6 +479,24 @@ describe("Ship's Stores scanner", () => {
         expect(CASES[0].stored()).not.toContain('UHT milk');
         await advance(10_000);
         expect(deletedIds(spy)).toEqual([idOf('UHT milk')]);
+    });
+});
+
+describe("Equipment's ⋮ sheet", () => {
+    it('its Delete takes the same undo slot as the swipe', async () => {
+        const { spy } = await open(CASES[1]);
+        fireEvent.click(screen.getByRole('button', { name: 'Options for Windlass' }));
+        const sheet = screen.getByRole('dialog', { name: /Windlass/ });
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Delete Windlass' }));
+        await settle();
+
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(onScreen(['Windlass'])).toEqual([]);
+        expect(screen.getByText('"Windlass" deleted')).toBeInTheDocument();
+        await clickUndo();
+        expect(onScreen(['Windlass'])).toEqual(['Windlass']);
+        await advance(10_000);
+        expect(spy).not.toHaveBeenCalled();
     });
 });
 

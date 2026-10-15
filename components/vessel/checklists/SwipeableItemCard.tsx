@@ -35,18 +35,32 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
         onSwipeComplete: () => void triggerHaptic('light'),
     });
+    const revealed = swipeOffset > 0;
+    const confirmDelete = () => {
+        resetSwipe();
+        onDelete();
+    };
 
     return (
         <div className="relative overflow-hidden rounded-xl">
-            {/* Delete action */}
+            {/* Delete action (revealed on swipe). Hidden from assistive tech
+                until the swipe reveals it, then a named button, like the
+                maintenance cards (126-B10b): VoiceOver read an unnamed
+                "Delete" before every checklist and item. */}
             <div
-                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                onClick={() => {
-                    resetSwipe();
-                    onDelete();
+                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center transition-opacity ${revealed ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                aria-hidden={revealed ? undefined : true}
+                role={revealed ? 'button' : undefined}
+                aria-label={revealed ? `Delete ${entry.text}` : undefined}
+                tabIndex={revealed ? 0 : -1}
+                onClick={confirmDelete}
+                onKeyDown={(e) => {
+                    if (!revealed || (e.key !== 'Enter' && e.key !== ' ')) return;
+                    e.preventDefault();
+                    confirmDelete();
                 }}
             >
-                <div className="text-center text-white">
+                <div className="text-center text-white" aria-hidden="true">
                     <svg className="w-4 h-4 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path
                             strokeLinecap="round"

@@ -2,12 +2,13 @@
  * useUndoDelete — one undo slot for a list page's deletes (126-B10a).
  *
  * Modelled on the Diary's soft delete, and shared by Stores, Equipment,
- * Maintenance and Documents. Each page had its own copy, and each lost
- * deletes the same ways: the toast owned the five-second timer and dropped it
- * on unmount (tap Back inside the window and the item was back next visit), a
- * reload from another device put the row straight back on screen, Undo
- * appended a second copy after such a reload, and a second delete inherited
- * the first one's countdown.
+ * Maintenance and Documents; Checklists too since 126-B10b, where a checklist
+ * hides its items with it (alsoHides). Each of the four had its own copy, and
+ * each lost deletes the same ways: the toast owned the five-second timer and
+ * dropped it on unmount (tap Back inside the window and the item was back next
+ * visit), a reload from another device put the row straight back on screen,
+ * Undo appended a second copy after such a reload, and a second delete
+ * inherited the first one's countdown.
  *
  * HIDE, DON'T REMOVE. The page keeps the row in its own state and filters its
  * visible list by `hiddenIds`, so every reload path (realtime, the binder
