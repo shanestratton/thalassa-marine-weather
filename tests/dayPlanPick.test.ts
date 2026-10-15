@@ -767,7 +767,9 @@ describe('worldwide', () => {
         expect(tagIssues(view, null, start)).toEqual([]);
     });
 
-    it('Tromsø with nothing mapped keeps "No anchorages mapped near here"', () => {
+    // 131-PYD-10: Tromsø's named bays are places now (tests/dayPlanWorldPlaces.test.ts); with nothing mapped at
+    // all, not even a bay, the headline is unchanged.
+    it('Tromsø with nothing mapped at all keeps "No anchorages mapped near here"', () => {
         const start = { lat: 69.6496, lon: 18.956, name: 'Tromsø' };
         const now = Date.UTC(2026, 5, 21, 6);
         const empty = gatherPlaces({ start, nowMs: now, radiusNm: 30, atlas: [], osm: [], coastline: null });

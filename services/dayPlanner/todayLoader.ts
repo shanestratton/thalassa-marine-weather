@@ -8,10 +8,11 @@
  *   1. loadToday(start): the place. Its zone and light are worked out on the
  *      phone and reported at once; then, as each answers, the seven-model
  *      point block (2 proxy calls, memoised per 0.1° cell and shared with the
- *      Glass), the places (OpenStreetMap reference cells worldwide, the
- *      Queensland atlas, the OSM coastline for land-only shelter, the
- *      skipper's saved routes), WorldTides for the facts line, and the
- *      nearest tropical cyclone. The offline atlas's places are reported as
+ *      Glass), the places (OpenStreetMap reference cells worldwide and, away
+ *      from the atlas, the same cells' named bays, marinas and towns
+ *      (131-PYD-10), the Queensland atlas, the OSM coastline for land-only
+ *      shelter, the skipper's saved routes), WorldTides for the facts line,
+ *      and the nearest tropical cyclone. The offline atlas's places are reported as
  *      soon as it answers (placesStatus still 'loading'), and merged again
  *      with OpenStreetMap and the coastline when those land.
  *   2. loadStopLegs(needsLegs): for the stops the engine names (at most
@@ -35,7 +36,12 @@
  * fill a gap, and nothing here ever expires a plan.
  */
 import { AnchorageService } from '../anchorages/AnchorageService';
-import { loadReferenceTile as loadReferenceCell, type ReferenceResult } from '../anchorages/CruisingReferenceService';
+import {
+    loadNamedPlaces,
+    loadReferenceTile as loadReferenceCell,
+    type NamedPlacesResult,
+    type ReferenceResult,
+} from '../anchorages/CruisingReferenceService';
 import type { ReferenceTile } from '../anchorages/cruisingReference';
 import {
     getAuthIdentityScope,
@@ -105,6 +111,8 @@ export interface TodayLoaderDeps {
     querySpread(lat: number, lon: number): Promise<ModelSpreadResult>;
     loadAtlas(lat: number, lon: number, radiusNm: number): Promise<readonly AtlasFeature[]>;
     loadReferenceTile(tile: ReferenceTile, signal: AbortSignal): Promise<ReferenceResult>;
+    /** The cell's named bays, marinas and settlements (131-PYD-10): cached per cell, capped per phone. */
+    loadNamedPlaces(tile: ReferenceTile, signal: AbortSignal): Promise<NamedPlacesResult>;
     loadCoastline(lat: number, lon: number): Promise<Segment[] | null>;
     savedRoutes(scope: AuthIdentityScope): SavedRouteLike[];
     loadTides(lat: number, lon: number): Promise<TidesForPosition | null>;
@@ -127,6 +135,7 @@ export const TODAY_LOADER_DEPS: TodayLoaderDeps = {
     // Points that report a restriction must say so: older caches that dropped
     // the tags are refetched rather than trusted.
     loadReferenceTile: (tile, signal) => loadReferenceCell(tile, signal, { requireRestrictionMetadata: true }),
+    loadNamedPlaces: (tile, signal) => loadNamedPlaces(tile, signal),
     loadCoastline: (lat, lon) => fetchCoastlineSegments(lat, lon),
     savedRoutes: (scope) => loadSavedTraces(scope).map((trace) => ({ name: trace.name, points: trace.points })),
     loadTides: (lat, lon) => fetchTidesForPosition(lat, lon),
@@ -396,7 +405,18 @@ export async function loadToday(
                     /* cancelled: the sheet closed or the account changed */
                 },
             );
-            const [atlas, cells, coastline] = await Promise.all([
+            // The map's names for the same cells (131-PYD-10), only where the atlas has no places: in
+            // Queensland its bays and marinas are the atlas's own, and public Overpass is spared the ask.
+            const namesPart = atlasPart.then((atlas) =>
+                atlas?.length
+                    ? []
+                    : Promise.all(
+                          tiles.map((tile) =>
+                              f.part(() => deps.loadNamedPlaces(tile, f.signal), null, PART_DEADLINE_MS, 'place names'),
+                          ),
+                      ),
+            );
+            const [atlas, cells, coastline, names] = await Promise.all([
                 atlasPart,
                 Promise.all(
                     tiles.map((tile) =>
@@ -404,15 +424,13 @@ export async function loadToday(
                     ),
                 ),
                 f.part(() => deps.loadCoastline(start.lat, start.lon), null, PART_DEADLINE_MS, 'coastline'),
+                namesPart,
             ]);
             settled = true;
             f.check();
             const answered = cells.filter((cell): cell is ReferenceResult => !!cell);
-            const cellsFailed = answered.length < cells.length;
-            if (!answered.length && cells.length > 0 && !atlas?.length) {
-                emit({ places: null, placesStatus: 'failed' });
-                return;
-            }
+            const named = names.filter((cell): cell is NamedPlacesResult => !!cell);
+            const cellsFailed = answered.length < cells.length || named.length < names.length;
             // (Merged afresh: the coastline turns the atlas's ×1.3 guesses into
             // ×1.15 or ×1.4, and OpenStreetMap adds what the atlas lacks.)
             const gathered = gatherPlaces({
@@ -421,9 +439,21 @@ export async function loadToday(
                 radiusNm,
                 atlas: atlas ?? [],
                 osm: answered,
+                names: named,
                 coastline,
                 savedRoutes,
             });
+            // No anchorage source answered: unknown, unless the map's bays alone still give places (131-PYD-10).
+            if (
+                !answered.length &&
+                cells.length > 0 &&
+                !atlas?.length &&
+                !gathered.candidates.length &&
+                !gathered.excluded.length
+            ) {
+                emit({ places: null, placesStatus: 'failed' });
+                return;
+            }
             emit({
                 places: gathered,
                 placesStatus: cellsFailed || !atlas ? 'partial' : 'ok',

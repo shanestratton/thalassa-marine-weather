@@ -210,6 +210,75 @@ export function parseOsmReferences(body: unknown, retrievedAt: string): Cruising
     });
 }
 
+// ── Named places (131-PYD-10) ──────────────────────────────────
+
+/** A name on the map for Plan Your Day outside the Queensland atlas: a bay
+ *  it can suggest, or a marina or settlement that names the start. */
+export type NamedPlaceKind = 'bay' | 'marina' | 'city' | 'town' | 'village' | 'hamlet';
+export interface NamedPlace {
+    id: string;
+    kind: NamedPlaceKind;
+    name: string;
+    lat: number;
+    lon: number;
+}
+const SETTLEMENTS: readonly NamedPlaceKind[] = ['city', 'town', 'village', 'hamlet'];
+const NAMED_KINDS: readonly NamedPlaceKind[] = ['bay', 'marina', ...SETTLEMENTS];
+/** A cell with more names than this is cut short by Overpass: refused, never cached as complete. */
+export const NAMED_PLACES_MAX = 5000;
+
+/** The bays and marinas the Queensland atlas is built from (scripts/anchorages/build-qld.mjs), and the
+ *  settlements, in one coarse cell. Names only, centres for ways. */
+export function namedPlacesQuery(tile: ReferenceTile): string {
+    const bbox = `${tile.south},${tile.west},${tile.north},${tile.east}`;
+    return `[out:json][timeout:20];(nw["natural"="bay"]["name"](${bbox});nw["leisure"="marina"]["name"](${bbox});node["place"~"^(city|town|village|hamlet)$"]["name"](${bbox}););out tags center ${NAMED_PLACES_MAX + 1};`;
+}
+
+export function validNamedPlace(value: unknown): value is NamedPlace {
+    const p = value as NamedPlace;
+    return (
+        !!p &&
+        NAMED_KINDS.includes(p.kind) &&
+        typeof p.id === 'string' &&
+        /^osm-(?:node|way)[1-9]\d*$/.test(p.id) &&
+        typeof p.name === 'string' &&
+        p.name.length > 0 &&
+        p.name.length <= 120 &&
+        validReferencePosition(p.lon, p.lat)
+    );
+}
+
+export function parseNamedPlaces(body: unknown): NamedPlace[] {
+    const payload = body as { elements?: unknown[]; remark?: unknown };
+    if (!payload || !Array.isArray(payload.elements) || payload.remark || payload.elements.length > NAMED_PLACES_MAX)
+        throw new Error('Incomplete named places response');
+    return payload.elements.flatMap((raw) => {
+        const e = raw as {
+            id?: unknown;
+            type?: unknown;
+            lat?: number;
+            lon?: number;
+            center?: { lat?: number; lon?: number };
+            tags?: Record<string, string>;
+        };
+        if (!e?.tags || (e.type !== 'node' && e.type !== 'way') || !Number.isSafeInteger(e.id)) return [];
+        const t = e.tags;
+        const kind: NamedPlaceKind | null =
+            t.natural === 'bay'
+                ? 'bay'
+                : t.leisure === 'marina'
+                  ? 'marina'
+                  : SETTLEMENTS.includes(t.place as NamedPlaceKind)
+                    ? (t.place as NamedPlaceKind)
+                    : null;
+        // Rounded to about a metre: the cache holds thousands of them.
+        const lat = Math.round((e.lat ?? e.center?.lat ?? NaN) * 1e5) / 1e5;
+        const lon = Math.round((e.lon ?? e.center?.lon ?? NaN) * 1e5) / 1e5;
+        const point = { id: `osm-${e.type}${e.id}`, kind, name: str(t.name).slice(0, 120), lat, lon };
+        return kind && validNamedPlace(point) ? [point] : [];
+    });
+}
+
 export const QPWS_URL =
     'https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Environment/ParksMarineMoorings/FeatureServer/20';
 const QPWS_BANDS: Record<string, string> = { T: 'brown', A: 'yellow', B: 'green', C: 'blue', D: 'red' };

@@ -1967,11 +1967,18 @@ export interface StopRow {
     along?: string | null;
 }
 
-/** What a place is, when no local notes say: an atlas bay, or a charted anchorage (worldwide). */
+/** What a place is, when no local notes say: a bay (the atlas's, or a named one worldwide), a charted anchorage,
+ *  or an anchorage area, whose shelter is its centre's (131-PYD-10). */
 const kindOf = (c: PlaceCandidate) =>
     c.reviewed
         ? null
-        : `${c.source === 'atlas' && !c.id.startsWith('gbrmpa-') ? 'Mapped bay' : 'Mapped anchorage'} · not reviewed`;
+        : `${
+              c.kind === 'bay' || (c.source === 'atlas' && !c.id.startsWith('gbrmpa-'))
+                  ? 'Mapped bay'
+                  : c.kind === 'area'
+                    ? 'Mapped anchorage · area: pick your spot'
+                    : 'Mapped anchorage'
+          } · not reviewed`;
 
 function stopRow(
     pre: PreRankedStop,
