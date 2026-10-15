@@ -131,8 +131,11 @@ const GRIB_CARD: ReferenceCard = {
  *     north, deflected right there and left in the south: UK Met Office,
  *     "Wind flow" and "How to read synoptic weather charts" (Learn about weather).
  *   - Buys Ballot's law, back to the wind: low pressure on the left in the
- *     north. It follows from that anticlockwise flow; it is the mirror of the
- *     southern rule the card and the barometer sheet already teach.
+ *     north, on the right in the south. Bowditch, The American Practical
+ *     Navigator (NGA Pub. No. 9, 2019 edition), Vol. II, Glossary of Marine
+ *     Navigation, "Buys Ballot's Law", p. 311: facing away from the wind, the
+ *     low lies to the left in the northern hemisphere, to the right in the
+ *     southern.
  *   - Friction turns surface wind across the isobars toward the low, by less
  *     over the sea than over land (both hemispheres): Penn State METEO 3,
  *     "Against the Wind" (about 10-25 degrees over large water bodies, 30-45
@@ -333,9 +336,12 @@ const FORECAST_CARD: ReferenceCard = {
  *     Division, Tropical Cyclone FAQ, "When is hurricane season?".
  *   - The southern season, the warm half of the year: the same FAQ (from late
  *     October or early November into May).
- *   - The warning centres in the sources line are the WMO Tropical Cyclone
- *     Programme's Regional Specialized Meteorological Centres and Tropical
- *     Cyclone Warning Centres for each basin.
+ *   - Every warning centre in the sources line but the JTWC is one of the
+ *     WMO's tropical-cyclone Regional Specialized Meteorological Centres or
+ *     Tropical Cyclone Warning Centres, as the WMO lists them with their
+ *     waters: WMO Community, "Latest Advisories - RSMCs and TCWCs" (Miami,
+ *     Honolulu, Tokyo, New Delhi, La Réunion, Nadi; BOM's TCWC, Wellington).
+ *     The line leaves out Jakarta's and Port Moresby's.
  * No hurricane-box latitudes or insurer dates: they differ by insurer and year.
  */
 

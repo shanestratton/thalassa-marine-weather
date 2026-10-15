@@ -174,6 +174,17 @@ describe('the hemisphere', () => {
         expect(screen.getByText(/ANTICLOCKWISE around a LOW/)).toBeInTheDocument();
     });
 
+    it('gives each hemisphere button a 44 px target, in pixels, since the root font is fluid', () => {
+        render(<SkipperReference onBack={vi.fn()} />);
+        openCard('Synoptic Chart Decoder');
+        for (const name of ['Southern', 'Northern'] as const) {
+            const button = hemisphereButton(name);
+            expect(button).toHaveClass('min-h-[44px]');
+            // min-h-11 is 2.75rem: 41.25 px on an SE, whose root font is 4vw (15 px).
+            expect(button.className).not.toMatch(/\bmin-h-11\b/);
+        }
+    });
+
     it('points the squall card at the Departure Window', () => {
         render(<SkipperReference onBack={vi.fn()} />);
         openCard('Squalls & Cyclone-Season Rules');

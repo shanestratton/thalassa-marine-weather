@@ -70,7 +70,8 @@ const HEMISPHERES: { id: Hemisphere; label: string }[] = [
     { id: 'north', label: 'Northern' },
 ];
 
-/** Two 44 pt buttons and the line saying where the choice came from. */
+/** Two 44 pt buttons and the line saying where the choice came from. In pixels, not min-h-11: the root
+ *  font is fluid (4vw), so 2.75rem is under 44 on a small phone. */
 const HemispherePicker: React.FC<{ value: Hemisphere; words: string; onPick: (hemisphere: Hemisphere) => void }> = ({
     value,
     words,
@@ -89,7 +90,7 @@ const HemispherePicker: React.FC<{ value: Hemisphere; words: string; onPick: (he
                         type="button"
                         aria-pressed={value === id}
                         onClick={() => onPick(id)}
-                        className={`min-h-11 flex-1 rounded-xl border px-3 text-[13px] font-bold transition-colors ${
+                        className={`min-h-[44px] flex-1 rounded-xl border px-3 text-[13px] font-bold transition-colors ${
                             value === id
                                 ? 'border-sky-400/50 bg-sky-500/20 text-white'
                                 : 'border-white/10 bg-white/3 text-slate-300 hover:bg-white/6'

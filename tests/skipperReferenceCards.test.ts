@@ -165,6 +165,7 @@ describe('the synoptic and cyclone cards follow the hemisphere (132-B23)', () =>
 
     it('Buys Ballot: back to the wind, the low is on the right in the south and the left in the north', () => {
         expect(step('south', 'synoptic', '3')).toMatch(/SH and the low is on your RIGHT hand/);
+        // Bowditch (NGA Pub. No. 9, 2019), Vol. II glossary, "Buys Ballot's Law": left in the north.
         expect(step('north', 'synoptic', '3')).toMatch(/NH and the low is on your LEFT hand/);
     });
 
