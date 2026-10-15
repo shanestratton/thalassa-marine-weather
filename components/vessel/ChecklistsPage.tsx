@@ -19,7 +19,6 @@ import {
 } from '../../services/vessel/LocalChecklistService';
 import { LocalMaintenanceService } from '../../services/vessel/LocalMaintenanceService';
 import { SharedBinderReadOnlyError } from '../../services/vessel/sharedBinders';
-import { toLocalDateString } from '../../utils/localDate';
 import { triggerHaptic } from '../../utils/system';
 import { TapToAction } from '../ui/TapToAction';
 import { PageHeader } from '../ui/PageHeader';
@@ -483,18 +482,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         const notAdded: string[] = [];
         for (const item of flagged) {
             try {
-                await LocalMaintenanceService.createTask({
-                    title: `[Checklist] ${item.text}`,
-                    description: `Flagged during checklist run (${item.heading}). Status: FAIL.`,
-                    category: 'Repair',
-                    trigger_type: 'monthly',
-                    interval_value: 30,
-                    // Today on the skipper's own calendar, not the UTC day.
-                    next_due_date: toLocalDateString(),
-                    next_due_hours: null,
-                    last_completed: null,
-                    is_active: true,
-                });
+                // The one repair shape, as R&M and the log raise it (132-B15, CHK-12).
+                await LocalMaintenanceService.createRepair(item.text, `Failed on the ${item.heading} checklist.`);
                 added++;
                 if (!currentOperation(scope)) return;
             } catch (e) {

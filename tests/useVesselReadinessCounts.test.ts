@@ -24,9 +24,10 @@ let maintTasks: Array<{
     is_active: boolean;
     next_due_date: string | null;
     updated_at: string;
-    trigger_type?: 'daily' | 'engine_hours';
+    trigger_type?: 'daily' | 'engine_hours' | 'monthly';
     interval_value?: number | null;
     next_due_hours?: number | null;
+    category?: 'Repair';
 }>;
 let cloudTasks: typeof maintTasks;
 let docs: Array<{ id: string; expiry_date: string | null }>;
@@ -243,19 +244,19 @@ describe('useVesselReadinessCounts', () => {
 
     // ── The badge counts exactly what R&M shows red (2026-10-02) ──
 
-    it('counts by local calendar day, as R&M does: a daily task due earlier today is due, not overdue', async () => {
+    it('counts by local calendar day, as R&M does: a task due earlier today is due, not overdue', async () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         vi.setSystemTime(new Date(2026, 9, 2, 19, 34));
         try {
             const sevenAm = new Date(2026, 9, 2, 7, 0).toISOString();
             maintTasks = [
                 {
-                    id: 'd1',
+                    id: 'm1',
                     is_active: true,
                     next_due_date: sevenAm,
                     updated_at: PAST,
-                    trigger_type: 'daily',
-                    interval_value: 1,
+                    trigger_type: 'monthly',
+                    interval_value: 30,
                 },
             ];
             cloudTasks = [...maintTasks];
@@ -271,6 +272,39 @@ describe('useVesselReadinessCounts', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    // 132-B15 (MAINT-06): a pre-trip check waits for a trip, and an open
+    // repair is to fix. R&M shows neither red, so neither lights the badge.
+    it('never counts a pre-trip check or an open repair, however long since their date', async () => {
+        const lastWeek = new Date(Date.now() - 7 * 86_400_000).toISOString();
+        maintTasks = [
+            {
+                id: 'd1',
+                is_active: true,
+                next_due_date: lastWeek,
+                updated_at: PAST,
+                trigger_type: 'daily',
+                interval_value: 1,
+            },
+            {
+                id: 'r1',
+                is_active: true,
+                next_due_date: lastWeek,
+                updated_at: PAST,
+                trigger_type: 'monthly',
+                interval_value: null,
+                category: 'Repair',
+            },
+            { id: 'm1', is_active: true, next_due_date: lastWeek, updated_at: PAST, trigger_type: 'monthly' },
+        ];
+        cloudTasks = [...maintTasks];
+        const { result } = renderHook(() => useVesselReadinessCounts());
+        await waitFor(() => expect(cloudGetTasks).toHaveBeenCalled());
+        // Only the monthly task, a week overdue.
+        await waitFor(() => expect(result.current.overdueCount).toBe(1));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(result.current.overdueCount).toBe(1);
     });
 
     it('counts a task overdue by engine hours from the R&M reading, and judges it on its date with none', async () => {

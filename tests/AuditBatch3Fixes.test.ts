@@ -46,7 +46,10 @@ describe('source-pinned fixes', () => {
     it('maintenance due dates use the local calendar day', () => {
         const src = read('components/vessel/MaintenanceHub.tsx');
         expect(src).not.toMatch(/toISOString\(\)\.split\('T'\)\[0\]/);
-        expect(src).toMatch(/toLocalDateString\(/);
+        // The form's days are worked out by the shared schedule rule since 132-B15.
+        const schedule = read('components/vessel/maintenance/taskSchedule.ts');
+        expect(schedule).not.toMatch(/toISOString\(\)\.split\('T'\)\[0\]/);
+        expect(schedule).toMatch(/toLocalDateString\(/);
     });
     it('the task date field says what it is', () => {
         expect(read('components/vessel/maintenance/TaskFormModal.tsx')).toMatch(/label="First due"/);

@@ -3,7 +3,8 @@
  * Extracted from MaintenanceHub to reduce component size.
  */
 import React, { useId, useRef } from 'react';
-import { isLocalToday, type TaskWithStatus } from '../../../services/MaintenanceService';
+import { isFixedRepair, isLocalToday, type TaskWithStatus } from '../../../services/MaintenanceService';
+import { formatDisplayDate } from '../../../utils/displayDate';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import { OverlayPortal } from '../../ui/OverlayPortal';
 import { CheckIcon, EditIcon } from '../../icons/UIIcons';
@@ -19,11 +20,13 @@ interface ServiceLogSheetProps {
     onNotesChange: (v: string) => void;
     saving: boolean;
     onLog: () => void;
+    /** An open repair's primary action, in place of Log service (132-B15). */
+    onMarkFixed?: () => void;
     onHistory: () => void;
     onEdit: () => void;
-    /** Pause an active task (126-B7a); the button shows when given. */
+    /** Pause an active task (126-B7a); the button shows when given, never for a repair. */
     onPause?: () => void;
-    /** A paused task's primary action, in place of Log service. */
+    /** A paused task's primary action, in place of Log service: Reopen for a repair marked fixed. */
     onResume?: () => void;
     onClose: () => void;
 }
@@ -59,6 +62,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
     onNotesChange,
     saving,
     onLog,
+    onMarkFixed,
     onHistory,
     onEdit,
     onPause,
@@ -72,7 +76,12 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
         onEscape: onClose,
     });
     const paused = !task.is_active;
-    const alreadyLoggedAt = paused ? null : loggedTodayAt(task.last_completed);
+    // A repair is fixed, not serviced (132-B15): Mark fixed, then Reopen.
+    const repair = task.category === 'Repair';
+    const fixed = isFixedRepair(task);
+    const alreadyLoggedAt = paused || repair ? null : loggedTodayAt(task.last_completed);
+    const primaryLabel = paused ? (fixed ? 'Reopen' : 'Resume') : repair ? 'Mark fixed' : 'Log service';
+    const busyLabel = repair ? 'Marking fixed' : 'Logging service';
 
     return (
         // Centred in the screen above the tab bar, scrolling inside only when it
@@ -129,10 +138,16 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                     </div>
                 </div>
 
-                {paused && (
+                {fixed ? (
                     <p className="mb-4 text-sm text-gray-300">
-                        Paused: it isn&apos;t counted as due until you resume it.
+                        Fixed on {formatDisplayDate(task.last_completed)}. Reopen it if it needs more work.
                     </p>
+                ) : (
+                    paused && (
+                        <p className="mb-4 text-sm text-gray-300">
+                            Paused: it isn&apos;t counted as due until you resume it.
+                        </p>
+                    )
                 )}
 
                 {/* Engine hours snapshot — only for engine-based tasks */}
@@ -167,7 +182,11 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                             id={notesId}
                             value={notes}
                             onChange={(e) => onNotesChange(e.target.value)}
-                            placeholder="Found slight weeping on raw water pump gasket..."
+                            placeholder={
+                                repair
+                                    ? 'What fixed it: new hose and clamps...'
+                                    : 'Found slight weeping on raw water pump gasket...'
+                            }
                             className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white placeholder-gray-500 resize-none h-20 outline-hidden focus:border-sky-500/30"
                         />
                     </div>
@@ -181,7 +200,8 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
 
                 {/* History · Edit · Pause, then the one primary action under
                     them, full width: Log service, or Resume for a paused task
-                    (126-B7a). */}
+                    (126-B7a). A repair has no Pause: Mark fixed, then Reopen
+                    (132-B15). */}
                 <div className="flex gap-2">
                     <button type="button" onClick={onHistory} className={NEUTRAL}>
                         History
@@ -195,7 +215,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                         <EditIcon className="h-3.5 w-3.5 shrink-0" />
                         Edit
                     </button>
-                    {!paused && onPause && (
+                    {!paused && !repair && onPause && (
                         <button type="button" onClick={onPause} className={NEUTRAL}>
                             Pause
                         </button>
@@ -203,19 +223,19 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                 </div>
                 <button
                     type="button"
-                    aria-label={paused ? undefined : saving ? 'Logging service' : 'Log service'}
-                    onClick={paused ? onResume : onLog}
+                    aria-label={paused ? undefined : saving ? busyLabel : primaryLabel}
+                    onClick={paused ? onResume : repair ? onMarkFixed : onLog}
                     disabled={saving}
                     className="mt-3 flex w-full min-h-[44px] items-center justify-center gap-2 py-3.5 bg-linear-to-r from-emerald-600 to-emerald-600 rounded-xl text-sm font-black text-white shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.97] disabled:opacity-50"
                 >
                     {paused ? (
-                        'Resume'
+                        primaryLabel
                     ) : saving ? (
                         <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
                     ) : (
                         <>
                             <CheckIcon className="h-4 w-4 shrink-0" />
-                            Log service
+                            {primaryLabel}
                         </>
                     )}
                 </button>

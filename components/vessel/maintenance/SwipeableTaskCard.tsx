@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import type { TaskWithStatus, TrafficLight } from '../../../services/MaintenanceService';
+import { isFixedRepair, type TaskWithStatus, type TrafficLight } from '../../../services/MaintenanceService';
 import type { MaintenanceTriggerType } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
@@ -58,6 +58,10 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
     });
     const light = LIGHT_COLORS[task.status];
     const revealed = swipeOffset > 0;
+    // No due date beside a pre-trip check or a repair (132-B15): the label says
+    // when, and the day a logged check rolled on to is not one.
+    const repair = task.category === 'Repair';
+    const undated = repair || !!task.beforeTrip;
     const confirmDelete = () => {
         resetSwipe();
         onDelete?.();
@@ -176,14 +180,15 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                         {task.trigger_type === 'engine_hours' &&
                             task.next_due_hours !== null &&
                             task.next_due_hours !== undefined &&
-                            !task.hoursUnanchored && (
+                            !task.hoursUnanchored &&
+                            !undated && (
                                 <span className="text-label text-slate-400 tabular-nums">
                                     @ {task.next_due_hours?.toLocaleString()} hrs
                                 </span>
                             )}
                         {/* The app's one day form, 'Sun 28 Sep 2026': bare
                             toLocaleDateString() gave '28/9/2026' (UX scorecard run 9). */}
-                        {task.next_due_date && (
+                        {task.next_due_date && !undated && (
                             <span className="text-label text-slate-400 tabular-nums">
                                 {formatDisplayDate(task.next_due_date, { weekday: !task.doneToday })}
                             </span>
@@ -191,11 +196,19 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                     </div>
                 </div>
 
-                {/* Row 3: Last serviced */}
-                {task.last_completed && (
+                {/* Row 3: Last serviced; for a repair, the day it was added or fixed (132-B15). */}
+                {repair ? (
                     <p className="text-label text-slate-400 mt-1">
-                        Last serviced: {formatDisplayDate(task.last_completed)}
+                        {isFixedRepair(task)
+                            ? `Fixed: ${formatDisplayDate(task.last_completed)}`
+                            : `Added: ${formatDisplayDate(task.created_at)}`}
                     </p>
+                ) : (
+                    task.last_completed && (
+                        <p className="text-label text-slate-400 mt-1">
+                            Last serviced: {formatDisplayDate(task.last_completed)}
+                        </p>
+                    )
                 )}
             </div>
         </div>

@@ -24,7 +24,7 @@
  * the figure typed, with no '$' the app never asked for.
  */
 import type { jsPDF } from 'jspdf';
-import { calculateStatus, sortByUrgency, type TaskWithStatus, type TrafficLight } from './MaintenanceService';
+import { sortByUrgency, statusWithReading, type TaskWithStatus, type TrafficLight } from './MaintenanceService';
 import type { MaintenanceTask, MaintenanceHistory } from '../types';
 import { PdfTextWriter, PT_MM, type PdfTextStyle } from './pdf/pdfText';
 import { pdfFileDay, pdfLongDate, pdfShortDate } from './pdf/pdfDates';
@@ -49,6 +49,9 @@ function formatCost(val: number | null): string {
  * none: '100 hrs' beside a 3,512 reading would read as the schedule.
  */
 export function clipboardDueText(task: TaskWithStatus): string {
+    // No day for a pre-trip check or an open repair (132-B15), as on the card.
+    if (task.beforeTrip) return 'Before trip';
+    if (task.toFix) return 'To fix';
     if (task.trigger_type === 'engine_hours') {
         const hours = task.next_due_hours;
         return hours === null || hours === undefined || task.hoursUnanchored ? '—' : `${hours.toLocaleString()} hrs`;
@@ -58,16 +61,9 @@ export function clipboardDueText(task: TaskWithStatus): string {
 
 /** The clipboard's rows, most urgent first. */
 function checklistRows(tasks: MaintenanceTask[], engineHours: number | null): TaskWithStatus[] {
-    // Engine hours not entered: judge hour-based tasks on their date alone
-    // (as the Maintenance screen does) instead of counting from an invented 0.
-    return sortByUrgency(
-        tasks.map((t) => {
-            if (engineHours !== null || t.next_due_hours === null || t.next_due_hours === undefined) {
-                return calculateStatus(t, engineHours ?? 0);
-            }
-            return { ...calculateStatus({ ...t, next_due_hours: null }, 0), next_due_hours: t.next_due_hours };
-        }),
-    );
+    // Engine hours not entered: judge hour-based tasks on their date alone,
+    // by the Maintenance screen's own rule (132-B15), not from an invented 0.
+    return sortByUrgency(tasks.map((t) => statusWithReading(t, engineHours)));
 }
 
 // ── Page and table drawing ──────────────────────────────────────

@@ -81,18 +81,18 @@ describe('the due-soon window scales with the interval', () => {
         expect(dueSoonWindowDays(task({ trigger_type: 'engine_hours', interval_value: 100 }))).toBe(14);
     });
 
-    it('a daily task due tomorrow is green; amber only on the day it is due; red after', () => {
-        const tomorrow = calculateStatus(task({ next_due_date: day(1) }), 0);
-        expect(tomorrow.status).toBe('green');
-        expect(tomorrow.statusLabel).toBe('Due tomorrow');
-
-        const today = calculateStatus(task({ next_due_date: day(0) }), 0);
-        expect(today.status).toBe('yellow');
-        expect(today.statusLabel).toBe('Due today');
-
-        const yesterday = calculateStatus(task({ next_due_date: day(-1) }), 0);
-        expect(yesterday.status).toBe('red');
-        expect(yesterday.statusLabel).toBe('Overdue by 1 day');
+    // 132-B15 (MAINT-06): a daily task is a pre-trip check. It went amber on
+    // its day and red the next in port; now it waits for a trip.
+    it('a pre-trip check is never amber or red by its date: it waits for the next trip', () => {
+        for (const offset of [1, 0, -1, -30]) {
+            const status = calculateStatus(task({ next_due_date: day(offset) }), 0);
+            expect(status.status, `due ${offset}`).toBe('green');
+            expect(status.statusLabel).toBe('Due before your next trip');
+            expect(status.beforeTrip).toBe(true);
+            expect(status.daysRemaining).toBeNull();
+        }
+        // Never logged, no day at all: still waiting for a trip, not "No schedule set".
+        expect(calculateStatus(task({ next_due_date: null }), 0).statusLabel).toBe('Due before your next trip');
     });
 
     it('a monthly task goes amber about a week out', () => {
@@ -122,14 +122,26 @@ describe('the due-soon window scales with the interval', () => {
     });
 });
 
+/** A calendar task: the rules below are a schedule's, which a pre-trip check no longer has. */
+const calendar = { trigger_type: 'monthly' as const, interval_value: 30 };
+
 describe('Done today', () => {
-    it('the stuck daily check: logged today, renewed to tomorrow, reads green "Done today · next tomorrow"', () => {
+    it('the stuck daily check: logged today, renewed to tomorrow, reads green "Done today · due again next trip"', () => {
         // Exactly what LocalMaintenanceService.logService writes: now + 1 day.
         const logged = task({ last_completed: at(0, 19, 34), next_due_date: at(1, 19, 34) });
         const status = calculateStatus(logged, 0);
         expect(status.status).toBe('green');
-        expect(status.statusLabel).toBe('Done today · next tomorrow');
+        expect(status.statusLabel).toBe('Done today · due again next trip');
         expect(status.doneToday).toBe(true);
+        expect(status.daysRemaining).toBeNull();
+        // Tomorrow it waits for a trip again, rather than going amber or red.
+        vi.setSystemTime(new Date(2026, 9, 4, 9, 0));
+        expect(calculateStatus(logged, 0).statusLabel).toBe('Due before your next trip');
+    });
+
+    it('a calendar task logged today, due tomorrow, reads "Done today · next tomorrow"', () => {
+        const status = calculateStatus(task({ ...calendar, last_completed: at(0, 19, 34), next_due_date: day(1) }), 0);
+        expect(status.statusLabel).toBe('Done today · next tomorrow');
         expect(status.daysRemaining).toBe(1);
     });
 
@@ -156,11 +168,20 @@ describe('Done today', () => {
     });
 
     it('goes by the local calendar day the log fell on', () => {
-        const justAfterMidnight = calculateStatus(task({ last_completed: at(0, 0, 10), next_due_date: day(1) }), 0);
+        const justAfterMidnight = calculateStatus(
+            task({ ...calendar, last_completed: at(0, 0, 10), next_due_date: day(1) }),
+            0,
+        );
         expect(justAfterMidnight.doneToday).toBe(true);
         expect(isLocalToday(at(0, 0, 10))).toBe(true);
+        // A pre-trip check too.
+        expect(calculateStatus(task({ last_completed: at(0, 0, 10) }), 0).doneToday).toBe(true);
+        expect(calculateStatus(task({ last_completed: at(-1, 23, 50) }), 0).doneToday).toBe(false);
 
-        const lateYesterday = calculateStatus(task({ last_completed: at(-1, 23, 50), next_due_date: day(0) }), 0);
+        const lateYesterday = calculateStatus(
+            task({ ...calendar, last_completed: at(-1, 23, 50), next_due_date: day(0) }),
+            0,
+        );
         expect(lateYesterday.doneToday).toBe(false);
         expect(lateYesterday.status).toBe('yellow');
         expect(lateYesterday.statusLabel).toBe('Due today');
@@ -169,7 +190,7 @@ describe('Done today', () => {
     });
 
     it('never hides an overdue task, a paused one, or one with no schedule', () => {
-        const overdue = calculateStatus(task({ last_completed: at(0, 7, 0), next_due_date: day(-2) }), 0);
+        const overdue = calculateStatus(task({ ...calendar, last_completed: at(0, 7, 0), next_due_date: day(-2) }), 0);
         expect(overdue.status).toBe('red');
         expect(overdue.doneToday).toBe(false);
 
@@ -181,7 +202,7 @@ describe('Done today', () => {
         expect(paused.statusLabel).toBe('Paused');
         expect(paused.doneToday).toBe(false);
 
-        const unscheduled = calculateStatus(task({ last_completed: at(0, 7, 0) }), 0);
+        const unscheduled = calculateStatus(task({ ...calendar, last_completed: at(0, 7, 0) }), 0);
         expect(unscheduled.status).toBe('grey');
         expect(unscheduled.statusLabel).toBe('No schedule set');
     });
@@ -195,7 +216,7 @@ describe('Done today', () => {
 
 describe('the R&M card and the Log service sheet', () => {
     it('a task done today keeps its row to one line at 320 pt: a shorter date, none under 360 pt', () => {
-        const done = calculateStatus(task({ last_completed: at(0, 19, 34), next_due_date: day(1) }), 0);
+        const done = calculateStatus(task({ ...calendar, last_completed: at(0, 19, 34), next_due_date: day(1) }), 0);
         const { unmount } = render(<SwipeableTaskCard task={done} onTap={vi.fn()} />);
         expect(screen.getByText('Done today · next tomorrow')).toBeInTheDocument();
         expect(screen.getByText('3 Oct 2026')).toBeInTheDocument();
@@ -203,10 +224,24 @@ describe('the R&M card and the Log service sheet', () => {
         expect(screen.getByTestId('task-due-detail')).toHaveClass('max-[360px]:hidden');
         unmount();
 
-        const notDone = calculateStatus(task({ next_due_date: day(1) }), 0);
+        const notDone = calculateStatus(task({ ...calendar, next_due_date: day(1) }), 0);
         render(<SwipeableTaskCard task={notDone} onTap={vi.fn()} />);
         expect(screen.getByText('Sat 3 Oct 2026')).toBeInTheDocument();
         expect(screen.getByTestId('task-due-detail')).not.toHaveClass('max-[360px]:hidden');
+    });
+
+    it('a pre-trip check shows no due day beside its label: the day a log rolled it on to is not one', () => {
+        const done = calculateStatus(task({ last_completed: at(0, 19, 34), next_due_date: day(1) }), 0);
+        const { unmount } = render(<SwipeableTaskCard task={done} onTap={vi.fn()} />);
+        expect(screen.getByText('Done today · due again next trip')).toBeInTheDocument();
+        expect(screen.getByTestId('task-due-detail')).toBeEmptyDOMElement();
+        unmount();
+
+        const waiting = calculateStatus(task({ next_due_date: day(-5) }), 0);
+        render(<SwipeableTaskCard task={waiting} onTap={vi.fn()} />);
+        expect(screen.getByText('Due before your next trip')).toBeInTheDocument();
+        expect(screen.queryByText(/Overdue/)).not.toBeInTheDocument();
+        expect(screen.getByTestId('task-due-detail')).toBeEmptyDOMElement();
     });
 
     function renderSheet(lastCompleted: string | null) {

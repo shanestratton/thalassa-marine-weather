@@ -5,7 +5,7 @@ import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 const mocks = vi.hoisted(() => ({
     addManualEntry: vi.fn(),
-    createTask: vi.fn(),
+    createRepair: vi.fn(),
     getCurrentPosition: vi.fn(),
     toastSuccess: vi.fn(),
     toastError: vi.fn(),
@@ -23,7 +23,7 @@ vi.mock('../services/ShipLogService', () => ({
 
 vi.mock('../services/vessel/LocalMaintenanceService', () => ({
     LocalMaintenanceService: {
-        createTask: mocks.createTask,
+        createRepair: mocks.createRepair,
     },
 }));
 
@@ -52,7 +52,7 @@ describe('AddEntryModal account boundary', () => {
         vi.clearAllMocks();
         setAuthIdentityScope(null);
         setAuthIdentityScope('account-a');
-        mocks.createTask.mockResolvedValue({ id: 'repair-a' });
+        mocks.createRepair.mockResolvedValue({ id: 'repair-a' });
     });
 
     it('drops a deferred A save and repair follow-up after B becomes active', async () => {
@@ -82,7 +82,7 @@ describe('AddEntryModal account boundary', () => {
             await Promise.resolve();
         });
 
-        expect(mocks.createTask).not.toHaveBeenCalled();
+        expect(mocks.createRepair).not.toHaveBeenCalled();
         expect(onSuccess).not.toHaveBeenCalled();
         expect(mocks.toastSuccess).not.toHaveBeenCalled();
 
@@ -90,6 +90,26 @@ describe('AddEntryModal account boundary', () => {
         view.rerender(<AddEntryModal isOpen onClose={onClose} onSuccess={onSuccess} />);
         expect(screen.getByRole('dialog', { name: 'Add Log Entry' })).toBeInTheDocument();
         expect(screen.getByPlaceholderText(/Course change/)).toHaveValue('');
+    });
+
+    // 132-B15 (MAINT-05): the log raises the one repair shape R&M and
+    // Checklists use, named from the notes, and says where it went plainly.
+    it('a Repair entry raises a repair in Maintenance from its notes', async () => {
+        mocks.addManualEntry.mockResolvedValueOnce({ id: 'entry-a' });
+        const onSuccess = vi.fn();
+        render(<AddEntryModal isOpen onClose={vi.fn()} onSuccess={onSuccess} />);
+
+        fireEvent.click(screen.getByText('Repair'));
+        fireEvent.change(screen.getByPlaceholderText(/Course change/), {
+            target: { value: 'Stern gland weeping a drip a minute' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Add Entry' }));
+        });
+
+        expect(mocks.createRepair).toHaveBeenCalledWith('Stern gland weeping a drip a minute');
+        expect(mocks.toastSuccess).toHaveBeenCalledWith('Repair added to Maintenance');
+        expect(onSuccess).toHaveBeenCalled();
     });
 
     it('does not append an account A GPS result or toast into B', async () => {

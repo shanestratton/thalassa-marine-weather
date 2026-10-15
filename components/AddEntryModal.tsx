@@ -247,24 +247,14 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
             if (!entry) throw new Error('Log entry was not saved');
 
-            // Auto-create a Repair task in R&M when event type is Repair
+            // A Repair entry raises a repair in R&M: the one repair shape, as
+            // R&M and Checklists raise it (132-B15), named from the notes.
             if (eventCategory === 'equipment' && trimmedNotes) {
                 try {
                     if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                    await LocalMaintenanceService.createTask({
-                        title: trimmedNotes.slice(0, 80), // Use notes as task title (truncated)
-                        description: trimmedNotes.length > 80 ? trimmedNotes : null,
-                        category: 'Repair',
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        trigger_type: 'monthly' as any, // Ad-hoc — no schedule enforced
-                        interval_value: null,
-                        next_due_date: null,
-                        next_due_hours: null,
-                        last_completed: null,
-                        is_active: true,
-                    });
+                    await LocalMaintenanceService.createRepair(trimmedNotes);
                     if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                    toast.success('Repair task added to R&M');
+                    toast.success('Repair added to Maintenance');
                 } catch (err) {
                     if (!isAuthIdentityScopeCurrent(actionScope)) return;
                     log.error('[AddEntry] Failed to create repair task:', err);

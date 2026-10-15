@@ -248,6 +248,27 @@ describe('deleting a task with service records asks first', () => {
         expect(screen.getByText('"Rig inspection" deleted')).toBeInTheDocument();
     });
 
+    // A repair is fixed or deleted, never paused (132-B15).
+    it('a repair with records asks too, without offering Pause', async () => {
+        await openKestrelBinder();
+        await mergePulledRecords('maintenance_tasks', [
+            task('t-impeller', 'Raw-water impeller', {
+                category: 'Repair',
+                interval_value: null,
+                updated_at: '2026-10-10T02:00:00.000Z',
+            }),
+        ]);
+        render(<MaintenanceHub onBack={vi.fn()} />);
+        await screen.findByText('Raw-water impeller');
+
+        swipeDelete('Raw-water impeller');
+
+        const dialog = await screen.findByRole('dialog', { name: 'Delete “Raw-water impeller”?' });
+        expect(dialog).toHaveTextContent('Its 3 service records go with it, on every device.');
+        expect(within(dialog).queryByRole('button', { name: 'Pause instead' })).not.toBeInTheDocument();
+        expect(within(dialog).getByRole('button', { name: 'Delete task and records' })).toBeInTheDocument();
+    });
+
     it('a paused task with records asks too, without offering to pause it again', async () => {
         await openKestrelBinder();
         await mergePulledRecords('maintenance_tasks', [

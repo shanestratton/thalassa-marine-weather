@@ -43,7 +43,8 @@ function writableTask(id: string): MaintenanceTask | null {
 /**
  * What one logged service changed on its task, so its Undo can put it back
  * (126-B7a): the record it added, the three fields it wrote, and their values
- * before it.
+ * before it. A repair marked fixed (132-B15) also took it off the list, so
+ * its Undo puts is_active back too.
  */
 export interface LoggedService {
     historyId: string;
@@ -52,7 +53,47 @@ export interface LoggedService {
     nextDueHours: number | null;
     /** last_completed as this log wrote it. */
     loggedAt: string;
-    previous: Pick<MaintenanceTask, 'next_due_date' | 'next_due_hours' | 'last_completed'>;
+    previous: Pick<MaintenanceTask, 'next_due_date' | 'next_due_hours' | 'last_completed'> &
+        Partial<Pick<MaintenanceTask, 'is_active'>>;
+}
+
+/** The longest a repair's name runs; the whole of what was written goes in its notes (132-B15). */
+const REPAIR_TITLE_MAX = 80;
+
+/**
+ * A repair's name: what was written, on one line, cut after a whole word to
+ * fit with '…' (a word longer than half the room is cut where it falls).
+ */
+function repairTitle(text: string): string {
+    if (text.length <= REPAIR_TITLE_MAX) return text;
+    const room = text.slice(0, REPAIR_TITLE_MAX - 1);
+    const words = text[room.length] === ' ' ? room : room.slice(0, Math.max(0, room.lastIndexOf(' ')));
+    const cut = words.length > REPAIR_TITLE_MAX / 2 ? words : room;
+    return `${cut.replace(/[\s,;:.-]+$/, '')}…`;
+}
+
+/**
+ * A service record for `task`, done at `at`. History belongs to whoever owns
+ * the task: on a skipper's shared R&M that is the skipper, so their binder
+ * keeps the record.
+ */
+function serviceRecord(
+    task: MaintenanceTask,
+    at: string,
+    engineHours: number | null,
+    notes: string | null,
+    cost: number | null,
+): MaintenanceHistory {
+    return {
+        id: generateUUID(),
+        user_id: task.user_id || (getAuthIdentityScope().userId ?? ''),
+        task_id: task.id,
+        completed_at: at,
+        engine_hours_at_service: engineHours,
+        notes,
+        cost,
+        created_at: at,
+    };
 }
 
 /**
@@ -103,6 +144,36 @@ export class LocalMaintenanceService {
         const inserted = await insertLocal<MaintenanceTask>(TASKS_TABLE, record);
         dispatchDataChange(DATA_EVENTS.MAINTENANCE);
         return inserted;
+    }
+
+    /**
+     * A repair, one shape wherever it is raised (132-B15; binder audit
+     * MAINT-05, CHK-12): R&M's Add task, a Repair entry in the log and an item
+     * failed and flagged on a checklist each made their own, on three
+     * schedules (daily and rolled on to tomorrow for ever; monthly from today;
+     * none). A repair needs fixing, not servicing: it reads 'Needs fixing'
+     * from the local day it was raised (131-B11) until it is marked fixed
+     * (markFixed), with no schedule to roll on. Its name is what was written,
+     * on one line and cut at a word to 80 characters; when cut, the whole of
+     * it goes in the notes, ahead of `notes`.
+     */
+    static createRepair(text: string, notes: string | null = null): Promise<MaintenanceTask> {
+        const written = text.trim();
+        const oneLine = written.replace(/\s+/g, ' ');
+        if (!oneLine) return Promise.reject(new Error('A repair needs a name'));
+        const title = repairTitle(oneLine);
+        const description = [title === oneLine ? '' : written, notes?.trim() ?? ''].filter(Boolean).join('\n\n');
+        return LocalMaintenanceService.createTask({
+            title,
+            description: description || null,
+            category: 'Repair',
+            trigger_type: 'monthly',
+            interval_value: null,
+            next_due_date: toLocalDateString(),
+            next_due_hours: null,
+            last_completed: null,
+            is_active: true,
+        });
     }
 
     /** Update a task */
@@ -202,18 +273,7 @@ export class LocalMaintenanceService {
         }
 
         // ── 1. INSERT history record ──
-        // History belongs to whoever owns the task: on a skipper's shared R&M
-        // that is the skipper, so their binder keeps the record.
-        const historyRecord: MaintenanceHistory = {
-            id: generateUUID(),
-            user_id: task.user_id || (getAuthIdentityScope().userId ?? ''),
-            task_id: taskId,
-            completed_at: now,
-            engine_hours_at_service: engineHours,
-            notes: notes,
-            cost: cost,
-            created_at: now,
-        };
+        const historyRecord = serviceRecord(task, now, engineHours, notes, cost);
 
         await insertLocal<MaintenanceHistory>(HISTORY_TABLE, historyRecord);
 
@@ -244,12 +304,46 @@ export class LocalMaintenanceService {
     }
 
     /**
+     * Mark a repair fixed (132-B15, MAINT-04): the fix goes in the service
+     * history as a logged service does, with what was done in its notes, and
+     * the repair leaves the list for R&M's Fixed group (is_active false)
+     * instead of coming due again. Crew on a writable share may, as they may
+     * log a service. Its Undo is undoLogService, which puts it back on the list.
+     */
+    static async markFixed(taskId: string, notes: string | null): Promise<LoggedService> {
+        const task = writableTask(taskId);
+        if (!task) throw new Error('Task not found');
+        if (task.category !== 'Repair') throw new Error('Only a repair is marked fixed');
+
+        const now = new Date().toISOString();
+        const historyRecord = serviceRecord(task, now, null, notes, null);
+        await insertLocal<MaintenanceHistory>(HISTORY_TABLE, historyRecord);
+        await updateLocal<MaintenanceTask>(TASKS_TABLE, taskId, { last_completed: now, is_active: false });
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
+
+        return {
+            historyId: historyRecord.id,
+            taskId,
+            nextDueDate: task.next_due_date,
+            nextDueHours: task.next_due_hours,
+            loggedAt: now,
+            previous: {
+                next_due_date: task.next_due_date,
+                next_due_hours: task.next_due_hours,
+                last_completed: task.last_completed,
+                is_active: task.is_active,
+            },
+        };
+    }
+
+    /**
      * Take back a logged service (126-B7a): its record goes, and the task's
      * next due and last serviced come back, but only while the task still
      * holds what that log wrote. A service logged since, here or on another
      * device, keeps its newer due and only this log's record goes. Deletes
      * are the binder owner's (RLS), so crew are refused before anything is
-     * queued. `restored` says whether the task was put back.
+     * queued. `restored` says whether the task was put back: a repair marked
+     * fixed goes back on the list (132-B15).
      */
     static async undoLogService(logged: LoggedService): Promise<{ restored: boolean }> {
         const record = getById<MaintenanceHistory>(HISTORY_TABLE, logged.historyId);

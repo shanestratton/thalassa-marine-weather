@@ -32,6 +32,8 @@ vi.mock('../../services/vessel/LocalMaintenanceService', () => ({
 }));
 vi.mock('../../services/MaintenanceService', () => ({
     calculateStatus: vi.fn().mockReturnValue({ light: 'green', dueLabel: 'OK', overdue: false }),
+    statusWithReading: vi.fn().mockReturnValue({ light: 'green', dueLabel: 'OK', overdue: false }),
+    isFixedRepair: () => false,
 }));
 vi.mock('../../services/vessel/LocalDatabase', () => ({
     initLocalDatabase: vi.fn().mockResolvedValue(undefined),
