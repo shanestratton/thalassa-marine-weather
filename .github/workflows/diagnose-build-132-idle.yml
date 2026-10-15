@@ -1,0 +1,55 @@
+name: Build 132 idle-write diagnosis
+on:
+    push:
+        branches: ['codex/build-132-focused-validation']
+        paths: ['.github/workflows/diagnose-build-132-idle.yml']
+permissions:
+    contents: read
+env:
+    CI: 'true'
+    HUSKY: '0'
+    PUPPETEER_SKIP_DOWNLOAD: 'true'
+    NODE_OPTIONS: --max-old-space-size=4096
+    VITE_APP_BUILD: '132'
+    VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+    VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+    VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+    VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+jobs:
+    diagnosis:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: '6ae2e9490aeba222821efb49129b3e21a9a1ca0b'
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - run: npm ci
+            - run: npx playwright install --with-deps webkit
+            - name: Record individual calls without changing the zero-write assertion
+              run: |
+                  node --input-type=module <<'NODE'
+                  import { readFileSync, writeFileSync } from 'node:fs';
+                  const path = 'browser-tests/desk-map-light.spec.ts';
+                  const source = readFileSync(path, 'utf8');
+                  const before = "const quietWrites = (page: Page) =>\n    page.evaluate(\n        () =>\n            new Promise<number>((resolve) => {\n                // The app's own style writes, counted once the chart is idle. Mapbox can\n                // fire a 'styledata' of its own on a still chart, so counting those failed\n                // 128's code too (release run 38522448875, and 2 of 4 runs locally).\n                const map = window.__thalassaMap as unknown as Record<string, unknown> & {\n                    once(t: string, f: () => void): void;\n                    triggerRepaint(): void;\n                };\n                const writers = [\n                    'setStyle',\n                    'addLayer',\n                    'removeLayer',\n                    'moveLayer',\n                    'setPaintProperty',\n                    'setLayoutProperty',\n                    'setFilter',\n                    'setLayerZoomRange',\n                    'addSource',\n                    'removeSource',\n                ];\n                let started = false;\n                const count = () => {\n                    if (started) return;\n                    started = true;\n                    let writes = 0;\n                    const saved = writers.map((name) => [name, map[name]] as const);\n                    for (const [name, real] of saved) {\n                        if (typeof real !== 'function') continue;\n                        map[name] = function (this: unknown, ...args: unknown[]) {\n                            // The offline fallback's one-time install (useOfflineBaseLayer, on\n                            // 'idle' when the phone reads offline) answers the network, not a\n                            // still chart rewriting its style; it raced this window in WebKit.\n                            const first = args[0] as { id?: unknown } | string | undefined;\n                            const id = typeof first === 'string' ? first : first?.id;\n                            const offlineInstall =\n                                (name === 'addSource' || name === 'addLayer') &&\n                                (id === 'osm-offline-fallback' || id === 'seamark-offline-fallback');\n                            if (!offlineInstall) writes += 1;\n                            return (real as (...a: unknown[]) => unknown).apply(this, args);\n                        };\n                    }\n                    setTimeout(() => {\n                        for (const [name, real] of saved) map[name] = real;\n                        resolve(writes);\n                    }, 2_000);\n                };\n                map.once('idle', count);\n                map.triggerRepaint();\n                setTimeout(count, 3_000);\n            }),\n    );\n";
+                  const after = "const quietWrites = async (page: Page) => {\n    const result = await\n    page.evaluate(\n        () =>\n            new Promise<{ writes: number; calls: string[] }>((resolve) => {\n                // The app's own style writes, counted once the chart is idle. Mapbox can\n                // fire a 'styledata' of its own on a still chart, so counting those failed\n                // 128's code too (release run 38522448875, and 2 of 4 runs locally).\n                const map = window.__thalassaMap as unknown as Record<string, unknown> & {\n                    once(t: string, f: () => void): void;\n                    triggerRepaint(): void;\n                };\n                const writers = [\n                    'setStyle',\n                    'addLayer',\n                    'removeLayer',\n                    'moveLayer',\n                    'setPaintProperty',\n                    'setLayoutProperty',\n                    'setFilter',\n                    'setLayerZoomRange',\n                    'addSource',\n                    'removeSource',\n                ];\n                let started = false;\n                const count = () => {\n                    if (started) return;\n                    started = true;\n                    let writes = 0;\n                    const calls: string[] = [];\n                    const saved = writers.map((name) => [name, map[name]] as const);\n                    for (const [name, real] of saved) {\n                        if (typeof real !== 'function') continue;\n                        map[name] = function (this: unknown, ...args: unknown[]) {\n                            // The offline fallback's one-time install (useOfflineBaseLayer, on\n                            // 'idle' when the phone reads offline) answers the network, not a\n                            // still chart rewriting its style; it raced this window in WebKit.\n                            const first = args[0] as { id?: unknown } | string | undefined;\n                            const id = typeof first === 'string' ? first : first?.id;\n                            const offlineInstall =\n                                (name === 'addSource' || name === 'addLayer') &&\n                                (id === 'osm-offline-fallback' || id === 'seamark-offline-fallback');\n                            if (!offlineInstall) {\n                                writes += 1;\n                                calls.push(JSON.stringify({ name, id, property: args[1], stack: new Error().stack }));\n                            }\n                            return (real as (...a: unknown[]) => unknown).apply(this, args);\n                        };\n                    }\n                    setTimeout(() => {\n                        for (const [name, real] of saved) map[name] = real;\n                        resolve({ writes, calls });\n                    }, 2_000);\n                };\n                map.once('idle', count);\n                map.triggerRepaint();\n                setTimeout(count, 3_000);\n            }),\n    );\n    console.log('IDLE_STYLE_WRITES', JSON.stringify(result));\n    return result.writes;\n};\n";
+                  if (!source.includes(before)) throw new Error('Missing exact diagnostic insertion point');
+                  writeFileSync(path, source.replace(before, after));
+                  NODE
+            - name: Reproduce the WebKit idle check twice
+              run: npx playwright test --config playwright.keyboard.config.ts browser-tests/desk-map-light.spec.ts --project=webkit --grep '390 × 844, wide fonts' --repeat-each=2 --retries=0 --workers=1 --trace=on
+            - name: Repeat the alarm case without retries
+              if: always()
+              run: npx playwright test --config playwright.keyboard.config.ts browser-tests/anchor-antenna-layout.spec.ts --project=webkit --grep 'the many note fits at 320x568' --repeat-each=3 --retries=0 --workers=1 --trace=on
+            - name: Preserve diagnostics
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: build132-idle-diagnosis
+                  path: test-results/
+                  retention-days: 7
