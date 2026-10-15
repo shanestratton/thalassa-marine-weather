@@ -1,0 +1,84 @@
+name: Thalassa 133 underway relay validation
+on:
+    push:
+        branches: ['codex/build-133-relay-validation']
+        paths: ['.github/workflows/validate-underway-relay-133.yml']
+permissions:
+    contents: read
+concurrency:
+    group: thalassa-133-underway-relay-validation
+    cancel-in-progress: false
+env:
+    CANDIDATE_SHA: '858b0a46d614a88d194e62543d2b76c5281ad624'
+    CI: 'true'
+    HUSKY: '0'
+    NODE_OPTIONS: --max-old-space-size=4096
+    PUPPETEER_SKIP_DOWNLOAD: 'true'
+jobs:
+    edge:
+        name: Edge types, behavior and source contracts
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: '858b0a46d614a88d194e62543d2b76c5281ad624'
+                  fetch-depth: 0
+                  persist-credentials: false
+            - name: Verify exact source and preserved build 132
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  git merge-base --is-ancestor a9372b33c967d79d8676e9bb3564b68c794cc33b HEAD
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+              with:
+                  deno-version: v2.9.4
+            - run: npm ci
+            - name: Source contracts, unchanged migrations and app types
+              run: |
+                  set -euo pipefail
+                  node scripts/audit-supabase-migrations.mjs
+                  npx vitest run tests/PiAlarmEventsMigration.test.ts tests/SupabaseEdgeJwtPolicyContract.test.ts tests/MarineReleaseSourceGates.test.ts tests/noProtectedChartData.test.ts
+                  npx tsc --noEmit
+                  npx prettier --check docs/BUILD_133_UNDERWAY_RELAY.md
+            - name: Edge formatting, entry points and behavior
+              working-directory: supabase/functions
+              run: |
+                  set -euo pipefail
+                  deno fmt --check pi-alarm-relay send-push
+                  deno check pi-alarm-relay/index.ts send-push/index.ts
+                  deno test pi-alarm-relay/relay_test.ts pi-alarm-relay/underway-capability_test.ts send-push/config_test.ts
+    postgres:
+        name: Ephemeral PostgreSQL schema and RLS replay
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        services:
+            postgres:
+                image: postgres:17.6
+                env:
+                    POSTGRES_PASSWORD: fixture-only-password
+                    POSTGRES_DB: relay_fixture
+                ports: ['5432:5432']
+                options: >-
+                    --health-cmd pg_isready
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 10
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: '858b0a46d614a88d194e62543d2b76c5281ad624'
+                  persist-credentials: false
+            - name: Replay only synthetic fixture and reviewed held migration
+              env:
+                  PGPASSWORD: fixture-only-password
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  psql -h 127.0.0.1 -U postgres -d relay_fixture -v ON_ERROR_STOP=1 -f tests/sql/underway-alarm-replay.sql
