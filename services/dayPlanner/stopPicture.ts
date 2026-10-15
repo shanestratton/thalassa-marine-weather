@@ -13,9 +13,9 @@
  * and clutter). OSM draws its coast with the land on the left, so each row of
  * the picture is crossed west to east and turns land or water at every coast
  * it meets: islands and headlands come out filled, with no closed shapes
- * needed. Where the coastline did not load, or OSM maps none in the picture,
- * it is drawn grey and says so, never as open sea; so is anything past the
- * ground the coastline was asked for.
+ * needed. Where the coastline is still loading or did not load, or OSM maps
+ * none in the picture, it is drawn grey and says which, never as open sea; so
+ * is anything past the ground the coastline was asked for.
  *
  * The picture is 200 × 100 units. Its marks keep to the middle (x 6-194, y
  * 12-78): the pin stands 11 units over the stop, and the bottom 22 units are
@@ -93,11 +93,25 @@ function landAt(cuts: readonly Cut[], at: number): boolean | null {
     return land;
 }
 
-/** The land as the picture draws it: 'none' when the coastline did not load, 'empty' when OSM maps no coast in
- *  the picture; otherwise its land as one path, and the ground past the coastline's reach as another. */
-export type PictureLand = { kind: 'none' } | { kind: 'empty' } | { kind: 'land'; d: string; edge: string | null };
+/**
+ * The coastline as the stop page holds it: 'loading' while Plan Your Day is
+ * still asking for it (it comes with the last of the places, up to 30 s on,
+ * and in Queensland the atlas's stops are open well before that), null when
+ * it did not load.
+ */
+export type PictureCoast = readonly Segment[] | null | 'loading';
 
-export function pictureLand(f: PictureFrame, coastline: readonly Segment[] | null): PictureLand {
+/** The land as the picture draws it: 'loading' until the coastline answers, 'none' when it did not load, 'empty'
+ *  when OSM maps no coast in the picture; otherwise its land as one path, and the ground past the coastline's reach
+ *  as another. */
+export type PictureLand =
+    | { kind: 'loading' }
+    | { kind: 'none' }
+    | { kind: 'empty' }
+    | { kind: 'land'; d: string; edge: string | null };
+
+export function pictureLand(f: PictureFrame, coastline: PictureCoast): PictureLand {
+    if (coastline === 'loading') return { kind: 'loading' };
     if (!coastline) return { kind: 'none' };
     const s = f.scale;
     const top = f.cy + MID_Y / s;
@@ -160,8 +174,11 @@ export function pictureLand(f: PictureFrame, coastline: readonly Segment[] | nul
     return { kind: 'land', d, edge };
 }
 
-/** What the picture says of its land: a few words in its band, and the whole of it for VoiceOver. */
+/** What the picture says of its land: a few words in its band, and the whole of it for VoiceOver. Still loading is
+ *  said as loading, never as a failure the app doesn't know of yet. */
 export function pictureNote(land: PictureLand): { shown: string; said: string } {
+    if (land.kind === 'loading')
+        return { shown: 'Land loading…', said: 'Land not drawn yet: the coastline is still loading' };
     if (land.kind === 'none') return { shown: 'Land not loaded', said: "Land not drawn: the coastline didn't load" };
     if (land.kind === 'empty')
         return { shown: 'No coast mapped here', said: 'No coastline mapped here: land may be missing' };

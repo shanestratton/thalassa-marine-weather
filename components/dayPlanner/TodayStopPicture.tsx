@@ -7,9 +7,9 @@ import {
     pictureXY,
     rosePath,
     roseWords,
+    type PictureCoast,
 } from '../../services/dayPlanner/stopPicture';
 import { windSpan, type LegSummary } from '../../services/dayPlanner/today';
-import type { Segment } from '../../services/weather/shelter/shelterGeometry';
 
 /**
  * The stop page's route picture and shelter rose (132-PYD-9), in their own
@@ -31,7 +31,8 @@ export function StopMap({
     stop: LatLon & { name: string };
     /** Routed on her charts, start to stop; null until then. */
     route: readonly LatLon[] | null;
-    coastline: readonly Segment[] | null;
+    /** 'loading' while Plan Your Day is still asking for it; null when it did not load. */
+    coastline: PictureCoast;
     /** The chosen leave's way out; null with no forecast. */
     wind: Pick<LegSummary, 'dirDeg' | 'loKts' | 'hiKts'> | null;
 }) {

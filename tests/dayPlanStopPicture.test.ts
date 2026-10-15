@@ -89,6 +89,16 @@ describe('the land: OpenStreetMap only, and never guessed', () => {
         });
     });
 
+    it('still loading: grey and said as loading, never as a failure the app does not know of yet', () => {
+        // In Queensland the atlas's stops are open while the coastline can take up to 30 s to answer.
+        const loading = pictureLand(pictureFrame(START, [STOP]), 'loading');
+        expect(loading).toEqual({ kind: 'loading' });
+        expect(pictureNote(loading)).toEqual({
+            shown: 'Land loading…',
+            said: 'Land not drawn yet: the coastline is still loading',
+        });
+    });
+
     it('a coastline that maps no coast in the picture says so too', () => {
         expect(land([])).toEqual({ kind: 'empty' });
         // A coast far off, crossing neither the picture's rows nor its middle.

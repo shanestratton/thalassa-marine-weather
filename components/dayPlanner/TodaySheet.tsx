@@ -971,7 +971,8 @@ export default function TodaySheet({
                     polar={routing}
                     leavingMarina={!!base.marina}
                     start={base.start}
-                    coastline={base.coastline}
+                    // With the last of the places; till then the picture says loading, not failed (132-PYD-9).
+                    coastline={base.placesStatus === 'loading' ? 'loading' : base.coastline}
                     loadLanding={detailRow.candidate.reviewed?.landingTide ? loadLanding : null}
                     onPlot={(departureMs, why) => plot(detailRow, departureMs, why)}
                     onBack={() => {

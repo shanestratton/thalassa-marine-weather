@@ -47,9 +47,12 @@ import {
     fakeTodayDeps,
     osmAnchorage,
     pointBlock,
+    routeForecast,
     routeSpread,
     type DayPlanScenario,
 } from './helpers/dayPlanFixtures';
+import type { RouteForecast } from '../services/routeForecastSampler';
+import type { Segment } from '../services/weather/shelter/shelterGeometry';
 import { routeStop, type StopRouteDeps, type StopRouteRequest } from '../services/dayPlanner/stopRoute';
 import type { AutoroutingTrialRequest, AutoroutingTrialRoute } from '../types/autorouting';
 import { DraftConfirmModal } from '../components/vessel/DraftConfirmModal';
@@ -503,6 +506,27 @@ function roomForPicture() {
     });
 }
 
+/** A fictional coast round the marina, about a mile off, anticlockwise: land inside it (132-PYD-9). */
+const MARINA_RING: Segment[] = Array.from({ length: 24 }, (_, i) => {
+    const at = (k: number): [number, number] => [
+        MARINA.lon + 0.02 * Math.cos((k * Math.PI) / 12),
+        MARINA.lat + 0.017 * Math.sin((k * Math.PI) / 12),
+    ];
+    return [at(i), at(i + 1)];
+});
+
+/**
+ * The trade filling in along every route (132-PYD-9): 2 kn under the fixture's at 06:00 and half a knot more each
+ * hour, so each leave has its own wind on the way out, where the fixture's is the same all day.
+ */
+const fillingIn = (f: RouteForecast): RouteForecast => ({
+    ...f,
+    stations: f.stations.map((s) => ({
+        ...s,
+        speedKts: s.speedKts.map((kts, hour) => (kts === null ? null : kts - 2 + hour / 2)),
+    })),
+});
+
 describe('Screen 2: a stop, and Plot by hand', () => {
     it('opens as a plan read at a glance, every row a tap away; Plot by hand sends two marks, never a line', async () => {
         const { dialog, onPlot } = open();
@@ -822,15 +846,7 @@ describe('Screen 2: a stop, and Plot by hand', () => {
 
     it('132-PYD-9: land from the coastline Plan Your Day already read, and nothing new asked for it', async () => {
         roomForPicture();
-        // A fictional coast round the marina, about a mile off, anticlockwise: land inside it.
-        const ring = Array.from({ length: 24 }, (_, i): [[number, number], [number, number]] => {
-            const at = (k: number): [number, number] => [
-                MARINA.lon + 0.02 * Math.cos((k * Math.PI) / 12),
-                MARINA.lat + 0.017 * Math.sin((k * Math.PI) / 12),
-            ];
-            return [at(i), at(i + 1)];
-        });
-        const { dialog, io: sources } = open({ sheetIo: io({ loader: { loadCoastline: async () => ring } }) });
+        const { dialog, io: sources } = open({ sheetIo: io({ loader: { loadCoastline: async () => MARINA_RING } }) });
         const [first] = await stopRows(dialog);
         fireEvent.click(first);
         const detail = await screen.findByRole('dialog', {
@@ -844,6 +860,78 @@ describe('Screen 2: a stop, and Plot by hand', () => {
         expect(detail.querySelector('.today-pic path.today-pic-land')!.getAttribute('d')).toMatch(/^M[\d.]+ \d+h/);
         // The coastline was asked for once, by the place, never by the picture.
         expect(sources.loader.loadCoastline).toHaveBeenCalledOnce();
+    });
+
+    it('132-PYD-9: with the atlas stops open before the coastline answers, it says loading, then draws the land', async () => {
+        roomForPicture();
+        // In Queensland the atlas's stops come at once; the coastline can take up to the 30 s deadline.
+        let answer: (coast: Segment[]) => void = () => {};
+        const coast = new Promise<Segment[]>((resolve) => (answer = resolve));
+        const { dialog } = open({ sheetIo: io({ loader: { loadCoastline: () => coast } }) });
+        const [first] = await stopRows(dialog);
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', {
+            name: titled(first.querySelector('.today-stop-name')!.textContent!),
+        });
+        await within(detail).findByRole('img', {
+            name: /^Map: .+\. Land not drawn yet: the coastline is still loading\.$/,
+        });
+        // Grey, and never said as a failure the app doesn't know of yet.
+        expect(within(detail).getByText('Land loading…')).toBeTruthy();
+        expect(detail.querySelector('.today-pic rect')).toHaveClass('today-pic-none');
+        expect(detail.textContent).not.toMatch(/Land not loaded|didn't load/);
+        await act(async () => answer(MARINA_RING));
+        await within(detail).findByRole('img', {
+            name: /^Map: .+\. Land © OpenStreetMap(, drawn to 27 NM from the start)?\.$/,
+        });
+        expect(detail.querySelector('.today-pic rect')).toHaveClass('today-pic-sea');
+        expect(detail.querySelector('.today-pic path.today-pic-land')).not.toBeNull();
+    });
+
+    it("132-PYD-9: the picture's wind is the chosen leave's on the way out, chip by chip, never the best's", async () => {
+        roomForPicture();
+        const { dialog } = open({
+            sheetIo: io({
+                loader: {
+                    loadRouteSpread: async (coords) => {
+                        const spread = routeSpread(coords);
+                        const members = Object.entries(spread.members).map(([id, f]) => [id, fillingIn(f)]);
+                        return { ...spread, members: Object.fromEntries(members) };
+                    },
+                    loadRouteForecast: async (coords, model) => fillingIn(routeForecast(model, coords, 14)),
+                },
+            }),
+        });
+        const [first] = await stopRows(dialog);
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', {
+            name: titled(first.querySelector('.today-stop-name')!.textContent!),
+        });
+        /** The way out's wind at the chosen leave, as "How each time was worked out" says it: "(…, SE 13–14 kn)". */
+        const outWind = () =>
+            within(detail)
+                .getByText(/^Leave \d\d:\d\d → there /)
+                .textContent!.match(/, ([NESW]{1,2} \d+(?:–\d+)?) kn\)$/)![1];
+        /** The picture's wind, as VoiceOver hears it and as its band shows it. */
+        const pictured = () => [
+            within(detail)
+                .getByRole('img', { name: /^Map: / })
+                .getAttribute('aria-label')!
+                .match(/, wind (.+?) kn\. /)?.[1],
+            detail.querySelector('.today-pic-band')!.textContent!.match(/([NESW]{1,2} \d+(?:–\d+)?) kn$/)?.[1],
+        ];
+        const best = outWind();
+        const chips = within(within(detail).getByRole('group', { name: 'Leave at' })).getAllByRole('button');
+        const seen = new Set<string>();
+        for (const chip of chips) {
+            fireEvent.click(chip);
+            expect(chip).toHaveAttribute('aria-pressed', 'true');
+            const wind = outWind();
+            await waitFor(() => expect(pictured()).toEqual([wind, wind]));
+            seen.add(wind);
+        }
+        // The trade fills in through the morning: a leave whose wind is not the best's was drawn with its own.
+        expect([...seen].some((wind) => wind !== best)).toBe(true);
     });
 });
 

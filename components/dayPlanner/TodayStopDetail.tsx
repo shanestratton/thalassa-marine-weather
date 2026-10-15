@@ -1,7 +1,7 @@
 import React, { Suspense, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import type { PassageSpeedModel } from '../../services/passagePlan';
 import type { LatLon } from '../../services/dayPlanner/places';
-import type { Segment } from '../../services/weather/shelter/shelterGeometry';
+import type { PictureCoast } from '../../services/dayPlanner/stopPicture';
 import {
     LEAVING_MARINA,
     distanceLine,
@@ -169,9 +169,10 @@ export function TodayStopDetail({
     view: DayPlanView;
     stay: StayOption;
     speed: PassageSpeedModel;
-    /** Where she plans from, and the coastline read round it (TodayBase): the picture's dot and land. */
+    /** Where she plans from, and the coastline read round it (TodayBase): the picture's dot and land. The
+     *  coastline is 'loading' while the places are, and null when it did not load. */
     start: LatLon;
-    coastline: readonly Segment[] | null;
+    coastline: PictureCoast;
     polarIsOwn: boolean;
     /** The routers' polar the times were sailed on; it decides the footnote's words. */
     polar?: StopDetailArgs['polar'];

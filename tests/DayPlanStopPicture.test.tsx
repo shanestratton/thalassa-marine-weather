@@ -63,6 +63,24 @@ describe('the route picture', () => {
         expect(wind.previousElementSibling).toHaveClass('today-pic-note');
     });
 
+    it('while the coastline is still being asked for: grey, and it says loading; the land comes in when it answers', () => {
+        const { container, rerender } = render(
+            <StopMap start={START} stop={STOP} route={null} coastline="loading" wind={SE_TRADE} />,
+        );
+        expect(
+            screen.getByRole('img', {
+                name: 'Map: your start (dot) and Fixture Bay (pin), wind SE 12–15 kn. Land not drawn yet: the coastline is still loading.',
+            }),
+        ).toBeTruthy();
+        expect(container.querySelector('rect')).toHaveClass('today-pic-none');
+        expect(container.querySelector('.today-pic-sea, .today-pic-land')).toBeNull();
+        expect(container.querySelector('.today-pic-note')).toHaveTextContent(/^Land loading…$/);
+        rerender(<StopMap start={START} stop={STOP} route={null} coastline={ISLAND} wind={SE_TRADE} />);
+        expect(screen.getByRole('img').getAttribute('aria-label')).toMatch(/\. Land © OpenStreetMap\.$/);
+        expect(container.querySelector('rect')).toHaveClass('today-pic-sea');
+        expect(container.querySelector('path.today-pic-land')).not.toBeNull();
+    });
+
     it('routed: the routed line, every point of it, over the land OpenStreetMap maps', () => {
         const route = [START, { lat: -20.05, lon: 149.1 }, STOP];
         const { container } = render(
