@@ -27,7 +27,8 @@ import { requestPassageMode, stagePassageRequest, type PassageHandoffDetail } fr
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/Button';
 import { AlertTriangleIcon, ClockIcon, FlagIcon, MapIcon, MapPinIcon, RouteIcon, WaveIcon } from '../Icons';
-import { authScopedStorageKey, getAuthIdentityScope } from '../../services/authIdentityScope';
+import { getAuthIdentityScope } from '../../services/authIdentityScope';
+import { openedFromBinder } from '../vesselHub/binderReturn';
 
 interface GpxImportPageProps {
     onBack: () => void;
@@ -96,15 +97,13 @@ function importErrorMessage(err: unknown, stage: 'read' | 'import'): string {
     return "This file couldn't be read. Check it is a GPX file and try again.";
 }
 
-/** Back returns to the Boat Binder when the binder opened this page, else to Vessel. */
-function readParentCrumb(): string {
-    try {
-        return sessionStorage.getItem(authScopedStorageKey('thalassa_boat_binder_return')) === '1'
-            ? 'Boat Binder'
-            : 'Vessel';
-    } catch {
-        return 'Vessel';
-    }
+/**
+ * Back returns to the Boat Binder when the binder opened this page just now,
+ * else to Vessel. Opened from Plan, a mark left from an earlier binder visit
+ * no longer sends Back to the binder (131-B12, BH-10).
+ */
+function readParentCrumb(arrivedFrom: string | undefined): string {
+    return openedFromBinder('gpx-import', arrivedFrom) ? 'Boat Binder' : 'Vessel';
 }
 
 /**
@@ -121,12 +120,12 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
     const [preview, setPreview] = useState<GpxPreview | null>(null);
     const [routeData, setRouteData] = useState<GpxRouteData | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const { setPage, previousView } = useUI();
     // Every other Boat Binder page carries a crumb; this one had none (UX
     // scorecard run 7). It names where Back actually goes.
-    const [parentCrumb] = useState(readParentCrumb);
+    const [parentCrumb] = useState(() => readParentCrumb(previousView));
     const [importResult, setImportResult] = useState<{ voyageId: string; savedCount: number } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const { setPage } = useUI();
 
     // ── Parse GPX metadata from raw XML ──
     const parseMetadata = useCallback((xml: string) => {

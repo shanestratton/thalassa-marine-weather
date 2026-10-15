@@ -94,7 +94,12 @@ vi.mock('../services/anchorPiWatchKeeper', () => ({
 vi.mock('../services/CrewService', () => ({ getMyCrew: async () => [] }));
 vi.mock('../hooks/useRealtimeSync', () => ({ useRealtimeSync: vi.fn() }));
 vi.mock('../hooks/useVesselReadinessCounts', () => ({
-    useVesselReadinessCounts: () => ({ overdueCount: 0, expiringDocsCount: 0, expiringEquipCount: 0 }),
+    useVesselReadinessCounts: () => ({
+        overdueCount: 0,
+        expiredDocsCount: 0,
+        expiringDocsCount: 0,
+        expiringEquipCount: 0,
+    }),
 }));
 vi.mock('../hooks/useCloudTelemetry', () => ({ useCloudTelemetry: () => ({ latest: null, piPrimary: false }) }));
 vi.mock('../hooks/useTripRoute', () => ({ useTripRoute: () => null }));

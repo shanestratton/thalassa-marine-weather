@@ -146,6 +146,8 @@ const HUB_PORT_FADE_BOTTOM =
 const HUB_PORT_FADE_BOTH =
     '[-webkit-mask-image:linear-gradient(to_bottom,transparent_14px,#000_32px,#000_calc(100%_-_14px),transparent)] [mask-image:linear-gradient(to_bottom,transparent_14px,#000_32px,#000_calc(100%_-_14px),transparent)]';
 import { BinderSubLabel, ListDivider, OfficeRow } from './vesselHub/listRows';
+import { binderBadge, documentsDueStatus } from './vesselHub/binderBadge';
+import { markBinderReturn, takeBinderReturn } from './vesselHub/binderReturn';
 import { JournalCard } from './vesselHub/JournalCard';
 import { MetricChipStrip } from './vesselHub/MetricChip';
 import { SwingArc } from './vesselHub/SwingArc';
@@ -277,17 +279,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // Gateway, Boat Network, Music) and the per-device memory of whether it
     // was left open went with it; those rows are in the box.
     // Boat Binder is a SCREEN, not a section — see the row that opens it below.
-    const [binderOpen, setBinderOpen] = useState(() => {
-        if (typeof window === 'undefined') return false;
-        const key = authScopedStorageKey('thalassa_boat_binder_return');
-        try {
-            const shouldReturn = sessionStorage.getItem(key) === '1';
-            sessionStorage.removeItem(key);
-            return shouldReturn;
-        } catch {
-            return false;
-        }
-    });
+    // It reopens only on the way straight back from the page it opened, never
+    // from a mark left over when that page was left by the tab bar (131-B12,
+    // BH-10; vesselHub/binderReturn).
+    const arrivedFrom = useUIStore((s) => s.previousView);
+    const [binderOpen, setBinderOpen] = useState(() => takeBinderReturn(arrivedFrom));
 
     // ── Hero band state — vessel name, active voyage, GPS fix, wind, network ──
     const rawVesselName = (ctx as { vessel?: { name?: string } })?.vessel?.name as string | undefined;
@@ -523,11 +519,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const { guardianArmed, guardianNearby } = useGuardianTileState();
 
     // ── Live counts for Boat Binder row badges ──
-    // Maintenance overdue / Documents expiring / Equipment warranty.
+    // Maintenance overdue / Documents expired and expiring / Equipment warranty.
     // Extracted to a hook (useVesselReadinessCounts) so the
     // mutation→event→refetch propagation path — the one behind the
     // "1 Overdue still showing" bug — is independently testable.
-    const { overdueCount, expiringDocsCount, expiringEquipCount } = useVesselReadinessCounts();
+    const readiness = useVesselReadinessCounts();
+    const { overdueCount, expiredDocsCount, expiringDocsCount, expiringEquipCount } = readiness;
+    // Papers split as the Documents header splits them: '1 expired · 1
+    // expiring' (131-B12, BH-2). Red once one has expired, amber before.
+    const documentsDue = documentsDueStatus(expiredDocsCount, expiringDocsCount);
+    const documentsDueCount = expiredDocsCount + expiringDocsCount;
+    // The most urgent of them, on the Vessel page's Boat Binder row (BH-4).
+    const binderDue = binderBadge(readiness);
 
     // ── The crew register's count ──
     // Refresh the crew count whenever vessel_crew changes (invite
@@ -688,11 +691,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
     const navigateFromBinder = useCallback(
         (page: string) => {
-            try {
-                sessionStorage.setItem(authScopedStorageKey('thalassa_boat_binder_return'), '1');
-            } catch {
-                /* navigation still works when session storage is unavailable */
-            }
+            markBinderReturn(page);
             onNavigate(page);
         },
         [onNavigate],
@@ -738,7 +737,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
                     {/* — Inventory & Stores subgroup — */}
                     {/* Icons in the hub's one accent, like the hub's own rows;
-                        red stays for overdue and expiring (UX scorecard run 7). */}
+                        red stays for what is past due (UX scorecard run 7): an
+                        overdue task and, since 131-B12, an expired paper. A
+                        paper still in date says so in amber, as its card does. */}
                     <BinderSubLabel>Inventory &amp; Stores</BinderSubLabel>
                     <div className="vessel-hub-menu" style={GLASS.listContainer}>
                         <OfficeRow
@@ -803,18 +804,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <OfficeRow
                             icon={
                                 <DocShieldIcon
-                                    color={expiringDocsCount > 0 ? 'var(--day-ui-danger, #ef4444)' : HUB_ACCENT}
+                                    color={expiredDocsCount > 0 ? 'var(--day-ui-danger, #ef4444)' : HUB_ACCENT}
                                 />
                             }
                             label="Documents"
-                            status={expiringDocsCount > 0 ? `${expiringDocsCount} expiring` : 'Legal papers'}
-                            statusColor={expiringDocsCount > 0 ? '#ef4444' : '#94a3b8'}
+                            status={documentsDue ?? 'Legal papers'}
+                            statusColor={expiredDocsCount > 0 ? '#ef4444' : documentsDue ? '#f59e0b' : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
                                 navigateFromBinder('documents');
                             }}
-                            badge={expiringDocsCount > 0 ? expiringDocsCount : undefined}
-                            badgeUrgent={expiringDocsCount > 0}
+                            badge={documentsDueCount > 0 ? documentsDueCount : undefined}
+                            badgeUrgent={expiredDocsCount > 0}
                         />
                     </div>
 
@@ -1491,18 +1492,23 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         {/* BOAT BINDER — its OWN SCREEN (Shane 2026-07-19: "can boat
                             binder be its own screen when you click on it"). The row
                             opens it in place; stores, equipment, maintenance,
-                            documents and reference live there. */}
+                            documents and reference live there. It carries the
+                            most urgent count from inside (131-B12, BH-4): an
+                            overdue task or a lapsed paper shows here without
+                            opening the binder. */}
                         <OfficeRow
                             icon={<BinderIcon color={HUB_ACCENT} />}
                             label="Boat Binder"
-                            status="Inventory & reference"
-                            statusColor="#94a3b8"
+                            status={binderDue?.status ?? 'Inventory & reference'}
+                            statusColor={binderDue ? (binderDue.urgent ? '#ef4444' : '#f59e0b') : '#94a3b8'}
                             onClick={() => {
                                 triggerHaptic('light');
                                 // The hub port remounts at the top on the way back.
                                 setPortScrolled(false);
                                 setBinderOpen(true);
                             }}
+                            badge={binderDue?.count}
+                            badgeUrgent={binderDue?.urgent}
                         />
                         <ListDivider />
                         <OfficeRow

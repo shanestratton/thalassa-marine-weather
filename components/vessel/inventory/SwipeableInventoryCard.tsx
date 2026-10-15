@@ -23,6 +23,7 @@ import {
     type StoresUnitSystem,
 } from '../../../services/vessel/storesUnits';
 import { groceryProvenance, storesNotes } from '../../../services/vessel/storesProvenance';
+import { isLowStock } from '../../../services/vessel/inventoryStats';
 import { GroceryChip } from './GroceryChip';
 
 interface SwipeableInventoryCardProps {
@@ -52,7 +53,8 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
         onSwipeComplete: () => void triggerHaptic('light'),
     });
 
-    const isLow = item.quantity <= item.min_quantity && item.min_quantity > 0;
+    // The one low-stock rule the header, the box page and the PDF ask (131-B14).
+    const isLow = isLowStock(item);
     // Whole local days to the expiry day, as the Stores PDF counts them: the
     // day itself, not its UTC midnight (a day early in the Americas; 131-B11).
     const daysUntilExpiry = localDaysUntil(item.expiry_date);

@@ -32,7 +32,19 @@ let cloudTasks: typeof maintTasks;
 let docs: Array<{ id: string; expiry_date: string | null }>;
 let equip: Array<{ id: string; warranty_expiry: string | null }>;
 const cloudGetTasks = vi.fn();
+// The phone's binder opens before any count reads it (131-B12, BH-5).
+const initLocalDatabase = vi.hoisted(() => vi.fn(async (_userId: string | null) => undefined));
+const readDocs = vi.hoisted(() => vi.fn());
 
+// A plain factory: the three counts import it at once, and an async one
+// (importOriginal) handed the first two the real module. The engine-hours
+// reading finds no open table, as before, and falls back to this device's.
+vi.mock('../services/vessel/LocalDatabase', () => {
+    const shut = () => {
+        throw new Error('[LocalDB] Not initialized. Call initLocalDatabase() first.');
+    };
+    return { initLocalDatabase, getLocalDatabaseSession: shut, getSyncMeta: shut, getById: shut, query: shut };
+});
 vi.mock('../services/vessel/LocalMaintenanceService', () => ({
     LocalMaintenanceService: { getTasks: () => maintTasks },
 }));
@@ -42,7 +54,7 @@ vi.mock('../services/MaintenanceService', async (importOriginal) => ({
     MaintenanceService: { getTasks: () => cloudGetTasks() },
 }));
 vi.mock('../services/vessel/LocalDocumentService', () => ({
-    LocalDocumentService: { getAll: () => docs },
+    LocalDocumentService: { getAll: () => readDocs() },
 }));
 vi.mock('../services/vessel/LocalEquipmentService', () => ({
     LocalEquipmentService: { getAll: () => equip },
@@ -78,6 +90,10 @@ describe('useVesselReadinessCounts', () => {
         equip = [{ id: 'e1', warranty_expiry: new Date(Date.now() + 5 * 86_400_000).toISOString() }];
         cloudGetTasks.mockReset();
         cloudGetTasks.mockImplementation(async () => cloudTasks);
+        initLocalDatabase.mockReset();
+        initLocalDatabase.mockImplementation(async () => undefined);
+        readDocs.mockReset();
+        readDocs.mockImplementation(() => docs);
     });
 
     afterEach(() => {
@@ -169,6 +185,7 @@ describe('useVesselReadinessCounts', () => {
 
         expect(result.current).toEqual({
             overdueCount: 0,
+            expiredDocsCount: 0,
             expiringDocsCount: 0,
             expiringEquipCount: 0,
         });
@@ -318,5 +335,160 @@ describe('useVesselReadinessCounts', () => {
         } finally {
             localStorage.removeItem(key);
         }
+    });
+
+    // ── 131-B12: the badges count only what is really due (binder audit
+    // BH-1, EQ-3, BH-2, BH-3, BH-5) ──
+
+    it('splits papers into expired and expiring, and counts only warranties ending in the next 30 days', async () => {
+        const inDays = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString();
+        docs = [
+            { id: 'd-lapsed', expiry_date: '2019-03-01' }, // years ago: still expired
+            { id: 'd-soon', expiry_date: inDays(5) },
+            { id: 'd-later', expiry_date: inDays(60) },
+            { id: 'd-none', expiry_date: null },
+        ];
+        equip = [
+            { id: 'e-2019', warranty_expiry: '2019-03-01' }, // ended years ago: no news
+            { id: 'e-soon', warranty_expiry: inDays(5) },
+            { id: 'e-later', warranty_expiry: inDays(45) },
+            { id: 'e-none', warranty_expiry: null },
+        ];
+        const { result } = renderHook(() => useVesselReadinessCounts());
+        await waitFor(() => {
+            expect(result.current.expiredDocsCount).toBe(1);
+            expect(result.current.expiringDocsCount).toBe(1);
+            expect(result.current.expiringEquipCount).toBe(1);
+        });
+    });
+
+    it('counts on the local day, as the cards do: a paper and a warranty on their last day are still in date', async () => {
+        const was = process.env.TZ;
+        process.env.TZ = 'America/Los_Angeles';
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            // 23:30 on 15 October, already the 16th in UTC.
+            vi.setSystemTime(new Date(2026, 9, 15, 23, 30));
+            docs = [
+                { id: 'd-bare', expiry_date: '2026-10-15' },
+                { id: 'd-synced', expiry_date: '2026-10-15T00:00:00+00:00' },
+            ];
+            equip = [{ id: 'e-synced', warranty_expiry: '2026-10-15T00:00:00+00:00' }];
+            const { result } = renderHook(() => useVesselReadinessCounts());
+            await waitFor(() => expect(result.current.expiringDocsCount).toBe(2));
+            expect(result.current.expiredDocsCount).toBe(0);
+            await waitFor(() => expect(result.current.expiringEquipCount).toBe(1));
+
+            // Next morning both papers have expired, and the warranty is over.
+            vi.setSystemTime(new Date(2026, 9, 16, 7, 0));
+            act(() => {
+                dispatchDataChange(DATA_EVENTS.DOCUMENTS);
+                dispatchDataChange(DATA_EVENTS.EQUIPMENT);
+            });
+            await waitFor(() => {
+                expect(result.current.expiredDocsCount).toBe(2);
+                expect(result.current.expiringDocsCount).toBe(0);
+                expect(result.current.expiringEquipCount).toBe(0);
+            });
+        } finally {
+            vi.useRealTimers();
+            if (was === undefined) delete process.env.TZ;
+            else process.env.TZ = was;
+        }
+    });
+
+    it('shows the overdue count from the phone straight away, and refines it when the cloud answers', async () => {
+        let answer!: (tasks: typeof cloudTasks) => void;
+        cloudGetTasks.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    answer = resolve;
+                }),
+        );
+        const { result } = renderHook(() => useVesselReadinessCounts());
+        // The cloud has not answered: the phone's own overdue task shows.
+        await waitFor(() => expect(result.current.overdueCount).toBe(1));
+        expect(cloudGetTasks).toHaveBeenCalledTimes(1);
+
+        // It answers: the task was serviced on another device, after this phone's copy.
+        await act(async () => answer([{ id: 't1', is_active: true, next_due_date: FUTURE, updated_at: FUTURE }]));
+        await waitFor(() => expect(result.current.overdueCount).toBe(0));
+    });
+
+    it("keeps the phone's overdue count when the cloud can't be reached", async () => {
+        cloudGetTasks.mockRejectedValue(new Error('offline'));
+        const { result } = renderHook(() => useVesselReadinessCounts());
+        await waitFor(() => expect(result.current.overdueCount).toBe(1));
+        await waitFor(() => expect(cloudGetTasks).toHaveBeenCalled());
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(result.current.overdueCount).toBe(1);
+    });
+
+    it('waits for the binder on this phone to open before counting from it', async () => {
+        let open!: () => void;
+        const opened = new Promise<undefined>((resolve) => {
+            open = () => resolve(undefined);
+        });
+        initLocalDatabase.mockImplementation(() => opened);
+        cloudGetTasks.mockImplementation(() => new Promise(() => undefined)); // the cloud stays silent
+        const { result } = renderHook(() => useVesselReadinessCounts());
+
+        // Opened for this account, the file switch R&M and Stores join too.
+        await waitFor(() => expect(initLocalDatabase).toHaveBeenCalledWith('readiness-a'));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(readDocs).not.toHaveBeenCalled();
+        expect(result.current.overdueCount).toBe(0);
+
+        await act(async () => open());
+        await waitFor(() => {
+            expect(result.current.overdueCount).toBe(1);
+            expect(result.current.expiringDocsCount).toBe(1);
+            expect(result.current.expiringEquipCount).toBe(1);
+        });
+    });
+
+    it("logs when the phone's binder can't be opened, and counts maintenance from the cloud alone", async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        initLocalDatabase.mockRejectedValue(new Error('[LocalDB] Failed to read'));
+        maintTasks = []; // never read: the phone's binder is shut
+        const { result } = renderHook(() => useVesselReadinessCounts());
+
+        // The cloud still knows the overdue task.
+        await waitFor(() => expect(result.current.overdueCount).toBe(1));
+        await waitFor(() =>
+            expect(warn).toHaveBeenCalledWith(
+                '[VesselReadiness]',
+                'Documents badge: the binder on this phone could not be opened',
+                '[LocalDB] Failed to read',
+            ),
+        );
+        expect(warn).toHaveBeenCalledWith(
+            '[VesselReadiness]',
+            'Equipment badge: the binder on this phone could not be opened',
+            '[LocalDB] Failed to read',
+        );
+        expect(readDocs).not.toHaveBeenCalled();
+        expect(result.current.expiringDocsCount).toBe(0);
+        expect(result.current.expiringEquipCount).toBe(0);
+    });
+
+    it('never opens the binder again for an account that has signed out mid-count', async () => {
+        const { result } = renderHook(() => useVesselReadinessCounts());
+        await waitFor(() => {
+            expect(result.current.overdueCount).toBe(1);
+            expect(result.current.expiringDocsCount).toBe(1);
+            expect(result.current.expiringEquipCount).toBe(1);
+        });
+        initLocalDatabase.mockClear();
+
+        act(() => {
+            // A signs out, and a change lands before the page has moved on:
+            // A's listener still runs, and must not reopen A's binder.
+            setAuthIdentityScope('readiness-b');
+            dispatchDataChange(DATA_EVENTS.DOCUMENTS);
+        });
+        await waitFor(() => expect(initLocalDatabase).toHaveBeenCalledWith('readiness-b'));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(initLocalDatabase).not.toHaveBeenCalledWith('readiness-a');
     });
 });
