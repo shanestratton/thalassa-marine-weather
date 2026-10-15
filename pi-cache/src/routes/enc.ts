@@ -114,6 +114,7 @@ import {
     conversionLayers,
     ENC_ALWAYS_EMITTED_LAYERS,
     ENC_CONVERSION_SCHEMA,
+    dsidDatum,
     dsidCompilationScale,
     ogrinfoLayerFeatureCounts,
     type OgrLayerOutcome,
@@ -214,6 +215,15 @@ const ENC_LAYERS = [
     'UWTROC',
     'COALNE',
     'LIGHTS',
+    'LITFLT',
+    'LITVES',
+    'BOYINB',
+    'MORFAC',
+    'FOGSIG',
+    'TOPMAR',
+    'DAYMAR',
+    'M_SDAT',
+    'M_VDAT',
     'BOYLAT',
     'BOYCAR',
     'BCNLAT',
@@ -622,6 +632,8 @@ async function parseS57Metadata(inputPath: string): Promise<{
     layerFeatureCounts: Record<string, number>;
     /** Compilation scale denominator (DSID record's DSPM_CSCL), when read. */
     nativeScale?: number;
+    soundingDatum?: number;
+    verticalDatum?: number;
 }> {
     // ogrinfo -al -so produces summary output including DSID (dataset
     // identifier) and per-layer extents. We parse text rather than
@@ -686,6 +698,8 @@ async function parseS57Metadata(inputPath: string): Promise<{
     // round 2 2026-09-30). Absent: the phone falls back to the usage band in
     // the cell name (AU5…), then to "unknown" (the land paint stands).
     let nativeScale: number | undefined;
+    let soundingDatum: number | undefined;
+    let verticalDatum: number | undefined;
     try {
         const csv = await new Promise<string>((resolve, reject) => {
             const proc = spawn('ogr2ogr', ['-f', 'CSV', '/vsistdout/', inputPath, 'DSID'], {
@@ -720,6 +734,8 @@ async function parseS57Metadata(inputPath: string): Promise<{
                 if (Number.isFinite(v)) edition = v;
             }
             nativeScale = dsidCompilationScale(colIdx, values) ?? undefined;
+            soundingDatum = dsidDatum(colIdx, values, 'SDAT');
+            verticalDatum = dsidDatum(colIdx, values, 'VDAT');
             const uadtIdx = colIdx['UADT'] ?? colIdx['DSID_UADT'] ?? -1;
             if (uadtIdx >= 0 && /^\d{8}$/.test(values[uadtIdx] ?? '')) {
                 const u = values[uadtIdx];
@@ -778,6 +794,8 @@ async function parseS57Metadata(inputPath: string): Promise<{
         bbox: [minLon, minLat, maxLon, maxLat],
         layerFeatureCounts: ogrinfoLayerFeatureCounts(stdout),
         ...(nativeScale !== undefined ? { nativeScale } : {}),
+        ...(soundingDatum !== undefined ? { soundingDatum } : {}),
+        ...(verticalDatum !== undefined ? { verticalDatum } : {}),
     };
 }
 
@@ -845,6 +863,8 @@ async function convertOneCell(
             issued: meta.issued,
             bbox: meta.bbox,
             ...(meta.nativeScale !== undefined ? { nativeScale: meta.nativeScale } : {}),
+            ...(meta.soundingDatum !== undefined ? { soundingDatum: meta.soundingDatum } : {}),
+            ...(meta.verticalDatum !== undefined ? { verticalDatum: meta.verticalDatum } : {}),
             layers,
             // Which converter schema produced it: a newer one replaces an
             // older conversion of the same revision (encChartStore).

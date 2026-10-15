@@ -916,6 +916,14 @@ export interface EncMergedVectorData {
     DEPCNT_DERIVED: FeatureCollection;
     /** Lights / lighthouses (display only). */
     LIGHTS: FeatureCollection;
+    LITFLT: FeatureCollection;
+    LITVES: FeatureCollection;
+    BOYINB: FeatureCollection;
+    MORFAC: FeatureCollection;
+    FOGSIG: FeatureCollection;
+    TOPMAR: FeatureCollection;
+    DAYMAR: FeatureCollection;
+
     /** Light-sector arcs + limit legs, generated at merge time from
      *  sectored LIGHTS features (SECTR1/SECTR2/COLOUR) — the night
      *  approach read "am I in the white, red, or green?". Display only.
@@ -1538,6 +1546,13 @@ export function createEmptyMergedVectorData(): EncMergedVectorData {
         DEPCNT: fc(),
         DEPCNT_DERIVED: fc(),
         LIGHTS: fc(),
+        LITFLT: fc(),
+        LITVES: fc(),
+        BOYINB: fc(),
+        MORFAC: fc(),
+        FOGSIG: fc(),
+        TOPMAR: fc(),
+        DAYMAR: fc(),
         BOYLAT: fc(),
         BOYCAR: fc(),
         BCNLAT: fc(),

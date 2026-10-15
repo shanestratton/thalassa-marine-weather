@@ -485,6 +485,45 @@ export function buildFeaturePopupHtml(
         if (typeof name === 'string' && name)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
         body += lightRows(props);
+    } else if (
+        (
+            [
+                ENC_VEC_LAYERS.LITFLT,
+                ENC_VEC_LAYERS.LITVES,
+                ENC_VEC_LAYERS.BOYINB,
+                ENC_VEC_LAYERS.MORFAC,
+                ENC_VEC_LAYERS.MORFAC_GEOMETRY,
+                ENC_VEC_LAYERS.FOGSIG,
+                ENC_VEC_LAYERS.TOPMAR,
+                ENC_VEC_LAYERS.DAYMAR,
+            ] as readonly string[]
+        ).includes(layerId)
+    ) {
+        const titles: Record<string, string> = {
+            [ENC_VEC_LAYERS.LITFLT]: 'Light float',
+            [ENC_VEC_LAYERS.LITVES]: 'Light vessel',
+            [ENC_VEC_LAYERS.BOYINB]: 'Installation buoy',
+            [ENC_VEC_LAYERS.MORFAC]: 'Mooring facility',
+            [ENC_VEC_LAYERS.MORFAC_GEOMETRY]: 'Mooring facility',
+            [ENC_VEC_LAYERS.FOGSIG]: 'Fog signal',
+            [ENC_VEC_LAYERS.TOPMAR]: 'Topmark',
+            [ENC_VEC_LAYERS.DAYMAR]: 'Daymark',
+        };
+        title = titles[layerId];
+        for (const [label, key] of [
+            ['Name', 'OBJNAM'],
+            ['Shape (S-57)', 'TOPSHP'],
+            [
+                'Category (S-57)',
+                layerId === ENC_VEC_LAYERS.FOGSIG ? 'CATFOG' : layerId === ENC_VEC_LAYERS.BOYINB ? 'CATINB' : 'CATMOR',
+            ],
+            ['Note', 'INFORM'],
+        ]) {
+            const value = readS57(props, key);
+            if (value !== undefined && value !== null && String(value).trim())
+                body += `<div class="enc-popup-row"><span>${esc(label)}</span><b>${esc(String(value))}</b></div>`;
+        }
+        if (layerId === ENC_VEC_LAYERS.LITFLT || layerId === ENC_VEC_LAYERS.LITVES) body += lightRows(props);
     } else if (layerId === ENC_VEC_LAYERS.LIGHTSEC_ARC) {
         // Tap-to-read for a sectored light (#3a): "am I in the red, the white,
         // or the green?" — the night-approach question the LIGHTSEC layer

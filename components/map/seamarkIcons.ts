@@ -5,7 +5,7 @@
  * Region A (IALA A): Port = Red (Can), Starboard = Green (Cone)
  * Used in Australia, NZ, Europe, Africa, most of Asia.
  */
-import mapboxgl from 'mapbox-gl';
+import type mapboxgl from 'mapbox-gl';
 
 import { ENC_HAZARD_MAGENTA } from './encDepthStyle';
 
@@ -355,8 +355,50 @@ function obstructionSvg(): string {
         <circle cx="24" cy="24" r="2.5" fill="${COLOURS.magenta}"/>`);
 }
 
+/** Schema 3 equipment symbols, drawn in chart ink. Unsupported TOPSHP
+ * codes use the explicit unknown mark; never invent a safe-side topmark.
+ * Shapes: IHO S-57 Appendix A ch2, TOPSHP 171. */
+function equipmentSvg(kind: string): string {
+    const shapes: Record<string, string> = {
+        'light-float': '<path d="M9 31h30l-6 7H15zM24 30V17M18 17h12M24 10v-5M15 13l-4-4M33 13l4-4"/>',
+        'light-vessel': '<path d="M5 31h38l-8 8H14zM24 31V15M18 15h12M24 9V4M15 12l-4-4M33 12l4-4"/>',
+        'installation-buoy': '<circle cx="24" cy="24" r="9"/><path d="M15 24h18M24 15v18M8 36h32"/>',
+        'mooring-buoy': '<circle cx="24" cy="20" r="7"/><path d="M24 27v9M15 36h18"/>',
+        'mooring-facility': '<path d="M10 34h28M16 34V14h6v20M28 34V14h6v20"/>',
+        'fog-signal': '<circle cx="15" cy="25" r="3"/><path d="M21 16q10 9 0 18M28 11q15 14 0 28"/>',
+        '1': '<path d="M14 31l10-20 10 20z"/>',
+        '2': '<path d="M14 13h20L24 33z"/>',
+        '3': '<circle cx="24" cy="23" r="10"/>',
+        '4': '<circle cx="24" cy="15" r="6"/><circle cx="24" cy="31" r="6"/>',
+        '5': '<path d="M15 13h18v20H15z"/>',
+        '6': '<path d="M10 17h28v13H10z"/>',
+        '7': '<path d="M14 12l20 22M34 12L14 34"/>',
+        '8': '<path d="M24 9v29M10 23h28"/>',
+        '10': '<path d="M15 8h18l-9 15zM15 38h18l-9-15z"/>',
+        '11': '<path d="M15 21h18L24 6zM15 25h18l-9 15z"/>',
+        '12': '<path d="M24 7l12 16-12 16-12-16z"/>',
+        '13': '<path d="M15 21h18L24 6zM15 40h18l-9-15z"/>',
+        '14': '<path d="M15 6h18l-9 15zM15 25h18l-9 15z"/>',
+        '19': '<path d="M14 13h20v20H14z"/>',
+        '20': '<path d="M9 17h30v13H9z"/>',
+        '21': '<path d="M17 8h14v30H17z"/>',
+        '24': '<path d="M12 34l12-23 12 23z"/>',
+        '25': '<path d="M12 11h24L24 34z"/>',
+        '26': '<circle cx="24" cy="23" r="10"/>',
+    };
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><g fill="none" stroke="#17212b" stroke-width="2.5" stroke-linejoin="round">${shapes[kind]}</g></svg>`;
+}
+
 export function getSeamarkIconDefs(): SeamarkIconDef[] {
     return [
+        ...['light-float', 'light-vessel', 'installation-buoy', 'mooring-buoy', 'mooring-facility', 'fog-signal'].map(
+            (kind) => ({ id: `sm-${kind}`, svg: equipmentSvg(kind), size: 48 }),
+        ),
+        ...[1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 19, 20, 21, 24, 25, 26].map((shape) => ({
+            id: `sm-topmark-${shape}`,
+            svg: equipmentSvg(String(shape)),
+            size: 48,
+        })),
         // Lateral buoys (Region A — IALA A)
         { id: 'sm-buoy-port', svg: lateralBuoySvg(COLOURS.red, 'can'), size: 48 },
         { id: 'sm-buoy-starboard', svg: lateralBuoySvg(COLOURS.green, 'cone'), size: 48 },

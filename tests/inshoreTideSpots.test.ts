@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { inshoreRouteToGeoJSON, type InshoreRouteResult } from '../services/InshoreRouter';
 import {
+    shallowRunBounds,
     readPersistedShallowRuns,
     shallowRunsToDepartureSpots,
     tideAnchorForShallowRuns,
@@ -11,6 +12,27 @@ import { tideFieldFromCurve } from '../services/routing/env/EnvFields';
 import type { TideCurve } from '../services/TideHeightService';
 
 describe('inshoreTideSpots', () => {
+    it('datum bounds cover the entire route geometry as well as each charted gate', () => {
+        const runs = [
+            {
+                startSeg: 0,
+                endSeg: 1,
+                lengthM: 100,
+                minDepthM: 1.2,
+                midLat: 38,
+                midLon: -76,
+                minAtLat: 38.1,
+                minAtLon: -76.1,
+            },
+        ];
+        expect(
+            shallowRunBounds(runs, [
+                [-77, 37],
+                [-75, 39],
+            ]),
+        ).toEqual([-77, 37, -75, 39]);
+        expect(shallowRunBounds([])).toBeNull();
+    });
     it('preserves charted shallow runs when an inshore route is persisted', () => {
         const shallowRuns = [
             {

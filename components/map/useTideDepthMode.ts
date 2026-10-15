@@ -20,8 +20,8 @@
  * The comments below travelled with the code. Each one records an audit or a
  * review finding, and none of them should be re-derived:
  *
- *   - the curve is KEPT when a refresh fails for the same waters, because a
- *     network blip mid-scrub silently dropped the chart to datum;
+ *   - every viewport/chart change clears the old curve until all visible
+ *     cells are proven on the prediction datum;
  *   - the scrub is RELATIVE (quarter-hours ahead), because an absolute
  *     instant drifted into the past and the thumb crept as time passed;
  *   - scrub application is throttled to ~150 ms trailing-edge, because
@@ -38,6 +38,7 @@ import { triggerHaptic } from '../../utils/system';
 import { ENC_NIGHT_DIM_KEY, setEncNightDim, setEncTideOffset } from './EncVectorLayer';
 import { TIDE_DEPTH_ACK_KEY } from './ChartDepthControls';
 import type { MapBaseToggle } from './MapBaseSelector';
+import { subscribe as subscribeCharts } from '../../services/enc/EncCellMetadata';
 import {
     readTideCurveWindow,
     tideReadAt,
@@ -180,7 +181,7 @@ export function useTideDepthMode(
             return;
         }
         let cancelled = false;
-        let lastFix: { lat: number; lon: number } | null = null;
+        let request = 0;
         const applyAtScrub = (): void => {
             const curve = tideCurveRef.current;
             const atMs = tideScrubRef.current > 0 ? Date.now() + tideScrubRef.current * 900_000 : null;
@@ -192,25 +193,20 @@ export function useTideDepthMode(
             setEncTideOffset(map, read ? read.offsetM : null, atMs);
         };
         const refresh = async (): Promise<void> => {
+            const id = ++request;
+            tideCurveRef.current = null;
+            applyAtScrub();
             const c = map.getCenter();
-            lastFix = { lat: c.lat, lon: c.lng };
-            const curve = await readTideCurveWindow(c.lat, c.lng);
-            if (cancelled) return;
-            if (curve) {
-                tideCurveRef.current = curve;
-            } else {
-                // Fetch failed — KEEP a still-valid curve for the same
-                // waters (review major: a blip mid-scrub silently dropped
-                // the chart to datum); drop it only when it's for
-                // somewhere else or has expired.
-                const old = tideCurveRef.current;
-                const stillGood =
-                    old &&
-                    Math.abs(c.lat - old.fix.lat) <= 0.2 &&
-                    Math.abs(c.lng - old.fix.lon) <= 0.2 &&
-                    Date.now() < old.rangeMs[1];
-                if (!stillGood) tideCurveRef.current = null;
-            }
+            const b = map.getBounds();
+            if (!b) return;
+            const curve = await readTideCurveWindow(c.lat, c.lng, [
+                b.getWest(),
+                b.getSouth(),
+                b.getEast(),
+                b.getNorth(),
+            ]);
+            if (cancelled || id !== request) return;
+            tideCurveRef.current = curve;
             applyAtScrub();
         };
         void refresh();
@@ -218,19 +214,23 @@ export function useTideDepthMode(
         // within a freeboard of truth without hammering the API (and
         // re-samples the curve at the scrub position either way).
         const iv = window.setInterval(() => void refresh(), 5 * 60_000);
-        const onMoveEnd = (): void => {
-            const c = map.getCenter();
-            if (!lastFix) return;
-            // ~0.2° ≈ 12–20 NM — far enough that a different station
-            // governs; small pans keep the current read.
-            if (Math.abs(c.lat - lastFix.lat) > 0.2 || Math.abs(c.lng - lastFix.lon) > 0.2) {
-                void refresh();
-            }
+        const onMoveStart = (): void => {
+            ++request;
+            tideCurveRef.current = null;
+            applyAtScrub();
         };
+        const onMoveEnd = (): void => {
+            void refresh();
+        };
+        map.on('movestart', onMoveStart);
         map.on('moveend', onMoveEnd);
+        const unsubscribe = subscribeCharts(() => void refresh());
         return () => {
             cancelled = true;
+            ++request;
+            unsubscribe();
             window.clearInterval(iv);
+            map.off('movestart', onMoveStart);
             map.off('moveend', onMoveEnd);
             setEncTideOffset(map, null);
         };
