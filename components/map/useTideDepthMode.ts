@@ -62,6 +62,8 @@ export function useTideDepthMode(
     mapRef: React.RefObject<mapboxgl.Map | null>,
     mapReady: boolean,
     planningSurface: boolean,
+    /** 'Auto with night' says it is night now (131-03). */
+    autoNight = false,
 ): TideDepthMode {
     // Charted depth + predicted tide, ONE offset applied at the paint
     // layer (band tints, sounding numbers, contour labels — see
@@ -72,7 +74,22 @@ export function useTideDepthMode(
     const [tideDepthMode, setTideDepthMode] = usePersistedState('thalassa_tide_depth_mode', false);
     // Night dim — chartplotter-style red-tinted uniform dim (burn-down:
     // the white DEPARE ramp killed night vision at the helm).
-    const [nightDim, setNightDim] = usePersistedState(ENC_NIGHT_DIM_KEY, false);
+    const [savedNightDim, setSavedNightDim] = usePersistedState(ENC_NIGHT_DIM_KEY, false);
+    // 'Auto with night' (131-03) turns the dim on by itself from nautical
+    // dusk to dawn, whatever the saved switch says. The moon button still
+    // turns it off, for the rest of that night only: the next dusk brings it
+    // back, and by day the saved switch rules as before.
+    const [autoDimOff, setAutoDimOff] = useState(false);
+    const [autoDimNight, setAutoDimNight] = useState(autoNight);
+    if (autoDimNight !== autoNight) {
+        setAutoDimNight(autoNight);
+        setAutoDimOff(false);
+    }
+    const nightDim = autoNight ? !autoDimOff : savedNightDim;
+    const setNightDim = useCallback(
+        (v: boolean) => (autoNight ? setAutoDimOff(!v) : setSavedNightDim(v)),
+        [autoNight, setSavedNightDim],
+    );
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;

@@ -17,14 +17,19 @@ const ORIENTATION_OPTIONS = [
     { value: 'landscape' as const, label: 'Landscape', icon: '🖥️', desc: 'Wide view' },
 ];
 
-// Four visual modes of the app. "Night" is the red-filtered cockpit mode
+// Five visual modes of the app. "Night" is the red-filtered cockpit mode
 // that preserves night vision on passage — a genuinely useful feature
 // worth surfacing during onboarding rather than burying in Settings.
+// 'Auto + night' (131-03) picks it by itself from nautical dusk to dawn, and
+// is where a new install starts. The three fixed modes share the top row,
+// the two that follow the sun the second. Auto goes by sunrise and sunset,
+// not the phone's own appearance setting ('Matches phone' said otherwise).
 const MODE_OPTIONS = [
-    { value: 'auto' as const, label: 'Auto', icon: '🌓', desc: 'Matches phone' },
     { value: 'light' as const, label: 'Day', icon: '☀️', desc: 'Bright sun' },
-    { value: 'dark' as const, label: 'Dark', icon: '🌑', desc: 'Default', recommended: true },
+    { value: 'dark' as const, label: 'Dark', icon: '🌑', desc: 'Low glare' },
     { value: 'night' as const, label: 'Night', icon: '🔴', desc: 'Cockpit' },
+    { value: 'auto' as const, label: 'Auto', icon: '🌓', desc: 'By the sun' },
+    { value: 'auto-night' as const, label: 'Auto + night', icon: '🌗', desc: 'Red at night', recommended: true },
 ];
 
 export const DisplayPrefsStep: React.FC<DisplayPrefsStepProps> = ({
@@ -48,9 +53,10 @@ export const DisplayPrefsStep: React.FC<DisplayPrefsStepProps> = ({
             <div className="bg-white/5 rounded-xl p-5 border border-white/10">
                 <h3 className="text-sm font-bold text-white mb-1">Display Mode</h3>
                 <p className="text-xs text-gray-400 mb-4">
-                    Night mode applies a red filter to preserve night vision on watch.
+                    Night mode applies a red filter to preserve night vision on watch. Auto + night turns it on from
+                    nautical dusk to dawn.
                 </p>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-6 gap-2">
                     {MODE_OPTIONS.map((opt) => {
                         const isActive = prefDisplayMode === opt.value;
                         return (
@@ -60,7 +66,7 @@ export const DisplayPrefsStep: React.FC<DisplayPrefsStepProps> = ({
                                 aria-pressed={isActive}
                                 key={opt.value}
                                 onClick={() => onDisplayModeChange(opt.value)}
-                                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all duration-300 active:scale-95 ${
+                                className={`${opt.value.startsWith('auto') ? 'col-span-3' : 'col-span-2'} flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all duration-300 active:scale-95 ${
                                     isActive
                                         ? 'bg-linear-to-br from-sky-500/20 to-sky-600/20 border-sky-500/40 shadow-lg shadow-sky-500/20'
                                         : 'bg-white/5 border-transparent hover:bg-white/10 hover:border-white/10'

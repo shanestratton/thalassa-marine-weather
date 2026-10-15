@@ -7,10 +7,16 @@ import { readScreenDimSettings, writeScreenDimSettings, type ScreenDimSettings }
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import { DisplayMode, ScreenOrientationType } from '../../types';
 import { SunIcon, MoonIcon, RefreshIcon, PhoneIcon } from '../Icons';
+import { useAutoNightShown } from '../../hooks/useAutoNight';
+import type { NightWindow } from '../../utils/nightWindow';
 
 // Small inline icon for "Night mode" — a red-tint moon.
 const RedMoonIcon = ({ className }: { className?: string }) => (
     <MoonIcon className={`${className ?? ''} text-red-400`} />
+);
+// "Auto + night" (131-03): Auto's arrows in Night's red.
+const RedAutoIcon = ({ className }: { className?: string }) => (
+    <RefreshIcon className={`${className ?? ''} text-red-400`} />
 );
 // Inline icon for landscape orientation — phone rotated 90°.
 const LandscapeIcon = ({ className }: { className?: string }) => (
@@ -30,7 +36,7 @@ const DISPLAY_MODES: {
         value: 'light',
         label: 'Light',
         Icon: SunIcon,
-        // One line each, so the four tiles stand level: 'Daytime use' took two
+        // One line each, so the tiles in a row stand level: 'Daytime use' took two
         // lines and 'Light / dark by sun' three (UX scorecard run 10).
         desc: 'Daytime',
         gradient: 'from-amber-500/20 to-amber-600/20 border-amber-500/40 shadow-amber-500/20',
@@ -39,7 +45,8 @@ const DISPLAY_MODES: {
         value: 'dark',
         label: 'Dark',
         Icon: MoonIcon,
-        desc: 'Default',
+        // Not 'Default' since 131-03: a new install starts on Auto + night.
+        desc: 'Low glare',
         gradient: 'from-sky-500/20 to-sky-600/20 border-sky-500/40 shadow-sky-500/20',
     },
     {
@@ -61,7 +68,29 @@ const DISPLAY_MODES: {
         desc: 'By the sun',
         gradient: 'from-violet-500/20 to-violet-600/20 border-violet-500/40 shadow-violet-500/20',
     },
+    {
+        // 131-03: Auto, plus the red Night from nautical dusk to dawn at the
+        // forecast location (useAutoNight). The old Auto stays as it was.
+        value: 'auto-night',
+        label: 'Auto + night',
+        Icon: RedAutoIcon,
+        desc: 'Red at night',
+        gradient: 'from-red-500/20 to-violet-600/20 border-red-500/40 shadow-red-500/20',
+    },
 ];
+
+/**
+ * What 'Auto with night' can see from here, when it is not the ordinary
+ * dusk-to-dawn (131-03): a polar summer has no night to go red for, a polar
+ * winter has no day, and with no position yet it cannot know when night falls.
+ */
+function autoNightNote(read: NightWindow | null): string | null {
+    if (!read) return 'Needs a position to know when night falls. Until then it works like Auto.';
+    if (read.state === 'no-true-night')
+        return 'No true night here at this time of year: the sun never gets 12° down, so it stays on light and dark like Auto.';
+    if (read.state === 'stays-dark') return 'The sun stays more than 12° down all day here, so it stays red.';
+    return null;
+}
 
 const ORIENTATION_OPTIONS: {
     value: ScreenOrientationType;
@@ -96,18 +125,21 @@ const ORIENTATION_OPTIONS: {
 ];
 
 /**
- * Display mode — the four tiles. Leads Settings → Preferences: it is what a
- * skipper reaches for at night (the red Night tint).
+ * Display mode — the five tiles: the three fixed modes on the top row, the
+ * two that follow the sun under them (131-03). Leads Settings → Preferences:
+ * it is what a skipper reaches for at night (the red Night tint).
  */
 export const DisplayModeSection: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const currentMode = settings.displayMode || 'auto';
+    const nightNote = autoNightNote(useAutoNightShown());
     return (
         <Section title="Display mode">
             <div className="p-4">
                 <p className="text-xs text-gray-400 mb-4">
-                    Choose how Thalassa looks. Auto switches between light and dark based on sunrise/sunset times.
+                    Choose how Thalassa looks. Auto switches between light and dark at sunrise and sunset. Auto + night
+                    also goes red from nautical dusk to dawn.
                 </p>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-6 gap-2">
                     {DISPLAY_MODES.map((opt) => {
                         const isActive = currentMode === opt.value;
                         return (
@@ -116,7 +148,7 @@ export const DisplayModeSection: React.FC<SettingsTabProps> = ({ settings, onSav
                                 aria-pressed={isActive}
                                 key={opt.value}
                                 onClick={() => onSave({ displayMode: opt.value })}
-                                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all duration-300 active:scale-95 ${
+                                className={`${opt.value.startsWith('auto') ? 'col-span-3' : 'col-span-2'} flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all duration-300 active:scale-95 ${
                                     isActive
                                         ? `bg-linear-to-br ${opt.gradient} shadow-lg`
                                         : 'bg-white/5 border-transparent hover:bg-white/10 hover:border-white/10'
@@ -139,6 +171,11 @@ export const DisplayModeSection: React.FC<SettingsTabProps> = ({ settings, onSav
                         );
                     })}
                 </div>
+                {currentMode === 'auto-night' && nightNote && (
+                    <p className="mt-3 text-xs text-gray-400" role="status">
+                        {nightNote}
+                    </p>
+                )}
             </div>
         </Section>
     );

@@ -2680,6 +2680,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Charted depth + predicted tide plus the night-dim treatment, both in
     // components/map/useTideDepthMode.ts. VISUAL ONLY by hard rule: the
     // safety contour, tracer and router keep grading against chart datum.
+    // 'Auto with night' (131-03) drives the dim as well as the relief's night
+    // palette: App's nightMode is its dusk-to-dawn answer in that mode.
     const {
         tideDepthMode,
         setTideDepthMode,
@@ -2691,7 +2693,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         tideScrubQ,
         setTideScrubQ,
         onToggleTideDepth,
-    } = useTideDepthMode(mapRef, mapReady, planningSurface);
+    } = useTideDepthMode(mapRef, mapReady, planningSurface, nightMode && settings.displayMode === 'auto-night');
     // Keel-honesty flag for the tap-the-water popup — a verdict against
     // the 2.5 m fallback draft must say so (mirrors the tracer).
     useEffect(() => {
