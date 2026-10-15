@@ -15,7 +15,7 @@
  */
 import { sha256Hex } from '../_shared/pi-relay-auth.ts';
 import { handlePiAlarmRelay, type PiAlarmEvent, type PiAlarmStore, type QueuedPush } from './relay.ts';
-import { cleanName, MAX_BODY_BYTES } from './parse.ts';
+import { cleanName, isUnderwayKind, MAX_BODY_BYTES, type PiAlarmFamily } from './parse.ts';
 
 function assertEquals(actual: unknown, expected: unknown, note = ''): void {
     if (JSON.stringify(actual) === JSON.stringify(expected)) return;
@@ -61,6 +61,8 @@ class MemoryStore implements PiAlarmStore {
     devices = 2;
     touched = 0;
     failNext = false;
+    underway = false;
+    failUnderwayProbe = false;
     constructor(private readonly clock: () => number) {}
     private check() {
         if (this.failNext) {
@@ -78,14 +80,15 @@ class MemoryStore implements PiAlarmStore {
             this.events.filter((e) => e.relayId === relayId && keys.includes(e.alarmKey)).map((e) => ({ ...e })),
         );
     }
-    openEvents(relayId: string) {
+    openEvents(relayId: string, family: PiAlarmFamily = 'ais') {
         return Promise.resolve(
             this.events
                 .filter(
                     (e) =>
                         e.relayId === relayId &&
                         e.resolvedAt === null &&
-                        ['collision', 'close-quarters', 'distress'].includes(e.kind),
+                        (isUnderwayKind(e.kind) === (family === 'underway')) &&
+                        ['collision', 'close-quarters', 'distress', 'off-route', 'chart-ahead'].includes(e.kind),
                 )
                 .map((e) => ({ ...e })),
         );
@@ -127,7 +130,7 @@ class MemoryStore implements PiAlarmStore {
             this.queue.filter(
                 (q) =>
                     q.recipient_user_id === ownerId &&
-                    (q.notification_type === 'collision_alarm' || q.notification_type === 'distress_alarm') &&
+                    ['collision_alarm', 'distress_alarm', 'underway_alarm'].includes(q.notification_type) &&
                     q.createdAt >= sinceMs &&
                     (resends === undefined || q.data.resend === resends),
             ).length,
@@ -164,6 +167,10 @@ async function harness() {
             authenticatePiRelay(admin, credential, () => undefined),
         store,
         now: () => now,
+        underwayEnabled: () => {
+            if (store.failUnderwayProbe) throw new Error('capability RPC unavailable');
+            return Promise.resolve(store.underway);
+        },
     };
     const call = async (
         body: unknown,
@@ -215,6 +222,157 @@ const nordlicht = (over: Record<string, unknown> = {}) => ({
     lost: null,
     acked_ms_ago: null,
     ...over,
+});
+
+const underwayAlarm = (kind = 'chart-ahead', over: Record<string, unknown> = {}) => ({
+    kind,
+    key: `${kind}::${T0}`,
+    mmsi: null,
+    acked_ms_ago: null,
+    ...over,
+});
+
+Deno.test('underway capability is explicit; old AIS probe remains compatible', async () => {
+    const h = await harness();
+    assertEquals((await h.call({ action: 'probe' })).body, { ok: true, devices: 2 });
+    assertEquals((await h.call({ action: 'probe', family: 'underway' })).body, {
+        ok: true,
+        devices: 2,
+        underway: { v: 1, enabled: false },
+    });
+    h.store.underway = true;
+    assertEquals((await h.call({ action: 'probe', family: 'underway' })).body.underway, { v: 1, enabled: true });
+    assertEquals(h.store.queue.length, 0);
+    assertEquals((await h.call({ action: 'probe', family: 'unknown' })).status, 400);
+    assertEquals((await h.call({ action: 'test', family: 'underway' })).status, 400);
+});
+
+Deno.test('underway raise and sync fail closed until schema support is positively detected', async () => {
+    const h = await harness();
+    assertEquals((await h.call({ action: 'raise', family: 'underway', alarm: underwayAlarm() })).status, 503);
+    assertEquals((await h.call({ action: 'sync', family: 'underway', alarms: [underwayAlarm()] })).status, 503);
+    assertEquals(h.store.events.length, 0);
+    assertEquals(h.store.queue.length, 0);
+    assertEquals((await h.call({ action: 'raise', alarm: nordlicht() })).body.pushed, true, 'AIS remains available');
+    h.store.underway = true;
+    h.store.failUnderwayProbe = true;
+    assertEquals((await h.call({ action: 'probe', family: 'underway' })).body.underway.enabled, false);
+    assertEquals((await h.call({ action: 'raise', family: 'underway', alarm: underwayAlarm() })).status, 503);
+    assertEquals(h.store.events.length, 1, 'a failed capability probe wrote no underway rows');
+});
+
+Deno.test('underway pushes contain generic words and no chart evidence, even from hostile input', async () => {
+    const h = await harness();
+    h.store.underway = true;
+    for (const kind of ['off-route', 'chart-ahead']) {
+        const alarm = underwayAlarm(kind, {
+            name: 'PRIVATE CHART FEATURE',
+            lat: 45.12345,
+            lon: 12.54321,
+            cpa_nm: 0.1,
+            tcpa_min: 8,
+            range_nm: 0.3,
+            bearing_deg: 77,
+            depth_m: 1.2,
+            eta: 'private',
+            xte_m: 300,
+            cell_id: 'private',
+            position_basis: 'dead-reckoned',
+            uncertainty_nm: 0.5,
+        });
+        const res = await h.call({ action: 'raise', family: 'underway', alarm });
+        assertEquals(res.status, 200);
+        assertEquals(res.body.pushed, true);
+        const row = h.store.queue.at(-1)!;
+        assertEquals(row.notification_type, 'underway_alarm');
+        assertEquals(row.recipient_user_id, OWNER);
+        assertEquals(row.title, kind === 'off-route' ? 'Off route' : 'Charted danger ahead');
+        assertEquals(
+            row.body,
+            kind === 'off-route'
+                ? 'Check the course you are following aboard.'
+                : 'Check the chart and water ahead aboard.',
+        );
+        assertEquals(row.data, { kind, alarm_key: alarm.key, raised_at_ms: h.now, resend: false });
+        const payload = h.store.events.at(-1)!.payload;
+        assertEquals(payload.name, '');
+        assert(Object.values(payload).every((v) => v === '' || v === null), 'only empty/null evidence stored');
+    }
+});
+
+Deno.test('no synthetic MMSI and no cross-family alarm request can pass the parser', async () => {
+    const h = await harness();
+    h.store.underway = true;
+    for (
+        const alarm of [
+            underwayAlarm('off-route', { mmsi: NORDLICHT }),
+            underwayAlarm('off-route', {
+                key: `off-route:${NORDLICHT}:${T0}`,
+            }),
+        ]
+    ) {
+        assertEquals((await h.call({ action: 'raise', family: 'underway', alarm })).status, 400);
+    }
+    assertEquals((await h.call({ action: 'raise', alarm: underwayAlarm() })).status, 400);
+    assertEquals((await h.call({ action: 'raise', family: 'underway', alarm: nordlicht() })).status, 400);
+    assertEquals((await h.call({ action: 'sync', alarms: [nordlicht(), underwayAlarm()] })).status, 400);
+    assertEquals(
+        (await h.call({ action: 'sync', family: 'underway', alarms: [underwayAlarm(), nordlicht()] })).status,
+        400,
+    );
+    assertEquals(h.store.events.length, 0);
+    assertEquals(h.store.queue.length, 0);
+});
+
+Deno.test('AIS and underway sync close only their own family, including an empty sync', async () => {
+    const h = await harness();
+    h.store.underway = true;
+    const ais = nordlicht();
+    const watch = underwayAlarm();
+    await h.call({ action: 'raise', alarm: ais });
+    await h.call({ action: 'raise', family: 'underway', alarm: watch });
+    assertEquals((await h.call({ action: 'sync', alarms: [] })).body.resolved, 1);
+    assertEquals(h.store.events.find((e) => e.alarmKey === watch.key)!.resolvedAt, null);
+    await h.call({ action: 'raise', alarm: ais });
+    assertEquals((await h.call({ action: 'sync', family: 'underway', alarms: [] })).body.resolved, 1);
+    assertEquals(h.store.events.find((e) => e.alarmKey === ais.key)!.resolvedAt, null);
+});
+
+Deno.test('underway alarms obey resend interval, acknowledgement and encounter identity', async () => {
+    const h = await harness();
+    h.store.underway = true;
+    const alarm = underwayAlarm('off-route');
+    await h.call({ action: 'raise', family: 'underway', alarm });
+    h.advance(MIN);
+    assertEquals((await h.call({ action: 'sync', family: 'underway', alarms: [alarm] })).body.pushed, 0);
+    h.advance(MIN);
+    assertEquals((await h.call({ action: 'sync', family: 'underway', alarms: [alarm] })).body.pushed, 1);
+    h.store.events[0].ackedAt = h.now;
+    h.store.events[0].ackedBy = OWNER;
+    h.advance(30 * MIN);
+    const ack = await h.call({ action: 'sync', family: 'underway', alarms: [alarm] });
+    assertEquals(ack.body.acked, [alarm.key]);
+    assertEquals(ack.body.pushed, 0, 'ack persists for this encounter');
+    await h.call({ action: 'sync', family: 'underway', alarms: [] });
+    const next = underwayAlarm('off-route', { key: `off-route::${h.now}` });
+    assertEquals((await h.call({ action: 'raise', family: 'underway', alarm: next })).body.pushed, true);
+});
+
+Deno.test('underway and AIS first pushes share the existing owner hourly cap', async () => {
+    const h = await harness();
+    h.store.underway = true;
+    for (let i = 0; i < 29; i++) {
+        const mmsi = NORDLICHT + i;
+        await h.call({ action: 'raise', alarm: nordlicht({ mmsi, key: `collision:${mmsi}:${T0}` }) });
+    }
+    assertEquals(
+        (await h.call({ action: 'raise', family: 'underway', alarm: underwayAlarm('off-route') })).body.pushed,
+        true,
+    );
+    const held = await h.call({ action: 'raise', family: 'underway', alarm: underwayAlarm() });
+    assertEquals(held.body.pushed, false);
+    assertEquals(held.body.held, 'hourly');
+    assertEquals(h.store.queue.length, 30);
 });
 
 // ── The front door ─────────────────────────────────────────────────────────
