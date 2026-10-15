@@ -1,7 +1,8 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { authScopedStorageKey, setAuthIdentityScope } from '../../services/authIdentityScope';
+import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../../services/authIdentityScope';
+import { reloadSharedBindersFromStorage } from '../../services/vessel/sharedBinders';
 import type { InventoryItem } from '../../types';
 
 const mocks = vi.hoisted(() => ({
@@ -59,9 +60,10 @@ vi.mock('../../components/Toast', () => ({
 }));
 
 vi.mock('../../components/ui/PageHeader', () => ({
-    PageHeader: ({ title, action }: { title: string; action?: React.ReactNode }) => (
+    PageHeader: ({ title, action, status }: { title: string; action?: React.ReactNode; status?: React.ReactNode }) => (
         <header>
             <h1>{title}</h1>
+            {status}
             {action}
         </header>
     ),
@@ -294,7 +296,7 @@ describe('InventoryList identity isolation', () => {
 /**
  * One 'Share or save' row (130-B8; binder audit STORES-01): Download called
  * jsPDF's save(), which does nothing in the iPhone app, then said the PDF was
- * downloaded.
+ * downloaded. Crew on a skipper's shared stores get his boat's name.
  */
 describe("Ship's Stores: Share or save", () => {
     beforeEach(() => {
@@ -344,6 +346,37 @@ describe("Ship's Stores: Share or save", () => {
         // The share sheet speaks for itself: no toast, and the picker closes.
         expect(mocks.toastSuccess).not.toHaveBeenCalled();
         expect(screen.queryByRole('region', { name: 'Share or save stores list' })).not.toBeInTheDocument();
+    });
+
+    it("prints the skipper's boat on his shared stores, not the crew member's own", async () => {
+        // Crew on a skipper's boat that shares Ship's Stores (shared binders, 2026-10-02).
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_shared_binders_v1', getAuthIdentityScope()),
+            JSON.stringify({
+                version: 1,
+                userId: 'account-a',
+                confirmedAt: '2026-10-14T00:00:00.000Z',
+                skippers: [
+                    {
+                        ownerId: 'skipper-b',
+                        vesselName: 'Wind Dancer',
+                        lastAcceptedAt: '2026-10-14T00:00:00.000Z',
+                        registers: { stores: { read: true, write: true } },
+                    },
+                ],
+            }),
+        );
+        reloadSharedBindersFromStorage();
+        const picker = await openPicker();
+        expect(screen.getByText(/Shared from Wind Dancer/)).toBeInTheDocument();
+        fireEvent.click(within(picker).getByRole('button', { name: 'Share or save all categories' }));
+        await waitFor(() =>
+            expect(mocks.sharePdf).toHaveBeenCalledWith({
+                items: [expect.objectContaining({ id: 'a-item' })],
+                categories: new Set(),
+                vesselName: 'Wind Dancer',
+            }),
+        );
     });
 
     it('says downloaded only when the web downloaded it', async () => {

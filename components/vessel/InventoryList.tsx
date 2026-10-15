@@ -113,7 +113,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [showScanner, setShowScanner] = useState(false);
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const vesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || undefined);
+    const ownVesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || undefined);
 
     // Header 3-dot menu
     const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -186,6 +186,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     });
     const sharedBinder = binder.mode === 'shared';
     const viewOnly = binder.mode === 'shared' && !binder.canWrite;
+    // The boat's name on the PDF (130-B8): the skipper's on his shared stores,
+    // not the crew member's own boat from settings. None known: none printed.
+    const vesselName = binder.mode === 'shared' ? binder.vesselName?.trim() || undefined : ownVesselName;
 
     // Boxes (126-11a): written only once this phone has read stores_boxes from
     // the server, and opened by id through openBox() (126-11b's tag link).

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { authScopedStorageKey, setAuthIdentityScope } from '../../services/authIdentityScope';
+import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../../services/authIdentityScope';
 import { reloadSharedBindersFromStorage } from '../../services/vessel/sharedBinders';
 import type { MaintenanceHistory, MaintenanceTask } from '../../types';
 import type { TaskWithStatus } from '../../services/MaintenanceService';
@@ -83,9 +83,10 @@ vi.mock('../../components/Toast', () => ({
 }));
 
 vi.mock('../../components/ui/PageHeader', () => ({
-    PageHeader: ({ title, action }: { title: string; action?: React.ReactNode }) => (
+    PageHeader: ({ title, action, status }: { title: string; action?: React.ReactNode; status?: React.ReactNode }) => (
         <header>
             <h1>{title}</h1>
+            {status}
             {action}
         </header>
     ),
@@ -393,7 +394,8 @@ describe('MaintenanceHub identity isolation', () => {
 /**
  * Share or save, from the phone's own rows (130-B8; binder audit MAINT-01,
  * MAINT-13, MAINT-14): the PDFs fetched from the server, so offline at sea
- * they came out blank, and an unused Export PDF sheet sat in the page.
+ * they came out blank, and an unused Export PDF sheet sat in the page. Crew
+ * on a skipper's shared R&M get his boat's name, not their own.
  */
 describe('R&M: Share or save', () => {
     const record = (id: string, taskId: string): MaintenanceHistory => ({
@@ -428,6 +430,48 @@ describe('R&M: Share or save', () => {
         await screen.findByText('Private A maintenance');
         fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
     }
+
+    /** This sailor is crew on a skipper's boat that shares R&M (shared binders, 2026-10-02). */
+    function crewOnSharedMaintenance(vesselName: string | null): void {
+        localStorage.setItem(
+            authScopedStorageKey('thalassa_shared_binders_v1', getAuthIdentityScope()),
+            JSON.stringify({
+                version: 1,
+                userId: 'account-a',
+                confirmedAt: '2026-10-14T00:00:00.000Z',
+                skippers: [
+                    {
+                        ownerId: 'skipper-b',
+                        vesselName,
+                        lastAcceptedAt: '2026-10-14T00:00:00.000Z',
+                        registers: { maintenance: { read: true, write: true } },
+                    },
+                ],
+            }),
+        );
+        reloadSharedBindersFromStorage();
+    }
+
+    it("prints the skipper's boat on his shared R&M, not the crew member's own", async () => {
+        crewOnSharedMaintenance('Wind Dancer');
+        await openMenu();
+        expect(screen.getByText(/Shared from Wind Dancer/)).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Share or save blank checklist' }));
+        await waitFor(() => expect(mocks.exportChecklist).toHaveBeenCalledTimes(1));
+        expect(mocks.exportChecklist.mock.calls[0][2]).toBe('Wind Dancer');
+        fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Share or save service history' }));
+        await waitFor(() => expect(mocks.exportHistory).toHaveBeenCalledTimes(1));
+        expect(mocks.exportHistory.mock.calls[0][2]).toBe('Wind Dancer');
+    });
+
+    it("prints no name when the skipper's boat has none, rather than the crew member's", async () => {
+        crewOnSharedMaintenance(null);
+        await openMenu();
+        fireEvent.click(screen.getByRole('button', { name: 'Share or save blank checklist' }));
+        await waitFor(() => expect(mocks.exportChecklist).toHaveBeenCalledTimes(1));
+        expect(mocks.exportChecklist.mock.calls[0][2]).toBe('');
+    });
 
     it('offers one row per PDF and no Export PDF sheet', async () => {
         await openMenu();

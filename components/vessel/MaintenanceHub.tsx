@@ -233,7 +233,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const [exporting, setExporting] = useState(false);
     const exportingRef = useRef(false);
     // No name set: the PDF prints none, rather than 'Vessel'.
-    const vesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || '');
+    const ownVesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || '');
 
     const hoursInputRef = useRef<HTMLInputElement>(null);
     const loadRequestRef = useRef(0);
@@ -390,6 +390,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         rowCount: tasks.length,
     });
     const sharedBinder = binder.mode === 'shared';
+    // The boat's name on the PDFs (130-B8): the skipper's on his shared R&M,
+    // not the crew member's own boat from settings. None known: none printed.
+    const vesselName = binder.mode === 'shared' ? binder.vesselName?.trim() || '' : ownVesselName;
 
     // ── Engine Hours ──
     // Saved as the R&M binder's shared reading: every device of the skipper

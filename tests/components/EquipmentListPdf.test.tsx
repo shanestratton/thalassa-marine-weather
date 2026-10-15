@@ -1,7 +1,8 @@
 /**
  * Equipment's one 'Share or save' row (130-B8; binder audit EQ-10): the
  * register went out with 'Vessel' for the boat's name, and a second tap while
- * the first PDF was being made started another.
+ * the first PDF was being made started another. Crew on a skipper's shared
+ * register get his boat's name, not their own from settings.
  */
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -49,7 +50,8 @@ vi.mock('../../stores/settingsStore', () => ({
 }));
 vi.mock('../../utils/equipmentPdfExport', () => ({ exportEquipmentPdf: mocks.exportPdf }));
 
-import { setAuthIdentityScope } from '../../services/authIdentityScope';
+import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../../services/authIdentityScope';
+import { reloadSharedBindersFromStorage } from '../../services/vessel/sharedBinders';
 import { EquipmentList } from '../../components/vessel/EquipmentList';
 
 function deferred<T>() {
@@ -82,10 +84,33 @@ async function openMenu() {
     fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
 }
 
+/** This sailor is crew on a skipper's boat that shares Equipment (shared binders, 2026-10-02). */
+function crewOnSharedEquipment(vesselName: string | null): void {
+    localStorage.setItem(
+        authScopedStorageKey('thalassa_shared_binders_v1', getAuthIdentityScope()),
+        JSON.stringify({
+            version: 1,
+            userId: 'account-a',
+            confirmedAt: '2026-10-14T00:00:00.000Z',
+            skippers: [
+                {
+                    ownerId: 'skipper-b',
+                    vesselName,
+                    lastAcceptedAt: '2026-10-14T00:00:00.000Z',
+                    registers: { equipment: { read: true, write: true } },
+                },
+            ],
+        }),
+    );
+    reloadSharedBindersFromStorage();
+}
+
 describe('Equipment: Share or save', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        localStorage.clear();
         setAuthIdentityScope('account-a');
+        reloadSharedBindersFromStorage();
         mocks.rows = [windlass];
         mocks.exportPdf.mockResolvedValue('shared');
     });
@@ -102,6 +127,24 @@ describe('Equipment: Share or save', () => {
         );
         // The share sheet speaks for itself.
         expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    });
+
+    it("prints the skipper's boat on his shared register, not the crew member's own", async () => {
+        crewOnSharedEquipment('Wind Dancer');
+        await openMenu();
+        expect(screen.getByText(/Shared from Wind Dancer/)).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Share or save equipment list' }));
+        await waitFor(() =>
+            expect(mocks.exportPdf).toHaveBeenCalledWith([expect.objectContaining({ id: 'equipment-a' })], 'Wind Dancer'),
+        );
+    });
+
+    it("prints no name when the skipper's boat has none, rather than the crew member's", async () => {
+        crewOnSharedEquipment(null);
+        await openMenu();
+        fireEvent.click(screen.getByRole('button', { name: 'Share or save equipment list' }));
+        await waitFor(() => expect(mocks.exportPdf).toHaveBeenCalledTimes(1));
+        expect(mocks.exportPdf.mock.calls[0][1]).toBeUndefined();
     });
 
     it('starts no second PDF while one is being made', async () => {

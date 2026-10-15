@@ -106,7 +106,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
     const [exporting, setExporting] = useState(false);
     const exportingRef = useRef(false);
     // The boat's name on the PDF: it printed 'Vessel' before.
-    const vesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || undefined);
+    const ownVesselName = useSettingsStore((state) => state.settings.vessel?.name?.trim() || undefined);
     // Soft delete with undo (126-B10a), from the list, its ⋮ sheet and the
     // detail page alike: the item stays in state, hidden, until its delete is
     // committed; that replaces 126-B1's hand-built timer (EQ-1).
@@ -234,6 +234,9 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         rowCount: scopedItems.length,
     });
     const sharedBinder = binder.mode === 'shared';
+    // The skipper's boat on his shared register, not the crew member's own
+    // from settings (130-B8). None known: none printed.
+    const vesselName = binder.mode === 'shared' ? binder.vesselName?.trim() || undefined : ownVesselName;
 
     // Through sharePdfBlob: the share sheet in the app, a download on the web.
     const sharePdf = useCallback(async () => {
