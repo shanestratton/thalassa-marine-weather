@@ -381,6 +381,73 @@ describe('a stopped route reads no crop on the main thread (128-ROUTE-P)', () =>
         expect(mainReads).not.toHaveBeenCalled();
         expect(decoder.decodes()).toBe(0);
     });
+
+    it('the crop read asks whether it is still wanted once its tiles are decoded, and one not wanted is no water', async () => {
+        let decodesWhenAsked = -1;
+        const water = await satelliteCropWater(canalCrop(), () => {
+            decodesWhenAsked = decoder.decodes();
+            return false;
+        });
+        expect(water).toEqual({ type: 'FeatureCollection', features: [] });
+        expect(decodesWhenAsked).toBe(2);
+        expect(await satelliteCropWater(canalCrop(), () => true)).toEqual(reference);
+    });
+
+    /** The picture decoder, held: each decode has started and none finishes until released. */
+    function holdDecodes(): { started: () => number; release: () => void } {
+        const decode = globalThis.createImageBitmap as (blob: Blob) => Promise<ImageBitmap>;
+        let release!: () => void;
+        const held = new Promise<void>((r) => (release = r));
+        let started = 0;
+        vi.stubGlobal('createImageBitmap', async (blob: Blob) => {
+            started++;
+            await held;
+            return decode(blob);
+        });
+        return { started: () => started, release };
+    }
+
+    // Where the main thread reads the crop itself, a stop during its decodes
+    // drops it before the 0.15-0.6 s classify, beside a re-tap's fresh route
+    // (review 2026-10-11, kept through 131-05).
+    describe.each<[string, () => void]>([
+        ['no Worker at all', () => vi.stubGlobal('Worker', undefined)],
+        [
+            'the worker crashed under it',
+            () => {
+                vi.spyOn(console, 'warn').mockImplementation(() => {});
+                TestWorker.behaviour = 'crash';
+            },
+        ],
+    ])('a crop the main thread reads (%s)', (_where, setUp) => {
+        it('stopped while its tiles are decoded, is dropped before its classify', async () => {
+            setUp();
+            serveCanalTiles();
+            const decodes = holdDecodes();
+            const stop = new AbortController();
+            const crop = fetchSatelliteWater(CANAL_BBOX, TOKEN, undefined, undefined, stop.signal);
+            await until(() => decodes.started() === 2, 'the decodes');
+            stop.abort();
+            decodes.release();
+            expect(await crop).toEqual({ type: 'FeatureCollection', features: [] });
+            // The read itself stopped before the classify: not classified, then thrown away.
+            expect(mainReads).toHaveBeenCalledTimes(1);
+            expect(await mainReads.mock.results[0].value).toEqual({ type: 'FeatureCollection', features: [] });
+            // The decodes already started finish (they can't be called back).
+            expect(decoder.decodes()).toBe(2);
+        });
+
+        it('not stopped, the same held decodes read the canal', async () => {
+            setUp();
+            serveCanalTiles();
+            const decodes = holdDecodes();
+            const crop = fetchSatelliteWater(CANAL_BBOX, TOKEN, undefined, undefined, new AbortController().signal);
+            await until(() => decodes.started() === 2, 'the decodes');
+            decodes.release();
+            expect(await crop).toEqual(reference);
+            expect(mainReads).toHaveBeenCalledTimes(1);
+        });
+    });
 });
 
 describe('an iOS memory warning while the worker reads a crop', () => {

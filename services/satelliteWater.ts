@@ -71,8 +71,10 @@ const EMPTY = (): FeatureCollection => ({ type: 'FeatureCollection', features: [
  * it (no Worker, a worker that will not start, crashes, is ended under it, or
  * has no picture decoder of its own), the main thread reads it through the same
  * function, with a warn line, as the route worker's own fallback does. A stopped
- * route's crop answers nothing (128-ROUTE-P): the worker's answer is dropped,
- * and the main thread never reads it.
+ * route's crop answers nothing (128-ROUTE-P): the worker's answer is dropped; a
+ * crop stopped before the main thread takes it is not read there, and one
+ * stopped while the main thread decodes its tiles is dropped before the
+ * classify (satelliteCropWater's stillWanted), as it was before 131-05.
  */
 async function readCrop(crop: SatelliteCrop, signal?: AbortSignal): Promise<FeatureCollection> {
     const hosted = runWaterJobHosted(crop);
@@ -85,7 +87,8 @@ async function readCrop(crop: SatelliteCrop, signal?: AbortSignal): Promise<Feat
             log.warn(`${err instanceof Error ? err.message : String(err)} — satellite crop read on the main thread`);
         }
     }
-    return ROUTE_ENGINE.water(crop);
+    const water = await ROUTE_ENGINE.water(crop, () => !signal?.aborted);
+    return signal?.aborted ? EMPTY() : water;
 }
 
 /**
@@ -95,8 +98,11 @@ async function readCrop(crop: SatelliteCrop, signal?: AbortSignal): Promise<Feat
  * (readCrop). Returns an empty FeatureCollection on any failure (the caller
  * then falls back to chart-only, never throwing).
  *
- * @param signal  a stopped route's crop decodes and classifies nothing on the
- *                main thread (128-ROUTE-P); its tiles in flight are dropped.
+ * @param signal  a stopped route's crop classifies nothing on the main thread
+ *                (128-ROUTE-P): its tiles in flight are dropped, the worker's
+ *                answer is dropped, and where the main thread reads it, a stop
+ *                during its decodes drops it before the classify (the decodes
+ *                already started finish).
  */
 export async function fetchSatelliteWater(
     bbox: readonly [number, number, number, number],

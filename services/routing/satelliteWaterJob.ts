@@ -351,8 +351,18 @@ async function decodeTile(t: SatelliteTile): Promise<{ rgba: Uint8ClampedArray; 
  * rectangles. Never throws for a tile: a tile that will not decode leaves the
  * crop short, and a short crop is no water (the caller then falls back to the
  * vector water).
+ *
+ * @param stillWanted  asked once the tiles are decoded, before the classify:
+ *                     false and the crop is no water, classified nothing. The
+ *                     main thread's fallback passes its route's stop
+ *                     (128-ROUTE-P: a route stopped during the decodes runs no
+ *                     classify beside a re-tap's fresh route); the worker
+ *                     passes none, its answer to a stopped route is dropped.
  */
-export async function satelliteCropWater(crop: SatelliteCrop): Promise<FeatureCollection> {
+export async function satelliteCropWater(
+    crop: SatelliteCrop,
+    stillWanted?: () => boolean,
+): Promise<FeatureCollection> {
     const empty: FeatureCollection = { type: 'FeatureCollection', features: [] };
     const { tiles, zoom, bbox } = crop;
     if (tiles.length === 0) return empty;
@@ -392,8 +402,9 @@ export async function satelliteCropWater(crop: SatelliteCrop): Promise<FeatureCo
     );
     // Require the crop to be fully decoded: a partial mosaic leaves the canal
     // disconnected at the holes AND risks the false-water blob above, so fall
-    // back to the vector water instead (the caller's behaviour).
-    if (got < tiles.length) return empty;
+    // back to the vector water instead (the caller's behaviour). A crop no
+    // longer wanted stops here too, before the classify (128-ROUTE-P).
+    if (got < tiles.length || (stillWanted && !stillWanted())) return empty;
     const mask = classifyWaterMask(rgba, W, H, crop.classify);
     for (let i = 0; i < mask.length; i++) if (!covered[i]) mask[i] = 0;
     const groundResM = (156_543.03 / 2 ** zoom) * Math.cos((((bbox[1] + bbox[3]) / 2) * Math.PI) / 180);

@@ -454,9 +454,9 @@ test('a satellite crop read in the route worker gives the main thread’s land a
         const fixture = (window as unknown as FixtureWindow).__trialFixture;
         const read = job.ROUTE_ENGINE.water;
         let mainReads = 0;
-        job.ROUTE_ENGINE.water = (crop) => {
+        job.ROUTE_ENGINE.water = (crop, stillWanted) => {
             mainReads++;
-            return read(crop);
+            return read(crop, stillWanted);
         };
         const PageWorker = window.Worker;
         try {
