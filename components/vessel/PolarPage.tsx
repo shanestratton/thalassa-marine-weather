@@ -7,6 +7,7 @@
 import React, { useCallback } from 'react';
 import { PolarManagerTab } from '../settings/PolarManagerTab';
 import { useSettings } from '../../context/SettingsContext';
+import { useRoutingPolar } from '../../hooks/useRoutingPolar';
 import { PageHeader } from '../ui/PageHeader';
 import { authScopedStorageKey } from '../../services/authIdentityScope';
 
@@ -32,6 +33,9 @@ interface PolarPageProps {
 
 export const PolarPage: React.FC<PolarPageProps> = ({ onBack, onNavigateToNmea, onOpenVesselProfile }) => {
     const { settings, updateSettings } = useSettings();
+    // The polar routes really sail (130-B6): the resolver the passage HUD and
+    // Plan Your Day sail on, so the page's top line is their words too.
+    const routing = useRoutingPolar(settings.vessel);
 
     const handleSave = useCallback(
         (patch: Record<string, unknown>) => {
@@ -58,6 +62,7 @@ export const PolarPage: React.FC<PolarPageProps> = ({ onBack, onNavigateToNmea, 
                     <PolarManagerTab
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         settings={settings as any}
+                        routesSailOn={routing.label}
                         onSave={handleSave}
                         onNavigateToNmea={onNavigateToNmea}
                         onOpenVesselProfile={onOpenVesselProfile}
