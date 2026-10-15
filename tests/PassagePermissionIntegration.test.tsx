@@ -5,7 +5,8 @@ import type { PassageStatus } from '../services/PassagePlanService';
 import type { VoyageRow } from '../components/CrewManagement';
 import type { CrewMember } from '../services/CrewService';
 
-vi.mock('../data/customsPortIndex', () => ({
+vi.mock('../data/customsPortIndex', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../data/customsPortIndex')>()),
     isSameCountry: vi.fn(() => false),
 }));
 
@@ -367,6 +368,42 @@ describe('passage permission integration', () => {
         });
 
         expect(screen.getByTestId('navigation-card')).toHaveAttribute('data-other-cards-ready', 'true');
+    });
+
+    it('counts documents on the customs row when the index can place the ports', () => {
+        const { unmount } = renderStack(ownerStatus, [], { customsProgress: { total: 12, checked: 3 } });
+        const customsRow = () => screen.getByText('Customs & Immigration').closest('summary');
+        expect(customsRow()).toHaveTextContent('3/12 documents · Brisbane, Australia → Noumea, New Caledonia');
+        unmount();
+
+        renderStack(ownerStatus, [], { customsCleared: true, customsProgress: { total: 12, checked: 12 } });
+        expect(customsRow()).toHaveTextContent('✅ All documents cleared');
+    });
+
+    it('130-09: names the border check, never documents, when neither port can be placed', () => {
+        // The card's one item is the skipper's border check (1, n): no
+        // document was listed, so the row must not claim any.
+        const bermudaRun: VoyageRow = {
+            ...voyage,
+            departure_port: 'Newport, RI',
+            destination_port: "St George's, Bermuda",
+        };
+        const { unmount } = renderStack(ownerStatus, [], {
+            draftVoyages: [bermudaRun],
+            customsProgress: { total: 1, checked: 0 },
+        });
+        const customsRow = () => screen.getByText('Customs & Immigration').closest('summary');
+        expect(customsRow()).toHaveTextContent("Border check · Newport, RI → St George's, Bermuda");
+        expect(customsRow()).not.toHaveTextContent(/documents/);
+        unmount();
+
+        renderStack(ownerStatus, [], {
+            draftVoyages: [bermudaRun],
+            customsCleared: true,
+            customsProgress: { total: 1, checked: 1 },
+        });
+        expect(customsRow()).toHaveTextContent('✅ Border checked');
+        expect(customsRow()).not.toHaveTextContent(/documents/);
     });
 
     it('shows delegation controls as soon as a pending crew invite exists', () => {

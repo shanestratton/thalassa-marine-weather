@@ -10,15 +10,23 @@
  * procedures, contacts and documents) is a packaged data file loaded the
  * first time a card opens (data/customsDb.ts, build-126 bundle diet), so
  * the card shows a loading line for that moment, never "Limited Data".
+ *
+ * When neither port is one the index can place, the card says it cannot
+ * tell whether the passage crosses a border, and gives the skipper one check
+ * to tick instead of a document list (130-09).
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { VoyagePlan } from '../../types';
 import { PhoneIcon, RadioTowerIcon, AlertTriangleIcon, ExternalLinkIcon, MapPinIcon } from '../Icons';
 import { findCountryData, difficultyStyle, loadCustomsClearance, peekCustomsClearance } from '../../data/customsDb';
-import { CUSTOMS_PORT_INDEX, findCountryKey } from '../../data/customsPortIndex';
+import { CUSTOMS_PORT_INDEX, findCountryKey, isPortOfEntry, placesNeither } from '../../data/customsPortIndex';
 import { useReadinessSync, useScopedReadinessStorageState } from '../../hooks/useReadinessSync';
 import { safeExternalHttpUrl } from '../../utils/safeUrl';
+
+/** The one item to tick when neither port is one the index can place
+ *  (130-09): the skipper's own check of whether the passage crosses a border. */
+const BORDER_CHECK_KEY = 'border:checked';
 
 /* ═══════════════════════════════════════════════════════════════
    COMPONENT
@@ -90,8 +98,15 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
     }, [guide, customsRequired]);
 
     useEffect(() => {
+        if (!onCheckedChange || !customsRequired) return;
+        // Neither port is one the index can place, so there is no guide to
+        // follow: the skipper's own border check is the one item (130-09).
+        if (placesNeither(customsDepartCountry, customsArriveCountry)) {
+            onCheckedChange(1, checkedDocs[BORDER_CHECK_KEY] ? 1 : 0);
+            return;
+        }
         // No count until there are documents to count: the guide holds them.
-        if (!onCheckedChange || !customsRequired || !guide) return;
+        if (!guide) return;
         const departData = findCountryData(customsDepartCountry, guide);
         const arriveData = findCountryData(customsArriveCountry, guide);
         const allDocs = [
@@ -107,10 +122,10 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
 
     // The plan's customs.departingCountry / destinationCountry can
     // arrive as either a country name ('Australia') or a port string
-    // ('Newport, QLD'). findCountryData handles both via alias-substring
-    // matching, so we get the country data regardless. For the user-
-    // facing labels and POE check we keep the original port input on
-    // hand too.
+    // ('Newport, QLD', 'Sydney'). findCountryKey places both, by whole
+    // words (130-09), so we get the country data regardless. For the
+    // user-facing labels and POE check we keep the original port input
+    // on hand too.
     const departInput = customs.departingCountry;
     const arriveInput = customs.destinationCountry;
     // Name, flag and ports of entry from the index, at once; the rest of
@@ -128,27 +143,16 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
     const departLabel = departIndex?.country || departInput || 'Departure';
     const arriveLabel = arriveIndex?.country || arriveInput || 'Arrival';
 
-    /**
-     * Detect whether the user's typed port matches a designated port
-     * of entry for the resolved country. If not, the user must clear
-     * at one of the listed POEs — not the port they're sitting at.
-     * Match is case-insensitive substring either way; handles
-     * 'Nouméa (Port Moselle)' against 'Port Moselle, NC'.
-     */
-    const isPortAnEntryPort = (portInput: string | undefined, portsOfEntry: readonly string[] | undefined): boolean => {
-        if (!portInput || !portsOfEntry) return false;
-        const cleaned = portInput
-            .toLowerCase()
-            .split(',')[0] // strip ', QLD' / ', NC' suffixes
-            .trim();
-        if (!cleaned) return false;
-        return portsOfEntry.some((p) => {
-            const pl = p.toLowerCase();
-            return pl.includes(cleaned) || cleaned.includes(pl);
-        });
-    };
-    const departPortIsPOE = isPortAnEntryPort(departInput, departIndex?.portsOfEntry);
-    const arrivePortIsPOE = isPortAnEntryPort(arriveInput, arriveIndex?.portsOfEntry);
+    // Whether the user's typed port is a designated port of entry for the
+    // resolved country. If not, the user must clear at one of the listed
+    // POEs — not the port they're sitting at. Matched as whole words, as
+    // the country is: 'Port Moselle, NC' is 'Nouméa (Port Moselle)'.
+    const departPortIsPOE = isPortOfEntry(departInput, departKey);
+    const arrivePortIsPOE = isPortOfEntry(arriveInput, arriveKey);
+    // Neither port is one the index can place: we cannot tell whether this
+    // passage crosses a border, and say so rather than guess (130-09).
+    const neitherPortKnown = placesNeither(departInput, arriveInput);
+    const borderChecked = !!checkedDocs[BORDER_CHECK_KEY];
 
     // Which clearance data to show
     const activeData = activeTab === 'depart' ? departData : arriveData;
@@ -497,18 +501,72 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                             <AlertTriangleIcon className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
                             <div>
                                 <h5 className="text-xs font-bold text-amber-300 mb-1">
-                                    {guideUnavailable ? 'Clearance Guide Unavailable' : 'Limited Data Available'}
+                                    {neitherPortKnown
+                                        ? "Can't Tell If This Passage Crosses a Border"
+                                        : guideUnavailable
+                                          ? 'Clearance Guide Unavailable'
+                                          : 'Limited Data Available'}
                                 </h5>
                                 <p className="text-xs text-gray-400 leading-relaxed">
-                                    {guideUnavailable
-                                        ? `The clearance guide could not be loaded just now, so the procedures for ${activeCountryName} are not shown.`
-                                        : `We don't have detailed clearance procedures for ${activeCountryName} in our database yet.`}{' '}
-                                    Below is the AI-generated information from your passage plan. Always verify with the
-                                    relevant authorities before departure.
+                                    {neitherPortKnown ? (
+                                        `We don't recognise ${departInput} or ${arriveInput}, so we can't tell whether they are in the same country. If this passage leaves the country, you'll need to clear out before you go and clear in at a port of entry when you arrive.`
+                                    ) : (
+                                        <>
+                                            {guideUnavailable
+                                                ? `The clearance guide could not be loaded just now, so the procedures for ${activeCountryName} are not shown.`
+                                                : `We don't have detailed clearance procedures for ${activeCountryName} in our database yet.`}{' '}
+                                            Below is the AI-generated information from your passage plan. Always verify
+                                            with the relevant authorities before departure.
+                                        </>
+                                    )}
                                 </p>
                             </div>
                         </div>
                     </div>
+
+                    {/* ── The skipper's own border check (130-09): the one item
+                        to tick when neither port is one we can place, so an
+                        unknown passage is neither waved through as domestic
+                        nor locked out of Cast Off. ── */}
+                    {neitherPortKnown && (
+                        <button
+                            type="button"
+                            aria-pressed={borderChecked}
+                            onClick={() => toggleDoc(BORDER_CHECK_KEY)}
+                            className={`w-full flex items-start gap-2.5 px-3 py-2.5 rounded-lg text-xs text-left transition-all active:scale-[0.98] ${
+                                borderChecked
+                                    ? 'bg-emerald-500/10 border border-emerald-500/20'
+                                    : 'bg-amber-500/5 border border-amber-500/15 hover:bg-amber-500/10'
+                            }`}
+                        >
+                            <div
+                                className={`mt-0.5 rounded border-2 flex items-center justify-center shrink-0 transition-all ${
+                                    borderChecked ? 'bg-emerald-500 border-emerald-500' : 'border-amber-500/50'
+                                }`}
+                                style={{ width: 18, height: 18 }}
+                            >
+                                {borderChecked && (
+                                    <svg
+                                        className="w-3 h-3 text-white"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={3}
+                                    >
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                    </svg>
+                                )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <span className={borderChecked ? 'text-emerald-300' : 'text-amber-200 font-bold'}>
+                                    I've checked whether this passage crosses a border
+                                </span>
+                                <div className="text-[11px] text-gray-400 mt-0.5">
+                                    If it does, I know where to clear out and where to clear in.
+                                </div>
+                            </div>
+                        </button>
+                    )}
 
                     {activeTab === 'depart' && customs?.departureProcedures && (
                         <div className="bg-white/3 border border-white/6 rounded-xl p-4">
