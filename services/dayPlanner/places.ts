@@ -35,7 +35,8 @@
  * splitClosed() before anything is scored, never baked in here.
  *
  * SHELTER IS LAND ONLY. Atlas points carry their baked land table; OpenStreetMap
- * points get one ray-cast against the OSM coastline (km → NM, capped at 15).
+ * points get one ray-cast against the OSM coastline (km → NM, capped at 15),
+ * once ranked, against the coastline indexed once for them all (131-PYD-10).
  * No coastline, no table: the stop reads "Shelter not known". Reefs are never
  * counted as shelter.
  *
@@ -55,7 +56,12 @@ import {
     type ReferenceTile,
 } from '../anchorages/cruisingReference';
 import { routeLengthNm } from '../routeProgress';
-import { assessFetch, type Segment } from '../weather/shelter/shelterGeometry';
+import {
+    fetchByBearingIndexed,
+    indexCoastline,
+    type CoastlineIndex,
+    type Segment,
+} from '../weather/shelter/shelterGeometry';
 import { calculateDistance } from '../../utils/navigationCalculations';
 import {
     SHARED_DESTINATION_NOTES,
@@ -277,20 +283,26 @@ export function dayPlanTiles(start: LatLon, radiusNm: number): { tiles: Referenc
 
 // ── Shelter and distance ───────────────────────────────────────
 
-/** Land-only fetch, 36 sectors, NM to the first coastline (15 = open). Null without a coastline. */
-export function landFetchTableNm(lat: number, lon: number, coastline: readonly Segment[] | null): number[] | null {
+/** Land-only fetch, 36 sectors, NM to the first coastline (15 = open). Null without a coastline. The
+ *  coastline indexed once (131-PYD-10) when many places are cast against it: the same table, far sooner. */
+export function landFetchTableNm(
+    lat: number,
+    lon: number,
+    coastline: readonly Segment[] | CoastlineIndex | null,
+): number[] | null {
     if (!coastline) return null;
-    const { fetchByBearingKm } = assessFetch(lat, lon, coastline as Segment[], {
-        maxKm: FETCH_CAP_NM * NM_KM,
-    });
-    return fetchByBearingKm.map((km) => Math.min(FETCH_CAP_NM, Math.round((km / NM_KM) * 10) / 10));
+    const index = Array.isArray(coastline) ? indexCoastline(coastline, lat) : (coastline as CoastlineIndex);
+    return fetchByBearingIndexed(lat, lon, index, FETCH_CAP_NM * NM_KM).map((km) =>
+        Math.min(FETCH_CAP_NM, Math.round((km / NM_KM) * 10) / 10),
+    );
 }
 
-/** Does the straight line a → b cross any coastline segment? Planar, about a. */
+/** Does the straight line a → b cross any coastline segment? Planar, about a. A segment wholly north or south
+ *  of the line is passed over before anything else is worked out (131-PYD-10: a fjord coast is 100,000 of them). */
 export function crossesCoastline(a: LatLon, b: LatLon, coastline: readonly Segment[]): boolean {
     const cos = Math.cos((a.lat * Math.PI) / 180) || 1e-6;
-    const local = (lon: number, lat: number): [number, number] => [longitude(lon - a.lon) * cos, lat - a.lat];
-    const [bx, by] = local(b.lon, b.lat);
+    const bx = longitude(b.lon - a.lon) * cos;
+    const by = b.lat - a.lat;
     const minX = Math.min(0, bx);
     const maxX = Math.max(0, bx);
     const minY = Math.min(0, by);
@@ -299,10 +311,12 @@ export function crossesCoastline(a: LatLon, b: LatLon, coastline: readonly Segme
         (px - ox) * (qy - oy) - (py - oy) * (qx - ox);
     for (const seg of coastline) {
         if (!seg || seg.length !== 2) continue;
-        const [cx, cy] = local(seg[0][0], seg[0][1]);
-        const [dx, dy] = local(seg[1][0], seg[1][1]);
-        if (Math.max(cx, dx) < minX || Math.min(cx, dx) > maxX || Math.max(cy, dy) < minY || Math.min(cy, dy) > maxY)
-            continue;
+        const cy = seg[0][1] - a.lat;
+        const dy = seg[1][1] - a.lat;
+        if (Math.max(cy, dy) < minY || Math.min(cy, dy) > maxY) continue;
+        const cx = longitude(seg[0][0] - a.lon) * cos;
+        const dx = longitude(seg[1][0] - a.lon) * cos;
+        if (Math.max(cx, dx) < minX || Math.min(cx, dx) > maxX) continue;
         const d1 = cross(cx, cy, dx, dy, 0, 0);
         const d2 = cross(cx, cy, dx, dy, bx, by);
         const d3 = cross(0, 0, bx, by, cx, cy);
@@ -480,6 +494,8 @@ interface RawPlace extends LatLon {
     mappedAtMs?: number;
     /** Its land table came with it (the atlas's, or a cached one): no ray-cast, so never capped. */
     baked: boolean;
+    /** An OpenStreetMap place with no table: ray-cast against the coastline only once it is ranked (131-PYD-10). */
+    cast?: boolean;
     kind?: 'bay' | 'area';
 }
 
@@ -605,9 +621,10 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
                 lat: point.lat,
                 lon: point.lon,
                 source: 'osm',
-                fetchLandNM: cached ?? landFetchTableNm(point.lat, point.lon, coastline),
+                fetchLandNM: cached,
                 noAnchoring: restricted(point),
                 baked: !!cached,
+                cast: !cached,
                 ...(type !== 'node' ? { kind: 'area' as const } : {}),
                 ...(Number.isFinite(retrievedAt) && nowMs - retrievedAt >= MAPPED_DATED_AFTER_MS
                     ? { mappedAtMs: retrievedAt }
@@ -629,9 +646,10 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
             lat: bay.lat,
             lon: bay.lon,
             source: 'osm',
-            fetchLandNM: landFetchTableNm(bay.lat, bay.lon, coastline),
+            fetchLandNM: null,
             noAnchoring: false,
             baked: false,
+            cast: true,
             kind: 'bay',
         });
     }
@@ -680,6 +698,13 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
     const ranked = [...always, ...others.slice(0, room), ...bayPool.slice(0, BAY_LIMIT)].sort(
         (a, b) => a.straightNm - b.straightNm || a.id.localeCompare(b.id),
     );
+    // Shelter speed (131-PYD-10): only the ranked places are ray-cast, never every point in the four cells,
+    // against the coastline indexed once for them all.
+    let index: CoastlineIndex | null = null;
+    const shelter = (place: RawPlace) =>
+        place.cast && coastline
+            ? landFetchTableNm(place.lat, place.lon, (index ??= indexCoastline(coastline, start.lat)))
+            : place.fetchLandNM;
     const candidates: PlaceCandidate[] = ranked.map((place) => {
         const destination = reviewedByAnchorage.get(place.id);
         const saved = matchSavedRoute(start, place, input.savedRoutes);
@@ -689,7 +714,7 @@ export function gatherPlaces(input: GatherPlacesInput): GatheredPlaces {
             lat: place.lat,
             lon: place.lon,
             source: place.source,
-            fetchLandNM: place.fetchLandNM,
+            fetchLandNM: shelter(place),
             straightNm: place.straightNm,
             distance: distanceEstimate(start, place, coastline, saved),
             ...(destination ? { reviewed: reviewedOf(destination) } : {}),

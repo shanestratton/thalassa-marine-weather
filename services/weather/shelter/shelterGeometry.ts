@@ -107,3 +107,119 @@ export function assessFetch(lat: number, lon: number, coastline: Segment[], opts
     const enclosed = openBearings <= maxOpenBearings;
     return { enclosed, maxFetchKm, minFetchKm, openBearings, fetchByBearingKm };
 }
+
+// ── Many points against one coastline (131-PYD-10) ─────────────
+
+/**
+ * The coastline bucketed once into cells about 2 NM a side, for ray-casting
+ * many points. Plan Your Day's places worldwide put up to eighty bays and
+ * anchorages against a fjord coastline of a hundred thousand segments, and
+ * assessFetch tests every segment on every bearing: 3.6 million tests a
+ * place, about 40 s for Tromsø on a desktop before this.
+ */
+export interface CoastlineIndex {
+    /** lon0, lat0, lon1, lat1 for each segment. */
+    seg: Float64Array;
+    cellLatDeg: number;
+    cellLonDeg: number;
+    cells: Map<number, number[]>;
+    /** Segments spanning too many cells to bucket: tested from every point. */
+    wide: number[];
+}
+
+const CELL_M = 3_700;
+const WIDE_CELLS = 64;
+const cellKey = (row: number, col: number) => row * 1_000_000 + col;
+
+export function indexCoastline(coastline: readonly Segment[], aroundLat: number): CoastlineIndex {
+    const cellLatDeg = CELL_M / M_PER_DEG_LAT;
+    const cellLonDeg = CELL_M / (M_PER_DEG_LON_EQ * Math.max(0.05, Math.cos((aroundLat * Math.PI) / 180)));
+    const valid = coastline.filter((s) => s && s.length === 2);
+    const seg = new Float64Array(valid.length * 4);
+    const cells = new Map<number, number[]>();
+    const wide: number[] = [];
+    valid.forEach(([a, b], i) => {
+        seg[i * 4] = a[0];
+        seg[i * 4 + 1] = a[1];
+        seg[i * 4 + 2] = b[0];
+        seg[i * 4 + 3] = b[1];
+        const c0 = Math.floor(Math.min(a[0], b[0]) / cellLonDeg);
+        const c1 = Math.floor(Math.max(a[0], b[0]) / cellLonDeg);
+        const r0 = Math.floor(Math.min(a[1], b[1]) / cellLatDeg);
+        const r1 = Math.floor(Math.max(a[1], b[1]) / cellLatDeg);
+        if ((r1 - r0 + 1) * (c1 - c0 + 1) > WIDE_CELLS) {
+            wide.push(i);
+            return;
+        }
+        for (let r = r0; r <= r1; r++)
+            for (let c = c0; c <= c1; c++) {
+                const list = cells.get(cellKey(r, c));
+                if (list) list.push(i);
+                else cells.set(cellKey(r, c), [i]);
+            }
+    });
+    return { seg, cellLatDeg, cellLonDeg, cells, wide };
+}
+
+/**
+ * What assessFetch's fetchByBearingKm gives (the same rays, projection and
+ * cap), from an index: each segment is tested only on the bearings it spans
+ * as seen from the point, cells are visited nearest first, and the walk stops
+ * once every ray has met land nearer than any cell not yet visited.
+ */
+export function fetchByBearingIndexed(lat: number, lon: number, index: CoastlineIndex, maxKm: number, bearings = 36) {
+    const maxM = maxKm * 1000;
+    const cosLat0 = Math.cos((lat * Math.PI) / 180) || 1e-6;
+    const step = 360 / bearings;
+    const dxs = Array.from({ length: bearings }, (_, i) => Math.sin((i * step * Math.PI) / 180));
+    const dys = Array.from({ length: bearings }, (_, i) => Math.cos((i * step * Math.PI) / 180));
+    const nearest = new Array<number>(bearings).fill(Infinity);
+    const { seg } = index;
+    const ray = (k: number, ax: number, ay: number, ex: number, ey: number) => {
+        const dx = dxs[k];
+        const dy = dys[k];
+        const denom = dx * ey - dy * ex;
+        if (Math.abs(denom) < 1e-9) return;
+        const t = (ax * ey - ay * ex) / denom;
+        const s = (ax * dy - ay * dx) / denom;
+        if (t < 0 || t > maxM || s < 0 || s > 1) return;
+        if (t < nearest[k]) nearest[k] = t;
+    };
+    const test = (i: number) => {
+        const ax = (seg[i * 4] - lon) * M_PER_DEG_LON_EQ * cosLat0;
+        const ay = (seg[i * 4 + 1] - lat) * M_PER_DEG_LAT;
+        const bx = (seg[i * 4 + 2] - lon) * M_PER_DEG_LON_EQ * cosLat0;
+        const by = (seg[i * 4 + 3] - lat) * M_PER_DEG_LAT;
+        const ex = bx - ax;
+        const ey = by - ay;
+        const from = (Math.atan2(ax, ay) * 180) / Math.PI;
+        const to = (Math.atan2(bx, by) * 180) / Math.PI;
+        const sweep = ((((to - from) % 360) + 540) % 360) - 180;
+        // Through (or nearly through) the point itself: every bearing.
+        if ((!ax && !ay) || (!bx && !by) || Math.abs(sweep) > 179) {
+            for (let k = 0; k < bearings; k++) ray(k, ax, ay, ex, ey);
+            return;
+        }
+        const lo = sweep >= 0 ? from : from + sweep;
+        for (let k = Math.ceil((lo - 0.01) / step); k <= Math.floor((lo + Math.abs(sweep) + 0.01) / step); k++)
+            ray(((k % bearings) + bearings) % bearings, ax, ay, ex, ey);
+    };
+    for (const i of index.wide) test(i);
+    const row0 = Math.floor(lat / index.cellLatDeg);
+    const col0 = Math.floor(lon / index.cellLonDeg);
+    const cellM = Math.min(index.cellLatDeg * M_PER_DEG_LAT, index.cellLonDeg * M_PER_DEG_LON_EQ * cosLat0);
+    for (let ring = 0; ; ring++) {
+        // Nothing in this ring or beyond lies nearer than `clear`.
+        const clear = (ring - 1) * cellM;
+        if (clear > maxM) break;
+        if (ring > 0 && nearest.every((m) => Math.min(m, maxM) <= clear)) break;
+        for (let dr = -ring; dr <= ring; dr++) {
+            const edge = Math.abs(dr) === ring;
+            for (let dc = -ring; dc <= ring; dc += edge ? 1 : 2 * ring) {
+                const list = index.cells.get(cellKey(row0 + dr, col0 + dc));
+                if (list) for (const i of list) test(i);
+            }
+        }
+    }
+    return nearest.map((m) => (m === Infinity ? maxKm : m / 1000));
+}

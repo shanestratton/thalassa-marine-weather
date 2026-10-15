@@ -24,13 +24,16 @@ import { DEFAULT_CRUISING_POLAR } from '../services/defaultPolar';
 import {
     BAY_LIMIT,
     PLACE_LIMIT,
+    crossesCoastline,
     gatherPlaces,
+    landFetchTableNm,
     marinaNear,
     nameStart,
     type AtlasFeature,
     type GatherPlacesInput,
     type LatLon,
 } from '../services/dayPlanner/places';
+import { assessFetch, indexCoastline, type Segment } from '../services/weather/shelter/shelterGeometry';
 import { planDay, resolveDayPlanLimits, type DayPlanInput } from '../services/dayPlanner/today';
 import { loadToday } from '../services/dayPlanner/todayLoader';
 import type { PassageSpeedModel } from '../services/passagePlan';
@@ -268,6 +271,126 @@ describe('a fjord full of bays never crowds out its charted anchorages', () => {
     });
 });
 
+// ── Shelter speed ──────────────────────────────────────────────
+
+/** A seeded generator, so the synthetic coast is the same every run. */
+function seeded(seed: number) {
+    return () => {
+        seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+/** An invented fjord country round a point: jagged islands, `vertices` segments each, within half a degree. */
+function islands(centre: LatLon, count: number, vertices: number, seed = 7): Segment[] {
+    const r = seeded(seed);
+    const cos = Math.cos((centre.lat * Math.PI) / 180);
+    const segs: Segment[] = [];
+    for (let k = 0; k < count; k++) {
+        const at = { lat: centre.lat + (r() - 0.5), lon: centre.lon + (r() - 0.5) / cos };
+        const radiusNm = 0.3 + r() * 2;
+        const ring: [number, number][] = Array.from({ length: vertices }, (_, i) => {
+            const a = (i / vertices) * Math.PI * 2;
+            const nm = radiusNm * (0.7 + 0.3 * r());
+            return [at.lon + (Math.sin(a) * nm) / 60 / cos, at.lat + (Math.cos(a) * nm) / 60];
+        });
+        ring.forEach((p, i) => segs.push([p, ring[(i + 1) % vertices]]));
+    }
+    return segs;
+}
+
+describe('shelter speed: the new places are ray-cast fast enough for the phone', () => {
+    /** The table as it was worked out before 131-PYD-10: assessFetch, every segment on every bearing. */
+    const before = (lat: number, lon: number, coast: Segment[]) =>
+        assessFetch(lat, lon, coast, { maxKm: 15 * 1.852 }).fetchByBearingKm.map((km) =>
+            Math.min(15, Math.round((km / 1.852) * 10) / 10),
+        );
+
+    it.each([
+        ['Tromsø', TROMSO],
+        ['Brittany', BRITTANY],
+        ['the Whitsundays', { lat: -20.265, lon: 148.719 }],
+    ])('gives the same land fetch table as before, at %s', (_, centre) => {
+        // A long straight segment across the lot, too wide to bucket, as well as the islands.
+        const coast = [
+            ...islands(centre, 30, 60, 11),
+            [
+                [centre.lon - 1, centre.lat + 0.2],
+                [centre.lon + 1, centre.lat + 0.25],
+            ] as Segment,
+        ];
+        const index = indexCoastline(coast, centre.lat);
+        const r = seeded(5);
+        for (let i = 0; i < 40; i++) {
+            const at = { lat: centre.lat + (r() - 0.5) * 0.8, lon: centre.lon + (r() - 0.5) * 1.5 };
+            const want = before(at.lat, at.lon, coast);
+            expect(landFetchTableNm(at.lat, at.lon, index), `${at.lat},${at.lon}`).toEqual(want);
+            expect(landFetchTableNm(at.lat, at.lon, coast)).toEqual(want);
+        }
+    });
+
+    it('says what it said before about the line crossing the coast, passing over what lies north or south', () => {
+        /** The check as it was before 131-PYD-10: every segment projected, then boxed. */
+        const crossedBefore = (a: LatLon, b: LatLon, coast: Segment[]) => {
+            const cos = Math.cos((a.lat * Math.PI) / 180);
+            const local = (lon: number, lat: number) => [(lon - a.lon) * cos, lat - a.lat];
+            const [bx, by] = local(b.lon, b.lat);
+            const side = (o: number[], p: number[], q: number[]) =>
+                Math.sign((p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]));
+            return coast.some(([p, q]) => {
+                const c = local(p[0], p[1]);
+                const d = local(q[0], q[1]);
+                const o = [0, 0];
+                const e = [bx, by];
+                return side(c, d, o) * side(c, d, e) < 0 && side(o, e, c) * side(o, e, d) < 0;
+            });
+        };
+        const coast = islands(TROMSO, 30, 60, 13);
+        const r = seeded(9);
+        const near = () => ({ lat: TROMSO.lat + (r() - 0.5) * 0.8, lon: TROMSO.lon + (r() - 0.5) * 1.5 });
+        let crossed = 0;
+        for (let i = 0; i < 80; i++) {
+            const [from, to] = [near(), near()];
+            const want = crossedBefore(from, to, coast);
+            expect(crossesCoastline(from, to, coast)).toBe(want);
+            if (want) crossed++;
+        }
+        expect(crossed).toBeGreaterThan(5);
+        expect(crossed).toBeLessThan(75);
+    });
+
+    it('Tromsø: 1,500 bays in the cells over a 100,000-segment coastline, well inside a second (it took 40 s)', () => {
+        const coastline = islands(TROMSO, 400, 250);
+        expect(coastline).toHaveLength(100_000);
+        const r = seeded(3);
+        const cos = Math.cos((TROMSO.lat * Math.PI) / 180);
+        const bays = Array.from({ length: 1500 }, (_, i) =>
+            bay(994000000 + i, `Fixture Bay ${i}`, {
+                lat: TROMSO.lat + (r() - 0.5) * 2,
+                lon: TROMSO.lon + ((r() - 0.5) * 2) / cos,
+            }),
+        );
+        const times: number[] = [];
+        let ranked = 0;
+        for (let i = 0; i < 3; i++) {
+            const t0 = performance.now();
+            const places = gather(TROMSO, { names: [{ points: bays }], coastline });
+            times.push(performance.now() - t0);
+            ranked = places.candidates.length;
+            expect(places.candidates.every((c) => c.fetchLandNM?.length === 36)).toBe(true);
+            expect(places.candidates.every((c) => c.distance.basis !== 'unknown')).toBe(true);
+        }
+        times.sort((a, b) => a - b);
+        console.info(
+            `131-PYD-10 shelter: ${ranked} ranked of 1,500 bays, 100k segments, median ${times[1].toFixed(0)} ms (runs ${times.map((t) => t.toFixed(0)).join(', ')})`,
+        );
+        expect(ranked).toBe(BAY_LIMIT);
+        expect(times[1]).toBeLessThan(1500);
+    });
+});
+
 // ── Queensland unchanged ───────────────────────────────────────
 
 describe('Queensland is unchanged', () => {
@@ -296,6 +419,32 @@ describe('Queensland is unchanged', () => {
         expect(base.places?.candidates.map((c) => c.id)).toEqual(atlasOnly.candidates.map((c) => c.id));
         expect(base.places?.candidates.some((c) => c.kind)).toBe(false);
         expect(base.start.name).toBe('Airlie Bay');
+    });
+
+    it('an atlas place keeps its own table, and one without is still not ray-cast', () => {
+        const atlasBay = (id: string, at: LatLon, fetchLandNM?: number[]): AtlasFeature => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [at.lon, at.lat] },
+            properties: {
+                id,
+                name: id,
+                kind: 'anchorage',
+                source: 'OpenStreetMap',
+                ...(fetchLandNM ? { fetchLandNM } : {}),
+            },
+        });
+        const places = gatherPlaces({
+            start: MARINA,
+            nowMs: NOW,
+            radiusNm: 30,
+            atlas: [
+                atlasBay('osm-node995000001', offset(MARINA, 0, 5), new Array(36).fill(0.4)),
+                atlasBay('osm-node995000002', offset(MARINA, 0, 8)),
+            ],
+            osm: [],
+            coastline: islands(MARINA, 30, 60),
+        });
+        expect(places.candidates.map((c) => c.fetchLandNM?.[0] ?? null)).toEqual([0.4, null]);
     });
 
     it("away from the atlas, the same cells are asked for their names, with the sheet's signal", async () => {
