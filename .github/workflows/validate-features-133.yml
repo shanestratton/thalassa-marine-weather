@@ -1,0 +1,149 @@
+name: Thalassa 133 AIS recovery validation
+on:
+    push:
+        branches: ['codex/build-133-recovery-validation']
+        paths: ['.github/workflows/validate-features-133.yml']
+permissions:
+    contents: read
+concurrency:
+    group: thalassa-133-recovery-checkpoints
+    cancel-in-progress: false
+env:
+    CI: 'true'
+    HUSKY: '0'
+    NODE_OPTIONS: --max-old-space-size=4096
+    PUPPETEER_SKIP_DOWNLOAD: 'true'
+    VITE_APP_BUILD: '133'
+    VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+    VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+    VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+    VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+    VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+    VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+jobs:
+    app:
+        name: App checkpoint (${{ matrix.feature }})
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 35
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - feature: ais-picture
+                      sha: b6f59d0c20bb7850a4bd575945661b6142ff6712
+        env:
+            CANDIDATE_SHA: ${{ matrix.sha }}
+            FEATURE: ${{ matrix.feature }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: ${{ matrix.sha }}
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Verify exact checkpoint and released build 132 ancestor
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  git merge-base --is-ancestor a9372b33c967d79d8676e9bb3564b68c794cc33b HEAD
+            - run: npm ci
+            - name: Source gates, full lint, app types and changed-source formatting
+              run: |
+                  set -euo pipefail
+                  npm run check:beta:source
+                  npm run lint
+                  npm run lint:routes
+                  npx tsc --noEmit
+                  mapfile -t changed < <(git diff --name-only 6d5701e743c2d1828e8b14503acb381956f16e80 HEAD -- '*.ts' '*.tsx' '*.json' '*.md')
+                  if ! npx prettier --check --ignore-path .prettierignore --ignore-path .gitignore --ignore-path ios/.gitignore "${changed[@]}"; then
+                      npx prettier --write --ignore-path .prettierignore --ignore-path .gitignore --ignore-path ios/.gitignore "${changed[@]}"
+                      git diff -- "${changed[@]}"
+                      exit 1
+                  fi
+            - name: AIS picture, collision and idle-chart regressions
+              if: matrix.feature == 'ais-picture'
+              run: |
+                  set -euo pipefail
+                  node pi-cache/scripts/sync-collision-rule.mjs --check
+                  npx vitest run tests/AisAnonAccessClosed.test.ts tests/AisBridgeDecoderParity.test.ts tests/AisDistressPresentation.test.ts tests/AisDistressStore.test.ts tests/AisGuardWatch.test.ts tests/AisGuardZone.test.ts tests/AisLegendAccessibility.test.tsx tests/AisNotAvailableValues.test.ts tests/AisOwnshipFloor.test.ts tests/AisProximityRule.test.ts tests/AisSafetyFloor.test.ts tests/AisSartUpright.test.ts tests/AisShareService.test.ts tests/AisShipType.test.ts tests/AisSourceAttribution.test.ts tests/AisStreamCachePolicy.test.ts tests/AisStreamFeatureSafety.test.ts tests/AisTargetPresentation.test.ts tests/AisWatchYieldBlind.test.ts tests/CollisionAlarm.test.ts tests/CollisionAlarmUi.test.tsx tests/CollisionAtAnchor.test.ts tests/CollisionOwnMotion.test.ts tests/CollisionOwnTransponder.test.ts tests/CollisionRule.test.ts tests/CollisionRulePiMirror.test.ts tests/CollisionWatch.test.ts tests/CollisionWatchRow.test.ts tests/aisDecoder.test.ts tests/aisHubService.test.ts tests/aisPipeline.test.ts tests/aisStore.test.ts tests/useAisLayerLifecycle.test.tsx tests/useAisStreamLayerLifecycle.test.tsx tests/aisDeadReckon.test.ts tests/AisPictureLayers.test.ts tests/CollisionEnvelopeSafety.test.ts tests/DisplayModeCoverage.test.ts tests/useAnchorSwingLayer.test.tsx
+            - name: Chart, datum and tide regressions
+              if: matrix.feature == 'chart-datum'
+              run: |
+                  set -euo pipefail
+                  npx tsc --noEmit -p tools/senc-extractor/tsconfig.json
+                  node pi-cache/scripts/sync-senc-engine.mjs --check
+                  npx vitest run tests/enc/chartDatum.test.ts tests/enc/encSchema3Navaids.test.ts tests/enc/encClassRegistry.test.ts tests/encDetailScrubber.test.ts tests/inshoreTideSpots.test.ts tests/tideCurveFullSpan.test.ts tests/tideDatumGuard.test.ts tests/routeTideColour.test.ts tests/routeTidePerPlace.test.ts tests/engine/tideDepthOnRoute.test.ts tests/useTideStationLayerLifecycle.test.tsx tests/DisplayModeCoverage.test.ts tests/useAnchorSwingLayer.test.tsx
+            - name: Coastal model and Glass regressions
+              if: matrix.feature == 'coastal-wind'
+              run: >-
+                  npx vitest run services/weather/CoastalModels.test.ts services/weather/ModelSpreadService.test.ts
+                  services/weather/modelLiveness.test.ts services/weather/forecastModels.test.ts
+                  components/dashboard/ModelComparisonMatrix.test.ts tests/GlassDayAgreementSwipes.test.tsx
+                  tests/GlassOffshoreModelPicker.test.tsx tests/StatusBadgesOneRow.test.tsx
+                  tests/OpenMeteoSecretBoundary.test.ts tests/openmeteoDailyRows.test.ts
+                  tests/DisplayModeCoverage.test.ts
+            - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+              if: matrix.feature == 'coastal-wind'
+              with:
+                  deno-version: v2.9.4
+            - name: Commercial proxy contract
+              if: matrix.feature == 'coastal-wind'
+              working-directory: supabase/functions
+              run: |
+                  set -euo pipefail
+                  deno fmt --check proxy-openmeteo
+                  deno check proxy-openmeteo/index.ts
+                  deno test proxy-openmeteo/validation_test.ts
+            - name: Production build and unchanged bundle budgets
+              run: |
+                  set -euo pipefail
+                  npm run check:beta
+                  GITHUB_SHA="$(git rev-parse HEAD)" npm run build
+                  npm run check:web-release
+                  npm run check:bundle
+    pi:
+        name: Pi package checkpoint (${{ matrix.feature }})
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - feature: ais-picture
+                      sha: b6f59d0c20bb7850a4bd575945661b6142ff6712
+        env:
+            CANDIDATE_SHA: ${{ matrix.sha }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: ${{ matrix.sha }}
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 22
+                  cache: npm
+                  cache-dependency-path: pi-cache/package-lock.json
+            - name: Verify exact checkpoint and released build 132 ancestor
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+                  git merge-base --is-ancestor a9372b33c967d79d8676e9bb3564b68c794cc33b HEAD
+            - name: Install, audit, build and run all Pi tests
+              working-directory: pi-cache
+              run: |
+                  set -euo pipefail
+                  npm ci
+                  npm audit --audit-level=high
+                  npm ls --all
+                  npm run build
+                  npm test
+            - name: Real SENC extractor behavior tests
+              if: matrix.feature == 'chart-datum'
+              working-directory: pi-cache
+              run: npx tsx --test ../tools/senc-extractor/src/navaidsDatumEmit.test.mts ../tools/senc-extractor/src/structureEmit.test.mts
