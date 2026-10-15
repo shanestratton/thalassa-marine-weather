@@ -18,6 +18,9 @@
  * 'Santa Cruz', and two ports the index cannot place are no longer taken to
  * be in one country. The fixture was re-baselined once for that; every
  * answer that changed is in CHANGED_IN_130_09 below, each checked by hand.
+ * Build 132 re-baselined it again, on purpose, when the US states' full names
+ * began to find the United States: CHANGED_IN_132 lists the one recorded
+ * answer that moved (and with it, its pairs with every US port).
  *
  * Re-baseline (only for a change meant to alter answers, listing each one):
  *   REGEN_CUSTOMS_BASELINE=1 npx vitest run tests/CustomsPortIndex.test.ts
@@ -27,6 +30,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+    COUNTRY_ALIASES,
     CUSTOMS_PORT_INDEX,
     findCountryKey,
     isPortOfEntry,
@@ -67,7 +71,8 @@ if (process.env.REGEN_CUSTOMS_BASELINE === '1') {
     const next: Baseline = {
         ...old,
         source:
-            'The answers of data/customsPortIndex.ts with whole-word matching (130-09), re-baselined on purpose. ' +
+            'The answers of data/customsPortIndex.ts with whole-word matching (130-09) and the US states by their ' +
+            'full names (132), each re-baselined on purpose. ' +
             'The inputs, country order and clearance hash are the ones first recorded from data/customsDb.ts at ' +
             'master 058ba16e, before build 126 moved the clearance details to public/data/customs-clearance.json.',
         resolveCountryName: old.inputs.map((s) => resolveCountryName(s)),
@@ -155,7 +160,8 @@ describe('130-09: a port matches its own country, worldwide', () => {
         ['Santa Cruz', ''],
         ['Santa Cruz, Tenerife', ''],
         ['Santa Cruz de Tenerife, Spain', 'Spain'],
-        ['Santa Cruz, California', ''],
+        // A US state by its full name finds the United States (132).
+        ['Santa Cruz, California', 'United States'],
         ['Santa Cruz, Galápagos', ''],
         ['Puerto Ayora, Santa Cruz, Galápagos', ''],
         // Nouméa, with and without its accent.
@@ -163,9 +169,11 @@ describe('130-09: a port matches its own country, worldwide', () => {
         ['Noumea', 'New Caledonia'],
         ['Port Moselle, Nouméa', 'New Caledonia'],
         ['Port Moselle, NC', 'New Caledonia'],
-        // Two Newports, two countries (no US state is in the index yet).
+        // Two Newports, two countries. The US by its state's full name
+        // (132), never by the two-letter code.
         ['Newport, QLD', 'Australia'],
         ['Newport, RI', ''],
+        ['Newport, Rhode Island', 'United States'],
         ['Newport, Rhode Island, USA', 'United States'],
         // Saint-Martin, however it is written.
         ['Saint-Martin', 'Sint Maarten'],
@@ -191,7 +199,7 @@ describe('130-09: a port matches its own country, worldwide', () => {
         // not turn them into some other country.
         for (const port of [
             'George Town, Penang', // the Bahamas' 'George Town (Exumas)'
-            'Freeport, Texas', // the Bahamas' 'Freeport (Grand Bahama)'
+            'Freeport, TX', // the Bahamas' 'Freeport (Grand Bahama)'
             'New London, CT', // the UK's 'London (St Katharine Docks)'
             'Gold Coast, Ghana', // Australia's 'Gold Coast (Southport)'
             'Mare Island', // New Caledonia's 'Wé (Maré)'
@@ -200,6 +208,8 @@ describe('130-09: a port matches its own country, worldwide', () => {
         ]) {
             expect(findCountryKey(port), port).toBeUndefined();
         }
+        // With its state's full name, Freeport is in the United States, still not the Bahamas (132).
+        expect(resolveCountryName('Freeport, Texas')).toBe('United States');
         // Nelson Bay is in New South Wales, not at Nelson, New Zealand.
         expect(resolveCountryName('Nelson Bay')).toBe('');
         expect(resolveCountryName('Nelson Bay, NSW')).toBe('Australia');
@@ -383,6 +393,85 @@ describe('130-09: every recorded answer that changed, checked', () => {
     });
 });
 
+describe('132: a US port by its state’s full name', () => {
+    // Shane 2026-10-15: "full names only, e.g. 'Santa Cruz, California' and
+    // 'Newport, Rhode Island' find the United States guide".
+    it.each([
+        ['Santa Cruz, California', 'United States'],
+        ['Newport, Rhode Island', 'United States'],
+        ['Annapolis, Maryland', 'United States'],
+        ['Beaufort, North Carolina', 'United States'],
+        ['Charleston, South Carolina', 'United States'],
+        ['Port Townsend, Washington', 'United States'],
+        ['Hilo, Hawaii', 'United States'],
+        ['Juneau, Alaska', 'United States'],
+        ['Mystic, Connecticut', 'United States'],
+        ['Rockland, Maine', 'United States'],
+        ['Charleston, West Virginia', 'United States'],
+        ['Cape May, New Jersey', 'United States'],
+        ['Fort Lauderdale, Florida', 'United States'],
+        // Case folds, as for every name.
+        ['SAN DIEGO, CALIFORNIA', 'United States'],
+    ])('%s → %s', (port, country) => {
+        expect(resolveCountryName(port)).toBe(country);
+        expect(findCountryKey(port)).toBe('united states');
+    });
+
+    it('adds no two-letter state codes: they mean other places here', () => {
+        expect(resolveCountryName('Newport, RI')).toBe('');
+        expect(resolveCountryName('Santa Cruz, CA')).toBe('');
+        expect(resolveCountryName('Port Moselle, NC')).toBe('New Caledonia');
+        expect(resolveCountryName('Fremantle, Western Australia')).toBe('Australia');
+        for (const code of ['ri', 'ca', 'nc', 'wa', 'ny', 'fl', 'tx', 'me', 'md', 'ga', 'hi', 'ak']) {
+            expect(COUNTRY_ALIASES[code], code).not.toBe('united states');
+        }
+        expect(COUNTRY_ALIASES['rhode island']).toBe('united states');
+        expect(COUNTRY_ALIASES['north carolina']).toBe('united states');
+    });
+
+    it('a state name inside a place it is not leaves that place unplaced', () => {
+        for (const port of [
+            'Ensenada, Baja California', // Mexico
+            'Cabo San Lucas, Baja California Sur', // Mexico
+            'La Paz, Gulf of California', // Mexico's Sea of Cortez
+            'Tulagi, Florida Islands', // Solomon Islands
+            // Georgia is also a country, on the Black Sea: left out, so a
+            // Georgia, USA port goes unplaced too, the card says it cannot tell.
+            'Batumi, Georgia',
+            'Savannah, Georgia',
+        ]) {
+            expect(findCountryKey(port), port).toBeUndefined();
+        }
+        // Whole words still: Rhodes is Greece's, not Rhode Island's.
+        expect(resolveCountryName('Rhodes')).toBe('Greece');
+        expect(resolveCountryName('Victoria')).toBe('Australia');
+    });
+
+    it('pairs US ports named by their states as one country', () => {
+        expect(isSameCountry('Santa Cruz, California', 'San Diego')).toBe(true);
+        expect(isSameCountry('Annapolis, Maryland', 'Miami')).toBe(true);
+        expect(isSameCountry('Newport, Rhode Island', 'Newport, QLD')).toBe(false);
+        expect(isSameCountry('Ensenada, Baja California', 'San Diego')).toBe(false);
+        expect(placesNeither('Newport, Rhode Island', "St George's, Bermuda")).toBe(false);
+        expect(isPortOfEntry('Miami, Florida', 'united states')).toBe(true);
+        expect(isPortOfEntry('Annapolis, Maryland', 'united states')).toBe(false);
+    });
+
+    // [input, the answer before 132, the answer now]: every recorded input
+    // whose answer the state names moved, checked by hand.
+    const CHANGED_IN_132: [string, string, string][] = [['Annapolis, Maryland', '', 'United States']];
+
+    it.each(CHANGED_IN_132)('%s: was "%s", now "%s"', (input, was, now) => {
+        expect(was).not.toBe(now);
+        expect(resolveCountryName(input)).toBe(now);
+        expect(baseline.resolveCountryName[baseline.inputs.indexOf(input)]).toBe(now);
+    });
+
+    it('lists only recorded inputs', () => {
+        expect(CHANGED_IN_132.filter(([input]) => !baseline.inputs.includes(input))).toEqual([]);
+    });
+});
+
 describe('the index and the clearance guide split the old data without loss', () => {
     it('covers the same countries in the same order', () => {
         expect(Object.keys(CUSTOMS_PORT_INDEX)).toEqual(baseline.countryOrder);
@@ -409,7 +498,9 @@ describe('the index and the clearance guide split the old data without loss', ()
 
     it('keeps the clearance prose out of the synchronous module', () => {
         const index = readFileSync(join(ROOT, 'data/customsPortIndex.ts'), 'utf8');
-        expect(index.length).toBeLessThan(16_000);
+        // 16,000 until 132: the US states' full names and their notes, ~1.4 KB,
+        // are matching data, not prose. The clearance guide is ~40 KB.
+        expect(index.length).toBeLessThan(18_000);
         expect(index).not.toMatch(/departureProcedure|arrivalProcedure|requiredDocuments/);
         const db = readFileSync(join(ROOT, 'data/customsDb.ts'), 'utf8');
         expect(db.length).toBeLessThan(16_000);

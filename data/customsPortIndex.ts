@@ -208,6 +208,22 @@ export const CUSTOMS_PORT_INDEX: Readonly<Record<string, CustomsCountry>> = {
 
 /* ── Aliases ──────────────────────────────────────────────────── */
 
+// The United States by its states' full names (132, Shane 2026-10-15), so
+// 'Newport, Rhode Island' and 'Santa Cruz, California' find its guide. Full
+// names only: the two-letter codes clash here ('NC' is New Caledonia, 'WA'
+// would be Western Australia, 'CA' Canada). Georgia is left out: it is also a
+// country on the Black Sea, which the index does not cover.
+const US_STATES = `alabama alaska arizona arkansas california colorado connecticut delaware florida hawaii
+    idaho illinois indiana iowa kansas kentucky louisiana maine maryland massachusetts michigan minnesota
+    mississippi missouri montana nebraska nevada new_hampshire new_jersey new_mexico new_york north_carolina
+    north_dakota ohio oklahoma oregon pennsylvania rhode_island south_carolina south_dakota tennessee texas
+    utah vermont virginia washington west_virginia wisconsin wyoming`;
+
+// Places the index does not cover whose names hold a state's: Mexico's Baja
+// California and Gulf of California, the Solomons' Florida Islands. Named,
+// they leave the port unplaced rather than in the United States.
+const ELSEWHERE = ['baja california', 'gulf of california', 'florida islands'];
+
 // Common name aliases so free-text country and port names from passage plans
 // match our keys. Each matches as whole words only (130-09): 'sa' is found in
 // 'Adelaide, SA', never inside 'Santa Cruz'.
@@ -259,6 +275,7 @@ export const COUNTRY_ALIASES: Readonly<Record<string, string>> = {
     barbuda: 'antigua and barbuda',
     cooks: 'cook islands',
     rarotonga: 'cook islands',
+    ...Object.fromEntries(US_STATES.split(/\s+/).map((s) => [s.replace(/_/g, ' '), 'united states'])),
 };
 
 const has = (record: object, key: string): boolean => Object.prototype.hasOwnProperty.call(record, key);
@@ -315,13 +332,16 @@ function longestIn(words: readonly string[], phrases: readonly Phrase[]): Phrase
 }
 
 // Every country's key and name, then the aliases. Keys come first so that
-// 'Turkey' finds its own guide record before the alias for Türkiye.
+// 'Turkey' finds its own guide record before the alias for Türkiye. Last, the
+// places elsewhere, with no key: the longer name wins, so 'Baja California'
+// beats 'California'.
 const COUNTRY_PHRASES: readonly Phrase[] = [
     ...Object.keys(CUSTOMS_PORT_INDEX).map((k) => phrase(k, k)),
     ...Object.entries(CUSTOMS_PORT_INDEX).map(([k, c]) => phrase(c.country, k)),
     ...Object.entries(COUNTRY_ALIASES)
         .filter(([, k]) => has(CUSTOMS_PORT_INDEX, k))
         .map(([alias, k]) => phrase(alias, k)),
+    ...ELSEWHERE.map((name) => phrase(name, '')),
 ];
 
 // A port of entry by its name or the other name in its brackets: 'Southport'
@@ -374,7 +394,7 @@ export function findCountryKey(name: string | undefined): string | undefined {
     if (!name) return undefined;
     const words = nameWords(name);
     const country = longestIn(words, COUNTRY_PHRASES);
-    if (country) return country.key;
+    if (country) return country.key || undefined;
     const key = portKey(words, PORT_PHRASES);
     return key && words.every((w) => PORT_WORDS[key].has(w) || IN_PORT.has(w)) ? key : undefined;
 }

@@ -135,17 +135,15 @@ describe('130-09: the card picks the right country for a port, and says when it 
         render(
             <CustomsClearanceCard
                 voyageId="voyage-b"
-                voyagePlan={plan('Santa Cruz, California', 'Santa Cruz, Galápagos')}
+                voyagePlan={plan('Santa Cruz, CA', 'Santa Cruz, Galápagos')}
                 onCheckedChange={onCheckedChange}
             />,
         );
         // Named as the skipper typed them, never as some other country.
-        expect(screen.getByRole('button', { name: 'Departing Santa Cruz, California' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Departing Santa Cruz, CA' })).toBeInTheDocument();
         expect(screen.queryByText(/Australia/)).not.toBeInTheDocument();
         expect(screen.getByText(CANNOT_TELL)).toBeInTheDocument();
-        expect(
-            screen.getByText(/We don't recognise Santa Cruz, California or Santa Cruz, Galápagos/),
-        ).toBeInTheDocument();
+        expect(screen.getByText(/We don't recognise Santa Cruz, CA or Santa Cruz, Galápagos/)).toBeInTheDocument();
         expect(screen.queryByText('Limited Data Available')).not.toBeInTheDocument();
 
         // The check is the one item: nothing ticked, so Cast Off waits on it.
@@ -177,6 +175,15 @@ describe('130-09: the card picks the right country for a port, and says when it 
         fireEvent.click(screen.getByRole('button', { name: "Arriving St George's, Bermuda" }));
         expect(screen.queryByText(/Grenada/)).not.toBeInTheDocument();
         expect(screen.queryByText(/is not a designated port of entry/)).not.toBeInTheDocument();
+    });
+
+    it('names a US port by its state’s full name as the United States, not a border check (132)', async () => {
+        const { CustomsClearanceCard } = await import('../components/passage/CustomsClearanceCard');
+        render(<CustomsClearanceCard voyagePlan={plan('Newport, Rhode Island', "St George's, Bermuda")} />);
+        expect(screen.getByRole('button', { name: 'Departing United States' })).toBeInTheDocument();
+        expect(screen.queryByText(CANNOT_TELL)).not.toBeInTheDocument();
+        // Newport is not one of the index's US ports of entry, and the card says so.
+        expect(screen.getByText('Newport, Rhode Island is not a designated port of entry')).toBeInTheDocument();
     });
 
     it('keeps the document list when one port is known, and no border check', async () => {
