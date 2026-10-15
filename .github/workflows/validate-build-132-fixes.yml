@@ -1,17 +1,13 @@
 name: Build 132 focused regression validation
-
 on:
     push:
         branches: ['codex/build-132-focused-validation']
         paths: ['.github/workflows/validate-build-132-fixes.yml']
-
 permissions:
     contents: read
-
 concurrency:
     group: build-132-focused-fixes
     cancel-in-progress: false
-
 env:
     CI: 'true'
     HUSKY: '0'
@@ -22,49 +18,96 @@ env:
     VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
     VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
     VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
-
 jobs:
-    focused:
+    unit:
         runs-on: ubuntu-24.04
-        timeout-minutes: 30
+        timeout-minutes: 15
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
               with:
-                  ref: '6ae2e9490aeba222821efb49129b3e21a9a1ca0b'
+                  ref: 'a9372b33c967d79d8676e9bb3564b68c794cc33b'
                   fetch-depth: 0
                   persist-credentials: false
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
               with:
                   node-version: 24
                   cache: npm
-            - name: Preserve exact build 132 candidate and release history
+            - name: Preserve exact source and release ancestors
               run: |
                   set -euo pipefail
-                  test "$(git rev-parse HEAD)" = "6ae2e9490aeba222821efb49129b3e21a9a1ca0b"
+                  test "$(git rev-parse HEAD)" = "a9372b33c967d79d8676e9bb3564b68c794cc33b"
                   git merge-base --is-ancestor 9922cfd729c4e19491cc4c5e87f56362922e131d HEAD
                   git merge-base --is-ancestor b8ef21d96a699a240b0378db7d7fcdc0e93810cd HEAD
                   git merge-base --is-ancestor 407dcf298571a1d504d80c54f6ee268d1fbc18a6 HEAD
                   git merge-base --is-ancestor bda4b58c5f948a6ba257b120659b5bc6b2f7d823 HEAD
                   git merge-base --is-ancestor 3fcbcead875a6c202a01ac4eb46aa55cf58cf07e HEAD
             - run: npm ci
-            - name: Daylight and trace regression tests
-              run: npx vitest run tests/DisplayModeCoverage.test.ts tests/IsobarLayerSetup.test.ts tests/TraceLayerPromotion.test.ts
-            - name: Types, focused lint and formatting
+            - name: Daylight and anchor-overlay regressions
+              run: npx vitest run tests/DisplayModeCoverage.test.ts tests/useAnchorSwingLayer.test.tsx tests/AnchorSwingEnvelope.test.ts tests/IsobarLayerSetup.test.ts
+            - name: Type, lint and format checks
               run: |
                   set -euo pipefail
                   npx tsc --noEmit
-                  npx eslint components/map/isobarLayerSetup.ts tests/TraceLayerPromotion.test.ts
-                  npx prettier --check components/map/isobarLayerSetup.ts tests/TraceLayerPromotion.test.ts
-            - name: Install both browsers
-              run: npx playwright install --with-deps chromium webkit
-            - name: Complete desk-map coverage in both engines, no retries
-              run: npx playwright test --config playwright.keyboard.config.ts browser-tests/desk-map-light.spec.ts --retries=0
-            - name: Repeat the failing WebKit phone case and alarm flake, no retries
-              run: npx playwright test --config playwright.keyboard.config.ts --project=webkit browser-tests/desk-map-light.spec.ts browser-tests/anchor-antenna-layout.spec.ts --grep '390 × 844, wide fonts|the many note fits' --repeat-each=5 --retries=0 --workers=1
+                  npx eslint components/map/useAnchorSwingLayer.ts tests/useAnchorSwingLayer.test.tsx
+                  npx prettier --check components/map/useAnchorSwingLayer.ts tests/useAnchorSwingLayer.test.tsx
+    browsers:
+        name: browser (${{ matrix.suite }})
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        strategy:
+            fail-fast: false
+            matrix:
+                suite: [desk-map, repeats]
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: 'a9372b33c967d79d8676e9bb3564b68c794cc33b'
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+                  cache: npm
+            - name: Preserve exact source and release ancestors
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = "a9372b33c967d79d8676e9bb3564b68c794cc33b"
+                  git merge-base --is-ancestor 9922cfd729c4e19491cc4c5e87f56362922e131d HEAD
+                  git merge-base --is-ancestor b8ef21d96a699a240b0378db7d7fcdc0e93810cd HEAD
+                  git merge-base --is-ancestor 407dcf298571a1d504d80c54f6ee268d1fbc18a6 HEAD
+                  git merge-base --is-ancestor bda4b58c5f948a6ba257b120659b5bc6b2f7d823 HEAD
+                  git merge-base --is-ancestor 3fcbcead875a6c202a01ac4eb46aa55cf58cf07e HEAD
+            - run: npm ci
+            - name: Install required browsers
+              env:
+                  SUITE: ${{ matrix.suite }}
+              run: |
+                  if [ "$SUITE" = "desk-map" ]; then
+                      npx playwright install --with-deps chromium webkit
+                  else
+                      npx playwright install --with-deps webkit
+                  fi
+            - name: Record exact calls without changing the zero-write assertion
+              run: |
+                  node --input-type=module <<'NODE'
+                  import { readFileSync, writeFileSync } from 'node:fs';
+                  const path = 'browser-tests/desk-map-light.spec.ts';
+                  const source = readFileSync(path, 'utf8');
+                  const before = "const quietWrites = (page: Page) =>\n    page.evaluate(\n        () =>\n            new Promise<number>((resolve) => {\n                // The app's own style writes, counted once the chart is idle. Mapbox can\n                // fire a 'styledata' of its own on a still chart, so counting those failed\n                // 128's code too (release run 38522448875, and 2 of 4 runs locally).\n                const map = window.__thalassaMap as unknown as Record<string, unknown> & {\n                    once(t: string, f: () => void): void;\n                    triggerRepaint(): void;\n                };\n                const writers = [\n                    'setStyle',\n                    'addLayer',\n                    'removeLayer',\n                    'moveLayer',\n                    'setPaintProperty',\n                    'setLayoutProperty',\n                    'setFilter',\n                    'setLayerZoomRange',\n                    'addSource',\n                    'removeSource',\n                ];\n                let started = false;\n                const count = () => {\n                    if (started) return;\n                    started = true;\n                    let writes = 0;\n                    const saved = writers.map((name) => [name, map[name]] as const);\n                    for (const [name, real] of saved) {\n                        if (typeof real !== 'function') continue;\n                        map[name] = function (this: unknown, ...args: unknown[]) {\n                            // The offline fallback's one-time install (useOfflineBaseLayer, on\n                            // 'idle' when the phone reads offline) answers the network, not a\n                            // still chart rewriting its style; it raced this window in WebKit.\n                            const first = args[0] as { id?: unknown } | string | undefined;\n                            const id = typeof first === 'string' ? first : first?.id;\n                            const offlineInstall =\n                                (name === 'addSource' || name === 'addLayer') &&\n                                (id === 'osm-offline-fallback' || id === 'seamark-offline-fallback');\n                            if (!offlineInstall) writes += 1;\n                            return (real as (...a: unknown[]) => unknown).apply(this, args);\n                        };\n                    }\n                    setTimeout(() => {\n                        for (const [name, real] of saved) map[name] = real;\n                        resolve(writes);\n                    }, 2_000);\n                };\n                map.once('idle', count);\n                map.triggerRepaint();\n                setTimeout(count, 3_000);\n            }),\n    );\n";
+                  const after = "const quietWrites = async (page: Page) => {\n    const result = await\n    page.evaluate(\n        () =>\n            new Promise<{ writes: number; calls: string[] }>((resolve) => {\n                // The app's own style writes, counted once the chart is idle. Mapbox can\n                // fire a 'styledata' of its own on a still chart, so counting those failed\n                // 128's code too (release run 38522448875, and 2 of 4 runs locally).\n                const map = window.__thalassaMap as unknown as Record<string, unknown> & {\n                    once(t: string, f: () => void): void;\n                    triggerRepaint(): void;\n                };\n                const writers = [\n                    'setStyle',\n                    'addLayer',\n                    'removeLayer',\n                    'moveLayer',\n                    'setPaintProperty',\n                    'setLayoutProperty',\n                    'setFilter',\n                    'setLayerZoomRange',\n                    'addSource',\n                    'removeSource',\n                ];\n                let started = false;\n                const count = () => {\n                    if (started) return;\n                    started = true;\n                    let writes = 0;\n                    const calls: string[] = [];\n                    const saved = writers.map((name) => [name, map[name]] as const);\n                    for (const [name, real] of saved) {\n                        if (typeof real !== 'function') continue;\n                        map[name] = function (this: unknown, ...args: unknown[]) {\n                            // The offline fallback's one-time install (useOfflineBaseLayer, on\n                            // 'idle' when the phone reads offline) answers the network, not a\n                            // still chart rewriting its style; it raced this window in WebKit.\n                            const first = args[0] as { id?: unknown } | string | undefined;\n                            const id = typeof first === 'string' ? first : first?.id;\n                            const offlineInstall =\n                                (name === 'addSource' || name === 'addLayer') &&\n                                (id === 'osm-offline-fallback' || id === 'seamark-offline-fallback');\n                            if (!offlineInstall) {\n                                writes += 1;\n                                calls.push(JSON.stringify({ name, id, property: args[1], stack: new Error().stack }));\n                            }\n                            return (real as (...a: unknown[]) => unknown).apply(this, args);\n                        };\n                    }\n                    setTimeout(() => {\n                        for (const [name, real] of saved) map[name] = real;\n                        resolve({ writes, calls });\n                    }, 2_000);\n                };\n                map.once('idle', count);\n                map.triggerRepaint();\n                setTimeout(count, 3_000);\n            }),\n    );\n    console.log('IDLE_STYLE_WRITES', JSON.stringify(result));\n    return result.writes;\n};\n";
+                  if (!source.includes(before)) throw new Error('Missing exact diagnostic insertion point');
+                  writeFileSync(path, source.replace(before, after));
+                  NODE
+            - name: Complete desk-map checks in both engines
+              if: matrix.suite == 'desk-map'
+              run: npx playwright test --config playwright.keyboard.config.ts browser-tests/desk-map-light.spec.ts
+            - name: Repeat the WebKit phone and alarm cases five times, no retries
+              if: matrix.suite == 'repeats'
+              run: npx playwright test --config playwright.keyboard.config.ts --project=webkit browser-tests/desk-map-light.spec.ts browser-tests/anchor-antenna-layout.spec.ts --grep '390 × 844, wide fonts|the many note fits at 320x568' --repeat-each=5 --retries=0 --workers=1 --trace=on
             - name: Preserve browser evidence
               if: failure()
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
               with:
-                  name: build132-focused-failures
+                  name: build132-focused-${{ matrix.suite }}
                   path: test-results/
                   retention-days: 7
