@@ -1,0 +1,39 @@
+name: Build 133 generated collision mirror provenance
+on:
+    push:
+        branches: ['codex/build-133-source-tools']
+        paths: ['.github/workflows/build133-source-tools.yml']
+permissions:
+    contents: read
+jobs:
+    mirror:
+        if: github.repository == 'shanestratton/thalassa-marine-weather' && github.actor == 'shanestratton' && github.run_attempt == 1
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  ref: d0792dc00128694f7425fb00e1e3c4a7ea2b3c46
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+            - name: Generate from the real source commit with the original script
+              run: |
+                  set -euo pipefail
+                  test "$(git rev-parse HEAD)" = d0792dc00128694f7425fb00e1e3c4a7ea2b3c46
+                  node pi-cache/scripts/sync-collision-rule.mjs
+                  node --input-type=module <<'NODE'
+                  import fs from 'node:fs';
+                  const path = 'pi-cache/src/collisionRule/syncedFrom.ts';
+                  const result = { source: 'd0792dc00128694f7425fb00e1e3c4a7ea2b3c46', files: [{ path, content: fs.readFileSync(path, 'utf8') }] };
+                  fs.writeFileSync('build133-generated-files.json', JSON.stringify(result, null, 2) + '\n');
+                  console.info('BUILD133_GENERATED_FILES ' + JSON.stringify(result));
+                  NODE
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+              with:
+                  name: build133-generated-files
+                  path: build133-generated-files.json
+                  retention-days: 3
+                  if-no-files-found: error
