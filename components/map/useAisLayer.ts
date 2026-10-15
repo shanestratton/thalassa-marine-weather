@@ -11,6 +11,7 @@
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { AisStore } from '../../services/AisStore';
+import { writeAisMapData } from './aisPictureLayers';
 import { AIS_SART_LAYER } from './aisDistressSymbol';
 
 const UPDATE_THROTTLE_MS = 2000;
@@ -118,8 +119,7 @@ export function useAisLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, mapRe
             // Clear only rendered Mapbox state; the caller-owned AIS preference
             // remains untouched and can restore normally on the Chart surface.
             for (const id of AIS_SOURCE_IDS) {
-                const source = map.getSource(id) as mapboxgl.GeoJSONSource | undefined;
-                source?.setData(EMPTY_FEATURE_COLLECTION);
+                writeAisMapData(map, id, EMPTY_FEATURE_COLLECTION);
             }
         }
     }, [mapRef, mapReady, visible]);

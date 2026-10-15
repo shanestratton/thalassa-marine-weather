@@ -13,7 +13,8 @@ import { useEffect, useRef, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { AisStreamService } from '../../services/AisStreamService';
 import { AisStore } from '../../services/AisStore';
-import { aisReportAgeSec, aisVectorMinutes, buildAisDrFeatures, nearLongitude } from '../../services/ais/aisDeadReckon';
+import { ensureAisPictureLayers, writeAisMapData } from './aisPictureLayers';
+import { aisReportAgeSec, aisVectorMinutes, buildAisDrFeatures, nearLongitude, deadReckonAis } from '../../services/ais/aisDeadReckon';
 import { supabase } from '../../services/supabase';
 import { onLocalAisChange } from './useAisLayer';
 import { AIS_SART_LAYER } from './aisDistressSymbol';
@@ -429,17 +430,7 @@ export interface AisVesselDetailData {
 }
 
 export function buildAisVesselDetailHtml(data: AisVesselDetailData): string {
-    const thumbnail = safeAisImageUrl(data.thumbnail);
-    const heroImg = thumbnail
-        ? `<div style="width:100%;height:180px;border-radius:16px 16px 0 0;position:relative;overflow:hidden;">
-            <img src="${escapeAisPopupHtml(thumbnail)}" alt="" referrerpolicy="no-referrer" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" />
-            <div style="position:absolute;inset:0;background:linear-gradient(transparent 50%,rgba(15,23,42,0.9) 100%);border-radius:16px 16px 0 0;"></div>
-            <div style="position:absolute;bottom:12px;left:16px;right:16px;">
-                <div style="font-size:20px;font-weight:900;color:white;text-shadow:0 2px 8px rgba(0,0,0,0.5);">${escapeAisPopupHtml(data.flag)} ${escapeAisPopupHtml(data.name)}</div>
-                <div style="font-size:12px;color:rgba(255,255,255,0.8);margin-top:2px;">${escapeAisPopupHtml(data.type)}${data.isVerified ? ' • ✓ Verified' : ''}</div>
-            </div>
-           </div>`
-        : `<div style="padding:20px 16px 12px;text-align:center;">
+    const heroImg = `<div style="padding:20px 16px 12px;text-align:center;">
             <div style="font-size:48px;margin-bottom:8px;">${escapeAisPopupHtml(data.flag)}</div>
             <div style="font-size:20px;font-weight:900;color:var(--day-ui-text, #e2e8f0);">${escapeAisPopupHtml(data.name)}</div>
             <div style="font-size:12px;color:var(--day-ui-muted, #94a3b8);margin-top:4px;">${escapeAisPopupHtml(data.type)}${data.isVerified ? ' • ✓ Verified' : ''}</div>
@@ -496,14 +487,8 @@ export function buildAisVesselDetailHtml(data: AisVesselDetailData): string {
  * Returns [lon, lat].
  */
 function projectPosition(lat: number, lon: number, cogDeg: number, sogKn: number, minutes: number): [number, number] {
-    const hours = minutes / 60;
-    const distNm = sogKn * hours;
-    const distDeg = distNm / 60; // 1° latitude ≈ 60 NM
-    const cogRad = (cogDeg * Math.PI) / 180;
-    const cosLat = Math.cos((lat * Math.PI) / 180);
-    const newLat = lat + distDeg * Math.cos(cogRad);
-    const newLon = lon + (distDeg * Math.sin(cogRad)) / cosLat;
-    return [newLon, newLat];
+    const projected = deadReckonAis(lat, lon, sogKn, cogDeg, minutes * 60);
+    return projected ? [nearLongitude(projected.lon, lon), projected.lat] : [lon, lat];
 }
 
 // Convert map zoom to a sensible radius in nautical miles
@@ -898,7 +883,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                     const ageMin = Number.isFinite(lastUpdated) ? Math.max(0, (now - lastUpdated) / 60_000) : null;
                     return {
                         ...f,
-                        properties: { ...f.properties, source: 'local', staleMinutes: ageMin },
+                        properties: { ...f.properties, source: 'local', staleMinutes: ageMin === null ? null : Math.floor(ageMin) },
                     };
                 }),
                 ...internetFeatures,
@@ -934,14 +919,12 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
 
         const source = map.getSource(AIS_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
         if (source) {
-            source.setData(clipped);
+            writeAisMapData(map, AIS_SOURCE_ID, clipped);
         }
-        const drSource = map.getSource('ais-dr-estimates') as mapboxgl.GeoJSONSource | undefined;
-        drSource?.setData(buildAisDrFeatures(clipped.features, now));
+        writeAisMapData(map, 'ais-dr-estimates', buildAisDrFeatures(clipped.features, now));
         const trail = selectedMmsi.current === null ? [] : AisStore.getTrail(selectedMmsi.current, now);
         const trailCoords = trail.map((fix, i) => [i === 0 ? fix.lon : nearLongitude(fix.lon, trail[0].lon), fix.lat]);
-        const trailSource = map.getSource('ais-target-trail') as mapboxgl.GeoJSONSource | undefined;
-        trailSource?.setData({
+        writeAisMapData(map, 'ais-target-trail', {
             type: 'FeatureCollection',
             features:
                 trailCoords.length < 2
@@ -954,6 +937,8 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                           },
                       ],
         });
+
+        ensureAisPictureLayers(map, clipped.features.length > 0);
 
         // ── Generate predicted track lines for moving vessels ──
         const trackFeatures: GeoJSON.Feature[] = [];
@@ -1000,7 +985,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
 
         const trackSource = map.getSource(PREDICTED_TRACKS_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
         if (trackSource) {
-            trackSource.setData({ type: 'FeatureCollection', features: trackFeatures });
+            writeAisMapData(map, PREDICTED_TRACKS_SOURCE_ID, { type: 'FeatureCollection', features: trackFeatures });
         }
 
         // ── Guard Zone check ──
@@ -1024,13 +1009,13 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             const gz = AisGuardZone.getState();
             if (gz.enabled && own) {
                 const pts = buildGuardZoneCircle(own.lat, own.lon, gz.radiusNm);
-                guardSource.setData({
+                writeAisMapData(map, 'ais-guard-zone', {
                     type: 'Feature',
                     geometry: { type: 'Polygon', coordinates: [pts] },
                     properties: {},
                 });
             } else {
-                guardSource.setData({ type: 'FeatureCollection', features: [] });
+                writeAisMapData(map, 'ais-guard-zone', { type: 'FeatureCollection', features: [] });
             }
         }
     }, [map, enabled]);
@@ -1349,7 +1334,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             const callSign = intel?.metadata?.call_sign || p.callSign || '—';
 
             // ── Thumbnail ──
-            const thumbnail = safeAisImageUrl(intel?.thumbnail);
+            const thumbnail = null;
 
             // ── Flag country (always available from decoder) ──
             const flagCountry = intel?.metadata?.flag_country || intel?.country || null;
@@ -1397,9 +1382,9 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             // own transponder gets no CPA at all.
             const { own: ownPosition, motion, prefs, ownMmsis, atAnchor } = readCollisionInputs();
             const own = ownMmsis.has(Number(mmsi)) ? null : ownPosition;
-            const targetStaleMinutes = finiteAisDisplayNumber(p.staleMinutes);
+            const targetReportAge = aisReportAgeSec(p);
             const cpaResult =
-                own && targetStaleMinutes != null
+                own && targetReportAge != null
                     ? computeCpa(
                           own.lat,
                           own.lon,
@@ -1411,7 +1396,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                           sogValue,
                           navStatus,
                           prefs,
-                          targetStaleMinutes * 60,
+                          targetReportAge,
                           motion.pair,
                           atAnchor,
                       )
@@ -1551,7 +1536,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             mergeAndWrite();
             popupRef.current.on?.('close', () => {
                 selectedMmsi.current = null;
-                (map.getSource('ais-target-trail') as mapboxgl.GeoJSONSource | undefined)?.setData({
+                writeAisMapData(map, 'ais-target-trail', {
                     type: 'FeatureCollection',
                     features: [],
                 });
