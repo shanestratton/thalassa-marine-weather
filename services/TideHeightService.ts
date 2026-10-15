@@ -360,4 +360,5 @@ async function fetchTideCurveUpstream(
  */
 export function clearTideCache(): void {
     cache.clear();
+    failedUpstreamAt.clear();
 }
