@@ -259,6 +259,10 @@ export interface TodayBase {
     /** 'loading' until every source has answered or run out of time, even
      *  once the atlas's places are in. */
     placesStatus: PlacesStatus;
+    /** The OpenStreetMap coastline the places were read against: the stop
+     *  page's picture draws its land from it (132-PYD-9). Null until it
+     *  answers, and when it did not. */
+    coastline: readonly Segment[] | null;
     tides: Tide[] | null;
     /** WorldTides' station, for Sources. */
     tideStation: string | null;
@@ -337,6 +341,7 @@ export async function loadToday(
             weatherAtMs: null,
             places: null,
             placesStatus: 'loading',
+            coastline: null,
             tides: null,
             tideStation: null,
             tidesStatus: 'loading',
@@ -457,6 +462,7 @@ export async function loadToday(
             emit({
                 places: gathered,
                 placesStatus: cellsFailed || !atlas ? 'partial' : 'ok',
+                coastline,
                 start: { ...start, name: nameStart(start, gathered.named, saved) },
                 marina: marinaNear(start, gathered.marinas),
             });

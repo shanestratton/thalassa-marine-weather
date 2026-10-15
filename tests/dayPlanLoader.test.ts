@@ -851,6 +851,7 @@ describe("Shane's case through the loader and the engine", () => {
             weatherAtMs: null,
             places: null,
             placesStatus: 'failed',
+            coastline: null,
             tides: null,
             tideStation: null,
             tidesStatus: 'loading',

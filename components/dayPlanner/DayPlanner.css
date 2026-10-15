@@ -248,6 +248,26 @@
 .today-how summary::-webkit-details-marker { display: none; }
 .today-how summary::after { content: '▾'; margin-left: 6px; }
 .today-how[open] summary::after { content: '▴'; }
+/* The way in a picture (132-PYD-9): 2 : 1, as tall as the room the plan leaves it (TodayStopDetail sizes it), land
+   from OpenStreetMap, grey wherever land is not known, never drawn as open sea. Along its foot, in the band its
+   marks keep clear of (stopPicture.ts), what the land is and the wind on the way out, one line. */
+.today-pic { position: relative; flex: none; align-self: center; overflow: hidden; border-radius: 10px; }
+.today-pic > svg { display: block; width: 100%; height: 100%; }
+.today-pic-sea { fill: #0c3b52; }
+.today-pic-land { fill: #6b6446; }
+.today-pic-none { fill: #2a3240; }
+.today-pic-route { fill: none; stroke: #67e8f9; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.today-pic-mark { fill: #f8fafc; stroke: #0f172a; }
+/* One line, the land's words first: the wind's words drop to a hidden second line before they would crowd them. */
+.today-pic-band { position: absolute; right: 0; bottom: 0; left: 0; display: flex; flex-wrap: wrap; align-items: center; column-gap: 3px; height: 1.5em; overflow: hidden; padding: 0 6px; background: #0d1425cc; color: #cbd5e1; font-size: 0.625rem; font-weight: 650; line-height: 1.5; white-space: nowrap; }
+.today-pic-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.today-pic-band > :not(.today-pic-note) { color: #f1f5f9; }
+.today-pic-wind { width: 1.2em; height: 1.2em; margin-left: auto; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+/* The shelter rose beside the shelter word, north up: each sector filled toward the land as far as it shelters her. */
+.today-rose { display: inline-block; width: 1.3em; height: 1.3em; margin-right: 3px; vertical-align: -0.3em; }
+.today-rose svg { display: block; width: 100%; height: 100%; }
+.today-rose circle { fill: none; stroke: currentColor; stroke-opacity: 0.45; }
+.today-rose path { fill: currentColor; }
 .today-options { display: flex; flex-direction: column; gap: var(--today-gap-chip); margin: 0; padding: 0; list-style: none; }
 .today-option { width: 100%; min-height: 44px; padding: 0 10px; border-radius: 12px; background: #ffffff0d; font-weight: 650; text-align: left; }
 .today-option:disabled { opacity: 0.5; }
@@ -510,4 +530,11 @@
 .display-light .today-leave-more summary::after { color: #0e7490; }
 .display-light .today-route-mark { color: #0e7490; }
 .display-light .today-primary { background: #0e7490; color: #fff; }
+.display-light .today-pic-sea { fill: #cfe6f1; }
+.display-light .today-pic-land { fill: #ddd2ad; }
+.display-light .today-pic-none { fill: #d5dbe3; }
+.display-light .today-pic-route { stroke: #0e7490; }
+.display-light .today-pic-mark { fill: #fff; }
+.display-light .today-pic-band { background: #ffffffd9; color: #334155; }
+.display-light .today-pic-band > :not(.today-pic-note) { color: #0f172a; }
 .display-light .today-main .today-col-b > .today-stops::after { background: linear-gradient(#fff0, #fff); }

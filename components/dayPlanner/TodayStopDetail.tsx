@@ -1,6 +1,7 @@
-import React, { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import type { PassageSpeedModel } from '../../services/passagePlan';
 import type { LatLon } from '../../services/dayPlanner/places';
+import type { PictureCoast } from '../../services/dayPlanner/stopPicture';
 import {
     LEAVING_MARINA,
     distanceLine,
@@ -29,6 +30,59 @@ import { useDraftConfirmRequest } from '../../stores/draftConfirmStore';
 import { TodayModal } from './TodayModal';
 
 type Landing = { fromMs: number; toMs: number } | 'no-curve';
+
+// The route picture and the shelter rose (132-PYD-9), drawn in their own chunk. One that will not load says so in
+// the picture's room and leaves the rose out: never an error screen, never a reload.
+type Pictures = typeof import('./TodayStopPicture');
+const pictures = () => import('./TodayStopPicture').catch(() => null);
+const StopMap = React.lazy<React.ComponentType<React.ComponentProps<Pictures['StopMap']>>>(() =>
+    pictures().then((m) => ({
+        default: m?.StopMap ?? (() => <p className="today-pic-band">Picture didn&rsquo;t load</p>),
+    })),
+);
+const ShelterRose = React.lazy<React.ComponentType<React.ComponentProps<Pictures['ShelterRose']>>>(() =>
+    pictures().then((m) => ({ default: m?.ShelterRose ?? (() => null) })),
+);
+
+/**
+ * How tall the route picture may be (132-PYD-9): what the page has left with
+ * it out, as much as the room allows (96-160 px, half its column's width), or
+ * nothing. The plan comes first: where only the picture would make the page
+ * scroll, or under 72 px are left (too small to read its words and the wind
+ * apart), it is not drawn. Where the page scrolls without it (large text, a
+ * reviewed stop's notes on an SE) and in phone landscape's two columns, it
+ * takes its full size in the scroll. 0 with no layout (a test's DOM).
+ */
+export function pictureHeight(plan: HTMLElement): number {
+    const room = pictureRoom(plan);
+    if (!room) return 0;
+    const tall = Math.min(160, Math.max(96, 96 + (room.inner - 576) / 4), plan.clientWidth / 2);
+    const fit = room.left < -1 || room.row ? tall : Math.min(tall, room.left - room.gap);
+    return fit >= 72 ? Math.floor(fit) : 0;
+}
+
+/** The room the stop page has, as if the picture were not on it: what the card could still grow by, or less what
+ *  its body already scrolls by (`left`, the picture's gap included); the room the card is given (`inner`). */
+export function pictureRoom(plan: HTMLElement) {
+    const body = plan.closest('.today-body');
+    const card = plan.closest('.today-card');
+    const overlay = card?.parentElement;
+    if (!body || !card || !overlay) return null;
+    const px = (value: string) => parseFloat(value) || 0;
+    const pad = getComputedStyle(overlay);
+    const inner = overlay.clientHeight - px(pad.paddingTop) - px(pad.paddingBottom);
+    const over = body.scrollHeight - body.clientHeight;
+    const gap = px(getComputedStyle(plan).rowGap);
+    const box = plan.querySelector<HTMLElement>('.today-pic');
+    return {
+        inner,
+        gap,
+        row: getComputedStyle(body).flexDirection === 'row',
+        left:
+            (over > 0.5 ? -over : Math.max(0, inner - card.getBoundingClientRect().height)) +
+            (box ? box.offsetHeight + gap : 0),
+    };
+}
 
 /** The landing window at a reviewed stop (todayLoader.loadLandingWindow), asked only when its detail opens. */
 export type LandingLoader = (
@@ -89,6 +143,11 @@ export type LeaveSay = (chosenMs: number | null) => { text: string; more: string
  * details into a scroll (the first note in view as it opens). Phone landscape
  * reads it in two columns, the plan on the left and the facts and notes on the
  * right, and anything may scroll at large text.
+ * 132-PYD-9: a small rose beside the shelter word shows which way the land
+ * shelters her, and under the facts and notes a small picture of the way:
+ * land from OpenStreetMap, her start, the stop and the wind, with the routed
+ * line once routed, never a straight line. It takes only the room the plan
+ * leaves (pictureHeight).
  */
 export function TodayStopDetail({
     row,
@@ -103,11 +162,17 @@ export function TodayStopDetail({
     onBack,
     route = null,
     hidden,
+    start,
+    coastline,
 }: {
     row: StopRow;
     view: DayPlanView;
     stay: StayOption;
     speed: PassageSpeedModel;
+    /** Where she plans from, and the coastline read round it (TodayBase): the picture's dot and land. The
+     *  coastline is 'loading' while the places are, and null when it did not load. */
+    start: LatLon;
+    coastline: PictureCoast;
     polarIsOwn: boolean;
     /** The routers' polar the times were sailed on; it decides the footnote's words. */
     polar?: StopDetailArgs['polar'];
@@ -247,15 +312,30 @@ export function TodayStopDetail({
     }, []);
     const foldKey = said?.more ? `${resizes}|${said.text}|${detail.rows.join('|')}|${detail.chips.length}` : null;
     const [fold, setFold] = useState<{ key: string; on: boolean } | null>(null);
+    // The facts' half of the page, where the route picture goes (132-PYD-9).
+    const glance = useRef<HTMLDivElement>(null);
     useLayoutEffect(() => {
         const body = leaveLi.current?.closest('.today-body');
         // With the details open the page scrolls by her choice: measured again as they close (132-PYD-8).
         if (!foldKey || !body || body.querySelector('.today-how[open]')) return;
-        const over = body.scrollHeight - body.clientHeight > 1;
+        // Measured as if the route picture were not there: it takes only the room the plan leaves (132-PYD-9).
+        const room = glance.current && pictureRoom(glance.current);
+        const over = room ? room.left < -1 : body.scrollHeight - body.clientHeight > 1;
         if (fold?.key !== foldKey) setFold({ key: foldKey, on: over });
         else if (fold.on && over) setFold({ key: foldKey, on: false });
     }, [foldKey, fold]);
     const folded = !!foldKey && fold?.key === foldKey && fold.on;
+    // The route picture's height (132-PYD-9), measured after every render, as the page's rows, the leave fold and
+    // the screen settle; kept while the details are open, as the fold is, and while Auto's chart hides the page.
+    // It settles: it sets only a height that differs, and the room it reads counts the picture's own back in.
+    const [pic, setPic] = useState(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useLayoutEffect(() => {
+        const plan = glance.current;
+        if (!plan || hidden || plan.querySelector('.today-how[open]')) return;
+        const height = pictureHeight(plan);
+        if (Math.abs(height - pic) > 1) setPic(height);
+    });
     // Blocked (other than a draft to confirm), she can still plot by hand: the row says what routing needs.
     const toRoute = !!route && (busy || (!state && (!route.blocked || route.blocked.action === 'confirm-draft')));
     // The route block (132-PYD-8): the distance (unless the route row says it), the route row, when to leave for the
@@ -435,10 +515,20 @@ export function TodayStopDetail({
                     </div>
                 )}
             </div>
-            <div className="today-plan">
+            <div className="today-plan" ref={glance}>
                 <ul aria-label="At a glance" className="today-glance">
-                    {detail.facts.map((fact) => (
-                        <li key={fact}>{fact}</li>
+                    {detail.facts.map((fact, i) => (
+                        <li key={fact}>
+                            {/* The first fact is the shelter word: beside it, which way the land shelters her. */}
+                            {i === 0 && candidate.fetchLandNM && (
+                                <span className="today-rose">
+                                    <Suspense fallback={null}>
+                                        <ShelterRose table={candidate.fetchLandNM} />
+                                    </Suspense>
+                                </span>
+                            )}
+                            {fact}
+                        </li>
                     ))}
                     {notes.length > 0 && <li data-notes="">Local notes</li>}
                 </ul>
@@ -453,7 +543,20 @@ export function TodayStopDetail({
                         {landingRow && <li>{landingRow}</li>}
                     </ul>
                 )}
-                {/* 132-PYD-9's route picture and shelter rose go here, under the facts they draw. */}
+                {/* The way in a picture, under the facts it draws (132-PYD-9): the routed line only once routed. */}
+                {pic > 0 && (
+                    <div className="today-pic" style={{ width: 2 * pic, height: pic }}>
+                        <Suspense fallback={null}>
+                            <StopMap
+                                start={start}
+                                stop={candidate}
+                                route={state?.kind === 'routed' ? state.leg.route.points : null}
+                                coastline={coastline}
+                                wind={plan?.weatherLoaded ? (chosen?.out ?? null) : null}
+                            />
+                        </Suspense>
+                    </div>
+                )}
                 {rest.length > 0 && (
                     <details className="today-how" onToggle={resized}>
                         <summary>How each time was worked out</summary>

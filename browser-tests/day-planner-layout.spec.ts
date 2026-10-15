@@ -43,6 +43,14 @@ import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
  * 568 its first note in view); the big times are whole on one line at every
  * size, large text too; the details open into a scroll and close back to one
  * screen; phone landscape reads it in two columns.
+ *
+ * Its route picture and shelter rose (build 132, 132-PYD-9): a rose beside the
+ * shelter word where the stop has a land table, and under the facts and notes
+ * a small picture of the way, 2 : 1, in the room the plan leaves it: never the
+ * cause of a scroll (with under 72 px left it is not drawn), its words in the
+ * band along its foot, saying what its land is ("Land not loaded" on these
+ * sources, which have no coastline but with ?coast=ring), and no line until
+ * the stop is routed (day-planner-route.spec.ts routes it).
  */
 
 // The phone's clock, deliberately not the place's.
@@ -292,15 +300,16 @@ function layoutIssues(page: Page, mayScroll: boolean) {
 
 /**
  * The stop page's plan (132-PYD-8), measured in the page: each big time whole on one line, and bigger than the
- * page's title (at ordinary text); each fact one chip on one line (at ordinary text), four at most; the details
- * closed as it opens, their summary a 44 pt target. Returns what broke.
+ * page's title (at ordinary text); each fact one chip on one line (at ordinary text), four at most, the shelter
+ * word's rose (132-PYD-9) on that line beside it; the details closed as it opens, their summary a 44 pt target.
+ * Returns what broke.
  */
 function planIssues(page: Page, largeText = false) {
     return page.evaluate((largeText) => {
         const issues: string[] = [];
         const card = document.querySelector<HTMLElement>('.today-detail');
         if (!card) return ['no stop page'];
-        const lines = (el: Element) => {
+        const lines = (el: Node) => {
             const range = document.createRange();
             range.selectNodeContents(el);
             return {
@@ -321,13 +330,65 @@ function planIssues(page: Page, largeText = false) {
         const facts = [...card.querySelectorAll<HTMLElement>('.today-glance > li')];
         if (facts.length > 4) issues.push(`${facts.length} facts`);
         if (!largeText)
-            for (const fact of facts) if (lines(fact).count !== 1) issues.push(`"${fact.textContent}" wraps`);
+            for (const fact of facts) {
+                // Its words (the rose is a drawing beside them), and the chip one line tall, rose and all.
+                const one = parseFloat(getComputedStyle(fact).lineHeight);
+                if (lines(fact.lastChild!).count !== 1 || fact.getBoundingClientRect().height > 1.5 * one + 4)
+                    issues.push(`"${fact.textContent}" wraps`);
+            }
+        const rose = card.querySelector('.today-rose');
+        if (rose && rose !== facts[0]?.firstElementChild) issues.push('the rose is not beside the shelter word');
         const more = card.querySelector<HTMLDetailsElement>('details.today-how');
         if (!more || more.open) issues.push('the details are not closed');
         const summary = more?.querySelector('summary')?.getBoundingClientRect();
         if (!summary || summary.height < 44 - 0.5) issues.push(`the details' summary is ${summary?.height} tall`);
         return issues;
     }, largeText);
+}
+
+/**
+ * The stop page's route picture (132-PYD-9), measured in the page where it is drawn: 2 : 1 and at least 72 px
+ * tall, inside its column, under the facts and notes and over the details, its words whole in its band and
+ * clear of her start and the stop, and no line before the stop is routed. Returns what broke, and its height
+ * (0: not drawn, the plan having left it too little room).
+ */
+function pictureIssues(page: Page) {
+    return page.evaluate(() => {
+        const issues: string[] = [];
+        const box = document.querySelector<HTMLElement>('.today-detail .today-pic');
+        if (!box) return { issues, height: 0 };
+        const r = box.getBoundingClientRect();
+        const column = box.parentElement!.getBoundingClientRect();
+        if (Math.abs(r.width - 2 * r.height) > 1) issues.push(`the picture is ${r.width}×${r.height}, not 2 : 1`);
+        if (r.height < 72 - 0.5) issues.push(`the picture is ${r.height} px tall`);
+        if (r.left < column.left - 0.5 || r.right > column.right + 0.5)
+            issues.push('the picture is wider than its column');
+        if (!box.previousElementSibling?.matches('.today-glance, .today-rows'))
+            issues.push('the picture is not under the facts and notes');
+        if (!box.nextElementSibling?.matches('details.today-how')) issues.push('the picture is not over the details');
+        if (!box.querySelector('svg[role="img"]')?.getAttribute('aria-label')?.startsWith('Map: '))
+            issues.push('the picture has no words for VoiceOver');
+        if (box.querySelector('polyline, line')) issues.push('a line before the stop is routed');
+        const band = box.querySelector<HTMLElement>('.today-pic-band');
+        const note = box.querySelector<HTMLElement>('.today-pic-note');
+        if (!band || !note?.textContent) issues.push('the picture says nothing of its land');
+        else {
+            const b = band.getBoundingClientRect();
+            if (b.bottom > r.bottom + 0.5 || b.top < r.top) issues.push('its band is cut');
+            // Its words whole on the band's one line, and the wind's arrow beside them; only the longest note (a
+            // picture reaching past the coastline asked for, "…, to 27 NM") may give way on the smallest.
+            const long = note.textContent.includes('27 NM');
+            if (!long && note.scrollWidth > note.clientWidth + 1) issues.push(`"${note.textContent}" is cut`);
+            const arrow = box.querySelector('.today-pic-wind')?.getBoundingClientRect();
+            if (!long && arrow && arrow.top > b.top + b.height / 2) issues.push("the wind's arrow is crowded out");
+            for (const mark of box.querySelectorAll('.today-pic-mark')) {
+                const m = mark.getBoundingClientRect();
+                if (m.bottom > b.top + 0.5) issues.push('a mark is under its words');
+                if (m.top < r.top - 0.5) issues.push('a mark is cut at the top');
+            }
+        }
+        return { issues, height: r.height };
+    });
 }
 
 /**
@@ -449,6 +510,8 @@ for (const size of nestedSizes) {
         expect(await parks.count()).toBeGreaterThan(0);
         expect(await layoutIssues(page, size.height < 640)).toEqual([]);
         expect(await planIssues(page)).toEqual([]);
+        // 132-PYD-9: its picture, where the plan leaves it room (or in the scroll where the notes already scroll).
+        expect((await pictureIssues(page)).issues).toEqual([]);
         expect(
             await parks.first().evaluate((note) => {
                 const body = note.closest('.today-body')!.getBoundingClientRect();
@@ -496,6 +559,15 @@ for (const size of sizes.filter((s) => !s.mayScroll)) {
         await expect(detail.locator('.today-rows li[data-parks]')).toHaveCount(0);
         expect(await layoutIssues(page, size.height < 568)).toEqual([]);
         expect(await planIssues(page)).toEqual([]);
+        // 132-PYD-9: the picture of the way takes only the room the plan leaves; with room, it is there.
+        const picture = await pictureIssues(page);
+        expect(picture.issues).toEqual([]);
+        if (size.height >= 640) {
+            expect(picture.height).toBeGreaterThanOrEqual(72);
+            // These sources have no coastline: it says so, and is grey, never open sea.
+            await expect(detail.locator('.today-pic-note')).toHaveText('Land not loaded');
+            await expect(detail.locator('.today-pic rect')).toHaveClass('today-pic-none');
+        }
         expect(errors).toEqual([]);
     });
 }
@@ -533,6 +605,7 @@ for (const size of [sizes[0], sizes[1], AS_DRAWN.se, AS_DRAWN.se2, AS_DRAWN.shan
             const fits = !size.mayScroll && !size.landscape && (!reviewed || size.height >= 640);
             expect(await layoutIssues(page, !fits)).toEqual([]);
             expect(await planIssues(page, size.mayScroll)).toEqual([]);
+            expect((await pictureIssues(page)).issues).toEqual([]);
             const summary = detail.getByText('How each time was worked out', { exact: true });
             await summary.click();
             const rows = detail.getByRole('list', { name: 'How the day goes' });
@@ -571,9 +644,43 @@ for (const size of [sizes[0], sizes[2], sizes[3], AS_DRAWN.mid, AS_DRAWN.shane])
         // A reviewed stop's Parks notes may push it into a scroll under 640 px tall.
         expect(await layoutIssues(page, size.height < 640)).toEqual([]);
         expect(await planIssues(page)).toEqual([]);
+        expect((await pictureIssues(page)).issues).toEqual([]);
         expect(errors).toEqual([]);
     });
 }
+
+// 132-PYD-9: the stop page's picture draws its land from the coastline the planner already read (?coast=ring: a
+// synthetic shore ringing the start), with a dot at her start, a pin at the stop and the wind, never a line before
+// the stop is routed; and a rose beside the shelter word shows which way the land shelters her.
+for (const size of [sizes[2], AS_DRAWN.shane])
+    test(`the stop page's picture and shelter rose at ${size.name} (132-PYD-9)`, async ({ page }) => {
+        const errors = await open(page, size, `&mode=normal&coast=ring${size.query}`);
+        const dialog = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+        const first = dialog.getByRole('list', { name: 'Stops' }).getByRole('button').first();
+        await expect(first.locator('.today-stop-l2')).toHaveText(TIMES);
+        await first.click();
+        const detail = page.locator('.today-detail');
+        // The atlas's stops have their land table: the rose, beside the shelter word, its words unchanged.
+        const shelter = detail.locator('.today-glance > li').first();
+        await expect(shelter.getByRole('img', { name: /^Shelter rose: / })).toBeVisible();
+        await expect(shelter).toHaveText(/^(Very sheltered|Sheltered|Some chop|Exposed|Shelter not known)$/);
+        const map = detail.locator('.today-pic svg[role="img"]');
+        await expect(map).toHaveAttribute(
+            'aria-label',
+            /^Map: your start \(dot\) and .+ \(pin\), wind [NESW]{1,2} \d+(–\d+)? kn\. Land © OpenStreetMap/,
+        );
+        await expect(detail.locator('.today-pic-land')).toHaveCount(1);
+        await expect(detail.locator('.today-pic-note')).toHaveText(/^Land © OpenStreetMap/);
+        // Sea and land drawn apart, and neither in the grey of land not known.
+        const fills = await page.evaluate(() =>
+            ['.today-pic-sea', '.today-pic-land'].map((s) => getComputedStyle(document.querySelector(s)!).fill),
+        );
+        expect(new Set(fills).size).toBe(2);
+        expect((await pictureIssues(page)).issues).toEqual([]);
+        expect(await layoutIssues(page, false)).toEqual([]);
+        expect(await planIssues(page)).toEqual([]);
+        expect(errors).toEqual([]);
+    });
 
 // 127-PYD-3: never a straight line from Plan Your Day. A tester's Plot by hand hands the chart her start
 // and the stop as two marks, no pins (the routed cases are in day-planner-route.spec.ts).
