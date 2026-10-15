@@ -42,7 +42,7 @@ vi.mock('../services/ShoppingListService', () => ({
     markPurchased: shoppingMocks.markPurchased,
     unmarkPurchased: shoppingMocks.unmarkPurchased,
     addManualItem: shoppingMocks.addManualItem,
-    getVoyageBudget: vi.fn(),
+    recentRetailers: vi.fn(() => []),
     reconcileGroceryInventoryMirror: vi.fn(async () => ({ repaired: 0, errors: [] })),
 }));
 
@@ -236,7 +236,7 @@ describe('Galley production workflows', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Open empty shopping list' }));
         expect(screen.getByRole('heading', { name: 'Grocery list' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Add item to shopping list' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Add item' })).toBeEnabled();
     });
 
     it('refreshes the Galley shopping summary when a realtime list update arrives', () => {
@@ -277,7 +277,7 @@ describe('Galley production workflows', () => {
         expect(within(purchaseDialog).getByText("Adds 4 each to Ship's Stores.")).toBeInTheDocument();
         fireEvent.click(within(purchaseDialog).getByRole('button', { name: 'Cancel marking Tomatoes as purchased' }));
 
-        fireEvent.click(screen.getByRole('button', { name: 'Add item to shopping list' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Add item' }));
         const addDialog = screen.getByRole('dialog', { name: /Add to shopping list/ });
         expect(addDialog).toHaveClass('overflow-y-auto', 'overscroll-contain');
         expect(addDialog.style.maxHeight).toContain('100dvh');
@@ -285,7 +285,7 @@ describe('Galley production workflows', () => {
         fireEvent.change(within(addDialog).getByRole('textbox', { name: 'Item name' }), {
             target: { value: 'Olive oil' },
         });
-        const quantityInput = within(addDialog).getByRole('spinbutton', { name: 'Qty' });
+        const quantityInput = within(addDialog).getByRole('spinbutton', { name: 'Quantity' });
         expect(quantityInput).toHaveAttribute('min', '0.0001');
         expect(quantityInput).toHaveAttribute('step', 'any');
         fireEvent.change(quantityInput, { target: { value: '0.5' } });

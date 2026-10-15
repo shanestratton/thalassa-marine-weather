@@ -39,6 +39,7 @@ import { underKeelClearanceM } from '../../services/underway/underKeelClearance'
 import { vesselDraftIsAssumed, vesselDraftMetres } from '../../services/units';
 import { DebugAisInjectorSection } from './debugAisInjectorGate';
 import { screenHoldsTwoPages } from '../../utils/glassBesideChartStart';
+import { CURRENCY_CHOICES, resolveCurrency } from '../../utils/money';
 
 /** The Settings menu row's icon tile (SettingsModal's MENU_ICON_TILE): the soft
  *  surface with the one sky accent on the glyph, in both display modes. */
@@ -253,6 +254,40 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             <option value="l">Litres</option>
                         </select>
                     </div>
+                </div>
+            </Section>
+
+            {/* Grocery list prices (132-B17, GAL-09): every row was stamped AUD
+                and every price '$'. Unset, the phone's region decides; a pick
+                here rides the account to every phone. Rows already on the list
+                keep the currency they were added in: nothing is converted. */}
+            <Section title="Currency">
+                <div className="p-4">
+                    <label htmlFor="settings-currency" className={FIELD_LABEL_CLASS}>
+                        Grocery list prices
+                    </label>
+                    <select
+                        id="settings-currency"
+                        value={settings.currency ?? ''}
+                        // "Follow this phone" writes null, not undefined, so the
+                        // cloud patch carries the key and other phones follow too.
+                        onChange={(e) => onSave({ currency: e.target.value || null })}
+                        aria-describedby="settings-currency-help"
+                        className={SELECT_CLASS}
+                    >
+                        <option value="">Follow this phone ({resolveCurrency(null)})</option>
+                        {settings.currency && !CURRENCY_CHOICES.some((choice) => choice.code === settings.currency) && (
+                            <option value={settings.currency}>{settings.currency}</option>
+                        )}
+                        {CURRENCY_CHOICES.map((choice) => (
+                            <option key={choice.code} value={choice.code}>
+                                {choice.name} ({choice.code})
+                            </option>
+                        ))}
+                    </select>
+                    <p id="settings-currency-help" className="mt-1.5 text-xs text-gray-400">
+                        New items and prices use it. Items already on the list keep the currency they were added in.
+                    </p>
                 </div>
             </Section>
 

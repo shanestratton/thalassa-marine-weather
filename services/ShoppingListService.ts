@@ -27,6 +27,8 @@ import { triggerHaptic } from '../utils/system';
 import { convertQuantity, toPurchasable } from './PurchaseUnits';
 import { binderWriteGranted, galleyShareOwner } from './vessel/sharedBinders';
 import { GROCERY_BOUGHT_PREFIX, GROCERY_RETAINED_PREFIX } from './vessel/storesProvenance';
+import { groceryCurrency } from './galley/groceryCurrency';
+import { detectMarketZone, type MarketZone } from './galley/marketZones';
 import { createLogger, getErrorMessage } from '../utils/createLogger';
 
 const log = createLogger('Galley');
@@ -40,16 +42,8 @@ const traced = (reason: string) => (error: unknown) => log.warn(reason, getError
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type MarketZone =
-    | 'Butcher'
-    | 'Produce'
-    | 'Bottle Shop'
-    | 'Bakery'
-    | 'Dairy'
-    | 'Chandlery'
-    | 'Fuel Dock'
-    | 'Pharmacy'
-    | 'General';
+// The aisles, and the words that put an item in one, live in galley/marketZones (132-B17).
+export { detectMarketZone, type MarketZone } from './galley/marketZones';
 
 export interface ShoppingItem {
     id: string;
@@ -89,119 +83,6 @@ export interface ShoppingListSummary {
     totalCost: number;
     currency: string;
     zones: { zone: MarketZone; items: ShoppingItem[] }[];
-}
-
-// ── Market Zone Detection ──────────────────────────────────────────────────
-
-const ZONE_KEYWORDS: Record<MarketZone, string[]> = {
-    Butcher: [
-        'beef',
-        'chicken',
-        'pork',
-        'lamb',
-        'sausage',
-        'mince',
-        'steak',
-        'brisket',
-        'bacon',
-        'ham',
-        'turkey',
-        'veal',
-        'meat',
-        'fish',
-        'prawn',
-        'shrimp',
-        'crab',
-        'lobster',
-        'salmon',
-        'tuna',
-        'snapper',
-    ],
-    Produce: [
-        'onion',
-        'garlic',
-        'tomato',
-        'potato',
-        'carrot',
-        'lettuce',
-        'spinach',
-        'capsicum',
-        'pepper',
-        'mushroom',
-        'broccoli',
-        'corn',
-        'avocado',
-        'lime',
-        'lemon',
-        'apple',
-        'banana',
-        'orange',
-        'mango',
-        'herb',
-        'basil',
-        'parsley',
-        'cilantro',
-        'coriander',
-        'ginger',
-        'chilli',
-    ],
-    'Bottle Shop': [
-        'wine',
-        'beer',
-        'rum',
-        'vodka',
-        'whisky',
-        'whiskey',
-        'gin',
-        'tequila',
-        'champagne',
-        'prosecco',
-        'cider',
-        'spirit',
-        'liqueur',
-        'bourbon',
-    ],
-    Bakery: ['bread', 'roll', 'baguette', 'croissant', 'flour', 'yeast', 'pastry'],
-    Dairy: ['milk', 'cheese', 'butter', 'cream', 'yoghurt', 'yogurt', 'egg'],
-    Chandlery: [
-        'rope',
-        'shackle',
-        'block',
-        'sail',
-        'tape',
-        'epoxy',
-        'antifoul',
-        'winch',
-        'grease',
-        'filter',
-        'impeller',
-        'zinc',
-        'anode',
-        'fuse',
-    ],
-    'Fuel Dock': ['diesel', 'petrol', 'gas', 'propane', 'lpg', 'fuel'],
-    Pharmacy: [
-        'paracetamol',
-        'ibuprofen',
-        'bandage',
-        'antiseptic',
-        'sunscreen',
-        'seasick',
-        'dramamine',
-        'antihistamine',
-    ],
-    General: [],
-};
-
-function detectMarketZone(ingredientName: string): MarketZone {
-    const lower = ingredientName.toLowerCase();
-    for (const [zone, keywords] of Object.entries(ZONE_KEYWORDS) as [MarketZone, string[]][]) {
-        if (zone === 'General') continue;
-        for (const kw of keywords) {
-            if (lower.includes(kw)) return zone;
-        }
-    }
-    return 'General';
 }
 
 // ── Service ────────────────────────────────────────────────────────────────
@@ -651,6 +532,7 @@ export async function generateShoppingList(
 ): Promise<ShoppingItem[]> {
     const now = new Date().toISOString();
     const items: ShoppingItem[] = [];
+    const currency = groceryCurrency();
 
     for (const sf of shortfalls) {
         if (sf.status !== 'needed' || sf.shortfall_qty <= 0) continue;
@@ -663,7 +545,7 @@ export async function generateShoppingList(
             unit: sf.unit,
             market_zone: detectMarketZone(sf.ingredient_name),
             actual_cost: null,
-            currency: 'AUD',
+            currency,
             purchased: false,
             purchased_at: null,
             purchase_retailer: null,
@@ -699,6 +581,7 @@ export async function bulkAddToShoppingList(
     let count = 0;
     const galleyList = inGalleyList(voyageId);
     const owner = galleyItemOwner(voyageId, ownerUserId);
+    const currency = groceryCurrency();
 
     for (const ing of ingredients) {
         if (ing.totalQty <= 0) continue;
@@ -728,7 +611,7 @@ export async function bulkAddToShoppingList(
                 unit: ing.unit,
                 market_zone: detectMarketZone(ing.name),
                 actual_cost: null,
-                currency: 'AUD',
+                currency,
                 purchased: false,
                 purchased_at: null,
                 purchase_retailer: null,
@@ -944,7 +827,8 @@ export async function addManualItem(opts: ManualItemOptions & { atLeast?: boolea
         unit,
         market_zone: opts.zone || detectMarketZone(name),
         actual_cost: null,
-        currency: 'AUD',
+        // The chosen currency, or the phone region's (132-B17): every row was 'AUD'.
+        currency: groceryCurrency(),
         purchased: false,
         purchased_at: null,
         purchase_retailer: null,
@@ -1147,9 +1031,32 @@ export function getShoppingList(voyageId?: string | null, ownerUserId?: string |
         purchased: purchased.length,
         remaining: items.length - purchased.length,
         totalCost: Math.round(totalCost * 100) / 100,
-        currency: items[0]?.currency || 'AUD',
+        currency: items[0]?.currency || groceryCurrency(),
         zones,
     };
+}
+
+/**
+ * The shops this phone's purchases name, the latest first, one per shop in
+ * its latest spelling: the Grocery list's quick picks (132-B17, binder audit
+ * GAL-09). They were Coles, Woolworths, Aldi and IGA for every sailor, in
+ * Tonga too. None until a purchase names a shop.
+ */
+export function recentRetailers(limit = 5): string[] {
+    const bought = query<ShoppingItem>(TABLE, (i) => i.purchased && !!i.purchase_retailer?.trim()).sort((a, b) =>
+        (b.purchased_at ?? '').localeCompare(a.purchased_at ?? ''),
+    );
+    const seen = new Set<string>();
+    const shops: string[] = [];
+    for (const item of bought) {
+        const shop = item.purchase_retailer!.trim().replace(/\s+/g, ' ');
+        const key = shop.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        shops.push(shop);
+        if (shops.length >= limit) break;
+    }
+    return shops;
 }
 
 /**
@@ -1185,7 +1092,7 @@ export function getVoyageBudget(voyageId: string): {
     return {
         totalSpent: Math.round(total * 100) / 100,
         itemCount: items.length,
-        currency: items[0]?.currency || 'AUD',
+        currency: items[0]?.currency || groceryCurrency(),
         byZone: Array.from(byZone.entries()).map(([zone, spent]) => ({
             zone,
             spent: Math.round(spent * 100) / 100,

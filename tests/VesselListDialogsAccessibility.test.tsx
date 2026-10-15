@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
     markPurchased: vi.fn(),
     unmarkPurchased: vi.fn(),
     addManualItem: vi.fn(),
+    /** The shops the price sheet offers as quick picks (132-B17). */
+    recentRetailers: vi.fn(() => [] as string[]),
     // ── Vessel release dialogs (2026-09-08 decision) ─────────────────────
     /** The mocked settings store's state; the selector hook reads straight from it. */
     fleetStore: { settings: {} } as Record<string, unknown>,
@@ -38,7 +40,7 @@ vi.mock('../services/ShoppingListService', () => ({
     markPurchased: mocks.markPurchased,
     unmarkPurchased: mocks.unmarkPurchased,
     addManualItem: mocks.addManualItem,
-    getVoyageBudget: vi.fn(),
+    recentRetailers: mocks.recentRetailers,
     reconcileGroceryInventoryMirror: vi.fn(async () => ({ repaired: 0, errors: [] })),
 }));
 vi.mock('../services/PurchaseUnits', () => ({
@@ -213,6 +215,8 @@ describe('vessel list dialog accessibility', () => {
     });
 
     it('focuses and dismisses the purchase details dialog without committing', async () => {
+        // The quick picks are the shops this phone has used (132-B17).
+        mocks.recentRetailers.mockReturnValue(['Talamahu Market', 'Coles']);
         render(<GroceryListPage onBack={vi.fn()} />);
         const opener = await screen.findByRole('button', { name: 'Mark Tomatoes as purchased' });
         opener.focus();
@@ -221,7 +225,11 @@ describe('vessel list dialog accessibility', () => {
         const dialog = screen.getByRole('dialog', { name: /Mark as purchased/ });
         const price = within(dialog).getByRole('spinbutton', { name: 'Price (optional)' });
         expect(price).toHaveFocus();
-        expect(within(dialog).getByRole('textbox', { name: 'Retailer (optional)' })).toBeEnabled();
+        expect(within(dialog).getByRole('textbox', { name: 'Shop (optional)' })).toBeEnabled();
+        expect(within(dialog).getByRole('button', { name: 'Talamahu Market' })).toHaveAttribute(
+            'aria-pressed',
+            'false',
+        );
         expect(within(dialog).getByRole('button', { name: 'Coles' })).toHaveAttribute('aria-pressed', 'false');
 
         fireEvent.keyDown(price, { key: 'Escape' });
@@ -233,16 +241,16 @@ describe('vessel list dialog accessibility', () => {
     it('labels the add-item form and restores its opener after Escape', async () => {
         render(<GroceryListPage onBack={vi.fn()} />);
         await screen.findByText('Tomatoes');
-        const opener = screen.getByRole('button', { name: 'Add item to shopping list' });
+        const opener = screen.getByRole('button', { name: 'Add item' });
         opener.focus();
         fireEvent.click(opener);
 
         const dialog = screen.getByRole('dialog', { name: /Add to shopping list/ });
         const name = within(dialog).getByRole('textbox', { name: 'Item name' });
         expect(name).toHaveFocus();
-        expect(within(dialog).getByRole('spinbutton', { name: 'Qty' })).toBeEnabled();
+        expect(within(dialog).getByRole('spinbutton', { name: 'Quantity' })).toBeEnabled();
         expect(within(dialog).getByRole('combobox', { name: 'Unit' })).toBeEnabled();
-        const zones = within(dialog).getByRole('group', { name: 'Aisle / Zone' });
+        const zones = within(dialog).getByRole('group', { name: 'Aisle' });
         expect(within(zones).getByRole('button', { name: /Produce/ })).toHaveAttribute('aria-pressed', 'false');
 
         fireEvent.keyDown(name, { key: 'Escape' });
@@ -303,7 +311,7 @@ describe('vessel list dialog accessibility', () => {
 
         await waitFor(() => {
             expect(screen.queryByRole('dialog', { name: /Mark as purchased/ })).not.toBeInTheDocument();
-            expect(screen.getByRole('button', { name: 'Add item to shopping list' })).toHaveFocus();
+            expect(screen.getByRole('button', { name: 'Add item' })).toHaveFocus();
         });
     });
 
@@ -311,7 +319,7 @@ describe('vessel list dialog accessibility', () => {
         mocks.addManualItem.mockRejectedValueOnce(new Error('disk unavailable'));
         render(<GroceryListPage onBack={vi.fn()} />);
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Add item to shopping list' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Add item' }));
         const dialog = screen.getByRole('dialog', { name: /Add to shopping list/ });
         const name = within(dialog).getByRole('textbox', { name: 'Item name' });
         fireEvent.change(name, { target: { value: 'Dish soap' } });

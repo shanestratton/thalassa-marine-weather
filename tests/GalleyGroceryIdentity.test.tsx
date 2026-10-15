@@ -37,7 +37,7 @@ vi.mock('../services/ShoppingListService', () => ({
     markPurchased: mocks.markPurchased,
     unmarkPurchased: vi.fn(),
     addManualItem: vi.fn(),
-    getVoyageBudget: vi.fn(() => ({ totalSpent: 0, byZone: [] })),
+    recentRetailers: vi.fn(() => []),
 }));
 
 vi.mock('../services/PurchaseUnits', () => ({
