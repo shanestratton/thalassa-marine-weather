@@ -431,6 +431,41 @@ describe('MealPlanService', () => {
             expect(matchingLeftovers[0].user_id).toBe(OWNER_A);
         });
 
+        it.each([
+            ['Australia/Brisbane', 7],
+            ['America/Los_Angeles', 18],
+        ])('leftovers keep three local days in Stores, on a phone in %s (131-B11)', async (zone, hour) => {
+            // 07:00 in Brisbane and 18:00 in Los Angeles on Friday 9 October are
+            // both another day in UTC: the instant the Stores DATE column cut
+            // to its UTC day was the 11th from Brisbane, the 13th from LA.
+            const was = process.env.TZ;
+            process.env.TZ = zone;
+            vi.useFakeTimers({ toFake: ['Date'] });
+            try {
+                vi.setSystemTime(new Date(2026, 9, 9, hour, 0));
+                const meal = { id: 7, title: `Chowder ${zone}`, servings: 4, readyInMinutes: 40, image: '' };
+                const plan = await scheduleMeal(
+                    { ...meal, ingredients: [] } as never,
+                    '2026-10-09',
+                    'dinner',
+                    null,
+                    4,
+                    OWNER_A,
+                );
+                await completeMeal(plan.id);
+                await saveLeftovers(plan.id, 2);
+
+                const leftovers = getAll<{ item_name: string; expiry_date: string }>('inventory_items').find(
+                    (item) => item.item_name === `${meal.title} (Leftovers)`,
+                );
+                expect(leftovers?.expiry_date).toBe('2026-10-12');
+            } finally {
+                vi.useRealTimers();
+                if (was === undefined) delete process.env.TZ;
+                else process.env.TZ = was;
+            }
+        });
+
         it("reads and consumes only the selected vessel owner's matching stores", async () => {
             const unique = Date.now();
             const ingredientName = `Owner-scoped Rice ${unique}`;

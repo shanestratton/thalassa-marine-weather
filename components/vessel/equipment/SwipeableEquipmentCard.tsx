@@ -8,6 +8,7 @@ import React from 'react';
 import type { EquipmentItem, EquipmentCategory } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
+import { localDaysUntil } from '../../../utils/localDate';
 import { ClipboardIcon, GearIcon, RadioIcon } from '../../icons/UIIcons';
 import { DropletIcon, ThermometerIcon } from '../../icons/WeatherIcons';
 import { FoodIcon, SailBoatIcon } from '../../icons/MaritimeIcons';
@@ -29,6 +30,17 @@ export const CATEGORY_ICONS: Record<EquipmentCategory, EquipmentCategoryIcon> = 
 /** For a category the register does not know (older rows). */
 export const FALLBACK_CATEGORY_ICON: EquipmentCategoryIcon = ClipboardIcon;
 
+/**
+ * Is the warranty still in force? Through the end of its last day, on the
+ * phone's calendar, as the Equipment PDF reds a name only once it has run
+ * out. Its UTC midnight (the synced '2026-11-01T00:00:00+00:00' too) ended
+ * it a day early in the Americas (131-B11, EQ-2). Null with no date.
+ */
+export function warrantyInForce(warrantyExpiry: string | null | undefined): boolean | null {
+    const days = localDaysUntil(warrantyExpiry);
+    return days === null ? null : days >= 0;
+}
+
 export const CATEGORIES: { id: EquipmentCategory; label: string; Icon: EquipmentCategoryIcon }[] = (
     ['Propulsion', 'Electronics', 'HVAC', 'Plumbing', 'Rigging', 'Galley'] as EquipmentCategory[]
 ).map((id) => ({ id, label: id, Icon: CATEGORY_ICONS[id] }));
@@ -49,7 +61,7 @@ export const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onT
     // Make and model, whichever are set; a lone ' — ' said nothing.
     const makeModel = [item.make, item.model].filter((part) => part && part.trim()).join(' — ') || '--';
 
-    const warrantyActive = item.warranty_expiry ? new Date(item.warranty_expiry).getTime() > Date.now() : null;
+    const warrantyActive = warrantyInForce(item.warranty_expiry);
 
     return (
         <div className="relative overflow-hidden rounded-lg">

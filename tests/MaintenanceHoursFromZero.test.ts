@@ -50,6 +50,7 @@ import { LocalEngineHoursService } from '../services/vessel/LocalEngineHoursServ
 import { LocalMaintenanceService } from '../services/vessel/LocalMaintenanceService';
 import { MaintenanceService, calculateStatus } from '../services/MaintenanceService';
 import { supabase } from '../services/supabase';
+import { toLocalDateString } from '../utils/localDate';
 
 const ENGINE_SERVICE = 'Service Engine (Oil / Filters / Zincs)';
 let boat = 0;
@@ -150,6 +151,49 @@ describe('seeding the suggested tasks', () => {
         expect(inserted[0].find((row) => row.title === ENGINE_SERVICE)!.next_due_hours).toBeNull();
         // Every other row is the same shape as before: no hours.
         expect(inserted[0].filter((row) => row.next_due_hours !== null)).toEqual([]);
+    });
+
+    it('dated tasks fall due on local days, not UTC ones, at 07:00 in Brisbane (131-B11)', async () => {
+        // 07:00 on Friday 9 October in Brisbane is still Thursday in UTC: the
+        // seed's UTC dates put every suggested task a day early.
+        const was = process.env.TZ;
+        process.env.TZ = 'Australia/Brisbane';
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(new Date(2026, 9, 9, 7, 0));
+            await signIn('kestrel');
+            const dueOn = (interval: number) => toLocalDateString(new Date(2026, 9, 9 + interval));
+
+            await LocalMaintenanceService.seedDefaults();
+            const local = query<MaintenanceTask>('maintenance_tasks', (row) => row.user_id === me);
+            const dated = local.filter((row) => row.trigger_type !== 'engine_hours');
+            expect(dated.length).toBeGreaterThan(10);
+            for (const row of dated) expect(row.next_due_date, row.title).toBe(dueOn(row.interval_value!));
+            // A daily check is due tomorrow, Saturday the 10th.
+            expect(dated.find((row) => row.interval_value === 1)?.next_due_date).toBe('2026-10-10');
+
+            // The cloud twin, the same.
+            const inserted: Record<string, unknown>[][] = [];
+            const chain: Record<string, unknown> = {};
+            for (const method of ['select', 'eq', 'contains', 'order', 'limit']) chain[method] = () => chain;
+            chain.maybeSingle = () => Promise.resolve({ data: { owner_id: me }, error: null });
+            chain.insert = (rows: Record<string, unknown>[]) => {
+                inserted.push(rows);
+                return Promise.resolve({ error: null });
+            };
+            vi.mocked(supabase!.auth.getUser).mockImplementation(
+                async () => ({ data: { user: { id: me } }, error: null }) as never,
+            );
+            vi.mocked(supabase!.from).mockImplementation(() => chain as never);
+            await MaintenanceService.seedDefaults(null);
+            const cloud = inserted[0].filter((row) => row.trigger_type !== 'engine_hours');
+            for (const row of cloud)
+                expect(row.next_due_date, String(row.title)).toBe(dueOn(Number(row.interval_value)));
+        } finally {
+            vi.useRealTimers();
+            if (was === undefined) delete process.env.TZ;
+            else process.env.TZ = was;
+        }
     });
 });
 

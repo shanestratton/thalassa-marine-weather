@@ -8,6 +8,8 @@ import React from 'react';
 import type { InventoryItem } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
 import { triggerHaptic } from '../../../utils/system';
+import { formatDisplayDate } from '../../../utils/displayDate';
+import { localDaysUntil } from '../../../utils/localDate';
 import { AlertTriangleIcon, ClockIcon, MapPinIcon } from '../../Icons';
 
 interface SwipeableInventoryCardProps {
@@ -35,9 +37,9 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
     });
 
     const isLow = item.quantity <= item.min_quantity && item.min_quantity > 0;
-    const expiryMs = item.expiry_date ? new Date(item.expiry_date).getTime() : null;
-    const now = Date.now();
-    const daysUntilExpiry = expiryMs ? Math.ceil((expiryMs - now) / 86_400_000) : null;
+    // Whole local days to the expiry day, as the Stores PDF counts them: the
+    // day itself, not its UTC midnight (a day early in the Americas; 131-B11).
+    const daysUntilExpiry = localDaysUntil(item.expiry_date);
     const isExpired = daysUntilExpiry !== null && daysUntilExpiry <= 0;
     const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry > 0 && daysUntilExpiry <= 90;
     const revealed = swipeOffset > 0;
@@ -178,7 +180,7 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                                     <p
                                         className={`font-bold ${isExpired ? 'text-red-400' : isExpiringSoon ? 'text-amber-400' : 'text-emerald-400'}`}
                                     >
-                                        {new Date(item.expiry_date).toLocaleDateString()}
+                                        {formatDisplayDate(item.expiry_date, { weekday: false })}
                                     </p>
                                 </div>
                             )}

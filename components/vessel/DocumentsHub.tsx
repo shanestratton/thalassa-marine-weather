@@ -14,6 +14,7 @@ import { LocalDocumentService } from '../../services/vessel/LocalDocumentService
 import { DocumentSyncService, type DocUpload } from '../../services/vessel/DocumentSyncService';
 import type { SyncResult } from '../../services/vessel/SyncService';
 import { triggerHaptic } from '../../utils/system';
+import { localDayString } from '../../utils/localDate';
 import { TapToAction } from '../ui/TapToAction';
 import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
@@ -504,8 +505,10 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
         setEditDoc(doc);
         setFormName(doc.document_name);
         setFormCategory(doc.category);
-        setFormIssueDate(doc.issue_date ? doc.issue_date.split('T')[0] : '');
-        setFormExpiryDate(doc.expiry_date ? doc.expiry_date.split('T')[0] : '');
+        // The local days the card shows (131-B11): the UTC date of a stored
+        // instant was a day out wherever the phone is not on UTC.
+        setFormIssueDate(localDayString(doc.issue_date));
+        setFormExpiryDate(localDayString(doc.expiry_date));
         setFormNotes(doc.notes || '');
         setFormFileUri(doc.file_uri || null);
         setFormFileName(doc.file_uri ? 'Attached file' : null);

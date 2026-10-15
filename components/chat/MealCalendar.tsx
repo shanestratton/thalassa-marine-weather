@@ -39,8 +39,9 @@ const log = createLogger('MealCalendar');
 
 // Hoisted formatters: constructing an Intl.DateTimeFormat is the expensive
 // half of toLocaleDateString(locale, options), and the grid did it per day
-// per render. The key IS a UTC date — timeZone: 'UTC' keeps UTC+12…+14 on
-// the right day (audit 2026-09-02).
+// per render. The key is a calendar day, 'YYYY-MM-DD' (the crew's local day
+// since 131-B11): its noon written with timeZone: 'UTC' is that very day in
+// every zone, UTC+12…+14 included (audit 2026-09-02).
 const DAY_SHORT_FMT = new Intl.DateTimeFormat(undefined, {
     weekday: 'short',
     month: 'short',

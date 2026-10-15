@@ -10,7 +10,8 @@ import { createLogger } from '../../../utils/createLogger';
 import { triggerHaptic } from '../../../utils/system';
 import { DocumentSyncService } from '../../../services/vessel/DocumentSyncService';
 import { CheckIcon, XIcon } from '../../icons/UIIcons';
-import { CATEGORY_ICONS, FALLBACK_CATEGORY_ICON } from './SwipeableEquipmentCard';
+import { formatDisplayDate } from '../../../utils/displayDate';
+import { CATEGORY_ICONS, FALLBACK_CATEGORY_ICON, warrantyInForce } from './SwipeableEquipmentCard';
 
 const log = createLogger('EquipmentDetail');
 
@@ -23,7 +24,7 @@ interface EquipmentDetailProps {
 }
 
 export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit, onDelete }) => {
-    const warrantyActive = item.warranty_expiry ? new Date(item.warranty_expiry).getTime() > Date.now() : null;
+    const warrantyActive = warrantyInForce(item.warranty_expiry);
     const CategoryIcon = CATEGORY_ICONS[item.category] ?? FALLBACK_CATEGORY_ICON;
 
     const copySerial = () => {
@@ -141,7 +142,7 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                                     Installed
                                 </p>
                                 <p className="text-sm font-bold text-white">
-                                    {new Date(item.installation_date).toLocaleDateString()}
+                                    {formatDisplayDate(item.installation_date, { weekday: false })}
                                 </p>
                             </div>
                         )}
@@ -167,7 +168,7 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                                     Active
                                 </p>
                                 <p className="text-label text-emerald-400/70 font-bold mt-1">
-                                    Expires {new Date(item.warranty_expiry!).toLocaleDateString()}
+                                    Expires {formatDisplayDate(item.warranty_expiry, { weekday: false })}
                                 </p>
                             </>
                         )}
@@ -178,7 +179,7 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                                     Expired
                                 </p>
                                 <p className="text-label text-red-400/70 font-bold mt-1">
-                                    Expired {new Date(item.warranty_expiry!).toLocaleDateString()}
+                                    Expired {formatDisplayDate(item.warranty_expiry, { weekday: false })}
                                 </p>
                             </>
                         )}

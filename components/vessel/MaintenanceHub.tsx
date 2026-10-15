@@ -66,7 +66,7 @@ import {
 } from '../../services/vessel/LocalEngineHoursService';
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
-import { toLocalDateString } from '../../utils/localDate';
+import { addLocalDays, localDayString, toLocalDateString } from '../../utils/localDate';
 // 'Sun 28 Sep 2026', shared with the task cards (UX scorecard run 9).
 import { formatDisplayDate } from '../../utils/displayDate';
 
@@ -657,7 +657,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     ? null
                     : isRepair
                       ? toLocalDateString() // local calendar day, not the UTC one (audit 2026-09-02)
-                      : form.dueDate || toLocalDateString(new Date(Date.now() + (periodDays || 30) * 86400000));
+                      : form.dueDate || toLocalDateString(addLocalDays(new Date(), periodDays || 30));
 
             await MaintenanceService.createTask({
                 title: form.title.trim(),
@@ -831,7 +831,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 category: task.category,
                 trigger: task.trigger_type,
                 interval: String(task.interval_value || '200'),
-                dueDate: task.next_due_date ? task.next_due_date.split('T')[0] : '',
+                // The local day the card shows: the UTC date of a logged
+                // service's due was a day early east of Greenwich (131-B11).
+                dueDate: localDayString(task.next_due_date),
                 dueHours: task.next_due_hours !== null ? String(task.next_due_hours) : '',
                 description: task.description || '',
             });

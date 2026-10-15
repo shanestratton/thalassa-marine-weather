@@ -9,7 +9,8 @@
  *  5. Leftover management → creates new Fridge/Prepared stores entry
  *
  * All operations go through LocalDatabase for offline-first sync.
- * Dates stored as UTC ISO strings for International Date Line safety.
+ * A meal's day is 'YYYY-MM-DD', a calendar day of the passage as the crew
+ * live it (calculateMealDays; UTC days until 131-B11).
  */
 
 import { atomicLocalTransaction, getAll, query, insertLocal, generateUUID } from './vessel/LocalDatabase';
@@ -20,6 +21,7 @@ import { getMyCrew } from './CrewService';
 import { binderWriteGranted, galleyShareOwner } from './vessel/sharedBinders';
 import { isPgInteger, realSpoonacularId } from './galley/recipeRefs';
 import { createLogger, getErrorMessage } from '../utils/createLogger';
+import { addLocalDays, readLocalDay, toLocalDateString } from '../utils/localDate';
 
 const log = createLogger('MealPlan');
 
@@ -39,7 +41,7 @@ export interface MealPlan {
     recipe_id: string | null;
     spoonacular_id: number | null;
     title: string;
-    planned_date: string; // ISO date string (UTC)
+    planned_date: string; // 'YYYY-MM-DD', one of calculateMealDays' local days
     meal_slot: MealSlot;
     servings_planned: number;
     ingredients: RecipeIngredient[];
@@ -566,7 +568,10 @@ async function saveLeftoversOnce(mealPlanId: string, servingsRemaining: number):
                 unit: 'serves',
                 location_zone: 'Galley',
                 location_specific: 'Fridge',
-                expiry_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+                // A Stores expiry is a day (a DATE on the server): three local
+                // days on, not an instant whose UTC date synced back a day
+                // early east of Greenwich (131-B11).
+                expiry_date: toLocalDateString(addLocalDays(new Date(), 3)),
                 notes,
                 created_at: now,
                 updated_at: now,
@@ -637,6 +642,12 @@ export interface MealDayInfo {
  * Formula: 2 emergency days per 5 passage days.
  * Emergency days are appended after the ETA for weather delays,
  * mechanical issues, etc. Cook should plan shelf-stable meals for these.
+ *
+ * The days are the crew's own calendar days, from the one the boat leaves on
+ * (131-B11, GAL-05). They were UTC dates: a 07:00 Saturday departure from
+ * Brisbane is Friday 21:00 UTC, so the plan began on Friday and dropped the
+ * Monday at the end. A departure time is a moment, on the local day it falls
+ * on; a bare 'YYYY-MM-DD' is that day.
  */
 export function calculateMealDays(departureTime: string, eta: string): MealDayInfo {
     const dep = new Date(departureTime);
@@ -648,11 +659,10 @@ export function calculateMealDays(departureTime: string, eta: string): MealDayIn
 
     const dates: string[] = [];
     const emergencyDates = new Set<string>();
-    const startDate = new Date(departureTime + (departureTime.includes('T') ? '' : 'T00:00:00Z'));
+    const firstDay = readLocalDay(/^\d{4}-\d{2}-\d{2}$/.test(departureTime) ? departureTime : dep);
 
-    for (let i = 0; i < totalDays; i++) {
-        const d = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
-        const dateStr = d.toISOString().split('T')[0];
+    for (let i = 0; firstDay && i < totalDays; i++) {
+        const dateStr = toLocalDateString(addLocalDays(firstDay, i));
         dates.push(dateStr);
         if (i >= passageDays) {
             emergencyDates.add(dateStr);

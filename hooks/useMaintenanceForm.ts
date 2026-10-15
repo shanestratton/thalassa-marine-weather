@@ -7,6 +7,7 @@
  */
 import { useReducer, useCallback } from 'react';
 import type { MaintenanceCategory, MaintenanceTriggerType } from '../types';
+import { toLocalDateString } from '../utils/localDate';
 
 export interface MaintenanceFormState {
     title: string;
@@ -27,16 +28,21 @@ type FormAction =
     | { type: 'RESET' }
     | { type: 'POPULATE'; payload: Partial<MaintenanceFormState> };
 
-const initialState: MaintenanceFormState = {
+/**
+ * An empty form. 'First due' starts on today's LOCAL day, read when the form
+ * opens: the UTC date, fixed when the module loaded, was yesterday before
+ * 10:00 in Queensland and tomorrow on an American evening (131-B11, MAINT-07).
+ */
+const emptyForm = (): MaintenanceFormState => ({
     title: '',
     description: '',
     taskType: 'maintenance',
     category: 'Engine',
     trigger: 'monthly',
     interval: '200',
-    dueDate: new Date().toISOString().split('T')[0],
+    dueDate: toLocalDateString(),
     dueHours: '',
-};
+});
 
 function formReducer(state: MaintenanceFormState, action: FormAction): MaintenanceFormState {
     switch (action.type) {
@@ -55,7 +61,7 @@ function formReducer(state: MaintenanceFormState, action: FormAction): Maintenan
         case 'SET_TRIGGER':
             return { ...state, trigger: action.value };
         case 'RESET':
-            return { ...initialState, dueDate: new Date().toISOString().split('T')[0] };
+            return emptyForm();
         case 'POPULATE':
             return { ...state, ...action.payload };
         default:
@@ -66,7 +72,7 @@ function formReducer(state: MaintenanceFormState, action: FormAction): Maintenan
 export type UseMaintenanceFormReturn = ReturnType<typeof useMaintenanceForm>;
 
 export function useMaintenanceForm() {
-    const [form, dispatch] = useReducer(formReducer, initialState);
+    const [form, dispatch] = useReducer(formReducer, undefined, emptyForm);
 
     const setField = useCallback((field: keyof MaintenanceFormState, value: string) => {
         dispatch({ type: 'SET_FIELD', field, value });

@@ -9,6 +9,7 @@ import type { MaintenanceTask, MaintenanceHistory, MaintenanceCategory } from '.
 import { DATA_EVENTS, dispatchDataChange } from '../utils/dataChangeEvents';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 import { getBinderSource } from './vessel/sharedBinders';
+import { addLocalDays, localDaysUntil, toLocalDateString } from '../utils/localDate';
 
 const TASKS_TABLE = 'maintenance_tasks';
 const HISTORY_TABLE = 'maintenance_history';
@@ -85,26 +86,19 @@ export interface TaskWithStatus extends MaintenanceTask {
     hoursUnanchored?: boolean;
 }
 
-/** A bare 'YYYY-MM-DD' names a calendar day, not an instant. */
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-
 /**
  * Whole LOCAL calendar days from today to the due date: 0 today, 1 tomorrow,
  * -1 yesterday. The same local day the card prints beside the status
- * (utils/displayDate formatDisplayDate): a bare 'YYYY-MM-DD' is that local
- * day, a timestamp is the local day it falls on.
+ * (utils/displayDate formatDisplayDate): a stored day, bare 'YYYY-MM-DD' or
+ * synced as its UTC midnight, is that local day (utils/localDate, 131-B11);
+ * any other timestamp is the local day it falls on.
  *
  * It used to be Math.ceil((due - now) / 1 day) on instants, so a task due
  * later today read "Due in 1 day" beside today's date (UX scorecard run 10,
- * maint-due-today). Math.round absorbs a daylight-saving 23- or 25-hour day.
- * Null for an unreadable date.
+ * maint-due-today). Null for an unreadable date.
  */
 export function calendarDaysUntil(dueDate: string, now: Date = new Date()): number | null {
-    const due = DATE_ONLY.test(dueDate) ? new Date(`${dueDate}T00:00:00`) : new Date(dueDate);
-    if (Number.isNaN(due.getTime())) return null;
-    const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    return Math.round((dueDay - today) / (1000 * 60 * 60 * 24));
+    return localDaysUntil(dueDate, now);
 }
 
 /** Is this date or timestamp on today's LOCAL calendar day? */
@@ -697,9 +691,9 @@ export class MaintenanceService {
         const now = new Date();
         const rows = DEFAULT_MAINTENANCE_TASKS.map((t) => {
             const isEngineHours = t.trigger_type === 'engine_hours';
-            const dueDate = isEngineHours
-                ? null
-                : new Date(now.getTime() + t.interval_value * 86_400_000).toISOString().split('T')[0];
+            // The local day, not the UTC one: before 10:00 in Queensland that
+            // was a day early (131-B11, MAINT-07).
+            const dueDate = isEngineHours ? null : toLocalDateString(addLocalDays(now, t.interval_value));
             const dueHours = isEngineHours && engineHours !== null ? engineHours + t.interval_value : null;
 
             return {

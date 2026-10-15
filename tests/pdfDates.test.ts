@@ -19,10 +19,18 @@ describe('pdfDates', () => {
     });
 
     it('reads a stored day as that local day, never the UTC one', () => {
-        const day = pdfDateValue('2026-10-20');
-        expect([day?.getFullYear(), day?.getMonth(), day?.getDate(), day?.getHours()]).toEqual([2026, 9, 20, 0]);
-        // A timestamp stays the instant it names.
-        expect(pdfDateValue('2026-10-20T03:00:00.000Z')?.getTime()).toBe(Date.UTC(2026, 9, 20, 3));
+        const local = (date: Date | null) => [date?.getFullYear(), date?.getMonth(), date?.getDate(), date?.getHours()];
+        expect(local(pdfDateValue('2026-10-20'))).toEqual([2026, 9, 20, 0]);
+        // Synced back from a timestamp column as its UTC midnight: the same day (131-B11).
+        expect(local(pdfDateValue('2026-10-20T00:00:00+00:00'))).toEqual([2026, 9, 20, 0]);
+        // Any other timestamp is the local day it falls on.
+        const moment = new Date(Date.UTC(2026, 9, 20, 3));
+        expect(local(pdfDateValue('2026-10-20T03:00:00.000Z'))).toEqual([
+            moment.getFullYear(),
+            moment.getMonth(),
+            moment.getDate(),
+            0,
+        ]);
     });
 
     it("says '—' for no date or an unreadable one", () => {
