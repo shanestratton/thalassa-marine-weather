@@ -5,6 +5,7 @@ import {
     UNDERWAY_RELAY_MAX_BACKOFF_MS,
     UNDERWAY_RELAY_PROBE_MS,
     UNDERWAY_RELAY_READY_MS,
+    UNDERWAY_RELAY_MAX_RESPONSE_BYTES,
     wireUnderwayAlarm,
     type PiUnderwayAlarm,
     type PiUnderwayPass,
@@ -319,4 +320,86 @@ test('restart with no armed watch closes only stale underway encounters after ca
     );
     assert.deepEqual(f.requests[1].body.alarms, []);
     assert.ok(f.requests.every((r) => r.body.family === 'underway'));
+});
+
+test('pairing changes during probe, raise and sync reject every old response and acknowledgement', async () => {
+    for (const action of ['probe', 'raise', 'sync']) {
+        const f = fixture();
+        const wait = pending();
+        const acks: string[] = [];
+        if (action !== 'probe') await f.relay.probe();
+        f.setResponse(() => wait.promise);
+        const operation =
+            action === 'probe'
+                ? f.relay.probe()
+                : action === 'raise'
+                  ? f.relay.raise(alarm())
+                  : f.pass({ armed: true, alarms: [alarm()] }, (key) => acks.push(key));
+        await turns();
+        f.setCredential({ relayId: 'new-boat', token: 'new-test-token' });
+        wait.resolve({ ok: true, devices: 1, underway: { v: 1, enabled: true }, acked: [alarm().key] });
+        const answer = await operation;
+        if (action !== 'sync') assert.equal(answer, 'unavailable');
+        assert.equal(f.relay.status().state, 'unavailable');
+        assert.deepEqual(acks, []);
+        assert.equal(await f.relay.raise(alarm()), 'unavailable');
+    }
+});
+
+test('fast oversized response streams and declared bodies are refused before JSON parsing', async () => {
+    for (const declared of [true, false]) {
+        let jsonCalled = false;
+        let cancelled = false;
+        const relay = new PiUnderwayAlarmRelay({
+            endpoint: 'https://project.test/functions/v1/pi-alarm-relay',
+            credentials: () => ({ relayId: 'boat-a', token: 'test-token' }),
+            anonKey: () => 'public-key',
+            internetAllowed: () => true,
+            fetchImpl: async () => ({
+                ok: true,
+                status: 200,
+                headers: { get: () => (declared ? String(UNDERWAY_RELAY_MAX_RESPONSE_BYTES + 1) : null) },
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(new Uint8Array(UNDERWAY_RELAY_MAX_RESPONSE_BYTES + 1).fill(32));
+                    },
+                    cancel() {
+                        cancelled = true;
+                    },
+                }),
+                json: async () => {
+                    jsonCalled = true;
+                    return { ok: true, devices: 1, underway: { v: 1, enabled: true } };
+                },
+            }),
+        });
+        assert.equal(await relay.probe(), 'unavailable');
+        assert.equal(jsonCalled, false);
+        if (!declared) assert.equal(cancelled, true);
+    }
+});
+
+test('a normal streamed answer works without using the unbounded json adapter', async () => {
+    const body = JSON.stringify({ ok: true, devices: 1, underway: { v: 1, enabled: true } });
+    const relay = new PiUnderwayAlarmRelay({
+        endpoint: 'https://project.test/functions/v1/pi-alarm-relay',
+        credentials: () => ({ relayId: 'boat-a', token: 'test-token' }),
+        anonKey: () => 'public-key',
+        internetAllowed: () => true,
+        fetchImpl: async () => ({
+            ok: true,
+            status: 200,
+            body: new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.enqueue(new TextEncoder().encode(body.slice(0, 15)));
+                    controller.enqueue(new TextEncoder().encode(body.slice(15)));
+                    controller.close();
+                },
+            }),
+            json: async () => {
+                throw new Error('must use bounded stream');
+            },
+        }),
+    });
+    assert.equal(await relay.probe(), 'ready');
 });

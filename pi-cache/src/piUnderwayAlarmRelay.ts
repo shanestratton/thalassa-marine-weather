@@ -24,10 +24,14 @@ export interface PiUnderwayPushStatus {
     /** Version 1 proves both the schema and matching send-push support. */
     underway: { v: 1; enabled: boolean };
 }
-type FetchLike = (
-    url: string,
-    init?: Record<string, unknown>,
-) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+interface FetchAnswer {
+    ok: boolean;
+    status: number;
+    json: () => Promise<unknown>;
+    headers?: { get(name: string): string | null };
+    body?: ReadableStream<Uint8Array> | null;
+}
+type FetchLike = (url: string, init?: Record<string, unknown>) => Promise<FetchAnswer>;
 export interface PiUnderwayAlarmRelayDeps {
     fetchImpl: FetchLike;
     /** canonicalPiAlarmRelayEndpoint(process-startup trusted Supabase origin). */
@@ -49,6 +53,7 @@ export const UNDERWAY_RELAY_REPROBE_MS = 60_000;
 export const UNDERWAY_RELAY_READY_MS = 65 * 60_000;
 export const UNDERWAY_RELAY_TIMEOUT_MS = 8_000;
 export const UNDERWAY_RELAY_RAISE_MAX_AGE_MS = 30_000;
+export const UNDERWAY_RELAY_MAX_RESPONSE_BYTES = 8 * 1024;
 const KEY = /^(off-route|chart-ahead)::[0-9]{10,13}$/;
 
 function alarmCopy(raw: PiUnderwayAlarm): PiUnderwayAlarm | null {
@@ -151,6 +156,7 @@ export class PiUnderwayAlarmRelay {
         const credential = this.deps.credentials();
         const anonKey = this.deps.anonKey();
         if (!credential || !anonKey) return null;
+        const requestIdentity = this.identity();
         this.requesting = true;
         const controller = new AbortController();
         const rawTimeout = this.deps.timeoutMs ?? UNDERWAY_RELAY_TIMEOUT_MS;
@@ -175,7 +181,42 @@ export class PiUnderwayAlarmRelay {
                     signal: controller.signal,
                 });
                 if (!res.ok) throw new Error('relay unavailable');
-                const value = await res.json();
+                if (requestIdentity !== this.identity()) throw new Error('pairing changed');
+                const length = res.headers?.get('content-length');
+                if (length && /^\d+$/.test(length) && Number(length) > UNDERWAY_RELAY_MAX_RESPONSE_BYTES) {
+                    controller.abort();
+                    throw new Error('oversized answer');
+                }
+                let value: unknown;
+                if (res.body?.getReader) {
+                    const reader = res.body.getReader();
+                    const decoder = new TextDecoder();
+                    let bytes = 0;
+                    let text = '';
+                    try {
+                        while (true) {
+                            const chunk = await reader.read();
+                            if (chunk.done) break;
+                            bytes += chunk.value.byteLength;
+                            if (bytes > UNDERWAY_RELAY_MAX_RESPONSE_BYTES) {
+                                controller.abort();
+                                void reader.cancel().catch(() => undefined);
+                                throw new Error('oversized answer');
+                            }
+                            text += decoder.decode(chunk.value, { stream: true });
+                        }
+                        value = JSON.parse(text + decoder.decode());
+                    } finally {
+                        reader.releaseLock();
+                    }
+                } else {
+                    // Test/alternate adapters may expose json() only. Real fetch
+                    // takes the bounded stream above, before JSON allocation.
+                    value = await res.json();
+                    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > UNDERWAY_RELAY_MAX_RESPONSE_BYTES)
+                        throw new Error('oversized answer');
+                }
+                if (requestIdentity !== this.identity()) throw new Error('pairing changed');
                 if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid answer');
                 const answer = value as Record<string, unknown>;
                 if (answer.ok !== true) throw new Error('relay refused');
