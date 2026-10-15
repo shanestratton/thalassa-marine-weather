@@ -15,6 +15,8 @@ interface SwipeableItemCardProps {
     onDelete: () => void;
     isHeading?: boolean;
     itemCount?: number;
+    /** A checklist with items runs on its own (132-B16, CHK-03). */
+    onRun?: () => void;
     onMoveUp?: () => void;
     onMoveDown?: () => void;
     isFirst?: boolean;
@@ -27,6 +29,7 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
     onDelete,
     isHeading,
     itemCount,
+    onRun,
     onMoveUp,
     onMoveDown,
     isFirst,
@@ -165,6 +168,36 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
                                 {entry.text}
                             </span>
                         </>
+                    )}
+                    {isHeading && onRun && (
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                // Focus comes back here when the run closes: WebKit
+                                // does not focus a tapped button on its own.
+                                e.currentTarget.focus();
+                                onRun();
+                            }}
+                            className="shrink-0 min-h-[44px] inline-flex items-center gap-1.5 px-3 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-sm font-black text-emerald-400 hover:bg-emerald-500/25 active:scale-95 transition-all"
+                            aria-label={`Run ${entry.text}`}
+                        >
+                            <svg
+                                aria-hidden="true"
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                />
+                            </svg>
+                            Run
+                        </button>
                     )}
                     <button
                         onClick={(e) => {

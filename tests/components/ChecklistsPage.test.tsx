@@ -2,8 +2,9 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getAllMock, logWarn, live } = vi.hoisted(() => ({
+const { getAllMock, getRunsMock, logWarn, live } = vi.hoisted(() => ({
     getAllMock: vi.fn(),
+    getRunsMock: vi.fn(() => []),
     logWarn: vi.fn(),
     /** What the page subscribed to: its realtime tables and handler, its sync listeners, shimmer mounts. */
     live: {
@@ -54,6 +55,7 @@ vi.mock('../../components/ui/ShimmerBlock', () => ({
 vi.mock('../../services/vessel/LocalChecklistService', () => ({
     LocalChecklistService: {
         getAll: getAllMock,
+        getRuns: getRunsMock,
         create: vi.fn().mockResolvedValue({ id: 'new-entry' }),
         update: vi.fn().mockResolvedValue({}),
         delete: vi.fn().mockResolvedValue(undefined),
@@ -123,12 +125,17 @@ const checklistEntries = [
     },
 ];
 
-function openChecklistRun() {
-    const pageActions = screen.getByRole('button', { name: 'Page actions' });
-    fireEvent.click(pageActions);
-    fireEvent.click(screen.getByRole('button', { name: 'Run checklist inspection' }));
-    return pageActions;
+/** Run a checklist from its own Run button (132-B16; it was the ⋮'s Run checklist). */
+function openChecklistRun(list = 'Before departure') {
+    const run = screen.getByRole('button', { name: `Run ${list}` });
+    fireEvent.click(run);
+    return run;
 }
+
+// A run in progress is kept in localStorage (132-B16): each test starts with none.
+beforeEach(() => {
+    localStorage.clear();
+});
 
 describe('ChecklistsPage', () => {
     beforeEach(() => {
@@ -175,15 +182,15 @@ describe('ChecklistsPage', () => {
         );
     });
 
-    it('exits on Escape and restores focus to the persistent page-actions control', () => {
+    it("exits on Escape and restores focus to the checklist's Run button", () => {
         render(<ChecklistsPage onBack={vi.fn()} />);
-        const pageActions = openChecklistRun();
+        const runButton = openChecklistRun();
         const exitButton = screen.getByRole('button', { name: 'Exit checklist run' });
 
         fireEvent.keyDown(exitButton, { key: 'Escape' });
 
         expect(screen.queryByRole('dialog', { name: 'Run checklist' })).toBeNull();
-        expect(document.activeElement).toBe(pageActions);
+        expect(document.activeElement).toBe(runButton);
     });
 });
 
@@ -191,7 +198,8 @@ describe('ChecklistsPage', () => {
  * Completing a run tells the skipper how many repairs actually reached
  * Maintenance (binder audit 2026-10-09, CHK-02): the toast used to count the
  * flagged items, so a repair that failed to save still read as added. Fictional
- * lists: 'Pre-departure' and 'Heavy weather'.
+ * lists: 'Pre-departure' (both flagged items; a run is one list since 132-B16)
+ * and 'Heavy weather'.
  */
 describe('ChecklistsPage: flagged repairs on Complete', () => {
     const at = '2026-01-01T00:00:00.000Z';
@@ -215,20 +223,29 @@ describe('ChecklistsPage: flagged repairs on Complete', () => {
             updated_at: at,
         },
         {
-            id: 'h-heavy',
-            type: 'heading' as const,
-            text: 'Heavy weather',
-            heading_id: null,
+            id: 'i-jacklines',
+            type: 'detail' as const,
+            text: 'Jacklines rigged',
+            heading_id: 'h-pre',
             order: 3,
             created_at: at,
             updated_at: at,
         },
         {
-            id: 'i-jacklines',
-            type: 'detail' as const,
-            text: 'Jacklines rigged',
-            heading_id: 'h-heavy',
+            id: 'h-heavy',
+            type: 'heading' as const,
+            text: 'Heavy weather',
+            heading_id: null,
             order: 4,
+            created_at: at,
+            updated_at: at,
+        },
+        {
+            id: 'i-storm-jib',
+            type: 'detail' as const,
+            text: 'Storm jib hanked on',
+            heading_id: 'h-heavy',
+            order: 5,
             created_at: at,
             updated_at: at,
         },
@@ -256,7 +273,7 @@ describe('ChecklistsPage: flagged repairs on Complete', () => {
 
     function startRunWithBothFlagged() {
         render(<ChecklistsPage onBack={vi.fn()} />);
-        openChecklistRun();
+        openChecklistRun('Pre-departure');
         failAndFlag('Bilge pump test');
         failAndFlag('Jacklines rigged');
     }
@@ -333,7 +350,7 @@ describe('ChecklistsPage: flagged repairs on Complete', () => {
             // 18:00 on Fri 9 Oct in Los Angeles is already Sat 10 Oct in UTC.
             vi.setSystemTime(new Date(2026, 9, 9, 18, 0));
             render(<ChecklistsPage onBack={vi.fn()} />);
-            openChecklistRun();
+            openChecklistRun('Pre-departure');
             failAndFlag('Bilge pump test');
 
             await act(async () => {
