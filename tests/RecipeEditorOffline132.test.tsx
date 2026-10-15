@@ -84,6 +84,21 @@ describe('a failed edit says why, never "check your storage" (GAL-04)', () => {
         expect(screen.queryByText(/Check your storage/)).not.toBeInTheDocument();
     });
 
+    it('making a recipe with a stored photo personal says the photo comes down on the server first', async () => {
+        render(<RecipeEditor onClose={vi.fn()} onSaved={vi.fn()} recipe={moqueca()} />);
+        toSave();
+        fireEvent.click(screen.getByRole('button', { name: /Personal/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save recipe changes' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+            'Making this recipe personal takes its photo down on the server first, and that did not work. Nothing was changed. Try again once you are online.',
+        );
+        expect(mocks.updateCustomRecipe).toHaveBeenCalledWith(
+            'r-moqueca',
+            expect.objectContaining({ visibility: 'personal' }),
+        );
+    });
+
     it('a text edit that did not save says it could not be saved on this phone', async () => {
         render(<RecipeEditor onClose={vi.fn()} onSaved={vi.fn()} recipe={moqueca({ image_url: '' })} />);
         toSave(() =>

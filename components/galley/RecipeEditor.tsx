@@ -50,6 +50,8 @@ interface RecipeEditorProps {
 const SAVE_FAILED_STORAGE = 'The recipe could not be saved. Check your storage and try again.';
 const SAVE_FAILED_PHOTO =
     'This photo change has to reach the server first, and it could not. Nothing was changed. Try again once you are online.';
+const SAVE_FAILED_PERSONAL =
+    'Making this recipe personal takes its photo down on the server first, and that did not work. Nothing was changed. Try again once you are online.';
 const SAVE_FAILED_EDIT = 'The recipe could not be saved on this phone. Close the editor and try again.';
 
 const MEAL_TAGS = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Dessert', 'Sea-Friendly', 'Quick'];
@@ -195,9 +197,11 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                 setSaveError(
                     !recipe
                         ? SAVE_FAILED_STORAGE
-                        : recipeEditNeedsConnection(recipe, patch)
-                          ? SAVE_FAILED_PHOTO
-                          : SAVE_FAILED_EDIT,
+                        : !recipeEditNeedsConnection(recipe, patch)
+                          ? SAVE_FAILED_EDIT
+                          : recipe.visibility === 'shared' && patch.visibility === 'personal'
+                            ? SAVE_FAILED_PERSONAL
+                            : SAVE_FAILED_PHOTO,
                 );
                 return;
             }

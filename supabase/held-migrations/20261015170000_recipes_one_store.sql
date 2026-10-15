@@ -222,13 +222,25 @@ BEGIN
             FOREIGN KEY (recipe_id) REFERENCES public.recipes(id) ON DELETE CASCADE NOT VALID;
     END IF;
 
-    -- Checked now, unless a rating's recipe is a fenced account's.
+    -- Checked now, unless a rating's recipe is a fenced account's. By what
+    -- the key is, so a key to recipes made by hand under another name is
+    -- checked too.
     IF NOT EXISTS (
         SELECT 1
         FROM public.recipe_ratings AS rating
         WHERE NOT EXISTS (SELECT 1 FROM public.recipes AS recipe WHERE recipe.id = rating.recipe_id)
     ) THEN
-        ALTER TABLE public.recipe_ratings VALIDATE CONSTRAINT recipe_ratings_recipe_id_fkey;
+        FOR fk IN
+            SELECT constraint_row.conname
+            FROM pg_constraint AS constraint_row
+            WHERE constraint_row.conrelid = 'public.recipe_ratings'::regclass
+              AND constraint_row.contype = 'f'
+              AND constraint_row.confrelid = 'public.recipes'::regclass
+              AND constraint_row.conkey = ARRAY[recipe_column]
+              AND NOT constraint_row.convalidated
+        LOOP
+            EXECUTE format('ALTER TABLE public.recipe_ratings VALIDATE CONSTRAINT %I', fk.conname);
+        END LOOP;
     END IF;
 END;
 $ratings_key$;

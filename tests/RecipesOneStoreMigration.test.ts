@@ -72,7 +72,10 @@ describe('the one recipe store migration', () => {
         expect(sql).toContain(
             'ADD CONSTRAINT recipe_ratings_recipe_id_fkey FOREIGN KEY (recipe_id) REFERENCES public.recipes(id) ON DELETE CASCADE NOT VALID;',
         );
-        expect(sql).toContain('ALTER TABLE public.recipe_ratings VALIDATE CONSTRAINT recipe_ratings_recipe_id_fkey;');
+        expect(sql).toContain('AND NOT constraint_row.convalidated');
+        expect(sql).toContain(
+            "EXECUTE format('ALTER TABLE public.recipe_ratings VALIDATE CONSTRAINT %I', fk.conname);",
+        );
         expect(sql).not.toMatch(/DROP CONSTRAINT (?:IF EXISTS )?recipe_ratings_recipe_id_fkey/i);
     });
 
